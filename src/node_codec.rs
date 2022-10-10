@@ -20,9 +20,8 @@ use core::borrow::Borrow;
 use core::marker::PhantomData;
 use ethereum_types::H256;
 use hash_db::Hasher;
-use keccak_hasher::KeccakHasher;
 use rlp::{DecoderError, Prototype, Rlp, RlpStream};
-use trie_db::node::{NodePlan, Value};
+use trie_db::node::{NibbleSlicePlan, NodeHandlePlan, NodePlan, Value, ValuePlan};
 use trie_db::{ChildReference, NibbleSlice, NodeCodec};
 
 /// Concrete implementation of a `NodeCodec` with Rlp encoding, generic over the `Hasher`
@@ -59,33 +58,58 @@ where
             // if leaf, second item is a value (is_data())
             // if extension, second item is a node (either SHA3 to be looked up and
             // fed back into this function or inline RLP which can be fed back into this function).
-            Prototype::List(2) => match NibbleSlice::from_encoded(r.at(0)?.data()?) {
-                (slice, true) => Ok(NodePlan::Leaf {
-                    partial: slice,
-                    value: r.at(1)?.data()?,
-                }),
-                (slice, false) => Ok(NodePlan::Extension {
-                    partial: slice,
-                    child: r.at(1)?.as_raw(),
-                }),
-            },
+            Prototype::List(2) => {
+                let rlp = r.at(0)?;
+                let data = rlp.data()?;
+                let i = rlp.payload_info()?;
+                match (
+                    NibbleSlicePlan::new(
+                        i.header_len..(i.header_len + i.value_len),
+                        if data[0] & 16 == 16 { 1 } else { 2 },
+                    ),
+                    data[0] & 32 == 32,
+                ) {
+                    (slice, true) => Ok(NodePlan::Leaf {
+                        partial: slice,
+                        value: {
+                            let i = r.at(1)?.payload_info()?;
+                            ValuePlan::Node(i.header_len..(i.header_len + i.value_len))
+                        },
+                    }),
+                    (slice, false) => Ok(NodePlan::Extension {
+                        partial: slice,
+                        child: {
+                            let i = r.at(1)?.payload_info()?;
+                            NodeHandlePlan::Hash(i.header_len..(i.header_len + i.value_len))
+                        },
+                    }),
+                }
+            }
             // branch - first 16 are nodes, 17th is a value (or empty).
             Prototype::List(17) => {
-                let mut nodes = [None as Option<&[u8]>; 16];
-                for i in 0..16 {
-                    let v = r.at(i)?;
-                    if v.is_empty() {
-                        nodes[i] = None;
+                let mut nodes = [None as Option<NodeHandlePlan>; 16];
+                for index in 0..16 {
+                    let i = r.at(index)?.payload_info()?;
+                    if i.is_empty() {
+                        nodes[index] = None;
                     } else {
-                        nodes[i] = Some(v.as_raw());
+                        nodes[index] = Some(NodeHandlePlan::Hash(
+                            i.header_len..(i.header_len + i.value_len),
+                        ));
                     }
                 }
                 Ok(NodePlan::Branch {
                     children: nodes,
-                    value: if r.at(16)?.is_empty() {
-                        None
-                    } else {
-                        Some(r.at(16)?.data()?)
+                    value: {
+                        let value = r.at(16)?;
+                        if value.is_empty() {
+                            None
+                        } else {
+                            let i = r.payload_info()?;
+                            Some(ValuePlan::Node(
+                                i.header_len..(i.header_len + i.value_len),
+                            ))
+                        }
                     },
                 })
             }
@@ -134,7 +158,6 @@ where
         stream.drain()
     }
 
-    // fn branch_node<I>(children: I, value: Option<Vec<u8>>) -> Vec<u8>
     fn branch_node(
         children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
         value: Option<Value>,

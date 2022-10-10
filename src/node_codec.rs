@@ -18,8 +18,8 @@
 
 use alloc::vec::Vec;
 use core::{borrow::Borrow, marker::PhantomData};
-use ethereum_types::H256;
 use hash_db::Hasher;
+use primitive_types::H256;
 use rlp::{DecoderError, Prototype, Rlp, RlpStream};
 use trie_db::{
 	node::{NibbleSlicePlan, NodeHandlePlan, NodePlan, Value, ValuePlan},

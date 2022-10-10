@@ -7,9 +7,8 @@ authors = ["Seun Lanlege <seunlanlege@gmail.com>"]
 [dependencies]
 trie-db = { version= "0.24.0", default-features = false }
 hash-db = { version = "0.15.2", default-features = false }
-rlp = { version= "0.5.1", default-features = false }
-parity-bytes = { version= "0.1.2", default-features = false }
-ethereum-types = { version= "0.14.0", default-features = false }
+rlp = { version = "0.5.1", default-features = false }
+primitive-types = { version = "0.12.0", default-features = false }
 memory-db = { version = "0.30.0", default-features = false }
 codec = { version = "3.1.3", package = "parity-scale-codec", default-features = false, features = ["derive"] }
 
@@ -28,6 +27,5 @@ std = [
     "trie-db/std",
     "hash-db/std",
     "rlp/std",
-    "parity-bytes/std",
-    "ethereum-types/std",
+    "primitive-types/std",
 ]

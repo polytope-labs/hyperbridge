@@ -17,23 +17,24 @@
 //! `NodeCodec` implementation for Rlp
 
 use alloc::vec::Vec;
-use core::borrow::Borrow;
-use core::marker::PhantomData;
+use core::{borrow::Borrow, marker::PhantomData};
 use ethereum_types::H256;
 use hash_db::Hasher;
 use rlp::{DecoderError, Prototype, Rlp, RlpStream};
-use trie_db::node::{NibbleSlicePlan, NodeHandlePlan, NodePlan, Value, ValuePlan};
-use trie_db::{ChildReference, NodeCodec};
+use trie_db::{
+	node::{NibbleSlicePlan, NodeHandlePlan, NodePlan, Value, ValuePlan},
+	ChildReference, NodeCodec,
+};
 
 /// Concrete implementation of a `NodeCodec` with Rlp encoding, generic over the `Hasher`
 #[derive(Default, Clone)]
 pub struct RlpNodeCodec<H: Hasher> {
-    mark: PhantomData<H>,
+	mark: PhantomData<H>,
 }
 
 const HASHED_NULL_NODE: H256 = H256([
-    0x56, 0xe8, 0x1f, 0x17, 0x1b, 0xcc, 0x55, 0xa6, 0xff, 0x83, 0x45, 0xe6, 0x92, 0xc0, 0xf8, 0x6e,
-    0x5b, 0x48, 0xe0, 0x1b, 0x99, 0x6c, 0xad, 0xc0, 0x01, 0x62, 0x2f, 0xb5, 0xe3, 0x63, 0xb4, 0x21,
+	0x56, 0xe8, 0x1f, 0x17, 0x1b, 0xcc, 0x55, 0xa6, 0xff, 0x83, 0x45, 0xe6, 0x92, 0xc0, 0xf8, 0x6e,
+	0x5b, 0x48, 0xe0, 0x1b, 0x99, 0x6c, 0xad, 0xc0, 0x01, 0x62, 0x2f, 0xb5, 0xe3, 0x63, 0xb4, 0x21,
 ]);
 
 // NOTE: what we'd really like here is:
@@ -42,162 +43,171 @@ const HASHED_NULL_NODE: H256 = H256([
 // do `const HASHED_NULL_NODE: H::Out = H::Out( … … )`. Perhaps one day soon?
 impl<H> NodeCodec for RlpNodeCodec<H>
 where
-    H: Hasher<Out = H256>,
+	H: Hasher<Out = H256>,
 {
-    type Error = DecoderError;
-    type HashOut = H::Out;
+	type Error = DecoderError;
+	type HashOut = H::Out;
 
-    fn hashed_null_node() -> H::Out {
-        HASHED_NULL_NODE
-    }
+	fn hashed_null_node() -> H::Out {
+		HASHED_NULL_NODE
+	}
 
-    fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error> {
-        let r = Rlp::new(data);
-        match r.prototype()? {
-            // either leaf or extension - decode first item with NibbleSlice::???
-            // and use is_leaf return to figure out which.
-            // if leaf, second item is a value (is_data())
-            // if extension, second item is a node (either SHA3 to be looked up and
-            // fed back into this function or inline RLP which can be fed back into this function).
-            Prototype::List(2) => {
-                let rlp = r.at(0)?;
-                let data = rlp.data()?;
-                let i = rlp.payload_info()?;
-                match (
-                    NibbleSlicePlan::new(
-                        i.header_len..(i.header_len + i.value_len),
-                        if data[0] & 16 == 16 { 1 } else { 2 },
-                    ),
-                    data[0] & 32 == 32,
-                ) {
-                    (slice, true) => Ok(NodePlan::Leaf {
-                        partial: slice,
-                        value: {
-                            let i = r.at(1)?.payload_info()?;
-                            ValuePlan::Inline(i.header_len..(i.header_len + i.value_len))
-                        },
-                    }),
-                    (slice, false) => Ok(NodePlan::Extension {
-                        partial: slice,
-                        child: {
-                            let i = r.at(1)?.payload_info()?;
-                            NodeHandlePlan::Hash(i.header_len..(i.header_len + i.value_len))
-                        },
-                    }),
-                }
-            }
-            // branch - first 16 are nodes, 17th is a value (or empty).
-            Prototype::List(17) => {
-                let mut nodes = [
-                    None, None, None, None, None, None, None, None, None, None, None, None, None,
-                    None, None, None,
-                ];
-                for index in 0..16 {
-                    let item = r.at(index)?;
-                    let i = item.payload_info()?;
-                    if item.is_empty() {
-                        nodes[index] = None;
-                    } else {
-                        nodes[index] = Some(NodeHandlePlan::Hash(
-                            i.header_len..(i.header_len + i.value_len),
-                        ));
-                    }
-                }
-                Ok(NodePlan::Branch {
-                    children: nodes,
-                    value: {
-                        let value = r.at(16)?;
-                        if value.is_empty() {
-                            None
-                        } else {
-                            let i = r.payload_info()?;
-                            Some(ValuePlan::Inline(i.header_len..(i.header_len + i.value_len)))
-                        }
-                    },
-                })
-            }
-            // an empty branch index.
-            Prototype::Data(0) => Ok(NodePlan::Empty),
-            // something went wrong.
-            _ => Err(DecoderError::Custom("Rlp is not valid.")),
-        }
-    }
+	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error> {
+		let r = Rlp::new(data);
+		match r.prototype()? {
+			// either leaf or extension - decode first item with NibbleSlice::???
+			// and use is_leaf return to figure out which.
+			// if leaf, second item is a value (is_data())
+			// if extension, second item is a node (either SHA3 to be looked up and
+			// fed back into this function or inline RLP which can be fed back into this function).
+			Prototype::List(2) => {
+				let (rlp, offset) = r.at_with_offset(0)?;
+				let (data, i) = (rlp.data()?, rlp.payload_info()?);
+				match (
+					NibbleSlicePlan::new(
+						(offset + i.header_len)..(offset + i.header_len + i.value_len),
+						if data[0] & 16 == 16 { 1 } else { 2 },
+					),
+					data[0] & 32 == 32,
+				) {
+					(slice, true) => Ok(NodePlan::Leaf {
+						partial: slice,
+						value: {
+							let (item, offset) = r.at_with_offset(1)?;
+							let i = item.payload_info()?;
+							ValuePlan::Inline(
+								(offset + i.header_len)..(offset + i.header_len + i.value_len),
+							)
+						},
+					}),
+					(slice, false) => Ok(NodePlan::Extension {
+						partial: slice,
+						child: {
+							let (item, offset) = r.at_with_offset(1)?;
+							let i = item.payload_info()?;
+							NodeHandlePlan::Hash(
+								(offset + i.header_len)..(offset + i.header_len + i.value_len),
+							)
+						},
+					}),
+				}
+			},
+			// branch - first 16 are nodes, 17th is a value (or empty).
+			Prototype::List(17) => {
+				let mut nodes = [
+					None, None, None, None, None, None, None, None, None, None, None, None, None,
+					None, None, None,
+				];
 
-    fn is_empty_node(data: &[u8]) -> bool {
-        Rlp::new(data).is_empty()
-    }
+				for index in 0..16 {
+					let (item, offset) = r.at_with_offset(index)?;
+					let i = item.payload_info()?;
+					if item.is_empty() {
+						nodes[index] = None;
+					} else {
+						nodes[index] = Some(NodeHandlePlan::Hash(
+							(offset + i.header_len)..(offset + i.header_len + i.value_len),
+						));
+					}
+				}
 
-    fn empty_node() -> &'static [u8] {
-        &[0x80]
-    }
+				Ok(NodePlan::Branch {
+					children: nodes,
+					value: {
+						let (item, offset) = r.at_with_offset(1)?;
+						let i = item.payload_info()?;
+						if item.is_empty() {
+							None
+						} else {
+							Some(ValuePlan::Inline(
+								(offset + i.header_len)..(offset + i.header_len + i.value_len),
+							))
+						}
+					},
+				})
+			},
+			// an empty branch index.
+			Prototype::Data(0) => Ok(NodePlan::Empty),
+			// something went wrong.
+			_ => Err(DecoderError::Custom("Rlp is not valid.")),
+		}
+	}
 
-    fn leaf_node(
-        partial: impl Iterator<Item = u8>,
-        _number_nibble: usize,
-        value: Value,
-    ) -> Vec<u8> {
-        let mut stream = RlpStream::new_list(2);
-        stream.append(&partial.collect::<Vec<_>>());
-        let value = match value {
-            Value::Node(bytes) => bytes,
-            Value::Inline(bytes) => bytes,
-        };
-        stream.append(&value);
-        stream.out().to_vec()
-    }
+	fn is_empty_node(data: &[u8]) -> bool {
+		Rlp::new(data).is_empty()
+	}
 
-    fn extension_node(
-        partial: impl Iterator<Item = u8>,
-        _number_nibble: usize,
-        child_ref: ChildReference<Self::HashOut>,
-    ) -> Vec<u8> {
-        let mut stream = RlpStream::new_list(2);
-        stream.append(&partial.collect::<Vec<_>>());
-        match child_ref {
-            ChildReference::Hash(h) => stream.append(&h.as_ref()),
-            ChildReference::Inline(inline_data, len) => {
-                let bytes = &AsRef::<[u8]>::as_ref(&inline_data)[..len];
-                stream.append_raw(bytes, 1)
-            }
-        };
-        stream.out().to_vec()
-    }
+	fn empty_node() -> &'static [u8] {
+		&[0x80]
+	}
 
-    fn branch_node(
-        children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-        value: Option<Value>,
-    ) -> Vec<u8> {
-        let mut stream = RlpStream::new_list(17);
-        for child_ref in children {
-            match child_ref.borrow() {
-                Some(c) => match c {
-                    ChildReference::Hash(h) => stream.append(&h.as_ref()),
-                    ChildReference::Inline(inline_data, len) => {
-                        let bytes = &inline_data[..*len];
-                        stream.append_raw(bytes, 1)
-                    }
-                },
-                None => stream.append_empty_data(),
-            };
-        }
-        if let Some(value) = value {
-            let value = match value {
-                Value::Node(bytes) => bytes,
-                Value::Inline(bytes) => bytes,
-            };
-            stream.append(&value);
-        } else {
-            stream.append_empty_data();
-        }
-        stream.out().to_vec()
-    }
+	fn leaf_node(
+		partial: impl Iterator<Item = u8>,
+		_number_nibble: usize,
+		value: Value,
+	) -> Vec<u8> {
+		let mut stream = RlpStream::new_list(2);
+		stream.append(&partial.collect::<Vec<_>>());
+		let value = match value {
+			Value::Node(bytes) => bytes,
+			Value::Inline(bytes) => bytes,
+		};
+		stream.append(&value);
+		stream.out().to_vec()
+	}
 
-    fn branch_node_nibbled(
-        _partial: impl Iterator<Item = u8>,
-        _number_nibble: usize,
-        _children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-        _value: Option<Value>,
-    ) -> Vec<u8> {
-        unimplemented!("Ethereum branche nodees do not have partial key; qed")
-    }
+	fn extension_node(
+		partial: impl Iterator<Item = u8>,
+		_number_nibble: usize,
+		child_ref: ChildReference<Self::HashOut>,
+	) -> Vec<u8> {
+		let mut stream = RlpStream::new_list(2);
+		stream.append(&partial.collect::<Vec<_>>());
+		match child_ref {
+			ChildReference::Hash(h) => stream.append(&h.as_ref()),
+			ChildReference::Inline(inline_data, len) => {
+				let bytes = &AsRef::<[u8]>::as_ref(&inline_data)[..len];
+				stream.append_raw(bytes, 1)
+			},
+		};
+		stream.out().to_vec()
+	}
+
+	fn branch_node(
+		children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		value: Option<Value>,
+	) -> Vec<u8> {
+		let mut stream = RlpStream::new_list(17);
+		for child_ref in children {
+			match child_ref.borrow() {
+				Some(c) => match c {
+					ChildReference::Hash(h) => stream.append(&h.as_ref()),
+					ChildReference::Inline(inline_data, len) => {
+						let bytes = &inline_data[..*len];
+						stream.append_raw(bytes, 1)
+					},
+				},
+				None => stream.append_empty_data(),
+			};
+		}
+		if let Some(value) = value {
+			let value = match value {
+				Value::Node(bytes) => bytes,
+				Value::Inline(bytes) => bytes,
+			};
+			stream.append(&value);
+		} else {
+			stream.append_empty_data();
+		}
+		stream.out().to_vec()
+	}
+
+	fn branch_node_nibbled(
+		_partial: impl Iterator<Item = u8>,
+		_number_nibble: usize,
+		_children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+		_value: Option<Value>,
+	) -> Vec<u8> {
+		unimplemented!("Ethereum branch nodes do not have partial key; qed")
+	}
 }

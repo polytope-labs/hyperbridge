@@ -16,13 +16,14 @@
 
 //! `NodeCodec` implementation for Rlp
 
+use alloc::vec::Vec;
 use core::borrow::Borrow;
 use core::marker::PhantomData;
 use ethereum_types::H256;
 use hash_db::Hasher;
 use rlp::{DecoderError, Prototype, Rlp, RlpStream};
 use trie_db::node::{NibbleSlicePlan, NodeHandlePlan, NodePlan, Value, ValuePlan};
-use trie_db::{ChildReference, NibbleSlice, NodeCodec};
+use trie_db::{ChildReference, NodeCodec};
 
 /// Concrete implementation of a `NodeCodec` with Rlp encoding, generic over the `Hasher`
 #[derive(Default, Clone)]
@@ -73,7 +74,7 @@ where
                         partial: slice,
                         value: {
                             let i = r.at(1)?.payload_info()?;
-                            ValuePlan::Node(i.header_len..(i.header_len + i.value_len))
+                            ValuePlan::Inline(i.header_len..(i.header_len + i.value_len))
                         },
                     }),
                     (slice, false) => Ok(NodePlan::Extension {
@@ -87,10 +88,14 @@ where
             }
             // branch - first 16 are nodes, 17th is a value (or empty).
             Prototype::List(17) => {
-                let mut nodes = [None as Option<NodeHandlePlan>; 16];
+                let mut nodes = [
+                    None, None, None, None, None, None, None, None, None, None, None, None, None,
+                    None, None, None,
+                ];
                 for index in 0..16 {
-                    let i = r.at(index)?.payload_info()?;
-                    if i.is_empty() {
+                    let item = r.at(index)?;
+                    let i = item.payload_info()?;
+                    if item.is_empty() {
                         nodes[index] = None;
                     } else {
                         nodes[index] = Some(NodeHandlePlan::Hash(
@@ -106,9 +111,7 @@ where
                             None
                         } else {
                             let i = r.payload_info()?;
-                            Some(ValuePlan::Node(
-                                i.header_len..(i.header_len + i.value_len),
-                            ))
+                            Some(ValuePlan::Inline(i.header_len..(i.header_len + i.value_len)))
                         }
                     },
                 })
@@ -124,10 +127,8 @@ where
         Rlp::new(data).is_empty()
     }
 
-    fn empty_node() -> Vec<u8> {
-        let mut stream = RlpStream::new();
-        stream.append_empty_data();
-        stream.drain()
+    fn empty_node() -> &'static [u8] {
+        &[0x80]
     }
 
     fn leaf_node(
@@ -136,9 +137,13 @@ where
         value: Value,
     ) -> Vec<u8> {
         let mut stream = RlpStream::new_list(2);
-        stream.append(&partial);
+        stream.append(&partial.collect::<Vec<_>>());
+        let value = match value {
+            Value::Node(bytes) => bytes,
+            Value::Inline(bytes) => bytes,
+        };
         stream.append(&value);
-        stream.drain()
+        stream.out().to_vec()
     }
 
     fn extension_node(
@@ -147,15 +152,15 @@ where
         child_ref: ChildReference<Self::HashOut>,
     ) -> Vec<u8> {
         let mut stream = RlpStream::new_list(2);
-        stream.append(&partial);
+        stream.append(&partial.collect::<Vec<_>>());
         match child_ref {
-            ChildReference::Hash(h) => stream.append(&h),
+            ChildReference::Hash(h) => stream.append(&h.as_ref()),
             ChildReference::Inline(inline_data, len) => {
                 let bytes = &AsRef::<[u8]>::as_ref(&inline_data)[..len];
                 stream.append_raw(bytes, 1)
             }
         };
-        stream.drain()
+        stream.out().to_vec()
     }
 
     fn branch_node(
@@ -164,11 +169,11 @@ where
     ) -> Vec<u8> {
         let mut stream = RlpStream::new_list(17);
         for child_ref in children {
-            match child_ref {
+            match child_ref.borrow() {
                 Some(c) => match c {
-                    ChildReference::Hash(h) => stream.append(&h),
+                    ChildReference::Hash(h) => stream.append(&h.as_ref()),
                     ChildReference::Inline(inline_data, len) => {
-                        let bytes = &AsRef::<[u8]>::as_ref(&inline_data)[..len];
+                        let bytes = &inline_data[..*len];
                         stream.append_raw(bytes, 1)
                     }
                 },
@@ -176,11 +181,15 @@ where
             };
         }
         if let Some(value) = value {
-            stream.append(&&*value);
+            let value = match value {
+                Value::Node(bytes) => bytes,
+                Value::Inline(bytes) => bytes,
+            };
+            stream.append(&value);
         } else {
             stream.append_empty_data();
         }
-        stream.drain()
+        stream.out().to_vec()
     }
 
     fn branch_node_nibbled(
@@ -189,6 +198,6 @@ where
         _children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
         _value: Option<Value>,
     ) -> Vec<u8> {
-        unimplemented!("Ethereum branches in do not have partial key; qed")
+        unimplemented!("Ethereum branche nodees do not have partial key; qed")
     }
 }

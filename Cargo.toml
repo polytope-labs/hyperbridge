@@ -11,9 +11,19 @@ rlp = { version= "0.5.1", default-features = false }
 parity-bytes = { version= "0.1.2", default-features = false }
 ethereum-types = { version= "0.14.0", default-features = false }
 
+hash256-std-hasher = { version = "0.15.2", optional = true }
+sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.27", optional = true }
+
+[dev-dependencies]
+sp-trie = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.27" }
+hex = "0.4.3"
+hex-literal = "0.3.4"
+
 [features]
 default = []
 std = [
+    "sp-core",
+    "hash256-std-hasher",
     "trie-db/std",
     "hash-db/std",
     "rlp/std",

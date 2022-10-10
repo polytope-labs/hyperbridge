@@ -10,19 +10,20 @@ hash-db = { version = "0.15.2", default-features = false }
 rlp = { version= "0.5.1", default-features = false }
 parity-bytes = { version= "0.1.2", default-features = false }
 ethereum-types = { version= "0.14.0", default-features = false }
+memory-db = { version = "0.30.0", default-features = false }
+codec = { version = "3.1.3", package = "parity-scale-codec", default-features = false, features = ["derive"] }
 
 hash256-std-hasher = { version = "0.15.2", optional = true }
-sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.27", optional = true }
+tiny-keccak = { version = "2.0.2", features = ["keccak"],  optional = true }
 
 [dev-dependencies]
-sp-trie = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.27" }
 hex = "0.4.3"
 hex-literal = "0.3.4"
 
 [features]
 default = []
 std = [
-    "sp-core",
+    "tiny-keccak",
     "hash256-std-hasher",
     "trie-db/std",
     "hash-db/std",

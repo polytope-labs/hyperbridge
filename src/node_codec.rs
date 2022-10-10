@@ -184,11 +184,11 @@ where
     }
 
     fn branch_node_nibbled(
-        partial: impl Iterator<Item = u8>,
-        number_nibble: usize,
-        children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
-        value: Option<Value>,
+        _partial: impl Iterator<Item = u8>,
+        _number_nibble: usize,
+        _children: impl Iterator<Item = impl Borrow<Option<ChildReference<Self::HashOut>>>>,
+        _value: Option<Value>,
     ) -> Vec<u8> {
-        todo!()
+        unimplemented!("Ethereum branches in do not have partial key; qed")
     }
 }

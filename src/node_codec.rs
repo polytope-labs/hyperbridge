@@ -32,10 +32,10 @@ pub struct RlpNodeCodec<H: Hasher> {
 	mark: PhantomData<H>,
 }
 
-const HASHED_NULL_NODE: H256 = H256([
+const HASHED_NULL_NODE: [u8; 32] = [
 	0x56, 0xe8, 0x1f, 0x17, 0x1b, 0xcc, 0x55, 0xa6, 0xff, 0x83, 0x45, 0xe6, 0x92, 0xc0, 0xf8, 0x6e,
 	0x5b, 0x48, 0xe0, 0x1b, 0x99, 0x6c, 0xad, 0xc0, 0x01, 0x62, 0x2f, 0xb5, 0xe3, 0x63, 0xb4, 0x21,
-]);
+];
 
 // NOTE: what we'd really like here is:
 // `impl<H: Hasher> NodeCodec<H> for RlpNodeCodec<H> where H::Out: Decodable`
@@ -49,10 +49,16 @@ where
 	type HashOut = H::Out;
 
 	fn hashed_null_node() -> H::Out {
-		HASHED_NULL_NODE
+		H256(HASHED_NULL_NODE)
 	}
 
 	fn decode_plan(data: &[u8]) -> Result<NodePlan, Self::Error> {
+		if data == &HASHED_NULL_NODE {
+			// early return if this is == keccak(rlp(null)), aka empty trie root
+			// source: https://ethereum.github.io/execution-specs/diffs/frontier_homestead/trie/index.html#empty-trie-root
+			return Ok(NodePlan::Empty)
+		}
+
 		let r = Rlp::new(data);
 		match r.prototype()? {
 			// either leaf or extension - decode first item with NibbleSlice::???
@@ -148,7 +154,6 @@ where
 	) -> Vec<u8> {
 		let mut stream = RlpStream::new_list(2);
 		let partial = partial.collect::<Vec<_>>();
-		dbg!(&partial);
 		stream.append(&partial);
 		let value = match value {
 			Value::Node(bytes) => bytes,

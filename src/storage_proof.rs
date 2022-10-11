@@ -34,7 +34,7 @@ pub struct StorageProof {
 }
 
 /// Aliased memory db type
-type MemoryDB<H> = memory_db::MemoryDB<
+pub type MemoryDB<H> = memory_db::MemoryDB<
 	H,
 	memory_db::HashKey<H>,
 	trie_db::DBValue,

@@ -114,7 +114,7 @@ where
 				Ok(NodePlan::Branch {
 					children: nodes,
 					value: {
-						let (item, offset) = r.at_with_offset(1)?;
+						let (item, offset) = r.at_with_offset(16)?;
 						let i = item.payload_info()?;
 						if item.is_empty() {
 							None
@@ -147,7 +147,9 @@ where
 		value: Value,
 	) -> Vec<u8> {
 		let mut stream = RlpStream::new_list(2);
-		stream.append(&partial.collect::<Vec<_>>());
+		let partial = partial.collect::<Vec<_>>();
+		dbg!(&partial);
+		stream.append(&partial);
 		let value = match value {
 			Value::Node(bytes) => bytes,
 			Value::Inline(bytes) => bytes,

@@ -20,7 +20,7 @@ hex = "0.4.3"
 hex-literal = "0.3.4"
 
 [features]
-default = []
+default = ["std"]
 std = [
     "tiny-keccak",
     "hash256-std-hasher",

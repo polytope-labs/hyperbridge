@@ -5,10 +5,11 @@ use crate::{
 };
 use hex_literal::hex;
 use primitive_types::H256;
-use trie_db::{Trie, TrieDBBuilder};
+use trie_db::{Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 
 #[test]
 fn test_can_verify_eip_1186_proofs() {
+	// source?: https://medium.com/@chiqing/eip-1186-explained-the-standard-for-getting-account-proof-444bc1e12e03
 	let key = keccak_256(&hex!("b856af30b938b6f52e5bff365675f358cd52f91b"));
 	let proof = vec![
         hex!("f90211a021162657aa1e0af5eef47130ffc3362cb675ebbccfc99ee38ef9196144623507a073dec98f4943e2ab00f5751c23db67b65009bb3cb178d33f5aa93f0c08d583dda0d85b4e33773aaab742db880f8b64ea71f348c6eccb0a56854571bbd3db267f24a0bdcca489de03a49f109c1a2e7d3bd4e644d72de38b7b26dca2f8d3f112110c6fa05c7e8fdff6de07c4cb9ca6bea487a6e5be04af538c25480ce30761901b17e4bfa0d9891f4870e745509cfe17a31568f870b367a36329c892f1b2a37bf59e547183a0af08f747d2ea66efa5bcd03729a95f56297ef9b1e8533ac0d3c7546ebefd2418a0a107595919d4b102afaa0d9b91d9f554f83f0ad61a1e04487e5091543eb81db8a0a0725da6da3b62f88fc573a3fd0dd9dea9cba1750786021da836fd95b7295636a0fd7a768700af3caadaf52a08a23ab0b71ca52830f2b88b1a6b23a52f9ee05507a059434ae837706d7d317e4f7d03cd91f94ed0465fa8b99eaf18ca363bb318c7b3a09e9b831a5f59b781efd5dae8bea30bfd81b9fd5ea231d6b7e82da495c95dd35da0e72d02a01ed9bc928d94cad59ae0695f45120b7fbdbce43a2239a7e5bc81f731a0184bfb9a4051cbaa79917183d004c8d574d7ed5becaf9614c650ed40e8d123d9a0fa4797dc4a35af07f1cd6955318e3ff59578d4df32fd2174ed35f6c4db3471f9a0fec098d1fee8e975b5e78e19003699cf7cd746f47d03692d8e11c5fd58ba92a680").to_vec(),
@@ -32,4 +33,35 @@ fn test_can_verify_eip_1186_proofs() {
         result,
         hex!("f84b10874ef05b2fe9d8c8a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
     )
+}
+
+#[test]
+fn test_go_ethereum_compatibility() {
+	let items = vec![
+		(b"do".to_vec(), b"verb".to_vec()),
+		(b"ether".to_vec(), b"wookiedoo".to_vec()),
+		(b"horse".to_vec(), b"stallion".to_vec()),
+		(b"shaman".to_vec(), b"horse".to_vec()),
+		(b"doge".to_vec(), b"coin".to_vec()),
+		(b"ether".to_vec(), b"".to_vec()),
+		(b"dog".to_vec(), b"puppy".to_vec()),
+		(b"shaman".to_vec(), b"".to_vec()),
+	];
+	let mut db = MemoryDB::<KeccakHasher>::default();
+	let mut root = H256::default();
+	let new  = root.clone();
+	let mut trie_db =
+		TrieDBMutBuilder::<EIP1186Layout<_>>::new(&mut db, &mut root).build();
+
+	dbg!(hex::encode(new.as_ref()));
+
+	for (key, value) in items {
+        println!("{:?}", String::from_utf8(key.clone()));
+		assert!(trie_db.insert(&key, &value).unwrap().is_none());
+	}
+
+	let root = trie_db.root().as_fixed_bytes();
+	let expected = hex!("5991bb8c6514148a29db676a14ac506cd2cd5775ace63c30a4fe457715e9ac84");
+
+	assert_eq!(*root, expected);
 }

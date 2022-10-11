@@ -16,7 +16,7 @@ mod storage_proof;
 #[cfg(test)]
 mod tests;
 
-pub use storage_proof::StorageProof;
+pub use storage_proof::{MemoryDB, StorageProof};
 
 /// Trie layout for EIP-1186 state proof nodes.
 #[derive(Default, Clone)]

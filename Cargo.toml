@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+    "light-client-verifier",
+    "light-client-primitives",
+    "ics15-ethereum"
+]

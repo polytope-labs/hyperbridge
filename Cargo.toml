@@ -7,3 +7,12 @@ edition = "2021"
 
 [dependencies]
 sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.27" }
+
+
+[workspace]
+resolver = "2"
+members = [
+    "light-client-verifier",
+    "light-client-primitives",
+    "ics15-ethereum"
+]

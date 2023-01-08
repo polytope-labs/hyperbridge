@@ -61,5 +61,5 @@ struct AncestorBlock {
     /// Associated execution header proofs
     execution_payload: ExecutionPayloadProof,
     /// Ancestry proofs of the beacon chain header.
-    ancestry_proof: AncenstryProof,
+    ancestry_proof: AncestryProof,
 }

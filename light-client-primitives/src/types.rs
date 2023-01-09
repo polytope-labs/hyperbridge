@@ -1,6 +1,9 @@
-use ethereum_consensus::primitives::Hash32;
+use ethereum_consensus::primitives::{Hash32, Slot};
 use alloc::vec::Vec;
-use ethereum_consensus::altair::{BeaconBlockHeader, SyncCommittee};
+use ethereum_consensus::altair::{BeaconBlockHeader, SyncAggregate, SyncCommittee};
+
+const NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2: usize = 10;
+const FINALIZED_ROOT_INDEX_FLOOR_LOG_2: usize = 10;
 
 /// This holds the relevant data required to prove the state root in the execution payload.
 struct ExecutionPayloadProof {
@@ -62,4 +65,42 @@ struct AncestorBlock {
     execution_payload: ExecutionPayloadProof,
     /// Ancestry proofs of the beacon chain header.
     ancestry_proof: AncestryProof,
+}
+
+/// Holds the latest sync committee as well as an ssz proof for it's existence
+/// in a finalized header.
+struct SyncCommitteeUpdate<const SYNC_COMMITTEE_SIZE: usize> {
+    // actual sync committee
+    next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
+    // sync committee, ssz merkle proof.
+    next_sync_committee_branch: [Hash32; NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2],
+}
+
+/// Minimum state required by the light client to validate new sync committee attestations
+struct LightClientState<const SYNC_COMMITTEE_SIZE: usize> {
+    /// The latest recorded finalized header
+    finalized_header: BeaconBlockHeader,
+    // Sync committees corresponding to the finalized header
+    current_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
+    next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
+}
+
+/// Data required to advance the state of the light client.
+struct LightClientUpdate<const SYNC_COMMITTEE_SIZE: usize> {
+    /// the header that the sync committee signed
+    attested_header: BeaconBlockHeader,
+    /// the sync committee has potentially changed, here's an ssz proof for that.
+    sync_committee_update: Option<SyncCommitteeUpdate<SYNC_COMMITTEE_SIZE>>,
+    /// the actual header which was finalized by the ethereum attestation protocol.
+    finalized_header: BeaconBlockHeader,
+    /// execution payload of the finalized header
+    execution_payload: ExecutionPayloadProof,
+    /// the ssz merkle proof for this header in the attested header, finalized headers lag by 2 epochs.
+    finality_branch: [Hash32; FINALIZED_ROOT_INDEX_FLOOR_LOG_2],
+    /// signature & participation bits
+    sync_aggregate: SyncAggregate<SYNC_COMMITTEE_SIZE>,
+    /// slot at which signature was produced
+    signature_slot: Slot,
+    /// ancestors of the finalized block to be verified, may be empty.
+    ancestor_blocks: Vec<AncestorBlock>,
 }

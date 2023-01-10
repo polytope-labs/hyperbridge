@@ -1,36 +1,36 @@
 use ethereum_consensus::primitives::{Hash32, Slot};
 use alloc::vec::Vec;
-use ethereum_consensus::altair::{BeaconBlockHeader, SyncAggregate, SyncCommittee};
-
-const NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2: usize = 10;
-const FINALIZED_ROOT_INDEX_FLOOR_LOG_2: usize = 10;
+use ethereum_consensus::altair::{BeaconBlockHeader, SyncAggregate, SyncCommittee, NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2, FINALIZED_ROOT_INDEX_FLOOR_LOG_2};
 
 /// This holds the relevant data required to prove the state root in the execution payload.
-struct ExecutionPayloadProof {
+#[derive(Debug, Clone)]
+pub struct ExecutionPayloadProof {
     /// The state root in the `ExecutionPayload` which represents the commitment to
     /// the ethereum world state in the yellow paper.
-    state_root: Hash32,
+    pub state_root: Hash32,
     /// the block number of the execution header.
-    block_number: u64,
+    pub block_number: u64,
     /// merkle mutli proof for the state_root & block_number in the [`ExecutionPayload`].
-    multi_proof: Vec<Hash32>,
+    pub multi_proof: Vec<Hash32>,
     /// merkle proof for the `ExecutionPayload` in the [`BeaconBlockBody`].
-    execution_payload_branch: Vec<Hash32>,
+    pub execution_payload_branch: Vec<Hash32>,
 }
 
 
 /// Holds the neccessary proofs required to verify a header in the `block_roots` field
 /// either in [`BeaconState`] or [`HistoricalBatch`].
-struct BlockRootsProof {
+#[derive(Debug, Clone)]
+pub struct BlockRootsProof {
     /// Generalized index of the header in the `block_roots` list.
-    block_header_index: u64,
+    pub block_header_index: u64,
     /// The proof for the header, needed to reconstruct `hash_tree_root(state.block_roots)`
-    block_header_branch: Vec<Hash32>,
+    pub block_header_branch: Vec<Hash32>,
 }
 
 /// The block header ancestry proof, this is an enum because the header may either exist in
 /// `state.block_roots` or `state.historical_roots`.
-enum AncestryProof {
+#[derive(Debug, Clone)]
+pub enum AncestryProof {
     /// This variant defines the proof data for a beacon chain header in the `state.block_roots`
     BlockRoots {
         /// Proof for the header in `state.block_roots`
@@ -58,49 +58,53 @@ enum AncestryProof {
 
 /// This defines the neccesary data needed to prove ancestor blocks, relative to the finalized
 /// header.
-struct AncestorBlock {
+#[derive(Debug, Clone)]
+pub struct AncestorBlock {
     /// The actual beacon chain header
-    header: BeaconBlockHeader,
+    pub header: BeaconBlockHeader,
     /// Associated execution header proofs
-    execution_payload: ExecutionPayloadProof,
+    pub execution_payload: ExecutionPayloadProof,
     /// Ancestry proofs of the beacon chain header.
-    ancestry_proof: AncestryProof,
+    pub ancestry_proof: AncestryProof,
 }
 
 /// Holds the latest sync committee as well as an ssz proof for it's existence
 /// in a finalized header.
-struct SyncCommitteeUpdate<const SYNC_COMMITTEE_SIZE: usize> {
+#[derive(Debug, Clone)]
+pub struct SyncCommitteeUpdate<const SYNC_COMMITTEE_SIZE: usize> {
     // actual sync committee
-    next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
+    pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
     // sync committee, ssz merkle proof.
-    next_sync_committee_branch: [Hash32; NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2],
+    pub next_sync_committee_branch: [Hash32; NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2],
 }
 
 /// Minimum state required by the light client to validate new sync committee attestations
-struct LightClientState<const SYNC_COMMITTEE_SIZE: usize> {
+#[derive(Debug, Clone)]
+pub struct LightClientState<const SYNC_COMMITTEE_SIZE: usize> {
     /// The latest recorded finalized header
-    finalized_header: BeaconBlockHeader,
+    pub finalized_header: BeaconBlockHeader,
     // Sync committees corresponding to the finalized header
-    current_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
-    next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
+    pub current_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
+    pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
 }
 
 /// Data required to advance the state of the light client.
-struct LightClientUpdate<const SYNC_COMMITTEE_SIZE: usize> {
+#[derive(Debug, Clone)]
+pub struct LightClientUpdate<const SYNC_COMMITTEE_SIZE: usize> {
     /// the header that the sync committee signed
-    attested_header: BeaconBlockHeader,
+    pub attested_header: BeaconBlockHeader,
     /// the sync committee has potentially changed, here's an ssz proof for that.
-    sync_committee_update: Option<SyncCommitteeUpdate<SYNC_COMMITTEE_SIZE>>,
+    pub sync_committee_update: Option<SyncCommitteeUpdate<SYNC_COMMITTEE_SIZE>>,
     /// the actual header which was finalized by the ethereum attestation protocol.
-    finalized_header: BeaconBlockHeader,
+    pub finalized_header: BeaconBlockHeader,
     /// execution payload of the finalized header
-    execution_payload: ExecutionPayloadProof,
+    pub execution_payload: ExecutionPayloadProof,
     /// the ssz merkle proof for this header in the attested header, finalized headers lag by 2 epochs.
-    finality_branch: [Hash32; FINALIZED_ROOT_INDEX_FLOOR_LOG_2],
+    pub finality_branch: [Hash32; FINALIZED_ROOT_INDEX_FLOOR_LOG_2],
     /// signature & participation bits
-    sync_aggregate: SyncAggregate<SYNC_COMMITTEE_SIZE>,
+    pub sync_aggregate: SyncAggregate<SYNC_COMMITTEE_SIZE>,
     /// slot at which signature was produced
-    signature_slot: Slot,
+    pub signature_slot: Slot,
     /// ancestors of the finalized block to be verified, may be empty.
-    ancestor_blocks: Vec<AncestorBlock>,
+    pub ancestor_blocks: Vec<AncestorBlock>,
 }

@@ -1,6 +1,9 @@
-use ethereum_consensus::primitives::{Hash32, Slot};
 use alloc::vec::Vec;
-use ethereum_consensus::altair::{BeaconBlockHeader, SyncAggregate, SyncCommittee, NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2, FINALIZED_ROOT_INDEX_FLOOR_LOG_2};
+use ethereum_consensus::altair::{
+    BeaconBlockHeader, SyncAggregate, SyncCommittee, FINALIZED_ROOT_INDEX_FLOOR_LOG_2,
+    NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2,
+};
+use ethereum_consensus::primitives::{Hash32, Slot};
 
 /// This holds the relevant data required to prove the state root in the execution payload.
 #[derive(Debug, Clone)]
@@ -15,7 +18,6 @@ pub struct ExecutionPayloadProof {
     /// merkle proof for the `ExecutionPayload` in the [`BeaconBlockBody`].
     pub execution_payload_branch: Vec<Hash32>,
 }
-
 
 /// Holds the neccessary proofs required to verify a header in the `block_roots` field
 /// either in [`BeaconState`] or [`HistoricalBatch`].

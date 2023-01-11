@@ -1,6 +1,8 @@
 use base2::Base2;
 use ethereum_consensus::altair::mainnet::EPOCHS_PER_SYNC_COMMITTEE_PERIOD;
-use ethereum_consensus::configs::mainnet::{ALTAIR_FORK_EPOCH, ALTAIR_FORK_VERSION, GENESIS_FORK_VERSION};
+use ethereum_consensus::configs::mainnet::{
+    ALTAIR_FORK_EPOCH, ALTAIR_FORK_VERSION, GENESIS_FORK_VERSION,
+};
 use ethereum_consensus::phase0::mainnet::SLOTS_PER_EPOCH;
 
 /// Calculate the subtree index from the ``generalized_index``
@@ -31,4 +33,3 @@ pub fn compute_fork_version(epoch: u64) -> [u8; 4] {
 pub fn compute_sync_committee_period_at_slot(slot: u64) -> u64 {
     compute_sync_committee_period(compute_epoch_at_slot(slot))
 }
-

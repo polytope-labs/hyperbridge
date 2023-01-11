@@ -1,5 +1,5 @@
 [package]
-name = "eth-beacon-light-client-verifier"
+name = "light-client-verifier"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs"]
@@ -7,3 +7,6 @@ authors = ["Polytope Labs"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ethereum-consensus = { git = "https://github.com/polytope-labs/ethereum-consensus", branch="dami/no-std-support", default-features = false }
+base2 = {version="0.2.2", default-features=false}
+light-client-primitives = {path="../light-client-primitives"}

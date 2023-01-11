@@ -10,3 +10,5 @@ authors = ["Polytope Labs"]
 ethereum-consensus = { git = "https://github.com/polytope-labs/ethereum-consensus", branch="dami/no-std-support", default-features = false }
 base2 = {version="0.2.2", default-features=false}
 light-client-primitives = {path="../light-client-primitives"}
+ssz-rs = { git = "https://github.com/Snowfork/ssz_rs", branch="feat/contribution", default-features=false, features=["serde", "std"] }
+milagro_bls = { git = "https://github.com/sigp/milagro_bls", default-features = false }

@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
-use ethereum_consensus::altair::{
-    BeaconBlockHeader, SyncAggregate, SyncCommittee, FINALIZED_ROOT_INDEX_FLOOR_LOG_2,
-    NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2,
+use ethereum_consensus::altair::{FINALIZED_ROOT_INDEX_FLOOR_LOG_2, NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2};
+use ethereum_consensus::bellatrix::{
+    BeaconBlockHeader, SyncAggregate, SyncCommittee
 };
 use ethereum_consensus::primitives::{Hash32, Slot};
 

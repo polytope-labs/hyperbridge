@@ -4,6 +4,8 @@ use ethereum_consensus::configs::mainnet::{
     ALTAIR_FORK_EPOCH, ALTAIR_FORK_VERSION, GENESIS_FORK_VERSION,
 };
 use ethereum_consensus::phase0::mainnet::SLOTS_PER_EPOCH;
+use ethereum_consensus::primitives::Root;
+use ssz_rs::Node;
 
 /// Calculate the subtree index from the ``generalized_index``
 pub fn get_subtree_index(generalized_index: u64) -> u64 {
@@ -32,4 +34,9 @@ pub fn compute_fork_version(epoch: u64) -> [u8; 4] {
 /// Return the sync committee period at ``slot``
 pub fn compute_sync_committee_period_at_slot(slot: u64) -> u64 {
     compute_sync_committee_period(compute_epoch_at_slot(slot))
+}
+
+// TODO: We probably need to change this
+pub fn genesis_validator_root() -> Root {
+    Node::from_bytes([0u8; 32]).into()
 }

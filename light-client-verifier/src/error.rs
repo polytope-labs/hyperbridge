@@ -6,6 +6,7 @@ pub enum Error {
     InvalidUpdate,
     DomainError,
     FastAggregateError(ethereum_consensus::crypto::Error),
+    InvalidMerkleBranch,
 }
 
 impl From<ethereum_consensus::crypto::Error> for Error {
@@ -23,6 +24,7 @@ impl Display for Error {
             Error::InvalidUpdate => write!(f, "Invalid update"),
             Error::DomainError => write!(f, "Couldn't get domain"),
             Error::FastAggregateError(err) => write!(f, "Fast aggregate error"),
+            Error::InvalidMerkleBranch => write!(f, "Invalid merkle branch"),
         }
     }
 }

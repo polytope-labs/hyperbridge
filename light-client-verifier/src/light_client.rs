@@ -1,5 +1,7 @@
 use crate::error::Error;
 use alloc::vec::Vec;
+use base2::Base2;
+use core::borrow::Borrow;
 use core::fmt::{Display, Formatter};
 use ethereum_consensus::altair::mainnet::SYNC_COMMITTEE_SIZE;
 use ethereum_consensus::bellatrix::compute_domain;
@@ -7,23 +9,37 @@ use ethereum_consensus::domains::DomainType;
 use ethereum_consensus::primitives::Root;
 use ethereum_consensus::signing::compute_signing_root;
 use ethereum_consensus::state_transition::Context;
+use light_client_primitives::types::AncestryProof;
 use light_client_primitives::util::{
     compute_epoch_at_slot, compute_fork_version, compute_sync_committee_period_at_slot,
-    genesis_validator_root,
+    genesis_validator_root, get_subtree_index, hash_tree_root,
 };
-use ssz_rs::Node;
+use ssz_rs::prelude::is_valid_merkle_branch;
+use ssz_rs::Merkleized;
+use ssz_rs::{calculate_merkle_root, calculate_multi_merkle_root, GeneralizedIndex, Node};
 
 pub type LightClientState = light_client_primitives::types::LightClientState<SYNC_COMMITTEE_SIZE>;
 pub type LightClientUpdate = light_client_primitives::types::LightClientUpdate<SYNC_COMMITTEE_SIZE>;
 
-//TODO: we might change this
+//TODO: we need to change this
 const DOMAIN_SYNC_COMMITTEE: DomainType = DomainType::SyncCommittee;
+
+//TODO: we need to change all these consts to the right value
+const FINALIZED_ROOT_INDEX: u64 = 0;
+const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: GeneralizedIndex = GeneralizedIndex(0 as usize);
+const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: GeneralizedIndex = GeneralizedIndex(0 as usize);
+const EXECUTION_PAYLOAD_INDEX: u64 = 0;
+const NEXT_SYNC_COMMITTEE_INDEX: u64 = 0;
 
 pub struct EthLightClient {}
 
 impl EthLightClient {
     /// This function simply verifies a sync committee's attestation & it's finalized counterpart.
-    pub fn verify_sync_committee_attestation(
+    pub fn verify_sync_committee_attestation<
+        const BLOCK_ROOTS_INDEX: u64,
+        const HISTORICAL_BATCH_BLOCK_ROOTS_INDEX: GeneralizedIndex,
+        const HISTORICAL_ROOTS_INDEX: u64,
+    >(
         state: LightClientState,
         mut update: LightClientUpdate,
     ) -> Result<(), Error> {
@@ -61,9 +77,9 @@ impl EthLightClient {
 
         // Verify sync committee aggregate signature
         let sync_committee = if update_signature_period == state_period {
-            state.current_sync_committee
+            state.clone().current_sync_committee
         } else {
-            state.next_sync_committee
+            state.clone().next_sync_committee
         };
 
         let sync_committee_pubkeys = sync_committee.public_keys;
@@ -95,6 +111,286 @@ impl EthLightClient {
             &update.sync_aggregate.sync_committee_signature,
         )?;
 
+        // Verify that the `finality_branch` confirms `finalized_header`
+        // to match the finalized checkpoint root saved in the state of `attested_header`.
+        // Note that the genesis finalized checkpoint root is represented as a zero hash.
+        let finalized_root = &Node::from_bytes(
+            light_client_primitives::util::hash_tree_root(update.finalized_header.clone())
+                .unwrap()
+                .as_ref()
+                .try_into()
+                .unwrap(),
+        );
+
+        let branch = update
+            .finality_branch
+            .iter()
+            .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+            .collect::<Vec<_>>();
+
+        let is_merkle_branch_valid = is_valid_merkle_branch(
+            finalized_root,
+            branch.iter(),
+            FINALIZED_ROOT_INDEX.floor_log2() as usize,
+            get_subtree_index(FINALIZED_ROOT_INDEX) as usize,
+            &Node::from_bytes(
+                update
+                    .attested_header
+                    .state_root
+                    .as_ref()
+                    .try_into()
+                    .unwrap(),
+            ),
+        );
+
+        if is_merkle_branch_valid {
+            Err(Error::InvalidMerkleBranch)?;
+        }
+
+        // verify the associated execution header of the finalized beacon header.
+        let mut execution_payload = update.execution_payload;
+        let multi_proof_vec = execution_payload.multi_proof;
+        let multi_proof_nodes = multi_proof_vec
+            .iter()
+            .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+            .collect::<Vec<_>>();
+        let execution_payload_root = calculate_multi_merkle_root(
+            &[
+                Node::from_bytes(execution_payload.state_root.as_ref().try_into().unwrap()),
+                execution_payload.block_number.hash_tree_root().unwrap(),
+            ],
+            &multi_proof_nodes,
+            &[
+                EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
+                EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
+            ],
+        );
+
+        let execution_payload_branch = execution_payload
+            .execution_payload_branch
+            .iter()
+            .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+            .collect::<Vec<_>>();
+
+        let is_merkle_branch_valid = is_valid_merkle_branch(
+            &execution_payload_root,
+            execution_payload_branch.iter(),
+            EXECUTION_PAYLOAD_INDEX.floor_log2() as usize,
+            get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize,
+            &Node::from_bytes(
+                update
+                    .finalized_header
+                    .clone()
+                    .body_root
+                    .as_ref()
+                    .try_into()
+                    .unwrap(),
+            ),
+        );
+
+        if !is_merkle_branch_valid {
+            Err(Error::InvalidMerkleBranch)?;
+        }
+
+        if let Some(sync_committee_update) = update.sync_committee_update {
+            if update_attested_period == state_period {
+                if sync_committee_update.next_sync_committee != state.clone().next_sync_committee {
+                    Err(Error::InvalidUpdate)?
+                }
+            }
+
+            let next_sync_committee_branch = sync_committee_update
+                .next_sync_committee_branch
+                .iter()
+                .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+                .collect::<Vec<_>>();
+            let is_merkle_branch_valid = is_valid_merkle_branch(
+                &Node::from_bytes(
+                    light_client_primitives::util::hash_tree_root(
+                        sync_committee_update.next_sync_committee,
+                    )
+                    .unwrap()
+                    .as_ref()
+                    .try_into()
+                    .unwrap(),
+                ),
+                next_sync_committee_branch.iter(),
+                NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize,
+                get_subtree_index(NEXT_SYNC_COMMITTEE_INDEX) as usize,
+                &Node::from_bytes(
+                    update
+                        .attested_header
+                        .state_root
+                        .as_ref()
+                        .try_into()
+                        .unwrap(),
+                ),
+            );
+
+            if !is_merkle_branch_valid {
+                Err(Error::InvalidMerkleBranch)?;
+            }
+        }
+
+        // verify the ancestry proofs
+        for ancestor in update.ancestor_blocks {
+            match ancestor.ancestry_proof {
+                AncestryProof::BlockRoots {
+                    block_roots_proof,
+                    block_roots_branch,
+                } => {
+                    let block_header_branch = block_roots_proof
+                        .block_header_branch
+                        .iter()
+                        .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+                        .collect::<Vec<_>>();
+
+                    let block_roots_root = calculate_merkle_root(
+                        &Node::from_bytes(
+                            hash_tree_root(ancestor.header.clone())
+                                .unwrap()
+                                .as_ref()
+                                .try_into()
+                                .unwrap(),
+                        ),
+                        &*block_header_branch,
+                        &GeneralizedIndex(block_roots_proof.block_header_index as usize),
+                    );
+
+                    let block_roots_branch_node = block_roots_branch
+                        .iter()
+                        .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+                        .collect::<Vec<_>>();
+
+                    let is_merkle_branch_valid = is_valid_merkle_branch(
+                        &block_roots_root,
+                        block_roots_branch_node.iter(),
+                        BLOCK_ROOTS_INDEX.floor_log2() as usize,
+                        get_subtree_index(BLOCK_ROOTS_INDEX) as usize,
+                        &Node::from_bytes(
+                            update
+                                .finalized_header
+                                .state_root
+                                .as_ref()
+                                .try_into()
+                                .unwrap(),
+                        ),
+                    );
+                    if !is_merkle_branch_valid {
+                        Err(Error::InvalidMerkleBranch)?;
+                    }
+                }
+                AncestryProof::HistoricalRoots {
+                    block_roots_proof,
+                    historical_batch_proof,
+                    historical_roots_proof,
+                    historical_roots_index,
+                    historical_roots_branch,
+                } => {
+                    let block_header_branch = block_roots_proof
+                        .block_header_branch
+                        .iter()
+                        .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+                        .collect::<Vec<_>>();
+                    let block_roots_root = calculate_merkle_root(
+                        &Node::from_bytes(
+                            hash_tree_root(ancestor.header.clone())
+                                .unwrap()
+                                .as_ref()
+                                .try_into()
+                                .unwrap(),
+                        ),
+                        &block_header_branch,
+                        &GeneralizedIndex(block_roots_proof.block_header_index as usize),
+                    );
+
+                    let historical_batch_proof_nodes = historical_batch_proof
+                        .iter()
+                        .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+                        .collect::<Vec<_>>();
+                    let historical_batch_root = calculate_merkle_root(
+                        &block_roots_root,
+                        &historical_batch_proof_nodes,
+                        &HISTORICAL_BATCH_BLOCK_ROOTS_INDEX,
+                    );
+
+                    let historical_roots_proof_nodes = historical_roots_proof
+                        .iter()
+                        .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+                        .collect::<Vec<_>>();
+                    let historical_roots_root = calculate_merkle_root(
+                        &historical_batch_root,
+                        &historical_roots_proof_nodes,
+                        &GeneralizedIndex(historical_roots_index as usize),
+                    );
+
+                    let historical_roots_branch_nodes = historical_roots_branch
+                        .iter()
+                        .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+                        .collect::<Vec<_>>();
+                    let is_merkle_branch_valid = is_valid_merkle_branch(
+                        &historical_roots_root,
+                        historical_roots_branch_nodes.iter(),
+                        HISTORICAL_ROOTS_INDEX.floor_log2() as usize,
+                        get_subtree_index(HISTORICAL_ROOTS_INDEX) as usize,
+                        &Node::from_bytes(
+                            update
+                                .finalized_header
+                                .state_root
+                                .as_ref()
+                                .try_into()
+                                .unwrap(),
+                        ),
+                    );
+
+                    if !is_merkle_branch_valid {
+                        Err(Error::InvalidMerkleBranch)?;
+                    }
+                }
+            };
+
+            // verify the associated execution paylaod header.
+            let execution_payload = ancestor.execution_payload;
+            let multi_proof = execution_payload
+                .multi_proof
+                .iter()
+                .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+                .collect::<Vec<_>>();
+            let execution_payload_root = calculate_multi_merkle_root(
+                &[
+                    Node::from_bytes(execution_payload.state_root.as_ref().try_into().unwrap()),
+                    Node::from_bytes(
+                        hash_tree_root(execution_payload.block_number)
+                            .unwrap()
+                            .as_ref()
+                            .try_into()
+                            .unwrap(),
+                    ),
+                ],
+                &multi_proof,
+                &[
+                    EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
+                    EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
+                ],
+            );
+
+            let execution_payload_branch = execution_payload
+                .execution_payload_branch
+                .iter()
+                .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+                .collect::<Vec<_>>();
+            let is_merkle_branch_valid = is_valid_merkle_branch(
+                &execution_payload_root,
+                execution_payload_branch.iter(),
+                EXECUTION_PAYLOAD_INDEX.floor_log2() as usize,
+                get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize,
+                &Node::from_bytes(ancestor.header.body_root.as_ref().try_into().unwrap()),
+            );
+
+            if !is_merkle_branch_valid {
+                Err(Error::InvalidMerkleBranch)?;
+            }
+        }
         Ok(())
     }
 }

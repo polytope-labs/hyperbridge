@@ -12,7 +12,7 @@ use ethereum_consensus::state_transition::Context;
 use light_client_primitives::types::AncestryProof;
 use light_client_primitives::util::{
     compute_epoch_at_slot, compute_fork_version, compute_sync_committee_period_at_slot,
-    genesis_validator_root, get_subtree_index, hash_tree_root,
+    get_subtree_index, hash_tree_root,
 };
 use ssz_rs::prelude::is_valid_merkle_branch;
 use ssz_rs::Merkleized;
@@ -35,6 +35,7 @@ impl EthLightClient {
         const BLOCK_ROOTS_INDEX: u64,
         const HISTORICAL_BATCH_BLOCK_ROOTS_INDEX: GeneralizedIndex,
         const HISTORICAL_ROOTS_INDEX: u64,
+        const GENESIS_VALIDATORS_ROOT: Root,
     >(
         state: LightClientState,
         mut update: LightClientUpdate,
@@ -91,7 +92,7 @@ impl EthLightClient {
         let domain = compute_domain(
             DOMAIN_SYNC_COMMITTEE,
             Some(fork_version),
-            Some(genesis_validator_root()),
+            Some(GENESIS_VALIDATORS_ROOT),
             &Context::default(),
         );
 

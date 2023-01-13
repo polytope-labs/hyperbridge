@@ -36,11 +36,8 @@ pub fn compute_sync_committee_period_at_slot(slot: u64) -> u64 {
     compute_sync_committee_period(compute_epoch_at_slot(slot))
 }
 
-// TODO: We probably need to change this
-pub fn genesis_validator_root() -> Root {
-    Node::from_bytes([0u8; 32]).into()
-}
-
+/// method for hashing objects into a single root by utilizing a hash tree structure, as defined in
+/// the SSZ spec.
 pub fn hash_tree_root<T: ssz_rs::SimpleSerialize>(
     mut object: T,
 ) -> Result<Node, MerkleizationError> {

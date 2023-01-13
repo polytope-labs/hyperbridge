@@ -21,21 +21,17 @@ use ssz_rs::{calculate_merkle_root, calculate_multi_merkle_root, GeneralizedInde
 pub type LightClientState = light_client_primitives::types::LightClientState<SYNC_COMMITTEE_SIZE>;
 pub type LightClientUpdate = light_client_primitives::types::LightClientUpdate<SYNC_COMMITTEE_SIZE>;
 
-//TODO: we need to change this
-const DOMAIN_SYNC_COMMITTEE: DomainType = DomainType::SyncCommittee;
-
-//TODO: we need to change all these consts to the right value
-const FINALIZED_ROOT_INDEX: u64 = 0;
-const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: GeneralizedIndex = GeneralizedIndex(0 as usize);
-const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: GeneralizedIndex = GeneralizedIndex(0 as usize);
-const EXECUTION_PAYLOAD_INDEX: u64 = 0;
-const NEXT_SYNC_COMMITTEE_INDEX: u64 = 0;
-
 pub struct EthLightClient {}
 
 impl EthLightClient {
     /// This function simply verifies a sync committee's attestation & it's finalized counterpart.
     pub fn verify_sync_committee_attestation<
+        const DOMAIN_SYNC_COMMITTEE: DomainType,
+        const FINALIZED_ROOT_INDEX: u64,
+        const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: GeneralizedIndex,
+        const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: GeneralizedIndex,
+        const EXECUTION_PAYLOAD_INDEX: u64,
+        const NEXT_SYNC_COMMITTEE_INDEX: u64,
         const BLOCK_ROOTS_INDEX: u64,
         const HISTORICAL_BATCH_BLOCK_ROOTS_INDEX: GeneralizedIndex,
         const HISTORICAL_ROOTS_INDEX: u64,

@@ -9,7 +9,12 @@ use ethereum_consensus::domains::DomainType;
 use ethereum_consensus::primitives::Root;
 use ethereum_consensus::signing::compute_signing_root;
 use ethereum_consensus::state_transition::Context;
-use light_client_primitives::types::AncestryProof;
+use light_client_primitives::types::{
+    AncestryProof, BLOCK_ROOTS_INDEX, DOMAIN_SYNC_COMMITTEE, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
+    EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX,
+    GENESIS_VALIDATORS_ROOT, HISTORICAL_BATCH_BLOCK_ROOTS_INDEX, HISTORICAL_ROOTS_INDEX,
+    NEXT_SYNC_COMMITTEE_INDEX,
+};
 use light_client_primitives::util::{
     compute_epoch_at_slot, compute_fork_version, compute_sync_committee_period_at_slot,
     get_subtree_index, hash_tree_root,
@@ -21,24 +26,13 @@ use ssz_rs::{calculate_merkle_root, calculate_multi_merkle_root, GeneralizedInde
 pub type LightClientState = light_client_primitives::types::LightClientState<SYNC_COMMITTEE_SIZE>;
 pub type LightClientUpdate = light_client_primitives::types::LightClientUpdate<SYNC_COMMITTEE_SIZE>;
 
-pub struct EthLightClient {}
+pub struct EthLightClient;
 
 impl EthLightClient {
     /// This function simply verifies a sync committee's attestation & it's finalized counterpart.
-    pub fn verify_sync_committee_attestation<
-        const DOMAIN_SYNC_COMMITTEE: DomainType,
-        const FINALIZED_ROOT_INDEX: u64,
-        const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: GeneralizedIndex,
-        const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: GeneralizedIndex,
-        const EXECUTION_PAYLOAD_INDEX: u64,
-        const NEXT_SYNC_COMMITTEE_INDEX: u64,
-        const BLOCK_ROOTS_INDEX: u64,
-        const HISTORICAL_BATCH_BLOCK_ROOTS_INDEX: GeneralizedIndex,
-        const HISTORICAL_ROOTS_INDEX: u64,
-        const GENESIS_VALIDATORS_ROOT: Root,
-    >(
-        state: LightClientState,
-        mut update: LightClientUpdate,
+    pub fn verify_sync_committee_attestation(
+        trusted_state: LightClientState,
+        update: LightClientUpdate,
     ) -> Result<(), Error> {
         // Verify sync committee has super majority participants
         let sync_committee_bits = update.sync_aggregate.sync_committee_bits;
@@ -54,7 +48,8 @@ impl EthLightClient {
             Err(Error::InvalidUpdate)?
         }
 
-        let state_period = compute_sync_committee_period_at_slot(state.finalized_header.slot);
+        let state_period =
+            compute_sync_committee_period_at_slot(trusted_state.finalized_header.slot);
         let update_signature_period = compute_sync_committee_period_at_slot(update.signature_slot);
         if !(state_period..=state_period + 1).contains(&update_signature_period) {
             Err(Error::InvalidUpdate)?
@@ -66,7 +61,7 @@ impl EthLightClient {
         let update_has_next_sync_committee =
             update.sync_committee_update.is_some() && update_attested_period == state_period;
 
-        if !(update.attested_header.slot > state.finalized_header.slot
+        if !(update.attested_header.slot > trusted_state.finalized_header.slot
             || update_has_next_sync_committee)
         {
             Err(Error::InvalidUpdate)?
@@ -74,9 +69,9 @@ impl EthLightClient {
 
         // Verify sync committee aggregate signature
         let sync_committee = if update_signature_period == state_period {
-            state.clone().current_sync_committee
+            trusted_state.clone().current_sync_committee
         } else {
-            state.clone().next_sync_committee
+            trusted_state.clone().next_sync_committee
         };
 
         let sync_committee_pubkeys = sync_committee.public_keys;
@@ -92,14 +87,17 @@ impl EthLightClient {
         let domain = compute_domain(
             DOMAIN_SYNC_COMMITTEE,
             Some(fork_version),
-            Some(GENESIS_VALIDATORS_ROOT),
+            Some(Root::from_bytes(
+                GENESIS_VALIDATORS_ROOT.as_ref().try_into().unwrap(),
+            )),
             &Context::default(),
         );
 
         if domain.is_err() {
             Err(Error::InvalidUpdate)?
         }
-        let signing_root = compute_signing_root(&mut update.attested_header, domain.unwrap());
+        let signing_root =
+            compute_signing_root(&mut update.attested_header.clone(), domain.unwrap());
 
         //TODO: not sure if we are to use update to get the signature
         ethereum_consensus::crypto::fast_aggregate_verify(
@@ -158,8 +156,8 @@ impl EthLightClient {
             ],
             &multi_proof_nodes,
             &[
-                EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
-                EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
+                GeneralizedIndex(EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
+                GeneralizedIndex(EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
             ],
         );
 
@@ -191,7 +189,9 @@ impl EthLightClient {
 
         if let Some(sync_committee_update) = update.sync_committee_update {
             if update_attested_period == state_period {
-                if sync_committee_update.next_sync_committee != state.clone().next_sync_committee {
+                if sync_committee_update.next_sync_committee
+                    != trusted_state.clone().next_sync_committee
+                {
                     Err(Error::InvalidUpdate)?
                 }
             }
@@ -308,7 +308,7 @@ impl EthLightClient {
                     let historical_batch_root = calculate_merkle_root(
                         &block_roots_root,
                         &historical_batch_proof_nodes,
-                        &HISTORICAL_BATCH_BLOCK_ROOTS_INDEX,
+                        &GeneralizedIndex(HISTORICAL_BATCH_BLOCK_ROOTS_INDEX as usize),
                     );
 
                     let historical_roots_proof_nodes = historical_roots_proof
@@ -366,8 +366,8 @@ impl EthLightClient {
                 ],
                 &multi_proof,
                 &[
-                    EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
-                    EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
+                    GeneralizedIndex(EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
+                    GeneralizedIndex(EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
                 ],
             );
 

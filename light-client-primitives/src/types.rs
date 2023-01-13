@@ -3,7 +3,19 @@ use ethereum_consensus::altair::{
     FINALIZED_ROOT_INDEX_FLOOR_LOG_2, NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2,
 };
 use ethereum_consensus::bellatrix::{BeaconBlockHeader, SyncAggregate, SyncCommittee};
-use ethereum_consensus::primitives::{Hash32, Slot};
+use ethereum_consensus::domains::DomainType;
+use ethereum_consensus::primitives::{Hash32, Root, Slot};
+
+pub const DOMAIN_SYNC_COMMITTEE: DomainType = DomainType::SyncCommittee;
+pub const FINALIZED_ROOT_INDEX: u64 = 0;
+pub const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 0;
+pub const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 0;
+pub const EXECUTION_PAYLOAD_INDEX: u64 = 0;
+pub const NEXT_SYNC_COMMITTEE_INDEX: u64 = 0;
+pub const BLOCK_ROOTS_INDEX: u64 = 0;
+pub const HISTORICAL_BATCH_BLOCK_ROOTS_INDEX: u64 = 0;
+pub const HISTORICAL_ROOTS_INDEX: u64 = 0;
+pub const GENESIS_VALIDATORS_ROOT: [u8; 32] = [0u8; 32];
 
 /// This holds the relevant data required to prove the state root in the execution payload.
 #[derive(Debug, Clone)]

@@ -548,6 +548,7 @@ version = "0.1.0"
 dependencies = [
  "base2",
  "ethereum-consensus",
+ "hex",
  "light-client-primitives",
  "milagro_bls",
  "ssz-rs 0.8.0 (git+https://github.com/polytope-labs/ssz-rs?branch=seun/ssz-merkle-multi-proof-phase-1)",

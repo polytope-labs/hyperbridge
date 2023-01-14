@@ -83,12 +83,13 @@ impl EthLightClient {
             .collect::<Vec<_>>();
 
         let fork_version = compute_fork_version(compute_epoch_at_slot(update.signature_slot));
+        let genesis_validators_root_bytes = hex::decode(GENESIS_VALIDATORS_ROOT).unwrap();
         //TODO: we probably need to construct context
         let domain = compute_domain(
             DOMAIN_SYNC_COMMITTEE,
             Some(fork_version),
             Some(Root::from_bytes(
-                GENESIS_VALIDATORS_ROOT.as_ref().try_into().unwrap(),
+                genesis_validators_root_bytes.try_into().unwrap(),
             )),
             &Context::default(),
         );

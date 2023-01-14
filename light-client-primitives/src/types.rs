@@ -7,15 +7,16 @@ use ethereum_consensus::domains::DomainType;
 use ethereum_consensus::primitives::{Hash32, Root, Slot};
 
 pub const DOMAIN_SYNC_COMMITTEE: DomainType = DomainType::SyncCommittee;
-pub const FINALIZED_ROOT_INDEX: u64 = 0;
-pub const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 0;
-pub const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 0;
-pub const EXECUTION_PAYLOAD_INDEX: u64 = 0;
-pub const NEXT_SYNC_COMMITTEE_INDEX: u64 = 0;
-pub const BLOCK_ROOTS_INDEX: u64 = 0;
+pub const FINALIZED_ROOT_INDEX: u64 = 105;
+pub const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 18;
+pub const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 22;
+pub const EXECUTION_PAYLOAD_INDEX: u64 = 25;
+pub const NEXT_SYNC_COMMITTEE_INDEX: u64 = 55;
+pub const BLOCK_ROOTS_INDEX: u64 = 37;
 pub const HISTORICAL_BATCH_BLOCK_ROOTS_INDEX: u64 = 0;
-pub const HISTORICAL_ROOTS_INDEX: u64 = 0;
-pub const GENESIS_VALIDATORS_ROOT: [u8; 32] = [0u8; 32];
+pub const HISTORICAL_ROOTS_INDEX: u64 = 39;
+pub const GENESIS_VALIDATORS_ROOT: &str =
+    "4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95";
 
 /// This holds the relevant data required to prove the state root in the execution payload.
 #[derive(Debug, Clone)]

@@ -33,7 +33,7 @@ impl EthLightClient {
     pub fn verify_sync_committee_attestation(
         trusted_state: LightClientState,
         update: LightClientUpdate,
-    ) -> Result<(), Error> {
+    ) -> Result<LightClientState, Error> {
         // Verify sync committee has super majority participants
         let sync_committee_bits = update.sync_aggregate.sync_committee_bits;
         let sync_aggregate_participants: u64 = sync_committee_bits.iter().count() as u64;
@@ -187,7 +187,7 @@ impl EthLightClient {
             Err(Error::InvalidMerkleBranch)?;
         }
 
-        if let Some(sync_committee_update) = update.sync_committee_update {
+        if let Some(sync_committee_update) = update.sync_committee_update.clone() {
             if update_attested_period == state_period {
                 if sync_committee_update.next_sync_committee
                     != trusted_state.clone().next_sync_committee
@@ -388,6 +388,13 @@ impl EthLightClient {
                 Err(Error::InvalidMerkleBranch)?;
             }
         }
-        Ok(())
+
+        let new_light_client_state = LightClientState {
+            finalized_header: update.finalized_header.clone(),
+            current_sync_committee: trusted_state.current_sync_committee,
+            next_sync_committee: update.sync_committee_update.unwrap().next_sync_committee,
+        };
+
+        Ok(new_light_client_state)
     }
 }

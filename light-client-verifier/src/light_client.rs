@@ -38,7 +38,7 @@ impl EthLightClient {
         let sync_committee_bits = update.sync_aggregate.sync_committee_bits;
         let sync_aggregate_participants: u64 = sync_committee_bits.iter().count() as u64;
         if sync_aggregate_participants * 3 >= sync_committee_bits.clone().len() as u64 * 2 {
-            Err(Error::SyncCommitteeParticiapntsTooLow)?
+            Err(Error::SyncCommitteeParticipantsTooLow)?
         }
 
         // Verify update does not skip a sync committee period
@@ -69,9 +69,9 @@ impl EthLightClient {
 
         // Verify sync committee aggregate signature
         let sync_committee = if update_signature_period == state_period {
-            trusted_state.clone().current_sync_committee
+            trusted_state.current_sync_committee.clone()
         } else {
-            trusted_state.clone().next_sync_committee
+            trusted_state.next_sync_committee.clone()
         };
 
         let sync_committee_pubkeys = sync_committee.public_keys;
@@ -83,24 +83,19 @@ impl EthLightClient {
             .collect::<Vec<_>>();
 
         let fork_version = compute_fork_version(compute_epoch_at_slot(update.signature_slot));
-        let genesis_validators_root_bytes = hex::decode(GENESIS_VALIDATORS_ROOT).unwrap();
         //TODO: we probably need to construct context
         let domain = compute_domain(
             DOMAIN_SYNC_COMMITTEE,
             Some(fork_version),
             Some(Root::from_bytes(
-                genesis_validators_root_bytes.try_into().unwrap(),
+                GENESIS_VALIDATORS_ROOT.try_into().unwrap(),
             )),
             &Context::default(),
-        );
+        )
+        .map_err(|_| Error::InvalidUpdate)?;
 
-        if domain.is_err() {
-            Err(Error::InvalidUpdate)?
-        }
-        let signing_root =
-            compute_signing_root(&mut update.attested_header.clone(), domain.unwrap());
+        let signing_root = compute_signing_root(&mut update.attested_header.clone(), domain);
 
-        //TODO: not sure if we are to use update to get the signature
         ethereum_consensus::crypto::fast_aggregate_verify(
             &*participant_pubkeys,
             signing_root.unwrap().as_bytes(),
@@ -191,7 +186,7 @@ impl EthLightClient {
         if let Some(sync_committee_update) = update.sync_committee_update.clone() {
             if update_attested_period == state_period {
                 if sync_committee_update.next_sync_committee
-                    != trusted_state.clone().next_sync_committee
+                    != trusted_state.next_sync_committee.clone()
                 {
                     Err(Error::InvalidUpdate)?
                 }
@@ -390,11 +385,19 @@ impl EthLightClient {
             }
         }
 
-        let new_light_client_state = LightClientState {
-            finalized_header: update.finalized_header.clone(),
-            current_sync_committee: trusted_state.current_sync_committee,
-            next_sync_committee: update.sync_committee_update.unwrap().next_sync_committee,
-        };
+        let new_light_client_state =
+            if let Some(sync_committee_update) = update.sync_committee_update {
+                LightClientState {
+                    finalized_header: update.finalized_header,
+                    current_sync_committee: trusted_state.next_sync_committee,
+                    next_sync_committee: sync_committee_update.next_sync_committee,
+                }
+            } else {
+                LightClientState {
+                    finalized_header: update.finalized_header,
+                    ..trusted_state
+                }
+            };
 
         Ok(new_light_client_state)
     }

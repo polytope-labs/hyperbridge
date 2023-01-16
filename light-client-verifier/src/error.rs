@@ -2,7 +2,7 @@ use core::fmt::{Display, Formatter};
 
 #[derive(Debug)]
 pub enum Error {
-    SyncCommitteeParticiapntsTooLow,
+    SyncCommitteeParticipantsTooLow,
     InvalidUpdate,
     DomainError,
     FastAggregateError(ethereum_consensus::crypto::Error),
@@ -18,7 +18,7 @@ impl From<ethereum_consensus::crypto::Error> for Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            Error::SyncCommitteeParticiapntsTooLow => {
+            Error::SyncCommitteeParticipantsTooLow => {
                 write!(f, "Sync committee participants are too low")
             }
             Error::InvalidUpdate => write!(f, "Invalid update"),

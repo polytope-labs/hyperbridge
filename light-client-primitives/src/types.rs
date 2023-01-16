@@ -15,8 +15,8 @@ pub const NEXT_SYNC_COMMITTEE_INDEX: u64 = 55;
 pub const BLOCK_ROOTS_INDEX: u64 = 37;
 pub const HISTORICAL_BATCH_BLOCK_ROOTS_INDEX: u64 = 0;
 pub const HISTORICAL_ROOTS_INDEX: u64 = 39;
-pub const GENESIS_VALIDATORS_ROOT: &str =
-    "4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95";
+pub const GENESIS_VALIDATORS_ROOT: [u8; 32] =
+    hex_literal::hex!("4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95");
 
 /// This holds the relevant data required to prove the state root in the execution payload.
 #[derive(Debug, Clone)]

@@ -40,7 +40,7 @@ pub fn compute_sync_committee_period_at_slot(slot: u64) -> u64 {
 /// the SSZ spec.
 pub fn hash_tree_root<T: ssz_rs::SimpleSerialize>(
     mut object: T,
-) -> Result<Node, MerkleizationError> {
+) -> Result<Node, ssz_rs::MerkleizationError> {
     let root = object.hash_tree_root()?;
     Ok(root)
 }

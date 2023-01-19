@@ -88,7 +88,9 @@ impl EthLightClient {
             DOMAIN_SYNC_COMMITTEE,
             Some(fork_version),
             Some(Root::from_bytes(
-                GENESIS_VALIDATORS_ROOT.try_into().unwrap(),
+                GENESIS_VALIDATORS_ROOT
+                    .try_into()
+                    .map_err(|_| Error::InvalidRoot)?,
             )),
             &Context::default(),
         )
@@ -98,7 +100,7 @@ impl EthLightClient {
 
         ethereum_consensus::crypto::fast_aggregate_verify(
             &*participant_pubkeys,
-            signing_root.unwrap().as_bytes(),
+            signing_root.map_err(|_| Error::InvalidRoot)?.as_bytes(),
             &update.sync_aggregate.sync_committee_signature,
         )?;
 
@@ -107,10 +109,10 @@ impl EthLightClient {
         // Note that the genesis finalized checkpoint root is represented as a zero hash.
         let finalized_root = &Node::from_bytes(
             light_client_primitives::util::hash_tree_root(update.finalized_header.clone())
-                .unwrap()
+                .map_err(|_| Error::MerkleizationError)?
                 .as_ref()
                 .try_into()
-                .unwrap(),
+                .map_err(|_| Error::InvalidRoot)?,
         );
 
         let branch = update
@@ -130,7 +132,7 @@ impl EthLightClient {
                     .state_root
                     .as_ref()
                     .try_into()
-                    .unwrap(),
+                    .map_err(|_| Error::InvalidRoot)?,
             ),
         );
 
@@ -147,8 +149,17 @@ impl EthLightClient {
             .collect::<Vec<_>>();
         let execution_payload_root = calculate_multi_merkle_root(
             &[
-                Node::from_bytes(execution_payload.state_root.as_ref().try_into().unwrap()),
-                execution_payload.block_number.hash_tree_root().unwrap(),
+                Node::from_bytes(
+                    execution_payload
+                        .state_root
+                        .as_ref()
+                        .try_into()
+                        .map_err(|_| Error::InvalidRoot)?,
+                ),
+                execution_payload
+                    .block_number
+                    .hash_tree_root()
+                    .map_err(|_| Error::InvalidRoot)?,
             ],
             &multi_proof_nodes,
             &[
@@ -175,7 +186,7 @@ impl EthLightClient {
                     .body_root
                     .as_ref()
                     .try_into()
-                    .unwrap(),
+                    .map_err(|_| Error::InvalidRoot)?,
             ),
         );
 
@@ -184,12 +195,11 @@ impl EthLightClient {
         }
 
         if let Some(sync_committee_update) = update.sync_committee_update.clone() {
-            if update_attested_period == state_period {
-                if sync_committee_update.next_sync_committee
+            if update_attested_period == state_period
+                && sync_committee_update.next_sync_committee
                     != trusted_state.next_sync_committee.clone()
-                {
-                    Err(Error::InvalidUpdate)?
-                }
+            {
+                Err(Error::InvalidUpdate)?
             }
 
             let next_sync_committee_branch = sync_committee_update
@@ -202,10 +212,10 @@ impl EthLightClient {
                     light_client_primitives::util::hash_tree_root(
                         sync_committee_update.next_sync_committee,
                     )
-                    .unwrap()
+                    .map_err(|_| Error::MerkleizationError)?
                     .as_ref()
                     .try_into()
-                    .unwrap(),
+                    .map_err(|_| Error::InvalidRoot)?,
                 ),
                 next_sync_committee_branch.iter(),
                 NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize,
@@ -216,7 +226,7 @@ impl EthLightClient {
                         .state_root
                         .as_ref()
                         .try_into()
-                        .unwrap(),
+                        .map_err(|_| Error::InvalidRoot)?,
                 ),
             );
 
@@ -241,10 +251,10 @@ impl EthLightClient {
                     let block_roots_root = calculate_merkle_root(
                         &Node::from_bytes(
                             hash_tree_root(ancestor.header.clone())
-                                .unwrap()
+                                .map_err(|_| Error::MerkleizationError)?
                                 .as_ref()
                                 .try_into()
-                                .unwrap(),
+                                .map_err(|_| Error::InvalidRoot)?,
                         ),
                         &*block_header_branch,
                         &GeneralizedIndex(block_roots_proof.block_header_index as usize),
@@ -266,7 +276,7 @@ impl EthLightClient {
                                 .state_root
                                 .as_ref()
                                 .try_into()
-                                .unwrap(),
+                                .map_err(|_| Error::InvalidRoot)?,
                         ),
                     );
                     if !is_merkle_branch_valid {
@@ -288,10 +298,10 @@ impl EthLightClient {
                     let block_roots_root = calculate_merkle_root(
                         &Node::from_bytes(
                             hash_tree_root(ancestor.header.clone())
-                                .unwrap()
+                                .map_err(|_| Error::MerkleizationError)?
                                 .as_ref()
                                 .try_into()
-                                .unwrap(),
+                                .map_err(|_| Error::InvalidRoot)?,
                         ),
                         &block_header_branch,
                         &GeneralizedIndex(block_roots_proof.block_header_index as usize),
@@ -332,7 +342,7 @@ impl EthLightClient {
                                 .state_root
                                 .as_ref()
                                 .try_into()
-                                .unwrap(),
+                                .map_err(|_| Error::InvalidRoot)?,
                         ),
                     );
 
@@ -351,13 +361,19 @@ impl EthLightClient {
                 .collect::<Vec<_>>();
             let execution_payload_root = calculate_multi_merkle_root(
                 &[
-                    Node::from_bytes(execution_payload.state_root.as_ref().try_into().unwrap()),
                     Node::from_bytes(
-                        hash_tree_root(execution_payload.block_number)
-                            .unwrap()
+                        execution_payload
+                            .state_root
                             .as_ref()
                             .try_into()
-                            .unwrap(),
+                            .map_err(|_| Error::InvalidRoot)?,
+                    ),
+                    Node::from_bytes(
+                        hash_tree_root(execution_payload.block_number)
+                            .map_err(|_| Error::MerkleizationError)?
+                            .as_ref()
+                            .try_into()
+                            .map_err(|_| Error::InvalidRoot)?,
                     ),
                 ],
                 &multi_proof,
@@ -377,7 +393,14 @@ impl EthLightClient {
                 execution_payload_branch.iter(),
                 EXECUTION_PAYLOAD_INDEX.floor_log2() as usize,
                 get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize,
-                &Node::from_bytes(ancestor.header.body_root.as_ref().try_into().unwrap()),
+                &Node::from_bytes(
+                    ancestor
+                        .header
+                        .body_root
+                        .as_ref()
+                        .try_into()
+                        .map_err(|_| Error::InvalidRoot)?,
+                ),
             );
 
             if !is_merkle_branch_valid {

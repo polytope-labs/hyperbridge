@@ -7,6 +7,8 @@ pub enum Error {
     DomainError,
     FastAggregateError(ethereum_consensus::crypto::Error),
     InvalidMerkleBranch,
+    InvalidRoot,
+    MerkleizationError,
 }
 
 impl From<ethereum_consensus::crypto::Error> for Error {
@@ -25,6 +27,8 @@ impl Display for Error {
             Error::DomainError => write!(f, "Couldn't get domain"),
             Error::FastAggregateError(err) => write!(f, "Fast aggregate error"),
             Error::InvalidMerkleBranch => write!(f, "Invalid merkle branch"),
+            Error::InvalidRoot => write!(f, "Invalid root"),
+            Error::MerkleizationError => write!(f, "Merkleization error"),
         }
     }
 }

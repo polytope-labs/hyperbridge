@@ -1,6 +1,11 @@
-use crate::{
-	keccak::{keccak_256, KeccakHasher},
-	EIP1186Layout, StorageProof,
+# Merkle Patricia Trie
+
+This library allows users to verify ethereum style merkle patricia proofs as specified in this document: https://ethereum.github.io/execution-specs/autoapi/ethereum/frontier/trie/index.html
+
+```rust
+use patricia_merkle_trie::{
+    keccak::{keccak_256, KeccakHasher},
+    EIP1186Layout, StorageProof,
 };
 use hex_literal::hex;
 use primitive_types::{H256, U256};
@@ -11,17 +16,16 @@ use trie_db::{Trie, TrieDBBuilder};
 /// The ethereum account stored in the global state trie.
 #[derive(RlpDecodable, Debug)]
 struct Account {
-	nonce: u64,
-	balance: U256,
-	storage_root: H256,
-	code_hash: H256,
+    nonce: u64,
+    balance: U256,
+    storage_root: H256,
+    code_hash: H256,
 }
 
-#[test]
-fn test_can_verify_eip_1186_proofs() {
-	// source?: https://medium.com/@chiqing/eip-1186-explained-the-standard-for-getting-account-proof-444bc1e12e03
-	let key = keccak_256(&hex!("b856af30b938b6f52e5bff365675f358cd52f91b"));
-	let proof = vec![
+fn main() {
+    // source: https://medium.com/@chiqing/eip-1186-explained-the-standard-for-getting-account-proof-444bc1e12e03
+    let key = keccak_256(&hex!("b856af30b938b6f52e5bff365675f358cd52f91b"));
+    let proof = vec![
         hex!("f90211a021162657aa1e0af5eef47130ffc3362cb675ebbccfc99ee38ef9196144623507a073dec98f4943e2ab00f5751c23db67b65009bb3cb178d33f5aa93f0c08d583dda0d85b4e33773aaab742db880f8b64ea71f348c6eccb0a56854571bbd3db267f24a0bdcca489de03a49f109c1a2e7d3bd4e644d72de38b7b26dca2f8d3f112110c6fa05c7e8fdff6de07c4cb9ca6bea487a6e5be04af538c25480ce30761901b17e4bfa0d9891f4870e745509cfe17a31568f870b367a36329c892f1b2a37bf59e547183a0af08f747d2ea66efa5bcd03729a95f56297ef9b1e8533ac0d3c7546ebefd2418a0a107595919d4b102afaa0d9b91d9f554f83f0ad61a1e04487e5091543eb81db8a0a0725da6da3b62f88fc573a3fd0dd9dea9cba1750786021da836fd95b7295636a0fd7a768700af3caadaf52a08a23ab0b71ca52830f2b88b1a6b23a52f9ee05507a059434ae837706d7d317e4f7d03cd91f94ed0465fa8b99eaf18ca363bb318c7b3a09e9b831a5f59b781efd5dae8bea30bfd81b9fd5ea231d6b7e82da495c95dd35da0e72d02a01ed9bc928d94cad59ae0695f45120b7fbdbce43a2239a7e5bc81f731a0184bfb9a4051cbaa79917183d004c8d574d7ed5becaf9614c650ed40e8d123d9a0fa4797dc4a35af07f1cd6955318e3ff59578d4df32fd2174ed35f6c4db3471f9a0fec098d1fee8e975b5e78e19003699cf7cd746f47d03692d8e11c5fd58ba92a680").to_vec(),
         hex!("f90211a07fc5351578eb6ab7618a31e18c87b2b8b2703c682f2d4c1d01aaa8b53343036ea0e8871ae1828c54b9c9bbf7530890a2fe4e160fb62f72c740c7e79a756e07dbf3a04dd116a7d37146cd0ec730172fa97e84b1f13e687d56118e2d666a02a31a629fa08949d66b81ba98e5ca453ba1faf95c8476873d4c32ff6c9a2558b772c51c5768a028db2de6d80f3a06861d3acc082e3a6bb4a6948980a8e5527bd354a2da037779a09b01ba0fe0193c511161448c602bb9fff88b87ab0ded3255606a15f8bca9d348a0c1c1c6a89f2fdbee0840ff309b5cecd9764b5b5815b385576e75e235d1f04656a04e827215bb9511b3a288e33bb418132940a4d42d589b8db0f796ec917e8f9373a099398993d1d6fdd15d6082be370e4d2cc5d9870923d22770aaec9418f4b675d7a00cd1db5e131341b472af1bdf9a1bf1f1ca82bc5b280c8a50a20bcfff1ab0bdd4a09bbcc86c94be1aabf5c5ceced29f462f59103aa6dafe0fc60172bb2c549a8dbaa0902df0ba9eed7e8a6ebff2d06de8bcec5785bb98cba7606f7f40648408157ef4a0ba9dfd07c453e54504d41b7a44ea42e8220767d1e2a0e6e91ae8d5677ac70e50a0f02f2a5e26d7848f0e5a07de68cbbbd24253d545afb74aac81b35a70b6323f1ca0218b955deca7177f8f58c2da188611b333e5c7ef9212000f64ca92cd5bb6e5a0a049cd750f59e2d6f411d7b611b21b17c8eefe637ca01e1566c53f412308b34c6280").to_vec(),
         hex!("f90211a05303302919681c3ad0a56c607c9530ed910f44515f6b40c9633d1900bbbc7e0fa0459fc49e57f39ca6471b1c6905ede7eaa6d7186c8249485cc28338ba18c540cba0825307726d1b7c9d74973d37c12e8b035bf0334836e48ec3f2ff18bf2232dabea0a67ef68daba820c7d6343d1b147b73430ce5c5915a27581cfd12946c2307dc49a003c9b0f0b784de7d72f3b5d5fea87e30dc5fc6f93a0c218240f79a2c74b0f8e2a05a38ddf70df168305b8ba38e8ee54dfadc3f7d81335ec849cb143a10d9738a91a058f0692b5cb07a1c8c800fcf8a70c6e6189a5d72f24ca0040423cf450df1da44a0890dbc62e7429fcca3f1507ad2cd4799c0a7aab25db37ccad434ae23ae889807a075be60d2f635292e69dbc600600605cb8eaf75e96425fd3f2347a5c644db43b9a07b65ba06ee9d2b5dab0a9acc1b8b521cb42f91566de9c174636e817c3d990265a0de65bc6092e28b0cc1ed454fcc07ce26df21bb05efe0a4b4472ff63278e28b95a08077cd7de83428d376ff7588b32df903d2764af7d41deb9c873e9ae889823cd3a0af2f63837dc01e2efb9e40815761015a0d740c2d2549593eefd291a05d40b55aa0c3214baa8d347bd5703926b6fe3ee2f607d0debc0fd73352696dc10f4cbc517da01756cf85b4785bda4a9867a453f8ca1948f015bd329b84083f14d313bddafb80a00dac89194bc1f28d3971b9ca9d1e16a49c6383557187d7bbeb899626d60bfb1980").to_vec(),
@@ -32,24 +36,30 @@ fn test_can_verify_eip_1186_proofs() {
         hex!("f86d9d3c3738deb88e49108e7a5bd83c14ad65b5ba598e2932551dc9b9ad1879b84df84b10874ef05b2fe9d8c8a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470").to_vec(),
     ];
 
-	let root = H256(hex!("024c056bc5db60d71c7908c5fad6050646bd70fd772ff222702d577e2af2e56b"));
+    let root = H256(hex!("024c056bc5db60d71c7908c5fad6050646bd70fd772ff222702d577e2af2e56b"));
 
-	let db = StorageProof::new(proof).into_memory_db::<KeccakHasher>();
-	let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher>>::new(&db, &root).build();
-	let result = trie.get(&key).unwrap().unwrap();
+    let db = StorageProof::new(proof).into_memory_db::<KeccakHasher>();
+    let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher>>::new(&db, &root).build();
+    let result = trie.get(&key).unwrap().unwrap();
 
-	// the raw account data stored in the state proof:
-	let account = Account::decode(&Rlp::new(&result)).unwrap();
 
-	// some assertions about the account data in the state root.
-	assert_eq!(account.balance, U256::from(&hex!("4ef05b2fe9d8c8")[..]));
-	assert_eq!(
-		account.code_hash,
-		H256::from(hex!("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"))
-	);
-	assert_eq!(
-		account.storage_root,
-		H256::from(hex!("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))
-	);
-	assert_eq!(account.nonce, 0x10);
+    // the raw account data stored in the state proof:
+    let account = Account::decode(&Rlp::new(&result)).unwrap();
+
+    // some assertions about the account data in the state root.
+    assert_eq!(account.balance, U256::from(&hex!("4ef05b2fe9d8c8")[..]));
+    assert_eq!(
+        account.code_hash,
+        H256::from(hex!("c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"))
+    );
+    assert_eq!(
+        account.storage_root,
+        H256::from(hex!("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"))
+    );
+    assert_eq!(account.nonce, 0x10);
 }
+```
+
+### No Std 
+
+This library supports `no_std`, simply add `default-features = false` to the dependecncy entry in your `Cargo.toml`

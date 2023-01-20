@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenEthereum.  If not, see <http://www.gnu.org/licenses/>.
 
-//! `NodeCodec` implementation for Rlp
+//! [`NodeCodec`] implementation for [`TrieDb`]
 
 use alloc::vec::Vec;
 use core::{borrow::Borrow, marker::PhantomData};

@@ -1,3 +1,8 @@
+#[cfg(test)]
+mod test;
+mod responses;
+
+
 use ethereum_consensus::bellatrix::{
     BeaconBlock, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader, SyncCommittee,
 };
@@ -43,15 +48,15 @@ impl SyncCommitteeProver {
     pub async fn fetch_header(
         &self,
         block_id: String,
-    ) -> Result<BeaconBlockHeader, reqwest::Error> {
+    ) ->Result<BeaconBlockHeader, reqwest::Error> {
         let path = header_route(block_id);
-        let full_url = format!("{}/{}", self.node_url.clone(), path);
-
+        let full_url = format!("{}{}", self.node_url.clone(), path);
         let response = self.client.get(full_url).send().await?;
+        let response_data = response.json::<responses::beacon_block_response::Response>().await?;
 
-        let beacon_block_header = response.json::<BeaconBlockHeader>().await;
+        let beacon_block_header = response_data.data.header.message;
 
-        beacon_block_header
+        Ok(beacon_block_header)
     }
     pub async fn fetch_block(
         &self,

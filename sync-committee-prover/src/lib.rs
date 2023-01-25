@@ -7,18 +7,16 @@ use ethereum_consensus::bellatrix::{
 };
 use reqwest::Client;
 
-//TODO: Remove all these and use the light client primitive consts in the other PR
-const MAX_PROPOSER_SLASHINGS: usize = 0;
-const MAX_VALIDATORS_PER_COMMITTEE: usize = 0;
-const MAX_ATTESTER_SLASHINGS: usize = 0;
-const MAX_ATTESTATIONS: usize = 0;
-const MAX_DEPOSITS: usize = 0;
-const MAX_VOLUNTARY_EXITS: usize = 0;
-const SYNC_COMMITTEE_SIZE: usize = 0;
-const BYTES_PER_LOGS_BLOOM: usize = 0;
-const MAX_EXTRA_DATA_BYTES: usize = 0;
-const MAX_BYTES_PER_TRANSACTION: usize = 0;
-const MAX_TRANSACTIONS_PER_PAYLOAD: usize = 0;
+use ethereum_consensus::bellatrix::mainnet::{
+    BYTES_PER_LOGS_BLOOM, MAX_BYTES_PER_TRANSACTION, MAX_EXTRA_DATA_BYTES,
+    MAX_TRANSACTIONS_PER_PAYLOAD, SYNC_COMMITTEE_SIZE,
+};
+use ethereum_consensus::phase0::mainnet::{
+    EPOCHS_PER_HISTORICAL_VECTOR, EPOCHS_PER_SLASHINGS_VECTOR, ETH1_DATA_VOTES_BOUND,
+    HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS, MAX_ATTESTER_SLASHINGS, MAX_DEPOSITS,
+    MAX_PROPOSER_SLASHINGS, MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS,
+    SLOTS_PER_HISTORICAL_ROOT, VALIDATOR_REGISTRY_LIMIT,
+};
 
 pub fn header_route(block_id: String) -> String {
     format!("/eth/v1/beacon/headers/{}", block_id)

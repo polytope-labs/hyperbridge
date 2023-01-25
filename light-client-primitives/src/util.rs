@@ -1,7 +1,11 @@
 use base2::Base2;
 use ethereum_consensus::altair::mainnet::EPOCHS_PER_SYNC_COMMITTEE_PERIOD;
-use ethereum_consensus::configs::mainnet::{ALTAIR_FORK_EPOCH, ALTAIR_FORK_VERSION, GENESIS_FORK_VERSION};
+use ethereum_consensus::configs::mainnet::{
+    ALTAIR_FORK_EPOCH, ALTAIR_FORK_VERSION, GENESIS_FORK_VERSION,
+};
 use ethereum_consensus::phase0::mainnet::SLOTS_PER_EPOCH;
+use ethereum_consensus::primitives::{Hash32, Root};
+use ssz_rs::{MerkleizationError, Node};
 
 /// Calculate the subtree index from the ``generalized_index``
 pub fn get_subtree_index(generalized_index: u64) -> u64 {
@@ -32,3 +36,11 @@ pub fn compute_sync_committee_period_at_slot(slot: u64) -> u64 {
     compute_sync_committee_period(compute_epoch_at_slot(slot))
 }
 
+/// method for hashing objects into a single root by utilizing a hash tree structure, as defined in
+/// the SSZ spec.
+pub fn hash_tree_root<T: ssz_rs::SimpleSerialize>(
+    mut object: T,
+) -> Result<Node, ssz_rs::MerkleizationError> {
+    let root = object.hash_tree_root()?;
+    Ok(root)
+}

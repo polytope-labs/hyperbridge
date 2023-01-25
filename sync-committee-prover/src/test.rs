@@ -2,7 +2,6 @@ use super::*;
 
 #[cfg(test)]
 #[allow(non_snake_case)]
-
 #[actix_rt::test]
 async fn fetches_block_header_works() {
     let node_url: String = "http://localhost:3500".to_string();

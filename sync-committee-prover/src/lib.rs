@@ -81,23 +81,24 @@ impl SyncCommitteeProver {
 
         let response = self.client.get(full_url).send().await?;
 
-        let beacon_block = response
-            .json::<BeaconBlock<
-                MAX_PROPOSER_SLASHINGS,
-                MAX_VALIDATORS_PER_COMMITTEE,
-                MAX_ATTESTER_SLASHINGS,
-                MAX_ATTESTATIONS,
-                MAX_DEPOSITS,
-                MAX_VOLUNTARY_EXITS,
-                SYNC_COMMITTEE_SIZE,
-                BYTES_PER_LOGS_BLOOM,
-                MAX_EXTRA_DATA_BYTES,
-                MAX_BYTES_PER_TRANSACTION,
-                MAX_TRANSACTIONS_PER_PAYLOAD,
-            >>()
-            .await;
+        println!("gotten response, deserializzing...");
+        println!("Response status {}", response.status());
 
-        beacon_block
+        let response_data = response
+            .json::<responses::beacon_block_response::Response>()
+            .await?;
+
+        println!("response data is {:?}", response_data);
+
+        //println!("Response data {:?}", response.text().await);
+
+        //TODO: proceess error
+        //let beacon_block_header = response_data.header.unwrap().message;
+
+
+        let beacon_block = response_data.data.message;
+
+        Ok(beacon_block)
     }
     pub async fn fetch_sync_committee(
         &self,
@@ -108,9 +109,13 @@ impl SyncCommitteeProver {
 
         let response = self.client.get(full_url).send().await?;
 
-        let sync_committee = response.json::<SyncCommittee<SYNC_COMMITTEE_SIZE>>().await;
+        let response_data = response
+            .json::<responses::sync_committee_response::Response>()
+            .await.unwrap();
 
-        sync_committee
+        let sync_committee = response_data.data;
+
+        Ok(sync_committee)
     }
     /*pub fn signed_beacon_block(beacon_block: BeaconBlock) -> SignedBeaconBlock {  }
     pub fn signed_beacon_block_header(beacon_block: SignedBeaconBlock) -> SignedBeaconBlockHeader {  }*/

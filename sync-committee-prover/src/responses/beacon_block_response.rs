@@ -10,8 +10,6 @@ use ethereum_consensus::phase0::mainnet::{
     SLOTS_PER_HISTORICAL_ROOT, VALIDATOR_REGISTRY_LIMIT,
 };
 
-//TODO: Remove all these and use the light client primitive consts in the other PR
-
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Response {
     pub(crate) data: ResponseData,
@@ -21,8 +19,6 @@ pub struct Response {
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ResponseData {
-    root: String,
-    canonical: bool,
     pub(crate) message: BeaconBlock<
         MAX_PROPOSER_SLASHINGS,
         MAX_VALIDATORS_PER_COMMITTEE,

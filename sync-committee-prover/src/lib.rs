@@ -2,11 +2,13 @@ mod responses;
 #[cfg(test)]
 mod test;
 
+use ethereum_consensus::altair::Validator;
 use ethereum_consensus::bellatrix::{
     BeaconBlock, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader, SyncCommittee,
 };
 use reqwest::Client;
 
+use crate::responses::sync_committee_response::NodeSyncCommittee;
 use ethereum_consensus::bellatrix::mainnet::{
     BYTES_PER_LOGS_BLOOM, MAX_BYTES_PER_TRANSACTION, MAX_EXTRA_DATA_BYTES,
     MAX_TRANSACTIONS_PER_PAYLOAD, SYNC_COMMITTEE_SIZE,
@@ -28,6 +30,10 @@ pub fn block_route(block_id: String) -> String {
 
 pub fn sync_committee_route(state_id: String) -> String {
     format!("/eth/v1/beacon/states/{}/sync_committees", state_id)
+}
+
+pub fn validator_route(state_id: String, validator_index: String) -> String {
+    format!("/eth/v1/beacon/states/{}/validators/{}", state_id, validator_index)
 }
 
 pub struct SyncCommitteeProver {
@@ -95,7 +101,6 @@ impl SyncCommitteeProver {
         //TODO: proceess error
         //let beacon_block_header = response_data.header.unwrap().message;
 
-
         let beacon_block = response_data.data.message;
 
         Ok(beacon_block)
@@ -103,7 +108,7 @@ impl SyncCommitteeProver {
     pub async fn fetch_sync_committee(
         &self,
         state_id: String,
-    ) -> Result<SyncCommittee<SYNC_COMMITTEE_SIZE>, reqwest::Error> {
+    ) -> Result<NodeSyncCommittee, reqwest::Error> {
         let path = sync_committee_route(state_id);
         let full_url = format!("{}/{}", self.node_url.clone(), path);
 
@@ -111,11 +116,31 @@ impl SyncCommitteeProver {
 
         let response_data = response
             .json::<responses::sync_committee_response::Response>()
-            .await.unwrap();
+            .await
+            .unwrap();
 
         let sync_committee = response_data.data;
 
         Ok(sync_committee)
+    }
+    pub async fn fetch_validator(
+        &self,
+        state_id: String,
+        validator_index: String,
+    ) -> Result<Validator, reqwest::Error> {
+        let path = validator_route(state_id, validator_index);
+        let full_url = format!("{}/{}", self.node_url.clone(), path);
+
+        let response = self.client.get(full_url).send().await?;
+
+        let response_data = response
+            .json::<responses::validator_response::Response>()
+            .await
+            .unwrap();
+
+        let validator= response_data.data.validator;
+
+        Ok(validator)
     }
     /*pub fn signed_beacon_block(beacon_block: BeaconBlock) -> SignedBeaconBlock {  }
     pub fn signed_beacon_block_header(beacon_block: SignedBeaconBlock) -> SignedBeaconBlockHeader {  }*/

@@ -13,12 +13,15 @@ use ethereum_consensus::bellatrix::mainnet::{
     BYTES_PER_LOGS_BLOOM, MAX_BYTES_PER_TRANSACTION, MAX_EXTRA_DATA_BYTES,
     MAX_TRANSACTIONS_PER_PAYLOAD, SYNC_COMMITTEE_SIZE,
 };
+use ethereum_consensus::crypto::{eth_aggregate_public_keys, PublicKey};
 use ethereum_consensus::phase0::mainnet::{
     EPOCHS_PER_HISTORICAL_VECTOR, EPOCHS_PER_SLASHINGS_VECTOR, ETH1_DATA_VOTES_BOUND,
     HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS, MAX_ATTESTER_SLASHINGS, MAX_DEPOSITS,
     MAX_PROPOSER_SLASHINGS, MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS,
     SLOTS_PER_HISTORICAL_ROOT, VALIDATOR_REGISTRY_LIMIT,
 };
+use ethereum_consensus::primitives::{BlsPublicKey, ValidatorIndex};
+use ssz_rs::{List, Vector};
 
 pub fn header_route(block_id: String) -> String {
     format!("/eth/v1/beacon/headers/{}", block_id)
@@ -33,7 +36,10 @@ pub fn sync_committee_route(state_id: String) -> String {
 }
 
 pub fn validator_route(state_id: String, validator_index: String) -> String {
-    format!("/eth/v1/beacon/states/{}/validators/{}", state_id, validator_index)
+    format!(
+        "/eth/v1/beacon/states/{}/validators/{}",
+        state_id, validator_index
+    )
 }
 
 pub struct SyncCommitteeProver {
@@ -138,9 +144,43 @@ impl SyncCommitteeProver {
             .await
             .unwrap();
 
-        let validator= response_data.data.validator;
+        let validator = response_data.data.validator;
 
         Ok(validator)
+    }
+
+    pub async fn fetch_processed_sync_committee(
+        &self,
+        state_id: String,
+    ) -> Result<SyncCommittee<SYNC_COMMITTEE_SIZE>, reqwest::Error> {
+        // fetches sync committee from Noe
+        let node_sync_committee = self.fetch_sync_committee(state_id.clone()).await?;
+
+        let mut validators: List<Validator, VALIDATOR_REGISTRY_LIMIT> = Default::default();
+        let mut validator_indexes: Vec<ValidatorIndex> = Vec::new();
+
+        for mut validator_index in node_sync_committee.validators {
+            // fetches validator based on validator index
+            let validator = self
+                .fetch_validator(state_id.clone(), validator_index.clone())
+                .await?;
+            validators.push(validator);
+            validator_indexes.push(validator_index.parse().unwrap());
+        }
+
+        let public_keys_vector = validator_indexes
+            .into_iter()
+            .map(|i| validators[i].public_key.clone())
+            .collect::<Vector<_, SYNC_COMMITTEE_SIZE>>();
+
+        let aggregate_public_key = eth_aggregate_public_keys(&public_keys_vector).unwrap();
+
+        let sync_committee = SyncCommittee::<SYNC_COMMITTEE_SIZE> {
+            public_keys: public_keys_vector,
+            aggregate_public_key,
+        };
+
+        Ok(sync_committee)
     }
     /*pub fn signed_beacon_block(beacon_block: BeaconBlock) -> SignedBeaconBlock {  }
     pub fn signed_beacon_block_header(beacon_block: SignedBeaconBlock) -> SignedBeaconBlockHeader {  }*/

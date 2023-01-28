@@ -27,6 +27,34 @@ use ethereum_consensus::phase0::mainnet::{
 use ethereum_consensus::primitives::{BlsPublicKey, ValidatorIndex};
 use ssz_rs::{List, Vector};
 
+type BeaconBlockType = BeaconBlock<
+    MAX_PROPOSER_SLASHINGS,
+    MAX_VALIDATORS_PER_COMMITTEE,
+    MAX_ATTESTER_SLASHINGS,
+    MAX_ATTESTATIONS,
+    MAX_DEPOSITS,
+    MAX_VOLUNTARY_EXITS,
+    SYNC_COMMITTEE_SIZE,
+    BYTES_PER_LOGS_BLOOM,
+    MAX_EXTRA_DATA_BYTES,
+    MAX_BYTES_PER_TRANSACTION,
+    MAX_TRANSACTIONS_PER_PAYLOAD,
+>;
+
+type SignedBeaconBlockType =  SignedBeaconBlock<
+    MAX_PROPOSER_SLASHINGS,
+    MAX_VALIDATORS_PER_COMMITTEE,
+    MAX_ATTESTER_SLASHINGS,
+    MAX_ATTESTATIONS,
+    MAX_DEPOSITS,
+    MAX_VOLUNTARY_EXITS,
+    SYNC_COMMITTEE_SIZE,
+    BYTES_PER_LOGS_BLOOM,
+    MAX_EXTRA_DATA_BYTES,
+    MAX_BYTES_PER_TRANSACTION,
+    MAX_TRANSACTIONS_PER_PAYLOAD,
+>;
+
 pub struct SyncCommitteeProver {
     pub node_url: String,
     pub client: Client,
@@ -160,33 +188,9 @@ impl SyncCommitteeProver {
 
     pub fn signed_beacon_block(
         &self,
-        beacon_block: BeaconBlock<
-            MAX_PROPOSER_SLASHINGS,
-            MAX_VALIDATORS_PER_COMMITTEE,
-            MAX_ATTESTER_SLASHINGS,
-            MAX_ATTESTATIONS,
-            MAX_DEPOSITS,
-            MAX_VOLUNTARY_EXITS,
-            SYNC_COMMITTEE_SIZE,
-            BYTES_PER_LOGS_BLOOM,
-            MAX_EXTRA_DATA_BYTES,
-            MAX_BYTES_PER_TRANSACTION,
-            MAX_TRANSACTIONS_PER_PAYLOAD,
-        >,
+        beacon_block: BeaconBlockType
     ) -> Option<
-        SignedBeaconBlock<
-            MAX_PROPOSER_SLASHINGS,
-            MAX_VALIDATORS_PER_COMMITTEE,
-            MAX_ATTESTER_SLASHINGS,
-            MAX_ATTESTATIONS,
-            MAX_DEPOSITS,
-            MAX_VOLUNTARY_EXITS,
-            SYNC_COMMITTEE_SIZE,
-            BYTES_PER_LOGS_BLOOM,
-            MAX_EXTRA_DATA_BYTES,
-            MAX_BYTES_PER_TRANSACTION,
-            MAX_TRANSACTIONS_PER_PAYLOAD,
-        >,
+        SignedBeaconBlockType,
     > {
         let attestations = beacon_block.body.attestations.clone();
         let signatures: Vec<_> = attestations
@@ -197,19 +201,7 @@ impl SyncCommitteeProver {
         let aggregate_signature =
             aggregate(signatures.as_ref()).map_err(|_| Error::AggregateSignatureError);
 
-        let signed_beacon_block = SignedBeaconBlock::<
-            MAX_PROPOSER_SLASHINGS,
-            MAX_VALIDATORS_PER_COMMITTEE,
-            MAX_ATTESTER_SLASHINGS,
-            MAX_ATTESTATIONS,
-            MAX_DEPOSITS,
-            MAX_VOLUNTARY_EXITS,
-            SYNC_COMMITTEE_SIZE,
-            BYTES_PER_LOGS_BLOOM,
-            MAX_EXTRA_DATA_BYTES,
-            MAX_BYTES_PER_TRANSACTION,
-            MAX_TRANSACTIONS_PER_PAYLOAD,
-        > {
+        let signed_beacon_block = SignedBeaconBlockType {
             message: beacon_block,
             signature: aggregate_signature.unwrap(),
         };
@@ -220,19 +212,7 @@ impl SyncCommitteeProver {
     pub fn signed_beacon_block_header(
         &self,
         signed_beacon_block: Option<
-            SignedBeaconBlock<
-                MAX_PROPOSER_SLASHINGS,
-                MAX_VALIDATORS_PER_COMMITTEE,
-                MAX_ATTESTER_SLASHINGS,
-                MAX_ATTESTATIONS,
-                MAX_DEPOSITS,
-                MAX_VOLUNTARY_EXITS,
-                SYNC_COMMITTEE_SIZE,
-                BYTES_PER_LOGS_BLOOM,
-                MAX_EXTRA_DATA_BYTES,
-                MAX_BYTES_PER_TRANSACTION,
-                MAX_TRANSACTIONS_PER_PAYLOAD,
-            >,
+            SignedBeaconBlockType
         >,
         beacon_block_header: BeaconBlockHeader,
     ) -> Result<SignedBeaconBlockHeader, Error> {

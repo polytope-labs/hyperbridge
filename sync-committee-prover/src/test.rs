@@ -55,3 +55,38 @@ async fn fetch_processed_sync_committee_works() {
         .await;
     assert!(validator.is_ok());
 }
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[actix_rt::test]
+async fn fetch_signed_beacon_block_works() {
+    let node_url: String = "http://localhost:3500".to_string();
+    let sync_committee_prover = SyncCommitteeProver::new(node_url);
+    let block = sync_committee_prover.fetch_block("100".to_string()).await;
+    assert!(block.is_ok());
+    let signed_beacon_block = sync_committee_prover.signed_beacon_block(block.unwrap());
+    assert!(signed_beacon_block.is_some());
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[actix_rt::test]
+async fn fetch_signed_beacon_block_header_works() {
+    let node_url: String = "http://localhost:3500".to_string();
+    let sync_committee_prover = SyncCommitteeProver::new(node_url);
+    // fetch beacon block header
+    let header = sync_committee_prover.fetch_header("100".to_string()).await;
+    assert!(header.is_ok());
+
+    // fetch block
+    let block = sync_committee_prover.fetch_block("100".to_string()).await;
+    assert!(block.is_ok());
+    // fetch signed beacon block
+    let signed_beacon_block = sync_committee_prover.signed_beacon_block(block.unwrap());
+    assert!(signed_beacon_block.is_some());
+
+    // fetch sigend beacon block header
+    let signed_beacon_block_header =
+        sync_committee_prover.signed_beacon_block_header(signed_beacon_block, header.unwrap());
+    assert!(signed_beacon_block_header.is_ok());
+}

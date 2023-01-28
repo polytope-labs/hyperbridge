@@ -13,7 +13,7 @@ use ethereum_consensus::bellatrix::mainnet::{
     BYTES_PER_LOGS_BLOOM, MAX_BYTES_PER_TRANSACTION, MAX_EXTRA_DATA_BYTES,
     MAX_TRANSACTIONS_PER_PAYLOAD, SYNC_COMMITTEE_SIZE,
 };
-use ethereum_consensus::crypto::{eth_aggregate_public_keys, PublicKey};
+use ethereum_consensus::crypto::{aggregate, eth_aggregate_public_keys, PublicKey};
 use ethereum_consensus::phase0::mainnet::{
     EPOCHS_PER_HISTORICAL_VECTOR, EPOCHS_PER_SLASHINGS_VECTOR, ETH1_DATA_VOTES_BOUND,
     HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS, MAX_ATTESTER_SLASHINGS, MAX_DEPOSITS,
@@ -40,6 +40,12 @@ pub fn validator_route(state_id: String, validator_index: String) -> String {
         "/eth/v1/beacon/states/{}/validators/{}",
         state_id, validator_index
     )
+}
+
+#[derive(Debug)]
+pub enum Error {
+    AggregateSignatureError,
+    EmptySignedBeaconBlock,
 }
 
 pub struct SyncCommitteeProver {
@@ -93,19 +99,9 @@ impl SyncCommitteeProver {
 
         let response = self.client.get(full_url).send().await?;
 
-        println!("gotten response, deserializzing...");
-        println!("Response status {}", response.status());
-
         let response_data = response
             .json::<responses::beacon_block_response::Response>()
             .await?;
-
-        println!("response data is {:?}", response_data);
-
-        //println!("Response data {:?}", response.text().await);
-
-        //TODO: proceess error
-        //let beacon_block_header = response_data.header.unwrap().message;
 
         let beacon_block = response_data.data.message;
 
@@ -153,7 +149,7 @@ impl SyncCommitteeProver {
         &self,
         state_id: String,
     ) -> Result<SyncCommittee<SYNC_COMMITTEE_SIZE>, reqwest::Error> {
-        // fetches sync committee from Noe
+        // fetches sync committee from Node
         let node_sync_committee = self.fetch_sync_committee(state_id.clone()).await?;
 
         let mut validators: List<Validator, VALIDATOR_REGISTRY_LIMIT> = Default::default();
@@ -182,6 +178,94 @@ impl SyncCommitteeProver {
 
         Ok(sync_committee)
     }
-    /*pub fn signed_beacon_block(beacon_block: BeaconBlock) -> SignedBeaconBlock {  }
-    pub fn signed_beacon_block_header(beacon_block: SignedBeaconBlock) -> SignedBeaconBlockHeader {  }*/
+
+    pub fn signed_beacon_block(
+        &self,
+        beacon_block: BeaconBlock<
+            MAX_PROPOSER_SLASHINGS,
+            MAX_VALIDATORS_PER_COMMITTEE,
+            MAX_ATTESTER_SLASHINGS,
+            MAX_ATTESTATIONS,
+            MAX_DEPOSITS,
+            MAX_VOLUNTARY_EXITS,
+            SYNC_COMMITTEE_SIZE,
+            BYTES_PER_LOGS_BLOOM,
+            MAX_EXTRA_DATA_BYTES,
+            MAX_BYTES_PER_TRANSACTION,
+            MAX_TRANSACTIONS_PER_PAYLOAD,
+        >,
+    ) -> Option<
+        SignedBeaconBlock<
+            MAX_PROPOSER_SLASHINGS,
+            MAX_VALIDATORS_PER_COMMITTEE,
+            MAX_ATTESTER_SLASHINGS,
+            MAX_ATTESTATIONS,
+            MAX_DEPOSITS,
+            MAX_VOLUNTARY_EXITS,
+            SYNC_COMMITTEE_SIZE,
+            BYTES_PER_LOGS_BLOOM,
+            MAX_EXTRA_DATA_BYTES,
+            MAX_BYTES_PER_TRANSACTION,
+            MAX_TRANSACTIONS_PER_PAYLOAD,
+        >,
+    > {
+        let attestations = beacon_block.body.attestations.clone();
+        let signatures: Vec<_> = attestations
+            .iter()
+            .map(|sig| sig.signature.clone())
+            .collect();
+
+        let aggregate_signature =
+            aggregate(signatures.as_ref()).map_err(|_| Error::AggregateSignatureError);
+
+        let signed_beacon_block = SignedBeaconBlock::<
+            MAX_PROPOSER_SLASHINGS,
+            MAX_VALIDATORS_PER_COMMITTEE,
+            MAX_ATTESTER_SLASHINGS,
+            MAX_ATTESTATIONS,
+            MAX_DEPOSITS,
+            MAX_VOLUNTARY_EXITS,
+            SYNC_COMMITTEE_SIZE,
+            BYTES_PER_LOGS_BLOOM,
+            MAX_EXTRA_DATA_BYTES,
+            MAX_BYTES_PER_TRANSACTION,
+            MAX_TRANSACTIONS_PER_PAYLOAD,
+        > {
+            message: beacon_block,
+            signature: aggregate_signature.unwrap(),
+        };
+
+        Some(signed_beacon_block)
+    }
+
+    pub fn signed_beacon_block_header(
+        &self,
+        signed_beacon_block: Option<
+            SignedBeaconBlock<
+                MAX_PROPOSER_SLASHINGS,
+                MAX_VALIDATORS_PER_COMMITTEE,
+                MAX_ATTESTER_SLASHINGS,
+                MAX_ATTESTATIONS,
+                MAX_DEPOSITS,
+                MAX_VOLUNTARY_EXITS,
+                SYNC_COMMITTEE_SIZE,
+                BYTES_PER_LOGS_BLOOM,
+                MAX_EXTRA_DATA_BYTES,
+                MAX_BYTES_PER_TRANSACTION,
+                MAX_TRANSACTIONS_PER_PAYLOAD,
+            >,
+        >,
+        beacon_block_header: BeaconBlockHeader,
+    ) -> Result<SignedBeaconBlockHeader, Error> {
+        if signed_beacon_block.is_none() {
+            return Err(Error::EmptySignedBeaconBlock);
+        }
+
+        let signed_beacon_block_header = SignedBeaconBlockHeader {
+            message: beacon_block_header,
+            signature: signed_beacon_block.unwrap().signature,
+        };
+
+        Ok(signed_beacon_block_header)
+    }
 }

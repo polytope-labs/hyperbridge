@@ -1,5 +1,6 @@
 mod error;
 mod responses;
+mod routes;
 #[cfg(test)]
 mod test;
 
@@ -11,6 +12,7 @@ use reqwest::Client;
 
 use crate::error::Error;
 use crate::responses::sync_committee_response::NodeSyncCommittee;
+use crate::routes::*;
 use ethereum_consensus::bellatrix::mainnet::{
     BYTES_PER_LOGS_BLOOM, MAX_BYTES_PER_TRANSACTION, MAX_EXTRA_DATA_BYTES,
     MAX_TRANSACTIONS_PER_PAYLOAD, SYNC_COMMITTEE_SIZE,
@@ -24,25 +26,6 @@ use ethereum_consensus::phase0::mainnet::{
 };
 use ethereum_consensus::primitives::{BlsPublicKey, ValidatorIndex};
 use ssz_rs::{List, Vector};
-
-pub fn header_route(block_id: String) -> String {
-    format!("/eth/v1/beacon/headers/{}", block_id)
-}
-
-pub fn block_route(block_id: String) -> String {
-    format!("/eth/v2/beacon/blocks/{}", block_id)
-}
-
-pub fn sync_committee_route(state_id: String) -> String {
-    format!("/eth/v1/beacon/states/{}/sync_committees", state_id)
-}
-
-pub fn validator_route(state_id: String, validator_index: String) -> String {
-    format!(
-        "/eth/v1/beacon/states/{}/validators/{}",
-        state_id, validator_index
-    )
-}
 
 pub struct SyncCommitteeProver {
     pub node_url: String,

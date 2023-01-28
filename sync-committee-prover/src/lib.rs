@@ -1,3 +1,4 @@
+mod error;
 mod responses;
 #[cfg(test)]
 mod test;
@@ -8,6 +9,7 @@ use ethereum_consensus::bellatrix::{
 };
 use reqwest::Client;
 
+use crate::error::Error;
 use crate::responses::sync_committee_response::NodeSyncCommittee;
 use ethereum_consensus::bellatrix::mainnet::{
     BYTES_PER_LOGS_BLOOM, MAX_BYTES_PER_TRANSACTION, MAX_EXTRA_DATA_BYTES,
@@ -40,12 +42,6 @@ pub fn validator_route(state_id: String, validator_index: String) -> String {
         "/eth/v1/beacon/states/{}/validators/{}",
         state_id, validator_index
     )
-}
-
-#[derive(Debug)]
-pub enum Error {
-    AggregateSignatureError,
-    EmptySignedBeaconBlock,
 }
 
 pub struct SyncCommitteeProver {

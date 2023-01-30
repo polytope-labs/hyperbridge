@@ -16,3 +16,6 @@ pub fn validator_route(state_id: String, validator_index: String) -> String {
         state_id, validator_index
     )
 }
+pub fn beacon_state_route(state_id: String) -> String {
+    format!("/eth/v2/debug/beacon/states/{}", state_id)
+}

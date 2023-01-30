@@ -6,7 +6,8 @@ mod test;
 
 use ethereum_consensus::altair::Validator;
 use ethereum_consensus::bellatrix::{
-    BeaconBlock, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader, SyncCommittee,
+    BeaconBlock, BeaconBlockHeader, BeaconState, SignedBeaconBlock, SignedBeaconBlockHeader,
+    SyncCommittee,
 };
 use reqwest::Client;
 
@@ -41,7 +42,7 @@ type BeaconBlockType = BeaconBlock<
     MAX_TRANSACTIONS_PER_PAYLOAD,
 >;
 
-type SignedBeaconBlockType =  SignedBeaconBlock<
+type SignedBeaconBlockType = SignedBeaconBlock<
     MAX_PROPOSER_SLASHINGS,
     MAX_VALIDATORS_PER_COMMITTEE,
     MAX_ATTESTER_SLASHINGS,
@@ -125,8 +126,7 @@ impl SyncCommitteeProver {
 
         let response_data = response
             .json::<responses::sync_committee_response::Response>()
-            .await
-            .unwrap();
+            .await?;
 
         let sync_committee = response_data.data;
 
@@ -144,12 +144,45 @@ impl SyncCommitteeProver {
 
         let response_data = response
             .json::<responses::validator_response::Response>()
-            .await
-            .unwrap();
+            .await?;
 
         let validator = response_data.data.validator;
 
         Ok(validator)
+    }
+
+    pub async fn fetch_beacon_state(
+        &self,
+        state_id: String,
+    ) -> Result<
+        BeaconState<
+            SLOTS_PER_HISTORICAL_ROOT,
+            HISTORICAL_ROOTS_LIMIT,
+            ETH1_DATA_VOTES_BOUND,
+            VALIDATOR_REGISTRY_LIMIT,
+            EPOCHS_PER_HISTORICAL_VECTOR,
+            EPOCHS_PER_SLASHINGS_VECTOR,
+            MAX_VALIDATORS_PER_COMMITTEE,
+            SYNC_COMMITTEE_SIZE,
+            BYTES_PER_LOGS_BLOOM,
+            MAX_EXTRA_DATA_BYTES,
+            MAX_BYTES_PER_TRANSACTION,
+            MAX_TRANSACTIONS_PER_PAYLOAD,
+        >,
+        reqwest::Error,
+    > {
+        let path = beacon_state_route(state_id);
+        let full_url = format!("{}/{}", self.node_url.clone(), path);
+
+        let response = self.client.get(full_url).send().await?;
+
+        let response_data = response
+            .json::<responses::beacon_state_response::Response>()
+            .await?;
+
+        let beacon_state = response_data.data;
+
+        Ok(beacon_state)
     }
 
     pub async fn fetch_processed_sync_committee(
@@ -188,10 +221,8 @@ impl SyncCommitteeProver {
 
     pub fn signed_beacon_block(
         &self,
-        beacon_block: BeaconBlockType
-    ) -> Option<
-        SignedBeaconBlockType,
-    > {
+        beacon_block: BeaconBlockType,
+    ) -> Option<SignedBeaconBlockType> {
         let attestations = beacon_block.body.attestations.clone();
         let signatures: Vec<_> = attestations
             .iter()
@@ -211,9 +242,7 @@ impl SyncCommitteeProver {
 
     pub fn signed_beacon_block_header(
         &self,
-        signed_beacon_block: Option<
-            SignedBeaconBlockType
-        >,
+        signed_beacon_block: Option<SignedBeaconBlockType>,
         beacon_block_header: BeaconBlockHeader,
     ) -> Result<SignedBeaconBlockHeader, Error> {
         if signed_beacon_block.is_none() {

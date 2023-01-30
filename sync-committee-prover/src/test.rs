@@ -90,3 +90,15 @@ async fn fetch_signed_beacon_block_header_works() {
         sync_committee_prover.signed_beacon_block_header(signed_beacon_block, header.unwrap());
     assert!(signed_beacon_block_header.is_ok());
 }
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[actix_rt::test]
+async fn fetch_beacon_state_works() {
+    let node_url: String = "http://localhost:3500".to_string();
+    let sync_committee_prover = SyncCommitteeProver::new(node_url);
+    let beacon_state = sync_committee_prover
+        .fetch_beacon_state("genesis".to_string())
+        .await;
+    assert!(beacon_state.is_ok());
+}

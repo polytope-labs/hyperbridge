@@ -9,7 +9,6 @@ edition = "2021"
 ethereum-consensus = { git = "https://github.com/polytope-labs/ethereum-consensus", branch="dami/no-std-support" }
 light-client-primitives = {path="../light-client-primitives", default-features = false }
 ssz-rs = { git = "https://github.com/Snowfork/ssz_rs", branch="feat/contribution", default-features=false, features=["serde", "std"] }
-
 reqwest = {version="0.11.14", features=["json"]}
 serde = { version = "1.0", features = ["derive"]}
 serde_json = { version = "1.0.81"}

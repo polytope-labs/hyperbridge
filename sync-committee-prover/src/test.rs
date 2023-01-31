@@ -1,4 +1,5 @@
 use super::*;
+use ssz_rs::Merkleized;
 
 #[cfg(test)]
 #[allow(non_snake_case)]
@@ -101,4 +102,26 @@ async fn fetch_beacon_state_works() {
         .fetch_beacon_state("genesis".to_string())
         .await;
     assert!(beacon_state.is_ok());
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[actix_rt::test]
+async fn state_root_and_block_header_root_matches() {
+    let node_url: String = "http://localhost:3500".to_string();
+    let sync_committee_prover = SyncCommitteeProver::new(node_url);
+    let beacon_state = sync_committee_prover
+        .fetch_beacon_state("100".to_string())
+        .await;
+    assert!(beacon_state.is_ok());
+
+    let block_header = sync_committee_prover.fetch_header("100".to_string()).await;
+    assert!(block_header.is_ok());
+
+    let state = beacon_state.unwrap();
+    let block_header = block_header.unwrap();
+    let hash_tree_root =  state.clone().hash_tree_root();
+
+    assert!(block_header.state_root == hash_tree_root.unwrap());
+
 }

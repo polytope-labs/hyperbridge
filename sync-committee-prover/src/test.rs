@@ -120,8 +120,7 @@ async fn state_root_and_block_header_root_matches() {
 
     let state = beacon_state.unwrap();
     let block_header = block_header.unwrap();
-    let hash_tree_root =  state.clone().hash_tree_root();
+    let hash_tree_root = state.clone().hash_tree_root();
 
     assert!(block_header.state_root == hash_tree_root.unwrap());
-
 }

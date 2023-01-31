@@ -73,7 +73,7 @@ impl SyncCommitteeProver {
         block_id: String,
     ) -> Result<BeaconBlockHeader, reqwest::Error> {
         let path = header_route(block_id);
-        let full_url = format!("{}{}", self.node_url.clone(), path);
+        let full_url = self.generate_route(path);
         let response = self.client.get(full_url).send().await?;
         let response_data = response
             .json::<responses::beacon_block_header_response::Response>()
@@ -103,7 +103,7 @@ impl SyncCommitteeProver {
         reqwest::Error,
     > {
         let path = block_route(block_id);
-        let full_url = format!("{}/{}", self.node_url.clone(), path);
+        let full_url = self.generate_route(path);
 
         let response = self.client.get(full_url).send().await?;
 
@@ -120,7 +120,7 @@ impl SyncCommitteeProver {
         state_id: String,
     ) -> Result<NodeSyncCommittee, reqwest::Error> {
         let path = sync_committee_route(state_id);
-        let full_url = format!("{}/{}", self.node_url.clone(), path);
+        let full_url = self.generate_route(path);
 
         let response = self.client.get(full_url).send().await?;
 
@@ -138,7 +138,7 @@ impl SyncCommitteeProver {
         validator_index: String,
     ) -> Result<Validator, reqwest::Error> {
         let path = validator_route(state_id, validator_index);
-        let full_url = format!("{}/{}", self.node_url.clone(), path);
+        let full_url = self.generate_route(path);
 
         let response = self.client.get(full_url).send().await?;
 
@@ -172,7 +172,7 @@ impl SyncCommitteeProver {
         reqwest::Error,
     > {
         let path = beacon_state_route(state_id);
-        let full_url = format!("{}/{}", self.node_url.clone(), path);
+        let full_url = self.generate_route(path);
 
         let response = self.client.get(full_url).send().await?;
 
@@ -193,20 +193,21 @@ impl SyncCommitteeProver {
         let node_sync_committee = self.fetch_sync_committee(state_id.clone()).await?;
 
         let mut validators: List<Validator, VALIDATOR_REGISTRY_LIMIT> = Default::default();
-        let mut validator_indexes: Vec<ValidatorIndex> = Vec::new();
-
-        for mut validator_index in node_sync_committee.validators {
+        for mut validator_index in node_sync_committee.validators.clone() {
             // fetches validator based on validator index
             let validator = self
                 .fetch_validator(state_id.clone(), validator_index.clone())
                 .await?;
             validators.push(validator);
-            validator_indexes.push(validator_index.parse().unwrap());
         }
 
-        let public_keys_vector = validator_indexes
+        let public_keys_vector = node_sync_committee
+            .validators
             .into_iter()
-            .map(|i| validators[i].public_key.clone())
+            .map(|i| {
+                let validator_index: ValidatorIndex = i.parse().unwrap();
+                validators[validator_index].public_key.clone()
+            })
             .collect::<Vector<_, SYNC_COMMITTEE_SIZE>>();
 
         let aggregate_public_key = eth_aggregate_public_keys(&public_keys_vector).unwrap();
@@ -255,5 +256,9 @@ impl SyncCommitteeProver {
         };
 
         Ok(signed_beacon_block_header)
+    }
+
+    fn generate_route(&self, path: String) -> String {
+        format!("{}{}", self.node_url.clone(), path)
     }
 }

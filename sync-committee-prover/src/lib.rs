@@ -6,8 +6,8 @@ mod test;
 
 use ethereum_consensus::altair::Validator;
 use ethereum_consensus::bellatrix::{
-    BeaconBlock, BeaconBlockHeader, BeaconState, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SyncCommittee,
+    BeaconBlock, BeaconBlockBody, BeaconBlockHeader, BeaconState, SignedBeaconBlock,
+    SignedBeaconBlockHeader, SyncCommittee,
 };
 use reqwest::Client;
 
@@ -25,8 +25,13 @@ use ethereum_consensus::phase0::mainnet::{
     MAX_PROPOSER_SLASHINGS, MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS,
     SLOTS_PER_HISTORICAL_ROOT, VALIDATOR_REGISTRY_LIMIT,
 };
-use ethereum_consensus::primitives::{BlsPublicKey, ValidatorIndex};
-use ssz_rs::{List, Vector};
+use ethereum_consensus::primitives::{BlsPublicKey, Bytes32, Hash32, Slot, ValidatorIndex};
+use light_client_primitives::types::{
+    ExecutionPayloadProof, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
+    EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
+};
+use light_client_primitives::util::get_subtree_index;
+use ssz_rs::{List, Node, Vector};
 
 type BeaconBlockType = BeaconBlock<
     MAX_PROPOSER_SLASHINGS,
@@ -49,6 +54,21 @@ type SignedBeaconBlockType = SignedBeaconBlock<
     MAX_ATTESTATIONS,
     MAX_DEPOSITS,
     MAX_VOLUNTARY_EXITS,
+    SYNC_COMMITTEE_SIZE,
+    BYTES_PER_LOGS_BLOOM,
+    MAX_EXTRA_DATA_BYTES,
+    MAX_BYTES_PER_TRANSACTION,
+    MAX_TRANSACTIONS_PER_PAYLOAD,
+>;
+
+pub type BeaconStateType = BeaconState<
+    SLOTS_PER_HISTORICAL_ROOT,
+    HISTORICAL_ROOTS_LIMIT,
+    ETH1_DATA_VOTES_BOUND,
+    VALIDATOR_REGISTRY_LIMIT,
+    EPOCHS_PER_HISTORICAL_VECTOR,
+    EPOCHS_PER_SLASHINGS_VECTOR,
+    MAX_VALIDATORS_PER_COMMITTEE,
     SYNC_COMMITTEE_SIZE,
     BYTES_PER_LOGS_BLOOM,
     MAX_EXTRA_DATA_BYTES,
@@ -154,23 +174,7 @@ impl SyncCommitteeProver {
     pub async fn fetch_beacon_state(
         &self,
         state_id: String,
-    ) -> Result<
-        BeaconState<
-            SLOTS_PER_HISTORICAL_ROOT,
-            HISTORICAL_ROOTS_LIMIT,
-            ETH1_DATA_VOTES_BOUND,
-            VALIDATOR_REGISTRY_LIMIT,
-            EPOCHS_PER_HISTORICAL_VECTOR,
-            EPOCHS_PER_SLASHINGS_VECTOR,
-            MAX_VALIDATORS_PER_COMMITTEE,
-            SYNC_COMMITTEE_SIZE,
-            BYTES_PER_LOGS_BLOOM,
-            MAX_EXTRA_DATA_BYTES,
-            MAX_BYTES_PER_TRANSACTION,
-            MAX_TRANSACTIONS_PER_PAYLOAD,
-        >,
-        reqwest::Error,
-    > {
+    ) -> Result<BeaconStateType, reqwest::Error> {
         let path = beacon_state_route(state_id);
         let full_url = self.generate_route(path);
 
@@ -258,7 +262,88 @@ impl SyncCommitteeProver {
         Ok(signed_beacon_block_header)
     }
 
+    async fn fetch_latest_finalized_block(
+        &self,
+    ) -> Result<(BeaconBlockHeader, BeaconBlockType), reqwest::Error> {
+        let block_header = self.fetch_header("finalized".to_string()).await?;
+        let block = self.fetch_block("finalized".to_string()).await?;
+
+        Ok((block_header, block))
+    }
+
     fn generate_route(&self, path: String) -> String {
         format!("{}{}", self.node_url.clone(), path)
     }
+}
+
+fn get_attestation_slots_for_finalized_header(finalized_header: &BeaconBlockHeader) -> Slot {
+    let finalized_header_slot = finalized_header.slot;
+
+    // given that an epoch is 32 slots and blocks are finalized every 2 epochs
+    // so the attested slot for a finalized block is 64 slots away
+    let attested_slot = finalized_header_slot + 64;
+
+    attested_slot
+}
+
+fn prove_beacon_state_values(
+    data: BeaconStateType,
+    indices: &[usize],
+) -> anyhow::Result<Vec<Node>> {
+    let proof = ssz_rs::generate_proof(data, indices)?;
+    Ok(proof)
+}
+
+fn prove_beacon_block_values(
+    data: BeaconBlockType,
+    indices: &[usize],
+) -> anyhow::Result<Vec<Node>> {
+    let proof = ssz_rs::generate_proof(data, indices)?;
+    Ok(proof)
+}
+
+fn prove_execution_payload(block: BeaconBlockType) -> anyhow::Result<ExecutionPayloadProof> {
+    let indices = [
+        EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize,
+        EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize,
+    ];
+    // generate multi proofs
+    let multi_proof = ssz_rs::generate_proof(
+        block.body.execution_payload.clone(),
+        indices.as_slice()
+    )?;
+
+    let execution_payload_index =  [get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize];
+    let execution_payload_branch = ssz_rs::generate_proof(
+        block.body.clone(),
+       execution_payload_index.as_slice(),
+    )?;
+
+    Ok(ExecutionPayloadProof {
+        state_root: block.body.execution_payload.state_root,
+        block_number: block.body.execution_payload.block_number,
+        multi_proof: multi_proof
+            .into_iter()
+            .map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
+            .collect(),
+        execution_payload_branch: execution_payload_branch
+            .into_iter()
+            .map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
+            .collect(),
+    })
+}
+
+fn prove_sync_committee_update_and_finalized_header(
+    state: BeaconStateType,
+) -> anyhow::Result<Vec<Node>> {
+    let indices = [
+        NEXT_SYNC_COMMITTEE_INDEX as usize,
+        get_subtree_index(FINALIZED_ROOT_INDEX) as usize,
+    ];
+    let multi_proof = ssz_rs::generate_proof(
+        state.clone(),
+        indices.as_slice(),
+    )?;
+
+    Ok(multi_proof)
 }

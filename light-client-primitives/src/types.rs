@@ -90,7 +90,7 @@ pub struct SyncCommitteeUpdate<const SYNC_COMMITTEE_SIZE: usize> {
     // actual sync committee
     pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
     // sync committee, ssz merkle proof.
-    pub next_sync_committee_branch: [Hash32; NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2],
+    pub next_sync_committee_branch: Vec<Hash32>,
 }
 
 /// Minimum state required by the light client to validate new sync committee attestations
@@ -115,7 +115,7 @@ pub struct LightClientUpdate<const SYNC_COMMITTEE_SIZE: usize> {
     /// execution payload of the finalized header
     pub execution_payload: ExecutionPayloadProof,
     /// the ssz merkle proof for this header in the attested header, finalized headers lag by 2 epochs.
-    pub finality_branch: [Hash32; FINALIZED_ROOT_INDEX_FLOOR_LOG_2],
+    pub finality_branch: Vec<Hash32>,
     /// signature & participation bits
     pub sync_aggregate: SyncAggregate<SYNC_COMMITTEE_SIZE>,
     /// slot at which signature was produced

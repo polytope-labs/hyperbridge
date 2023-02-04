@@ -1474,6 +1474,7 @@ dependencies = [
  "anyhow",
  "async-stream",
  "ethereum-consensus",
+ "hex",
  "light-client-primitives",
  "light-client-verifier",
  "reqwest",

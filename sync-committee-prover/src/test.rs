@@ -4,6 +4,7 @@ use light_client_primitives::types::{LightClientState, LightClientUpdate, SyncCo
 use light_client_primitives::util::compute_sync_committee_period_at_slot;
 use light_client_verifier::light_client::EthLightClient;
 use ssz_rs::Merkleized;
+use std::thread;
 use std::time::Duration;
 use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
@@ -15,7 +16,11 @@ use tokio_stream::StreamExt;
 async fn fetch_block_header_works() {
     let node_url: String = "http://localhost:3500".to_string();
     let sync_committee_prover = SyncCommitteeProver::new(node_url);
-    let block_header = sync_committee_prover.fetch_header("finalized").await;
+    let mut block_header = sync_committee_prover.fetch_header("1000").await;
+    while block_header.is_err() {
+        println!("I am running till i am ok. lol");
+        block_header = sync_committee_prover.fetch_header("1000").await;
+    }
     assert!(block_header.is_ok());
 }
 
@@ -90,6 +95,16 @@ async fn state_root_and_block_header_root_matches() {
     assert!(block_header.state_root == hash_tree_root.unwrap());
 }
 
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[actix_rt::test]
+async fn fetch_finality_checkpoints_work() {
+    let node_url: String = "http://localhost:3500".to_string();
+    let sync_committee_prover = SyncCommitteeProver::new(node_url);
+    let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint().await;
+    assert!(finality_checkpoint.is_ok());
+}
+
 // use tokio interval(should run every 13 minutes)
 // every 13 minutes, fetch latest finalized block
 // then prove the execution payload
@@ -107,15 +122,27 @@ async fn test_prover() {
     // a slot is 12 seconds so that brings us to 144 seconds
     let mut stream = IntervalStream::new(time::interval(Duration::from_secs(160)));
 
-    let node_url: String = "http://localhost:3500".to_string();
+    let node_url: String = "http://127.0.0.1:3500".to_string();
     let sync_committee_prover = SyncCommitteeProver::new(node_url);
-    let block_header = sync_committee_prover
-        .fetch_header("finalized")
+
+    let finality_checkpoint = sync_committee_prover
+        .fetch_finalized_checkpoint()
         .await
         .unwrap();
+    dbg!(&finality_checkpoint.root);
+
+    let block_id = {
+        let mut block_id = hex::encode(finality_checkpoint.root.as_bytes());
+        block_id.insert_str(0, "0x");
+        block_id
+    };
+
+    dbg!(&block_id);
+
+    let block_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
 
     let state = sync_committee_prover
-        .fetch_beacon_state("finalized")
+        .fetch_beacon_state(&block_header.slot.to_string())
         .await
         .unwrap();
 
@@ -130,14 +157,22 @@ async fn test_prover() {
             .fetch_finalized_checkpoint()
             .await
             .unwrap();
+        dbg!(&finality_checkpoint.root);
         let block_id = {
             let mut block_id = hex::encode(finality_checkpoint.root.as_bytes());
             block_id.insert_str(0, "0x");
             block_id
         };
+
+        dbg!(&block_id);
         let finalized_block = sync_committee_prover.fetch_block(&block_id).await.unwrap();
 
         if finalized_block.slot <= client_state.finalized_header.slot {
+            println!("finalized_block slot is {}", &finalized_block.slot);
+            println!(
+                "finalized_header slot is {}",
+                &client_state.finalized_header.slot
+            );
             continue;
         }
 
@@ -164,10 +199,22 @@ async fn test_prover() {
 
         let state_period = compute_sync_committee_period_at_slot(finalized_header.slot);
 
-        let attested_header = sync_committee_prover
+        // purposely for waiting
+        //println!("sleeping");
+        thread::sleep(time::Duration::from_secs(5));
+
+        let mut attested_header = sync_committee_prover
             .fetch_header(attested_header_slot.to_string().as_str())
-            .await
-            .unwrap();
+            .await;
+
+        while attested_header.is_err() {
+            println!("I am running till i am ok. lol {}", &block_id);
+            attested_header = sync_committee_prover
+                .fetch_header(attested_header_slot.to_string().as_str())
+                .await;
+        }
+
+        let attested_header = attested_header.unwrap();
 
         let update_attested_period = compute_sync_committee_period_at_slot(attested_header_slot);
 

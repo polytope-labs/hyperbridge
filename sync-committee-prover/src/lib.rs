@@ -26,12 +26,9 @@ use ethereum_consensus::phase0::mainnet::{
     SLOTS_PER_HISTORICAL_ROOT, VALIDATOR_REGISTRY_LIMIT,
 };
 use ethereum_consensus::primitives::{BlsPublicKey, Bytes32, Hash32, Slot, ValidatorIndex};
-use light_client_primitives::types::{
-    ExecutionPayloadProof, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
-    EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
-};
+use light_client_primitives::types::{ExecutionPayloadProof, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX, BlockRootsProof};
 use light_client_primitives::util::get_subtree_index;
-use ssz_rs::{List, Node, Vector};
+use ssz_rs::{Bitlist, List, Node, Vector};
 
 type BeaconBlockType = BeaconBlock<
     MAX_PROPOSER_SLASHINGS,
@@ -224,44 +221,6 @@ impl SyncCommitteeProver {
         Ok(sync_committee)
     }
 
-    pub fn signed_beacon_block(
-        &self,
-        beacon_block: BeaconBlockType,
-    ) -> Option<SignedBeaconBlockType> {
-        let attestations = beacon_block.body.attestations.clone();
-        let signatures: Vec<_> = attestations
-            .iter()
-            .map(|sig| sig.signature.clone())
-            .collect();
-
-        let aggregate_signature =
-            aggregate(signatures.as_ref()).map_err(|_| Error::AggregateSignatureError);
-
-        let signed_beacon_block = SignedBeaconBlockType {
-            message: beacon_block,
-            signature: aggregate_signature.unwrap(),
-        };
-
-        Some(signed_beacon_block)
-    }
-
-    pub fn signed_beacon_block_header(
-        &self,
-        signed_beacon_block: Option<SignedBeaconBlockType>,
-        beacon_block_header: BeaconBlockHeader,
-    ) -> Result<SignedBeaconBlockHeader, Error> {
-        if signed_beacon_block.is_none() {
-            return Err(Error::EmptySignedBeaconBlock);
-        }
-
-        let signed_beacon_block_header = SignedBeaconBlockHeader {
-            message: beacon_block_header,
-            signature: signed_beacon_block.unwrap().signature,
-        };
-
-        Ok(signed_beacon_block_header)
-    }
-
     async fn fetch_latest_finalized_block(
         &self,
     ) -> Result<(BeaconBlockHeader, BeaconBlockType), reqwest::Error> {
@@ -308,16 +267,12 @@ fn prove_execution_payload(block: BeaconBlockType) -> anyhow::Result<ExecutionPa
         EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize,
     ];
     // generate multi proofs
-    let multi_proof = ssz_rs::generate_proof(
-        block.body.execution_payload.clone(),
-        indices.as_slice()
-    )?;
+    let multi_proof =
+        ssz_rs::generate_proof(block.body.execution_payload.clone(), indices.as_slice())?;
 
-    let execution_payload_index =  [get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize];
-    let execution_payload_branch = ssz_rs::generate_proof(
-        block.body.clone(),
-       execution_payload_index.as_slice(),
-    )?;
+    let execution_payload_index = [get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize];
+    let execution_payload_branch =
+        ssz_rs::generate_proof(block.body.clone(), execution_payload_index.as_slice())?;
 
     Ok(ExecutionPayloadProof {
         state_root: block.body.execution_payload.state_root,
@@ -333,17 +288,36 @@ fn prove_execution_payload(block: BeaconBlockType) -> anyhow::Result<ExecutionPa
     })
 }
 
-fn prove_sync_committee_update_and_finalized_header(
-    state: BeaconStateType,
-) -> anyhow::Result<Vec<Node>> {
-    let indices = [
-        NEXT_SYNC_COMMITTEE_INDEX as usize,
-        get_subtree_index(FINALIZED_ROOT_INDEX) as usize,
-    ];
-    let multi_proof = ssz_rs::generate_proof(
-        state.clone(),
-        indices.as_slice(),
-    )?;
+fn prove_sync_committee_update(state: BeaconStateType) -> anyhow::Result<Vec<Node>> {
+    let indices = vec![get_subtree_index(NEXT_SYNC_COMMITTEE_INDEX) as usize];
+    let proof = ssz_rs::generate_proof(state.clone(), indices.as_slice())?;
 
-    Ok(multi_proof)
+    Ok(proof)
 }
+
+fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<Vec<Node>> {
+    let indices = vec![get_subtree_index(FINALIZED_ROOT_INDEX) as usize];
+    let proof = ssz_rs::generate_proof(state.clone(), indices.as_slice())?;
+
+    Ok(proof)
+}
+
+// function that generates block roots proof
+// block number and convert to get_subtree_index
+// beacon state has a block roots vec, pass the block root to generate proof
+fn prove_block_roots_proof(state: BeaconStateType, block_number: u64) -> anyhow::Result<BlockRootsProof> {
+    let indices = vec![get_subtree_index(block_number) as usize];
+    let proof = ssz_rs::generate_proof(state.block_roots, indices.as_slice())?;
+
+    Ok(BlockRootsProof {
+        block_header_index: block_number,
+        block_header_branch: proof.into_iter()
+            .map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
+            .collect()
+    })
+}
+
+//  prove the block roots vec inside the beacon state which will be the block roots branch
+
+
+// when aggr sigs, create a new bit list

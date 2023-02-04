@@ -9,7 +9,7 @@ use ethereum_consensus::bellatrix::{
     BeaconBlock, BeaconBlockBody, BeaconBlockHeader, BeaconState, Checkpoint, SignedBeaconBlock,
     SignedBeaconBlockHeader, SyncCommittee,
 };
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 
 use crate::error::Error;
 use crate::responses::sync_committee_response::NodeSyncCommittee;
@@ -92,26 +92,19 @@ impl SyncCommitteeProver {
     pub async fn fetch_finalized_checkpoint(&self) -> Result<Checkpoint, reqwest::Error> {
         let full_url = self.generate_route(&finality_checkpoints("head"));
         let response = self.client.get(full_url).send().await?;
-        #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-        struct Response {
-            execution_optimistic: bool,
-            data: ResponseData,
-        }
 
-        #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-        struct ResponseData {
-            previous_justified: Checkpoint,
-            current_justified: Checkpoint,
-            final_justified: Checkpoint,
-        }
-        let response_data = response.json::<Response>().await?;
-        Ok(response_data.data.final_justified)
+        let response_data = response
+            .json::<responses::finality_checkpoint_response::Response>()
+            .await?;
+        Ok(response_data.data.finalized)
     }
 
     pub async fn fetch_header(&self, block_id: &str) -> Result<BeaconBlockHeader, reqwest::Error> {
         let path = header_route(block_id);
         let full_url = self.generate_route(&path);
         let response = self.client.get(full_url).send().await?;
+        let status = response.status().as_u16();
+
         let response_data = response
             .json::<responses::beacon_block_header_response::Response>()
             .await?;

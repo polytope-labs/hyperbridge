@@ -6,7 +6,7 @@ mod test;
 
 use ethereum_consensus::altair::Validator;
 use ethereum_consensus::bellatrix::{
-    BeaconBlock, BeaconBlockBody, BeaconBlockHeader, BeaconState, SignedBeaconBlock,
+    BeaconBlock, BeaconBlockBody, BeaconBlockHeader, BeaconState, Checkpoint, SignedBeaconBlock,
     SignedBeaconBlockHeader, SyncCommittee,
 };
 use reqwest::Client;
@@ -26,7 +26,11 @@ use ethereum_consensus::phase0::mainnet::{
     SLOTS_PER_HISTORICAL_ROOT, VALIDATOR_REGISTRY_LIMIT,
 };
 use ethereum_consensus::primitives::{BlsPublicKey, Bytes32, Hash32, Slot, ValidatorIndex};
-use light_client_primitives::types::{ExecutionPayloadProof, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX, BlockRootsProof};
+use light_client_primitives::types::{
+    BlockRootsProof, ExecutionPayloadProof, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
+    EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX,
+    NEXT_SYNC_COMMITTEE_INDEX,
+};
 use light_client_primitives::util::get_subtree_index;
 use ssz_rs::{Bitlist, List, Node, Vector};
 
@@ -85,12 +89,28 @@ impl SyncCommitteeProver {
         SyncCommitteeProver { node_url, client }
     }
 
-    pub async fn fetch_header(
-        &self,
-        block_id: String,
-    ) -> Result<BeaconBlockHeader, reqwest::Error> {
+    pub async fn fetch_finalized_checkpoint(&self) -> Result<Checkpoint, reqwest::Error> {
+        let full_url = self.generate_route(&finality_checkpoints("head"));
+        let response = self.client.get(full_url).send().await?;
+        #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        struct Response {
+            execution_optimistic: bool,
+            data: ResponseData,
+        }
+
+        #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        struct ResponseData {
+            previous_justified: Checkpoint,
+            current_justified: Checkpoint,
+            final_justified: Checkpoint,
+        }
+        let response_data = response.json::<Response>().await?;
+        Ok(response_data.data.final_justified)
+    }
+
+    pub async fn fetch_header(&self, block_id: &str) -> Result<BeaconBlockHeader, reqwest::Error> {
         let path = header_route(block_id);
-        let full_url = self.generate_route(path);
+        let full_url = self.generate_route(&path);
         let response = self.client.get(full_url).send().await?;
         let response_data = response
             .json::<responses::beacon_block_header_response::Response>()
@@ -102,7 +122,7 @@ impl SyncCommitteeProver {
     }
     pub async fn fetch_block(
         &self,
-        block_id: String,
+        block_id: &str,
     ) -> Result<
         BeaconBlock<
             MAX_PROPOSER_SLASHINGS,
@@ -120,7 +140,7 @@ impl SyncCommitteeProver {
         reqwest::Error,
     > {
         let path = block_route(block_id);
-        let full_url = self.generate_route(path);
+        let full_url = self.generate_route(&path);
 
         let response = self.client.get(full_url).send().await?;
 
@@ -134,10 +154,10 @@ impl SyncCommitteeProver {
     }
     pub async fn fetch_sync_committee(
         &self,
-        state_id: String,
+        state_id: &str,
     ) -> Result<NodeSyncCommittee, reqwest::Error> {
         let path = sync_committee_route(state_id);
-        let full_url = self.generate_route(path);
+        let full_url = self.generate_route(&path);
 
         let response = self.client.get(full_url).send().await?;
 
@@ -151,11 +171,11 @@ impl SyncCommitteeProver {
     }
     pub async fn fetch_validator(
         &self,
-        state_id: String,
-        validator_index: String,
+        state_id: &str,
+        validator_index: &str,
     ) -> Result<Validator, reqwest::Error> {
         let path = validator_route(state_id, validator_index);
-        let full_url = self.generate_route(path);
+        let full_url = self.generate_route(&path);
 
         let response = self.client.get(full_url).send().await?;
 
@@ -170,10 +190,10 @@ impl SyncCommitteeProver {
 
     pub async fn fetch_beacon_state(
         &self,
-        state_id: String,
+        state_id: &str,
     ) -> Result<BeaconStateType, reqwest::Error> {
         let path = beacon_state_route(state_id);
-        let full_url = self.generate_route(path);
+        let full_url = self.generate_route(&path);
 
         let response = self.client.get(full_url).send().await?;
 
@@ -188,7 +208,7 @@ impl SyncCommitteeProver {
 
     pub async fn fetch_processed_sync_committee(
         &self,
-        state_id: String,
+        state_id: &str,
     ) -> Result<SyncCommittee<SYNC_COMMITTEE_SIZE>, reqwest::Error> {
         // fetches sync committee from Node
         let node_sync_committee = self.fetch_sync_committee(state_id.clone()).await?;
@@ -197,7 +217,7 @@ impl SyncCommitteeProver {
         for mut validator_index in node_sync_committee.validators.clone() {
             // fetches validator based on validator index
             let validator = self
-                .fetch_validator(state_id.clone(), validator_index.clone())
+                .fetch_validator(state_id.clone(), &validator_index)
                 .await?;
             validators.push(validator);
         }
@@ -224,23 +244,26 @@ impl SyncCommitteeProver {
     async fn fetch_latest_finalized_block(
         &self,
     ) -> Result<(BeaconBlockHeader, BeaconBlockType), reqwest::Error> {
-        let block_header = self.fetch_header("finalized".to_string()).await?;
-        let block = self.fetch_block("finalized".to_string()).await?;
+        let block_header = self.fetch_header("finalized").await?;
+        let block = self.fetch_block("finalized").await?;
 
         Ok((block_header, block))
     }
 
-    fn generate_route(&self, path: String) -> String {
+    fn generate_route(&self, path: &str) -> String {
         format!("{}{}", self.node_url.clone(), path)
     }
 }
 
-fn get_attestation_slots_for_finalized_header(finalized_header: &BeaconBlockHeader) -> Slot {
+fn get_attestation_slots_for_finalized_header(
+    finalized_header: &BeaconBlockHeader,
+    slots_per_epoch: u64,
+) -> Slot {
     let finalized_header_slot = finalized_header.slot;
 
     // given that an epoch is 32 slots and blocks are finalized every 2 epochs
     // so the attested slot for a finalized block is 64 slots away
-    let attested_slot = finalized_header_slot + 64;
+    let attested_slot = finalized_header_slot + (slots_per_epoch * 2);
 
     attested_slot
 }
@@ -305,19 +328,22 @@ fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<Vec<Node>> {
 // function that generates block roots proof
 // block number and convert to get_subtree_index
 // beacon state has a block roots vec, pass the block root to generate proof
-fn prove_block_roots_proof(state: BeaconStateType, block_number: u64) -> anyhow::Result<BlockRootsProof> {
+fn prove_block_roots_proof(
+    state: BeaconStateType,
+    block_number: u64,
+) -> anyhow::Result<BlockRootsProof> {
     let indices = vec![get_subtree_index(block_number) as usize];
     let proof = ssz_rs::generate_proof(state.block_roots, indices.as_slice())?;
 
     Ok(BlockRootsProof {
         block_header_index: block_number,
-        block_header_branch: proof.into_iter()
+        block_header_branch: proof
+            .into_iter()
             .map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
-            .collect()
+            .collect(),
     })
 }
 
 //  prove the block roots vec inside the beacon state which will be the block roots branch
-
 
 // when aggr sigs, create a new bit list

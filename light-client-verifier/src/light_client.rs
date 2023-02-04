@@ -3,8 +3,10 @@ use alloc::vec::Vec;
 use base2::Base2;
 use core::borrow::Borrow;
 use core::fmt::{Display, Formatter};
-use ethereum_consensus::altair::{FINALIZED_ROOT_INDEX_FLOOR_LOG_2, NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2};
 use ethereum_consensus::altair::mainnet::SYNC_COMMITTEE_SIZE;
+use ethereum_consensus::altair::{
+    FINALIZED_ROOT_INDEX_FLOOR_LOG_2, NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2,
+};
 use ethereum_consensus::bellatrix::compute_domain;
 use ethereum_consensus::domains::DomainType;
 use ethereum_consensus::primitives::Root;
@@ -35,9 +37,16 @@ impl EthLightClient {
         trusted_state: LightClientState,
         update: LightClientUpdate,
     ) -> Result<LightClientState, Error> {
-        if update.finality_branch.len() != FINALIZED_ROOT_INDEX_FLOOR_LOG_2 as usize &&
-            update.sync_committee_update.is_some() &&
-            update.clone().sync_committee_update.unwrap().next_sync_committee_branch.len() != NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2 as usize {
+        if update.finality_branch.len() != FINALIZED_ROOT_INDEX_FLOOR_LOG_2 as usize
+            && update.sync_committee_update.is_some()
+            && update
+                .clone()
+                .sync_committee_update
+                .unwrap()
+                .next_sync_committee_branch
+                .len()
+                != NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2 as usize
+        {
             Err(Error::InvalidUpdate)?
         }
 

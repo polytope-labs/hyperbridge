@@ -1,9 +1,10 @@
 use super::*;
+use base2::Base2;
 use ethereum_consensus::altair::NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2;
 use light_client_primitives::types::{LightClientState, LightClientUpdate, SyncCommitteeUpdate};
 use light_client_primitives::util::compute_sync_committee_period_at_slot;
 use light_client_verifier::light_client::EthLightClient;
-use ssz_rs::Merkleized;
+use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use std::thread;
 use std::time::Duration;
 use tokio::time;
@@ -103,6 +104,169 @@ async fn fetch_finality_checkpoints_work() {
     let sync_committee_prover = SyncCommitteeProver::new(node_url);
     let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint().await;
     assert!(finality_checkpoint.is_ok());
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[actix_rt::test]
+async fn test_execution_payload_proof() {
+    let node_url: String = "http://localhost:3500".to_string();
+    let sync_committee_prover = SyncCommitteeProver::new(node_url);
+
+    let block_id = "finalized";
+    let finalized_block = sync_committee_prover.fetch_block(block_id).await.unwrap();
+
+    let execution_payload_proof = prove_execution_payload(finalized_block.clone()).unwrap();
+
+    let finalized_header = sync_committee_prover.fetch_header(block_id).await.unwrap();
+
+    // verify the associated execution header of the finalized beacon header.
+    let mut execution_payload = execution_payload_proof.clone();
+    let multi_proof_vec = execution_payload.multi_proof;
+    let multi_proof_nodes = multi_proof_vec
+        .iter()
+        .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+        .collect::<Vec<_>>();
+    let execution_payload_root = calculate_multi_merkle_root(
+        &[
+            Node::from_bytes(execution_payload.state_root.as_ref().try_into().unwrap()),
+            execution_payload.block_number.hash_tree_root().unwrap(),
+        ],
+        &multi_proof_nodes,
+        &[
+            GeneralizedIndex(EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
+            GeneralizedIndex(EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
+        ],
+    );
+
+    println!("execution_payload_root {:?}", execution_payload_root);
+
+    let execution_payload_hash_tree_root = finalized_block
+        .body
+        .execution_payload
+        .clone()
+        .hash_tree_root()
+        .unwrap();
+
+    println!(
+        "execution_payload_hash_tree_root {:?}",
+        execution_payload_hash_tree_root
+    );
+
+    assert_eq!(execution_payload_root, execution_payload_hash_tree_root);
+
+    let execution_payload_branch = execution_payload
+        .execution_payload_branch
+        .iter()
+        .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+        .collect::<Vec<_>>();
+
+    let is_merkle_branch_valid = is_valid_merkle_branch(
+        &execution_payload_root,
+        execution_payload_branch.iter(),
+        EXECUTION_PAYLOAD_INDEX.floor_log2() as usize,
+        EXECUTION_PAYLOAD_INDEX as usize,
+        &Node::from_bytes(
+            finalized_header
+                .clone()
+                .body_root
+                .as_ref()
+                .try_into()
+                .unwrap(),
+        ),
+    );
+
+    assert_eq!(is_merkle_branch_valid, true);
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[actix_rt::test]
+async fn test_finality_proof() {
+    let node_url: String = "http://localhost:3500".to_string();
+    let sync_committee_prover = SyncCommitteeProver::new(node_url);
+
+    let block_id = "finalized";
+    let finalized_block = sync_committee_prover.fetch_block(block_id).await.unwrap();
+
+    let finalized_header = sync_committee_prover.fetch_header(block_id).await.unwrap();
+
+    let attested_header_slot = get_attestation_slots_for_finalized_header(&finalized_header, 6);
+    let finalized_state = sync_committee_prover
+        .fetch_beacon_state(finalized_block.slot.to_string().as_str())
+        .await
+        .unwrap();
+
+    let attested_state = sync_committee_prover
+        .fetch_beacon_state(attested_header_slot.to_string().as_str())
+        .await
+        .unwrap();
+
+    let finality_branch_proof = prove_finalized_header(attested_state.clone()).unwrap();
+
+    let state_period = compute_sync_committee_period_at_slot(finalized_header.slot);
+
+    // purposely for waiting
+    //println!("sleeping");
+    thread::sleep(time::Duration::from_secs(5));
+
+    let mut attested_header = sync_committee_prover
+        .fetch_header(attested_header_slot.to_string().as_str())
+        .await;
+
+    while attested_header.is_err() {
+        println!("I am running till i am ok. lol {}", &block_id);
+        attested_header = sync_committee_prover
+            .fetch_header(attested_header_slot.to_string().as_str())
+            .await;
+    }
+
+    let attested_header = attested_header.unwrap();
+
+    let finality_branch_proof = finality_branch_proof
+        .into_iter()
+        .map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
+        .collect::<Vec<_>>();
+
+    // verify the associated execution header of the finalized beacon header.
+
+    // Verify that the `finality_branch` confirms `finalized_header`
+    // to match the finalized checkpoint root saved in the state of `attested_header`.
+    // Note that the genesis finalized checkpoint root is represented as a zero hash.
+    let finalized_root = &Node::from_bytes(
+        light_client_primitives::util::hash_tree_root(finalized_header.clone())
+            .unwrap()
+            .as_ref()
+            .try_into()
+            .unwrap(),
+    );
+
+    let branch = finality_branch_proof
+        .iter()
+        .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+        .collect::<Vec<_>>();
+
+    println!("finalized_root {:?}", finalized_root.clone());
+
+    let finality_hash_tree_root = finalized_block.clone().hash_tree_root().unwrap();
+
+    assert_eq!(finalized_root, &finality_hash_tree_root);
+
+    println!("finalized_root {:?}", finality_hash_tree_root);
+    let is_merkle_branch_valid = is_valid_merkle_branch(
+        finalized_root,
+        branch.iter(),
+        FINALIZED_ROOT_INDEX.floor_log2() as usize,
+        get_subtree_index(FINALIZED_ROOT_INDEX) as usize,
+        &Node::from_bytes(finalized_header.state_root.as_ref().try_into().unwrap()),
+    );
+
+    println!(
+        "is_merkle_branch_valid {:?}",
+        is_merkle_branch_valid.clone()
+    );
+
+    assert!(is_merkle_branch_valid, "{}", true);
 }
 
 // use tokio interval(should run every 13 minutes)

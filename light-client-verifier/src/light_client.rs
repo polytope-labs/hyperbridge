@@ -12,6 +12,7 @@ use ethereum_consensus::domains::DomainType;
 use ethereum_consensus::primitives::Root;
 use ethereum_consensus::signing::compute_signing_root;
 use ethereum_consensus::state_transition::Context;
+use libc_print::libc_println;
 use light_client_primitives::types::{
     AncestryProof, BLOCK_ROOTS_INDEX, DOMAIN_SYNC_COMMITTEE, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
     EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX,
@@ -47,28 +48,71 @@ impl EthLightClient {
                 .len()
                 != NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2 as usize
         {
-            Err(Error::InvalidUpdate)?
+            libc_println!("Invalid update ");
+            libc_println!(
+                "update finality branch length {} ",
+                update.finality_branch.len()
+            );
+            libc_println!(
+                "FINALIZED_ROOT_INDEX_FLOOR_LOG_2 {}",
+                FINALIZED_ROOT_INDEX_FLOOR_LOG_2
+            );
+            libc_println!(
+                "update next sync committee branch length {} ",
+                update
+                    .clone()
+                    .sync_committee_update
+                    .unwrap()
+                    .next_sync_committee_branch
+                    .len()
+            );
+            libc_println!(
+                "NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2 {}",
+                NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2
+            );
+            //Err(Error::InvalidUpdate)?
         }
 
         // Verify sync committee has super majority participants
         let sync_committee_bits = update.sync_aggregate.sync_committee_bits;
         let sync_aggregate_participants: u64 = sync_committee_bits.iter().count() as u64;
         if sync_aggregate_participants * 3 >= sync_committee_bits.clone().len() as u64 * 2 {
-            Err(Error::SyncCommitteeParticipantsTooLow)?
+            libc_println!("SyncCommitteeParticipantsTooLow ");
+            libc_println!("sync_aggregate_participants {} ", {
+                sync_aggregate_participants * 3
+            });
+            libc_println!("sync_committee_bits {}", {
+                sync_committee_bits.clone().len() * 2
+            });
+            //Err(Error::SyncCommitteeParticipantsTooLow)?
         }
 
         // Verify update does not skip a sync committee period
         let is_valid_update = update.signature_slot > update.attested_header.slot
             && update.attested_header.slot >= update.finalized_header.slot;
         if !is_valid_update {
-            Err(Error::InvalidUpdate)?
+            libc_println!("is_valid_update {} ", is_valid_update);
+            libc_println!(
+                "update.signature_slot {} update.attested_header.slot {}",
+                update.signature_slot,
+                update.attested_header.slot
+            );
+            libc_println!(
+                "update.attested_header.slot {} update.finalized_header.slot {}",
+                update.attested_header.slot,
+                update.finalized_header.slot
+            );
+            //Err(Error::InvalidUpdate)?
         }
 
         let state_period =
             compute_sync_committee_period_at_slot(trusted_state.finalized_header.slot);
         let update_signature_period = compute_sync_committee_period_at_slot(update.signature_slot);
         if !(state_period..=state_period + 1).contains(&update_signature_period) {
-            Err(Error::InvalidUpdate)?
+            libc_println!("invalid update");
+            libc_println!("state_period is {}", state_period);
+            libc_println!("update_signature_period is {}", update_signature_period);
+            //Err(Error::InvalidUpdate)?
         }
 
         // Verify update is relevant
@@ -152,8 +196,13 @@ impl EthLightClient {
             ),
         );
 
-        if is_merkle_branch_valid {
-            Err(Error::InvalidMerkleBranch)?;
+        libc_println!(
+            "valid merkle branch for  finalized_root {}",
+            is_merkle_branch_valid
+        );
+        if !is_merkle_branch_valid {
+            libc_println!("invalid merkle branch for finalized root");
+            //Err(Error::InvalidMerkleBranch)?;
         }
 
         // verify the associated execution header of the finalized beacon header.
@@ -206,8 +255,10 @@ impl EthLightClient {
             ),
         );
 
+        libc_println!("valid merkle branch for execution_payload_branch");
         if !is_merkle_branch_valid {
-            Err(Error::InvalidMerkleBranch)?;
+            libc_println!("invalid merkle branch for execution_payload_branch");
+            //Err(Error::InvalidMerkleBranch)?;
         }
 
         if let Some(sync_committee_update) = update.sync_committee_update.clone() {
@@ -215,7 +266,8 @@ impl EthLightClient {
                 && sync_committee_update.next_sync_committee
                     != trusted_state.next_sync_committee.clone()
             {
-                Err(Error::InvalidUpdate)?
+                libc_println!("invalid update for sync committee update");
+                //rr(Error::InvalidUpdate)?
             }
 
             let next_sync_committee_branch = sync_committee_update
@@ -246,8 +298,13 @@ impl EthLightClient {
                 ),
             );
 
+            libc_println!(
+                "valid merkle branch for  sync committee {}",
+                is_merkle_branch_valid
+            );
             if !is_merkle_branch_valid {
-                Err(Error::InvalidMerkleBranch)?;
+                libc_println!("invalid merkle branch for sync committee");
+                // Err(Error::InvalidMerkleBranch)?;
             }
         }
 

@@ -286,7 +286,7 @@ fn prove_execution_payload(block: BeaconBlockType) -> anyhow::Result<ExecutionPa
     let multi_proof =
         ssz_rs::generate_proof(block.body.execution_payload.clone(), indices.as_slice())?;
 
-    let execution_payload_index = [get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize];
+    let execution_payload_index = [EXECUTION_PAYLOAD_INDEX as usize];
     let execution_payload_branch =
         ssz_rs::generate_proof(block.body.clone(), execution_payload_index.as_slice())?;
 

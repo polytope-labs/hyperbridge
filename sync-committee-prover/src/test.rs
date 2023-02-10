@@ -165,7 +165,7 @@ async fn test_execution_payload_proof() {
         &execution_payload_root,
         execution_payload_branch.iter(),
         EXECUTION_PAYLOAD_INDEX.floor_log2() as usize,
-        EXECUTION_PAYLOAD_INDEX as usize,
+        GeneralizedIndex(EXECUTION_PAYLOAD_INDEX as usize).0,
         &Node::from_bytes(
             finalized_header
                 .clone()
@@ -267,6 +267,147 @@ async fn test_finality_proof() {
     );
 
     assert!(is_merkle_branch_valid, "{}", true);
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[actix_rt::test]
+async fn test_sync_committee_proof() {
+    let mut stream = IntervalStream::new(time::interval(Duration::from_secs(160)));
+
+    let node_url: String = "http://localhost:3500".to_string();
+    let sync_committee_prover = SyncCommitteeProver::new(node_url);
+
+    let finality_checkpoint = sync_committee_prover
+        .fetch_finalized_checkpoint()
+        .await
+        .unwrap();
+    dbg!(&finality_checkpoint.root);
+
+    let block_id = {
+        let mut block_id = hex::encode(finality_checkpoint.root.as_bytes());
+        block_id.insert_str(0, "0x");
+        block_id
+    };
+
+    dbg!(&block_id);
+
+    let block_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
+
+    let state = sync_committee_prover
+        .fetch_beacon_state(&block_header.slot.to_string())
+        .await
+        .unwrap();
+
+    let mut client_state = LightClientState {
+        finalized_header: block_header.clone(),
+        current_sync_committee: state.current_sync_committee,
+        next_sync_committee: state.next_sync_committee,
+    };
+
+    while let Some(_ts) = stream.next().await {
+        let block_id = "finalized";
+        let finalized_block = sync_committee_prover.fetch_block(block_id).await.unwrap();
+
+        let finalized_header = sync_committee_prover.fetch_header(block_id).await.unwrap();
+
+        let attested_header_slot = get_attestation_slots_for_finalized_header(&finalized_header, 6);
+        let finalized_state = sync_committee_prover
+            .fetch_beacon_state(finalized_block.slot.to_string().as_str())
+            .await
+            .unwrap();
+
+        let attested_state = sync_committee_prover
+            .fetch_beacon_state(attested_header_slot.to_string().as_str())
+            .await
+            .unwrap();
+
+        let state_period = compute_sync_committee_period_at_slot(finalized_header.slot);
+
+        // purposely for waiting
+        //println!("sleeping");
+        thread::sleep(time::Duration::from_secs(5));
+
+        let mut attested_header = sync_committee_prover
+            .fetch_header(attested_header_slot.to_string().as_str())
+            .await;
+
+        while attested_header.is_err() {
+            println!("I am running till i am ok. lol {}", &block_id);
+            attested_header = sync_committee_prover
+                .fetch_header(attested_header_slot.to_string().as_str())
+                .await;
+        }
+
+        let attested_header = attested_header.unwrap();
+
+        let update_attested_period = compute_sync_committee_period_at_slot(attested_header_slot);
+
+        let sync_committee_update = if state_period == attested_header_slot {
+            println!("sync committee present");
+            let sync_committee_proof = prove_sync_committee_update(attested_state).unwrap();
+
+            let sync_committee_proof = sync_committee_proof
+                .into_iter()
+                .map(|node| {
+                    Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice")
+                })
+                .collect::<Vec<_>>();
+
+            let sync_committee = sync_committee_prover
+                .fetch_processed_sync_committee(attested_header.slot.to_string().as_str())
+                .await
+                .unwrap();
+
+            Some(SyncCommitteeUpdate {
+                next_sync_committee: sync_committee,
+                next_sync_committee_branch: sync_committee_proof,
+            })
+        } else {
+            println!("No sync committee present");
+            None
+        };
+
+        if let Some(sync_committee_update) = sync_committee_update.clone() {
+            if update_attested_period == state_period
+                && sync_committee_update.next_sync_committee
+                    != client_state.next_sync_committee.clone()
+            {
+                println!("invalid update for sync committee update");
+                //rr(Error::InvalidUpdate)?
+            }
+
+            let next_sync_committee_branch = sync_committee_update
+                .next_sync_committee_branch
+                .iter()
+                .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+                .collect::<Vec<_>>();
+            let is_merkle_branch_valid = is_valid_merkle_branch(
+                &Node::from_bytes(
+                    light_client_primitives::util::hash_tree_root(
+                        sync_committee_update.next_sync_committee,
+                    )
+                    .unwrap()
+                    .as_ref()
+                    .try_into()
+                    .unwrap(),
+                ),
+                next_sync_committee_branch.iter(),
+                NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize,
+                NEXT_SYNC_COMMITTEE_INDEX as usize,
+                &Node::from_bytes(attested_header.state_root.as_ref().try_into().unwrap()),
+            );
+
+            println!(
+                "valid merkle branch for  sync committee {}",
+                is_merkle_branch_valid
+            );
+            if !is_merkle_branch_valid {
+                println!("invalid merkle branch for sync committee");
+                // Err(Error::InvalidMerkleBranch)?;
+            }
+        }
+    }
 }
 
 // use tokio interval(should run every 13 minutes)

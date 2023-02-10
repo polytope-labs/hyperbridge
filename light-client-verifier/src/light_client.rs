@@ -185,7 +185,7 @@ impl EthLightClient {
             finalized_root,
             branch.iter(),
             FINALIZED_ROOT_INDEX.floor_log2() as usize,
-            get_subtree_index(FINALIZED_ROOT_INDEX) as usize,
+            FINALIZED_ROOT_INDEX as usize,
             &Node::from_bytes(
                 update
                     .attested_header
@@ -243,7 +243,7 @@ impl EthLightClient {
             &execution_payload_root,
             execution_payload_branch.iter(),
             EXECUTION_PAYLOAD_INDEX.floor_log2() as usize,
-            get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize,
+            EXECUTION_PAYLOAD_INDEX as usize,
             &Node::from_bytes(
                 update
                     .finalized_header
@@ -342,7 +342,7 @@ impl EthLightClient {
                         &block_roots_root,
                         block_roots_branch_node.iter(),
                         BLOCK_ROOTS_INDEX.floor_log2() as usize,
-                        get_subtree_index(BLOCK_ROOTS_INDEX) as usize,
+                        BLOCK_ROOTS_INDEX as usize,
                         &Node::from_bytes(
                             update
                                 .finalized_header
@@ -465,7 +465,7 @@ impl EthLightClient {
                 &execution_payload_root,
                 execution_payload_branch.iter(),
                 EXECUTION_PAYLOAD_INDEX.floor_log2() as usize,
-                get_subtree_index(EXECUTION_PAYLOAD_INDEX) as usize,
+                EXECUTION_PAYLOAD_INDEX as usize,
                 &Node::from_bytes(
                     ancestor
                         .header

@@ -32,7 +32,9 @@ use light_client_primitives::types::{
     NEXT_SYNC_COMMITTEE_INDEX,
 };
 use light_client_primitives::util::get_subtree_index;
-use ssz_rs::{Bitlist, List, Node, Vector};
+use ssz_rs::{
+    get_generalized_index, Bitlist, GeneralizedIndex, List, Node, SszVariableOrIndex, Vector,
+};
 
 type BeaconBlockType = BeaconBlock<
     MAX_PROPOSER_SLASHINGS,
@@ -286,7 +288,7 @@ fn prove_execution_payload(block: BeaconBlockType) -> anyhow::Result<ExecutionPa
     let multi_proof =
         ssz_rs::generate_proof(block.body.execution_payload.clone(), indices.as_slice())?;
 
-    let execution_payload_index = [EXECUTION_PAYLOAD_INDEX as usize];
+    let execution_payload_index = [GeneralizedIndex(EXECUTION_PAYLOAD_INDEX as usize).0];
     let execution_payload_branch =
         ssz_rs::generate_proof(block.body.clone(), execution_payload_index.as_slice())?;
 
@@ -305,14 +307,14 @@ fn prove_execution_payload(block: BeaconBlockType) -> anyhow::Result<ExecutionPa
 }
 
 fn prove_sync_committee_update(state: BeaconStateType) -> anyhow::Result<Vec<Node>> {
-    let indices = vec![get_subtree_index(NEXT_SYNC_COMMITTEE_INDEX) as usize];
+    let indices = vec![NEXT_SYNC_COMMITTEE_INDEX as usize];
     let proof = ssz_rs::generate_proof(state.clone(), indices.as_slice())?;
 
     Ok(proof)
 }
 
 fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<Vec<Node>> {
-    let indices = vec![get_subtree_index(FINALIZED_ROOT_INDEX) as usize];
+    let indices = [FINALIZED_ROOT_INDEX as usize]; //vec![get_subtree_index(FINALIZED_ROOT_INDEX) as usize];
     let proof = ssz_rs::generate_proof(state.clone(), indices.as_slice())?;
 
     Ok(proof)

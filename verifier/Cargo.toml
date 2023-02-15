@@ -1,13 +1,13 @@
 [package]
-name = "light-client-primitives"
+name = "sync-committee-verifier"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-base2 = {version="0.2.2", default-features=false}
+base2 = { version="0.2.2", default-features = false }
+sync-committee-primitives = { path= "../primitives", default-features = false }
 ethereum-consensus = { git = "https://github.com/polytope-labs/ethereum-consensus", branch="dami/no-std-support" }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch="dami/seun-multi-proofs", default-features=false, features=["serde", "std"] }
-hex-literal = { package = "hex-literal", version = "0.3.3" }
+milagro_bls = { git = "https://github.com/sigp/milagro_bls", default-features = false }
+log = "0.4.17"

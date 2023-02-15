@@ -299,17 +299,14 @@ async fn test_sync_committee_proof() {
         .await
         .unwrap();
 
-    let mut client_state = LightClientState {
-        finalized_header: block_header.clone(),
-        current_sync_committee: state.current_sync_committee,
-        next_sync_committee: state.next_sync_committee,
-    };
-
-    let block_id = "finalized";
+    let block_id = "head";
     let mut finalized_block = sync_committee_prover.fetch_block(block_id).await;
 
     while finalized_block.is_err() {
-        println!("I am running finalized block till i am ok. lol {}", &block_id);
+        println!(
+            "I am running finalized block till i am ok. lol {}",
+            &block_id
+        );
         finalized_block = sync_committee_prover.fetch_block(block_id).await;
     }
 
@@ -317,94 +314,89 @@ async fn test_sync_committee_proof() {
 
     let finalized_header = sync_committee_prover.fetch_header(block_id).await.unwrap();
 
-    let attested_header_slot = get_attestation_slots_for_finalized_header(&finalized_header, 6);
     let finalized_state = sync_committee_prover
         .fetch_beacon_state(finalized_block.slot.to_string().as_str())
         .await
         .unwrap();
 
-    let attested_state = sync_committee_prover
-        .fetch_beacon_state(attested_header_slot.to_string().as_str())
-        .await
-        .unwrap();
-
-    let state_period = compute_sync_committee_period_at_slot(finalized_header.slot);
-
-    // purposely for waiting
-    //println!("sleeping");
-    thread::sleep(time::Duration::from_secs(5));
-
-    let mut attested_header = sync_committee_prover
-        .fetch_header(attested_header_slot.to_string().as_str())
-        .await;
-
-    while attested_header.is_err() {
-        println!("I am running till i am ok. lol {}", &block_id);
-        attested_header = sync_committee_prover
-            .fetch_header(attested_header_slot.to_string().as_str())
-            .await;
-    }
-
-    let attested_header = attested_header.unwrap();
-
-    let update_attested_period = compute_sync_committee_period_at_slot(attested_header_slot);
-
-    let sync_committee_proof = prove_sync_committee_update(attested_state).unwrap();
+    let sync_committee_proof = prove_sync_committee_update(finalized_state.clone()).unwrap();
 
     let sync_committee_proof = sync_committee_proof
         .into_iter()
         .map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
         .collect::<Vec<_>>();
-
     let mut sync_committee = sync_committee_prover
-        .fetch_processed_sync_committee(attested_header.slot.to_string().as_str())
+        .fetch_processed_sync_committee(finalized_header.slot.to_string().as_str())
         .await;
 
     while sync_committee.is_err() {
-        println!("I am fetching sync committee till i am ok. lol {}", &block_id);
+        println!(
+            "I am fetching sync committee till i am ok. lol {}",
+            &block_id
+        );
         sync_committee = sync_committee_prover
-            .fetch_processed_sync_committee(attested_header.slot.to_string().as_str())
+            .fetch_processed_sync_committee(finalized_header.slot.to_string().as_str())
             .await;
     }
 
     let sync_committee = sync_committee.unwrap();
 
-    let sync_committee_update = Some(SyncCommitteeUpdate {
-        next_sync_committee: sync_committee,
-        next_sync_committee_branch: sync_committee_proof,
-    });
-
-    if let Some(sync_committee_update) = sync_committee_update.clone() {
-        let next_sync_committee_branch = sync_committee_update
-            .next_sync_committee_branch
+    let calculated_finalized_root = calculate_multi_merkle_root(
+        &[
+            Node::from_bytes(
+                light_client_primitives::util::hash_tree_root(
+                    sync_committee.clone(),
+                )
+                    .unwrap()
+                    .as_ref()
+                    .try_into()
+                    .unwrap(),
+            ),
+        ],
+        &sync_committee_proof
             .iter()
             .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-            .collect::<Vec<_>>();
-        let is_merkle_branch_valid = is_valid_merkle_branch(
-            &Node::from_bytes(
-                light_client_primitives::util::hash_tree_root(
-                    sync_committee_update.next_sync_committee,
-                )
-                .unwrap()
-                .as_ref()
-                .try_into()
-                .unwrap(),
-            ),
-            next_sync_committee_branch.iter(),
-            NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize,
-            NEXT_SYNC_COMMITTEE_INDEX as usize,
-            &Node::from_bytes(attested_header.state_root.as_ref().try_into().unwrap()),
-        );
+            .collect::<Vec<_>>(),
+        &[
+            GeneralizedIndex(NEXT_SYNC_COMMITTEE_INDEX as usize),
+        ],
+    );
 
-        println!(
-            "valid merkle branch for  sync committee {}",
-            is_merkle_branch_valid
-        );
-        if !is_merkle_branch_valid {
-            //println!("invalid merkle branch for sync committee");
-            // Err(Error::InvalidMerkleBranch)?;
-        }
-    }
+    let hash_tree_root = finalized_state
+        .clone()
+        .hash_tree_root()
+        .unwrap();
+
+    println!("calculated_finalized_root {:?}", calculated_finalized_root);
+    println!("finalized_state_root {:?}", finalized_header.state_root);
+    println!("hash_tree_root {:?}", hash_tree_root);
+
+
+    let next_sync_committee_branch = sync_committee_proof
+        .iter()
+        .map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
+        .collect::<Vec<_>>();
+    let is_merkle_branch_valid = is_valid_merkle_branch(
+        &Node::from_bytes(
+            light_client_primitives::util::hash_tree_root(
+                sync_committee.clone(),
+            )
+            .unwrap()
+            .as_ref()
+            .try_into()
+            .unwrap(),
+        ),
+        next_sync_committee_branch.iter(),
+        NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize,
+        NEXT_SYNC_COMMITTEE_INDEX as usize,
+        &Node::from_bytes(finalized_header.state_root.as_ref().try_into().unwrap()),
+    );
+
+    println!(
+        "valid merkle branch for  sync committee {}",
+        is_merkle_branch_valid
+    );
+    assert!(is_merkle_branch_valid, "{}", true);
 }
 
 // use tokio interval(should run every 13 minutes)

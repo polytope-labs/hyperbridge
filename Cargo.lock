@@ -96,7 +96,16 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd838cfd751f573f3ce2c7a959df55eed90f5cbdcfbacd1acf77eaffd51daa8c"
 dependencies = [
- "int",
+ "int 0.2.11",
+]
+
+[[package]]
+name = "base2"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0d6cf42565b8bd996c9f583069619124475caa645d598d75918923b240409be"
+dependencies = [
+ "int 0.3.0",
 ]
 
 [[package]]
@@ -690,6 +699,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "int"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d64bb35c7fc709fa8934dd85f3d0c0e418a3b067e62e6c6041dd19519c0899b"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "integer-sqrt"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -760,37 +778,6 @@ name = "libc"
 version = "0.2.139"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "201de327520df007757c1f0adce6e827fe8562fbc28bfd9c15571c66ca1f5f79"
-
-[[package]]
-name = "libc-print"
-version = "0.1.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a574491aebd99996f31b32469bbd3b50e580c35f6305663d68f6d6b28eaced09"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "light-client-primitives"
-version = "0.1.0"
-dependencies = [
- "base2",
- "ethereum-consensus",
- "hex-literal",
- "ssz-rs",
-]
-
-[[package]]
-name = "light-client-verifier"
-version = "0.1.0"
-dependencies = [
- "base2",
- "ethereum-consensus",
- "libc-print",
- "light-client-primitives",
- "milagro_bls",
- "ssz-rs",
-]
 
 [[package]]
 name = "lock_api"
@@ -1477,23 +1464,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "sync-committee-primitives"
+version = "0.1.0"
+dependencies = [
+ "base2 0.3.1",
+ "ethereum-consensus",
+ "hex-literal",
+ "ssz-rs",
+]
+
+[[package]]
 name = "sync-committee-prover"
 version = "0.1.0"
 dependencies = [
  "actix-rt",
  "anyhow",
  "async-stream",
- "base2",
+ "base2 0.2.2",
  "ethereum-consensus",
  "hex",
- "light-client-primitives",
- "light-client-verifier",
  "reqwest",
  "serde",
  "serde_json",
  "ssz-rs",
+ "sync-committee-primitives",
+ "sync-committee-verifier",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "sync-committee-verifier"
+version = "0.1.0"
+dependencies = [
+ "base2 0.2.2",
+ "ethereum-consensus",
+ "log",
+ "milagro_bls",
+ "ssz-rs",
+ "sync-committee-primitives",
 ]
 
 [[package]]

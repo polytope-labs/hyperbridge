@@ -160,6 +160,8 @@ async fn test_execution_payload_proof() {
 		&Node::from_bytes(finalized_header.clone().body_root.as_ref().try_into().unwrap()),
 	);
 
+
+
 	assert_eq!(is_merkle_branch_valid, true);
 }
 
@@ -354,6 +356,20 @@ async fn test_sync_committee_proof() {
 
 	println!("valid merkle branch for  sync committee {}", is_merkle_branch_valid);
 	assert!(is_merkle_branch_valid, "{}", true);
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[actix_rt::test]
+async fn test_finalized_header() {
+	let node_url: String = "http://localhost:3500".to_string();
+	let sync_committee_prover = SyncCommitteeProver::new(node_url);
+	let state = sync_committee_prover.fetch_beacon_state("finalized").await.unwrap();
+	let proof = ssz_rs::generate_proof(state, vec![FINALIZED_ROOT_INDEX]);
+
+	let leaves = vec![Node::from_bytes(state.finalized_checkpoint.hash_tree_root().unwrap().as_ref().try_into().unwrap())];
+	let root = calculate_multi_merkle_root(&leaves, &proof, vec![FINALIZED_ROOT_INDEX]);
+	assert_eq!(root, state.hash_tree_root());
 }
 
 // use tokio interval(should run every 13 minutes)

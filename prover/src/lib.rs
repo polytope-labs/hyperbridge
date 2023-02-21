@@ -29,14 +29,6 @@ use ethereum_consensus::{
 	},
 	primitives::{Bytes32, Slot, ValidatorIndex},
 };
-use light_client_primitives::{
-	types::{
-		BlockRootsProof, ExecutionPayloadProof, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
-		EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX,
-		NEXT_SYNC_COMMITTEE_INDEX,
-	},
-	util::get_subtree_index,
-};
 use ssz_rs::{GeneralizedIndex, List, Node, Vector};
 use sync_committee_primitives::{
 	types::{

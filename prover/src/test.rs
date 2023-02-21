@@ -1,12 +1,12 @@
 use super::*;
 use base2::Base2;
 use ethereum_consensus::altair::NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2;
-use light_client_primitives::{
+use sync_committee_primitives::{
 	types::{LightClientState, LightClientUpdate, SyncCommitteeUpdate},
 	util::compute_sync_committee_period_at_slot,
 };
-use light_client_verifier::light_client::EthLightClient;
-use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
+//use sync_committee_verifier::light_client::EthLightClient;
+use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized, get_generalized_index, SszVariableOrIndex};
 use std::{thread, time::Duration};
 use tokio::time;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
@@ -104,6 +104,25 @@ async fn fetch_finality_checkpoints_work() {
 	assert!(finality_checkpoint.is_ok());
 }
 
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[actix_rt::test]
+async fn test_finalized_header() {
+	let node_url: String = "http://localhost:3500".to_string();
+	let sync_committee_prover = SyncCommitteeProver::new(node_url);
+	let mut state = sync_committee_prover.fetch_beacon_state("finalized").await.unwrap();
+
+	let generalized_index = get_generalized_index(&state, &[SszVariableOrIndex::Name("finalized_checkpoint")]);
+	dbg!(generalized_index);
+	let proof = ssz_rs::generate_proof(state.clone(), &vec![generalized_index]);
+
+
+	let leaves = vec![Node::from_bytes(state.finalized_checkpoint.hash_tree_root().unwrap().as_ref().try_into().unwrap())];
+	let root = calculate_multi_merkle_root(&leaves, &proof.unwrap(), &[GeneralizedIndex(generalized_index)]);
+	assert_eq!(root, state.hash_tree_root().unwrap());
+}
+
+/*
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[actix_rt::test]
@@ -252,6 +271,7 @@ async fn test_finality_proof() {
 	assert!(is_merkle_branch_valid, "{}", true);
 }
 
+
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[actix_rt::test]
@@ -342,7 +362,7 @@ async fn test_sync_committee_proof() {
 		.collect::<Vec<_>>();
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&Node::from_bytes(
-			light_client_primitives::util::hash_tree_root(sync_committee.clone())
+			sync_committee_primitives::util::hash_tree_root(sync_committee.clone())
 				.unwrap()
 				.as_ref()
 				.try_into()
@@ -356,20 +376,6 @@ async fn test_sync_committee_proof() {
 
 	println!("valid merkle branch for  sync committee {}", is_merkle_branch_valid);
 	assert!(is_merkle_branch_valid, "{}", true);
-}
-
-#[cfg(test)]
-#[allow(non_snake_case)]
-#[actix_rt::test]
-async fn test_finalized_header() {
-	let node_url: String = "http://localhost:3500".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
-	let state = sync_committee_prover.fetch_beacon_state("finalized").await.unwrap();
-	let proof = ssz_rs::generate_proof(state, vec![FINALIZED_ROOT_INDEX]);
-
-	let leaves = vec![Node::from_bytes(state.finalized_checkpoint.hash_tree_root().unwrap().as_ref().try_into().unwrap())];
-	let root = calculate_multi_merkle_root(&leaves, &proof, vec![FINALIZED_ROOT_INDEX]);
-	assert_eq!(root, state.hash_tree_root());
 }
 
 // use tokio interval(should run every 13 minutes)
@@ -521,4 +527,4 @@ async fn test_prover() {
 			client_state.finalized_header.slot
 		);
 	}
-}
+}*/

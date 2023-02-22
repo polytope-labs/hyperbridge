@@ -31,8 +31,6 @@ use sync_committee_primitives::{
 		get_subtree_index, hash_tree_root,
 	},
 };
-// use sync_committee_primitives::types::{FINALIZED_ROOT_INDEX_FLOOR_LOG_2,
-// NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2};
 
 pub type LightClientState = sync_committee_primitives::types::LightClientState<SYNC_COMMITTEE_SIZE>;
 pub type LightClientUpdate =

@@ -6,11 +6,13 @@ use sync_committee_primitives::{
 	util::compute_sync_committee_period_at_slot,
 };
 
+use ethereum_consensus::bellatrix::mainnet::HistoricalBatch;
 use ssz_rs::{
 	calculate_multi_merkle_root, get_generalized_index, is_valid_merkle_branch, GeneralizedIndex,
 	Merkleized, SszVariableOrIndex,
 };
 use std::{thread, time::Duration};
+use sync_committee_verifier::verify_sync_committee_attestation;
 use tokio::time;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
@@ -247,153 +249,115 @@ async fn test_sync_committee_update_proof() {
 	assert!(is_merkle_branch_valid);
 }
 
-// use tokio interval(should run every 13 minutes)
-// every 13 minutes, fetch latest finalized block
-// then prove the execution payload
-// prove the finality branch
+// todo: cloning the beacon state might expensive in production or testnet, if we can modify
+// generate_proof function take a reference for the object that would be better.
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[actix_rt::test]
+async fn test_prover() {
+	let mut stream = IntervalStream::new(time::interval(Duration::from_secs(12 * 64)));
 
-// prove sync committee if there is a sync committee update
-// to prove sync comnmittee update, calculate state_period and the update_attested_period
-// ensure they are  the same, and then prove sync committee
+	let node_url: String = "http://127.0.0.1:5052".to_string();
+	let sync_committee_prover = SyncCommitteeProver::new(node_url);
 
-// #[cfg(test)]
-// #[allow(non_snake_case)]
-// #[actix_rt::test]
-// async fn test_prover() {
-// 	// In test config an epoch is 6 slots and we expect finalization every two epochs,
-// 	// a slot is 12 seconds so that brings us to 144 seconds
-// 	let mut stream = IntervalStream::new(time::interval(Duration::from_secs(160)));
-//
-// 	let node_url: String = "http://127.0.0.1:5052".to_string();
-// 	let sync_committee_prover = SyncCommitteeProver::new(node_url);
-//
-// 	let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint().await.unwrap();
-// 	dbg!(&finality_checkpoint.root);
-//
-// 	let block_id = {
-// 		let mut block_id = hex::encode(finality_checkpoint.root.as_bytes());
-// 		block_id.insert_str(0, "0x");
-// 		block_id
-// 	};
-//
-// 	dbg!(&block_id);
-//
-// 	let block_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
-//
-// 	let state = sync_committee_prover
-// 		.fetch_beacon_state(&block_header.slot.to_string())
-// 		.await
-// 		.unwrap();
-//
-// 	let mut client_state = LightClientState {
-// 		finalized_header: block_header.clone(),
-// 		current_sync_committee: state.current_sync_committee,
-// 		next_sync_committee: state.next_sync_committee,
-// 	};
-//
-// 	while let Some(_ts) = stream.next().await {
-// 		let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint().await.unwrap();
-// 		dbg!(&finality_checkpoint.root);
-// 		let block_id = {
-// 			let mut block_id = hex::encode(finality_checkpoint.root.as_bytes());
-// 			block_id.insert_str(0, "0x");
-// 			block_id
-// 		};
-//
-// 		dbg!(&block_id);
-// 		let finalized_block = sync_committee_prover.fetch_block(&block_id).await.unwrap();
-//
-// 		if finalized_block.slot <= client_state.finalized_header.slot {
-// 			println!("finalized_block slot is {}", &finalized_block.slot);
-// 			println!("finalized_header slot is {}", &client_state.finalized_header.slot);
-// 			continue
-// 		}
-//
-// 		let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
-//
-// 		let execution_payload_proof = prove_execution_payload(finalized_block.clone()).unwrap();
-//
-// 		let attested_header_slot = get_attestation_slots_for_finalized_header(&finalized_header, 6);
-// 		let finalized_state = sync_committee_prover
-// 			.fetch_beacon_state(finalized_block.slot.to_string().as_str())
-// 			.await
-// 			.unwrap();
-//
-// 		let attested_state = sync_committee_prover
-// 			.fetch_beacon_state(attested_header_slot.to_string().as_str())
-// 			.await
-// 			.unwrap();
-//
-// 		let finality_branch_proof = prove_finalized_header(attested_state.clone()).unwrap();
-// 		let finality_branch_proof = finality_branch_proof
-// 			.into_iter()
-// 			.map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
-// 			.collect::<Vec<_>>();
-//
-// 		let state_period = compute_sync_committee_period_at_slot(finalized_header.slot);
-//
-// 		// purposely for waiting
-// 		//println!("sleeping");
-// 		thread::sleep(time::Duration::from_secs(5));
-//
-// 		let mut attested_header = sync_committee_prover
-// 			.fetch_header(attested_header_slot.to_string().as_str())
-// 			.await;
-//
-// 		while attested_header.is_err() {
-// 			println!("I am running till i am ok. lol {}", &block_id);
-// 			attested_header = sync_committee_prover
-// 				.fetch_header(attested_header_slot.to_string().as_str())
-// 				.await;
-// 		}
-//
-// 		let attested_header = attested_header.unwrap();
-//
-// 		let update_attested_period = compute_sync_committee_period_at_slot(attested_header_slot);
-//
-// 		let sync_committee_update = if state_period == attested_header_slot {
-// 			let sync_committee_proof = prove_sync_committee_update(attested_state).unwrap();
-//
-// 			let sync_committee_proof = sync_committee_proof
-// 				.into_iter()
-// 				.map(|node| {
-// 					Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice")
-// 				})
-// 				.collect::<Vec<_>>();
-//
-// 			let sync_committee = sync_committee_prover
-// 				.fetch_processed_sync_committee(attested_header.slot.to_string().as_str())
-// 				.await
-// 				.unwrap();
-//
-// 			Some(SyncCommitteeUpdate {
-// 				next_sync_committee: sync_committee,
-// 				next_sync_committee_branch: sync_committee_proof,
-// 			})
-// 		} else {
-// 			None
-// 		};
-//
-// 		// construct light client
-// 		let light_client_update = LightClientUpdate {
-// 			attested_header,
-// 			sync_committee_update,
-// 			finalized_header,
-// 			execution_payload: execution_payload_proof,
-// 			finality_branch: finality_branch_proof,
-// 			sync_aggregate: finalized_block.body.sync_aggregate,
-// 			signature_slot: attested_header_slot,
-// 			ancestor_blocks: vec![],
-// 		};
-//
-// 		client_state = EthLightClient::verify_sync_committee_attestation(
-// 			client_state.clone(),
-// 			light_client_update,
-// 		)
-// 		.unwrap();
-// 		println!(
-// 			"Sucessfully verified Ethereum block at slot {:?}",
-// 			client_state.finalized_header.slot
-// 		);
-// 	}
-// }
+	let block_id = "head";
+
+	let block_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
+
+	let state = sync_committee_prover
+		.fetch_beacon_state(&block_header.slot.to_string())
+		.await
+		.unwrap();
+
+	let mut client_state = LightClientState {
+		finalized_header: block_header.clone(),
+		current_sync_committee: state.current_sync_committee,
+		next_sync_committee: state.next_sync_committee,
+	};
+
+	while let Some(_ts) = stream.next().await {
+		let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint().await.unwrap();
+		if finality_checkpoint.finalized.root == Node::default() ||
+			finality_checkpoint.finalized.epoch <=
+				compute_epoch_at_slot(client_state.finalized_header.slot)
+		{
+			continue
+		}
+
+		println!("A new epoch has been finalized {}", finality_checkpoint.finalized.epoch);
+
+		let block_id = {
+			let mut block_id = hex::encode(finality_checkpoint.finalized.root.as_bytes());
+			block_id.insert_str(0, "0x");
+			block_id
+		};
+
+		let finalized_block = sync_committee_prover.fetch_block(&block_id).await.unwrap();
+		let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
+		let finalized_state = sync_committee_prover
+			.fetch_beacon_state(finalized_header.slot.to_string().as_str())
+			.await
+			.unwrap();
+		let execution_payload_proof = prove_execution_payload(finalized_state.clone()).unwrap();
+
+		let attested_block_id = {
+			let mut block_id = hex::encode(finality_checkpoint.current_justified.root.as_bytes());
+			block_id.insert_str(0, "0x");
+			block_id
+		};
+
+		let attested_block_header =
+			sync_committee_prover.fetch_header(&attested_block_id).await.unwrap();
+
+		let attested_state = sync_committee_prover
+			.fetch_beacon_state(attested_block_header.slot.to_string().as_str())
+			.await
+			.unwrap();
+
+		let finality_branch_proof = prove_finalized_header(attested_state.clone()).unwrap();
+
+		let state_period = compute_sync_committee_period_at_slot(finalized_header.slot);
+
+		let update_attested_period =
+			compute_sync_committee_period_at_slot(attested_block_header.slot);
+
+		let sync_committee_update = if state_period == attested_block_header.slot {
+			let sync_committee_proof = prove_sync_committee_update(attested_state.clone()).unwrap();
+
+			let sync_committee_proof = sync_committee_proof
+				.into_iter()
+				.map(|node| {
+					Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice")
+				})
+				.collect::<Vec<_>>();
+
+			Some(SyncCommitteeUpdate {
+				next_sync_committee: attested_state.next_sync_committee,
+				next_sync_committee_branch: sync_committee_proof,
+			})
+		} else {
+			None
+		};
+
+		let signature_slot = attested_block_header.slot;
+		// construct light client
+		let light_client_update = LightClientUpdate {
+			attested_header: attested_block_header,
+			sync_committee_update,
+			finalized_header,
+			execution_payload: execution_payload_proof,
+			finality_proof: finality_branch_proof,
+			sync_aggregate: finalized_block.body.sync_aggregate,
+			signature_slot,
+			// todo: Prove some ancestry blocks
+			ancestor_blocks: vec![],
+		};
+
+		client_state =
+			verify_sync_committee_attestation(client_state.clone(), light_client_update).unwrap();
+		println!(
+			"Sucessfully verified Ethereum block at slot {:?}",
+			client_state.finalized_header.slot
+		);
+	}
+}

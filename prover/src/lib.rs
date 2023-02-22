@@ -14,7 +14,13 @@ use ethereum_consensus::{
 };
 use reqwest::Client;
 
-use crate::{responses::sync_committee_response::NodeSyncCommittee, routes::*};
+use crate::{
+	responses::{
+		finality_checkpoint_response::FinalityCheckpoint,
+		sync_committee_response::NodeSyncCommittee,
+	},
+	routes::*,
+};
 use ethereum_consensus::{
 	bellatrix::mainnet::{
 		BYTES_PER_LOGS_BLOOM, MAX_BYTES_PER_TRANSACTION, MAX_EXTRA_DATA_BYTES,
@@ -24,19 +30,21 @@ use ethereum_consensus::{
 	phase0::mainnet::{
 		EPOCHS_PER_HISTORICAL_VECTOR, EPOCHS_PER_SLASHINGS_VECTOR, ETH1_DATA_VOTES_BOUND,
 		HISTORICAL_ROOTS_LIMIT, MAX_ATTESTATIONS, MAX_ATTESTER_SLASHINGS, MAX_DEPOSITS,
-		MAX_PROPOSER_SLASHINGS, MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS,
+		MAX_PROPOSER_SLASHINGS, MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS, SLOTS_PER_EPOCH,
 		SLOTS_PER_HISTORICAL_ROOT, VALIDATOR_REGISTRY_LIMIT,
 	},
 	primitives::{BlsPublicKey, Bytes32, Hash32, Slot, ValidatorIndex},
 };
-use ssz_rs::{get_generalized_index, GeneralizedIndex, List, Node, SszVariableOrIndex, Vector};
+use ssz_rs::{
+	get_generalized_index, GeneralizedIndex, List, Merkleized, Node, SszVariableOrIndex, Vector,
+};
 use sync_committee_primitives::{
 	types::{
-		BlockRootsProof, ExecutionPayloadProof, FinalityProof,
+		AncestryProof, BlockRootsProof, ExecutionPayloadProof, FinalityProof, BLOCK_ROOTS_INDEX,
 		EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
 		EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
 	},
-	util::get_subtree_index,
+	util::{compute_epoch_at_slot, get_subtree_index},
 };
 
 type BeaconBlockType = BeaconBlock<
@@ -94,13 +102,13 @@ impl SyncCommitteeProver {
 		SyncCommitteeProver { node_url, client }
 	}
 
-	pub async fn fetch_finalized_checkpoint(&self) -> Result<Checkpoint, reqwest::Error> {
+	pub async fn fetch_finalized_checkpoint(&self) -> Result<FinalityCheckpoint, reqwest::Error> {
 		let full_url = self.generate_route(&finality_checkpoints("head"));
 		let response = self.client.get(full_url).send().await?;
 
 		let response_data =
 			response.json::<responses::finality_checkpoint_response::Response>().await?;
-		Ok(response_data.data.finalized)
+		Ok(response_data.data)
 	}
 
 	pub async fn fetch_header(&self, block_id: &str) -> Result<BeaconBlockHeader, reqwest::Error> {
@@ -258,22 +266,6 @@ fn get_attestation_slots_for_finalized_header(
 	attested_slot
 }
 
-fn prove_beacon_state_values(
-	data: BeaconStateType,
-	indices: &[usize],
-) -> anyhow::Result<Vec<Node>> {
-	let proof = ssz_rs::generate_proof(data, indices)?;
-	Ok(proof)
-}
-
-fn prove_beacon_block_values(
-	data: BeaconBlockType,
-	indices: &[usize],
-) -> anyhow::Result<Vec<Node>> {
-	let proof = ssz_rs::generate_proof(data, indices)?;
-	Ok(proof)
-}
-
 fn prove_execution_payload(beacon_state: BeaconStateType) -> anyhow::Result<ExecutionPayloadProof> {
 	let indices = [
 		EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize,
@@ -320,25 +312,47 @@ fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<FinalityProo
 	})
 }
 
-// function that generates block roots proof
-// block number and convert to get_subtree_index
-// beacon state has a block roots vec, pass the block root to generate proof
 fn prove_block_roots_proof(
 	state: BeaconStateType,
-	block_number: u64,
-) -> anyhow::Result<BlockRootsProof> {
-	let indices = vec![get_subtree_index(block_number) as usize];
-	let proof = ssz_rs::generate_proof(state.block_roots, indices.as_slice())?;
+	mut header: BeaconBlockHeader,
+) -> anyhow::Result<AncestryProof> {
+	// Check if block root should still be part of the block roots vector on the beacon state
+	let next_epoch = (compute_epoch_at_slot(header.slot) + 1) as usize;
 
-	Ok(BlockRootsProof {
-		block_header_index: block_number,
-		block_header_branch: proof
+	if next_epoch % (SLOTS_PER_HISTORICAL_ROOT / SLOTS_PER_EPOCH as usize) == 0 {
+		// todo:  Historical root proofs
+		unimplemented!()
+	} else {
+		// Get index of block root in the block roots
+		let block_root = header.hash_tree_root().expect("hash tree root should be valid");
+		let block_index = state
+			.block_roots
+			.as_ref()
 			.into_iter()
-			.map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
-			.collect(),
-	})
+			.position(|root| root == &block_root)
+			.expect("Block root should exist in block_roots");
+
+		let proof = ssz_rs::generate_proof(state.block_roots.clone(), &[block_index])?;
+
+		let block_roots_proof = BlockRootsProof {
+			block_header_index: block_index as u64,
+			block_header_branch: proof
+				.into_iter()
+				.map(|node| {
+					Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice")
+				})
+				.collect(),
+		};
+
+		let block_roots_branch = ssz_rs::generate_proof(state, &[BLOCK_ROOTS_INDEX as usize])?;
+		Ok(AncestryProof::BlockRoots {
+			block_roots_proof,
+			block_roots_branch: block_roots_branch
+				.into_iter()
+				.map(|node| {
+					Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice")
+				})
+				.collect(),
+		})
+	}
 }
-
-//  prove the block roots vec inside the beacon state which will be the block roots branch
-
-// when aggr sigs, create a new bit list

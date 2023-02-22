@@ -27,14 +27,14 @@ use ethereum_consensus::{
 		MAX_PROPOSER_SLASHINGS, MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS,
 		SLOTS_PER_HISTORICAL_ROOT, VALIDATOR_REGISTRY_LIMIT,
 	},
-	primitives::{Bytes32, Slot, ValidatorIndex},
+	primitives::{BlsPublicKey, Bytes32, Hash32, Slot, ValidatorIndex},
 };
-use ssz_rs::{GeneralizedIndex, List, Node, Vector};
+use ssz_rs::{get_generalized_index, GeneralizedIndex, List, Node, SszVariableOrIndex, Vector};
 use sync_committee_primitives::{
 	types::{
-		BlockRootsProof, ExecutionPayloadProof, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
-		EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX,
-		NEXT_SYNC_COMMITTEE_INDEX,
+		BlockRootsProof, ExecutionPayloadProof, FinalityProof,
+		EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
+		EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
 	},
 	util::get_subtree_index,
 };
@@ -218,12 +218,13 @@ impl SyncCommitteeProver {
 				let validator_index: ValidatorIndex = i.parse().unwrap();
 				validators[validator_index].public_key.clone()
 			})
-			.collect::<Vector<_, SYNC_COMMITTEE_SIZE>>();
+			.collect::<Vec<_>>();
 
 		let aggregate_public_key = eth_aggregate_public_keys(&public_keys_vector).unwrap();
 
 		let sync_committee = SyncCommittee::<SYNC_COMMITTEE_SIZE> {
-			public_keys: public_keys_vector,
+			public_keys: Vector::<BlsPublicKey, SYNC_COMMITTEE_SIZE>::try_from(public_keys_vector)
+				.unwrap(),
 			aggregate_public_key,
 		};
 
@@ -273,45 +274,50 @@ fn prove_beacon_block_values(
 	Ok(proof)
 }
 
-fn prove_execution_payload(block: BeaconBlockType) -> anyhow::Result<ExecutionPayloadProof> {
+fn prove_execution_payload(beacon_state: BeaconStateType) -> anyhow::Result<ExecutionPayloadProof> {
 	let indices = [
 		EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize,
 		EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize,
 	];
 	// generate multi proofs
-	let multi_proof =
-		ssz_rs::generate_proof(block.body.execution_payload.clone(), indices.as_slice())?;
-
-	let execution_payload_index = [EXECUTION_PAYLOAD_INDEX as usize];
-	let execution_payload_branch =
-		ssz_rs::generate_proof(block.body.clone(), execution_payload_index.as_slice())?;
+	let multi_proof = ssz_rs::generate_proof(
+		beacon_state.latest_execution_payload_header.clone(),
+		indices.as_slice(),
+	)?;
 
 	Ok(ExecutionPayloadProof {
-		state_root: block.body.execution_payload.state_root,
-		block_number: block.body.execution_payload.block_number,
+		state_root: beacon_state.latest_execution_payload_header.state_root.clone(),
+		block_number: beacon_state.latest_execution_payload_header.block_number,
 		multi_proof: multi_proof
 			.into_iter()
 			.map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
 			.collect(),
-		execution_payload_branch: execution_payload_branch
-			.into_iter()
-			.map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
-			.collect(),
+		execution_payload_branch: ssz_rs::generate_proof(
+			beacon_state,
+			&[EXECUTION_PAYLOAD_INDEX as usize],
+		)?
+		.into_iter()
+		.map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
+		.collect(),
 	})
 }
 
 fn prove_sync_committee_update(state: BeaconStateType) -> anyhow::Result<Vec<Node>> {
-	let indices = vec![NEXT_SYNC_COMMITTEE_INDEX as usize];
-	let proof = ssz_rs::generate_proof(state.clone(), indices.as_slice())?;
-
+	let proof = ssz_rs::generate_proof(state, &[NEXT_SYNC_COMMITTEE_INDEX as usize])?;
 	Ok(proof)
 }
 
-fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<Vec<Node>> {
-	let indices = [FINALIZED_ROOT_INDEX as usize]; //vec![get_subtree_index(FINALIZED_ROOT_INDEX) as usize];
+fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<FinalityProof> {
+	let indices = [FINALIZED_ROOT_INDEX as usize];
 	let proof = ssz_rs::generate_proof(state.clone(), indices.as_slice())?;
 
-	Ok(proof)
+	Ok(FinalityProof {
+		finalized_epoch: state.finalized_checkpoint.epoch,
+		finality_branch: proof
+			.into_iter()
+			.map(|node| Hash32::try_from(node.as_ref()).expect("Node is always a 32 byte slice"))
+			.collect(),
+	})
 }
 
 // function that generates block roots proof

@@ -10,11 +10,7 @@ use alloc::vec::Vec;
 use base2::Base2;
 use core::{borrow::Borrow, fmt::Display};
 use ethereum_consensus::{
-	altair::{
-		mainnet::SYNC_COMMITTEE_SIZE, FINALIZED_ROOT_INDEX_FLOOR_LOG_2,
-		NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2,
-	},
-	bellatrix::compute_domain,
+	bellatrix::{compute_domain, mainnet::SYNC_COMMITTEE_SIZE, Checkpoint},
 	primitives::Root,
 	signing::compute_signing_root,
 	state_transition::Context,
@@ -35,6 +31,8 @@ use sync_committee_primitives::{
 		get_subtree_index, hash_tree_root,
 	},
 };
+// use sync_committee_primitives::types::{FINALIZED_ROOT_INDEX_FLOOR_LOG_2,
+// NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2};
 
 pub type LightClientState = sync_committee_primitives::types::LightClientState<SYNC_COMMITTEE_SIZE>;
 pub type LightClientUpdate =
@@ -45,23 +43,22 @@ pub fn verify_sync_committee_attestation(
 	trusted_state: LightClientState,
 	update: LightClientUpdate,
 ) -> Result<LightClientState, Error> {
-	if update.finality_branch.len() != FINALIZED_ROOT_INDEX_FLOOR_LOG_2 as usize &&
+	if update.finality_proof.finality_branch.len() != FINALIZED_ROOT_INDEX.floor_log2() as usize &&
 		update.sync_committee_update.is_some() &&
 		update.clone().sync_committee_update.unwrap().next_sync_committee_branch.len() !=
-			NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2 as usize
+			NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize
 	{
 		log::debug!("Invalid update ");
-		log::debug!("update finality branch length {} ", update.finality_branch.len());
-		log::debug!("FINALIZED_ROOT_INDEX_FLOOR_LOG_2 {}", FINALIZED_ROOT_INDEX_FLOOR_LOG_2);
+		log::debug!(
+			"update finality branch length {} ",
+			update.finality_proof.finality_branch.len()
+		);
 		log::debug!(
 			"update next sync committee branch length {} ",
 			update.clone().sync_committee_update.unwrap().next_sync_committee_branch.len()
 		);
-		log::debug!(
-			"NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2 {}",
-			NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2
-		);
-		//Err(Error::InvalidUpdate)?
+
+		Err(Error::InvalidUpdate)?
 	}
 
 	// Verify sync committee has super majority participants
@@ -71,7 +68,7 @@ pub fn verify_sync_committee_attestation(
 		log::debug!("SyncCommitteeParticipantsTooLow ");
 		log::debug!("sync_aggregate_participants {} ", { sync_aggregate_participants * 3 });
 		log::debug!("sync_committee_bits {}", { sync_committee_bits.clone().len() * 2 });
-		//Err(Error::SyncCommitteeParticipantsTooLow)?
+		Err(Error::SyncCommitteeParticipantsTooLow)?
 	}
 
 	// Verify update does not skip a sync committee period
@@ -89,7 +86,7 @@ pub fn verify_sync_committee_attestation(
 			update.attested_header.slot,
 			update.finalized_header.slot
 		);
-		//Err(Error::InvalidUpdate)?
+		Err(Error::InvalidUpdate)?
 	}
 
 	let state_period = compute_sync_committee_period_at_slot(trusted_state.finalized_header.slot);
@@ -98,7 +95,7 @@ pub fn verify_sync_committee_attestation(
 		log::debug!("invalid update");
 		log::debug!("state_period is {}", state_period);
 		log::debug!("update_signature_period is {}", update_signature_period);
-		//Err(Error::InvalidUpdate)?
+		Err(Error::InvalidUpdate)?
 	}
 
 	// Verify update is relevant
@@ -149,39 +146,34 @@ pub fn verify_sync_committee_attestation(
 	// Verify that the `finality_branch` confirms `finalized_header`
 	// to match the finalized checkpoint root saved in the state of `attested_header`.
 	// Note that the genesis finalized checkpoint root is represented as a zero hash.
-	let finalized_root = &Node::from_bytes(
-		hash_tree_root(update.finalized_header.clone())
-			.map_err(|_| Error::MerkleizationError)?
-			.as_ref()
-			.try_into()
+	let mut finalized_checkpoint = Checkpoint {
+		epoch: update.finality_proof.finalized_epoch,
+		root: update
+			.finalized_header
+			.clone()
+			.hash_tree_root()
 			.map_err(|_| Error::InvalidRoot)?,
-	);
+	};
 
 	let branch = update
+		.finality_proof
 		.finality_branch
 		.iter()
 		.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
 		.collect::<Vec<_>>();
 
 	let is_merkle_branch_valid = is_valid_merkle_branch(
-		finalized_root,
+		&finalized_checkpoint.hash_tree_root().map_err(|_| Error::InvalidRoot)?,
 		branch.iter(),
 		FINALIZED_ROOT_INDEX.floor_log2() as usize,
 		FINALIZED_ROOT_INDEX as usize,
-		&Node::from_bytes(
-			update
-				.attested_header
-				.state_root
-				.as_ref()
-				.try_into()
-				.map_err(|_| Error::InvalidRoot)?,
-		),
+		&update.attested_header.state_root,
 	);
 
 	log::debug!("valid merkle branch for  finalized_root {}", is_merkle_branch_valid);
 	if !is_merkle_branch_valid {
 		log::debug!("invalid merkle branch for finalized root");
-		//Err(Error::InvalidMerkleBranch)?;
+		Err(Error::InvalidMerkleBranch)?;
 	}
 
 	// verify the associated execution header of the finalized beacon header.
@@ -223,30 +215,22 @@ pub fn verify_sync_committee_attestation(
 		execution_payload_branch.iter(),
 		EXECUTION_PAYLOAD_INDEX.floor_log2() as usize,
 		EXECUTION_PAYLOAD_INDEX as usize,
-		&Node::from_bytes(
-			update
-				.finalized_header
-				.clone()
-				.body_root
-				.as_ref()
-				.try_into()
-				.map_err(|_| Error::InvalidRoot)?,
-		),
+		&update.finalized_header.state_root,
 	);
 
 	log::debug!("valid merkle branch for execution_payload_branch");
 	if !is_merkle_branch_valid {
 		log::debug!("invalid merkle branch for execution_payload_branch");
-		//Err(Error::InvalidMerkleBranch)?;
+		Err(Error::InvalidMerkleBranch)?;
 	}
 
-	if let Some(sync_committee_update) = update.sync_committee_update.clone() {
+	if let Some(mut sync_committee_update) = update.sync_committee_update.clone() {
 		if update_attested_period == state_period &&
 			sync_committee_update.next_sync_committee !=
 				trusted_state.next_sync_committee.clone()
 		{
 			log::debug!("invalid update for sync committee update");
-			//rr(Error::InvalidUpdate)?
+			Err(Error::InvalidUpdate)?
 		}
 
 		let next_sync_committee_branch = sync_committee_update
@@ -255,35 +239,25 @@ pub fn verify_sync_committee_attestation(
 			.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
 			.collect::<Vec<_>>();
 		let is_merkle_branch_valid = is_valid_merkle_branch(
-			&Node::from_bytes(
-				hash_tree_root(sync_committee_update.next_sync_committee)
-					.map_err(|_| Error::MerkleizationError)?
-					.as_ref()
-					.try_into()
-					.map_err(|_| Error::InvalidRoot)?,
-			),
+			&sync_committee_update
+				.next_sync_committee
+				.hash_tree_root()
+				.map_err(|_| Error::MerkleizationError)?,
 			next_sync_committee_branch.iter(),
 			NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize,
 			get_subtree_index(NEXT_SYNC_COMMITTEE_INDEX) as usize,
-			&Node::from_bytes(
-				update
-					.attested_header
-					.state_root
-					.as_ref()
-					.try_into()
-					.map_err(|_| Error::InvalidRoot)?,
-			),
+			&update.attested_header.state_root,
 		);
 
 		log::debug!("valid merkle branch for  sync committee {}", is_merkle_branch_valid);
 		if !is_merkle_branch_valid {
 			log::debug!("invalid merkle branch for sync committee");
-			// Err(Error::InvalidMerkleBranch)?;
+			Err(Error::InvalidMerkleBranch)?;
 		}
 	}
 
 	// verify the ancestry proofs
-	for ancestor in update.ancestor_blocks {
+	for mut ancestor in update.ancestor_blocks {
 		match ancestor.ancestry_proof {
 			AncestryProof::BlockRoots { block_roots_proof, block_roots_branch } => {
 				let block_header_branch = block_roots_proof
@@ -293,13 +267,7 @@ pub fn verify_sync_committee_attestation(
 					.collect::<Vec<_>>();
 
 				let block_roots_root = calculate_merkle_root(
-					&Node::from_bytes(
-						hash_tree_root(ancestor.header.clone())
-							.map_err(|_| Error::MerkleizationError)?
-							.as_ref()
-							.try_into()
-							.map_err(|_| Error::InvalidRoot)?,
-					),
+					&ancestor.header.hash_tree_root().map_err(|_| Error::MerkleizationError)?,
 					&*block_header_branch,
 					&GeneralizedIndex(block_roots_proof.block_header_index as usize),
 				);
@@ -314,14 +282,7 @@ pub fn verify_sync_committee_attestation(
 					block_roots_branch_node.iter(),
 					BLOCK_ROOTS_INDEX.floor_log2() as usize,
 					BLOCK_ROOTS_INDEX as usize,
-					&Node::from_bytes(
-						update
-							.finalized_header
-							.state_root
-							.as_ref()
-							.try_into()
-							.map_err(|_| Error::InvalidRoot)?,
-					),
+					&update.finalized_header.state_root,
 				);
 				if !is_merkle_branch_valid {
 					Err(Error::InvalidMerkleBranch)?;
@@ -340,13 +301,11 @@ pub fn verify_sync_committee_attestation(
 					.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
 					.collect::<Vec<_>>();
 				let block_roots_root = calculate_merkle_root(
-					&Node::from_bytes(
-						hash_tree_root(ancestor.header.clone())
-							.map_err(|_| Error::MerkleizationError)?
-							.as_ref()
-							.try_into()
-							.map_err(|_| Error::InvalidRoot)?,
-					),
+					&ancestor
+						.header
+						.clone()
+						.hash_tree_root()
+						.map_err(|_| Error::MerkleizationError)?,
 					&block_header_branch,
 					&GeneralizedIndex(block_roots_proof.block_header_index as usize),
 				);
@@ -438,7 +397,7 @@ pub fn verify_sync_committee_attestation(
 			EXECUTION_PAYLOAD_INDEX.floor_log2() as usize,
 			EXECUTION_PAYLOAD_INDEX as usize,
 			&Node::from_bytes(
-				ancestor.header.body_root.as_ref().try_into().map_err(|_| Error::InvalidRoot)?,
+				ancestor.header.state_root.as_ref().try_into().map_err(|_| Error::InvalidRoot)?,
 			),
 		);
 

@@ -7,7 +7,16 @@ authors = ["Polytope Labs"]
 [dependencies]
 base2 = { version="0.2.2", default-features = false }
 sync-committee-primitives = { path= "../primitives", default-features = false }
-ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "ef89b4a4ef97cdd53a66ddb52e554667aca0beb2" }
-ssz-rs = { git = "https://github.com/ralexstokes/ssz-rs", rev = "688a82389f60ed68c10404417c1f7f442ba748a1", default-features=false, features=["serde"] }
+ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "ef89b4a4ef97cdd53a66ddb52e554667aca0beb2", default-features = false }
+ssz-rs = { git = "https://github.com/ralexstokes/ssz-rs", rev = "688a82389f60ed68c10404417c1f7f442ba748a1", default-features = false, features=["serde"] }
 milagro_bls = { git = "https://github.com/sigp/milagro_bls", default-features = false }
-log = "0.4.17"
+log = { version = "0.4.17", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "ssz-rs/std",
+    "milagro_bls/std",
+    "log/std"
+]
+testing = ["sync-committee-primitives/testing"]

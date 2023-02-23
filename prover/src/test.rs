@@ -1,33 +1,33 @@
 use super::*;
 use base2::Base2;
-use ethereum_consensus::altair::NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2;
 use sync_committee_primitives::{
 	types::{LightClientState, LightClientUpdate, SyncCommitteeUpdate},
 	util::compute_sync_committee_period_at_slot,
 };
 
-use ethereum_consensus::bellatrix::mainnet::HistoricalBatch;
-use ssz_rs::{
-	calculate_multi_merkle_root, get_generalized_index, is_valid_merkle_branch, GeneralizedIndex,
-	Merkleized, SszVariableOrIndex,
+use ethereum_consensus::{
+	bellatrix::compute_domain, primitives::Root, signing::compute_signing_root,
+	state_transition::Context,
 };
+use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use std::time::Duration;
+use sync_committee_primitives::{
+	types::{DOMAIN_SYNC_COMMITTEE, GENESIS_VALIDATORS_ROOT},
+	util::compute_fork_version,
+};
 use sync_committee_verifier::verify_sync_committee_attestation;
 use tokio::time;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
+
+const NODE_URL: &'static str = "http://localhost:5052";
 
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[actix_rt::test]
 #[ignore]
 async fn fetch_block_header_works() {
-	let node_url: String = "http://localhost:5052".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
-	let mut block_header = sync_committee_prover.fetch_header("1000").await;
-	while block_header.is_err() {
-		println!("I am running till i am ok. lol");
-		block_header = sync_committee_prover.fetch_header("1000").await;
-	}
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
+	let block_header = sync_committee_prover.fetch_header("head").await;
 	assert!(block_header.is_ok());
 }
 
@@ -36,9 +36,8 @@ async fn fetch_block_header_works() {
 #[actix_rt::test]
 #[ignore]
 async fn fetch_block_works() {
-	let node_url: String = "http://localhost:5052".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
-	let block = sync_committee_prover.fetch_block("100").await;
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
+	let block = sync_committee_prover.fetch_block("head").await;
 	assert!(block.is_ok());
 }
 
@@ -47,9 +46,8 @@ async fn fetch_block_works() {
 #[actix_rt::test]
 #[ignore]
 async fn fetch_sync_committee_works() {
-	let node_url: String = "http://localhost:5052".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
-	let block = sync_committee_prover.fetch_sync_committee("117").await;
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
+	let block = sync_committee_prover.fetch_sync_committee("head").await;
 	assert!(block.is_ok());
 }
 
@@ -58,9 +56,8 @@ async fn fetch_sync_committee_works() {
 #[actix_rt::test]
 #[ignore]
 async fn fetch_validator_works() {
-	let node_url: String = "http://localhost:5052".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
-	let validator = sync_committee_prover.fetch_validator("2561", "48").await;
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
+	let validator = sync_committee_prover.fetch_validator("head", "48").await;
 	assert!(validator.is_ok());
 }
 
@@ -69,9 +66,8 @@ async fn fetch_validator_works() {
 #[actix_rt::test]
 #[ignore]
 async fn fetch_processed_sync_committee_works() {
-	let node_url: String = "http://localhost:5052".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
-	let validator = sync_committee_prover.fetch_processed_sync_committee("2561").await;
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
+	let validator = sync_committee_prover.fetch_processed_sync_committee("head").await;
 	assert!(validator.is_ok());
 }
 
@@ -80,8 +76,7 @@ async fn fetch_processed_sync_committee_works() {
 #[actix_rt::test]
 #[ignore]
 async fn fetch_beacon_state_works() {
-	let node_url: String = "http://localhost:5052".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
 	let beacon_state = sync_committee_prover.fetch_beacon_state("genesis").await;
 	assert!(beacon_state.is_ok());
 }
@@ -91,17 +86,14 @@ async fn fetch_beacon_state_works() {
 #[actix_rt::test]
 #[ignore]
 async fn state_root_and_block_header_root_matches() {
-	let node_url: String = "http://localhost:5052".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
-	let beacon_state = sync_committee_prover.fetch_beacon_state("100").await;
-	assert!(beacon_state.is_ok());
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
+	let mut beacon_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
-	let block_header = sync_committee_prover.fetch_header("100").await;
+	let block_header = sync_committee_prover.fetch_header(&beacon_state.slot.to_string()).await;
 	assert!(block_header.is_ok());
 
-	let state = beacon_state.unwrap();
 	let block_header = block_header.unwrap();
-	let hash_tree_root = state.clone().hash_tree_root();
+	let hash_tree_root = beacon_state.hash_tree_root();
 
 	assert!(block_header.state_root == hash_tree_root.unwrap());
 }
@@ -110,8 +102,7 @@ async fn state_root_and_block_header_root_matches() {
 #[allow(non_snake_case)]
 #[actix_rt::test]
 async fn fetch_finality_checkpoints_work() {
-	let node_url: String = "http://localhost:5052".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
 	let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint().await;
 	assert!(finality_checkpoint.is_ok());
 }
@@ -120,8 +111,7 @@ async fn fetch_finality_checkpoints_work() {
 #[allow(non_snake_case)]
 #[actix_rt::test]
 async fn test_finalized_header() {
-	let node_url: String = "http://localhost:5052".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
 	let proof = ssz_rs::generate_proof(state.clone(), &vec![FINALIZED_ROOT_INDEX as usize]);
@@ -147,8 +137,7 @@ async fn test_finalized_header() {
 #[allow(non_snake_case)]
 #[actix_rt::test]
 async fn test_execution_payload_proof() {
-	let node_url: String = "http://localhost:5052".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
 
 	let finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 	let block_id = finalized_state.slot.to_string();
@@ -204,8 +193,7 @@ async fn test_execution_payload_proof() {
 #[allow(non_snake_case)]
 #[actix_rt::test]
 async fn test_sync_committee_update_proof() {
-	let node_url: String = "http://localhost:5052".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
 
 	let finalized_header = sync_committee_prover.fetch_header("head").await.unwrap();
 
@@ -254,10 +242,10 @@ async fn test_sync_committee_update_proof() {
 #[allow(non_snake_case)]
 #[actix_rt::test]
 async fn test_prover() {
+	env_logger::init();
 	let mut stream = IntervalStream::new(time::interval(Duration::from_secs(12 * 12)));
 
-	let node_url: String = "http://127.0.0.1:5052".to_string();
-	let sync_committee_prover = SyncCommitteeProver::new(node_url);
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
 
 	let block_id = "head";
 
@@ -274,6 +262,7 @@ async fn test_prover() {
 		next_sync_committee: state.next_sync_committee,
 	};
 
+	let mut count = 0;
 	while let Some(_ts) = stream.next().await {
 		let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint().await.unwrap();
 		if finality_checkpoint.finalized.root == Node::default() ||
@@ -300,21 +289,36 @@ async fn test_prover() {
 			.unwrap();
 		let execution_payload_proof = prove_execution_payload(finalized_state.clone()).unwrap();
 
-		let attested_block_id = {
-			let mut block_id = hex::encode(finality_checkpoint.current_justified.root.as_bytes());
-			block_id.insert_str(0, "0x");
-			block_id
-		};
+		let attested_epoch = finality_checkpoint.finalized.epoch + 2;
+		// Get available block from attested epoch
 
-		let attested_block_header =
-			sync_committee_prover.fetch_header(&attested_block_id).await.unwrap();
+		let mut attested_slot = attested_epoch * SLOTS_PER_EPOCH;
+		let attested_block_header = loop {
+			if (attested_epoch * SLOTS_PER_EPOCH).saturating_add(SLOTS_PER_EPOCH) == attested_slot {
+				panic!("Could not find any block from the attested epoch")
+			}
+
+			if let Ok(header) =
+				sync_committee_prover.fetch_header(attested_slot.to_string().as_str()).await
+			{
+				break header
+			}
+			attested_slot += 1
+		};
 
 		let attested_state = sync_committee_prover
 			.fetch_beacon_state(attested_block_header.slot.to_string().as_str())
 			.await
 			.unwrap();
 
-		let finality_branch_proof = prove_finalized_header(attested_state.clone()).unwrap();
+		println!("{:?}", attested_state.finalized_checkpoint);
+		println!(
+			"{:?},  {:?}",
+			compute_epoch_at_slot(finalized_header.slot),
+			finalized_header.clone().hash_tree_root().unwrap()
+		);
+
+		let finality_branch = prove_finalized_header(attested_state.clone()).unwrap();
 
 		let state_period = compute_sync_committee_period_at_slot(finalized_header.slot);
 
@@ -339,15 +343,19 @@ async fn test_prover() {
 			None
 		};
 
-		let signature_slot = attested_block_header.slot;
+		let signature_slot = attested_block_header.slot + 1;
+		let signature_block = sync_committee_prover
+			.fetch_block(signature_slot.to_string().as_str())
+			.await
+			.unwrap();
 		// construct light client
 		let light_client_update = LightClientUpdate {
 			attested_header: attested_block_header,
 			sync_committee_update,
 			finalized_header,
 			execution_payload: execution_payload_proof,
-			finality_proof: finality_branch_proof,
-			sync_aggregate: finalized_block.body.sync_aggregate,
+			finality_branch,
+			sync_aggregate: signature_block.body.sync_aggregate,
 			signature_slot,
 			// todo: Prove some ancestry blocks
 			ancestor_blocks: vec![],
@@ -359,5 +367,65 @@ async fn test_prover() {
 			"Sucessfully verified Ethereum block at slot {:?}",
 			client_state.finalized_header.slot
 		);
+
+		count += 1;
+		if count == 100 {
+			break
+		}
 	}
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[actix_rt::test]
+async fn test_sync_committee_signature_verification() {
+	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
+	let block = loop {
+		let block = sync_committee_prover.fetch_block("head").await.unwrap();
+		if block.slot < 16 {
+			std::thread::sleep(Duration::from_secs(48));
+			continue
+		}
+		break block
+	};
+	let sync_committee = sync_committee_prover
+		.fetch_processed_sync_committee(block.slot.to_string().as_str())
+		.await
+		.unwrap();
+
+	let mut attested_header = sync_committee_prover
+		.fetch_header((block.slot - 1).to_string().as_str())
+		.await
+		.unwrap();
+
+	let sync_committee_pubkeys = sync_committee.public_keys;
+
+	let participant_pubkeys = block
+		.body
+		.sync_aggregate
+		.sync_committee_bits
+		.iter()
+		.zip(sync_committee_pubkeys.iter())
+		.filter_map(|(bit, key)| if *bit { Some(key) } else { None })
+		.collect::<Vec<_>>();
+
+	let fork_version = compute_fork_version(compute_epoch_at_slot(block.slot));
+
+	let context = Context::for_mainnet();
+	let domain = compute_domain(
+		DOMAIN_SYNC_COMMITTEE,
+		Some(fork_version),
+		Some(Root::from_bytes(GENESIS_VALIDATORS_ROOT.try_into().unwrap())),
+		&context,
+	)
+	.unwrap();
+
+	let signing_root = compute_signing_root(&mut attested_header, domain);
+
+	ethereum_consensus::crypto::fast_aggregate_verify(
+		&*participant_pubkeys,
+		signing_root.unwrap().as_bytes(),
+		&block.body.sync_aggregate.sync_committee_signature,
+	)
+	.unwrap();
 }

@@ -8,9 +8,7 @@ mod test;
 
 use ethereum_consensus::{
 	altair::Validator,
-	bellatrix::{
-		BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, SignedBeaconBlock, SyncCommittee,
-	},
+	bellatrix::{BeaconBlock, BeaconBlockHeader, BeaconState, SignedBeaconBlock, SyncCommittee},
 };
 use reqwest::Client;
 
@@ -35,16 +33,14 @@ use ethereum_consensus::{
 	},
 	primitives::{BlsPublicKey, Bytes32, Hash32, Slot, ValidatorIndex},
 };
-use ssz_rs::{
-	get_generalized_index, GeneralizedIndex, List, Merkleized, Node, SszVariableOrIndex, Vector,
-};
+use ssz_rs::{get_generalized_index, GeneralizedIndex, List, Merkleized, Node, Vector};
 use sync_committee_primitives::{
 	types::{
-		AncestryProof, BlockRootsProof, ExecutionPayloadProof, FinalityProof, BLOCK_ROOTS_INDEX,
+		AncestryProof, BlockRootsProof, ExecutionPayloadProof, BLOCK_ROOTS_INDEX,
 		EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
 		EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
 	},
-	util::{compute_epoch_at_slot, get_subtree_index},
+	util::compute_epoch_at_slot,
 };
 
 type BeaconBlockType = BeaconBlock<
@@ -238,15 +234,6 @@ impl SyncCommitteeProver {
 		Ok(sync_committee)
 	}
 
-	async fn fetch_latest_finalized_block(
-		&self,
-	) -> Result<(BeaconBlockHeader, BeaconBlockType), reqwest::Error> {
-		let block_header = self.fetch_header("finalized").await?;
-		let block = self.fetch_block("finalized").await?;
-
-		Ok((block_header, block))
-	}
-
 	fn generate_route(&self, path: &str) -> String {
 		format!("{}{}", self.node_url.clone(), path)
 	}
@@ -298,17 +285,14 @@ fn prove_sync_committee_update(state: BeaconStateType) -> anyhow::Result<Vec<Nod
 	Ok(proof)
 }
 
-fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<FinalityProof> {
+fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<Vec<Hash32>> {
 	let indices = [FINALIZED_ROOT_INDEX as usize];
 	let proof = ssz_rs::generate_proof(state.clone(), indices.as_slice())?;
 
-	Ok(FinalityProof {
-		finalized_epoch: state.finalized_checkpoint.epoch,
-		finality_branch: proof
-			.into_iter()
-			.map(|node| Hash32::try_from(node.as_ref()).expect("Node is always a 32 byte slice"))
-			.collect(),
-	})
+	Ok(proof
+		.into_iter()
+		.map(|node| Hash32::try_from(node.as_ref()).expect("Node is always a 32 byte slice"))
+		.collect())
 }
 
 fn prove_block_roots_proof(

@@ -1,6 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(not(feature = "std"))]
 extern crate alloc;
 
 pub mod error;
@@ -15,6 +14,7 @@ use ethereum_consensus::{
 	signing::compute_signing_root,
 	state_transition::Context,
 };
+
 use ssz_rs::{
 	calculate_merkle_root, calculate_multi_merkle_root, prelude::is_valid_merkle_branch,
 	GeneralizedIndex, Merkleized, Node,
@@ -28,9 +28,12 @@ use sync_committee_primitives::{
 	},
 	util::{
 		compute_epoch_at_slot, compute_fork_version, compute_sync_committee_period_at_slot,
-		get_subtree_index, hash_tree_root,
+		get_subtree_index,
 	},
 };
+
+#[cfg(not(feature = "std"))]
+use log::debug as println;
 
 pub type LightClientState = sync_committee_primitives::types::LightClientState<SYNC_COMMITTEE_SIZE>;
 pub type LightClientUpdate =
@@ -41,17 +44,13 @@ pub fn verify_sync_committee_attestation(
 	trusted_state: LightClientState,
 	update: LightClientUpdate,
 ) -> Result<LightClientState, Error> {
-	if update.finality_proof.finality_branch.len() != FINALIZED_ROOT_INDEX.floor_log2() as usize &&
+	if update.finality_branch.len() != FINALIZED_ROOT_INDEX.floor_log2() as usize &&
 		update.sync_committee_update.is_some() &&
 		update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len() !=
 			NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize
 	{
-		log::debug!("Invalid update ");
-		log::debug!(
-			"update finality branch length {} ",
-			update.finality_proof.finality_branch.len()
-		);
-		log::debug!(
+		println!("update finality branch length {} ", update.finality_branch.len());
+		println!(
 			"update next sync committee branch length {} ",
 			update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len()
 		);
@@ -64,10 +63,10 @@ pub fn verify_sync_committee_attestation(
 	let sync_aggregate_participants: u64 =
 		sync_committee_bits.iter().as_bitslice().count_ones() as u64;
 
-	if sync_aggregate_participants * 3 >= sync_committee_bits.clone().len() as u64 * 2 {
-		log::debug!("SyncCommitteeParticipantsTooLow ");
-		log::debug!("sync_aggregate_participants {} ", { sync_aggregate_participants * 3 });
-		log::debug!("sync_committee_bits {}", { sync_committee_bits.clone().len() * 2 });
+	if sync_aggregate_participants < (2 * sync_committee_bits.len() as u64) / 3 {
+		println!("SyncCommitteeParticipantsTooLow ");
+		println!("sync_aggregate_participants {} ", { sync_aggregate_participants });
+		println!("sync_committee_bits {}", { sync_committee_bits.len() * 2 });
 		Err(Error::SyncCommitteeParticipantsTooLow)?
 	}
 
@@ -75,16 +74,14 @@ pub fn verify_sync_committee_attestation(
 	let is_valid_update = update.signature_slot > update.attested_header.slot &&
 		update.attested_header.slot >= update.finalized_header.slot;
 	if !is_valid_update {
-		log::debug!("is_valid_update {} ", is_valid_update);
-		log::debug!(
+		println!("is_valid_update {} ", is_valid_update);
+		println!(
 			"update.signature_slot {} update.attested_header.slot {}",
-			update.signature_slot,
-			update.attested_header.slot
+			update.signature_slot, update.attested_header.slot
 		);
-		log::debug!(
+		println!(
 			"update.attested_header.slot {} update.finalized_header.slot {}",
-			update.attested_header.slot,
-			update.finalized_header.slot
+			update.attested_header.slot, update.finalized_header.slot
 		);
 		Err(Error::InvalidUpdate)?
 	}
@@ -92,9 +89,9 @@ pub fn verify_sync_committee_attestation(
 	let state_period = compute_sync_committee_period_at_slot(trusted_state.finalized_header.slot);
 	let update_signature_period = compute_sync_committee_period_at_slot(update.signature_slot);
 	if !(state_period..=state_period + 1).contains(&update_signature_period) {
-		log::debug!("invalid update");
-		log::debug!("state_period is {}", state_period);
-		log::debug!("update_signature_period is {}", update_signature_period);
+		println!("invalid update");
+		println!("state_period is {}", state_period);
+		println!("update_signature_period is {}", update_signature_period);
 		Err(Error::InvalidUpdate)?
 	}
 
@@ -125,12 +122,13 @@ pub fn verify_sync_committee_attestation(
 		.collect::<Vec<_>>();
 
 	let fork_version = compute_fork_version(compute_epoch_at_slot(update.signature_slot));
-	//TODO: we probably need to construct context
+
+	let context = Context::for_mainnet();
 	let domain = compute_domain(
 		DOMAIN_SYNC_COMMITTEE,
 		Some(fork_version),
 		Some(Root::from_bytes(GENESIS_VALIDATORS_ROOT.try_into().map_err(|_| Error::InvalidRoot)?)),
-		&Context::default(),
+		&context,
 	)
 	.map_err(|_| Error::InvalidUpdate)?;
 
@@ -147,7 +145,7 @@ pub fn verify_sync_committee_attestation(
 	// to match the finalized checkpoint root saved in the state of `attested_header`.
 	// Note that the genesis finalized checkpoint root is represented as a zero hash.
 	let mut finalized_checkpoint = Checkpoint {
-		epoch: update.finality_proof.finalized_epoch,
+		epoch: compute_epoch_at_slot(update.finalized_header.slot),
 		root: update
 			.finalized_header
 			.clone()
@@ -156,7 +154,6 @@ pub fn verify_sync_committee_attestation(
 	};
 
 	let branch = update
-		.finality_proof
 		.finality_branch
 		.iter()
 		.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
@@ -170,9 +167,8 @@ pub fn verify_sync_committee_attestation(
 		&update.attested_header.state_root,
 	);
 
-	log::debug!("valid merkle branch for  finalized_root {}", is_merkle_branch_valid);
 	if !is_merkle_branch_valid {
-		log::debug!("invalid merkle branch for finalized root");
+		println!("invalid merkle branch for finalized block");
 		Err(Error::InvalidMerkleBranch)?;
 	}
 
@@ -218,9 +214,9 @@ pub fn verify_sync_committee_attestation(
 		&update.finalized_header.state_root,
 	);
 
-	log::debug!("valid merkle branch for execution_payload_branch");
+	println!("valid merkle branch for execution_payload_branch");
 	if !is_merkle_branch_valid {
-		log::debug!("invalid merkle branch for execution_payload_branch");
+		println!("invalid merkle branch for execution_payload_branch");
 		Err(Error::InvalidMerkleBranch)?;
 	}
 
@@ -229,7 +225,7 @@ pub fn verify_sync_committee_attestation(
 			sync_committee_update.next_sync_committee !=
 				trusted_state.next_sync_committee.clone()
 		{
-			log::debug!("invalid update for sync committee update");
+			println!("invalid update for sync committee update");
 			Err(Error::InvalidUpdate)?
 		}
 
@@ -249,9 +245,9 @@ pub fn verify_sync_committee_attestation(
 			&update.attested_header.state_root,
 		);
 
-		log::debug!("valid merkle branch for  sync committee {}", is_merkle_branch_valid);
+		println!("valid merkle branch for  sync committee {}", is_merkle_branch_valid);
 		if !is_merkle_branch_valid {
-			log::debug!("invalid merkle branch for sync committee");
+			println!("invalid merkle branch for sync committee");
 			Err(Error::InvalidMerkleBranch)?;
 		}
 	}
@@ -372,7 +368,10 @@ pub fn verify_sync_committee_attestation(
 						.map_err(|_| Error::InvalidRoot)?,
 				),
 				Node::from_bytes(
-					hash_tree_root(execution_payload.block_number)
+					execution_payload
+						.block_number
+						.clone()
+						.hash_tree_root()
 						.map_err(|_| Error::MerkleizationError)?
 						.as_ref()
 						.try_into()

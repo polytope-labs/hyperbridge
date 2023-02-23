@@ -115,7 +115,6 @@ impl SyncCommitteeProver {
 		let path = header_route(block_id);
 		let full_url = self.generate_route(&path);
 		let response = self.client.get(full_url).send().await?;
-		let status = response.status().as_u16();
 
 		let response_data =
 			response.json::<responses::beacon_block_header_response::Response>().await?;
@@ -317,9 +316,12 @@ fn prove_block_roots_proof(
 	mut header: BeaconBlockHeader,
 ) -> anyhow::Result<AncestryProof> {
 	// Check if block root should still be part of the block roots vector on the beacon state
-	let next_epoch = (compute_epoch_at_slot(header.slot) + 1) as usize;
+	let epoch_for_header = compute_epoch_at_slot(header.slot) as usize;
+	let epoch_for_state = compute_epoch_at_slot(state.slot) as usize;
 
-	if next_epoch % (SLOTS_PER_HISTORICAL_ROOT / SLOTS_PER_EPOCH as usize) == 0 {
+	if epoch_for_state.saturating_sub(epoch_for_header) >=
+		SLOTS_PER_HISTORICAL_ROOT / SLOTS_PER_EPOCH as usize
+	{
 		// todo:  Historical root proofs
 		unimplemented!()
 	} else {

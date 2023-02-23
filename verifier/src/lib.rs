@@ -43,7 +43,7 @@ pub fn verify_sync_committee_attestation(
 ) -> Result<LightClientState, Error> {
 	if update.finality_proof.finality_branch.len() != FINALIZED_ROOT_INDEX.floor_log2() as usize &&
 		update.sync_committee_update.is_some() &&
-		update.clone().sync_committee_update.unwrap().next_sync_committee_branch.len() !=
+		update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len() !=
 			NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize
 	{
 		log::debug!("Invalid update ");
@@ -53,7 +53,7 @@ pub fn verify_sync_committee_attestation(
 		);
 		log::debug!(
 			"update next sync committee branch length {} ",
-			update.clone().sync_committee_update.unwrap().next_sync_committee_branch.len()
+			update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len()
 		);
 
 		Err(Error::InvalidUpdate)?
@@ -61,7 +61,9 @@ pub fn verify_sync_committee_attestation(
 
 	// Verify sync committee has super majority participants
 	let sync_committee_bits = update.sync_aggregate.sync_committee_bits;
-	let sync_aggregate_participants: u64 = sync_committee_bits.iter().count() as u64;
+	let sync_aggregate_participants: u64 =
+		sync_committee_bits.iter().as_bitslice().count_ones() as u64;
+
 	if sync_aggregate_participants * 3 >= sync_committee_bits.clone().len() as u64 * 2 {
 		log::debug!("SyncCommitteeParticipantsTooLow ");
 		log::debug!("sync_aggregate_participants {} ", { sync_aggregate_participants * 3 });

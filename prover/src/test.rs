@@ -11,7 +11,7 @@ use ssz_rs::{
 	calculate_multi_merkle_root, get_generalized_index, is_valid_merkle_branch, GeneralizedIndex,
 	Merkleized, SszVariableOrIndex,
 };
-use std::{thread, time::Duration};
+use std::time::Duration;
 use sync_committee_verifier::verify_sync_committee_attestation;
 use tokio::time;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
@@ -208,7 +208,6 @@ async fn test_sync_committee_update_proof() {
 	let sync_committee_prover = SyncCommitteeProver::new(node_url);
 
 	let finalized_header = sync_committee_prover.fetch_header("head").await.unwrap();
-	let block_id = finalized_header.slot.to_string();
 
 	let finalized_state = sync_committee_prover
 		.fetch_beacon_state(&finalized_header.slot.to_string())
@@ -255,7 +254,7 @@ async fn test_sync_committee_update_proof() {
 #[allow(non_snake_case)]
 #[actix_rt::test]
 async fn test_prover() {
-	let mut stream = IntervalStream::new(time::interval(Duration::from_secs(12 * 64)));
+	let mut stream = IntervalStream::new(time::interval(Duration::from_secs(12 * 12)));
 
 	let node_url: String = "http://127.0.0.1:5052".to_string();
 	let sync_committee_prover = SyncCommitteeProver::new(node_url);
@@ -281,6 +280,7 @@ async fn test_prover() {
 			finality_checkpoint.finalized.epoch <=
 				compute_epoch_at_slot(client_state.finalized_header.slot)
 		{
+			println!("No new finalized checkpoint");
 			continue
 		}
 
@@ -321,7 +321,7 @@ async fn test_prover() {
 		let update_attested_period =
 			compute_sync_committee_period_at_slot(attested_block_header.slot);
 
-		let sync_committee_update = if state_period == attested_block_header.slot {
+		let sync_committee_update = if state_period == update_attested_period {
 			let sync_committee_proof = prove_sync_committee_update(attested_state.clone()).unwrap();
 
 			let sync_committee_proof = sync_committee_proof

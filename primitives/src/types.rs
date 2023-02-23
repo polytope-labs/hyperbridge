@@ -15,11 +15,12 @@ pub const NEXT_SYNC_COMMITTEE_INDEX: u64 = 55;
 pub const BLOCK_ROOTS_INDEX: u64 = 37;
 pub const HISTORICAL_ROOTS_INDEX: u64 = 39;
 pub const HISTORICAL_BATCH_BLOCK_ROOTS_INDEX: u64 = 2;
+#[cfg(not(feature = "testing"))]
 pub const GENESIS_VALIDATORS_ROOT: [u8; 32] =
 	hex_literal::hex!("4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95");
-// pub const NEXT_SYNC_COMMITTEE_INDEX_FLOOR_LOG_2: usize = NEXT_SYNC_COMMITTEE_INDEX.floor_log2()
-// as usize; pub const FINALIZED_ROOT_INDEX_FLOOR_LOG_2: usize = FINALIZED_ROOT_INDEX.floor_log2()
-// as usize;
+#[cfg(feature = "testing")]
+pub const GENESIS_VALIDATORS_ROOT: [u8; 32] =
+	hex_literal::hex!("6034f557b4560fc549ac0e2c63269deb07bfac7bf2bbd0b8b7d4d321240bffd9");
 
 /// This holds the relevant data required to prove the state root in the execution payload.
 #[derive(Debug, Clone)]
@@ -106,16 +107,6 @@ pub struct LightClientState<const SYNC_COMMITTEE_SIZE: usize> {
 	pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
 }
 
-/// Minimum state required by the light client to validate new sync committee attestations
-#[derive(Debug, Clone)]
-pub struct FinalityProof {
-	/// Epoch that was finalized
-	pub finalized_epoch: Epoch,
-	/// the ssz merkle proof for the finalized checkpoint in the attested header, finalized headers
-	/// lag by 2 epochs.
-	pub finality_branch: Vec<Hash32>,
-}
-
 /// Data required to advance the state of the light client.
 #[derive(Debug, Clone)]
 pub struct LightClientUpdate<const SYNC_COMMITTEE_SIZE: usize> {
@@ -128,7 +119,7 @@ pub struct LightClientUpdate<const SYNC_COMMITTEE_SIZE: usize> {
 	/// execution payload of the finalized header
 	pub execution_payload: ExecutionPayloadProof,
 	/// Finalized header proof
-	pub finality_proof: FinalityProof,
+	pub finality_branch: Vec<Hash32>,
 	/// signature & participation bits
 	pub sync_aggregate: SyncAggregate<SYNC_COMMITTEE_SIZE>,
 	/// slot at which signature was produced

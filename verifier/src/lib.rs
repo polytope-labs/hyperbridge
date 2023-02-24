@@ -43,12 +43,6 @@ pub fn verify_sync_committee_attestation(
 		update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len() !=
 			NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize
 	{
-		println!("update finality branch length {} ", update.finality_branch.len());
-		println!(
-			"update next sync committee branch length {} ",
-			update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len()
-		);
-
 		Err(Error::InvalidUpdate)?
 	}
 

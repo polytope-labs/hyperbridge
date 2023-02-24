@@ -6,7 +6,7 @@ use sync_committee_primitives::{
 };
 
 use ethereum_consensus::{
-	bellatrix::compute_domain, primitives::Root, signing::compute_signing_root,
+	altair::Checkpoint, bellatrix::compute_domain, primitives::Root, signing::compute_signing_root,
 	state_transition::Context,
 };
 use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
@@ -18,6 +18,11 @@ use sync_committee_primitives::{
 use sync_committee_verifier::verify_sync_committee_attestation;
 use tokio::time;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
+
+// **NOTE** To run these tests make sure the latest fork version on your devnet is the
+// BELLATRIX_FORK_VERSION as defined in the mainnet config Also modify
+// `sync_committee_primitives::types::GENESIS_ROOT_VALIDATORS` defined under the testing feature
+// flag to match the one that is present in the devnet you are running the tests with
 
 const NODE_URL: &'static str = "http://localhost:5052";
 
@@ -269,7 +274,6 @@ async fn test_prover() {
 			finality_checkpoint.finalized.epoch <=
 				compute_epoch_at_slot(client_state.finalized_header.slot)
 		{
-			println!("No new finalized checkpoint");
 			continue
 		}
 
@@ -281,7 +285,6 @@ async fn test_prover() {
 			block_id
 		};
 
-		let finalized_block = sync_committee_prover.fetch_block(&block_id).await.unwrap();
 		let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
 		let finalized_state = sync_committee_prover
 			.fetch_beacon_state(finalized_header.slot.to_string().as_str())
@@ -290,18 +293,46 @@ async fn test_prover() {
 		let execution_payload_proof = prove_execution_payload(finalized_state.clone()).unwrap();
 
 		let attested_epoch = finality_checkpoint.finalized.epoch + 2;
-		// Get available block from attested epoch
+		// Get attested header and the signature slot
 
 		let mut attested_slot = attested_epoch * SLOTS_PER_EPOCH;
-		let attested_block_header = loop {
-			if (attested_epoch * SLOTS_PER_EPOCH).saturating_add(SLOTS_PER_EPOCH) == attested_slot {
+		let (attested_block_header, signature_block) = loop {
+			if (attested_epoch * SLOTS_PER_EPOCH).saturating_add(SLOTS_PER_EPOCH - 1) ==
+				attested_slot
+			{
 				panic!("Could not find any block from the attested epoch")
 			}
 
 			if let Ok(header) =
 				sync_committee_prover.fetch_header(attested_slot.to_string().as_str()).await
 			{
-				break header
+				let mut signature_slot = header.slot + 1;
+				let signature_block = loop {
+					if (attested_epoch * SLOTS_PER_EPOCH).saturating_add(SLOTS_PER_EPOCH - 1) ==
+						signature_slot
+					{
+						panic!("Could not find any block after the attested header from the attested epoch")
+					}
+					if let Ok(signature_block) =
+						sync_committee_prover.fetch_block(signature_slot.to_string().as_str()).await
+					{
+						break signature_block
+					}
+					signature_slot += 1;
+				};
+				// If the next block does not have sufficient sync committee participants
+				if signature_block
+					.body
+					.sync_aggregate
+					.sync_committee_bits
+					.as_bitslice()
+					.count_ones() < 2 / 3 * (SYNC_COMMITTEE_SIZE)
+				{
+					attested_slot = signature_slot + 1;
+					println!("Signature block does not have sufficient sync committee participants -> participants {}", signature_block.body.sync_aggregate.sync_committee_bits.as_bitslice().count_ones());
+					continue
+				}
+				break (header, signature_block)
 			}
 			attested_slot += 1
 		};
@@ -311,11 +342,20 @@ async fn test_prover() {
 			.await
 			.unwrap();
 
+		let finalized_hash_tree_root = finalized_header.clone().hash_tree_root().unwrap();
 		println!("{:?}", attested_state.finalized_checkpoint);
 		println!(
 			"{:?},  {:?}",
 			compute_epoch_at_slot(finalized_header.slot),
-			finalized_header.clone().hash_tree_root().unwrap()
+			finalized_hash_tree_root
+		);
+
+		assert_eq!(
+			Checkpoint {
+				epoch: compute_epoch_at_slot(finalized_header.slot),
+				root: finalized_hash_tree_root,
+			},
+			attested_state.finalized_checkpoint,
 		);
 
 		let finality_branch = prove_finalized_header(attested_state.clone()).unwrap();
@@ -343,11 +383,6 @@ async fn test_prover() {
 			None
 		};
 
-		let signature_slot = attested_block_header.slot + 1;
-		let signature_block = sync_committee_prover
-			.fetch_block(signature_slot.to_string().as_str())
-			.await
-			.unwrap();
 		// construct light client
 		let light_client_update = LightClientUpdate {
 			attested_header: attested_block_header,
@@ -356,7 +391,7 @@ async fn test_prover() {
 			execution_payload: execution_payload_proof,
 			finality_branch,
 			sync_aggregate: signature_block.body.sync_aggregate,
-			signature_slot,
+			signature_slot: signature_block.slot,
 			// todo: Prove some ancestry blocks
 			ancestor_blocks: vec![],
 		};

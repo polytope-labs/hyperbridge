@@ -19,10 +19,12 @@ use sync_committee_verifier::verify_sync_committee_attestation;
 use tokio::time;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-// **NOTE** To run these tests make sure the latest fork version on your devnet is the
-// BELLATRIX_FORK_VERSION as defined in the mainnet config Also modify
-// `sync_committee_primitives::types::GENESIS_ROOT_VALIDATORS` defined under the testing feature
-// flag to match the one that is present in the devnet you are running the tests with
+// **NOTE**
+// 1. To run these tests make sure the latest fork version on your devnet is the
+// BELLATRIX_FORK_VERSION as defined in the mainnet config
+// 2. Modify `sync_committee_primitives::types::GENESIS_ROOT_VALIDATORS` defined under the testing
+// feature flag to match the one that is present in the devnet you are running the tests with
+// 3. Make sure the SLOTS_PER_EPOCH is set to 32 in your beacon node.
 
 const NODE_URL: &'static str = "http://localhost:5052";
 
@@ -307,11 +309,18 @@ async fn test_prover() {
 				sync_committee_prover.fetch_header(attested_slot.to_string().as_str()).await
 			{
 				let mut signature_slot = header.slot + 1;
+				let mut loop_count = 0;
 				let signature_block = loop {
+					if loop_count == 3 {
+						panic!("Could not find valid signature block for attested slot {} after three loops", attested_slot);
+					}
 					if (attested_epoch * SLOTS_PER_EPOCH).saturating_add(SLOTS_PER_EPOCH - 1) ==
 						signature_slot
 					{
-						panic!("Could not find any block after the attested header from the attested epoch")
+						println!("Waiting for signature block for attested header");
+						std::thread::sleep(Duration::from_secs(24));
+						signature_slot = header.slot + 1;
+						loop_count += 1;
 					}
 					if let Ok(signature_block) =
 						sync_committee_prover.fetch_block(signature_slot.to_string().as_str()).await
@@ -343,11 +352,12 @@ async fn test_prover() {
 			.unwrap();
 
 		let finalized_hash_tree_root = finalized_header.clone().hash_tree_root().unwrap();
-		println!("{:?}", attested_state.finalized_checkpoint);
+		println!("{:?}, {}", attested_state.finalized_checkpoint, attested_state.slot);
 		println!(
-			"{:?},  {:?}",
+			"{:?},  {:?}, {}",
 			compute_epoch_at_slot(finalized_header.slot),
-			finalized_hash_tree_root
+			finalized_hash_tree_root,
+			finalized_header.slot
 		);
 
 		assert_eq!(

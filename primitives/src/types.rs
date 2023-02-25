@@ -107,6 +107,15 @@ pub struct LightClientState<const SYNC_COMMITTEE_SIZE: usize> {
 	pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
 }
 
+/// Finalized header proof
+#[derive(Debug, Clone)]
+pub struct FinalityProof {
+	/// The latest  finalized epoch
+	pub epoch: u64,
+	/// Finalized header proof
+	pub finality_branch: Vec<Hash32>,
+}
+
 /// Data required to advance the state of the light client.
 #[derive(Debug, Clone)]
 pub struct LightClientUpdate<const SYNC_COMMITTEE_SIZE: usize> {
@@ -119,7 +128,7 @@ pub struct LightClientUpdate<const SYNC_COMMITTEE_SIZE: usize> {
 	/// execution payload of the finalized header
 	pub execution_payload: ExecutionPayloadProof,
 	/// Finalized header proof
-	pub finality_branch: Vec<Hash32>,
+	pub finality_proof: FinalityProof,
 	/// signature & participation bits
 	pub sync_aggregate: SyncAggregate<SYNC_COMMITTEE_SIZE>,
 	/// slot at which signature was produced

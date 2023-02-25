@@ -38,7 +38,7 @@ pub fn verify_sync_committee_attestation(
 	trusted_state: LightClientState,
 	update: LightClientUpdate,
 ) -> Result<LightClientState, Error> {
-	if update.finality_branch.len() != FINALIZED_ROOT_INDEX.floor_log2() as usize &&
+	if update.finality_proof.finality_branch.len() != FINALIZED_ROOT_INDEX.floor_log2() as usize &&
 		update.sync_committee_update.is_some() &&
 		update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len() !=
 			NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize
@@ -118,7 +118,7 @@ pub fn verify_sync_committee_attestation(
 	// to match the finalized checkpoint root saved in the state of `attested_header`.
 	// Note that the genesis finalized checkpoint root is represented as a zero hash.
 	let mut finalized_checkpoint = Checkpoint {
-		epoch: compute_epoch_at_slot(update.finalized_header.slot),
+		epoch: update.finality_proof.epoch,
 		root: update
 			.finalized_header
 			.clone()
@@ -127,6 +127,7 @@ pub fn verify_sync_committee_attestation(
 	};
 
 	let branch = update
+		.finality_proof
 		.finality_branch
 		.iter()
 		.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))

@@ -102,6 +102,8 @@ pub struct SyncCommitteeUpdate<const SYNC_COMMITTEE_SIZE: usize> {
 pub struct LightClientState<const SYNC_COMMITTEE_SIZE: usize> {
 	/// The latest recorded finalized header
 	pub finalized_header: BeaconBlockHeader,
+	/// Latest finalized epoch
+	pub latest_finalized_epoch: u64,
 	// Sync committees corresponding to the finalized header
 	pub current_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
 	pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,

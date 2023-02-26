@@ -376,6 +376,7 @@ pub fn verify_sync_committee_attestation(
 	let new_light_client_state = if let Some(sync_committee_update) = update.sync_committee_update {
 		LightClientState {
 			finalized_header: update.finalized_header,
+			latest_finalized_epoch: update.finality_proof.epoch,
 			current_sync_committee: trusted_state.next_sync_committee,
 			next_sync_committee: sync_committee_update.next_sync_committee,
 		}

@@ -19,13 +19,6 @@ use sync_committee_verifier::verify_sync_committee_attestation;
 use tokio::time;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-// **NOTE**
-// 1. To run these tests make sure the latest fork version on your devnet is the
-// BELLATRIX_FORK_VERSION as defined in the mainnet config
-// 2. Modify `sync_committee_primitives::types::GENESIS_ROOT_VALIDATORS` defined under the testing
-// feature flag to match the one that is present in the devnet you are running the tests with
-// 3. Make sure the SLOTS_PER_EPOCH is set to 32 in your beacon node.
-
 const NODE_URL: &'static str = "http://localhost:5052";
 
 #[cfg(test)]
@@ -265,6 +258,7 @@ async fn test_prover() {
 
 	let mut client_state = LightClientState {
 		finalized_header: block_header.clone(),
+		latest_finalized_epoch: 0,
 		current_sync_committee: state.current_sync_committee,
 		next_sync_committee: state.next_sync_committee,
 	};
@@ -273,8 +267,9 @@ async fn test_prover() {
 	while let Some(_ts) = stream.next().await {
 		let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint().await.unwrap();
 		if finality_checkpoint.finalized.root == Node::default() ||
-			finality_checkpoint.finalized.epoch <=
-				compute_epoch_at_slot(client_state.finalized_header.slot)
+			finality_checkpoint.finalized.epoch <= client_state.latest_finalized_epoch ||
+			finality_checkpoint.finalized.root ==
+				client_state.finalized_header.clone().hash_tree_root().unwrap()
 		{
 			continue
 		}

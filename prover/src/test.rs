@@ -405,7 +405,7 @@ async fn test_prover() {
 			None
 		};
 
-		// todo: Reenable when proofs are implemented for Lists adn Vectors
+		// todo: Enable when proofs are implemented for Lists adn Vectors
 		// let mut i = finalized_header.slot - 1;
 		// let mut ancestor_blocks = vec![];
 		// while ancestor_blocks.len() < 5 {

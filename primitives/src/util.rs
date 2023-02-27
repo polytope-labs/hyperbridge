@@ -7,7 +7,6 @@ use ethereum_consensus::{
 	},
 	phase0::mainnet::SLOTS_PER_EPOCH,
 };
-use ssz_rs::Node;
 
 /// Calculate the subtree index from the ``generalized_index``
 pub fn get_subtree_index(generalized_index: u64) -> u64 {

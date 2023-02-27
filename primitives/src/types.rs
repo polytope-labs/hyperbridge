@@ -1,9 +1,8 @@
 use alloc::vec::Vec;
-use base2::Base2;
 use ethereum_consensus::{
 	bellatrix::{BeaconBlockHeader, SyncAggregate, SyncCommittee},
 	domains::DomainType,
-	primitives::{Epoch, Hash32, Slot},
+	primitives::{Hash32, Slot},
 };
 
 pub const DOMAIN_SYNC_COMMITTEE: DomainType = DomainType::SyncCommittee;

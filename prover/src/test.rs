@@ -12,7 +12,7 @@ use ethereum_consensus::{
 use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use std::time::Duration;
 use sync_committee_primitives::{
-	types::{FinalityProof, DOMAIN_SYNC_COMMITTEE, GENESIS_VALIDATORS_ROOT},
+	types::{AncestorBlock, FinalityProof, DOMAIN_SYNC_COMMITTEE, GENESIS_VALIDATORS_ROOT},
 	util::compute_fork_version,
 };
 use sync_committee_verifier::verify_sync_committee_attestation;
@@ -405,6 +405,33 @@ async fn test_prover() {
 			None
 		};
 
+		// todo: Reenable when proofs are implemented for Lists adn Vectors
+		// let mut i = finalized_header.slot - 1;
+		// let mut ancestor_blocks = vec![];
+		// while ancestor_blocks.len() < 5 {
+		// 	if (finalized_header.slot - i) > 100 {
+		// 		break
+		// 	}
+		// 	if let Ok(ancestor_header) =
+		// 		sync_committee_prover.fetch_header(i.to_string().as_str()).await
+		// 	{
+		// 		let ancestry_proof =
+		// 			prove_block_roots_proof(finalized_state.clone(), ancestor_header.clone())
+		// 				.unwrap();
+		// 		let header_state =
+		// 			sync_committee_prover.fetch_beacon_state(i.to_string().as_str()).await.unwrap();
+		// 		let execution_payload_proof = prove_execution_payload(header_state).unwrap();
+		// 		ancestor_blocks.push(AncestorBlock {
+		// 			header: ancestor_header,
+		// 			execution_payload: execution_payload_proof,
+		// 			ancestry_proof,
+		// 		})
+		// 	}
+		// 	i -= 1;
+		// }
+		//
+		// println!("Ancestor block count {}", ancestor_blocks.len());
+
 		// construct light client
 		let light_client_update = LightClientUpdate {
 			attested_header: attested_block_header,
@@ -414,7 +441,6 @@ async fn test_prover() {
 			finality_proof,
 			sync_aggregate: signature_block.body.sync_aggregate,
 			signature_slot: signature_block.slot,
-			// todo: Prove some ancestry blocks
 			ancestor_blocks: vec![],
 		};
 

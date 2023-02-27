@@ -25,7 +25,7 @@ impl Display for Error {
 			},
 			Error::InvalidUpdate => write!(f, "Invalid update"),
 			Error::DomainError => write!(f, "Couldn't get domain"),
-			Error::FastAggregateError(err) => write!(f, "Fast aggregate error"),
+			Error::FastAggregateError(err) => write!(f, "Fast aggregate error {:?}", err),
 			Error::InvalidMerkleBranch => write!(f, "Invalid merkle branch"),
 			Error::InvalidRoot => write!(f, "Invalid root"),
 			Error::MerkleizationError => write!(f, "Merkleization error"),

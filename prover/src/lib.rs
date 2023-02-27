@@ -1,14 +1,14 @@
+#[deny(unused_imports)]
+#[deny(unused_variables)]
 mod error;
 mod responses;
 mod routes;
 #[cfg(test)]
 mod test;
 
-// todo: split up this file
-
 use ethereum_consensus::{
 	altair::Validator,
-	bellatrix::{BeaconBlock, BeaconBlockHeader, BeaconState, SignedBeaconBlock, SyncCommittee},
+	bellatrix::{BeaconBlock, BeaconBlockHeader, BeaconState, SyncCommittee},
 };
 use reqwest::Client;
 
@@ -31,9 +31,9 @@ use ethereum_consensus::{
 		MAX_PROPOSER_SLASHINGS, MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS, SLOTS_PER_EPOCH,
 		SLOTS_PER_HISTORICAL_ROOT, VALIDATOR_REGISTRY_LIMIT,
 	},
-	primitives::{BlsPublicKey, Bytes32, Hash32, Slot, ValidatorIndex},
+	primitives::{BlsPublicKey, Bytes32, Hash32, ValidatorIndex},
 };
-use ssz_rs::{get_generalized_index, GeneralizedIndex, List, Merkleized, Node, Vector};
+use ssz_rs::{List, Merkleized, Node, Vector};
 use sync_committee_primitives::{
 	types::{
 		AncestryProof, BlockRootsProof, ExecutionPayloadProof, BLOCK_ROOTS_INDEX,
@@ -42,34 +42,6 @@ use sync_committee_primitives::{
 	},
 	util::compute_epoch_at_slot,
 };
-
-type BeaconBlockType = BeaconBlock<
-	MAX_PROPOSER_SLASHINGS,
-	MAX_VALIDATORS_PER_COMMITTEE,
-	MAX_ATTESTER_SLASHINGS,
-	MAX_ATTESTATIONS,
-	MAX_DEPOSITS,
-	MAX_VOLUNTARY_EXITS,
-	SYNC_COMMITTEE_SIZE,
-	BYTES_PER_LOGS_BLOOM,
-	MAX_EXTRA_DATA_BYTES,
-	MAX_BYTES_PER_TRANSACTION,
-	MAX_TRANSACTIONS_PER_PAYLOAD,
->;
-
-type SignedBeaconBlockType = SignedBeaconBlock<
-	MAX_PROPOSER_SLASHINGS,
-	MAX_VALIDATORS_PER_COMMITTEE,
-	MAX_ATTESTER_SLASHINGS,
-	MAX_ATTESTATIONS,
-	MAX_DEPOSITS,
-	MAX_VOLUNTARY_EXITS,
-	SYNC_COMMITTEE_SIZE,
-	BYTES_PER_LOGS_BLOOM,
-	MAX_EXTRA_DATA_BYTES,
-	MAX_BYTES_PER_TRANSACTION,
-	MAX_TRANSACTIONS_PER_PAYLOAD,
->;
 
 pub type BeaconStateType = BeaconState<
 	SLOTS_PER_HISTORICAL_ROOT,
@@ -208,7 +180,7 @@ impl SyncCommitteeProver {
 		let node_sync_committee = self.fetch_sync_committee(state_id.clone()).await?;
 
 		let mut validators: List<Validator, VALIDATOR_REGISTRY_LIMIT> = Default::default();
-		for mut validator_index in node_sync_committee.validators.clone() {
+		for validator_index in node_sync_committee.validators.clone() {
 			// fetches validator based on validator index
 			let validator = self.fetch_validator(state_id.clone(), &validator_index).await?;
 			validators.push(validator);
@@ -239,20 +211,13 @@ impl SyncCommitteeProver {
 	}
 }
 
-fn get_attestation_slots_for_finalized_header(
-	finalized_header: &BeaconBlockHeader,
-	slots_per_epoch: u64,
-) -> Slot {
-	let finalized_header_slot = finalized_header.slot;
-
-	// given that an epoch is 32 slots and blocks are finalized every 2 epochs
-	// so the attested slot for a finalized block is 64 slots away
-	let attested_slot = finalized_header_slot + (slots_per_epoch * 2);
-
-	attested_slot
+pub fn get_attested_epoch(finalized_epoch: u64) -> u64 {
+	finalized_epoch + 2
 }
 
-fn prove_execution_payload(beacon_state: BeaconStateType) -> anyhow::Result<ExecutionPayloadProof> {
+pub fn prove_execution_payload(
+	beacon_state: BeaconStateType,
+) -> anyhow::Result<ExecutionPayloadProof> {
 	let indices = [
 		EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize,
 		EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize,
@@ -280,12 +245,12 @@ fn prove_execution_payload(beacon_state: BeaconStateType) -> anyhow::Result<Exec
 	})
 }
 
-fn prove_sync_committee_update(state: BeaconStateType) -> anyhow::Result<Vec<Node>> {
+pub fn prove_sync_committee_update(state: BeaconStateType) -> anyhow::Result<Vec<Node>> {
 	let proof = ssz_rs::generate_proof(state, &[NEXT_SYNC_COMMITTEE_INDEX as usize])?;
 	Ok(proof)
 }
 
-fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<Vec<Hash32>> {
+pub fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<Vec<Hash32>> {
 	let indices = [FINALIZED_ROOT_INDEX as usize];
 	let proof = ssz_rs::generate_proof(state.clone(), indices.as_slice())?;
 
@@ -295,7 +260,7 @@ fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<Vec<Hash32>>
 		.collect())
 }
 
-fn prove_block_roots_proof(
+pub fn prove_block_roots_proof(
 	state: BeaconStateType,
 	mut header: BeaconBlockHeader,
 ) -> anyhow::Result<AncestryProof> {

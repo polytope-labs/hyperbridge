@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-
+#[deny(unused_imports)]
+#[deny(unused_variables)]
 extern crate alloc;
 
 pub mod error;
@@ -7,7 +8,6 @@ pub mod error;
 use crate::error::Error;
 use alloc::vec::Vec;
 use base2::Base2;
-use core::{borrow::Borrow, fmt::Display};
 use ethereum_consensus::{
 	bellatrix::{compute_domain, mainnet::SYNC_COMMITTEE_SIZE, Checkpoint},
 	primitives::Root,

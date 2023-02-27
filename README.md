@@ -1,5 +1,5 @@
-# ethereum-beacon-light-client
-Implementation of the Ethereum beacon chain light client in Rust
+# Ethereum beacon light client verifier
+Implementation of the Ethereum beacon light client verifier in Rust
 
 # Running the prover tests
 **NOTE**

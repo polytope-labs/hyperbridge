@@ -57,7 +57,7 @@ where
 /// Generate the session keys from individual elements.
 ///
 /// The input must be a tuple of individual keys (a single arg for now since we have just one key).
-pub fn template_session_keys(keys: AuraId) -> hyperspace_parachain_runtime::SessionKeys {
+pub fn hyperspace_session_keys(keys: AuraId) -> hyperspace_parachain_runtime::SessionKeys {
 	hyperspace_parachain_runtime::SessionKeys { aura: keys }
 }
 

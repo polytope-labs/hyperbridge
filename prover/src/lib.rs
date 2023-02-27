@@ -1,5 +1,5 @@
-#[deny(unused_imports)]
-#[deny(unused_variables)]
+#[warn(unused_imports)]
+#[warn(unused_variables)]
 mod error;
 mod responses;
 mod routes;

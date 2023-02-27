@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    # Parachain
+     "parachain/runtime",
+     "parachain/node"
+]
+
+[patch."https://github.com/paritytech/jsonrpsee"]
+jsonrpsee = { version = "0.16.2" }

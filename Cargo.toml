@@ -3,7 +3,10 @@ resolver = "2"
 members = [
     # Parachain
      "parachain/runtime",
-     "parachain/node"
+     "parachain/node",
+
+     "parachain/pallets/pallet-hyperspace/primitives",
+     "parachain/pallets/pallet-hyperspace"
 ]
 
 [patch."https://github.com/paritytech/jsonrpsee"]

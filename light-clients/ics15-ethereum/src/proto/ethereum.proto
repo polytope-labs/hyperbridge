@@ -112,8 +112,7 @@ message ClientState {
 
 // ConsensusState defines the consensus state from Ethereum Execution Layer.
 message ConsensusState {
-  // timestamp that corresponds to the block height in which the ConsensusState
-  // was stored.
+  // timestamp that corresponds to the block height for this consensus state
   google.protobuf.Timestamp timestamp = 1;
   // State root of the execution chain
   bytes root = 2;

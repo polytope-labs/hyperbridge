@@ -17,6 +17,8 @@ use alloc::{format, vec, vec::Vec};
 use anyhow::anyhow;
 use codec::Decode;
 use core::{convert::Infallible, fmt::Debug};
+use ethereum_consensus::configs::mainnet::SECONDS_PER_SLOT;
+use ethereum_consensus::primitives::{Slot, GENESIS_SLOT};
 use serde::Serialize;
 use tendermint::time::Time;
 use tendermint_proto::{google::protobuf as tpb, Protobuf};
@@ -25,9 +27,13 @@ use crate::proto::ConsensusState as RawConsensusState;
 
 use crate::error::Error;
 use ibc::{core::ics23_commitment::commitment::CommitmentRoot, timestamp::Timestamp, Height};
+use sync_committee_verifier::LightClientUpdate;
 
 /// Protobuf type url for GRANDPA Consensus State
 pub const ETHEREUM_CONSENSUS_STATE_TYPE_URL: &str = "/ibc.lightclients.ethereum.v1.ConsensusState";
+
+/// todo: Beacon chain genesis timestamp
+pub const GENESIS_TIME: u64 = 0;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ConsensusState {
@@ -43,8 +49,13 @@ impl ConsensusState {
         }
     }
 
-    pub fn from_header<H>() -> Result<(Height, Self), Error> {
-        unimplemented!()
+    pub fn from_header<H>(lc_update: LightClientUpdate) -> Result<(Height, Self), Error> {
+        let root = CommitmentRoot::from_bytes(lc_update.execution_payload.state_root.as_slice());
+        let timestamp = compute_timestamp_at_slot(lc_update.finalized_header.slot);
+        Ok((
+            Height::new(0, lc_update.finalized_header.slot),
+            ConsensusState { timestamp, root },
+        ))
     }
 }
 
@@ -95,4 +106,14 @@ impl From<ConsensusState> for RawConsensusState {
             root: value.root.into_vec(),
         }
     }
+}
+
+fn compute_timestamp_at_slot(slot: Slot) -> Time {
+    let slots_since_genesis = slot - GENESIS_SLOT;
+    let timestamp_secs = GENESIS_TIME + (slots_since_genesis * SECONDS_PER_SLOT);
+    let timestamp_nanos = timestamp_secs * 1_000_000_000;
+    Timestamp::from_nanoseconds(timestamp_nanos)
+        .expect("Valid timestamp")
+        .into_tm_time()
+        .unwrap()
 }

@@ -6,7 +6,8 @@ members = [
      "parachain/node",
 
      "parachain/pallets/pallet-hyperspace/primitives",
-     "parachain/pallets/pallet-hyperspace"
+     "parachain/pallets/pallet-hyperspace",
+     "parachain/pallets/pallet-hyperspace-ping"
 ]
 
 [patch."https://github.com/paritytech/jsonrpsee"]

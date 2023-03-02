@@ -19,6 +19,7 @@
 //! ICS-15: Ethereum IBC light client protocol implementation
 
 extern crate alloc;
+extern crate core;
 
 pub mod client_def;
 pub mod client_message;

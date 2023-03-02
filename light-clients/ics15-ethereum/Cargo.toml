@@ -14,7 +14,8 @@ std = [
     "prost-types/std",
     "codec/std",
     "anyhow/std",
-    "serde/std"
+    "serde/std",
+    "ssz-rs/std"
 ]
 
 [build-dependencies]
@@ -33,7 +34,10 @@ anyhow = { version = "1.0.65", default-features = false }
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 serde = { version = "1.0.144", default-features = false, features = ["derive"] }
 
-
+ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "ef89b4a4ef97cdd53a66ddb52e554667aca0beb2", default-features = false }
+ssz-rs = { git = "https://github.com/ralexstokes/ssz-rs", rev = "688a82389f60ed68c10404417c1f7f442ba748a1", default-features = false, features=["serde"] }
+sync-committee-primitives = { git = "ssh://git@github.com/polytope-labs/sync-committee-rs.git", default-features = false }
+sync-committee-verifier = { git = "ssh://git@github.com/polytope-labs/sync-committee-rs.git", default-features = false }
 
 tendermint = { git = "https://github.com/informalsystems/tendermint-rs", rev = "e81f7bf23d63ffbcd242381d1ce5e35da3515ff1", default-features = false }
 tendermint-proto = { git = "https://github.com/informalsystems/tendermint-rs", rev = "e81f7bf23d63ffbcd242381d1ce5e35da3515ff1", default-features = false }

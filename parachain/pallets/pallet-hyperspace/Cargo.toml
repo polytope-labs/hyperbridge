@@ -31,11 +31,6 @@ ibc-proto = { path = "../../../../ibc-rs/proto", default-features = false }
 tendermint = { git = "https://github.com/informalsystems/tendermint-rs", rev = "47e28b50d20138234f7a8b4254da71469f401714", default-features = false } # cannot be defined as optional in workspace
 tendermint-proto = { git = "https://github.com/informalsystems/tendermint-rs", rev = "47e28b50d20138234f7a8b4254da71469f401714", default-features = false }
 ics23 = { git = "https://github.com/confio/ics23", rev = "a4daeb4c24ce1be827829c0841446abc690c4f11", default-features = false }
-
-#beefy-client-primitives = { package = "beefy-light-client-primitives", path = "../.././../../beefy/primitives", default-features = false }
-#light-client-common = { path = "../light-clients/common", default-features = false }
-#ics11-beefy = { path = "../light-clients/ics11-beefy", default-features = false }
-#ics07-tendermint = { path = "../light-clients/ics07-tendermint", default-features = false }
 hex = { version = "0.4.3", default-features = false }
 # local deps
 ibc-primitives = { path = "primitives", default-features = false }
@@ -96,10 +91,6 @@ std = [
     "ibc-proto/std",
     "ibc-primitives/std",
     "parachain-info/std",
-    #"beefy-client-primitives/std",
-    #"light-client-common/std",
-    #"ics11-beefy/std",
-    #"ics07-tendermint/std",
     "sp-finality-grandpa/std",
     "sp-finality-grandpa/std",
     "finality-grandpa/std",

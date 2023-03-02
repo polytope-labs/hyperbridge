@@ -1,0 +1,52 @@
+[package]
+name = "primitives"
+version = "0.1.0"
+edition = "2021"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+
+ripemd = { version = "0.1.1", default-features = false }
+scale-info = { version = '2.1.1', default-features = false }
+serde = { version = "1.0.136", features = ["derive"], optional = true }
+sha2 = { version = "0.10.2", default-features = false }
+sha3 = { version = "0.10.1", default-features = false }
+hex = { version = "0.4.3", default-features = false }
+base58 = "0.2.0"
+blake2 = { version = "0.10", default-features = false }
+
+sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
+sp-io = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
+sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
+sp-runtime-interface = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
+sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
+sp-trie = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
+frame-support = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
+
+ibc-rs = {path = "../../../../../ibc-rs/modules", default-features = false}
+
+codec = {package = "parity-scale-codec", version = "3.0.0", features = ["derive"], default-features = false}
+[features]
+default = ['std']
+std = [
+    "codec/std",
+    "serde",
+    "ibc-rs/std",
+    "scale-info/std",
+    "sp-std/std",
+    "sp-core/std",
+    "sp-runtime/std",
+    "sp-runtime-interface/std",
+    "sp-io/std",
+    "sp-trie/std",
+    "sha2/std",
+    "sha3/std",
+    "ripemd/std",
+    "frame-support/std",
+    "hex/std",
+]
+mocks = []
+runtime-benchmarks = []
+

@@ -20,9 +20,8 @@ use crate::{
         LightClientState as RawLightClientState, SyncCommittee as RawSyncCommittee,
     },
 };
-use alloc::{format, string::ToString, vec::Vec};
-use anyhow::anyhow;
-use core::{marker::PhantomData, time::Duration};
+use alloc::{string::ToString, vec::Vec};
+use core::time::Duration;
 use ibc::{
     core::{
         ics02_client::{client_state::ClientType, error::Error as Ics02Error},
@@ -57,17 +56,26 @@ pub struct UpgradeOptions;
 impl ClientState {
     /// Verify that the client is at a sufficient height and unfrozen at the given height
     pub fn verify_height(&self, height: Height) -> Result<(), Error> {
-        unimplemented!()
+        if self.latest_height() < height {
+            return Err(Error::Custom("Insufficient height".to_string()));
+        }
+
+        match self.frozen_height {
+            Some(frozen_height) if Height::new(0, frozen_height) <= height => {
+                Err(Error::Custom("Client frozen".to_string()))
+            }
+            _ => Ok(()),
+        }
     }
 }
 
 impl ClientState {
     pub fn latest_height(&self) -> Height {
-        unimplemented!()
+        Height::new(0, self.state.finalized_header.slot)
     }
 
     pub fn chain_id(&self) -> ChainId {
-        unimplemented!()
+        ChainId::new("Ethereum".to_string(), 0)
     }
 
     pub fn client_type() -> ClientType {
@@ -75,13 +83,13 @@ impl ClientState {
     }
 
     pub fn frozen_height(&self) -> Option<Height> {
-        unimplemented!()
+        self.frozen_height.map(|height| Height::new(0, height))
     }
 
     pub fn upgrade(
-        mut self,
+        self,
         _upgrade_height: Height,
-        upgrade_options: UpgradeOptions,
+        _upgrade_options: UpgradeOptions,
         _chain_id: ChainId,
     ) -> Self {
         unimplemented!()
@@ -89,12 +97,16 @@ impl ClientState {
 
     /// Check if the state is expired when `elapsed` time has passed since the latest consensus
     /// state timestamp
-    pub fn expired(&self, elapsed: Duration) -> bool {
-        unimplemented!()
+    pub fn expired(&self, _elapsed: Duration) -> bool {
+        //todo: implement trusting period for ethereum
+        false
     }
 
-    pub fn with_frozen_height(self, h: Height) -> Result<Self, Error> {
-        unimplemented!()
+    pub fn with_frozen_height(self, slot: u64) -> Result<Self, Error> {
+        Ok(Self {
+            frozen_height: Some(slot),
+            ..self
+        })
     }
 }
 
@@ -103,36 +115,36 @@ impl ibc::core::ics02_client::client_state::ClientState for ClientState {
     type ClientDef = EthereumClient;
 
     fn chain_id(&self) -> ChainId {
-        unimplemented!()
+        self.chain_id()
     }
 
     fn client_def(&self) -> Self::ClientDef {
-        unimplemented!()
+        EthereumClient::default()
     }
 
     fn client_type(&self) -> ClientType {
-        unimplemented!()
+        Self::client_type()
     }
 
     fn latest_height(&self) -> Height {
-        unimplemented!()
+        self.latest_height()
     }
 
     fn frozen_height(&self) -> Option<Height> {
-        unimplemented!()
+        self.frozen_height()
     }
 
     fn upgrade(
         self,
-        upgrade_height: Height,
-        upgrade_options: UpgradeOptions,
-        chain_id: ChainId,
+        _upgrade_height: Height,
+        _upgrade_options: UpgradeOptions,
+        _chain_id: ChainId,
     ) -> Self {
         unimplemented!()
     }
 
     fn expired(&self, elapsed: Duration) -> bool {
-        unimplemented!()
+        self.expired(elapsed)
     }
 
     fn encode_to_vec(&self) -> Result<Vec<u8>, tendermint_proto::Error> {

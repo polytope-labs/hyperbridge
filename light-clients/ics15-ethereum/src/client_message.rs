@@ -16,25 +16,21 @@
 use crate::{
     error::Error,
     proto::{
-        self, ancestry_proof::Message as RawAncestryProofMessage, client_message,
-        client_message::Message as RawMessage, AncestorBlock as RawAncestorBlock,
-        AncestryProof as RawAncestryProof, BeaconBlockHeader as RawBeaconBlockHeader,
-        BlockRoots as RawBlockRoots, BlockRootsProof as RawBlockRootsProof,
-        ClientMessage as RawClientMessage, ExecutionPayloadProof as RawExecutionPayloadProof,
-        FinalityProof as RawFinalityProof, HistoricalRoots as RawHistoricalRoots,
-        LightClientUpdate as RawLightClientUpdate, Misbehaviour as RawMisbehaviour,
-        SyncAggregate as RawSyncAggregate, SyncCommittee as RawSyncCommittee,
-        SyncCommitteeUpdate as RawSyncCommitteeUpdate,
+        ancestry_proof::Message as RawAncestryProofMessage, client_message::Message as RawMessage,
+        AncestorBlock as RawAncestorBlock, AncestryProof as RawAncestryProof,
+        BeaconBlockHeader as RawBeaconBlockHeader, BlockRoots as RawBlockRoots,
+        BlockRootsProof as RawBlockRootsProof, ClientMessage as RawClientMessage,
+        ExecutionPayloadProof as RawExecutionPayloadProof, FinalityProof as RawFinalityProof,
+        HistoricalRoots as RawHistoricalRoots, LightClientUpdate as RawLightClientUpdate,
+        Misbehaviour as RawMisbehaviour, SyncAggregate as RawSyncAggregate,
+        SyncCommittee as RawSyncCommittee, SyncCommitteeUpdate as RawSyncCommitteeUpdate,
     },
 };
-use alloc::{collections::BTreeMap, vec::Vec};
-use anyhow::anyhow;
-use codec::{Decode, Encode};
+use alloc::vec::Vec;
 use core::fmt::Debug;
 use ethereum_consensus::bellatrix::mainnet::SYNC_COMMITTEE_SIZE;
 use ethereum_consensus::bellatrix::{BeaconBlockHeader, SyncAggregate, SyncCommittee};
 use ethereum_consensus::primitives::{BlsPublicKey, BlsSignature, Hash32, Root};
-use ibc::core::ics02_client::error::Error as Ics02Error;
 use ssz_rs::{Bitvector, Vector};
 use sync_committee_primitives::types::{
     AncestorBlock, AncestryProof, BlockRootsProof, ExecutionPayloadProof, FinalityProof,

@@ -6,8 +6,8 @@ members = [
      "parachain/node",
      "parachain/pallets/pallet-hyperspace/primitives",
      "parachain/pallets/pallet-hyperspace",
-     "light-clients/ics11-beefy",
-     "light-clients/ics15-ethereum"
+     "parachain/primitives/consensus-clients/ics11-beefy",
+     "parachain/primitives/consensus-clients/ics15-ethereum"
 ]
 
 [patch."https://github.com/ralexstokes/ethereum-consensus"]

@@ -13,15 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{client_state::ClientState, consensus_state::ConsensusState, error::Error};
-use ibc::core::ics02_client::{
-    client_consensus::ConsensusState as _, client_state::ClientState as _,
-};
+use crate::{client_state::ClientState, consensus_state::ConsensusState};
+use ibc::core::ics02_client::client_consensus::ConsensusState as _;
 
 use crate::client_message::ClientMessage;
-use alloc::{format, string::ToString, vec, vec::Vec};
-use codec::Decode;
-use core::marker::PhantomData;
+use alloc::{string::ToString, vec::Vec};
 use ibc::core::ics02_client::{
     client_def::{ClientDef, ConsensusUpdateResult},
     error::Error as Ics02Error,
@@ -36,8 +32,7 @@ use ibc::core::ics23_commitment::commitment::{
 use ibc::core::ics24_host::identifier::{ChannelId, ClientId, ConnectionId, PortId};
 use ibc::core::ics26_routing::context::ReaderContext;
 use ibc::Height;
-
-use tendermint_proto::Protobuf;
+use ssz_rs::Merkleized;
 
 const CLIENT_STATE_UPGRADE_PATH: &[u8] = b"client-state-upgrade-path";
 const CONSENSUS_STATE_UPGRADE_PATH: &[u8] = b"consensus-state-upgrade-path";
@@ -53,10 +48,61 @@ impl ClientDef for EthereumClient {
         &self,
         _ctx: &Ctx,
         _client_id: ClientId,
-        _client_state: Self::ClientState,
-        _message: Self::ClientMessage,
+        client_state: Self::ClientState,
+        message: Self::ClientMessage,
     ) -> Result<(), Ics02Error> {
-        unimplemented!()
+        match message {
+            ClientMessage::Header(light_client_update) => {
+                sync_committee_verifier::verify_sync_committee_attestation(
+                    client_state.state,
+                    light_client_update,
+                )
+                .map_err(|e| Ics02Error::header_verification_failure(e.to_string()))?;
+            }
+            ClientMessage::Misbehaviour(misbehaviour) => {
+                let slot_1 = misbehaviour.header_1.finalized_header.slot;
+                let slot_2 = misbehaviour.header_2.finalized_header.slot;
+                if slot_1 != slot_2 {
+                    Err(Ics02Error::implementation_specific(
+                        "Invalid Misbehaviiour :misbehaviour is from two different headers"
+                            .to_string(),
+                    ))?
+                }
+                let header_1_hash = misbehaviour
+                    .header_1
+                    .finalized_header
+                    .clone()
+                    .hash_tree_root()
+                    .map_err(|_| {
+                        Ics02Error::implementation_specific("Failed to hash header".to_string())
+                    })?;
+                let header_2_hash = misbehaviour
+                    .header_1
+                    .finalized_header
+                    .clone()
+                    .hash_tree_root()
+                    .map_err(|_| {
+                        Ics02Error::implementation_specific("Failed to hash header".to_string())
+                    })?;
+                if header_1_hash == header_2_hash {
+                    Err(Ics02Error::implementation_specific(
+                        "Invalid Misbehaviiour: The blocks are identical".to_string(),
+                    ))?
+                }
+
+                sync_committee_verifier::verify_sync_committee_attestation(
+                    client_state.state.clone(),
+                    misbehaviour.header_1,
+                )
+                .map_err(|e| Ics02Error::header_verification_failure(e.to_string()))?;
+                sync_committee_verifier::verify_sync_committee_attestation(
+                    client_state.state,
+                    misbehaviour.header_2,
+                )
+                .map_err(|e| Ics02Error::header_verification_failure(e.to_string()))?;
+            }
+        }
+        Ok(())
     }
 
     fn update_state<Ctx: ReaderContext>(
@@ -64,27 +110,85 @@ impl ClientDef for EthereumClient {
         _ctx: &Ctx,
         _client_id: ClientId,
         client_state: Self::ClientState,
-        _message: Self::ClientMessage,
+        message: Self::ClientMessage,
     ) -> Result<(Self::ClientState, ConsensusUpdateResult<Ctx>), Ics02Error> {
-        unimplemented!()
+        match message {
+            ClientMessage::Header(light_client_update) => {
+                let (.., consensus_state) = ConsensusState::from_header(light_client_update)
+                    .map_err(|e| Ics02Error::implementation_specific(e.to_string()))?;
+                let cs = Ctx::AnyConsensusState::wrap(&consensus_state).ok_or_else(|| {
+                    Ics02Error::unknown_consensus_state_type("Ctx::AnyConsensusState".to_string())
+                })?;
+                Ok((client_state, ConsensusUpdateResult::Single(cs)))
+            }
+            _ => unreachable!("02-client will check for Header before calling update_state; qed"),
+        }
     }
 
     fn update_state_on_misbehaviour(
         &self,
         client_state: Self::ClientState,
-        _header: Self::ClientMessage,
+        client_message: Self::ClientMessage,
     ) -> Result<Self::ClientState, Ics02Error> {
-        unimplemented!()
+        let misbehaviour = match client_message {
+            ClientMessage::Misbehaviour(misbehaviour) => misbehaviour,
+            _ => unreachable!(
+                "02-client will check for misbehaviour before calling update_state_on_misbehaviour; qed"
+            ),
+        };
+        client_state
+            .with_frozen_height(misbehaviour.header_1.finalized_header.slot)
+            .map_err(|e| e.into())
     }
 
     fn check_for_misbehaviour<Ctx: ReaderContext>(
         &self,
-        _ctx: &Ctx,
-        _client_id: ClientId,
+        ctx: &Ctx,
+        client_id: ClientId,
         _client_state: Self::ClientState,
-        _message: Self::ClientMessage,
+        message: Self::ClientMessage,
     ) -> Result<bool, Ics02Error> {
-        unimplemented!()
+        match message {
+            ClientMessage::Misbehaviour(_) => Ok(true),
+            ClientMessage::Header(lc_update) => {
+                // Check if a consensus state is already installed; if so it should
+                // match the untrusted header.
+                let (height, header_consensus_state) = ConsensusState::from_header(lc_update)
+                    .map_err(|e| Ics02Error::implementation_specific(e.to_string()))?;
+
+                let existing_consensus_state =
+                    match ctx.maybe_consensus_state(&client_id, height)? {
+                        Some(cs) => {
+                            let cs = cs.downcast::<ConsensusState>().ok_or(
+                                Ics02Error::client_args_type_mismatch(
+                                    ClientState::client_type().to_owned(),
+                                ),
+                            )?;
+                            // If this consensus state matches, skip verification
+                            // (optimization)
+                            if header_consensus_state == cs {
+                                // Header is already installed and matches the incoming
+                                // header (already verified)
+                                return Ok(false);
+                            }
+                            Some(cs)
+                        }
+                        None => None,
+                    };
+
+                // If the header has verified, but its corresponding consensus state
+                // differs from the existing consensus state for that height, freeze the
+                // client and return the installed consensus state.
+                if let Some(cs) = existing_consensus_state {
+                    if cs != header_consensus_state {
+                        return Ok(true);
+                    }
+                }
+
+                // todo: Are there any other checks needed
+                Ok(false)
+            }
+        }
     }
 
     fn verify_upgrade_and_update_state<Ctx: ReaderContext>(

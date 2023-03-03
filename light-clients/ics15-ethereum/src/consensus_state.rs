@@ -13,9 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloc::{format, vec, vec::Vec};
-use anyhow::anyhow;
-use codec::Decode;
+use alloc::{format, vec::Vec};
 use core::{convert::Infallible, fmt::Debug};
 use ethereum_consensus::configs::mainnet::SECONDS_PER_SLOT;
 use ethereum_consensus::primitives::{Slot, GENESIS_SLOT};
@@ -49,7 +47,7 @@ impl ConsensusState {
         }
     }
 
-    pub fn from_header<H>(lc_update: LightClientUpdate) -> Result<(Height, Self), Error> {
+    pub fn from_header(lc_update: LightClientUpdate) -> Result<(Height, Self), Error> {
         let root = CommitmentRoot::from_bytes(lc_update.execution_payload.state_root.as_slice());
         let timestamp = compute_timestamp_at_slot(lc_update.finalized_header.slot);
         Ok((
@@ -108,7 +106,7 @@ impl From<ConsensusState> for RawConsensusState {
     }
 }
 
-fn compute_timestamp_at_slot(slot: Slot) -> Time {
+pub fn compute_timestamp_at_slot(slot: Slot) -> Time {
     let slots_since_genesis = slot - GENESIS_SLOT;
     let timestamp_secs = GENESIS_TIME + (slots_since_genesis * SECONDS_PER_SLOT);
     let timestamp_nanos = timestamp_secs * 1_000_000_000;

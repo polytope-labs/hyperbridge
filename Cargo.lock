@@ -3599,6 +3599,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ics15-ethereum"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "derive_more",
+ "ibc-proto",
+ "ibc-rs",
+ "parity-scale-codec",
+ "prost",
+ "prost-build",
+ "prost-types",
+ "serde",
+ "tendermint",
+ "tendermint-proto",
+]
+
+[[package]]
 name = "ics23"
 version = "0.8.1"
 source = "git+https://github.com/confio/ics23?rev=a4daeb4c24ce1be827829c0841446abc690c4f11#a4daeb4c24ce1be827829c0841446abc690c4f11"

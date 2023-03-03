@@ -1,0 +1,42 @@
+[package]
+name = "ics15-ethereum"
+version = "0.1.0"
+edition = "2021"
+authors = ["Seun Lanlege <seunlanlege@gmail.com>"]
+
+
+[features]
+default = ["std"]
+std = [
+    "ibc/std",
+    "ibc-proto/std",
+    "prost/std",
+    "prost-types/std",
+    "codec/std",
+    "anyhow/std",
+    "serde/std"
+]
+
+[build-dependencies]
+prost-build = "0.11.1"
+
+[dependencies]
+# ibc deps
+ibc = { package = "ibc-rs", git = "ssh://git@github.com/polytope-labs/ibc-rs.git", default-features = false }
+ibc-proto = { git = "ssh://git@github.com/polytope-labs/ibc-rs.git", default-features = false }
+
+# crates.io
+prost = { version = "0.11", default-features = false }
+prost-types = { version = "0.11", default-features = false }
+codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false }
+anyhow = { version = "1.0.65", default-features = false }
+derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
+serde = { version = "1.0.144", default-features = false, features = ["derive"] }
+
+
+
+tendermint = { git = "https://github.com/informalsystems/tendermint-rs", rev = "e81f7bf23d63ffbcd242381d1ce5e35da3515ff1", default-features = false }
+tendermint-proto = { git = "https://github.com/informalsystems/tendermint-rs", rev = "e81f7bf23d63ffbcd242381d1ce5e35da3515ff1", default-features = false }
+
+[dev-dependencies]
+

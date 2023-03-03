@@ -4,10 +4,8 @@ members = [
     # Parachain
      "parachain/runtime",
      "parachain/node",
-
      "parachain/pallets/pallet-hyperspace/primitives",
-     "parachain/pallets/pallet-hyperspace"
-]
+     "parachain/pallets/pallet-hyperspace",
+     "light-clients/ics11-beefy"
 
-[patch."https://github.com/paritytech/jsonrpsee"]
-jsonrpsee = { version = "0.16.2" }
+]

@@ -6,6 +6,7 @@ members = [
      "parachain/node",
      "parachain/pallets/pallet-hyperspace/primitives",
      "parachain/pallets/pallet-hyperspace",
+     "parachain/pallets/pallet-hyperspace-ping",
      "parachain/primitives/consensus-clients/ics11-beefy",
      "parachain/primitives/consensus-clients/ics15-ethereum"
 ]

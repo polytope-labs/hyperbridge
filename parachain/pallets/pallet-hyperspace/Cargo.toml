@@ -41,33 +41,13 @@ prost = { version = "0.11", default-features = false, optional = true }
 frame-benchmarking = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false, optional = true }
 pallet-hyperspace-ping = { path = "../pallet-hyperspace-ping", default-features = false, optional = true }
 pallet-timestamp = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false, optional = true }
-sp-finality-grandpa = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false, optional = true }
-finality-grandpa = { version = "0.16.0", features = ["derive-codec"], default-features = false, optional = true }
 serde = { version = "1.0", optional = true }
 
+ibc-rs = {git = "ssh://git@github.com/polytope-labs/ibc-rs.git",  default-features = false}
+ibc-derive = {git = "ssh://git@github.com/polytope-labs/ibc-rs.git", default-features = false}
 
-ibc-rs = {path = "../../../../ibc-rs/modules", default-features = false}
-ibc-derive = {path = "../../../../ibc-rs/derive", default-features = false}
 codec = {package = "parity-scale-codec", version = "3.0.0", features = ["derive"], default-features = false}
 tendermint-light-client-verifier={git = "https://github.com/informalsystems/tendermint-rs",rev = "47e28b50d20138234f7a8b4254da71469f401714",default-features = false}
-
-[dev-dependencies]
-chrono = "0.4.19"
-hex = "0.4.3"
-hex-literal = { version = "0.3.4" }
-orml-tokens = { git = "https://github.com/open-web3-stack/open-runtime-module-library", branch = "polkadot-v0.9.37" }
-orml-traits = { git = "https://github.com/open-web3-stack/open-runtime-module-library", branch = "polkadot-v0.9.37" }
-pallet-timestamp = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37" }
-prost = { version = "0.11" }
-serde = { version = "1.0" }
-sp-keyring = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37" }
-tendermint = { git = "https://github.com/informalsystems/tendermint-rs", rev = "47e28b50d20138234f7a8b4254da71469f401714", default-features = false }
-balances = { package = "pallet-balances", git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
-pallet-assets = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37" }
-pallet-hyperspace-ping = { path = "../pallet-hyperspace-ping", default-features = false }
-sp-keystore = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37"}
-ibc-rs = {path = "../../../../ibc-rs/modules", features = ["mocks"]}
-
 
 [features]
 default = ["std"]
@@ -86,14 +66,10 @@ std = [
     "sp-io/std",
     "sp-trie/std",
     "cumulus-primitives-core/std",
-    "pallet-assets/std",
     "ibc-rs/std",
     "ibc-proto/std",
     "ibc-primitives/std",
     "parachain-info/std",
-    "sp-finality-grandpa/std",
-    "sp-finality-grandpa/std",
-    "finality-grandpa/std",
     "serde",
     "hex/std"
 ]
@@ -108,8 +84,6 @@ runtime-benchmarks = [
     "pallet-timestamp/runtime-benchmarks",
     "prost",
     "ibc-primitives/runtime-benchmarks",
-    "sp-finality-grandpa",
-    "finality-grandpa"
 ]
 
 try-runtime = ["frame-support/try-runtime"]

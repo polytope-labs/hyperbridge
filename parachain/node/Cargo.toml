@@ -1,5 +1,5 @@
 [package]
-name = "hperspace-parachain-node"
+name = "hyperspace-parachain-node"
 version = "0.1.0"
 authors = ["Polytope Labs"]
 description = "Hyperspace-bridge parachain node"

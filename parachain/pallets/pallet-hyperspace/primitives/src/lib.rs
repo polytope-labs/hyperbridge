@@ -4,7 +4,9 @@ extern crate alloc;
 
 use alloc::string::{String, ToString};
 use codec::{Decode, Encode};
-use frame_support::{weights::Weight, RuntimeDebug};
+use frame_support::{RuntimeDebug};
+use sp_weights::Weight;
+
 use ibc_rs::{
     applications::transfer::{error::Error as Ics20Error, PrefixedCoin, VERSION},
     core::{

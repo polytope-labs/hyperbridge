@@ -27,7 +27,7 @@ sp-trie = { git = "https://github.com/paritytech/substrate", branch = "polkadot-
 frame-support = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
 sp-weights = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
 
-ibc-rs = {path = "../../../../../ibc-rs/modules", default-features = false}
+ibc-rs = {git = "ssh://git@github.com/polytope-labs/ibc-rs.git",  default-features = false}
 
 codec = {package = "parity-scale-codec", version = "3.0.0", features = ["derive"], default-features = false}
 [features]

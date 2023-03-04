@@ -19,8 +19,8 @@ sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v
 sp-weights = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
 codec = {package = "parity-scale-codec", version = "3.0.0", features = ["derive"], default-features = false}
 
-# local deps
-ibc-rs = {path = "../../../../ibc-rs/modules", default-features = false}
+# local deps=
+ibc-rs = {git = "ssh://git@github.com/polytope-labs/ibc-rs.git",  default-features = false}
 ibc-primitives = { path = "../pallet-hyperspace/primitives", default-features = false }
 
 [features]

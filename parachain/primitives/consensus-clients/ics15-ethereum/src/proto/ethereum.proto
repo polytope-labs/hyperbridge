@@ -1,0 +1,134 @@
+// Copyright (C) 2023 Polytope labs.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package ibc.lightclients.ethereum.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message BeaconBlockHeader {
+    uint64 slot = 1;
+    uint64 proposer_index = 2;
+    bytes parent_root = 3;
+    bytes state_root = 4;
+    bytes body_root = 5;
+}
+
+message SyncCommittee {
+    repeated bytes public_keys = 1;
+    bytes aggregate_public_key = 2;
+}
+
+message SyncCommitteeUpdate {
+    SyncCommittee next_sync_committee = 1;
+    repeated bytes next_sync_committee_branch = 2;
+}
+
+message ExecutionPayloadProof {
+    bytes state_root = 1;
+	uint64 block_number = 2;
+	repeated bytes multi_proof = 3;
+	repeated bytes execution_payload_branch = 4;
+}
+
+message BlockRootsProof {
+	uint64 block_header_index = 1;
+	repeated bytes block_header_branch = 2;
+}
+
+message BlockRoots {
+    BlockRootsProof block_roots_proof = 1;
+    repeated bytes block_roots_branch = 2;
+}
+
+message HistoricalRoots {
+    BlockRootsProof block_roots_proof = 1;
+	repeated bytes historical_batch_proof = 2;
+	repeated bytes historical_roots_proof = 3;
+	uint64 historical_roots_index = 4;
+	repeated bytes historical_roots_branch = 5;
+}
+
+message AncestryProof {
+    oneof message {
+        BlockRoots block_roots = 1;
+        HistoricalRoots historical_roots = 2;
+    }
+}
+
+message AncestorBlock {
+	BeaconBlockHeader header = 1;
+	ExecutionPayloadProof execution_payload = 2;
+	AncestryProof ancestry_proof = 3;
+}
+
+message FinalityProof {
+	uint64 epoch = 1;
+	repeated bytes finality_branch = 2;
+}
+
+message SyncAggregate {
+    bytes sync_committee_bits = 1;
+    bytes sync_committee_signature = 2;
+}
+
+message LightClientUpdate {
+	BeaconBlockHeader attested_header = 1;
+	optional  SyncCommitteeUpdate sync_committee_update = 2;
+	BeaconBlockHeader finalized_header = 3;
+	ExecutionPayloadProof execution_payload = 4;
+	FinalityProof finality_proof = 5;
+	SyncAggregate sync_aggregate = 6;
+	uint64 signature_slot = 7;
+	repeated AncestorBlock ancestor_blocks = 8;
+}
+
+message LightClientState {
+	BeaconBlockHeader finalized_header = 1;
+	uint64 latest_finalized_epoch = 2;
+	SyncCommittee current_sync_committee = 3;
+	SyncCommittee next_sync_committee = 4;
+}
+
+
+// The client state type for the Beacon chain light client
+message ClientState {
+	LightClientState state = 1;
+	optional uint64 frozen_height = 2;
+}
+
+// ConsensusState defines the consensus state from Ethereum Execution Layer.
+message ConsensusState {
+  // timestamp that corresponds to the block height for this consensus state
+  google.protobuf.Timestamp timestamp = 1;
+  // State root of the execution chain
+  bytes root = 2;
+}
+
+
+// Sync committee misbehaviour type
+message Misbehaviour {
+  LightClientUpdate header_1 = 1;
+  LightClientUpdate header_2 = 2;
+}
+
+// ClientMessage for ics15-ethereum
+message ClientMessage {
+  oneof message {
+    LightClientUpdate header = 1;
+    Misbehaviour misbehaviour = 2;
+  }
+}

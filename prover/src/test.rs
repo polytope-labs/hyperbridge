@@ -430,7 +430,6 @@ async fn test_prover() {
 		}
 
 		println!("\nAncestor blocks count: \n {:?} \n", ancestor_blocks.len());
-		println!("\nAncestor blocks count: \n {:#?} \n", ancestor_blocks);
 
 		// construct light client
 		let light_client_update = LightClientUpdate {

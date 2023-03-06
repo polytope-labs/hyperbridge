@@ -216,7 +216,7 @@ pub fn get_attested_epoch(finalized_epoch: u64) -> u64 {
 }
 
 pub fn prove_execution_payload(
-	beacon_state: BeaconStateType,
+	mut beacon_state: BeaconStateType,
 ) -> anyhow::Result<ExecutionPayloadProof> {
 	let indices = [
 		EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize,
@@ -224,7 +224,7 @@ pub fn prove_execution_payload(
 	];
 	// generate multi proofs
 	let multi_proof = ssz_rs::generate_proof(
-		beacon_state.latest_execution_payload_header.clone(),
+		&mut beacon_state.latest_execution_payload_header,
 		indices.as_slice(),
 	)?;
 
@@ -236,7 +236,7 @@ pub fn prove_execution_payload(
 			.map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
 			.collect(),
 		execution_payload_branch: ssz_rs::generate_proof(
-			beacon_state,
+			&mut beacon_state,
 			&[EXECUTION_PAYLOAD_INDEX as usize],
 		)?
 		.into_iter()
@@ -245,14 +245,14 @@ pub fn prove_execution_payload(
 	})
 }
 
-pub fn prove_sync_committee_update(state: BeaconStateType) -> anyhow::Result<Vec<Node>> {
-	let proof = ssz_rs::generate_proof(state, &[NEXT_SYNC_COMMITTEE_INDEX as usize])?;
+pub fn prove_sync_committee_update(mut state: BeaconStateType) -> anyhow::Result<Vec<Node>> {
+	let proof = ssz_rs::generate_proof(&mut state, &[NEXT_SYNC_COMMITTEE_INDEX as usize])?;
 	Ok(proof)
 }
 
-pub fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<Vec<Hash32>> {
+pub fn prove_finalized_header(mut state: BeaconStateType) -> anyhow::Result<Vec<Hash32>> {
 	let indices = [FINALIZED_ROOT_INDEX as usize];
-	let proof = ssz_rs::generate_proof(state.clone(), indices.as_slice())?;
+	let proof = ssz_rs::generate_proof(&mut state, indices.as_slice())?;
 
 	Ok(proof
 		.into_iter()
@@ -261,7 +261,7 @@ pub fn prove_finalized_header(state: BeaconStateType) -> anyhow::Result<Vec<Hash
 }
 
 pub fn prove_block_roots_proof(
-	state: BeaconStateType,
+	mut state: BeaconStateType,
 	mut header: BeaconBlockHeader,
 ) -> anyhow::Result<AncestryProof> {
 	// Check if block root should still be part of the block roots vector on the beacon state
@@ -283,7 +283,7 @@ pub fn prove_block_roots_proof(
 			.position(|root| root == &block_root)
 			.expect("Block root should exist in block_roots");
 
-		let proof = ssz_rs::generate_proof(state.block_roots.clone(), &[block_index])?;
+		let proof = ssz_rs::generate_proof(&mut state.block_roots, &[block_index])?;
 
 		let block_roots_proof = BlockRootsProof {
 			block_header_index: block_index as u64,
@@ -295,7 +295,7 @@ pub fn prove_block_roots_proof(
 				.collect(),
 		};
 
-		let block_roots_branch = ssz_rs::generate_proof(state, &[BLOCK_ROOTS_INDEX as usize])?;
+		let block_roots_branch = ssz_rs::generate_proof(&mut state, &[BLOCK_ROOTS_INDEX as usize])?;
 		Ok(AncestryProof::BlockRoots {
 			block_roots_proof,
 			block_roots_branch: block_roots_branch

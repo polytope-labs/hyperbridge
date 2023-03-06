@@ -114,7 +114,7 @@ async fn test_finalized_header() {
 	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
-	let proof = ssz_rs::generate_proof(state.clone(), &vec![FINALIZED_ROOT_INDEX as usize]);
+	let proof = ssz_rs::generate_proof(&mut state.clone(), &vec![FINALIZED_ROOT_INDEX as usize]);
 
 	let leaves = vec![Node::from_bytes(
 		state
@@ -405,32 +405,32 @@ async fn test_prover() {
 			None
 		};
 
-		// todo: Enable when proofs are implemented for Lists adn Vectors
-		// let mut i = finalized_header.slot - 1;
-		// let mut ancestor_blocks = vec![];
-		// while ancestor_blocks.len() < 5 {
-		// 	if (finalized_header.slot - i) > 100 {
-		// 		break
-		// 	}
-		// 	if let Ok(ancestor_header) =
-		// 		sync_committee_prover.fetch_header(i.to_string().as_str()).await
-		// 	{
-		// 		let ancestry_proof =
-		// 			prove_block_roots_proof(finalized_state.clone(), ancestor_header.clone())
-		// 				.unwrap();
-		// 		let header_state =
-		// 			sync_committee_prover.fetch_beacon_state(i.to_string().as_str()).await.unwrap();
-		// 		let execution_payload_proof = prove_execution_payload(header_state).unwrap();
-		// 		ancestor_blocks.push(AncestorBlock {
-		// 			header: ancestor_header,
-		// 			execution_payload: execution_payload_proof,
-		// 			ancestry_proof,
-		// 		})
-		// 	}
-		// 	i -= 1;
-		// }
-		//
-		// println!("Ancestor block count {}", ancestor_blocks.len());
+		let mut i = finalized_header.slot - 1;
+		let mut ancestor_blocks = vec![];
+		while ancestor_blocks.len() < 5 {
+			if (finalized_header.slot - i) > 100 {
+				break
+			}
+			if let Ok(ancestor_header) =
+				sync_committee_prover.fetch_header(i.to_string().as_str()).await
+			{
+				let ancestry_proof =
+					prove_block_roots_proof(finalized_state.clone(), ancestor_header.clone())
+						.unwrap();
+				let header_state =
+					sync_committee_prover.fetch_beacon_state(i.to_string().as_str()).await.unwrap();
+				let execution_payload_proof = prove_execution_payload(header_state).unwrap();
+				ancestor_blocks.push(AncestorBlock {
+					header: ancestor_header,
+					execution_payload: execution_payload_proof,
+					ancestry_proof,
+				})
+			}
+			i -= 1;
+		}
+
+		println!("\nAncestor blocks count: \n {:?} \n", ancestor_blocks.len());
+		println!("\nAncestor blocks count: \n {:#?} \n", ancestor_blocks);
 
 		// construct light client
 		let light_client_update = LightClientUpdate {

@@ -36,7 +36,7 @@ pub fn compute_fork_version(epoch: u64) -> [u8; 4] {
 }
 
 #[cfg(feature = "testing")]
-pub fn compute_fork_version(epoch: u64) -> [u8; 4] {
+pub fn compute_fork_version(_epoch: u64) -> [u8; 4] {
 	BELLATRIX_FORK_VERSION
 }
 

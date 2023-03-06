@@ -236,8 +236,6 @@ async fn test_sync_committee_update_proof() {
 	assert!(is_merkle_branch_valid);
 }
 
-// todo: cloning the beacon state might expensive in production or testnet, if we can modify
-// generate_proof function take a reference for the object that would be better.
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[actix_rt::test]

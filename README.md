@@ -1,5 +1,48 @@
-# Ethereum beacon light client verifier
-Implementation of the Ethereum beacon light client verifier in Rust
+# <h1 align="center"> Sync-committee-rs ⚙️ </h1>
+
+<p align="center">
+    <strong>Ethereum Beacon Chain Light Client SDK in Rust</strong>
+    <br />
+    <sub> ⚠️ Beta Software ⚠️ </sub>
+</p>
+
+<br/>
+
+The sync-committee-rs is the implementation of the Ethereum beacon light client verifier in Rust. This follows the specifications
+initially defined by Seun Lanlege [here](https://polytopelabs.notion.site/ICS-15-ethereum-beacon-chain-light-client-specification-for-IBC-9c28567b02424585b4deceeb21b9beaf)
+
+
+This library consists of
+- ✅ The primitives.
+- ✅ The prover.
+- ✅ The verifier
+
+
+## The primitives
+Consists of the types and structs as defined and described in the spec mentioned earlier. It also consists of the utility functions
+to be used in the verifier and prover.
+
+## The prover
+Consists of the various proof generations for the ethereum beacon chain structs/types such as:
+
+- Execution payload
+- Finalized header
+- Block roots
+- Sync committee update
+
+The prover also defines the function for fetching various ethereum types from the beacon chain node which can be used to generate proofs.
+
+
+## The verifier
+This consist of the major function for verifying sync committee attestation. It also defines the different error that can occur while verifying.
+
+
+# Major Depedencies
+The major dependencies for this SDK/Library are:
+
+- [ssz-rs](https://github.com/ralexstokes/ssz-rs) 
+- [ethereum-consensus](https://github.com/ralexstokes/ethereum-consensus)
+
 
 # Running the prover tests
 **NOTE**

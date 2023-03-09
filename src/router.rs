@@ -6,6 +6,7 @@ use codec::{Decode, Encode};
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Request {
     pub nonce: u64,
+    pub source_chain: ChainID,
     pub dest_chain: ChainID,
     pub from: Vec<u8>,
     pub to: Vec<u8>,

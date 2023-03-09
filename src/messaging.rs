@@ -6,25 +6,35 @@ use codec::{Decode, Encode};
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct ConsensusMessage {
     /// Scale Encoded Consensus Proof
-    consensus_proof: Vec<u8>,
+    pub consensus_proof: Vec<u8>,
     /// Consensus client id
-    consensus_client_id: ConsensusClientId,
+    pub consensus_client_id: ConsensusClientId,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct RequestMessage {
-    request: Request,
-    proof: Proof,
+    pub request: Request,
+    pub proof: Proof,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct ResponseMessage {
-    response: Response,
-    proof: Proof,
+    pub response: Response,
+    pub proof: Proof,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Proof {
-    height: StateMachineHeight,
-    proof: Vec<Vec<u8>>,
+    pub height: StateMachineHeight,
+    pub proof: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Encode, Decode)]
+pub enum Message {
+    #[codec(index = 0)]
+    Consensus(ConsensusMessage),
+    #[codec(index = 1)]
+    Request(RequestMessage),
+    #[codec(index = 2)]
+    Response(ResponseMessage),
 }

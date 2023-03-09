@@ -1,13 +1,14 @@
 use crate::error::Error;
 use crate::host::ISMPHost;
+use crate::messaging::RequestMessage;
 use crate::prelude::Vec;
 use codec::{Decode, Encode};
 use core::time::Duration;
-use crate::messaging::RequestMessage;
 
 pub type StateMachineId = u64;
 pub type ConsensusClientId = u64;
-pub const ETHEREUM_CONSENSUS_ID: ConsensusClientId = 1;
+pub const ETHEREUM_CONSENSUS_CLIENT_ID: ConsensusClientId = 100;
+pub const GNOSIS_CONSENSUS_CLIENT_ID: ConsensusClientId = 200;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct StateCommitment {
@@ -57,8 +58,8 @@ pub trait ConsensusClient {
     fn unbonding_period(&self) -> Duration;
 
     /// Verify membership proof of request
-    fn verify_request(msg: RequestMessage) -> Result<(), Error>;
+    fn verify_request(&self, msg: RequestMessage) -> Result<(), Error>;
 
     /// Verify membership proof of response
-    fn verify_response(msg: RequestMessage) -> Result<(), Error>;
+    fn verify_response(&self, msg: RequestMessage) -> Result<(), Error>;
 }

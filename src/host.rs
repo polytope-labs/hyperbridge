@@ -48,6 +48,8 @@ pub trait ISMPHost {
     fn consensus_state(&self, id: ConsensusClientId) -> Result<Vec<u8>, Error>;
     /// Return the host timestamp in nanoseconds
     fn host_timestamp(&self) -> Duration;
+    /// Checks if a state machine is frozen at the provided height
+    fn is_frozen(&self, height: StateMachineHeight) -> Result<bool, Error>;
 
     // Storage Write functions
 
@@ -65,8 +67,15 @@ pub trait ISMPHost {
         height: StateMachineHeight,
         timestamp: Duration,
     ) -> Result<(), Error>;
-
+    /// Store the timestamp when the state machine was updated
+    fn store_state_machine_commitment(
+        &self,
+        height: StateMachineHeight,
+        state: StateCommitment,
+    ) -> Result<(), Error>;
+    /// Freeze a state machine at the given height
+    fn freeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error>;
 
     /// Should return a handle to the consensus client based on the id
-    fn consensus_client(&self, id: ConsensusClientId) -> Box<dyn ConsensusClient>;
+    fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error>;
 }

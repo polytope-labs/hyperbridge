@@ -3,6 +3,7 @@
 extern crate alloc;
 pub mod consensus_client;
 pub mod error;
+pub mod handlers;
 pub mod host;
 pub mod messaging;
 pub mod module;

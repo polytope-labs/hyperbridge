@@ -29,6 +29,8 @@ pub enum ChainID {
 }
 
 pub trait ISMPHost {
+    fn host(&self) -> ChainID;
+
     // Storage Read functions
 
     /// Returns the latest height of the state machine
@@ -64,7 +66,7 @@ pub trait ISMPHost {
         timestamp: Duration,
     ) -> Result<(), Error>;
 
-    // Available consensus clients
+
     /// Should return a handle to the consensus client based on the id
     fn consensus_client(&self, id: ConsensusClientId) -> Box<dyn ConsensusClient>;
 }

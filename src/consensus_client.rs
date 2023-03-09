@@ -3,13 +3,11 @@ use crate::host::ISMPHost;
 use crate::prelude::Vec;
 use codec::{Decode, Encode};
 use core::time::Duration;
+use crate::messaging::RequestMessage;
 
 pub type StateMachineId = u64;
-#[derive(Debug, Clone, Encode, Decode)]
-pub enum ConsensusClientId {
-    #[codec(index = 0)]
-    Ethereum,
-}
+pub type ConsensusClientId = u64;
+pub const ETHEREUM_CONSENSUS_ID: ConsensusClientId = 1;
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct StateCommitment {
@@ -37,12 +35,13 @@ pub trait ConsensusClient {
     /// - check for byzantine behaviour
     /// - verify the consensus proofs
     /// - finally return the new consensusState and state commitments.
-    fn verify_consensus_proof(
+    fn verify(
         &self,
         host: &dyn ISMPHost,
         trusted_consensus_state: Vec<u8>,
         proof: Vec<u8>,
     ) -> Result<(Vec<u8>, Vec<IntermediateState>), Error>;
+
     /// Check if the client has expired since the last update
     fn is_expired(&self, host: &dyn ISMPHost) -> Result<bool, Error> {
         let host_timestamp = host.host_timestamp();
@@ -50,7 +49,16 @@ pub trait ConsensusClient {
         let last_update = host.consensus_update_time(self.consensus_id())?;
         Ok(host_timestamp.saturating_sub(last_update) > unbonding_period)
     }
+
+    /// Return the Consensus Client Id
     fn consensus_id(&self) -> ConsensusClientId;
+
     /// Return unbonding period
     fn unbonding_period(&self) -> Duration;
+
+    /// Verify membership proof of request
+    fn verify_request(msg: RequestMessage) -> Result<(), Error>;
+
+    /// Verify membership proof of response
+    fn verify_response(msg: RequestMessage) -> Result<(), Error>;
 }

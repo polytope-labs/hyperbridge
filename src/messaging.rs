@@ -3,30 +3,11 @@ use crate::router::{Request, Response};
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 
-/// Generic message
-#[derive(Debug, Clone, Encode, Decode)]
-pub struct Message {
-    /// Message identifier
-    pub identifier: MessageIdentifier,
-    /// Scale encoded message
-    pub message: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Encode, Decode)]
-pub enum MessageIdentifier {
-    #[codec(index = 0)]
-    Consensus,
-    #[codec(index = 1)]
-    Request,
-    #[codec(index = 2)]
-    Response,
-    #[codec(index = 3)]
-    Timeout,
-}
-
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct ConsensusMessage {
+    /// Scale Encoded Consensus Proof
     consensus_proof: Vec<u8>,
+    /// Consensus client id
     consensus_client_id: ConsensusClientId,
 }
 

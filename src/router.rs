@@ -1,14 +1,14 @@
 use crate::error::Error;
 use crate::host::ChainID;
-use crate::prelude::{String, Vec};
+use crate::prelude::Vec;
 use codec::{Decode, Encode};
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Request {
     pub nonce: u64,
     pub dest_chain: ChainID,
-    pub from: String,
-    pub to: String,
+    pub from: Vec<u8>,
+    pub to: Vec<u8>,
     pub timeout_timestamp: u64,
     pub data: Vec<u8>,
 }

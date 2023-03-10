@@ -3,6 +3,7 @@ use crate::consensus_client::{
 };
 use crate::error::Error;
 use crate::prelude::Vec;
+use crate::router::IISMPRouter;
 use alloc::boxed::Box;
 use codec::{Decode, Encode};
 use core::time::Duration;
@@ -78,4 +79,17 @@ pub trait ISMPHost {
 
     /// Should return a handle to the consensus client based on the id
     fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error>;
+
+    // Hashing
+    /// Returns a sha256 hash of a byte slice
+    fn sha256(&self, bytes: &[u8]) -> [u8; 32];
+
+    /// Returns the configured delay period for a state machine
+    fn delay_period(&self, id: StateMachineId) -> Duration;
+
+    /// Returns the consensus client to which the state machine belongs
+    fn client_id_from_state_id(&self, id: StateMachineId) -> Result<ConsensusClientId, Error>;
+
+    /// Return a handle to the router
+    fn ismp_router(&self) -> Box<dyn IISMPRouter>;
 }

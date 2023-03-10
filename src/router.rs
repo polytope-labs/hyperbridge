@@ -22,8 +22,8 @@ pub struct Response {
 
 pub trait IISMPRouter {
     /// Dispatch a request from a module to the ISMP router.
-    fn dispatch(request: Request) -> Result<(), Error>;
+    fn dispatch(&self, request: Request) -> Result<(), Error>;
 
     /// Provide a response to a previously received request.
-    fn write_response(response: Response) -> Result<(), Error>;
+    fn write_response(&self, response: Response) -> Result<(), Error>;
 }

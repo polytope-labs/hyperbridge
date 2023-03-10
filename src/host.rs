@@ -3,13 +3,13 @@ use crate::consensus_client::{
 };
 use crate::error::Error;
 use crate::prelude::Vec;
-use crate::router::IISMPRouter;
+use crate::router::{IISMPRouter, Request, Response};
 use alloc::boxed::Box;
 use codec::{Decode, Encode};
 use core::time::Duration;
 use derive_more::Display;
 
-#[derive(Clone, Debug, Encode, Decode, Display)]
+#[derive(Clone, Debug, Encode, Decode, Display, PartialEq, Eq)]
 pub enum ChainID {
     #[codec(index = 0)]
     ETHEREUM,
@@ -51,6 +51,10 @@ pub trait ISMPHost {
     fn host_timestamp(&self) -> Duration;
     /// Checks if a state machine is frozen at the provided height
     fn is_frozen(&self, height: StateMachineHeight) -> Result<bool, Error>;
+    /// Fetch request commitment from storage
+    fn request_commitment(&self, req: &Request) -> Result<Vec<u8>, Error>;
+    /// Fetch response commitment from storage
+    fn response_commitment(&self, res: &Response) -> Result<Vec<u8>, Error>;
 
     // Storage Write functions
 
@@ -76,6 +80,18 @@ pub trait ISMPHost {
     ) -> Result<(), Error>;
     /// Freeze a state machine at the given height
     fn freeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error>;
+
+    /// Return the sha256 of a request
+    fn get_request_commitment(&self, req: &Request) -> Vec<u8> {
+        let encoded_req = req.encode();
+        self.sha256(&encoded_req[..]).to_vec()
+    }
+
+    /// Return the sha256 of a response
+    fn get_response_commitment(&self, res: &Response) -> Vec<u8> {
+        let encoded_res = res.encode();
+        self.sha256(&encoded_res[..]).to_vec()
+    }
 
     /// Should return a handle to the consensus client based on the id
     fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error>;

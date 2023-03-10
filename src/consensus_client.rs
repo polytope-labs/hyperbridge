@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::host::ISMPHost;
-use crate::messaging::Proof;
+use crate::messaging::{RequestMessage, ResponseMessage};
 use crate::prelude::Vec;
 use codec::{Decode, Encode};
 use core::time::Duration;
@@ -37,6 +37,7 @@ pub trait ConsensusClient {
     /// - verify the consensus proofs
     /// - finally return the new consensusState and state commitments.
     /// - If byzantine behaviour is detected
+    /// - Implementations can deposit an event after successful verification
     fn verify(
         &self,
         host: &dyn ISMPHost,
@@ -58,12 +59,20 @@ pub trait ConsensusClient {
     /// Return unbonding period
     fn unbonding_period(&self) -> Duration;
 
-    /// Verify membership o proof of commitment
-    fn verify_membership(
+    /// Verify membership of proof of a request
+    fn verify_request_membership(
         &self,
         host: &dyn ISMPHost,
         commitment: &[u8],
-        proof: Proof,
+        msg: &RequestMessage,
+    ) -> Result<(), Error>;
+
+    /// Verify membership of proof of a response
+    fn verify_response_membership(
+        &self,
+        host: &dyn ISMPHost,
+        commitment: &[u8],
+        msg: &ResponseMessage,
     ) -> Result<(), Error>;
 
     /// Check if consensus client is frozen

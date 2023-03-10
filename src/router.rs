@@ -22,8 +22,10 @@ pub struct Response {
 
 pub trait IISMPRouter {
     /// Dispatch a request from a module to the ISMP router.
+    /// If request source chain is the host, it should be committed in state as a sha256 hash
     fn dispatch(&self, request: Request) -> Result<(), Error>;
 
     /// Provide a response to a previously received request.
+    /// If response source chain is the host, it should be committed in state as a sha256 hash
     fn write_response(&self, response: Response) -> Result<(), Error>;
 }

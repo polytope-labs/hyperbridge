@@ -19,6 +19,5 @@ pub fn handle_consensus_message(host: &dyn ISMPHost, msg: ConsensusMessage) -> R
         host.store_state_machine_update_time(intermediate_state.height, timestamp)?;
     }
 
-    // Return some event
     Ok(())
 }

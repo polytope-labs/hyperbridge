@@ -1,1 +1,8 @@
-pub enum Error {}
+pub enum Error {
+    DelayNotElapsed,
+    ConsensusStateNotFound,
+    StateCommitmentNotFound,
+    RequestCommitmentMissing,
+    FrozenConsensusClient,
+    FrozenStateMachine,
+}

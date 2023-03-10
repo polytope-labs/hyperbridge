@@ -10,7 +10,7 @@ all-features = true
 [features]
 default = ["std"]
 std = [
-
+    "codec/std"
 ]
 
 [dependencies]

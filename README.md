@@ -30,8 +30,16 @@ Consists of the various proof generations for the ethereum beacon chain structs/
 - Block roots
 - Sync committee update
 
-The prover also defines the function for fetching various ethereum types from the beacon chain node which can be used to generate proofs.
+The prover also defines the function for fetching various ethereum types from the beacon chain node using the `SyncCommitteeProver` which can be used to generate proofs.
+The various function it defines are:
 
+- fetch_finalized_checkpoint: Fetches the finalized checkpoint for the `head` via this endpoint `eth/v1/beacon/states/{state_id}/finality_checkpoints`
+- fetch_header: Fetches the header via the endpoint `/eth/v1/beacon/headers/{block_id}`
+- fetch_block: Fetches the Beacon block via the endpoint `/eth/v2/beacon/blocks/{block_id}`
+- fetch_sync_committee: Fetches the sync_committee via the endpoint `/eth/v1/beacon/states/{state_id}/sync_committees`
+- fetch_validator: Fetches the node validator for a particular state via the endpoint `/eth/v1/beacon/states/{state_id}/validators/{validator_index}`
+- fetch_beacon_state: Fetches the Beacon state via the endpoint `/eth/v2/debug/beacon/states/{state_id}`
+- fetch_processed_sync_committee: Constructs the actual `SyncCommittee` after aggregating the validator `public_keys`
 
 ## The verifier
 This consist of the major function for verifying sync committee attestation. It also defines the different error that can occur while verifying.

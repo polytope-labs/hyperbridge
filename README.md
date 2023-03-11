@@ -44,6 +44,23 @@ The various function it defines are:
 ## The verifier
 This consist of the major function for verifying sync committee attestation. It also defines the different error that can occur while verifying.
 
+This contains the `verify_sync_committee_attestation` function. The purpose of this function is to verify that a sync committee attestation, represented by the update argument, 
+is valid with respect to the current trusted state, represented by the trusted_state argument.
+If the attestation is valid, the function returns the updated trusted state; otherwise, it returns an error.
+
+Detailed explanation of the `verify_sync_committee_attestation` goes as follows:
+
+- It checks whether the update contains the correct number of finality and sync committee branches. If not, it returns an error.
+- It verifies whether the number of participants in the sync committee aggregate signature is greater than or equal to two-thirds of the total number of participants. If not, it returns an error.
+- It verifies whether the update skips a sync committee period or not. If it does, it returns an error.
+- It checks whether the update is relevant by checking whether it attests to a later slot than the trusted_state or contains the next sync committee. If not, it returns an error.
+- It verifies the sync committee aggregate signature by checking that it is valid for the given sync committee participants and domain. If not, it returns an error.
+- It verifies the finality_branch of the update by checking whether it confirms the finalized_header that matches the finalized checkpoint root saved in the trusted_state. If not, it returns an error.
+- It verifies the ancestry proofs of a sync committee attestation update. It iterates over the ancestor blocks in the update and for each block, checks if its ancestry proof is either a BlockRoots proof or a HistoricalRoots proof. It then calculates the merkle roots and checks if the merkle branches are valid using the is_valid_merkle_branch function. 
+If any of the merkle branches are invalid, the function returns an error.
+- It verifies the associated execution header of the finalized beacon header.
+- If all the above checks pass, the function returns a new LightClientState object with the updated trusted_state.
+
 
 # Major Depedencies
 The major dependencies for this SDK/Library are:

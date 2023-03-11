@@ -22,6 +22,17 @@ This library consists of
 Consists of the types and structs as defined and described in the spec mentioned earlier. It also consists of the utility functions
 to be used in the verifier and prover.
 
+The verious type primitives defined are:
+
+- [`ExecutionPayloadProof`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L26)
+- [`BlockRootsProof`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L40)
+- [`AncestryProof`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L51)
+- [`AncestorBlock`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L80)
+- [`SyncCommitteeUpdate`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L92)
+- [`LightClientState`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L101)
+- [`FinalityProof`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L113)
+- [`LightClientUpdate`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L122)
+
 ## The prover
 Consists of the various proof generations for the ethereum beacon chain structs/types such as:
 

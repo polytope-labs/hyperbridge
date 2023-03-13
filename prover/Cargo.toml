@@ -8,8 +8,8 @@ edition = "2021"
 [dependencies]
 sync-committee-primitives = { path= "../primitives" }
 sync-committee-verifier = { path= "../verifier" }
-ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "ef89b4a4ef97cdd53a66ddb52e554667aca0beb2" }
-ssz-rs = { git = "https://github.com/ralexstokes/ssz-rs", rev = "688a82389f60ed68c10404417c1f7f442ba748a1", features=["serde"] }
+ethereum-consensus = { git = "https://github.com/polytope-labs/ethereum-consensus", rev = "c26206f18fcecbd69ca5d505ae4211a7bc756ad0" }
+ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs",  rev = "a78a600c7751527b74e038094ead04b697caa4a5", features=["serde"] }
 reqwest = {version="0.11.14", features=["json"]}
 serde = { version = "1.0", features = ["derive"]}
 serde_json = { version = "1.0.81"}

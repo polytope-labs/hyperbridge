@@ -2,8 +2,30 @@ use crate::host::ChainID;
 use derive_more::Display;
 
 #[derive(Clone, Debug, Display)]
-#[display(fmt = "ack/{}/{}", "chain_id", "nonce")]
+#[display(
+    fmt = "acknowledgements/{}-{}/{}",
+    "source_chain",
+    "dest_chain",
+    "nonce"
+)]
 pub struct AckPath {
-    pub chain_id: ChainID,
+    pub dest_chain: ChainID,
+    pub source_chain: ChainID,
+    pub nonce: u64,
+}
+
+#[derive(Clone, Debug, Display)]
+#[display(fmt = "requests/{}-{}/{}", "source_chain", "dest_chain", "nonce")]
+pub struct RequestPath {
+    pub dest_chain: ChainID,
+    pub source_chain: ChainID,
+    pub nonce: u64,
+}
+
+#[derive(Clone, Debug, Display)]
+#[display(fmt = "reqs/{}-{}/{}", "source_chain", "dest_chain", "nonce")]
+pub struct ResponsePath {
+    pub dest_chain: ChainID,
+    pub source_chain: ChainID,
     pub nonce: u64,
 }

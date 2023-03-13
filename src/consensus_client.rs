@@ -29,6 +29,7 @@ pub struct StateMachineHeight {
     pub height: u64,
 }
 
+/// The consensus client handles logic for consensus proof verification
 pub trait ConsensusClient {
     /// Should decode the scale encoded trusted consensus state and new consensus proof, verifying that:
     /// - the client isn't frozen yet
@@ -53,7 +54,7 @@ pub trait ConsensusClient {
         Ok(host_timestamp.saturating_sub(last_update) > unbonding_period)
     }
 
-    /// Return the Consensus Client Id
+    /// Return the configured ConsensusClientId for this client
     fn consensus_id(&self) -> ConsensusClientId;
 
     /// Return unbonding period

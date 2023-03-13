@@ -40,4 +40,5 @@ pub enum Error {
     ExpiredConsensusClient {
         id: ConsensusClientId,
     },
+    CannotHandleConsensusMessage,
 }

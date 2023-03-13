@@ -9,7 +9,7 @@ use codec::{Decode, Encode};
 use core::time::Duration;
 use derive_more::Display;
 
-#[derive(Clone, Debug, Encode, Decode, Display, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, Encode, Decode, Display, PartialEq, Eq)]
 pub enum ChainID {
     #[codec(index = 0)]
     ETHEREUM,
@@ -81,16 +81,22 @@ pub trait ISMPHost {
     /// Freeze a state machine at the given height
     fn freeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error>;
 
-    /// Return the sha256 of a request
+    /// Return the keccak256 hash of a request
+    /// Commitment is the hash of the concatenation of the data below
+    /// request.dest_chain.encode() + request.timeout_timestamp.encode() + request.data
     fn get_request_commitment(&self, req: &Request) -> Vec<u8> {
-        let encoded_req = req.encode();
-        self.keccak256(&encoded_req[..]).to_vec()
+        let mut buf = Vec::new();
+        let dest_chain = req.dest_chain.encode();
+        let timeout_timestamp = req.timeout_timestamp.encode();
+        buf.extend_from_slice(&dest_chain[..]);
+        buf.extend_from_slice(&timeout_timestamp[..]);
+        buf.extend_from_slice(&req.data[..]);
+        self.keccak256(&buf[..]).to_vec()
     }
 
-    /// Return the sha256 of a response
+    /// Return the keccak256 of a response
     fn get_response_commitment(&self, res: &Response) -> Vec<u8> {
-        let encoded_res = res.encode();
-        self.keccak256(&encoded_res[..]).to_vec()
+        self.keccak256(&res.response[..]).to_vec()
     }
 
     /// Should return a handle to the consensus client based on the id

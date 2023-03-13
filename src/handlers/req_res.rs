@@ -2,8 +2,10 @@ use crate::consensus_client::ConsensusClient;
 use crate::error::Error;
 use crate::handlers::verify_delay_passed;
 use crate::host::ISMPHost;
-use crate::messaging::{Message, Proof, RequestMessage, ResponseMessage};
+use crate::messaging::{Proof, RequestMessage, ResponseMessage};
+use crate::paths::{RequestPath, ResponsePath};
 use alloc::boxed::Box;
+use alloc::string::ToString;
 
 /// This function does the preliminary checks for a request or response message
 /// - It ensures the consensus client is not frozen
@@ -45,7 +47,14 @@ pub fn handle_request_message(host: &dyn ISMPHost, msg: RequestMessage) -> Resul
     let consensus_client = validate_state_machine(host, &msg.proof)?;
     let commitment = host.get_request_commitment(&msg.request);
     // Verify membership proof
-    consensus_client.verify_membership(host, &commitment[..], Message::Request(msg.clone()))?;
+    let key = RequestPath {
+        dest_chain: msg.request.dest_chain,
+        nonce: msg.request.nonce,
+    }
+    .to_string()
+    .as_bytes()
+    .to_vec();
+    consensus_client.verify_membership(host, key, commitment)?;
 
     let router = host.ismp_router();
 
@@ -70,8 +79,15 @@ pub fn handle_response_message(host: &dyn ISMPHost, msg: ResponseMessage) -> Res
     }
 
     let commitment = host.get_response_commitment(&msg.response);
+    let key = ResponsePath {
+        dest_chain: msg.response.request.source_chain,
+        nonce: msg.response.request.nonce,
+    }
+    .to_string()
+    .as_bytes()
+    .to_vec();
     // Verify membership proof
-    consensus_client.verify_membership(host, &commitment[..], Message::Response(msg.clone()))?;
+    consensus_client.verify_membership(host, key, commitment)?;
 
     let router = host.ismp_router();
 

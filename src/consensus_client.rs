@@ -1,6 +1,5 @@
 use crate::error::Error;
 use crate::host::ISMPHost;
-use crate::messaging::Message;
 use crate::prelude::Vec;
 use codec::{Decode, Encode};
 use core::time::Duration;
@@ -60,20 +59,20 @@ pub trait ConsensusClient {
     /// Return unbonding period
     fn unbonding_period(&self) -> Duration;
 
-    /// Verify membership of proof of a request
+    /// Verify membership of proof of a commitment
     fn verify_membership(
         &self,
         host: &dyn ISMPHost,
-        commitment: &[u8],
-        msg: Message,
+        key: Vec<u8>,
+        commitment: Vec<u8>,
     ) -> Result<(), Error>;
 
-    /// Verify membership of proof of a response
+    /// Verify non-membership of proof of a commitment
     fn verify_non_membership(
         &self,
         host: &dyn ISMPHost,
-        commitment: &[u8],
-        msg: Message,
+        key: Vec<u8>,
+        commitment: Vec<u8>,
     ) -> Result<(), Error>;
 
     /// Check if consensus client is frozen

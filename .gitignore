@@ -1,2 +1,6 @@
 /target
 /.idea
+
+*.log
+**/node_modules/*
+rococo*.json

@@ -1,0 +1,17 @@
+{
+  "name": "polkadot-launch",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "rm -rf /tmp/polkadot-launch && polkadot-launch dev.json --verbose"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^17.0.42",
+    "polkadot-launch": "^2.3.0",
+    "typescript": "^4.7.3"
+  }
+}

@@ -4,15 +4,4 @@ members = [
     # Parachain
      "parachain/runtime",
      "parachain/node",
-     "parachain/pallets/pallet-hyperspace/primitives",
-     "parachain/pallets/pallet-hyperspace",
-     "parachain/pallets/pallet-hyperspace-ping",
-     "parachain/primitives/consensus-clients/ics11-beefy",
-     "parachain/primitives/consensus-clients/ics15-ethereum"
 ]
-
-[patch."https://github.com/ralexstokes/ethereum-consensus"]
-ethereum-consensus = { git = "https://github.com/polytope-labs/ethereum-consensus", branch = "dami/no-std-support" }
-
-[patch."https://github.com/ralexstokes/ssz-rs"]
-ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "seun/ssz-merkle-multi-proof-phase-1" }

@@ -66,11 +66,7 @@ pub fn new_partial(
         (),
         sc_consensus::DefaultImportQueue<Block, ParachainClient>,
         sc_transaction_pool::FullPool<Block, ParachainClient>,
-        (
-            ParachainBlockImport,
-            Option<Telemetry>,
-            Option<TelemetryWorkerHandle>,
-        ),
+        (ParachainBlockImport, Option<Telemetry>, Option<TelemetryWorkerHandle>),
     >,
     sc_service::Error,
 > {
@@ -103,9 +99,7 @@ pub fn new_partial(
     let telemetry_worker_handle = telemetry.as_ref().map(|(worker, _)| worker.handle());
 
     let telemetry = telemetry.map(|(worker, telemetry)| {
-        task_manager
-            .spawn_handle()
-            .spawn("telemetry", None, worker.run());
+        task_manager.spawn_handle().spawn("telemetry", None, worker.run());
         telemetry
     });
 
@@ -404,15 +398,7 @@ fn build_consensus(
         telemetry,
     };
 
-    Ok(AuraConsensus::build::<
-        sp_consensus_aura::sr25519::AuthorityPair,
-        _,
-        _,
-        _,
-        _,
-        _,
-        _,
-    >(params))
+    Ok(AuraConsensus::build::<sp_consensus_aura::sr25519::AuthorityPair, _, _, _, _, _, _>(params))
 }
 
 /// Start a parachain node.
@@ -423,12 +409,5 @@ pub async fn start_parachain_node(
     para_id: ParaId,
     hwbench: Option<sc_sysinfo::HwBench>,
 ) -> sc_service::error::Result<(TaskManager, Arc<ParachainClient>)> {
-    start_node_impl(
-        parachain_config,
-        polkadot_config,
-        collator_options,
-        para_id,
-        hwbench,
-    )
-    .await
+    start_node_impl(parachain_config, polkadot_config, collator_options, para_id, hwbench).await
 }

@@ -50,11 +50,7 @@ where
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
     let mut module = RpcExtension::new(());
-    let FullDeps {
-        client,
-        pool,
-        deny_unsafe,
-    } = deps;
+    let FullDeps { client, pool, deny_unsafe } = deps;
 
     module.merge(System::new(client.clone(), pool, deny_unsafe).into_rpc())?;
     module.merge(TransactionPayment::new(client).into_rpc())?;

@@ -222,10 +222,7 @@ const MAXIMUM_BLOCK_WEIGHT: Weight = Weight::from_parts(
 /// The version information used to identify this runtime when compiled natively.
 #[cfg(feature = "std")]
 pub fn native_version() -> NativeVersion {
-    NativeVersion {
-        runtime_version: VERSION,
-        can_author_with: Default::default(),
-    }
+    NativeVersion { runtime_version: VERSION, can_author_with: Default::default() }
 }
 
 parameter_types! {
@@ -591,11 +588,11 @@ impl_runtime_apis! {
             TransactionPayment::query_info(uxt, len)
         }
         fn query_weight_to_fee(weight: Weight) -> Balance {
-			TransactionPayment::weight_to_fee(weight)
-		}
-		fn query_length_to_fee(length: u32) -> Balance {
-			TransactionPayment::length_to_fee(length)
-		}
+            TransactionPayment::weight_to_fee(weight)
+        }
+        fn query_length_to_fee(length: u32) -> Balance {
+            TransactionPayment::length_to_fee(length)
+        }
         fn query_fee_details(
             uxt: <Block as BlockT>::Extrinsic,
             len: u32,
@@ -621,11 +618,11 @@ impl_runtime_apis! {
         }
 
         fn query_weight_to_fee(weight: Weight) -> Balance {
-			TransactionPayment::weight_to_fee(weight)
-		}
-		fn query_length_to_fee(length: u32) -> Balance {
-			TransactionPayment::length_to_fee(length)
-		}
+            TransactionPayment::weight_to_fee(weight)
+        }
+        fn query_length_to_fee(length: u32) -> Balance {
+            TransactionPayment::length_to_fee(length)
+        }
     }
 
     impl cumulus_primitives_core::CollectCollationInfo<Block> for Runtime {

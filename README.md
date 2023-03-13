@@ -8,7 +8,7 @@
 
 <br/>
 
-The sync-committee-rs is the implementation of the Ethereum beacon light client verifier in Rust. This is based on the research done here: https://research.polytope.technology/ethereum-light-client
+The sync-committee-rs is the implementation of the Ethereum beacon light client prover & verifier in Rust. This is based on the research done here: https://research.polytope.technology/ethereum-light-client
 
 
 This library consists of
@@ -17,11 +17,11 @@ This library consists of
 - ✅ The verifier
 
 
-## The primitives
+## primitives
 Consists of the types and structs as defined and described in the spec mentioned earlier. It also consists of the utility functions
 to be used in the verifier and prover.
 
-## The prover
+## prover
 Consists of the various proof generations for the ethereum beacon chain structs/types such as:
 
 - Execution payload
@@ -29,7 +29,7 @@ Consists of the various proof generations for the ethereum beacon chain structs/
 - Block roots
 - Sync committee update
 
-## The verifier
+## verifier
 This exports a single function for verifying ethereum's sync committee attestation. 
 
 

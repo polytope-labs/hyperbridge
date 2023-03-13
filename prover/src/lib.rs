@@ -38,7 +38,8 @@ use sync_committee_primitives::{
 	types::{
 		AncestryProof, BlockRootsProof, ExecutionPayloadProof, BLOCK_ROOTS_INDEX,
 		EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
-		EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
+		EXECUTION_PAYLOAD_STATE_ROOT_INDEX, EXECUTION_PAYLOAD_TIMESTAMP_INDEX,
+		FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
 	},
 	util::compute_epoch_at_slot,
 };
@@ -221,22 +222,24 @@ pub fn prove_execution_payload(
 	let indices = [
 		EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize,
 		EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize,
+		EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize,
 	];
 	// generate multi proofs
 	let multi_proof = ssz_rs::generate_proof(
-		&mut beacon_state.latest_execution_payload_header,
+		beacon_state.latest_execution_payload_header.clone(),
 		indices.as_slice(),
 	)?;
 
 	Ok(ExecutionPayloadProof {
 		state_root: beacon_state.latest_execution_payload_header.state_root.clone(),
 		block_number: beacon_state.latest_execution_payload_header.block_number,
+		timestamp: beacon_state.latest_execution_payload_header.timestamp,
 		multi_proof: multi_proof
 			.into_iter()
 			.map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))
 			.collect(),
 		execution_payload_branch: ssz_rs::generate_proof(
-			&mut beacon_state,
+			beacon_state.clone(),
 			&[EXECUTION_PAYLOAD_INDEX as usize],
 		)?
 		.into_iter()
@@ -246,13 +249,13 @@ pub fn prove_execution_payload(
 }
 
 pub fn prove_sync_committee_update(mut state: BeaconStateType) -> anyhow::Result<Vec<Node>> {
-	let proof = ssz_rs::generate_proof(&mut state, &[NEXT_SYNC_COMMITTEE_INDEX as usize])?;
+	let proof = ssz_rs::generate_proof(state.clone(), &[NEXT_SYNC_COMMITTEE_INDEX as usize])?;
 	Ok(proof)
 }
 
 pub fn prove_finalized_header(mut state: BeaconStateType) -> anyhow::Result<Vec<Hash32>> {
 	let indices = [FINALIZED_ROOT_INDEX as usize];
-	let proof = ssz_rs::generate_proof(&mut state, indices.as_slice())?;
+	let proof = ssz_rs::generate_proof(state, indices.as_slice())?;
 
 	Ok(proof
 		.into_iter()
@@ -283,7 +286,7 @@ pub fn prove_block_roots_proof(
 			.position(|root| root == &block_root)
 			.expect("Block root should exist in block_roots");
 
-		let proof = ssz_rs::generate_proof(&mut state.block_roots, &[block_index])?;
+		let proof = ssz_rs::generate_proof(state.block_roots.clone(), &[block_index])?;
 
 		let block_roots_proof = BlockRootsProof {
 			block_header_index: block_index as u64,
@@ -295,7 +298,8 @@ pub fn prove_block_roots_proof(
 				.collect(),
 		};
 
-		let block_roots_branch = ssz_rs::generate_proof(&mut state, &[BLOCK_ROOTS_INDEX as usize])?;
+		let block_roots_branch =
+			ssz_rs::generate_proof(state.clone(), &[BLOCK_ROOTS_INDEX as usize])?;
 		Ok(AncestryProof::BlockRoots {
 			block_roots_proof,
 			block_roots_branch: block_roots_branch

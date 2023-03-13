@@ -9,7 +9,10 @@ use ethereum_consensus::{
 	altair::Checkpoint, bellatrix::compute_domain, primitives::Root, signing::compute_signing_root,
 	state_transition::Context,
 };
-use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized, get_generalized_index, SszVariableOrIndex};
+use ssz_rs::{
+	calculate_multi_merkle_root, get_generalized_index, is_valid_merkle_branch, GeneralizedIndex,
+	Merkleized, SszVariableOrIndex,
+};
 use std::time::Duration;
 use sync_committee_primitives::{
 	types::{AncestorBlock, FinalityProof, DOMAIN_SYNC_COMMITTEE, GENESIS_VALIDATORS_ROOT},
@@ -19,7 +22,7 @@ use sync_committee_verifier::verify_sync_committee_attestation;
 use tokio::time;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-const NODE_URL: &'static str = "http://localhost:5052";
+const NODE_URL: &'static str = "http://localhost:3500";
 
 #[cfg(test)]
 #[allow(non_snake_case)]
@@ -114,7 +117,7 @@ async fn test_finalized_header() {
 	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
-	let proof = ssz_rs::generate_proof(&mut state.clone(), &vec![FINALIZED_ROOT_INDEX as usize]);
+	let proof = ssz_rs::generate_proof(state.clone(), &vec![FINALIZED_ROOT_INDEX as usize]);
 
 	let leaves = vec![Node::from_bytes(
 		state
@@ -140,14 +143,32 @@ async fn test_execution_payload_header_timestamp() {
 	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
 	let mut state = sync_committee_prover.fetch_beacon_state("finalized").await.unwrap();
 
-	let generalized_index = get_generalized_index(&state.latest_execution_payload_header.timestamp, &[SszVariableOrIndex::Name("finalized_checkpoint")]);
+	let generalized_index = get_generalized_index(
+		&state.latest_execution_payload_header,
+		&[SszVariableOrIndex::Name("timestamp")],
+	);
 	dbg!(generalized_index);
-	let proof = ssz_rs::generate_proof(state.latest_execution_payload_header.timestamp.clone(), &vec![generalized_index]);
+	let proof = ssz_rs::generate_proof(
+		state.latest_execution_payload_header.clone(),
+		&vec![generalized_index],
+	);
 
-
-	//let leaves = vec![Node::from_bytes(state.finalized_checkpoint.hash_tree_root().unwrap().as_ref().try_into().unwrap())];
-	//let root = calculate_multi_merkle_root(&leaves, &proof.unwrap(), &[GeneralizedIndex(generalized_index)]);
-	//assert_eq!(root, state.hash_tree_root().unwrap());
+	let leaves = vec![Node::from_bytes(
+		state
+			.latest_execution_payload_header
+			.timestamp
+			.hash_tree_root()
+			.unwrap()
+			.as_ref()
+			.try_into()
+			.unwrap(),
+	)];
+	let root = calculate_multi_merkle_root(
+		&leaves,
+		&proof.unwrap(),
+		&[GeneralizedIndex(generalized_index)],
+	);
+	assert_eq!(root, state.latest_execution_payload_header.hash_tree_root().unwrap());
 }
 
 #[cfg(test)]
@@ -160,8 +181,13 @@ async fn test_execution_payload_proof() {
 	let block_id = finalized_state.slot.to_string();
 	let execution_payload_proof = prove_execution_payload(finalized_state.clone()).unwrap();
 
-	let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
+	let mut finalized_header = sync_committee_prover.fetch_header(&block_id).await;
 
+	while finalized_header.is_err() {
+		finalized_header = sync_committee_prover.fetch_header(&block_id).await;
+	}
+
+	let finalized_header = finalized_header.unwrap();
 	// verify the associated execution header of the finalized beacon header.
 	let mut execution_payload = execution_payload_proof.clone();
 	let multi_proof_vec = execution_payload.multi_proof;
@@ -173,11 +199,13 @@ async fn test_execution_payload_proof() {
 		&[
 			Node::from_bytes(execution_payload.state_root.as_ref().try_into().unwrap()),
 			execution_payload.block_number.hash_tree_root().unwrap(),
+			execution_payload.timestamp.hash_tree_root().unwrap(),
 		],
 		&multi_proof_nodes,
 		&[
 			GeneralizedIndex(EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
 			GeneralizedIndex(EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
+			GeneralizedIndex(EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
 		],
 	);
 

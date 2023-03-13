@@ -20,18 +20,7 @@ This library consists of
 
 ## The primitives
 Consists of the types and structs as defined and described in the spec mentioned earlier. It also consists of the utility functions
-to be used in the verifier and prover.
-
-The verious type primitives defined are:
-
-- [`ExecutionPayloadProof`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L26)
-- [`BlockRootsProof`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L40)
-- [`AncestryProof`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L51)
-- [`AncestorBlock`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L80)
-- [`SyncCommitteeUpdate`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L92)
-- [`LightClientState`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L101)
-- [`FinalityProof`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L113)
-- [`LightClientUpdate`](https://github.com/polytope-labs/sync-committee-rs/blob/main/primitives/src/types.rs#L122)
+to be used in the verifier and prover, which also defined in the [spec](https://polytopelabs.notion.site/ICS-15-ethereum-beacon-chain-light-client-specification-for-IBC-9c28567b02424585b4deceeb21b9beaf)
 
 ## The prover
 Consists of the various proof generations for the ethereum beacon chain structs/types such as:
@@ -40,17 +29,6 @@ Consists of the various proof generations for the ethereum beacon chain structs/
 - Finalized header
 - Block roots
 - Sync committee update
-
-The prover also defines the function for fetching various ethereum types from the beacon chain node using the `SyncCommitteeProver` which can be used to generate proofs.
-The various function it defines are:
-
-- fetch_finalized_checkpoint: Fetches the finalized checkpoint for the `head` via this endpoint `eth/v1/beacon/states/{state_id}/finality_checkpoints`
-- fetch_header: Fetches the header via the endpoint `/eth/v1/beacon/headers/{block_id}`
-- fetch_block: Fetches the Beacon block via the endpoint `/eth/v2/beacon/blocks/{block_id}`
-- fetch_sync_committee: Fetches the sync_committee via the endpoint `/eth/v1/beacon/states/{state_id}/sync_committees`
-- fetch_validator: Fetches the node validator for a particular state via the endpoint `/eth/v1/beacon/states/{state_id}/validators/{validator_index}`
-- fetch_beacon_state: Fetches the Beacon state via the endpoint `/eth/v2/debug/beacon/states/{state_id}`
-- fetch_processed_sync_committee: Constructs the actual `SyncCommittee` after aggregating the validator `public_keys`
 
 ## The verifier
 This consist of the major function for verifying sync committee attestation. It also defines the different error that can occur while verifying.

@@ -22,7 +22,7 @@ use sync_committee_verifier::verify_sync_committee_attestation;
 use tokio::time;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-const NODE_URL: &'static str = "http://localhost:3500";
+const NODE_URL: &'static str = "http://localhost:5052";
 
 #[cfg(test)]
 #[allow(non_snake_case)]

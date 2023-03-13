@@ -13,7 +13,7 @@ env:
 
 jobs:
   check:
-    name: Check All
+    name: Check Workspace
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -31,7 +31,7 @@ jobs:
           args: --all --benches
 
   check-runtime-wasm:
-    name: Check Runtime
+    name: Check Runtime Wasm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2

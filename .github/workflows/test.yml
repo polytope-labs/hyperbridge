@@ -25,6 +25,11 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          version: '3.21.7'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions-rs/cargo@v1
         with:
           command: check

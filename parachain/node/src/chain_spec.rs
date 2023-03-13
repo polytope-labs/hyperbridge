@@ -7,8 +7,7 @@ use sp_core::{sr25519, Pair, Public};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 
 /// Specialized `ChainSpec` for the normal parachain runtime.
-pub type ChainSpec =
-    sc_service::GenericChainSpec<hyperspace_runtime::GenesisConfig, Extensions>;
+pub type ChainSpec = sc_service::GenericChainSpec<hyperspace_runtime::GenesisConfig, Extensions>;
 
 /// The default XCM version to set in genesis config.
 const SAFE_XCM_VERSION: u32 = xcm::prelude::XCM_VERSION;
@@ -189,11 +188,7 @@ fn testnet_genesis(
                 .to_vec(),
         },
         balances: hyperspace_runtime::BalancesConfig {
-            balances: endowed_accounts
-                .iter()
-                .cloned()
-                .map(|k| (k, 1 << 60))
-                .collect(),
+            balances: endowed_accounts.iter().cloned().map(|k| (k, 1 << 60)).collect(),
         },
         parachain_info: hyperspace_runtime::ParachainInfoConfig { parachain_id: id },
         collator_selection: hyperspace_runtime::CollatorSelectionConfig {
@@ -206,8 +201,8 @@ fn testnet_genesis(
                 .into_iter()
                 .map(|(acc, aura)| {
                     (
-                        acc.clone(),                 // account id
-                        acc,                         // validator id
+                        acc.clone(),        // account id
+                        acc,                // validator id
                         session_keys(aura), // session keys
                     )
                 })

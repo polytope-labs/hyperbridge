@@ -9,7 +9,7 @@
 <br/>
 
 The sync-committee-rs is the implementation of the Ethereum beacon light client verifier in Rust. This follows the specifications
-initially defined by Seun Lanlege [here](https://polytopelabs.notion.site/ICS-15-ethereum-beacon-chain-light-client-specification-for-IBC-9c28567b02424585b4deceeb21b9beaf)
+initially defined [here](https://polytopelabs.notion.site/ICS-15-ethereum-beacon-chain-light-client-specification-for-IBC-9c28567b02424585b4deceeb21b9beaf)
 
 
 This library consists of
@@ -67,10 +67,9 @@ Detailed explanation of the `verify_sync_committee_attestation` goes as follows:
 - It checks whether the update is relevant by checking whether it attests to a later slot than the trusted_state or contains the next sync committee. If not, it returns an error.
 - It verifies the sync committee aggregate signature by checking that it is valid for the given sync committee participants and domain. If not, it returns an error.
 - It verifies the finality_branch of the update by checking whether it confirms the finalized_header that matches the finalized checkpoint root saved in the trusted_state. If not, it returns an error.
-- It verifies the ancestry proofs of a sync committee attestation update. It iterates over the ancestor blocks in the update and for each block, checks if its ancestry proof is either a BlockRoots proof or a HistoricalRoots proof. It then calculates the merkle roots and checks if the merkle branches are valid using the is_valid_merkle_branch function. 
-If any of the merkle branches are invalid, the function returns an error.
-- It verifies the associated execution header of the finalized beacon header.
-- If all the above checks pass, the function returns a new LightClientState object with the updated trusted_state.
+- It optionally verifies ancestry proofs if they are present.
+- It verifies the associated execution payload of the finalized beacon header.
+- If all the checks pass, the function returns a new LightClientState.
 
 
 # Major Depedencies
@@ -86,3 +85,7 @@ The major dependencies for this SDK/Library are:
 2. Modify `sync_committee_primitives::types::GENESIS_ROOT_VALIDATORS` defined under the testing  
    feature flag to match the one that is present in the devnet you are running the tests with
 3. Make sure the SLOTS_PER_EPOCH is set to 32 in your devnet.  
+
+
+## License
+This library is licensed under the [Apache 2.0 License](./LICENSE), Copyright (c) 2023 Polytope Labs.

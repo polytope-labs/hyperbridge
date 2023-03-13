@@ -28,7 +28,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --all --benches
+          args: --all --benches --locked
 
   check-runtime-wasm:
     name: Check Runtime Wasm
@@ -46,5 +46,5 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: check
-          args: -p hyperspace-runtime --no-default-features --target=wasm32-unknown-unknown
+          args: -p hyperspace-runtime --no-default-features --target=wasm32-unknown-unknown --locked
 

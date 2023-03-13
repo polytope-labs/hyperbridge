@@ -10,31 +10,46 @@ pub struct ConsensusMessage {
     /// Consensus client id
     pub consensus_client_id: ConsensusClientId,
 }
+#[derive(Debug, Clone, Encode, Decode)]
+pub struct CreateConsensusClient {
+    /// Scale encoded consensus state
+    pub consensus_state: Vec<u8>,
+    /// Consensus client id
+    pub consensus_client_id: ConsensusClientId,
+}
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct RequestMessage {
+    /// Request from source chain
     pub request: Request,
+    /// Membership proof for this request
     pub proof: Proof,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct ResponseMessage {
+    /// Response from sink chain
     pub response: Response,
+    /// Membership proof for this response
     pub proof: Proof,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct Proof {
+    /// State machine height
     pub height: StateMachineHeight,
+    /// Raw proof
     pub proof: Vec<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Encode, Decode)]
 pub enum Message {
     #[codec(index = 0)]
-    Consensus(ConsensusMessage),
+    CreateConsensusClient(CreateConsensusClient),
     #[codec(index = 1)]
-    Request(RequestMessage),
+    Consensus(ConsensusMessage),
     #[codec(index = 2)]
+    Request(RequestMessage),
+    #[codec(index = 3)]
     Response(ResponseMessage),
 }

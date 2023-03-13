@@ -5,6 +5,10 @@ use crate::host::ISMPHost;
 use crate::messaging::{Proof, RequestMessage, ResponseMessage};
 use alloc::boxed::Box;
 
+/// This function does the preliminary checks for a request or response message
+/// - It ensures the consensus client is not frozen
+/// - It ensures the state machine is not frozen
+/// - Checks that the delay period configured for the state machine has elaspsed.
 fn validate_state_machine(
     host: &dyn ISMPHost,
     proof: &Proof,
@@ -36,6 +40,7 @@ fn validate_state_machine(
     Ok(consensus_client)
 }
 
+/// Validate the state machine, verify the request message and dispatch the message to the router
 pub fn handle_request_message(host: &dyn ISMPHost, msg: RequestMessage) -> Result<(), Error> {
     let consensus_client = validate_state_machine(host, &msg.proof)?;
     let commitment = host.get_request_commitment(&msg.request);
@@ -49,7 +54,8 @@ pub fn handle_request_message(host: &dyn ISMPHost, msg: RequestMessage) -> Resul
     Ok(())
 }
 
-pub fn handle_response(host: &dyn ISMPHost, msg: ResponseMessage) -> Result<(), Error> {
+/// Validate the state machine, verify the response message and dispatch the message to the router
+pub fn handle_response_message(host: &dyn ISMPHost, msg: ResponseMessage) -> Result<(), Error> {
     let consensus_client = validate_state_machine(host, &msg.proof)?;
     // If host chain is the destination of the response, check if a request commitment exists
     if host.host() == msg.response.request.source_chain {

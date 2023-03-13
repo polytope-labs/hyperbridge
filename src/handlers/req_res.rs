@@ -2,7 +2,7 @@ use crate::consensus_client::ConsensusClient;
 use crate::error::Error;
 use crate::handlers::verify_delay_passed;
 use crate::host::ISMPHost;
-use crate::messaging::{Proof, RequestMessage, ResponseMessage};
+use crate::messaging::{Message, Proof, RequestMessage, ResponseMessage};
 use alloc::boxed::Box;
 
 /// This function does the preliminary checks for a request or response message
@@ -45,7 +45,7 @@ pub fn handle_request_message(host: &dyn ISMPHost, msg: RequestMessage) -> Resul
     let consensus_client = validate_state_machine(host, &msg.proof)?;
     let commitment = host.get_request_commitment(&msg.request);
     // Verify membership proof
-    consensus_client.verify_request_membership(host, &commitment[..], &msg)?;
+    consensus_client.verify_membership(host, &commitment[..], Message::Request(msg.clone()))?;
 
     let router = host.ismp_router();
 
@@ -71,7 +71,7 @@ pub fn handle_response_message(host: &dyn ISMPHost, msg: ResponseMessage) -> Res
 
     let commitment = host.get_response_commitment(&msg.response);
     // Verify membership proof
-    consensus_client.verify_response_membership(host, &commitment[..], &msg)?;
+    consensus_client.verify_membership(host, &commitment[..], Message::Response(msg.clone()))?;
 
     let router = host.ismp_router();
 

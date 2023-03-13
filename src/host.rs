@@ -84,21 +84,21 @@ pub trait ISMPHost {
     /// Return the sha256 of a request
     fn get_request_commitment(&self, req: &Request) -> Vec<u8> {
         let encoded_req = req.encode();
-        self.sha256(&encoded_req[..]).to_vec()
+        self.keccak256(&encoded_req[..]).to_vec()
     }
 
     /// Return the sha256 of a response
     fn get_response_commitment(&self, res: &Response) -> Vec<u8> {
         let encoded_res = res.encode();
-        self.sha256(&encoded_res[..]).to_vec()
+        self.keccak256(&encoded_res[..]).to_vec()
     }
 
     /// Should return a handle to the consensus client based on the id
     fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error>;
 
     // Hashing
-    /// Returns a sha256 hash of a byte slice
-    fn sha256(&self, bytes: &[u8]) -> [u8; 32];
+    /// Returns a keccak256 hash of a byte slice
+    fn keccak256(&self, bytes: &[u8]) -> [u8; 32];
 
     /// Returns the configured delay period for a state machine
     fn delay_period(&self, id: StateMachineId) -> Duration;

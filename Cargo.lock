@@ -742,9 +742,6 @@ name = "bytes"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89b2fd2a0dcf38d7971e2194b6b6eebab45ae01067456a7fd93d5547a61b70be"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "bzip2-sys"
@@ -1035,15 +1032,6 @@ name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
-
-[[package]]
-name = "convert_case"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec182b0ca2f35d8fc196cf3404988fd8b8c739a4d270ff118a398feb0cbec1ca"
-dependencies = [
- "unicode-segmentation",
-]
 
 [[package]]
 name = "core-foundation"
@@ -2067,7 +2055,7 @@ version = "0.99.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fb810d30a7c1953f91334de7244731fc3f3c10d7fe163338a35b9f640960321"
 dependencies = [
- "convert_case 0.4.0",
+ "convert_case",
  "proc-macro2",
  "quote",
  "rustc_version",
@@ -2420,16 +2408,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "eyre"
-version = "0.6.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c2b6b5a29c02cdc822728b7d7b8ae1bab3e3b05d44522770ddd49722eeac7eb"
-dependencies = [
- "indenter",
- "once_cell",
-]
-
-[[package]]
 name = "fake-simd"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2565,16 +2543,6 @@ dependencies = [
  "crc32fast",
  "libz-sys",
  "miniz_oxide",
-]
-
-[[package]]
-name = "flex-error"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c606d892c9de11507fa0dcffc116434f94e105d0bbdc4e405b61519464c49d7b"
-dependencies = [
- "eyre",
- "paste",
 ]
 
 [[package]]
@@ -3545,103 +3513,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ibc-derive"
-version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/ibc-rs.git#57f314ab3f07f0b078f89324a8a5efa30fe19af3"
-dependencies = [
- "convert_case 0.6.0",
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "ibc-primitives"
-version = "0.1.0"
-dependencies = [
- "base58",
- "blake2",
- "frame-support",
- "hex",
- "ibc-rs",
- "parity-scale-codec",
- "ripemd",
- "scale-info",
- "serde",
- "sha2 0.10.6",
- "sha3",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-runtime-interface",
- "sp-std",
- "sp-trie",
- "sp-weights",
-]
-
-[[package]]
-name = "ibc-proto"
-version = "0.18.0"
-dependencies = [
- "base64 0.13.1",
- "bytes",
- "prost",
- "serde",
- "tendermint-proto 0.28.0 (git+https://github.com/informalsystems/tendermint-rs?rev=e81f7bf23d63ffbcd242381d1ce5e35da3515ff1)",
-]
-
-[[package]]
-name = "ibc-proto"
-version = "0.18.0"
-source = "git+ssh://git@github.com/polytope-labs/ibc-rs.git#57f314ab3f07f0b078f89324a8a5efa30fe19af3"
-dependencies = [
- "base64 0.13.1",
- "bytes",
- "prost",
- "serde",
- "tendermint-proto 0.28.0 (git+https://github.com/informalsystems/tendermint-rs?rev=e81f7bf23d63ffbcd242381d1ce5e35da3515ff1)",
-]
-
-[[package]]
-name = "ibc-rs"
-version = "0.15.0"
-source = "git+ssh://git@github.com/polytope-labs/ibc-rs.git#57f314ab3f07f0b078f89324a8a5efa30fe19af3"
-dependencies = [
- "derive_more",
- "flex-error",
- "ibc-derive",
- "ibc-proto 0.18.0 (git+ssh://git@github.com/polytope-labs/ibc-rs.git)",
- "ics23",
- "num-traits",
- "parity-scale-codec",
- "primitive-types",
- "prost",
- "safe-regex",
- "scale-info",
- "serde",
- "serde_derive",
- "serde_json",
- "subtle-encoding",
- "tendermint 0.28.0 (git+https://github.com/informalsystems/tendermint-rs?rev=e81f7bf23d63ffbcd242381d1ce5e35da3515ff1)",
- "tendermint-proto 0.28.0 (git+https://github.com/informalsystems/tendermint-rs?rev=e81f7bf23d63ffbcd242381d1ce5e35da3515ff1)",
- "time 0.3.20",
- "tracing",
- "uint",
-]
-
-[[package]]
-name = "ics23"
-version = "0.8.1"
-source = "git+https://github.com/confio/ics23?rev=a4daeb4c24ce1be827829c0841446abc690c4f11#a4daeb4c24ce1be827829c0841446abc690c4f11"
-dependencies = [
- "anyhow",
- "bytes",
- "hex",
- "prost",
-]
-
-[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3725,12 +3596,6 @@ dependencies = [
  "quote",
  "syn",
 ]
-
-[[package]]
-name = "indenter"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 
 [[package]]
 name = "indexmap"
@@ -5352,17 +5217,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-derive"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "876a53fff98e03a936a674b29568b0e605f06b29372c2489ff4de23f1949743d"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "num-format"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5901,60 +5755,6 @@ dependencies = [
  "sp-session",
  "sp-staking",
  "sp-std",
-]
-
-[[package]]
-name = "pallet-hyperspace"
-version = "0.1.0"
-dependencies = [
- "cumulus-primitives-core",
- "derive_more",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "hex",
- "hex-literal",
- "ibc-derive",
- "ibc-primitives",
- "ibc-proto 0.18.0",
- "ibc-rs",
- "ics23",
- "log",
- "pallet-hyperspace-ping",
- "pallet-timestamp",
- "parachain-info",
- "parity-scale-codec",
- "prost",
- "scale-info",
- "serde",
- "serde_json",
- "sha2 0.10.6",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
- "sp-trie",
- "tendermint 0.28.0 (git+https://github.com/informalsystems/tendermint-rs?rev=47e28b50d20138234f7a8b4254da71469f401714)",
- "tendermint-light-client-verifier",
- "tendermint-proto 0.28.0 (git+https://github.com/informalsystems/tendermint-rs?rev=47e28b50d20138234f7a8b4254da71469f401714)",
-]
-
-[[package]]
-name = "pallet-hyperspace-ping"
-version = "0.1.0"
-dependencies = [
- "frame-support",
- "frame-system",
- "ibc-primitives",
- "ibc-rs",
- "log",
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-core",
- "sp-runtime",
- "sp-std",
- "sp-weights",
 ]
 
 [[package]]
@@ -8608,15 +8408,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ripemd"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd124222d17ad93a644ed9d011a40f4fb64aa54275c08cc216524a9ea82fb09f"
-dependencies = [
- "digest 0.10.6",
-]
-
-[[package]]
 name = "rocksdb"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8919,53 +8710,6 @@ name = "ryu"
 version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f91339c0467de62360649f8d3e185ca8de4224ff281f66000de5eb2a77a79041"
-
-[[package]]
-name = "safe-proc-macro2"
-version = "1.0.36"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "814c536dcd27acf03296c618dab7ad62d28e70abd7ba41d3f34a2ce707a2c666"
-dependencies = [
- "unicode-xid",
-]
-
-[[package]]
-name = "safe-quote"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77e530f7831f3feafcd5f1aae406ac205dd998436b4007c8e80f03eca78a88f7"
-dependencies = [
- "safe-proc-macro2",
-]
-
-[[package]]
-name = "safe-regex"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a15289bf322e0673d52756a18194167f2378ec1a15fe884af6e2d2cb934822b0"
-dependencies = [
- "safe-regex-macro",
-]
-
-[[package]]
-name = "safe-regex-compiler"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fba76fae590a2aa665279deb1f57b5098cbace01a0c5e60e262fcf55f7c51542"
-dependencies = [
- "safe-proc-macro2",
- "safe-quote",
-]
-
-[[package]]
-name = "safe-regex-macro"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96c2e96b5c03f158d1b16ba79af515137795f4ad4e8de3f790518aae91f1d127"
-dependencies = [
- "safe-proc-macro2",
- "safe-regex-compiler",
-]
 
 [[package]]
 name = "same-file"
@@ -10250,15 +9994,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_bytes"
-version = "0.11.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "416bda436f9aab92e02c8e10d49a15ddd339cea90b6e340fe51ed97abb548294"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "serde_derive"
 version = "1.0.152"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10278,17 +10013,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "serde_repr"
-version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a5ec9fa74a20ebbe5d9ac23dac1fc96ba0ecfe9f50f2843b52e537b10fbcb4e"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -11479,15 +11203,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
-name = "subtle-encoding"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcb1ed7b8330c5eed5441052651dd7a12c75e2ed88f2ec024ae1fa3a5e59945"
-dependencies = [
- "zeroize",
-]
-
-[[package]]
 name = "syn"
 version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11554,104 +11269,6 @@ dependencies = [
  "redox_syscall",
  "rustix 0.36.9",
  "windows-sys 0.42.0",
-]
-
-[[package]]
-name = "tendermint"
-version = "0.28.0"
-source = "git+https://github.com/informalsystems/tendermint-rs?rev=47e28b50d20138234f7a8b4254da71469f401714#47e28b50d20138234f7a8b4254da71469f401714"
-dependencies = [
- "bytes",
- "digest 0.10.6",
- "ed25519",
- "flex-error",
- "futures",
- "num-traits",
- "once_cell",
- "prost",
- "prost-types",
- "serde",
- "serde_bytes",
- "serde_json",
- "serde_repr",
- "signature",
- "subtle",
- "subtle-encoding",
- "tendermint-proto 0.28.0 (git+https://github.com/informalsystems/tendermint-rs?rev=47e28b50d20138234f7a8b4254da71469f401714)",
- "time 0.3.20",
- "zeroize",
-]
-
-[[package]]
-name = "tendermint"
-version = "0.28.0"
-source = "git+https://github.com/informalsystems/tendermint-rs?rev=e81f7bf23d63ffbcd242381d1ce5e35da3515ff1#e81f7bf23d63ffbcd242381d1ce5e35da3515ff1"
-dependencies = [
- "bytes",
- "digest 0.10.6",
- "ed25519",
- "flex-error",
- "futures",
- "num-traits",
- "once_cell",
- "prost",
- "prost-types",
- "serde",
- "serde_bytes",
- "serde_json",
- "serde_repr",
- "signature",
- "subtle",
- "subtle-encoding",
- "tendermint-proto 0.28.0 (git+https://github.com/informalsystems/tendermint-rs?rev=e81f7bf23d63ffbcd242381d1ce5e35da3515ff1)",
- "time 0.3.20",
- "zeroize",
-]
-
-[[package]]
-name = "tendermint-light-client-verifier"
-version = "0.28.0"
-source = "git+https://github.com/informalsystems/tendermint-rs?rev=47e28b50d20138234f7a8b4254da71469f401714#47e28b50d20138234f7a8b4254da71469f401714"
-dependencies = [
- "derive_more",
- "flex-error",
- "serde",
- "tendermint 0.28.0 (git+https://github.com/informalsystems/tendermint-rs?rev=47e28b50d20138234f7a8b4254da71469f401714)",
- "time 0.3.20",
-]
-
-[[package]]
-name = "tendermint-proto"
-version = "0.28.0"
-source = "git+https://github.com/informalsystems/tendermint-rs?rev=47e28b50d20138234f7a8b4254da71469f401714#47e28b50d20138234f7a8b4254da71469f401714"
-dependencies = [
- "bytes",
- "flex-error",
- "num-derive",
- "num-traits",
- "prost",
- "prost-types",
- "serde",
- "serde_bytes",
- "subtle-encoding",
- "time 0.3.20",
-]
-
-[[package]]
-name = "tendermint-proto"
-version = "0.28.0"
-source = "git+https://github.com/informalsystems/tendermint-rs?rev=e81f7bf23d63ffbcd242381d1ce5e35da3515ff1#e81f7bf23d63ffbcd242381d1ce5e35da3515ff1"
-dependencies = [
- "bytes",
- "flex-error",
- "num-derive",
- "num-traits",
- "prost",
- "prost-types",
- "serde",
- "serde_bytes",
- "subtle-encoding",
- "time 0.3.20",
 ]
 
 [[package]]
@@ -12263,12 +11880,6 @@ checksum = "5c5713f0fc4b5db668a2ac63cdb7bb4469d8c9fed047b1d0292cc7b0ce2ba921"
 dependencies = [
  "tinyvec",
 ]
-
-[[package]]
-name = "unicode-segmentation"
-version = "1.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1dd624098567895118886609431a7c3b8f516e41d30e0643f03d94592a147e36"
 
 [[package]]
 name = "unicode-width"

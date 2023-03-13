@@ -13181,11 +13181,11 @@ dependencies = [
 ]
 
 [[patch.unused]]
-name = "ssz-rs"
-version = "0.8.0"
-source = "git+https://github.com/polytope-labs/ssz-rs?branch=seun/ssz-merkle-multi-proof-phase-1#f85f088552ee45c4c6080eede3fb57d47bff92e3"
-
-[[patch.unused]]
 name = "ethereum-consensus"
 version = "0.1.1"
 source = "git+https://github.com/polytope-labs/ethereum-consensus?branch=dami/no-std-support#bd19d7c3e7a44810a7f57b5fd00ea55a816222f1"
+
+[[patch.unused]]
+name = "ssz-rs"
+version = "0.8.0"
+source = "git+https://github.com/polytope-labs/ssz-rs?branch=main#a78a600c7751527b74e038094ead04b697caa4a5"

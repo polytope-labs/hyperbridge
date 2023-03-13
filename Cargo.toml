@@ -1,0 +1,20 @@
+[package]
+name = "ismp-rust"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = ["std"]
+std = [
+    "codec/std"
+]
+
+[dependencies]
+codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = [
+    "derive",
+] }
+derive_more = { version = "0.99.17", default-features = false, features = ["from", "into", "display"] }

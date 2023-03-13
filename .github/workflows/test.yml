@@ -29,7 +29,7 @@ jobs:
         uses: arduino/setup-protoc@v1
         with:
           version: '3.21.7'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          repo-token: ${{ secrets.GH_TOKEN }}
       - uses: actions-rs/cargo@v1
         with:
           command: check

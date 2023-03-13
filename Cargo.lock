@@ -13195,13 +13195,3 @@ dependencies = [
  "libc",
  "pkg-config",
 ]
-
-[[patch.unused]]
-name = "ssz-rs"
-version = "0.8.0"
-source = "git+https://github.com/polytope-labs/ssz-rs?branch=main#a78a600c7751527b74e038094ead04b697caa4a5"
-
-[[patch.unused]]
-name = "ethereum-consensus"
-version = "0.1.1"
-source = "git+https://github.com/polytope-labs/ethereum-consensus?branch=dami/no-std-support#34bb57f8195354f5914c0cf1f1949016b1c7a8b6"

@@ -146,13 +146,8 @@ async fn test_execution_payload_proof() {
 	let block_id = finalized_state.slot.to_string();
 	let execution_payload_proof = prove_execution_payload(finalized_state.clone()).unwrap();
 
-	let mut finalized_header = sync_committee_prover.fetch_header(&block_id).await;
+	let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
 
-	while finalized_header.is_err() {
-		finalized_header = sync_committee_prover.fetch_header(&block_id).await;
-	}
-
-	let finalized_header = finalized_header.unwrap();
 	// verify the associated execution header of the finalized beacon header.
 	let mut execution_payload = execution_payload_proof.clone();
 	let multi_proof_vec = execution_payload.multi_proof;

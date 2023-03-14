@@ -38,7 +38,8 @@ use sync_committee_primitives::{
 	types::{
 		AncestryProof, BlockRootsProof, ExecutionPayloadProof, BLOCK_ROOTS_INDEX,
 		EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
-		EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
+		EXECUTION_PAYLOAD_STATE_ROOT_INDEX, EXECUTION_PAYLOAD_TIMESTAMP_INDEX,
+		FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
 	},
 	util::compute_epoch_at_slot,
 };
@@ -221,6 +222,7 @@ pub fn prove_execution_payload(
 	let indices = [
 		EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize,
 		EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize,
+		EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize,
 	];
 	// generate multi proofs
 	let multi_proof = ssz_rs::generate_proof(
@@ -231,6 +233,7 @@ pub fn prove_execution_payload(
 	Ok(ExecutionPayloadProof {
 		state_root: beacon_state.latest_execution_payload_header.state_root.clone(),
 		block_number: beacon_state.latest_execution_payload_header.block_number,
+		timestamp: beacon_state.latest_execution_payload_header.timestamp,
 		multi_proof: multi_proof
 			.into_iter()
 			.map(|node| Bytes32::try_from(node.as_bytes()).expect("Node is always 32 byte slice"))

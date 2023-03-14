@@ -23,8 +23,9 @@ use sync_committee_primitives::{
 	types::{
 		AncestryProof, BLOCK_ROOTS_INDEX, DOMAIN_SYNC_COMMITTEE,
 		EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
-		EXECUTION_PAYLOAD_STATE_ROOT_INDEX, FINALIZED_ROOT_INDEX, GENESIS_VALIDATORS_ROOT,
-		HISTORICAL_BATCH_BLOCK_ROOTS_INDEX, HISTORICAL_ROOTS_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
+		EXECUTION_PAYLOAD_STATE_ROOT_INDEX, EXECUTION_PAYLOAD_TIMESTAMP_INDEX,
+		FINALIZED_ROOT_INDEX, GENESIS_VALIDATORS_ROOT, HISTORICAL_BATCH_BLOCK_ROOTS_INDEX,
+		HISTORICAL_ROOTS_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
 	},
 	util::{compute_epoch_at_slot, compute_fork_version, compute_sync_committee_period_at_slot},
 };
@@ -165,11 +166,13 @@ pub fn verify_sync_committee_attestation(
 				.block_number
 				.hash_tree_root()
 				.map_err(|_| Error::InvalidRoot)?,
+			execution_payload.timestamp.hash_tree_root().map_err(|_| Error::InvalidRoot)?,
 		],
 		&multi_proof_nodes,
 		&[
 			GeneralizedIndex(EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
 			GeneralizedIndex(EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
+			GeneralizedIndex(EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
 		],
 	);
 
@@ -345,11 +348,22 @@ pub fn verify_sync_committee_attestation(
 						.try_into()
 						.map_err(|_| Error::InvalidRoot)?,
 				),
+				Node::from_bytes(
+					execution_payload
+						.timestamp
+						.clone()
+						.hash_tree_root()
+						.map_err(|_| Error::MerkleizationError)?
+						.as_ref()
+						.try_into()
+						.map_err(|_| Error::InvalidRoot)?,
+				),
 			],
 			&multi_proof,
 			&[
 				GeneralizedIndex(EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
 				GeneralizedIndex(EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
+				GeneralizedIndex(EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
 			],
 		);
 

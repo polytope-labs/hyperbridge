@@ -14,6 +14,7 @@ pub const NEXT_SYNC_COMMITTEE_INDEX: u64 = 55;
 pub const BLOCK_ROOTS_INDEX: u64 = 37;
 pub const HISTORICAL_ROOTS_INDEX: u64 = 39;
 pub const HISTORICAL_BATCH_BLOCK_ROOTS_INDEX: u64 = 2;
+pub const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 25;
 #[cfg(not(feature = "testing"))]
 pub const GENESIS_VALIDATORS_ROOT: [u8; 32] =
 	hex_literal::hex!("4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95");
@@ -33,6 +34,8 @@ pub struct ExecutionPayloadProof {
 	pub multi_proof: Vec<Hash32>,
 	/// merkle proof for the `ExecutionPayload` in the [`BeaconBlockBody`].
 	pub execution_payload_branch: Vec<Hash32>,
+	/// timestamp
+	pub timestamp: u64,
 }
 
 /// Holds the neccessary proofs required to verify a header in the `block_roots` field

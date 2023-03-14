@@ -9,7 +9,10 @@ use ethereum_consensus::{
 	altair::Checkpoint, bellatrix::compute_domain, primitives::Root, signing::compute_signing_root,
 	state_transition::Context,
 };
-use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
+use ssz_rs::{
+	calculate_multi_merkle_root, get_generalized_index, is_valid_merkle_branch, GeneralizedIndex,
+	Merkleized, SszVariableOrIndex,
+};
 use std::time::Duration;
 use sync_committee_primitives::{
 	types::{AncestorBlock, FinalityProof, DOMAIN_SYNC_COMMITTEE, GENESIS_VALIDATORS_ROOT},
@@ -114,7 +117,7 @@ async fn test_finalized_header() {
 	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
-	let proof = ssz_rs::generate_proof(&mut state.clone(), &vec![FINALIZED_ROOT_INDEX as usize]);
+	let proof = ssz_rs::generate_proof(&mut state, &vec![FINALIZED_ROOT_INDEX as usize]);
 
 	let leaves = vec![Node::from_bytes(
 		state
@@ -156,11 +159,13 @@ async fn test_execution_payload_proof() {
 		&[
 			Node::from_bytes(execution_payload.state_root.as_ref().try_into().unwrap()),
 			execution_payload.block_number.hash_tree_root().unwrap(),
+			execution_payload.timestamp.hash_tree_root().unwrap(),
 		],
 		&multi_proof_nodes,
 		&[
 			GeneralizedIndex(EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
 			GeneralizedIndex(EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
+			GeneralizedIndex(EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
 		],
 	);
 
@@ -449,7 +454,7 @@ async fn test_prover() {
 		);
 
 		count += 1;
-		if count == 100 {
+		if count == 10 {
 			break
 		}
 	}

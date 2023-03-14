@@ -166,6 +166,7 @@ pub fn verify_sync_committee_attestation(
 				.block_number
 				.hash_tree_root()
 				.map_err(|_| Error::InvalidRoot)?,
+			execution_payload.timestamp.hash_tree_root().map_err(|_| Error::InvalidRoot)?,
 		],
 		&multi_proof_nodes,
 		&[
@@ -347,11 +348,22 @@ pub fn verify_sync_committee_attestation(
 						.try_into()
 						.map_err(|_| Error::InvalidRoot)?,
 				),
+				Node::from_bytes(
+					execution_payload
+						.timestamp
+						.clone()
+						.hash_tree_root()
+						.map_err(|_| Error::MerkleizationError)?
+						.as_ref()
+						.try_into()
+						.map_err(|_| Error::InvalidRoot)?,
+				),
 			],
 			&multi_proof,
 			&[
 				GeneralizedIndex(EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
 				GeneralizedIndex(EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
+				GeneralizedIndex(EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
 			],
 		);
 

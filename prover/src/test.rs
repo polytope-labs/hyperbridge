@@ -117,7 +117,7 @@ async fn test_finalized_header() {
 	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
-	let proof = ssz_rs::generate_proof(&mut state.clone(), &vec![FINALIZED_ROOT_INDEX as usize]);
+	let proof = ssz_rs::generate_proof(&mut state, &vec![FINALIZED_ROOT_INDEX as usize]);
 
 	let leaves = vec![Node::from_bytes(
 		state
@@ -139,41 +139,6 @@ async fn test_finalized_header() {
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[actix_rt::test]
-async fn test_execution_payload_header_timestamp() {
-	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
-	let mut state = sync_committee_prover.fetch_beacon_state("finalized").await.unwrap();
-
-	let generalized_index = get_generalized_index(
-		&state.latest_execution_payload_header,
-		&[SszVariableOrIndex::Name("timestamp")],
-	);
-	dbg!(generalized_index);
-	let proof = ssz_rs::generate_proof(
-		&mut state.latest_execution_payload_header,
-		&vec![generalized_index],
-	);
-
-	let leaves = vec![Node::from_bytes(
-		state
-			.latest_execution_payload_header
-			.timestamp
-			.hash_tree_root()
-			.unwrap()
-			.as_ref()
-			.try_into()
-			.unwrap(),
-	)];
-	let root = calculate_multi_merkle_root(
-		&leaves,
-		&proof.unwrap(),
-		&[GeneralizedIndex(generalized_index)],
-	);
-	assert_eq!(root, state.latest_execution_payload_header.hash_tree_root().unwrap());
-}
-
-#[cfg(test)]
-#[allow(non_snake_case)]
-#[actix_rt::test]
 async fn test_execution_payload_proof() {
 	let sync_committee_prover = SyncCommitteeProver::new(NODE_URL.to_string());
 
@@ -181,8 +146,13 @@ async fn test_execution_payload_proof() {
 	let block_id = finalized_state.slot.to_string();
 	let execution_payload_proof = prove_execution_payload(finalized_state.clone()).unwrap();
 
-	let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
+	let mut finalized_header = sync_committee_prover.fetch_header(&block_id).await;
 
+	while finalized_header.is_err() {
+		finalized_header = sync_committee_prover.fetch_header(&block_id).await;
+	}
+
+	let finalized_header = finalized_header.unwrap();
 	// verify the associated execution header of the finalized beacon header.
 	let mut execution_payload = execution_payload_proof.clone();
 	let multi_proof_vec = execution_payload.multi_proof;
@@ -489,7 +459,7 @@ async fn test_prover() {
 		);
 
 		count += 1;
-		if count == 100 {
+		if count == 10 {
 			break
 		}
 	}

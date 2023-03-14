@@ -9,7 +9,7 @@ edition = "2021"
 sync-committee-primitives = { path= "../primitives" }
 sync-committee-verifier = { path= "../verifier" }
 ethereum-consensus = { git = "https://github.com/polytope-labs/ethereum-consensus", rev = "d3fe0ad76613b52cdfbdea7c317ecdc35f271e4f" }
-ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs",  rev = "2e28a8800787392045fb3f8f1eaef6c65a8600d7", features=["serde"] }
+ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs",  rev = "2e28a8800787392045fb3f8f1eaef6c65a8600d7" }
 reqwest = {version="0.11.14", features=["json"]}
 serde = { version = "1.0", features = ["derive"]}
 serde_json = { version = "1.0.81"}

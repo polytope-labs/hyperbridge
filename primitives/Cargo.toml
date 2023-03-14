@@ -7,8 +7,8 @@ authors = ["Polytope Labs"]
 
 [dependencies]
 base2 = { version = "0.3.1", default-features = false}
-ethereum-consensus = { git = "https://github.com/polytope-labs/ethereum-consensus", rev = "c26206f18fcecbd69ca5d505ae4211a7bc756ad0", default-features = false }
-ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", rev = "a78a600c7751527b74e038094ead04b697caa4a5", default-features = false, features=["serde"] }
+ethereum-consensus = { git = "https://github.com/polytope-labs/ethereum-consensus", rev = "d3fe0ad76613b52cdfbdea7c317ecdc35f271e4f", default-features = false }
+ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", rev = "2e28a8800787392045fb3f8f1eaef6c65a8600d7", default-features = false, features=["serde"] }
 hex-literal = { package = "hex-literal", version = "0.3.3", default-features = false }
 
 [features]

@@ -21,10 +21,13 @@ mod mmr;
 mod primitives;
 mod router;
 
-use codec::Encode;
+use codec::{Decode, Encode};
+use frame_support::RuntimeDebug;
+use ismp_rust::router::{Request, Response};
+use sp_core::offchain::StorageKind;
 // Re-export pallet items so that they can be accessed from the crate namespace.
 use crate::mmr::storage::{OffchainKeyGenerator, StorageReadWrite};
-use crate::mmr::{FullLeaf, Leaf, LeafIndex, Node, NodeIndex, NodeOf};
+use crate::mmr::{DataOrHash, FullLeaf, Leaf, LeafIndex, Node, NodeIndex, NodeOf};
 pub use pallet::*;
 
 // Definition of the pallet logic, to be aggregated at runtime definition through
@@ -34,6 +37,7 @@ pub mod pallet {
     // Import various types used to declare pallet in scope.
     use super::*;
     use crate::mmr::{LeafIndex, Mmr, NodeIndex};
+    use crate::primitives::ISMP_ID;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use ismp_rust::host::ChainID;
@@ -154,7 +158,7 @@ pub mod pallet {
             > = mmr::Mmr::new(request_leaves);
 
             // Update the size, `mmr.finalize()` should also never fail.
-            let (leaves, root) = match request_mmr.finalize() {
+            let (leaves, requests_root) = match request_mmr.finalize() {
                 Ok((leaves, root)) => (leaves, root),
                 Err(e) => {
                     log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
@@ -163,7 +167,7 @@ pub mod pallet {
             };
 
             <NumberOfRequestLeaves<T>>::put(leaves);
-            <RequestsRootHash<T>>::put(root);
+            <RequestsRootHash<T>>::put(requests_root);
 
             // handle finalizing response Mmr
             let response_leaves = Self::number_of_response_leaves();
@@ -177,7 +181,7 @@ pub mod pallet {
             > = mmr::Mmr::new(response_leaves);
 
             // Update the size, `mmr.finalize()` should also never fail.
-            let (leaves, root) = match response_mmr.finalize() {
+            let (leaves, responses_root) = match response_mmr.finalize() {
                 Ok((leaves, root)) => (leaves, root),
                 Err(e) => {
                     log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
@@ -186,7 +190,15 @@ pub mod pallet {
             };
 
             <NumberOfResponseLeaves<T>>::put(leaves);
-            <ResponsesRootHash<T>>::put(root);
+            <ResponsesRootHash<T>>::put(responses_root);
+
+            let log = RequestResponseLog::<T> {
+                requests_root_hash: requests_root,
+                responses_root_hash: responses_root,
+            };
+
+            let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
+            <frame_system::Pallet<T>>::deposit_log(digest);
         }
 
         fn offchain_worker(_n: T::BlockNumber) {}
@@ -314,5 +326,68 @@ impl<T: Config, L: FullLeaf<<T as Config>::Hashing>> OffchainKeyGenerator
 {
     fn offchain_key(pos: NodeIndex) -> Vec<u8> {
         (T::INDEXING_PREFIX, "Responses", pos).encode()
+    }
+}
+
+#[derive(RuntimeDebug, Encode, Decode)]
+pub struct RequestResponseLog<T: Config> {
+    requests_root_hash: <T as Config>::Hash,
+    responses_root_hash: <T as Config>::Hash,
+}
+
+impl<T: Config> Pallet<T> {
+    fn request_leaf_index_offchain_key(req: &Request) -> Vec<u8> {
+        (
+            T::INDEXING_PREFIX,
+            "Requests/leaf_indices",
+            req.dest_chain,
+            req.nonce,
+        )
+            .encode()
+    }
+    fn response_leaf_index_offchain_key(res: &Response) -> Vec<u8> {
+        (
+            T::INDEXING_PREFIX,
+            "Responses/leaf_indices",
+            res.request.source_chain,
+            res.request.nonce,
+        )
+            .encode()
+    }
+
+    fn store_leaf_index_offchain(key: Vec<u8>, leaf_index: LeafIndex) {
+        sp_io::offchain_index::set(&key, &leaf_index.encode());
+    }
+
+    fn get_request(leaf_index: LeafIndex) -> Option<Request> {
+        let key = RequestOffchainKey::<T, Leaf>::offchain_key(leaf_index);
+        if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
+            let data_or_hash =
+                DataOrHash::<<T as Config>::Hashing, Leaf>::decode(&mut &*elem).ok()?;
+            return match data_or_hash {
+                DataOrHash::Data(leaf) => match leaf {
+                    Leaf::Request(req) => Some(req),
+                    _ => None,
+                },
+                _ => None,
+            };
+        }
+        None
+    }
+
+    fn get_response(leaf_index: LeafIndex) -> Option<Response> {
+        let key = ResponseOffchainKey::<T, Leaf>::offchain_key(leaf_index);
+        if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
+            let data_or_hash =
+                DataOrHash::<<T as Config>::Hashing, Leaf>::decode(&mut &*elem).ok()?;
+            return match data_or_hash {
+                DataOrHash::Data(leaf) => match leaf {
+                    Leaf::Response(res) => Some(res),
+                    _ => None,
+                },
+                _ => None,
+            };
+        }
+        None
     }
 }

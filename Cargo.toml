@@ -16,7 +16,7 @@ sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkad
 sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
 sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
 sp-api = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
-ismp-rust = { git = "ssh://git@github.com/polytope-labs/ismp-rust.git", rev = "2fc20996d80a43aaf2bfff79cfa9e57ac53d7223", default-features = false }
+ismp-rust = { git = "ssh://git@github.com/polytope-labs/ismp-rust.git", branch = "main", default-features = false }
 mmr-lib = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
 
 [features]

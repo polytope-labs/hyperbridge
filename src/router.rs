@@ -25,6 +25,7 @@ impl<T: Config> IISMPRouter for Router<T> {
                 RequestOffchainKey<T, Leaf>,
                 RequestsStore<T>,
             > = mmr::Mmr::new(request_leaves);
+            let offchain_key = Pallet::<T>::request_leaf_index_offchain_key(&request);
             let leaf_index = request_mmr.push(Leaf::Request(request)).ok_or_else(|| {
                 Error::RequestVerificationFailed {
                     nonce,
@@ -34,6 +35,7 @@ impl<T: Config> IISMPRouter for Router<T> {
             })?;
             // Deposit Event
             // Store a map of request to leaf_index
+            Pallet::<T>::store_leaf_index_offchain(offchain_key, leaf_index)
         }
 
         Ok(())
@@ -55,6 +57,7 @@ impl<T: Config> IISMPRouter for Router<T> {
                 ResponseOffchainKey<T, Leaf>,
                 ResponseStore<T>,
             > = mmr::Mmr::new(response_leaves);
+            let offchain_key = Pallet::<T>::response_leaf_index_offchain_key(&response);
             let leaf_index = response_mmr.push(Leaf::Response(response)).ok_or_else(|| {
                 Error::RequestVerificationFailed {
                     nonce,
@@ -63,7 +66,7 @@ impl<T: Config> IISMPRouter for Router<T> {
                 }
             })?;
             // Deposit Event
-            // Store a map of response to leaf_index
+            Pallet::<T>::store_leaf_index_offchain(offchain_key, leaf_index)
         }
 
         Ok(())

@@ -2,6 +2,9 @@ use crate::mmr::{LeafIndex, NodeIndex};
 use frame_support::RuntimeDebug;
 use scale_info::TypeInfo;
 
+/// The `ConsensusEngineId` of ISMP.
+pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";
+
 /// An MMR proof data for a group of leaves.
 #[derive(codec::Encode, codec::Decode, RuntimeDebug, Clone, PartialEq, Eq, TypeInfo)]
 pub struct Proof<Hash> {

@@ -16,8 +16,10 @@
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub mod host;
 mod mmr;
 mod primitives;
+mod router;
 
 use codec::Encode;
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -34,6 +36,7 @@ pub mod pallet {
     use crate::mmr::{LeafIndex, Mmr, NodeIndex};
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
+    use ismp_rust::host::ChainID;
     use sp_runtime::traits;
 
     /// Our pallet's configuration trait. All our types and constants go in here. If the
@@ -66,6 +69,7 @@ pub mod pallet {
         /// Then we create a tuple of these two hashes, SCALE-encode it (concatenate) and
         /// hash, to obtain a new MMR inner node - the new peak.
         type Hashing: traits::Hash<Output = <Self as Config>::Hash>;
+        const CHAIN_ID: ChainID;
         /// The hashing output type.
         ///
         /// This type is actually going to be stored in the MMR.

@@ -43,7 +43,7 @@ impl<T: Config> IISMPRouter for Router<T> {
 
     fn write_response(&self, response: Response) -> Result<(), Error> {
         let host = Host::<T>::default();
-        if host.host() != response.request.dest_chain {
+        if host.host() != response.request.source_chain {
             let response_leaves = Pallet::<T>::number_of_response_leaves();
             let (dest_chain, source_chain, nonce) = (
                 response.request.dest_chain,

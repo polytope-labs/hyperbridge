@@ -26,8 +26,7 @@ use frame_support::RuntimeDebug;
 use ismp_rust::router::{Request, Response};
 use sp_core::offchain::StorageKind;
 // Re-export pallet items so that they can be accessed from the crate namespace.
-use crate::mmr::storage::{OffchainKeyGenerator, StorageReadWrite};
-use crate::mmr::{DataOrHash, FullLeaf, Leaf, LeafIndex, Node, NodeIndex, NodeOf};
+use crate::mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex, NodeOf};
 pub use pallet::*;
 
 // Definition of the pallet logic, to be aggregated at runtime definition through
@@ -84,6 +83,7 @@ pub mod pallet {
             + sp_std::hash::Hash
             + AsRef<[u8]>
             + AsMut<[u8]>
+            + From<[u8; 32]>
             + Copy
             + Default
             + codec::Codec
@@ -100,23 +100,13 @@ pub mod pallet {
 
     /// Latest MMR Root hash for requests
     #[pallet::storage]
-    #[pallet::getter(fn requests_root_hash)]
-    pub type RequestsRootHash<T: Config> = StorageValue<_, <T as Config>::Hash, ValueQuery>;
-
-    /// Latest MMR Root hash for responses
-    #[pallet::storage]
-    #[pallet::getter(fn responses_root_hash)]
-    pub type ResponsesRootHash<T: Config> = StorageValue<_, <T as Config>::Hash, ValueQuery>;
+    #[pallet::getter(fn mmr_root_hash)]
+    pub type RootHash<T: Config> = StorageValue<_, <T as Config>::Hash, ValueQuery>;
 
     /// Current size of the MMR (number of leaves) for requests.
     #[pallet::storage]
-    #[pallet::getter(fn number_of_request_leaves)]
-    pub type NumberOfRequestLeaves<T> = StorageValue<_, LeafIndex, ValueQuery>;
-
-    /// Current size of the MMR (number of leaves) for responses.
-    #[pallet::storage]
-    #[pallet::getter(fn number_of_response_leaves)]
-    pub type NumberOfResponseLeaves<T> = StorageValue<_, LeafIndex, ValueQuery>;
+    #[pallet::getter(fn number_of_leaves)]
+    pub type NumberOfLeaves<T> = StorageValue<_, LeafIndex, ValueQuery>;
 
     /// Hashes of the nodes in the MMR for requests.
     ///
@@ -124,16 +114,7 @@ pub mod pallet {
     /// are pruned and only stored in the Offchain DB.
     #[pallet::storage]
     #[pallet::getter(fn request_peaks)]
-    pub type RequestNodes<T: Config> =
-        StorageMap<_, Identity, NodeIndex, <T as Config>::Hash, OptionQuery>;
-
-    /// Hashes of the nodes in the MMR for responses.
-    ///
-    /// Note this collection only contains MMR peaks, the inner nodes (and leaves)
-    /// are pruned and only stored in the Offchain DB.
-    #[pallet::storage]
-    #[pallet::getter(fn response_peaks)]
-    pub type ResponseNodes<T: Config> =
+    pub type Nodes<T: Config> =
         StorageMap<_, Identity, NodeIndex, <T as Config>::Hash, OptionQuery>;
 
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
@@ -147,18 +128,12 @@ pub mod pallet {
         fn on_finalize(_n: T::BlockNumber) {
             use crate::mmr;
             // handle finalizing requests Mmr
-            let request_leaves = Self::number_of_request_leaves();
+            let leaves = Self::number_of_leaves();
 
-            let request_mmr: Mmr<
-                mmr::storage::RuntimeStorage,
-                T,
-                Leaf,
-                RequestOffchainKey<T, Leaf>,
-                RequestsStore<T>,
-            > = mmr::Mmr::new(request_leaves);
+            let mmr: Mmr<mmr::storage::RuntimeStorage, T, Leaf> = mmr::Mmr::new(leaves);
 
             // Update the size, `mmr.finalize()` should also never fail.
-            let (leaves, requests_root) = match request_mmr.finalize() {
+            let (leaves, root) = match mmr.finalize() {
                 Ok((leaves, root)) => (leaves, root),
                 Err(e) => {
                     log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
@@ -166,35 +141,11 @@ pub mod pallet {
                 }
             };
 
-            <NumberOfRequestLeaves<T>>::put(leaves);
-            <RequestsRootHash<T>>::put(requests_root);
-
-            // handle finalizing response Mmr
-            let response_leaves = Self::number_of_response_leaves();
-
-            let response_mmr: Mmr<
-                mmr::storage::RuntimeStorage,
-                T,
-                Leaf,
-                ResponseOffchainKey<T, Leaf>,
-                ResponseStore<T>,
-            > = mmr::Mmr::new(response_leaves);
-
-            // Update the size, `mmr.finalize()` should also never fail.
-            let (leaves, responses_root) = match response_mmr.finalize() {
-                Ok((leaves, root)) => (leaves, root),
-                Err(e) => {
-                    log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
-                    return;
-                }
-            };
-
-            <NumberOfResponseLeaves<T>>::put(leaves);
-            <ResponsesRootHash<T>>::put(responses_root);
+            <NumberOfLeaves<T>>::put(leaves);
+            <RootHash<T>>::put(root);
 
             let log = RequestResponseLog::<T> {
-                requests_root_hash: requests_root,
-                responses_root_hash: responses_root,
+                mmr_root_hash: root,
             };
 
             let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
@@ -223,116 +174,49 @@ impl<T: Config> Pallet<T> {
     /// (Offchain Worker or Runtime API call), since it requires
     /// all the leaves to be present.
     /// It may return an error or panic if used incorrectly.
-    pub fn generate_request_proof(
+    pub fn generate_proof(
         leaf_indices: Vec<LeafIndex>,
     ) -> Result<(Vec<Leaf>, primitives::Proof<<T as Config>::Hash>), primitives::Error> {
-        let leaves_count = NumberOfRequestLeaves::<T>::get();
-        let mmr = mmr::Mmr::<
-            mmr::storage::OffchainStorage,
-            T,
-            Leaf,
-            RequestOffchainKey<T, Leaf>,
-            RequestsStore<T>,
-        >::new(leaves_count);
-        mmr.generate_request_proof(leaf_indices)
-    }
-
-    pub fn generate_response_proof(
-        leaf_indices: Vec<LeafIndex>,
-    ) -> Result<(Vec<Leaf>, primitives::Proof<<T as Config>::Hash>), primitives::Error> {
-        let leaves_count = NumberOfRequestLeaves::<T>::get();
-        let mmr = mmr::Mmr::<
-            mmr::storage::OffchainStorage,
-            T,
-            Leaf,
-            ResponseOffchainKey<T, Leaf>,
-            ResponseStore<T>,
-        >::new(leaves_count);
-        mmr.generate_response_proof(leaf_indices)
+        let leaves_count = NumberOfLeaves::<T>::get();
+        let mmr = mmr::Mmr::<mmr::storage::OffchainStorage, T, Leaf>::new(leaves_count);
+        mmr.generate_proof(leaf_indices)
     }
 
     /// Return the on-chain MMR root hash.
-    pub fn requests_mmr_root() -> <T as Config>::Hash {
-        Self::requests_root_hash()
-    }
-    /// Return the on-chain MMR root hash.
-    pub fn responses_mmr_root() -> <T as Config>::Hash {
-        Self::responses_root_hash()
+    pub fn mmr_root() -> <T as Config>::Hash {
+        Self::mmr_root_hash()
     }
 }
 
-pub struct RequestsStore<T>(core::marker::PhantomData<T>);
-
-impl<T: Config, L: FullLeaf<<T as Config>::Hashing>> StorageReadWrite<T, L> for RequestsStore<T> {
-    fn get_node(pos: NodeIndex) -> Option<NodeOf<T, L>> {
-        RequestNodes::<T>::get(pos).map(Node::Hash)
+impl<T: Config> Pallet<T> {
+    fn get_node<L>(pos: NodeIndex) -> Option<NodeOf<T, L>> {
+        Nodes::<T>::get(pos).map(NodeOf::Hash)
     }
 
     fn remove_node(pos: NodeIndex) {
-        RequestNodes::<T>::remove(pos);
+        Nodes::<T>::remove(pos);
     }
 
     fn insert_node(pos: NodeIndex, node: <T as Config>::Hash) {
-        RequestNodes::<T>::insert(pos, node)
+        Nodes::<T>::insert(pos, node)
     }
 
     fn get_num_leaves() -> LeafIndex {
-        NumberOfRequestLeaves::<T>::get()
+        NumberOfLeaves::<T>::get()
     }
 
     fn set_num_leaves(num_leaves: LeafIndex) {
-        NumberOfRequestLeaves::<T>::put(num_leaves)
-    }
-}
-
-pub struct ResponseStore<T>(core::marker::PhantomData<T>);
-
-impl<T: Config, L: FullLeaf<<T as Config>::Hashing>> StorageReadWrite<T, L> for ResponseStore<T> {
-    fn get_node(pos: NodeIndex) -> Option<NodeOf<T, L>> {
-        ResponseNodes::<T>::get(pos).map(Node::Hash)
+        NumberOfLeaves::<T>::put(num_leaves)
     }
 
-    fn remove_node(pos: NodeIndex) {
-        ResponseNodes::<T>::remove(pos);
-    }
-
-    fn insert_node(pos: NodeIndex, node: <T as Config>::Hash) {
-        ResponseNodes::<T>::insert(pos, node)
-    }
-
-    fn get_num_leaves() -> LeafIndex {
-        NumberOfResponseLeaves::<T>::get()
-    }
-
-    fn set_num_leaves(num_leaves: LeafIndex) {
-        NumberOfResponseLeaves::<T>::put(num_leaves)
-    }
-}
-
-pub struct RequestOffchainKey<T, L>(core::marker::PhantomData<(T, L)>);
-
-impl<T: Config, L: FullLeaf<<T as Config>::Hashing>> OffchainKeyGenerator
-    for RequestOffchainKey<T, L>
-{
     fn offchain_key(pos: NodeIndex) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "Requests", pos).encode()
-    }
-}
-
-pub struct ResponseOffchainKey<T, L>(core::marker::PhantomData<(T, L)>);
-
-impl<T: Config, L: FullLeaf<<T as Config>::Hashing>> OffchainKeyGenerator
-    for ResponseOffchainKey<T, L>
-{
-    fn offchain_key(pos: NodeIndex) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "Responses", pos).encode()
+        (T::INDEXING_PREFIX, "Requests/Responses", pos).encode()
     }
 }
 
 #[derive(RuntimeDebug, Encode, Decode)]
 pub struct RequestResponseLog<T: Config> {
-    requests_root_hash: <T as Config>::Hash,
-    responses_root_hash: <T as Config>::Hash,
+    mmr_root_hash: <T as Config>::Hash,
 }
 
 impl<T: Config> Pallet<T> {
@@ -345,6 +229,7 @@ impl<T: Config> Pallet<T> {
         )
             .encode()
     }
+
     fn response_leaf_index_offchain_key(res: &Response) -> Vec<u8> {
         (
             T::INDEXING_PREFIX,
@@ -360,10 +245,9 @@ impl<T: Config> Pallet<T> {
     }
 
     fn get_request(leaf_index: LeafIndex) -> Option<Request> {
-        let key = RequestOffchainKey::<T, Leaf>::offchain_key(leaf_index);
+        let key = Pallet::<T>::offchain_key(leaf_index);
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            let data_or_hash =
-                DataOrHash::<<T as Config>::Hashing, Leaf>::decode(&mut &*elem).ok()?;
+            let data_or_hash = DataOrHash::<T, Leaf>::decode(&mut &*elem).ok()?;
             return match data_or_hash {
                 DataOrHash::Data(leaf) => match leaf {
                     Leaf::Request(req) => Some(req),
@@ -376,10 +260,9 @@ impl<T: Config> Pallet<T> {
     }
 
     fn get_response(leaf_index: LeafIndex) -> Option<Response> {
-        let key = ResponseOffchainKey::<T, Leaf>::offchain_key(leaf_index);
+        let key = Pallet::<T>::offchain_key(leaf_index);
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            let data_or_hash =
-                DataOrHash::<<T as Config>::Hashing, Leaf>::decode(&mut &*elem).ok()?;
+            let data_or_hash = DataOrHash::<T, Leaf>::decode(&mut &*elem).ok()?;
             return match data_or_hash {
                 DataOrHash::Data(leaf) => match leaf {
                     Leaf::Response(res) => Some(res),

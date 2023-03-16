@@ -15,21 +15,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use core::fmt;
+use std::fmt::Formatter;
+
 pub mod mmr;
 pub mod storage;
 mod utils;
 
+use crate::host::Host;
 use crate::Config;
 use codec::{Decode, Encode};
-use frame_support::RuntimeDebug;
+use ismp_rust::host::ISMPHost;
 use ismp_rust::router::{Request, Response};
 use sp_runtime::traits;
 
 pub use self::mmr::Mmr;
 pub type LeafIndex = u64;
 pub type NodeIndex = u64;
-
-pub(crate) type HashingOf<T> = <T as Config>::Hashing;
 
 #[derive(Debug, Clone, Decode, Encode, PartialEq, Eq)]
 pub enum Leaf {
@@ -38,38 +39,61 @@ pub enum Leaf {
 }
 
 /// A full leaf content stored in the offchain-db.
-pub trait FullLeaf<H: traits::Hash>: Clone + fmt::Debug + PartialEq + Eq + codec::Codec {
+pub trait FullLeaf<T: Config>: Clone + fmt::Debug + PartialEq + Eq + codec::Codec {
     /// Returns the hash of the leaf
-    fn hash(&self) -> H::Output;
+    fn hash(&self) -> <<T as Config>::Hashing as traits::Hash>::Output;
 }
 
-impl<H: traits::Hash> FullLeaf<H> for Leaf {
-    fn hash(&self) -> H::Output {
-        todo!()
+impl<T: Config> FullLeaf<T> for Leaf {
+    fn hash(&self) -> <<T as Config>::Hashing as traits::Hash>::Output {
+        let host = Host::<T>::default();
+        match self {
+            Leaf::Request(req) => {
+                let commitment = host.get_request_commitment(req);
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(&commitment[..]);
+                <T as Config>::Hash::from(hash)
+            }
+            Leaf::Response(res) => {
+                let commitment = host.get_response_commitment(res);
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(&commitment[..]);
+                <T as Config>::Hash::from(hash)
+            }
+        }
     }
 }
 
 /// An element representing either full data or its hash.
-#[derive(RuntimeDebug, Clone, PartialEq, Eq, Encode, Decode)]
-pub enum DataOrHash<H: traits::Hash, L> {
+#[derive(Clone, PartialEq, Eq, Encode, Decode)]
+pub enum DataOrHash<T: Config, L> {
     /// Arbitrary data in its full form.
     Data(L),
     /// A hash of some data.
-    Hash(H::Output),
+    Hash(<<T as Config>::Hashing as traits::Hash>::Output),
 }
 
-impl<H: traits::Hash, L> From<L> for DataOrHash<H, L> {
+impl<T: Config, L: core::fmt::Debug> core::fmt::Debug for DataOrHash<T, L> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DataOrHash::Data(leaf) => f.debug_struct("DataOrHash").field("Data", leaf).finish(),
+            DataOrHash::Hash(hash) => f.debug_struct("DataOrHash").field("Hash", hash).finish(),
+        }
+    }
+}
+
+impl<T: Config, L> From<L> for DataOrHash<T, L> {
     fn from(l: L) -> Self {
         Self::Data(l)
     }
 }
 
-impl<H: traits::Hash, L: FullLeaf<H>> DataOrHash<H, L> {
+impl<T: Config, L: FullLeaf<T>> DataOrHash<T, L> {
     /// Retrieve a hash of this item.
     ///
     /// Depending on the node type it's going to either be a contained value for [DataOrHash::Hash]
     /// node, or a hash of SCALE-encoded [DataOrHash::Data] data.
-    pub fn hash(&self) -> H::Output {
+    pub fn hash(&self) -> <<T as Config>::Hashing as traits::Hash>::Output {
         match *self {
             Self::Data(ref leaf) => leaf.hash(),
             Self::Hash(ref hash) => *hash,
@@ -77,21 +101,20 @@ impl<H: traits::Hash, L: FullLeaf<H>> DataOrHash<H, L> {
     }
 }
 /// Node type for runtime `T`.
-pub type NodeOf<T, L> = Node<<T as crate::Config>::Hashing, L>;
-
-/// A node stored in the MMR.
-pub type Node<H, L> = DataOrHash<H, L>;
+pub type NodeOf<T, L> = DataOrHash<T, L>;
 
 /// Default Merging & Hashing behavior for MMR.
-pub struct Hasher<H, L>(sp_std::marker::PhantomData<(H, L)>);
+pub struct Hasher<T, L>(sp_std::marker::PhantomData<(T, L)>);
 
-impl<H: traits::Hash, L: FullLeaf<H>> mmr_lib::Merge for Hasher<H, L> {
-    type Item = Node<H, L>;
+impl<T: Config, L: FullLeaf<T>> mmr_lib::Merge for Hasher<T, L> {
+    type Item = NodeOf<T, L>;
 
     fn merge(left: &Self::Item, right: &Self::Item) -> mmr_lib::Result<Self::Item> {
         let mut concat = left.hash().as_ref().to_vec();
         concat.extend_from_slice(right.hash().as_ref());
 
-        Ok(Node::Hash(<H as traits::Hash>::hash(&concat)))
+        Ok(NodeOf::Hash(
+            <<T as Config>::Hashing as traits::Hash>::hash(&concat),
+        ))
     }
 }

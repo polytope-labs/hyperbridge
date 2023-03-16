@@ -34,22 +34,15 @@ pub enum Error {
 sp_api::decl_runtime_apis! {
     /// API to interact with pallet-ismp's Mmr.
     pub trait IsmpMmrApi<Hash: codec::Codec, BlockNumber: codec::Codec> {
-        /// Return the on-chain MMR root hash for requests.
-        fn requests_mmr_root() -> Result<Hash, Error>;
+        /// Return the number of MMR leaves.
+        fn mmr_leaf_count() -> Result<LeafIndex, Error>;
 
-        /// Return the number of MMR leaves for requests.
-        fn requests_mmr_leaf_count() -> Result<LeafIndex, Error>;
-
-        /// Return the on-chain MMR root hash for responses.
-        fn responses_mmr_root() -> Result<Hash, Error>;
-
-        /// Return the number of MMR leaves for responses.
-        fn responses_mmr_leaf_count() -> Result<LeafIndex, Error>;
+        /// Return the on-chain MMR root hash.
+        fn mmr_root() -> Result<Hash, Error>;
 
         /// generate a proof
-        fn generate_request_proof(
+        fn generate_proof(
             leaf_indices: Vec<LeafIndex>
         ) -> Result<(Vec<Hash>, Proof<Hash>), Error>;
-
     }
 }

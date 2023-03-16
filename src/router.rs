@@ -19,16 +19,12 @@ impl<T: Config> IISMPRouter for Router<T> {
             let mut mmr: Mmr<mmr::storage::RuntimeStorage, T, Leaf> = mmr::Mmr::new(leaves);
             let offchain_key = Pallet::<T>::request_leaf_index_offchain_key(dest_chain, nonce);
             let leaf_index = mmr.push(Leaf::Request(request)).ok_or_else(|| {
-                Error::RequestVerificationFailed {
-                    nonce,
-                    source: source_chain,
-                    dest: dest_chain,
-                }
+                Error::ImplementationSpecific("Failed to push request into mmr".to_string())
             })?;
             // Deposit Event
             Pallet::<T>::deposit_event(Event::RequestReceived {
                 request_nonce: nonce,
-                dest_chain
+                dest_chain,
             });
             // Store a map of request to leaf_index
             Pallet::<T>::store_leaf_index_offchain(offchain_key, leaf_index)
@@ -49,15 +45,11 @@ impl<T: Config> IISMPRouter for Router<T> {
             let mut mmr: Mmr<mmr::storage::RuntimeStorage, T, Leaf> = mmr::Mmr::new(leaves);
             let offchain_key = Pallet::<T>::response_leaf_index_offchain_key(source_chain, nonce);
             let leaf_index = mmr.push(Leaf::Response(response)).ok_or_else(|| {
-                Error::ResponseVerificationFailed {
-                    nonce,
-                    source: source_chain,
-                    dest: dest_chain,
-                }
+                Error::ImplementationSpecific("Failed to push response into mmr".to_string())
             })?;
             Pallet::<T>::deposit_event(Event::ResponseReceived {
                 request_nonce: nonce,
-                dest_chain: source_chain
+                dest_chain: source_chain,
             });
             Pallet::<T>::store_leaf_index_offchain(offchain_key, leaf_index)
         }

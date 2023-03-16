@@ -68,7 +68,7 @@ where
 
         let key = Pallet::<T>::offchain_key(pos);
         debug!(
-            target: "runtime::mmr::offchain", "offchain db get {}: leaf idx {:?}, canon key {:?}",
+            target: "runtime::mmr::offchain", "offchain db get {}: leaf idx {:?}, key {:?}",
             pos, ancestor_leaf_idx, key
         );
         // Try to retrieve the element from Off-chain DB.

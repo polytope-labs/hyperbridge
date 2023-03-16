@@ -1,6 +1,6 @@
 use crate::host::Host;
 use crate::mmr::{self, Leaf, Mmr};
-use crate::{Config, Pallet};
+use crate::{Config, Event, Pallet};
 use core::marker::PhantomData;
 use ismp_rust::error::Error;
 use ismp_rust::host::ISMPHost;
@@ -26,6 +26,9 @@ impl<T: Config> IISMPRouter for Router<T> {
                 }
             })?;
             // Deposit Event
+            Pallet::<T>::deposit_event(Event::RequestReceived {
+                request_nonce: nonce,
+            });
             // Store a map of request to leaf_index
             Pallet::<T>::store_leaf_index_offchain(offchain_key, leaf_index)
         }
@@ -45,13 +48,15 @@ impl<T: Config> IISMPRouter for Router<T> {
             let mut mmr: Mmr<mmr::storage::RuntimeStorage, T, Leaf> = mmr::Mmr::new(leaves);
             let offchain_key = Pallet::<T>::response_leaf_index_offchain_key(&response);
             let leaf_index = mmr.push(Leaf::Response(response)).ok_or_else(|| {
-                Error::RequestVerificationFailed {
+                Error::ResponseVerificationFailed {
                     nonce,
                     source: source_chain,
                     dest: dest_chain,
                 }
             })?;
-            // Deposit Event
+            Pallet::<T>::deposit_event(Event::ResponseReceived {
+                request_nonce: nonce,
+            });
             Pallet::<T>::store_leaf_index_offchain(offchain_key, leaf_index)
         }
 

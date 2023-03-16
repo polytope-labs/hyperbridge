@@ -15,17 +15,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::mmr::storage::{OffchainKeyGenerator, StorageReadWrite};
 use crate::mmr::utils::NodesUtils;
-use crate::mmr::{FullLeaf, HashingOf, NodeIndex};
+use crate::mmr::{FullLeaf, NodeIndex};
 use crate::primitives::Proof;
 use crate::{
     mmr::{
         storage::{OffchainStorage, RuntimeStorage, Storage},
-        Hasher, Node, NodeOf,
+        Hasher, NodeOf,
     },
     primitives::Error,
-    Config, RequestOffchainKey, RequestsStore, ResponseOffchainKey, ResponseStore,
+    Config,
 };
 use sp_std::prelude::*;
 
@@ -33,29 +32,21 @@ use sp_std::prelude::*;
 ///
 /// Available functions depend on the storage kind ([Runtime](crate::mmr::storage::RuntimeStorage)
 /// vs [Off-chain](crate::mmr::storage::OffchainStorage)).
-pub struct Mmr<StorageType, T, L, K, ReadWrite>
+pub struct Mmr<StorageType, T, L>
 where
     T: Config,
-    L: FullLeaf<<T as Config>::Hashing>,
-    ReadWrite: StorageReadWrite<T, L>,
-    K: OffchainKeyGenerator,
-    Storage<StorageType, T, L, K, ReadWrite>: mmr_lib::MMRStore<NodeOf<T, L>>,
+    L: FullLeaf<T>,
+    Storage<StorageType, T, L>: mmr_lib::MMRStore<NodeOf<T, L>>,
 {
-    mmr: mmr_lib::MMR<
-        NodeOf<T, L>,
-        Hasher<HashingOf<T>, L>,
-        Storage<StorageType, T, L, K, ReadWrite>,
-    >,
+    mmr: mmr_lib::MMR<NodeOf<T, L>, Hasher<T, L>, Storage<StorageType, T, L>>,
     leaves: NodeIndex,
 }
 
-impl<StorageType, T, L, K, ReadWrite> Mmr<StorageType, T, L, K, ReadWrite>
+impl<StorageType, T, L> Mmr<StorageType, T, L>
 where
     T: Config,
-    L: FullLeaf<<T as Config>::Hashing>,
-    ReadWrite: StorageReadWrite<T, L>,
-    K: OffchainKeyGenerator,
-    Storage<StorageType, T, L, K, ReadWrite>: mmr_lib::MMRStore<NodeOf<T, L>>,
+    L: FullLeaf<T>,
+    Storage<StorageType, T, L>: mmr_lib::MMRStore<NodeOf<T, L>>,
 {
     /// Create a pointer to an existing MMR with given number of leaves.
     pub fn new(leaves: NodeIndex) -> Self {
@@ -74,12 +65,10 @@ where
 }
 
 /// Runtime specific MMR functions.
-impl<T, L, K, ReadWrite> Mmr<RuntimeStorage, T, L, K, ReadWrite>
+impl<T, L> Mmr<RuntimeStorage, T, L>
 where
     T: Config,
-    L: FullLeaf<<T as Config>::Hashing>,
-    ReadWrite: StorageReadWrite<T, L>,
-    K: OffchainKeyGenerator,
+    L: FullLeaf<T>,
 {
     /// Push another item to the MMR.
     ///
@@ -87,7 +76,7 @@ where
     pub fn push(&mut self, leaf: L) -> Option<NodeIndex> {
         let position = self
             .mmr
-            .push(Node::Data(leaf))
+            .push(NodeOf::Data(leaf))
             .map_err(|_| Error::Push)
             .ok()?;
 
@@ -106,18 +95,16 @@ where
 }
 
 /// Off-chain specific MMR functions.
-impl<T, L, K, ReadWrite> Mmr<OffchainStorage, T, L, K, ReadWrite>
+impl<T, L> Mmr<OffchainStorage, T, L>
 where
     T: Config,
-    L: FullLeaf<<T as Config>::Hashing> + codec::Decode,
-    ReadWrite: StorageReadWrite<T, L>,
-    K: OffchainKeyGenerator,
+    L: FullLeaf<T> + codec::Decode,
 {
     /// Generate a proof for given leaf indices.
     ///
     /// Proof generation requires all the nodes (or their hashes) to be available in the storage.
     /// (i.e. you can't run the function in the pruned storage).
-    pub fn generate_request_proof(
+    pub fn generate_proof(
         &self,
         leaf_indices: Vec<NodeIndex>,
     ) -> Result<(Vec<L>, Proof<<T as Config>::Hash>), Error> {
@@ -125,43 +112,11 @@ where
             .iter()
             .map(|index| mmr_lib::leaf_index_to_pos(*index))
             .collect::<Vec<_>>();
-        let store =
-            <Storage<OffchainStorage, T, L, RequestOffchainKey<T, L>, RequestsStore<T>>>::default();
+        let store = <Storage<OffchainStorage, T, L>>::default();
         let leaves = positions
             .iter()
             .map(|pos| match mmr_lib::MMRStore::get_elem(&store, *pos) {
-                Ok(Some(Node::Data(leaf))) => Ok(leaf),
-                _ => Err(Error::LeafNotFound),
-            })
-            .collect::<Result<Vec<_>, Error>>()?;
-
-        let leaf_count = self.leaves;
-        self.mmr
-            .gen_proof(positions)
-            .map_err(|_| Error::GenerateProof)
-            .map(|p| Proof {
-                leaf_indices,
-                leaf_count,
-                items: p.proof_items().iter().map(|x| x.hash()).collect(),
-            })
-            .map(|p| (leaves, p))
-    }
-
-    pub fn generate_response_proof(
-        &self,
-        leaf_indices: Vec<NodeIndex>,
-    ) -> Result<(Vec<L>, Proof<<T as Config>::Hash>), Error> {
-        let positions = leaf_indices
-            .iter()
-            .map(|index| mmr_lib::leaf_index_to_pos(*index))
-            .collect::<Vec<_>>();
-        let store =
-            <Storage<OffchainStorage, T, L, ResponseOffchainKey<T, L>, ResponseStore<T>>>::default(
-            );
-        let leaves = positions
-            .iter()
-            .map(|pos| match mmr_lib::MMRStore::get_elem(&store, *pos) {
-                Ok(Some(Node::Data(leaf))) => Ok(leaf),
+                Ok(Some(NodeOf::Data(leaf))) => Ok(leaf),
                 _ => Err(Error::LeafNotFound),
             })
             .collect::<Result<Vec<_>, Error>>()?;

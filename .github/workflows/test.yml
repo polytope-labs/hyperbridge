@@ -1,0 +1,169 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@main
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Run cargo check
+        run: cargo check
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    # defaults:
+    #   run:
+    #     shell: bash
+    env:
+      TUID: 123
+    steps:
+      - name: set UID env
+        run: |
+          echo $UID
+          echo "TUID=$UID" >> $GITHUB_ENV
+
+      - name: Checkout sources
+        uses: actions/checkout@master
+
+      - name: Clone eth-testnet-runner repository
+        run: |
+          git clone https://github.com/ralexstokes/eth-testnet-runner.git
+          cd eth-testnet-runner
+          git checkout 5f43097a03f8ff37217c843407bf7729617f2dff
+
+      - name: Install rust stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Install protoc
+        run: |
+          sudo apt update
+          sudo apt install protobuf-compiler
+
+      - name: Fetch geth binary
+        run: |
+          cd eth-testnet-runner
+          mkdir bin
+          wget https://gethstore.blob.core.windows.net/builds/geth-linux-amd64-1.11.3-5ed08c47.tar.gz -O ./geth-linux-amd64-1.11.3-5ed08c47.tar.gz
+          tar -xvf geth-linux-amd64-1.11.3-5ed08c47.tar.gz
+          cd geth-linux-amd64-1.11.3-5ed08c47
+          cp geth ../bin
+
+      - name: Build lighthouse from source
+        run: |
+          cd eth-testnet-runner
+          git clone https://github.com/sigp/lighthouse.git
+          cd lighthouse
+          git checkout 38514c07f222ff7783834c48cf5c0a6ee7f346d0
+          cargo build -p lighthouse --release
+          mv target/release/lighthouse ../bin
+
+      - name: Install go
+        uses: actions/setup-go@v3
+        with:
+          go-version: "stable"
+
+      - name: check go version
+        run: go version
+
+      - name: Clone eth2-val-tools repository
+        run: |
+          git clone https://github.com/protolambda/eth2-val-tools.git
+          cd eth2-val-tools
+          git checkout 4bf01453537ad1a9323c7cd99afc4f8ba2a420b1
+
+      - name: build eth2-val-tools and move binary to eth-testnet-runner bin folder
+        run: |
+          cd eth2-val-tools
+          go build
+          cp eth2-val-tools ../eth-testnet-runner/bin
+
+      # Make $UID available to the justfile
+      - name: set UID env variable as a local justfile variable
+        run: |
+          cd eth-testnet-runner
+          sed -i 's/$UID/{{UID}}/' justfile
+          sed -i 's/^NOW := `date +%s`/NOW := `date +%s`\nUID := "${{ env.TUID }}"/' justfile
+
+      - name: install just
+        run: |
+          cargo install just
+
+      - name: modify testnet config values
+        run: |
+          cd eth-testnet-runner/testnet-config
+          sed -i 's/GENESIS_FORK_VERSION=.*/GENESIS_FORK_VERSION="0x00000000"/' values.env
+          sed -i 's/ALTAIR_FORK_VERSION=.*/ALTAIR_FORK_VERSION="0x01000000"/' values.env
+          sed -i 's/BELLATRIX_FORK_VERSION=.*/BELLATRIX_FORK_VERSION="0x02000000"/' values.env
+          sed -i 's/CAPELLA_FORK_VERSION=.*/CAPELLA_FORK_VERSION="0x03000000"/' values.env
+          sed -i 's/EIP4844_FORK_VERSION=.*/EIP4844_FORK_VERSION="0x04000000"/' values.env
+      
+      - name: remove tty flag from docker command in create-config recipe
+        run: |
+          cd eth-testnet-runner
+          sed -i 's/-it/-i/' justfile
+
+      - name: run create-config
+        run: |
+          cd eth-testnet-runner
+          just create-config & ../scripts/wait_for_tcp_port_opening.sh localhost 8000
+
+      - name: set shanghaiTime
+        run: |
+          cd eth-testnet-runner/config-data/custom_config_data
+          sed -i 's/"shanghaiTime":.*/"shanghaiTime": 167119236847838392/' genesis.json
+
+      - name: Set MIN_GENESIS_TIME
+        run: |
+          cd eth-testnet-runner/config-data/custom_config_data/
+          sed -i 's/^MIN_GENESIS_TIME:.*/MIN_GENESIS_TIME: 1678876062/' config.yaml
+
+      - name: run generate-keys
+        run: |
+          cd eth-testnet-runner
+          just generate-keys
+
+      - name: run init-geth
+        run: |
+          cd eth-testnet-runner
+          just init-geth
+
+      - name: run run-el
+        run: |
+          cd eth-testnet-runner
+          just run-el & ../scripts/wait_for_tcp_port_opening.sh localhost 8545
+
+      - name: run run-cl
+        run: |
+          cd eth-testnet-runner
+          just run-cl & ../scripts/wait_for_tcp_port_opening.sh localhost 5052
+
+      - name: run run-validator
+        run: |
+          cd eth-testnet-runner
+          just run-validator & ../scripts/wait_for_tcp_port_opening.sh localhost 5062
+
+      - name: Run all tests
+        run: |
+          cargo test -p sync-committee-prover -- --nocapture

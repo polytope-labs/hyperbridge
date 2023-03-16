@@ -39,6 +39,7 @@ pub mod pallet {
     use crate::primitives::ISMP_ID;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
+    use ismp_rust::consensus_client::ConsensusClientId;
     use ismp_rust::host::ChainID;
     use sp_runtime::traits;
 
@@ -165,7 +166,25 @@ pub mod pallet {
     /// This attribute generate the function `deposit_event` to deposit one of this pallet event,
     /// it is optional, it is also possible to provide a custom implementation.
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
-    pub enum Event<T: Config> {}
+    pub enum Event<T: Config> {
+        ConsensusClientUpdated {
+            id: ConsensusClientId,
+            height: u64,
+        },
+        ResponseReceived {
+            // todo: Add scale info to ChainID type
+            // /// Chain that this reponse will be routed to
+            // dest_chain: ChainID,
+            /// Nonce for the request which this response is for
+            request_nonce: u64,
+        },
+        RequestReceived {
+            // /// Chain that this reponse will be routed to
+            // dest_chain: ChainID,
+            /// Request nonce
+            request_nonce: u64,
+        },
+    }
 }
 
 impl<T: Config> Pallet<T> {

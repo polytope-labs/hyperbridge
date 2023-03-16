@@ -9,20 +9,20 @@ pub type ConsensusClientId = u64;
 pub const ETHEREUM_CONSENSUS_CLIENT_ID: ConsensusClientId = 100;
 pub const GNOSIS_CONSENSUS_CLIENT_ID: ConsensusClientId = 200;
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo)]
 pub struct StateCommitment {
     /// Timestamp in nanoseconds
     pub timestamp: u64,
     pub commitment_root: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo)]
 pub struct IntermediateState {
     pub height: StateMachineHeight,
     pub commitment: StateCommitment,
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode)]
+#[derive(Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo)]
 pub struct StateMachineHeight {
     pub id: StateMachineId,
     pub height: u64,

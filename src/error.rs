@@ -1,7 +1,9 @@
 use crate::consensus_client::{ConsensusClientId, StateMachineHeight};
 use crate::host::ChainID;
+use alloc::string::String;
 use core::time::Duration;
 
+#[derive(Debug)]
 pub enum Error {
     DelayNotElapsed {
         update_time: Duration,
@@ -41,4 +43,5 @@ pub enum Error {
         id: ConsensusClientId,
     },
     CannotHandleConsensusMessage,
+    ImplementationSpecific(String),
 }

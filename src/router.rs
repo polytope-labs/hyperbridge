@@ -3,7 +3,7 @@ use crate::host::ChainID;
 use crate::prelude::Vec;
 use codec::{Decode, Encode};
 
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 pub struct Request {
     pub nonce: u64,
     pub source_chain: ChainID,
@@ -14,7 +14,7 @@ pub struct Request {
     pub data: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
+#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 pub struct Response {
     pub request: Request,
     pub response: Vec<u8>,

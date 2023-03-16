@@ -17,7 +17,7 @@ impl<T: Config> IISMPRouter for Router<T> {
             let (dest_chain, source_chain, nonce) =
                 (request.dest_chain, request.source_chain, request.nonce);
             let mut mmr: Mmr<mmr::storage::RuntimeStorage, T, Leaf> = mmr::Mmr::new(leaves);
-            let offchain_key = Pallet::<T>::request_leaf_index_offchain_key(&request);
+            let offchain_key = Pallet::<T>::request_leaf_index_offchain_key(dest_chain, nonce);
             let leaf_index = mmr.push(Leaf::Request(request)).ok_or_else(|| {
                 Error::RequestVerificationFailed {
                     nonce,
@@ -46,7 +46,7 @@ impl<T: Config> IISMPRouter for Router<T> {
                 response.request.nonce,
             );
             let mut mmr: Mmr<mmr::storage::RuntimeStorage, T, Leaf> = mmr::Mmr::new(leaves);
-            let offchain_key = Pallet::<T>::response_leaf_index_offchain_key(&response);
+            let offchain_key = Pallet::<T>::response_leaf_index_offchain_key(source_chain, nonce);
             let leaf_index = mmr.push(Leaf::Response(response)).ok_or_else(|| {
                 Error::ResponseVerificationFailed {
                     nonce,

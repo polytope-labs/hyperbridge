@@ -23,6 +23,7 @@ mod router;
 
 use codec::{Decode, Encode};
 use frame_support::RuntimeDebug;
+use ismp_rust::host::ChainID;
 use ismp_rust::router::{Request, Response};
 use sp_core::offchain::StorageKind;
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -128,7 +129,6 @@ pub mod pallet {
 
         fn on_finalize(_n: T::BlockNumber) {
             use crate::mmr;
-            // handle finalizing requests Mmr
             let leaves = Self::number_of_leaves();
 
             let mmr: Mmr<mmr::storage::RuntimeStorage, T, Leaf> = mmr::Mmr::new(leaves);
@@ -239,22 +239,22 @@ pub struct RequestResponseLog<T: Config> {
 }
 
 impl<T: Config> Pallet<T> {
-    fn request_leaf_index_offchain_key(req: &Request) -> Vec<u8> {
+    fn request_leaf_index_offchain_key(dest_chain: ChainID, nonce: u64) -> Vec<u8> {
         (
             T::INDEXING_PREFIX,
             "Requests/leaf_indices",
-            req.dest_chain,
-            req.nonce,
+            dest_chain,
+            nonce,
         )
             .encode()
     }
 
-    fn response_leaf_index_offchain_key(res: &Response) -> Vec<u8> {
+    fn response_leaf_index_offchain_key(dest_chain: ChainID, nonce: u64) -> Vec<u8> {
         (
             T::INDEXING_PREFIX,
             "Responses/leaf_indices",
-            res.request.source_chain,
-            res.request.nonce,
+            dest_chain,
+            nonce,
         )
             .encode()
     }
@@ -289,6 +289,18 @@ impl<T: Config> Pallet<T> {
                 },
                 _ => None,
             };
+        }
+        None
+    }
+
+    fn get_leaf_index(dest_chain: ChainID, nonce: u64, is_req: bool) -> Option<LeafIndex> {
+        let key = if is_req {
+            Self::request_leaf_index_offchain_key(dest_chain, nonce)
+        } else {
+            Self::response_leaf_index_offchain_key(dest_chain, nonce)
+        };
+        if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
+            return LeafIndex::decode(&mut &*elem).ok();
         }
         None
     }

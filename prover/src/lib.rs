@@ -1,6 +1,5 @@
 #[warn(unused_imports)]
 #[warn(unused_variables)]
-mod error;
 mod responses;
 mod routes;
 #[cfg(test)]

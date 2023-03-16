@@ -9,7 +9,7 @@ use codec::{Decode, Encode};
 use core::time::Duration;
 use derive_more::Display;
 
-#[derive(Clone, Debug, Copy, Encode, Decode, Display, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, Encode, Decode, Display, PartialEq, Eq, scale_info::TypeInfo)]
 pub enum ChainID {
     #[codec(index = 0)]
     ETHEREUM,

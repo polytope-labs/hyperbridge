@@ -172,15 +172,14 @@ pub mod pallet {
             height: u64,
         },
         ResponseReceived {
-            // todo: Add scale info to ChainID type
-            // /// Chain that this reponse will be routed to
-            // dest_chain: ChainID,
+            /// Chain that this reponse will be routed to
+            dest_chain: ChainID,
             /// Nonce for the request which this response is for
             request_nonce: u64,
         },
         RequestReceived {
-            // /// Chain that this reponse will be routed to
-            // dest_chain: ChainID,
+            /// Chain that this reponse will be routed to
+            dest_chain: ChainID,
             /// Request nonce
             request_nonce: u64,
         },
@@ -239,7 +238,7 @@ pub struct RequestResponseLog<T: Config> {
 }
 
 impl<T: Config> Pallet<T> {
-    fn request_leaf_index_offchain_key(dest_chain: ChainID, nonce: u64) -> Vec<u8> {
+    pub fn request_leaf_index_offchain_key(dest_chain: ChainID, nonce: u64) -> Vec<u8> {
         (
             T::INDEXING_PREFIX,
             "Requests/leaf_indices",
@@ -249,7 +248,7 @@ impl<T: Config> Pallet<T> {
             .encode()
     }
 
-    fn response_leaf_index_offchain_key(dest_chain: ChainID, nonce: u64) -> Vec<u8> {
+    pub fn response_leaf_index_offchain_key(dest_chain: ChainID, nonce: u64) -> Vec<u8> {
         (
             T::INDEXING_PREFIX,
             "Responses/leaf_indices",
@@ -263,7 +262,7 @@ impl<T: Config> Pallet<T> {
         sp_io::offchain_index::set(&key, &leaf_index.encode());
     }
 
-    fn get_request(leaf_index: LeafIndex) -> Option<Request> {
+    pub fn get_request(leaf_index: LeafIndex) -> Option<Request> {
         let key = Pallet::<T>::offchain_key(leaf_index);
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
             let data_or_hash = DataOrHash::<T, Leaf>::decode(&mut &*elem).ok()?;
@@ -278,7 +277,7 @@ impl<T: Config> Pallet<T> {
         None
     }
 
-    fn get_response(leaf_index: LeafIndex) -> Option<Response> {
+    pub fn get_response(leaf_index: LeafIndex) -> Option<Response> {
         let key = Pallet::<T>::offchain_key(leaf_index);
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
             let data_or_hash = DataOrHash::<T, Leaf>::decode(&mut &*elem).ok()?;
@@ -293,7 +292,7 @@ impl<T: Config> Pallet<T> {
         None
     }
 
-    fn get_leaf_index(dest_chain: ChainID, nonce: u64, is_req: bool) -> Option<LeafIndex> {
+    pub fn get_leaf_index(dest_chain: ChainID, nonce: u64, is_req: bool) -> Option<LeafIndex> {
         let key = if is_req {
             Self::request_leaf_index_offchain_key(dest_chain, nonce)
         } else {

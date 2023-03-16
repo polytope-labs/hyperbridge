@@ -28,6 +28,7 @@ impl<T: Config> IISMPRouter for Router<T> {
             // Deposit Event
             Pallet::<T>::deposit_event(Event::RequestReceived {
                 request_nonce: nonce,
+                dest_chain
             });
             // Store a map of request to leaf_index
             Pallet::<T>::store_leaf_index_offchain(offchain_key, leaf_index)
@@ -56,6 +57,7 @@ impl<T: Config> IISMPRouter for Router<T> {
             })?;
             Pallet::<T>::deposit_event(Event::ResponseReceived {
                 request_nonce: nonce,
+                dest_chain: source_chain
             });
             Pallet::<T>::store_leaf_index_offchain(offchain_key, leaf_index)
         }

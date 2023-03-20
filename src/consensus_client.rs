@@ -4,7 +4,6 @@ use crate::prelude::Vec;
 use codec::{Decode, Encode};
 use core::time::Duration;
 
-pub type StateMachineId = u64;
 pub type ConsensusClientId = u64;
 pub const ETHEREUM_CONSENSUS_CLIENT_ID: ConsensusClientId = 100;
 pub const GNOSIS_CONSENSUS_CLIENT_ID: ConsensusClientId = 200;
@@ -23,9 +22,14 @@ pub struct IntermediateState {
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo)]
+pub struct StateMachineId {
+    pub state_id: u64,
+    pub consensus_client: ConsensusClientId,
+}
+
+#[derive(Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo)]
 pub struct StateMachineHeight {
     pub id: StateMachineId,
-    pub consensus_client: ConsensusClientId,
     pub height: u64,
 }
 

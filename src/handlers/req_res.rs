@@ -16,7 +16,7 @@ fn validate_state_machine(
     proof: &Proof,
 ) -> Result<Box<dyn ConsensusClient>, Error> {
     // Ensure consensus client is not frozen
-    let consensus_client_id = host.client_id_from_state_id(proof.height.id)?;
+    let consensus_client_id = proof.height.consensus_client;
     let consensus_client = host.consensus_client(consensus_client_id)?;
     if consensus_client.is_frozen(host, consensus_client_id)? {
         return Err(Error::FrozenConsensusClient {
@@ -49,6 +49,7 @@ pub fn handle_request_message(host: &dyn ISMPHost, msg: RequestMessage) -> Resul
     // Verify membership proof
     let key = RequestPath {
         dest_chain: msg.request.dest_chain,
+        source_chain: msg.request.source_chain,
         nonce: msg.request.nonce,
     }
     .to_string()
@@ -66,21 +67,21 @@ pub fn handle_request_message(host: &dyn ISMPHost, msg: RequestMessage) -> Resul
 /// Validate the state machine, verify the response message and dispatch the message to the router
 pub fn handle_response_message(host: &dyn ISMPHost, msg: ResponseMessage) -> Result<(), Error> {
     let consensus_client = validate_state_machine(host, &msg.proof)?;
-    // If host chain is the destination of the response, check if a request commitment exists
-    if host.host() == msg.response.request.source_chain {
-        let commitment = host.get_request_commitment(&msg.response.request);
-        if commitment != host.request_commitment(&msg.response.request)? {
-            return Err(Error::RequestCommitmentNotFound {
-                nonce: msg.response.request.nonce,
-                source: msg.response.request.source_chain,
-                dest: msg.response.request.dest_chain,
-            });
-        }
+    // For a response to be valid a request commitment must be present in storage
+    let commitment = host.request_commitment(&msg.response.request)?;
+
+    if commitment != host.get_request_commitment(&msg.response.request) {
+        return Err(Error::RequestCommitmentNotFound {
+            nonce: msg.response.request.nonce,
+            source: msg.response.request.source_chain,
+            dest: msg.response.request.dest_chain,
+        });
     }
 
     let commitment = host.get_response_commitment(&msg.response);
     let key = ResponsePath {
         dest_chain: msg.response.request.source_chain,
+        source_chain: msg.response.request.dest_chain,
         nonce: msg.response.request.nonce,
     }
     .to_string()

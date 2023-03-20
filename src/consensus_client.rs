@@ -25,6 +25,7 @@ pub struct IntermediateState {
 #[derive(Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo)]
 pub struct StateMachineHeight {
     pub id: StateMachineId,
+    pub consensus_client: ConsensusClientId,
     pub height: u64,
 }
 

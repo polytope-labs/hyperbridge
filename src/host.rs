@@ -5,6 +5,7 @@ use crate::error::Error;
 use crate::prelude::Vec;
 use crate::router::{IISMPRouter, Request, Response};
 use alloc::boxed::Box;
+use alloc::string::ToString;
 use codec::{Decode, Encode};
 use core::time::Duration;
 use derive_more::Display;
@@ -51,10 +52,8 @@ pub trait ISMPHost {
     fn host_timestamp(&self) -> Duration;
     /// Checks if a state machine is frozen at the provided height
     fn is_frozen(&self, height: StateMachineHeight) -> Result<bool, Error>;
-    /// Fetch request commitment from storage
+    /// Fetch commitment of a request from storage
     fn request_commitment(&self, req: &Request) -> Result<Vec<u8>, Error>;
-    /// Fetch response commitment from storage
-    fn response_commitment(&self, res: &Response) -> Result<Vec<u8>, Error>;
 
     // Storage Write functions
 
@@ -83,20 +82,26 @@ pub trait ISMPHost {
 
     /// Return the keccak256 hash of a request
     /// Commitment is the hash of the concatenation of the data below
-    /// request.dest_chain.encode() + request.timeout_timestamp.encode() + request.data
+    /// request.dest_chain.encode() + request.timeout_timestamp.encode() + request.nonce.encode() + request.data
     fn get_request_commitment(&self, req: &Request) -> Vec<u8> {
         let mut buf = Vec::new();
-        let dest_chain = req.dest_chain.encode();
+        let dest_chain = req.dest_chain.to_string().as_bytes().to_vec();
         let timeout_timestamp = req.timeout_timestamp.encode();
+        let nonce = req.nonce.encode();
         buf.extend_from_slice(&dest_chain[..]);
         buf.extend_from_slice(&timeout_timestamp[..]);
+        buf.extend_from_slice(&nonce[..]);
         buf.extend_from_slice(&req.data[..]);
         self.keccak256(&buf[..]).to_vec()
     }
 
     /// Return the keccak256 of a response
     fn get_response_commitment(&self, res: &Response) -> Vec<u8> {
-        self.keccak256(&res.response[..]).to_vec()
+        let mut buf = Vec::new();
+        let nonce = res.request.nonce.encode();
+        buf.extend_from_slice(&nonce[..]);
+        buf.extend_from_slice(&res.response[..]);
+        self.keccak256(&buf[..]).to_vec()
     }
 
     /// Should return a handle to the consensus client based on the id
@@ -108,9 +113,6 @@ pub trait ISMPHost {
 
     /// Returns the configured delay period for a state machine
     fn delay_period(&self, id: StateMachineId) -> Duration;
-
-    /// Returns the consensus client to which the state machine belongs
-    fn client_id_from_state_id(&self, id: StateMachineId) -> Result<ConsensusClientId, Error>;
 
     /// Return a handle to the router
     fn ismp_router(&self) -> Box<dyn IISMPRouter>;

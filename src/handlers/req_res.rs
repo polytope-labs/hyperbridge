@@ -16,7 +16,7 @@ fn validate_state_machine(
     proof: &Proof,
 ) -> Result<Box<dyn ConsensusClient>, Error> {
     // Ensure consensus client is not frozen
-    let consensus_client_id = proof.height.consensus_client;
+    let consensus_client_id = proof.height.id.consensus_client;
     let consensus_client = host.consensus_client(consensus_client_id)?;
     if consensus_client.is_frozen(host, consensus_client_id)? {
         return Err(Error::FrozenConsensusClient {

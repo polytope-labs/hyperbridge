@@ -1,4 +1,5 @@
 use crate::mmr::{LeafIndex, NodeIndex};
+use alloc::vec::Vec;
 use mmr_lib::helper;
 
 /// MMR nodes & size -related utilities.

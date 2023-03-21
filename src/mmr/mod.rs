@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use core::fmt;
-use std::fmt::Formatter;
+use core::fmt::Formatter;
 
 pub mod mmr;
 pub mod storage;
@@ -72,7 +72,7 @@ pub enum DataOrHash<T: Config, L> {
 }
 
 impl<T: Config, L: core::fmt::Debug> core::fmt::Debug for DataOrHash<T, L> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             DataOrHash::Data(leaf) => f.debug_struct("DataOrHash").field("Data", leaf).finish(),
             DataOrHash::Hash(hash) => f.debug_struct("DataOrHash").field("Hash", hash).finish(),

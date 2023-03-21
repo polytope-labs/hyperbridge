@@ -1,11 +1,21 @@
-use crate::Config;
+use crate::router::Router;
+use crate::{
+    Config, ConsensusClientUpdateTime, ConsensusStates, FrozenHeights, LatestStateMachineHeight,
+    RequestAcks, StateCommitments, StateMachineUpdateTime,
+};
+use alloc::format;
+use alloc::string::ToString;
+use core::time::Duration;
+use frame_support::traits::UnixTime;
 use ismp_rust::consensus_client::{
     ConsensusClient, ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
 };
 use ismp_rust::error::Error;
 use ismp_rust::host::{ChainID, ISMPHost};
-use ismp_rust::router::{IISMPRouter, Request, Response};
-use std::time::Duration;
+use ismp_rust::paths::RequestPath;
+use ismp_rust::router::{IISMPRouter, Request};
+use sp_runtime::SaturatedConversion;
+use sp_std::prelude::*;
 
 #[derive(Clone)]
 pub struct Host<T: Config>(core::marker::PhantomData<T>);
@@ -22,46 +32,71 @@ impl<T: Config> ISMPHost for Host<T> {
     }
 
     fn latest_commitment_height(&self, id: StateMachineId) -> Result<StateMachineHeight, Error> {
-        todo!()
+        LatestStateMachineHeight::<T>::get(id)
+            .map(|height| StateMachineHeight { id, height })
+            .ok_or_else(|| {
+                Error::ImplementationSpecific("Missing latest state machine height".to_string())
+            })
     }
 
     fn state_machine_commitment(
         &self,
         height: StateMachineHeight,
     ) -> Result<StateCommitment, Error> {
-        todo!()
+        StateCommitments::<T>::get(height).ok_or_else(|| Error::StateCommitmentNotFound { height })
     }
 
     fn consensus_update_time(&self, id: ConsensusClientId) -> Result<Duration, Error> {
-        todo!()
+        ConsensusClientUpdateTime::<T>::get(id)
+            .map(|timestamp| Duration::from_nanos(timestamp))
+            .ok_or_else(|| {
+                Error::ImplementationSpecific(format!("Update time not found for {:?}", id))
+            })
     }
 
     fn state_machine_update_time(&self, height: StateMachineHeight) -> Result<Duration, Error> {
-        todo!()
+        StateMachineUpdateTime::<T>::get(height)
+            .map(|timestamp| Duration::from_nanos(timestamp))
+            .ok_or_else(|| {
+                Error::ImplementationSpecific(format!("Update time not found for {:?}", height))
+            })
     }
 
     fn consensus_state(&self, id: ConsensusClientId) -> Result<Vec<u8>, Error> {
-        todo!()
+        ConsensusStates::<T>::get(id).ok_or_else(|| Error::ConsensusStateNotFound { id })
     }
 
     fn host_timestamp(&self) -> Duration {
-        todo!()
+        <T::TimeProvider as UnixTime>::now()
     }
 
     fn is_frozen(&self, height: StateMachineHeight) -> Result<bool, Error> {
-        todo!()
+        if let Some(frozen_height) = FrozenHeights::<T>::get(height.id) {
+            Ok(height.height >= frozen_height)
+        } else {
+            Ok(false)
+        }
     }
 
     fn request_commitment(&self, req: &Request) -> Result<Vec<u8>, Error> {
-        todo!()
-    }
-
-    fn response_commitment(&self, res: &Response) -> Result<Vec<u8>, Error> {
-        todo!()
+        let key = RequestPath {
+            dest_chain: req.dest_chain,
+            source_chain: req.source_chain,
+            nonce: req.nonce,
+        }
+        .to_string()
+        .as_bytes()
+        .to_vec();
+        RequestAcks::<T>::get(key).ok_or_else(|| Error::RequestCommitmentNotFound {
+            nonce: req.nonce,
+            source: req.source_chain,
+            dest: req.dest_chain,
+        })
     }
 
     fn store_consensus_state(&self, id: ConsensusClientId, state: Vec<u8>) -> Result<(), Error> {
-        todo!()
+        ConsensusStates::<T>::insert(id, state);
+        Ok(())
     }
 
     fn store_consensus_update_time(
@@ -69,7 +104,8 @@ impl<T: Config> ISMPHost for Host<T> {
         id: ConsensusClientId,
         timestamp: Duration,
     ) -> Result<(), Error> {
-        todo!()
+        ConsensusClientUpdateTime::<T>::insert(id, timestamp.as_nanos().saturated_into::<u64>());
+        Ok(())
     }
 
     fn store_state_machine_update_time(
@@ -77,7 +113,8 @@ impl<T: Config> ISMPHost for Host<T> {
         height: StateMachineHeight,
         timestamp: Duration,
     ) -> Result<(), Error> {
-        todo!()
+        StateMachineUpdateTime::<T>::insert(height, timestamp.as_nanos().saturated_into::<u64>());
+        Ok(())
     }
 
     fn store_state_machine_commitment(
@@ -85,30 +122,28 @@ impl<T: Config> ISMPHost for Host<T> {
         height: StateMachineHeight,
         state: StateCommitment,
     ) -> Result<(), Error> {
-        todo!()
+        StateCommitments::<T>::insert(height, state);
+        Ok(())
     }
 
     fn freeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error> {
-        todo!()
+        FrozenHeights::<T>::insert(height.id, height.height);
+        Ok(())
     }
 
-    fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
+    fn consensus_client(&self, _id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
         todo!()
     }
 
     fn keccak256(&self, bytes: &[u8]) -> [u8; 32] {
-        todo!()
+        sp_io::hashing::keccak_256(bytes)
     }
 
-    fn delay_period(&self, id: StateMachineId) -> Duration {
-        todo!()
-    }
-
-    fn client_id_from_state_id(&self, id: StateMachineId) -> Result<ConsensusClientId, Error> {
-        todo!()
+    fn delay_period(&self, _id: StateMachineId) -> Duration {
+        Duration::from_secs(5 * 60)
     }
 
     fn ismp_router(&self) -> Box<dyn IISMPRouter> {
-        todo!()
+        Box::new(Router::<T>::default())
     }
 }

@@ -1,6 +1,7 @@
 use crate::mmr::{LeafIndex, NodeIndex};
 use frame_support::RuntimeDebug;
 use scale_info::TypeInfo;
+use sp_std::prelude::*;
 
 /// The `ConsensusEngineId` of ISMP.
 pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";

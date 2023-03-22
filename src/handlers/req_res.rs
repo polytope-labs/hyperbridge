@@ -55,7 +55,7 @@ pub fn handle_request_message(host: &dyn ISMPHost, msg: RequestMessage) -> Resul
     .to_string()
     .as_bytes()
     .to_vec();
-    consensus_client.verify_membership(host, key, commitment)?;
+    consensus_client.verify_membership(host, key, commitment, &msg.proof)?;
 
     let router = host.ismp_router();
 
@@ -88,7 +88,7 @@ pub fn handle_response_message(host: &dyn ISMPHost, msg: ResponseMessage) -> Res
     .as_bytes()
     .to_vec();
     // Verify membership proof
-    consensus_client.verify_membership(host, key, commitment)?;
+    consensus_client.verify_membership(host, key, commitment, &msg.proof)?;
 
     let router = host.ismp_router();
 

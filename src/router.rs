@@ -4,6 +4,7 @@ use crate::prelude::Vec;
 use codec::{Decode, Encode};
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Request {
     pub nonce: u64,
     pub source_chain: ChainID,
@@ -15,6 +16,7 @@ pub struct Request {
 }
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Response {
     pub request: Request,
     pub response: Vec<u8>,

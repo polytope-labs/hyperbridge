@@ -1,5 +1,6 @@
 use crate::error::Error;
 use crate::host::ISMPHost;
+use crate::messaging::Proof;
 use crate::prelude::Vec;
 use codec::{Decode, Encode};
 use core::time::Duration;
@@ -9,6 +10,7 @@ pub const ETHEREUM_CONSENSUS_CLIENT_ID: ConsensusClientId = 100;
 pub const GNOSIS_CONSENSUS_CLIENT_ID: ConsensusClientId = 200;
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateCommitment {
     /// Timestamp in nanoseconds
     pub timestamp: u64,
@@ -16,18 +18,21 @@ pub struct StateCommitment {
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct IntermediateState {
     pub height: StateMachineHeight,
     pub commitment: StateCommitment,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateMachineId {
     pub state_id: u64,
     pub consensus_client: ConsensusClientId,
 }
 
 #[derive(Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateMachineHeight {
     pub id: StateMachineId,
     pub height: u64,
@@ -70,6 +75,7 @@ pub trait ConsensusClient {
         host: &dyn ISMPHost,
         key: Vec<u8>,
         commitment: Vec<u8>,
+        proof: &Proof,
     ) -> Result<(), Error>;
 
     /// Verify non-membership of proof of a commitment
@@ -78,6 +84,7 @@ pub trait ConsensusClient {
         host: &dyn ISMPHost,
         key: Vec<u8>,
         commitment: Vec<u8>,
+        proof: &Proof,
     ) -> Result<(), Error>;
 
     /// Check if consensus client is frozen

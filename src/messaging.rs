@@ -10,6 +10,7 @@ pub struct ConsensusMessage {
     /// Consensus client id
     pub consensus_client_id: ConsensusClientId,
 }
+
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct CreateConsensusClient {
     /// Scale encoded consensus state
@@ -35,11 +36,12 @@ pub struct ResponseMessage {
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Proof {
     /// State machine height
     pub height: StateMachineHeight,
-    /// Raw proof
-    pub proof: Vec<Vec<u8>>,
+    /// Scale encoded proof
+    pub proof: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]

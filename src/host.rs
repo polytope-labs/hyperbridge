@@ -10,26 +10,6 @@ use codec::{Decode, Encode};
 use core::time::Duration;
 use derive_more::Display;
 
-#[derive(Clone, Debug, Copy, Encode, Decode, Display, PartialEq, Eq, scale_info::TypeInfo)]
-pub enum ChainID {
-    #[codec(index = 0)]
-    ETHEREUM,
-    #[codec(index = 1)]
-    GNOSIS,
-    #[codec(index = 2)]
-    ARBITRUM,
-    #[codec(index = 3)]
-    OPTIMISM,
-    #[codec(index = 4)]
-    BASE,
-    #[codec(index = 5)]
-    MOONBEAM,
-    #[codec(index = 6)]
-    ASTAR,
-    #[codec(index = 7)]
-    HYPERSPACE,
-}
-
 pub trait ISMPHost {
     fn host(&self) -> ChainID;
 
@@ -108,4 +88,25 @@ pub trait ISMPHost {
 
     /// Return a handle to the router
     fn ismp_router(&self) -> Box<dyn IISMPRouter>;
+}
+
+#[derive(Clone, Debug, Copy, Encode, Decode, Display, PartialEq, Eq, scale_info::TypeInfo)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+pub enum ChainID {
+    #[codec(index = 0)]
+    ETHEREUM,
+    #[codec(index = 1)]
+    GNOSIS,
+    #[codec(index = 2)]
+    ARBITRUM,
+    #[codec(index = 3)]
+    OPTIMISM,
+    #[codec(index = 4)]
+    BASE,
+    #[codec(index = 5)]
+    MOONBEAM,
+    #[codec(index = 6)]
+    ASTAR,
+    #[codec(index = 7)]
+    HYPERSPACE,
 }

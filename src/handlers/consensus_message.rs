@@ -17,11 +17,23 @@ pub fn handle_consensus_message(host: &dyn ISMPHost, msg: ConsensusMessage) -> R
     let timestamp = host.host_timestamp();
     host.store_consensus_update_time(msg.consensus_client_id, timestamp)?;
     for intermediate_state in intermediate_states {
+        // If a state machine is frozen, we skip it
+        if host.is_frozen(intermediate_state.height)? {
+            continue;
+        }
+
+        // Skip duplicate states
+        if host
+            .state_machine_commitment(intermediate_state.height)
+            .is_ok()
+        {
+            continue;
+        }
+
         host.store_state_machine_commitment(
             intermediate_state.height,
             intermediate_state.commitment,
         )?;
-        host.store_state_machine_update_time(intermediate_state.height, timestamp)?;
     }
 
     Ok(())

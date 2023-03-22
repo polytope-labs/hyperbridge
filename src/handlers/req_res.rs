@@ -35,7 +35,7 @@ fn validate_state_machine(
     if !verify_delay_passed(host, proof.height)? {
         return Err(Error::DelayNotElapsed {
             current_time: host.host_timestamp(),
-            update_time: host.state_machine_update_time(proof.height)?,
+            update_time: host.consensus_update_time(proof.height.id.consensus_client)?,
         });
     }
 

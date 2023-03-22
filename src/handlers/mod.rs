@@ -25,8 +25,8 @@ fn verify_delay_passed(
     host: &dyn ISMPHost,
     proof_height: StateMachineHeight,
 ) -> Result<bool, Error> {
-    let update_time = host.state_machine_update_time(proof_height)?;
-    let delay_period = host.delay_period(proof_height.id);
+    let update_time = host.consensus_update_time(proof_height.id.consensus_client)?;
+    let delay_period = host.delay_period(proof_height.id.consensus_client);
     let current_timestamp = host.host_timestamp();
     Ok(current_timestamp - update_time > delay_period)
 }

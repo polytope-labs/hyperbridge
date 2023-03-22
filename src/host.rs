@@ -44,8 +44,6 @@ pub trait ISMPHost {
     ) -> Result<StateCommitment, Error>;
     /// Returns the host timestamp when this consensus client was last updated
     fn consensus_update_time(&self, id: ConsensusClientId) -> Result<Duration, Error>;
-    /// Returns the host timestamp when this consensus client was updated
-    fn state_machine_update_time(&self, height: StateMachineHeight) -> Result<Duration, Error>;
     /// Returns the scale encoded consensus state for a consensus client
     fn consensus_state(&self, id: ConsensusClientId) -> Result<Vec<u8>, Error>;
     /// Return the host timestamp in nanoseconds
@@ -63,12 +61,6 @@ pub trait ISMPHost {
     fn store_consensus_update_time(
         &self,
         id: ConsensusClientId,
-        timestamp: Duration,
-    ) -> Result<(), Error>;
-    /// Store the timestamp when the state machine was updated
-    fn store_state_machine_update_time(
-        &self,
-        height: StateMachineHeight,
         timestamp: Duration,
     ) -> Result<(), Error>;
     /// Store the timestamp when the state machine was updated
@@ -111,8 +103,8 @@ pub trait ISMPHost {
     /// Returns a keccak256 hash of a byte slice
     fn keccak256(&self, bytes: &[u8]) -> [u8; 32];
 
-    /// Returns the configured delay period for a state machine
-    fn delay_period(&self, id: StateMachineId) -> Duration;
+    /// Returns the configured delay period for a consensus client
+    fn delay_period(&self, id: ConsensusClientId) -> Duration;
 
     /// Return a handle to the router
     fn ismp_router(&self) -> Box<dyn IISMPRouter>;

@@ -18,9 +18,10 @@
 
 extern crate alloc;
 
+pub mod events;
 pub mod host;
-mod mmr;
-mod primitives;
+pub mod mmr;
+pub mod primitives;
 mod router;
 
 use codec::{Decode, Encode};
@@ -144,13 +145,9 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn latest_state_height)]
+    /// The latest accepted state machine height
     pub type LatestStateMachineHeight<T: Config> =
         StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
-
-    #[pallet::storage]
-    #[pallet::getter(fn state_update_time)]
-    pub type StateMachineUpdateTime<T: Config> =
-        StorageMap<_, Blake2_128Concat, StateMachineHeight, u64, OptionQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn consensus_update_time)]
@@ -217,11 +214,13 @@ pub mod pallet {
     /// it is optional, it is also possible to provide a custom implementation.
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        ConsensusClientUpdated {
-            id: ConsensusClientId,
-            height: u64,
+        /// Event to be emitted when the challenge period for a state machine update has elapsed
+        StateMachineUpdated {
+            state_machine_id: StateMachineId,
+            latest_height: u64,
+            previous_height: u64,
         },
-        ResponseReceived {
+        Response {
             /// Chain that this response will be routed to
             dest_chain: ChainID,
             /// Source Chain for this response
@@ -229,7 +228,7 @@ pub mod pallet {
             /// Nonce for the request which this response is for
             request_nonce: u64,
         },
-        RequestReceived {
+        Request {
             /// Chain that this request will be routed to
             dest_chain: ChainID,
             /// Source Chain for request

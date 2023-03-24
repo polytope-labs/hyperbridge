@@ -49,7 +49,7 @@ impl<T: Config> IISMPRouter for Router<T> {
                 Error::ImplementationSpecific("Failed to push request into mmr".to_string())
             })?;
             // Deposit Event
-            Pallet::<T>::deposit_event(Event::RequestReceived {
+            Pallet::<T>::deposit_event(Event::Request {
                 request_nonce: nonce,
                 source_chain,
                 dest_chain,
@@ -94,7 +94,7 @@ impl<T: Config> IISMPRouter for Router<T> {
             let leaf_index = mmr.push(Leaf::Response(response)).ok_or_else(|| {
                 Error::ImplementationSpecific("Failed to push response into mmr".to_string())
             })?;
-            Pallet::<T>::deposit_event(Event::ResponseReceived {
+            Pallet::<T>::deposit_event(Event::Response {
                 request_nonce: nonce,
                 dest_chain,
                 source_chain,

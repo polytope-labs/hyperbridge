@@ -1,7 +1,7 @@
 use crate::router::Router;
 use crate::{
     Config, ConsensusClientUpdateTime, ConsensusStates, FrozenHeights, LatestStateMachineHeight,
-    RequestAcks, StateCommitments, StateMachineUpdateTime,
+    RequestAcks, StateCommitments,
 };
 use alloc::format;
 use alloc::string::ToString;
@@ -9,6 +9,7 @@ use core::time::Duration;
 use frame_support::traits::UnixTime;
 use ismp_rust::consensus_client::{
     ConsensusClient, ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
+    ETHEREUM_CONSENSUS_CLIENT_ID,
 };
 use ismp_rust::error::Error;
 use ismp_rust::host::{ChainID, ISMPHost};
@@ -51,14 +52,6 @@ impl<T: Config> ISMPHost for Host<T> {
             .map(|timestamp| Duration::from_nanos(timestamp))
             .ok_or_else(|| {
                 Error::ImplementationSpecific(format!("Update time not found for {:?}", id))
-            })
-    }
-
-    fn state_machine_update_time(&self, height: StateMachineHeight) -> Result<Duration, Error> {
-        StateMachineUpdateTime::<T>::get(height)
-            .map(|timestamp| Duration::from_nanos(timestamp))
-            .ok_or_else(|| {
-                Error::ImplementationSpecific(format!("Update time not found for {:?}", height))
             })
     }
 
@@ -108,15 +101,6 @@ impl<T: Config> ISMPHost for Host<T> {
         Ok(())
     }
 
-    fn store_state_machine_update_time(
-        &self,
-        height: StateMachineHeight,
-        timestamp: Duration,
-    ) -> Result<(), Error> {
-        StateMachineUpdateTime::<T>::insert(height, timestamp.as_nanos().saturated_into::<u64>());
-        Ok(())
-    }
-
     fn store_state_machine_commitment(
         &self,
         height: StateMachineHeight,
@@ -139,8 +123,11 @@ impl<T: Config> ISMPHost for Host<T> {
         sp_io::hashing::keccak_256(bytes)
     }
 
-    fn delay_period(&self, _id: StateMachineId) -> Duration {
-        Duration::from_secs(5 * 60)
+    fn delay_period(&self, id: ConsensusClientId) -> Duration {
+        match id {
+            id if id == ETHEREUM_CONSENSUS_CLIENT_ID => Duration::from_secs(30 * 60),
+            _ => Duration::from_secs(15 * 60),
+        }
     }
 
     fn ismp_router(&self) -> Box<dyn IISMPRouter> {

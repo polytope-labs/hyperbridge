@@ -1,4 +1,4 @@
-use crate::consensus_client::{ConsensusClientId, StateMachineHeight};
+use crate::consensus_client::{ConsensusClientId, StateMachineHeight, IntermediateState};
 use crate::router::{Request, Response};
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
@@ -17,6 +17,8 @@ pub struct CreateConsensusClient {
     pub consensus_state: Vec<u8>,
     /// Consensus client id
     pub consensus_client_id: ConsensusClientId,
+    /// State machine commitments
+    pub state_machine_commitments: Vec<IntermediateState>,
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]

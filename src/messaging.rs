@@ -1,4 +1,4 @@
-use crate::consensus_client::{ConsensusClientId, StateMachineHeight, IntermediateState};
+use crate::consensus_client::{ConsensusClientId, IntermediateState, StateMachineHeight};
 use crate::router::{Request, Response};
 use alloc::vec::Vec;
 use codec::{Decode, Encode};

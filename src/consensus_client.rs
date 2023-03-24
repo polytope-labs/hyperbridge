@@ -24,14 +24,18 @@ pub struct IntermediateState {
     pub commitment: StateCommitment,
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Ord, PartialOrd,
+)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateMachineId {
     pub state_id: u64,
     pub consensus_client: ConsensusClientId,
 }
 
-#[derive(Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Ord, PartialOrd,
+)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateMachineHeight {
     pub id: StateMachineId,

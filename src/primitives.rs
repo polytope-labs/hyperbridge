@@ -31,19 +31,3 @@ pub enum Error {
     InvalidLeafIndex,
     InvalidBestKnownBlock,
 }
-
-sp_api::decl_runtime_apis! {
-    /// API to interact with pallet-ismp's Mmr.
-    pub trait IsmpMmrApi<Hash: codec::Codec, BlockNumber: codec::Codec> {
-        /// Return the number of MMR leaves.
-        fn mmr_leaf_count() -> Result<LeafIndex, Error>;
-
-        /// Return the on-chain MMR root hash.
-        fn mmr_root() -> Result<Hash, Error>;
-
-        /// generate a proof
-        fn generate_proof(
-            leaf_indices: Vec<LeafIndex>
-        ) -> Result<(Vec<Hash>, Proof<Hash>), Error>;
-    }
-}

@@ -18,7 +18,7 @@ sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v
 sp-api = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
 ismp-rust = { git = "ssh://git@github.com/polytope-labs/ismp-rust.git", branch = "main", default-features = false }
 mmr-lib = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
-
+serde = { version = "1.0.136", features = ["derive"], optional = true }
 [features]
 default = ["std"]
 std = [
@@ -33,7 +33,16 @@ std = [
     "sp-std/std",
     "ismp-rust/std",
     "mmr-lib/std",
-    "sp-api/std"
+    "sp-api/std",
+    "serde"
 ]
 runtime-benchmarks = ["frame-benchmarking/runtime-benchmarks"]
 
+
+[workspace]
+resolver = "2"
+
+members = [
+    "rpc",
+    "runtime-api"
+]

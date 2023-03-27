@@ -1,12 +1,9 @@
-name: Test
+name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
 
 jobs:
   check:
@@ -29,9 +26,7 @@ jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
-    # defaults:
-    #   run:
-    #     shell: bash
+    if: github.ref == 'refs/heads/main'
     env:
       TUID: 123
     steps:
@@ -118,7 +113,7 @@ jobs:
           sed -i 's/BELLATRIX_FORK_VERSION=.*/BELLATRIX_FORK_VERSION="0x02000000"/' values.env
           sed -i 's/CAPELLA_FORK_VERSION=.*/CAPELLA_FORK_VERSION="0x03000000"/' values.env
           sed -i 's/EIP4844_FORK_VERSION=.*/EIP4844_FORK_VERSION="0x04000000"/' values.env
-      
+
       - name: remove tty flag from docker command in create-config recipe
         run: |
           cd eth-testnet-runner

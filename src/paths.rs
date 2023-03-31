@@ -2,12 +2,7 @@ use crate::host::ChainID;
 use derive_more::Display;
 
 #[derive(Clone, Debug, Display, PartialEq, Eq)]
-#[display(
-    fmt = "acknowledgements/{}-{}/{}",
-    "source_chain",
-    "dest_chain",
-    "nonce"
-)]
+#[display(fmt = "acknowledgements/{}-{}/{}", "source_chain", "dest_chain", "nonce")]
 pub struct AckPath {
     pub dest_chain: ChainID,
     pub source_chain: ChainID,

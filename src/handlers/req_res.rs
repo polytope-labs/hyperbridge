@@ -1,11 +1,12 @@
-use crate::consensus_client::ConsensusClient;
-use crate::error::Error;
-use crate::handlers::{verify_delay_passed, MessageResult, RequestResponseResult};
-use crate::host::ISMPHost;
-use crate::messaging::{Proof, RequestMessage, ResponseMessage};
-use crate::paths::{RequestPath, ResponsePath};
-use alloc::boxed::Box;
-use alloc::string::ToString;
+use crate::{
+    consensus_client::ConsensusClient,
+    error::Error,
+    handlers::{verify_delay_passed, MessageResult, RequestResponseResult},
+    host::ISMPHost,
+    messaging::{Proof, RequestMessage, ResponseMessage},
+    paths::{RequestPath, ResponsePath},
+};
+use alloc::{boxed::Box, string::ToString};
 
 /// This function does the preliminary checks for a request or response message
 /// - It ensures the consensus client is not frozen
@@ -19,16 +20,12 @@ fn validate_state_machine(
     let consensus_client_id = proof.height.id.consensus_client;
     let consensus_client = host.consensus_client(consensus_client_id)?;
     if consensus_client.is_frozen(host, consensus_client_id)? {
-        return Err(Error::FrozenConsensusClient {
-            id: consensus_client_id,
-        });
+        return Err(Error::FrozenConsensusClient { id: consensus_client_id })
     }
 
     // Ensure state machine is not frozen
     if host.is_frozen(proof.height)? {
-        return Err(Error::FrozenStateMachine {
-            height: proof.height,
-        });
+        return Err(Error::FrozenStateMachine { height: proof.height })
     }
 
     // Ensure delay period has elapsed
@@ -36,7 +33,7 @@ fn validate_state_machine(
         return Err(Error::DelayNotElapsed {
             current_time: host.host_timestamp(),
             update_time: host.consensus_update_time(proof.height.id.consensus_client)?,
-        });
+        })
     }
 
     Ok(consensus_client)
@@ -87,7 +84,7 @@ pub fn handle_response_message(
             nonce: msg.response.request.nonce,
             source: msg.response.request.source_chain,
             dest: msg.response.request.dest_chain,
-        });
+        })
     }
 
     let commitment = host.get_response_commitment(&msg.response);

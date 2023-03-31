@@ -1,9 +1,13 @@
-use crate::consensus_client::{ConsensusClientId, StateMachineHeight};
-use crate::error::Error;
-use crate::handlers::consensus_message::handle_consensus_message;
-use crate::handlers::req_res::{handle_request_message, handle_response_message};
-use crate::host::{ChainID, ISMPHost};
-use crate::messaging::Message;
+use crate::{
+    consensus_client::{ConsensusClientId, StateMachineHeight},
+    error::Error,
+    handlers::{
+        consensus_message::handle_consensus_message,
+        req_res::{handle_request_message, handle_response_message},
+    },
+    host::{ChainID, ISMPHost},
+    messaging::Message,
+};
 use alloc::collections::BTreeSet;
 
 mod consensus_message;

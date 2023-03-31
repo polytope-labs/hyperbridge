@@ -1,11 +1,12 @@
-use crate::consensus_client::{
-    ConsensusClient, ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
+use crate::{
+    consensus_client::{
+        ConsensusClient, ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
+    },
+    error::Error,
+    prelude::Vec,
+    router::{IISMPRouter, Request, Response},
 };
-use crate::error::Error;
-use crate::prelude::Vec;
-use crate::router::{IISMPRouter, Request, Response};
-use alloc::boxed::Box;
-use alloc::string::ToString;
+use alloc::{boxed::Box, string::ToString};
 use codec::{Decode, Encode};
 use core::time::Duration;
 use derive_more::Display;
@@ -56,7 +57,8 @@ pub trait ISMPHost {
 
     /// Return the keccak256 hash of a request
     /// Commitment is the hash of the concatenation of the data below
-    /// request.dest_chain.encode() + request.timeout_timestamp.encode() + request.nonce.encode() + request.data
+    /// request.dest_chain.encode() + request.timeout_timestamp.encode() + request.nonce.encode() +
+    /// request.data
     fn get_request_commitment(&self, req: &Request) -> Vec<u8> {
         let mut buf = Vec::new();
         let dest_chain = req.dest_chain.to_string().as_bytes().to_vec();

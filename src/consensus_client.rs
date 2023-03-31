@@ -1,7 +1,4 @@
-use crate::error::Error;
-use crate::host::ISMPHost;
-use crate::messaging::Proof;
-use crate::prelude::Vec;
+use crate::{error::Error, host::ISMPHost, messaging::Proof, prelude::Vec};
 use codec::{Decode, Encode};
 use core::time::Duration;
 
@@ -44,7 +41,8 @@ pub struct StateMachineHeight {
 
 /// The consensus client handles logic for consensus proof verification
 pub trait ConsensusClient {
-    /// Should decode the scale encoded trusted consensus state and new consensus proof, verifying that:
+    /// Should decode the scale encoded trusted consensus state and new consensus proof, verifying
+    /// that:
     /// - the client isn't frozen yet
     /// - that the client hasn't elapsed it's unbonding period
     /// - check for byzantine behaviour

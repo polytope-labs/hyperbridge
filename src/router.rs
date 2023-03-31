@@ -1,6 +1,4 @@
-use crate::error::Error;
-use crate::host::ChainID;
-use crate::prelude::Vec;
+use crate::{error::Error, host::ChainID, prelude::Vec};
 use codec::{Decode, Encode};
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]

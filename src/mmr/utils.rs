@@ -37,7 +37,7 @@ impl NodesUtils {
     // Translate a _leaf_ `NodeIndex` to its `LeafIndex`.
     fn leaf_node_index_to_leaf_index(pos: NodeIndex) -> LeafIndex {
         if pos == 0 {
-            return 0;
+            return 0
         }
         let peaks = helper::get_peaks(pos);
         (pos + peaks.len() as u64) >> 1
@@ -55,6 +55,6 @@ impl NodesUtils {
     pub fn _right_branch_ending_in_leaf(leaf_index: LeafIndex) -> Vec<NodeIndex> {
         let pos = helper::leaf_index_to_pos(leaf_index);
         let num_parents = leaf_index.trailing_ones() as u64;
-        return (pos..=pos + num_parents).collect();
+        return (pos..=pos + num_parents).collect()
     }
 }

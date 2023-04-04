@@ -1,7 +1,9 @@
 use codec::{Decode, Encode};
-use ismp_rust::consensus_client::{ConsensusClientId, StateMachineHeight};
-use ismp_rust::error::Error as IsmpError;
-use ismp_rust::host::ChainID;
+use ismp_rust::{
+    consensus_client::{ConsensusClientId, StateMachineHeight},
+    error::Error as IsmpError,
+    host::ChainID,
+};
 use sp_std::prelude::*;
 
 #[derive(Clone, Debug, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
@@ -54,15 +56,14 @@ pub enum HandlingError {
 impl From<ismp_rust::error::Error> for HandlingError {
     fn from(value: ismp_rust::error::Error) -> Self {
         match value {
-            IsmpError::DelayNotElapsed {
-                current_time,
-                update_time,
-            } => HandlingError::ChallengePeriodNotElapsed {
-                update_time: update_time.as_secs(),
-                current_time: current_time.as_secs(),
-                delay_period: None,
-                consensus_client_id: None,
-            },
+            IsmpError::DelayNotElapsed { current_time, update_time } => {
+                HandlingError::ChallengePeriodNotElapsed {
+                    update_time: update_time.as_secs(),
+                    current_time: current_time.as_secs(),
+                    delay_period: None,
+                    consensus_client_id: None,
+                }
+            }
             IsmpError::ConsensusStateNotFound { id } => {
                 HandlingError::ConsensusStateNotFound { id }
             }
@@ -73,33 +74,15 @@ impl From<ismp_rust::error::Error> for HandlingError {
             IsmpError::FrozenStateMachine { height } => {
                 HandlingError::FrozenStateMachine { height }
             }
-            IsmpError::RequestCommitmentNotFound {
-                nonce,
-                source,
-                dest,
-            } => HandlingError::RequestCommitmentNotFound {
-                nonce,
-                source,
-                dest,
-            },
-            IsmpError::RequestVerificationFailed {
-                nonce,
-                source,
-                dest,
-            } => HandlingError::ResponseVerificationFailed {
-                nonce,
-                source,
-                dest,
-            },
-            IsmpError::ResponseVerificationFailed {
-                nonce,
-                source,
-                dest,
-            } => HandlingError::ResponseVerificationFailed {
-                nonce,
-                source,
-                dest,
-            },
+            IsmpError::RequestCommitmentNotFound { nonce, source, dest } => {
+                HandlingError::RequestCommitmentNotFound { nonce, source, dest }
+            }
+            IsmpError::RequestVerificationFailed { nonce, source, dest } => {
+                HandlingError::ResponseVerificationFailed { nonce, source, dest }
+            }
+            IsmpError::ResponseVerificationFailed { nonce, source, dest } => {
+                HandlingError::ResponseVerificationFailed { nonce, source, dest }
+            }
             IsmpError::ConsensusProofVerificationFailed { id } => {
                 HandlingError::ConsensusProofVerificationFailed { id }
             }
@@ -107,9 +90,9 @@ impl From<ismp_rust::error::Error> for HandlingError {
                 HandlingError::ExpiredConsensusClient { id }
             }
             IsmpError::CannotHandleConsensusMessage => HandlingError::CannotHandleConsensusMessage,
-            IsmpError::ImplementationSpecific(msg) => HandlingError::ImplementationSpecific {
-                msg: msg.as_bytes().to_vec(),
-            },
+            IsmpError::ImplementationSpecific(msg) => {
+                HandlingError::ImplementationSpecific { msg: msg.as_bytes().to_vec() }
+            }
         }
     }
 }

@@ -13,15 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::mmr::utils::NodesUtils;
-use crate::mmr::{FullLeaf, NodeIndex};
-use crate::primitives::Proof;
 use crate::{
     mmr::{
         storage::{OffchainStorage, RuntimeStorage, Storage},
-        Hasher, NodeOf,
+        utils::NodesUtils,
+        FullLeaf, Hasher, NodeIndex, NodeOf,
     },
-    primitives::Error,
+    primitives::{Error, Proof},
     Config,
 };
 use sp_std::prelude::*;
@@ -49,10 +47,7 @@ where
     /// Create a pointer to an existing MMR with given number of leaves.
     pub fn new(leaves: NodeIndex) -> Self {
         let size = NodesUtils::new(leaves).size();
-        Self {
-            mmr: mmr_lib::MMR::new(size, Default::default()),
-            leaves,
-        }
+        Self { mmr: mmr_lib::MMR::new(size, Default::default()), leaves }
     }
 
     /// Return the internal size of the MMR (number of nodes).
@@ -72,11 +67,7 @@ where
     ///
     /// Returns element position (index) in the MMR.
     pub fn push(&mut self, leaf: L) -> Option<NodeIndex> {
-        let position = self
-            .mmr
-            .push(NodeOf::Data(leaf))
-            .map_err(|_| Error::Push)
-            .ok()?;
+        let position = self.mmr.push(NodeOf::Data(leaf)).map_err(|_| Error::Push).ok()?;
 
         self.leaves += 1;
 
@@ -106,10 +97,8 @@ where
         &self,
         leaf_indices: Vec<NodeIndex>,
     ) -> Result<(Vec<L>, Proof<<T as Config>::Hash>), Error> {
-        let positions = leaf_indices
-            .iter()
-            .map(|index| mmr_lib::leaf_index_to_pos(*index))
-            .collect::<Vec<_>>();
+        let positions =
+            leaf_indices.iter().map(|index| mmr_lib::leaf_index_to_pos(*index)).collect::<Vec<_>>();
         let store = <Storage<OffchainStorage, T, L>>::default();
         let leaves = positions
             .iter()

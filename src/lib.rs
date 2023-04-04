@@ -25,13 +25,17 @@ pub mod mmr;
 pub mod primitives;
 mod router;
 
-use crate::host::Host;
-use crate::mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex, NodeOf};
+use crate::{
+    host::Host,
+    mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex, NodeOf},
+};
 use codec::{Decode, Encode};
 use frame_support::{log::debug, RuntimeDebug};
-use ismp_rust::host::{ChainID, ISMPHost};
-use ismp_rust::messaging::Message;
-use ismp_rust::router::{Request, Response};
+use ismp_rust::{
+    host::{ChainID, ISMPHost},
+    messaging::Message,
+    router::{Request, Response},
+};
 use sp_core::offchain::StorageKind;
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
@@ -43,18 +47,21 @@ use sp_std::prelude::*;
 pub mod pallet {
     // Import various types used to declare pallet in scope.
     use super::*;
-    use crate::errors::HandlingError;
-    use crate::mmr::{LeafIndex, Mmr, NodeIndex};
-    use crate::primitives::ISMP_ID;
-    use alloc::collections::BTreeSet;
-    use frame_support::pallet_prelude::*;
-    use frame_support::traits::UnixTime;
-    use frame_system::pallet_prelude::*;
-    use ismp_rust::consensus_client::{
-        ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
+    use crate::{
+        errors::HandlingError,
+        mmr::{LeafIndex, Mmr, NodeIndex},
+        primitives::ISMP_ID,
     };
-    use ismp_rust::handlers::{handle_incoming_message, MessageResult};
-    use ismp_rust::host::ChainID;
+    use alloc::collections::BTreeSet;
+    use frame_support::{pallet_prelude::*, traits::UnixTime};
+    use frame_system::pallet_prelude::*;
+    use ismp_rust::{
+        consensus_client::{
+            ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
+        },
+        handlers::{handle_incoming_message, MessageResult},
+        host::ChainID,
+    };
     use sp_runtime::traits;
 
     /// Our pallet's configuration trait. All our types and constants go in here. If the
@@ -203,16 +210,14 @@ pub mod pallet {
                 Ok((leaves, root)) => (leaves, root),
                 Err(e) => {
                     log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
-                    return;
+                    return
                 }
             };
 
             <NumberOfLeaves<T>>::put(leaves);
             <RootHash<T>>::put(root);
 
-            let log = RequestResponseLog::<T> {
-                mmr_root_hash: root,
-            };
+            let log = RequestResponseLog::<T> { mmr_root_hash: root };
 
             let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
             <frame_system::Pallet<T>>::deposit_log(digest);
@@ -232,7 +237,8 @@ pub mod pallet {
             let host = Host::<T>::default();
             let mut errors: Vec<HandlingError> = vec![];
             for message in messages {
-                // Check that delay period is satisfied for consensus client before accepting any new update
+                // Check that delay period is satisfied for consensus client before accepting any
+                // new update
                 match &message {
                     Message::Consensus(msg) => {
                         // check difference between last
@@ -250,18 +256,20 @@ pub mod pallet {
                                     ),
                                     consensus_client_id: Some(msg.consensus_client_id),
                                 });
-                                continue;
+                                continue
                             }
                         } else {
-                            // If we can't find a previous update time for the consensus client we don't process it
-                            continue;
+                            // If we can't find a previous update time for the consensus client we
+                            // don't process it
+                            continue
                         }
                     }
                     _ => {}
                 }
                 match handle_incoming_message(&host, message) {
                     Ok(MessageResult::ConsensusMessage(res)) => {
-                        // Deposit events for previous update result that has passed the challenge period
+                        // Deposit events for previous update result that has passed the challenge
+                        // period
                         if let Some(pending_updates) =
                             ConsensusUpdateResults::<T>::get(res.consensus_client_id)
                         {
@@ -394,14 +402,7 @@ impl<T: Config> Pallet<T> {
         dest_chain: ChainID,
         nonce: u64,
     ) -> Vec<u8> {
-        (
-            T::INDEXING_PREFIX,
-            "Requests/leaf_indices",
-            source_chain,
-            dest_chain,
-            nonce,
-        )
-            .encode()
+        (T::INDEXING_PREFIX, "Requests/leaf_indices", source_chain, dest_chain, nonce).encode()
     }
 
     pub fn response_leaf_index_offchain_key(
@@ -409,14 +410,7 @@ impl<T: Config> Pallet<T> {
         dest_chain: ChainID,
         nonce: u64,
     ) -> Vec<u8> {
-        (
-            T::INDEXING_PREFIX,
-            "Responses/leaf_indices",
-            source_chain,
-            dest_chain,
-            nonce,
-        )
-            .encode()
+        (T::INDEXING_PREFIX, "Responses/leaf_indices", source_chain, dest_chain, nonce).encode()
     }
 
     fn store_leaf_index_offchain(key: Vec<u8>, leaf_index: LeafIndex) {
@@ -433,7 +427,7 @@ impl<T: Config> Pallet<T> {
                     _ => None,
                 },
                 _ => None,
-            };
+            }
         }
         None
     }
@@ -448,7 +442,7 @@ impl<T: Config> Pallet<T> {
                     _ => None,
                 },
                 _ => None,
-            };
+            }
         }
         None
     }
@@ -465,7 +459,7 @@ impl<T: Config> Pallet<T> {
             Self::response_leaf_index_offchain_key(source_chain, dest_chain, nonce)
         };
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            return LeafIndex::decode(&mut &*elem).ok();
+            return LeafIndex::decode(&mut &*elem).ok()
         }
         None
     }

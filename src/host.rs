@@ -1,20 +1,20 @@
-use crate::router::Router;
 use crate::{
-    Config, ConsensusClientUpdateTime, ConsensusStates, FrozenHeights, LatestStateMachineHeight,
-    RequestAcks, StateCommitments,
+    router::Router, Config, ConsensusClientUpdateTime, ConsensusStates, FrozenHeights,
+    LatestStateMachineHeight, RequestAcks, StateCommitments,
 };
-use alloc::format;
-use alloc::string::ToString;
+use alloc::{format, string::ToString};
 use core::time::Duration;
 use frame_support::traits::UnixTime;
-use ismp_rust::consensus_client::{
-    ConsensusClient, ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
-    ETHEREUM_CONSENSUS_CLIENT_ID,
+use ismp_rust::{
+    consensus_client::{
+        ConsensusClient, ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
+        ETHEREUM_CONSENSUS_CLIENT_ID,
+    },
+    error::Error,
+    host::{ChainID, ISMPHost},
+    paths::RequestPath,
+    router::{IISMPRouter, Request},
 };
-use ismp_rust::error::Error;
-use ismp_rust::host::{ChainID, ISMPHost};
-use ismp_rust::paths::RequestPath;
-use ismp_rust::router::{IISMPRouter, Request};
 use sp_runtime::SaturatedConversion;
 use sp_std::prelude::*;
 

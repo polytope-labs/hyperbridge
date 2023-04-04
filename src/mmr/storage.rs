@@ -23,9 +23,10 @@ use sp_std::iter::Peekable;
 #[cfg(not(feature = "std"))]
 use sp_std::prelude::*;
 
-use crate::mmr::utils::NodesUtils;
-use crate::mmr::{FullLeaf, NodeIndex};
-use crate::{mmr::NodeOf, Config, Pallet};
+use crate::{
+    mmr::{utils::NodesUtils, FullLeaf, NodeIndex, NodeOf},
+    Config, Pallet,
+};
 
 /// A marker type for runtime-specific storage implementation.
 ///
@@ -71,7 +72,7 @@ where
         );
         // Try to retrieve the element from Off-chain DB.
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            return Ok(codec::Decode::decode(&mut &*elem).ok());
+            return Ok(codec::Decode::decode(&mut &*elem).ok())
         }
 
         Ok(None)
@@ -93,7 +94,7 @@ where
 
     fn append(&mut self, pos: NodeIndex, elems: Vec<NodeOf<T, L>>) -> mmr_lib::Result<()> {
         if elems.is_empty() {
-            return Ok(());
+            return Ok(())
         }
 
         trace!(
@@ -105,7 +106,7 @@ where
         let size = NodesUtils::new(leaves).size();
 
         if pos != size {
-            return Err(mmr_lib::Error::InconsistentStore);
+            return Err(mmr_lib::Error::InconsistentStore)
         }
 
         let new_size = size + elems.len() as NodeIndex;
@@ -166,17 +167,10 @@ where
 fn peaks_to_prune_and_store(
     old_size: NodeIndex,
     new_size: NodeIndex,
-) -> (
-    impl Iterator<Item = NodeIndex>,
-    Peekable<impl Iterator<Item = NodeIndex>>,
-) {
+) -> (impl Iterator<Item = NodeIndex>, Peekable<impl Iterator<Item = NodeIndex>>) {
     // A sorted (ascending) collection of peak indices before and after insertion.
     // both collections may share a common prefix.
-    let peaks_before = if old_size == 0 {
-        vec![]
-    } else {
-        helper::get_peaks(old_size)
-    };
+    let peaks_before = if old_size == 0 { vec![] } else { helper::get_peaks(old_size) };
     let peaks_after = helper::get_peaks(new_size);
     trace!(target: "runtime::mmr", "peaks_before: {:?}", peaks_before);
     trace!(target: "runtime::mmr", "peaks_after: {:?}", peaks_after);

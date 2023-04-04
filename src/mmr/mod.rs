@@ -12,18 +12,18 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use core::fmt;
-use core::fmt::Formatter;
+use core::{fmt, fmt::Formatter};
 
 pub mod mmr;
 pub mod storage;
 mod utils;
 
-use crate::host::Host;
-use crate::Config;
+use crate::{host::Host, Config};
 use codec::{Decode, Encode};
-use ismp_rust::host::ISMPHost;
-use ismp_rust::router::{Request, Response};
+use ismp_rust::{
+    host::ISMPHost,
+    router::{Request, Response},
+};
 use sp_runtime::traits;
 
 pub use self::mmr::Mmr;
@@ -111,8 +111,6 @@ impl<T: Config, L: FullLeaf<T>> mmr_lib::Merge for Hasher<T, L> {
         let mut concat = left.hash().as_ref().to_vec();
         concat.extend_from_slice(right.hash().as_ref());
 
-        Ok(NodeOf::Hash(
-            <<T as Config>::Hashing as traits::Hash>::hash(&concat),
-        ))
+        Ok(NodeOf::Hash(<<T as Config>::Hashing as traits::Hash>::hash(&concat)))
     }
 }

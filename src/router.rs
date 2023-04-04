@@ -1,13 +1,16 @@
-use crate::host::Host;
-use crate::mmr::{self, Leaf, Mmr};
-use crate::{Config, Event, Pallet, RequestAcks, ResponseAcks};
-use alloc::format;
-use alloc::string::ToString;
+use crate::{
+    host::Host,
+    mmr::{self, Leaf, Mmr},
+    Config, Event, Pallet, RequestAcks, ResponseAcks,
+};
+use alloc::{format, string::ToString};
 use core::marker::PhantomData;
-use ismp_rust::error::Error;
-use ismp_rust::host::ISMPHost;
-use ismp_rust::paths::{RequestPath, ResponsePath};
-use ismp_rust::router::{IISMPRouter, Request, Response};
+use ismp_rust::{
+    error::Error,
+    host::ISMPHost,
+    paths::{RequestPath, ResponsePath},
+    router::{IISMPRouter, Request, Response},
+};
 
 #[derive(Clone)]
 pub struct Router<T: Config>(PhantomData<T>);
@@ -35,7 +38,7 @@ impl<T: Config> IISMPRouter for Router<T> {
             return Err(Error::ImplementationSpecific(format!(
                 "Duplicate request: nonce: {} , source: {:?} , dest: {:?}",
                 request.nonce, request.source_chain, request.dest_chain
-            )));
+            )))
         }
 
         if host.host() != request.dest_chain {
@@ -78,7 +81,7 @@ impl<T: Config> IISMPRouter for Router<T> {
             return Err(Error::ImplementationSpecific(format!(
                 "Duplicate response: nonce: {} , source: {:?} , dest: {:?}",
                 response.request.nonce, response.request.source_chain, response.request.dest_chain
-            )));
+            )))
         }
 
         if host.host() != response.request.source_chain {

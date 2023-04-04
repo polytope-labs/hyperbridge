@@ -10,17 +10,17 @@ use jsonrpsee::{
 
 use codec::Encode;
 use ismp_runtime_api::{IsmpRuntimeApi, LeafIndexQuery};
-use ismp_rust::consensus_client::ConsensusClientId;
-use ismp_rust::router::{Request, Response};
+use ismp_rust::{
+    consensus_client::ConsensusClientId,
+    router::{Request, Response},
+};
 use pallet_ismp::mmr::{Leaf, LeafIndex};
 use sc_client_api::{BlockBackend, ProofProvider};
 use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
-use sp_runtime::generic::BlockId;
-use sp_runtime::traits::Block as BlockT;
-use std::collections::HashMap;
-use std::{fmt::Display, sync::Arc};
+use sp_runtime::{generic::BlockId, traits::Block as BlockT};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 /// A type that could be a block number or a block hash
 #[derive(Clone, Hash, Debug, PartialEq, Eq, Copy, Serialize, Deserialize)]
@@ -113,10 +113,7 @@ pub struct IsmpRpcHandler<C, B> {
 impl<C, B> IsmpRpcHandler<C, B> {
     /// Create new `IsmpRpcHandler` with the given reference to the client.
     pub fn new(client: Arc<C>) -> Self {
-        Self {
-            client,
-            _marker: Default::default(),
-        }
+        Self { client, _marker: Default::default() }
     }
 }
 
@@ -135,11 +132,10 @@ where
     fn query_requests(&self, query: Vec<LeafIndexQuery>) -> Result<Vec<Request>> {
         let api = self.client.runtime_api();
         let at = BlockId::Hash(self.client.info().best_hash);
-        let request_indices: Vec<LeafIndex> = api
-            .get_request_leaf_indices(&at, query)
-            .ok()
-            .flatten()
-            .ok_or_else(|| runtime_error_into_rpc_error("Error fetching request leaf indices"))?;
+        let request_indices: Vec<LeafIndex> =
+            api.get_request_leaf_indices(&at, query).ok().flatten().ok_or_else(|| {
+                runtime_error_into_rpc_error("Error fetching request leaf indices")
+            })?;
 
         api.get_requests(&at, request_indices)
             .ok()
@@ -150,11 +146,10 @@ where
     fn query_responses(&self, query: Vec<LeafIndexQuery>) -> Result<Vec<Response>> {
         let api = self.client.runtime_api();
         let at = BlockId::Hash(self.client.info().best_hash);
-        let response_indices: Vec<LeafIndex> = api
-            .get_response_leaf_indices(&at, query)
-            .ok()
-            .flatten()
-            .ok_or_else(|| runtime_error_into_rpc_error("Error fetching response leaf indices"))?;
+        let response_indices: Vec<LeafIndex> =
+            api.get_response_leaf_indices(&at, query).ok().flatten().ok_or_else(|| {
+                runtime_error_into_rpc_error("Error fetching response leaf indices")
+            })?;
 
         api.get_responses(&at, response_indices)
             .ok()
@@ -165,41 +160,31 @@ where
     fn query_requests_mmr_proof(&self, height: u32, query: Vec<LeafIndexQuery>) -> Result<Proof> {
         let api = self.client.runtime_api();
         let at = BlockId::Number(height.into());
-        let request_indices: Vec<LeafIndex> = api
-            .get_request_leaf_indices(&at, query)
-            .ok()
-            .flatten()
-            .ok_or_else(|| runtime_error_into_rpc_error("Error fetching response leaf indices"))?;
+        let request_indices: Vec<LeafIndex> =
+            api.get_request_leaf_indices(&at, query).ok().flatten().ok_or_else(|| {
+                runtime_error_into_rpc_error("Error fetching response leaf indices")
+            })?;
 
         let (leaves, proof): (Vec<Leaf>, pallet_ismp::primitives::Proof<Block::Hash>) = api
             .generate_proof(&at, request_indices)
             .map_err(|_| runtime_error_into_rpc_error("Error calling runtime api"))?
             .map_err(|_| runtime_error_into_rpc_error("Error generating mmr proof"))?;
-        Ok(Proof {
-            proof: proof.encode(),
-            leaves: Some(leaves.encode()),
-            height,
-        })
+        Ok(Proof { proof: proof.encode(), leaves: Some(leaves.encode()), height })
     }
 
     fn query_responses_mmr_proof(&self, height: u32, query: Vec<LeafIndexQuery>) -> Result<Proof> {
         let api = self.client.runtime_api();
         let at = BlockId::Number(height.into());
-        let response_indices: Vec<LeafIndex> = api
-            .get_response_leaf_indices(&at, query)
-            .ok()
-            .flatten()
-            .ok_or_else(|| runtime_error_into_rpc_error("Error fetching response leaf indices"))?;
+        let response_indices: Vec<LeafIndex> =
+            api.get_response_leaf_indices(&at, query).ok().flatten().ok_or_else(|| {
+                runtime_error_into_rpc_error("Error fetching response leaf indices")
+            })?;
 
         let (leaves, proof): (Vec<Leaf>, pallet_ismp::primitives::Proof<Block::Hash>) = api
             .generate_proof(&at, response_indices)
             .map_err(|_| runtime_error_into_rpc_error("Error calling runtime api"))?
             .map_err(|_| runtime_error_into_rpc_error("Error generating mmr proof"))?;
-        Ok(Proof {
-            proof: proof.encode(),
-            leaves: Some(leaves.encode()),
-            height,
-        })
+        Ok(Proof { proof: proof.encode(), leaves: Some(leaves.encode()), height })
     }
 
     fn query_state_proof(&self, _height: u32, _keys: Vec<Vec<u8>>) -> Result<Proof> {

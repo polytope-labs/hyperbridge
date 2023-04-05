@@ -1,5 +1,5 @@
 [package]
-name = "ismp-rs"
+name = "ismp"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs"]

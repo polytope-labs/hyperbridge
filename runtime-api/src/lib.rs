@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::too_many_arguments)]
 
-use ismp_rust::{
+use ismp_rs::{
     consensus_client::ConsensusClientId,
     host::ChainID,
     router::{Request, Response},
@@ -40,6 +40,9 @@ sp_api::decl_runtime_apis! {
 
         /// Return the scale encoded consensus state
         fn consensus_state(id: ConsensusClientId) -> Option<Vec<u8>>;
+
+        /// Return the timestamp this client was last updated in seconds
+        fn consensus_update_time(id: ConsensusClientId) -> Option<u64>;
 
         /// Get Request Leaf Indices
         fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Option<Vec<LeafIndex>>;

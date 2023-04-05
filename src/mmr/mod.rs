@@ -20,7 +20,7 @@ mod utils;
 
 use crate::{host::Host, Config};
 use codec::{Decode, Encode};
-use ismp_rust::{
+use ismp_rs::{
     host::ISMPHost,
     router::{Request, Response},
 };

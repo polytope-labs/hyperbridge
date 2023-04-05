@@ -9,11 +9,11 @@ use jsonrpsee::{
 };
 
 use codec::Encode;
-use ismp_runtime_api::{IsmpRuntimeApi, LeafIndexQuery};
-use ismp_rust::{
+use ismp_rs::{
     consensus_client::ConsensusClientId,
     router::{Request, Response},
 };
+use ismp_runtime_api::{IsmpRuntimeApi, LeafIndexQuery};
 use pallet_ismp::mmr::{Leaf, LeafIndex};
 use sc_client_api::{BlockBackend, ProofProvider};
 use serde::{Deserialize, Serialize};
@@ -94,6 +94,10 @@ where
         height: Option<u32>,
         client_id: ConsensusClientId,
     ) -> Result<Vec<u8>>;
+
+    /// Query timestamp of when this client was last updated in seconds
+    #[method(name = "ismp_queryConsensusUpdateTime")]
+    fn query_consensus_update_time(&self, client_id: ConsensusClientId) -> Result<u64>;
 
     /// Query ISMP Events that were deposited in a series of blocks
     /// Using String keys because HashMap fails to deserialize when key is not a String
@@ -206,6 +210,15 @@ where
             .ok_or_else(|| runtime_error_into_rpc_error("Error fetching Consensus state"))
     }
 
+    fn query_consensus_update_time(&self, client_id: ConsensusClientId) -> Result<u64> {
+        let api = self.client.runtime_api();
+        let at = BlockId::Hash(self.client.info().best_hash);
+        api.consensus_update_time(&at, client_id)
+            .ok()
+            .flatten()
+            .ok_or_else(|| runtime_error_into_rpc_error("Error fetching Consensus state"))
+    }
+
     fn query_events(
         &self,
         block_numbers: Vec<BlockNumberOrHash<Block::Hash>>,
@@ -218,9 +231,11 @@ where
                 BlockNumberOrHash::Number(block_number) => BlockId::Number(block_number.into()),
             };
 
-            let temp = api.block_events(&at).ok().flatten().ok_or_else(|| {
-                runtime_error_into_rpc_error("[ibc_rpc]: failed to read block events")
-            })?;
+            let temp = api
+                .block_events(&at)
+                .ok()
+                .flatten()
+                .ok_or_else(|| runtime_error_into_rpc_error("failed to read block events"))?;
             events.insert(block_number_or_hash.to_string(), temp);
         }
         Ok(events)

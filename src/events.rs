@@ -1,5 +1,9 @@
 use crate::{Config, Event as PalletEvent};
-use ismp_rust::{consensus_client::StateMachineId, host::ChainID};
+use alloc::collections::BTreeSet;
+use ismp_rs::{
+    consensus_client::{ConsensusClientId, StateMachineHeight, StateMachineId},
+    host::ChainID,
+};
 
 #[derive(codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
@@ -10,6 +14,12 @@ pub enum Event {
         latest_height: u64,
         previous_height: u64,
     },
+    ChallengePeriodStarted {
+        consensus_client_id: ConsensusClientId,
+        /// Tuple of previous height and latest height
+        state_machines: BTreeSet<(StateMachineHeight, StateMachineHeight)>,
+    },
+
     Response {
         /// Chain that this response will be routed to
         dest_chain: ChainID,

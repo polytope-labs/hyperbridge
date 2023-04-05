@@ -31,8 +31,8 @@ use crate::{
 };
 use codec::{Decode, Encode};
 use frame_support::{log::debug, RuntimeDebug};
-use ismp_rust::{
-    host::{ChainID, ISMPHost},
+use ismp_rs::{
+    host::ChainID,
     messaging::Message,
     router::{Request, Response},
 };
@@ -55,7 +55,7 @@ pub mod pallet {
     use alloc::collections::BTreeSet;
     use frame_support::{pallet_prelude::*, traits::UnixTime};
     use frame_system::pallet_prelude::*;
-    use ismp_rust::{
+    use ismp_rs::{
         consensus_client::{
             ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
         },
@@ -237,35 +237,6 @@ pub mod pallet {
             let host = Host::<T>::default();
             let mut errors: Vec<HandlingError> = vec![];
             for message in messages {
-                // Check that delay period is satisfied for consensus client before accepting any
-                // new update
-                match &message {
-                    Message::Consensus(msg) => {
-                        // check difference between last
-                        if let Ok(consensus_update_time) =
-                            host.consensus_update_time(msg.consensus_client_id)
-                        {
-                            let elapsed_time = host.host_timestamp() - consensus_update_time;
-                            if host.delay_period(msg.consensus_client_id) > elapsed_time {
-                                debug!(target: "ismp-rust", "Challenge period: Cannot handle consensus message for {:?}", msg.consensus_client_id);
-                                errors.push(HandlingError::ChallengePeriodNotElapsed {
-                                    update_time: consensus_update_time.as_secs(),
-                                    current_time: host.host_timestamp().as_secs(),
-                                    delay_period: Some(
-                                        host.delay_period(msg.consensus_client_id).as_secs(),
-                                    ),
-                                    consensus_client_id: Some(msg.consensus_client_id),
-                                });
-                                continue
-                            }
-                        } else {
-                            // If we can't find a previous update time for the consensus client we
-                            // don't process it
-                            continue
-                        }
-                    }
-                    _ => {}
-                }
                 match handle_incoming_message(&host, message) {
                     Ok(MessageResult::ConsensusMessage(res)) => {
                         // Deposit events for previous update result that has passed the challenge
@@ -281,6 +252,11 @@ pub mod pallet {
                                 })
                             }
                         }
+
+                        Self::deposit_event(Event::<T>::ChallengePeriodStarted {
+                            consensus_client_id: res.consensus_client_id,
+                            state_machines: res.state_updates.clone(),
+                        });
 
                         // Store the new update result that have just entered the challenge period
                         ConsensusUpdateResults::<T>::insert(
@@ -320,6 +296,12 @@ pub mod pallet {
             latest_height: u64,
             previous_height: u64,
         },
+        /// Signifies that a client has begun it's challenge period
+        ChallengePeriodStarted {
+            consensus_client_id: ConsensusClientId,
+            state_machines: BTreeSet<(StateMachineHeight, StateMachineHeight)>,
+        },
+        /// Response was process successfully
         Response {
             /// Chain that this response will be routed to
             dest_chain: ChainID,
@@ -328,6 +310,7 @@ pub mod pallet {
             /// Nonce for the request which this response is for
             request_nonce: u64,
         },
+        /// Request processed successfully
         Request {
             /// Chain that this request will be routed to
             dest_chain: ChainID,

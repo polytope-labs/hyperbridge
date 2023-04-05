@@ -6,10 +6,11 @@ use crate::{
     prelude::Vec,
     router::{IISMPRouter, Request, Response},
 };
-use alloc::{boxed::Box, string::ToString};
+use alloc::boxed::Box;
 use codec::{Decode, Encode};
 use core::time::Duration;
 use derive_more::Display;
+use primitive_types::U256;
 
 pub trait ISMPHost {
     fn host(&self) -> ChainID;
@@ -57,26 +58,36 @@ pub trait ISMPHost {
 
     /// Return the keccak256 hash of a request
     /// Commitment is the hash of the concatenation of the data below
-    /// request.dest_chain.encode() + request.timeout_timestamp.encode() + request.nonce.encode() +
-    /// request.data
+    /// request.source_chain + request.dest_chain + request.nonce + request.data
     fn get_request_commitment(&self, req: &Request) -> Vec<u8> {
         let mut buf = Vec::new();
-        let dest_chain = req.dest_chain.to_string().as_bytes().to_vec();
-        let timeout_timestamp = req.timeout_timestamp.encode();
-        let nonce = req.nonce.encode();
-        buf.extend_from_slice(&dest_chain[..]);
-        buf.extend_from_slice(&timeout_timestamp[..]);
-        buf.extend_from_slice(&nonce[..]);
-        buf.extend_from_slice(&req.data[..]);
+        let mut source_chain = [0u8; 32];
+        let mut dest_chain = [0u8; 32];
+        let mut nonce = [0u8; 32];
+        U256::from(req.source_chain as u8).to_big_endian(&mut source_chain);
+        U256::from(req.dest_chain as u8).to_big_endian(&mut dest_chain);
+        U256::from(req.nonce).to_big_endian(&mut nonce);
+        buf.extend_from_slice(&source_chain);
+        buf.extend_from_slice(&dest_chain);
+        buf.extend_from_slice(&nonce);
+        buf.extend_from_slice(&req.data);
         self.keccak256(&buf[..]).to_vec()
     }
 
     /// Return the keccak256 of a response
     fn get_response_commitment(&self, res: &Response) -> Vec<u8> {
         let mut buf = Vec::new();
-        let nonce = res.request.nonce.encode();
-        buf.extend_from_slice(&nonce[..]);
-        buf.extend_from_slice(&res.response[..]);
+        let mut source_chain = [0u8; 32];
+        let mut dest_chain = [0u8; 32];
+        let mut nonce = [0u8; 32];
+        U256::from(res.request.source_chain as u8).to_big_endian(&mut source_chain);
+        U256::from(res.request.dest_chain as u8).to_big_endian(&mut dest_chain);
+        U256::from(res.request.nonce as u8).to_big_endian(&mut nonce);
+        buf.extend_from_slice(&source_chain);
+        buf.extend_from_slice(&dest_chain);
+        buf.extend_from_slice(&nonce);
+        buf.extend_from_slice(&res.request.data);
+        buf.extend_from_slice(&res.response);
         self.keccak256(&buf[..]).to_vec()
     }
 
@@ -98,19 +109,19 @@ pub trait ISMPHost {
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub enum ChainID {
     #[codec(index = 0)]
-    ETHEREUM,
+    ETHEREUM = 0,
     #[codec(index = 1)]
-    GNOSIS,
+    GNOSIS = 1,
     #[codec(index = 2)]
-    ARBITRUM,
+    ARBITRUM = 2,
     #[codec(index = 3)]
-    OPTIMISM,
+    OPTIMISM = 3,
     #[codec(index = 4)]
-    BASE,
+    BASE = 4,
     #[codec(index = 5)]
-    MOONBEAM,
+    MOONBEAM = 5,
     #[codec(index = 6)]
-    ASTAR,
+    ASTAR = 6,
     #[codec(index = 7)]
-    HYPERSPACE,
+    HYPERSPACE = 7,
 }

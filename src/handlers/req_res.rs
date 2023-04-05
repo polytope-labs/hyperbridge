@@ -4,9 +4,9 @@ use crate::{
     handlers::{verify_delay_passed, MessageResult, RequestResponseResult},
     host::ISMPHost,
     messaging::{Proof, RequestMessage, ResponseMessage},
-    paths::{RequestPath, ResponsePath},
+    router::RequestResponse,
 };
-use alloc::{boxed::Box, string::ToString};
+use alloc::boxed::Box;
 
 /// This function does the preliminary checks for a request or response message
 /// - It ensures the consensus client is not frozen
@@ -45,17 +45,14 @@ pub fn handle_request_message(
     msg: RequestMessage,
 ) -> Result<MessageResult, Error> {
     let consensus_client = validate_state_machine(host, &msg.proof)?;
-    let commitment = host.get_request_commitment(&msg.request);
     // Verify membership proof
-    let key = RequestPath {
-        dest_chain: msg.request.dest_chain,
-        source_chain: msg.request.source_chain,
-        nonce: msg.request.nonce,
-    }
-    .to_string()
-    .as_bytes()
-    .to_vec();
-    consensus_client.verify_membership(host, key, commitment, &msg.proof)?;
+    let state = host.state_machine_commitment(msg.proof.height)?;
+    consensus_client.verify_membership(
+        host,
+        RequestResponse::Request(msg.request.clone()),
+        state.commitment_root,
+        &msg.proof,
+    )?;
 
     let router = host.ismp_router();
 
@@ -87,17 +84,14 @@ pub fn handle_response_message(
         })
     }
 
-    let commitment = host.get_response_commitment(&msg.response);
-    let key = ResponsePath {
-        dest_chain: msg.response.request.source_chain,
-        source_chain: msg.response.request.dest_chain,
-        nonce: msg.response.request.nonce,
-    }
-    .to_string()
-    .as_bytes()
-    .to_vec();
+    let state = host.state_machine_commitment(msg.proof.height)?;
     // Verify membership proof
-    consensus_client.verify_membership(host, key, commitment, &msg.proof)?;
+    consensus_client.verify_membership(
+        host,
+        RequestResponse::Response(msg.response.clone()),
+        state.commitment_root,
+        &msg.proof,
+    )?;
 
     let router = host.ismp_router();
 

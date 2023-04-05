@@ -5,12 +5,28 @@ use crate::{
 };
 use alloc::{format, string::ToString};
 use core::marker::PhantomData;
-use ismp_rust::{
+use derive_more::Display;
+use ismp_rs::{
     error::Error,
-    host::ISMPHost,
-    paths::{RequestPath, ResponsePath},
-    router::{IISMPRouter, Request, Response},
+    host::{ChainID, ISMPHost},
+    router::{ISMPRouter, Request, Response},
 };
+
+#[derive(Clone, Debug, Display, PartialEq, Eq)]
+#[display(fmt = "requests/{}-{}/{}", "source_chain", "dest_chain", "nonce")]
+pub struct RequestPath {
+    pub dest_chain: ChainID,
+    pub source_chain: ChainID,
+    pub nonce: u64,
+}
+
+#[derive(Clone, Debug, Display, PartialEq, Eq)]
+#[display(fmt = "responses/{}-{}/{}", "source_chain", "dest_chain", "nonce")]
+pub struct ResponsePath {
+    pub dest_chain: ChainID,
+    pub source_chain: ChainID,
+    pub nonce: u64,
+}
 
 #[derive(Clone)]
 pub struct Router<T: Config>(PhantomData<T>);
@@ -21,13 +37,13 @@ impl<T: Config> Default for Router<T> {
     }
 }
 
-impl<T: Config> IISMPRouter for Router<T> {
+impl<T: Config> ISMPRouter for Router<T> {
     fn dispatch(&self, request: Request) -> Result<(), Error> {
         let host = Host::<T>::default();
         let key = RequestPath {
-            dest_chain: request.dest_chain,
-            source_chain: request.source_chain,
-            nonce: request.nonce,
+            dest_chain: request.dest_chain(),
+            source_chain: request.source_chain(),
+            nonce: request.nonce(),
         }
         .to_string()
         .as_bytes()
@@ -37,14 +53,16 @@ impl<T: Config> IISMPRouter for Router<T> {
         if RequestAcks::<T>::contains_key(key.clone()) {
             return Err(Error::ImplementationSpecific(format!(
                 "Duplicate request: nonce: {} , source: {:?} , dest: {:?}",
-                request.nonce, request.source_chain, request.dest_chain
+                request.nonce(),
+                request.source_chain(),
+                request.dest_chain()
             )))
         }
 
-        if host.host() != request.dest_chain {
+        if host.host() != request.dest_chain() {
             let leaves = Pallet::<T>::number_of_leaves();
             let (dest_chain, source_chain, nonce) =
-                (request.dest_chain, request.source_chain, request.nonce);
+                (request.dest_chain(), request.source_chain(), request.nonce());
             let mut mmr: Mmr<mmr::storage::RuntimeStorage, T, Leaf> = mmr::Mmr::new(leaves);
             let offchain_key =
                 Pallet::<T>::request_leaf_index_offchain_key(source_chain, dest_chain, nonce);
@@ -68,9 +86,9 @@ impl<T: Config> IISMPRouter for Router<T> {
     fn write_response(&self, response: Response) -> Result<(), Error> {
         let host = Host::<T>::default();
         let key = ResponsePath {
-            dest_chain: response.request.source_chain,
-            source_chain: response.request.dest_chain,
-            nonce: response.request.nonce,
+            dest_chain: response.request.source_chain(),
+            source_chain: response.request.dest_chain(),
+            nonce: response.request.nonce(),
         }
         .to_string()
         .as_bytes()
@@ -80,16 +98,18 @@ impl<T: Config> IISMPRouter for Router<T> {
         if ResponseAcks::<T>::contains_key(key.clone()) {
             return Err(Error::ImplementationSpecific(format!(
                 "Duplicate response: nonce: {} , source: {:?} , dest: {:?}",
-                response.request.nonce, response.request.source_chain, response.request.dest_chain
+                response.request.nonce(),
+                response.request.source_chain(),
+                response.request.dest_chain()
             )))
         }
 
-        if host.host() != response.request.source_chain {
+        if host.host() != response.request.source_chain() {
             let leaves = Pallet::<T>::number_of_leaves();
             let (dest_chain, source_chain, nonce) = (
-                response.request.source_chain,
-                response.request.dest_chain,
-                response.request.nonce,
+                response.request.source_chain(),
+                response.request.dest_chain(),
+                response.request.nonce(),
             );
             let mut mmr: Mmr<mmr::storage::RuntimeStorage, T, Leaf> = mmr::Mmr::new(leaves);
             let offchain_key =

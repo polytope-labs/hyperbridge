@@ -31,19 +31,19 @@ jobs:
         run: |
           eval `ssh-agent -s`
           ssh-add - <<< '${{ secrets.SSH_KEY }}'
-          cargo +nightly check --all-targets --all-features --verbose
+          cargo +nightly check --workspace --all-targets --all-features --verbose
 
       - name: Build `no-std`
         run: |
           eval `ssh-agent -s`
           ssh-add - <<< '${{ secrets.SSH_KEY }}'
-          cargo +nightly check --no-default-features --target=wasm32-unknown-unknown --verbose
+          cargo +nightly check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --verbose
 
       - name: Run tests
         run: |
           eval `ssh-agent -s`
           ssh-add - <<< '${{ secrets.SSH_KEY }}'
-          cargo +nightly test --all-features --verbose
+          cargo +nightly  test --all-features --verbose
 
   lint:
     runs-on: ubuntu-latest

@@ -1,5 +1,5 @@
 use codec::{Decode, Encode};
-use ismp_rust::{
+use ismp_rs::{
     consensus_client::{ConsensusClientId, StateMachineHeight},
     error::Error as IsmpError,
     host::ChainID,
@@ -51,10 +51,13 @@ pub enum HandlingError {
     ImplementationSpecific {
         msg: Vec<u8>,
     },
+    UnbondingPeriodElapsed {
+        consensus_id: ConsensusClientId,
+    },
 }
 
-impl From<ismp_rust::error::Error> for HandlingError {
-    fn from(value: ismp_rust::error::Error) -> Self {
+impl From<ismp_rs::error::Error> for HandlingError {
+    fn from(value: ismp_rs::error::Error) -> Self {
         match value {
             IsmpError::DelayNotElapsed { current_time, update_time } => {
                 HandlingError::ChallengePeriodNotElapsed {
@@ -92,6 +95,9 @@ impl From<ismp_rust::error::Error> for HandlingError {
             IsmpError::CannotHandleConsensusMessage => HandlingError::CannotHandleConsensusMessage,
             IsmpError::ImplementationSpecific(msg) => {
                 HandlingError::ImplementationSpecific { msg: msg.as_bytes().to_vec() }
+            }
+            IsmpError::UnbondingPeriodElapsed { consensus_id } => {
+                HandlingError::UnbondingPeriodElapsed { consensus_id }
             }
         }
     }

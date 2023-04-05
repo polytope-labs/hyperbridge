@@ -1,11 +1,18 @@
 [package]
-name = "ismp-rust"
+name = "ismp-rs"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs"]
 
 [package.metadata.docs.rs]
 all-features = true
+
+[dependencies]
+codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
+derive_more = { version = "0.99.17", default-features = false, features = ["from", "into", "display"] }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+serde = { version = "1.0.136", features = ["derive"], optional = true }
+primitive-types = { version = "0.12.1", default-features = false }
 
 [features]
 default = ["std"]
@@ -15,12 +22,3 @@ std = [
     "serde",
     "primitive-types/std"
 ]
-
-[dependencies]
-codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = [
-    "derive",
-] }
-derive_more = { version = "0.99.17", default-features = false, features = ["from", "into", "display"] }
-scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
-serde = { version = "1.0.136", features = ["derive"], optional = true }
-primitive-types = { version = "0.12.1", default-features = false }

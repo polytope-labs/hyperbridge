@@ -1,3 +1,20 @@
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Consensus client definitions
+
 use crate::{
     error::Error, host::ISMPHost, messaging::Proof, prelude::Vec, router::RequestResponse,
 };
@@ -5,17 +22,22 @@ use codec::{Decode, Encode};
 use core::time::Duration;
 
 pub type ConsensusClientId = u64;
-pub const ETHEREUM_CONSENSUS_CLIENT_ID: ConsensusClientId = 100;
-pub const GNOSIS_CONSENSUS_CLIENT_ID: ConsensusClientId = 200;
+
+/// Fixed size hash type
+pub type Hash = [u8; 32];
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateCommitment {
-    /// Timestamp in nanoseconds
+    /// Timestamp in seconds
     pub timestamp: u64,
-    pub commitment_root: Vec<u8>,
+    /// Root hash of the request/response merkle mountain range tree.
+    pub ismp_root: Hash,
+    /// Root hash of the global state trie.
+    pub state_root: Hash,
 }
 
+/// We define the intermediate state as the commitment to the global state trie at a given height
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct IntermediateState {
@@ -23,6 +45,8 @@ pub struct IntermediateState {
     pub commitment: StateCommitment,
 }
 
+/// Since consensus systems may come to conensus about the state of multiple state machines, we
+/// identify each state machine individually.
 #[derive(
     Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Ord, PartialOrd,
 )]
@@ -41,7 +65,8 @@ pub struct StateMachineHeight {
     pub height: u64,
 }
 
-/// The consensus client handles logic for consensus proof verification
+/// We define the consensus client as a module that handles logic for consensus proof verification,
+/// and State-Proof verification as well.
 pub trait ConsensusClient {
     /// Should decode the scale encoded trusted consensus state and new consensus proof, verifying
     /// that:
@@ -49,26 +74,13 @@ pub trait ConsensusClient {
     /// - that the client hasn't elapsed it's unbonding period
     /// - check for byzantine behaviour
     /// - verify the consensus proofs
-    /// - finally return the new consensusState and state commitments.
-    /// - If byzantine behaviour is detected
-    /// - Implementations can deposit an event after successful verification
-    fn verify(
+    /// - finally return the new consensusState and verified state commitments.
+    fn verify_consensus(
         &self,
         host: &dyn ISMPHost,
         trusted_consensus_state: Vec<u8>,
         proof: Vec<u8>,
     ) -> Result<(Vec<u8>, Vec<IntermediateState>), Error>;
-
-    /// Check if the client has expired since the last update
-    fn is_expired(&self, host: &dyn ISMPHost) -> Result<bool, Error> {
-        let host_timestamp = host.host_timestamp();
-        let unbonding_period = self.unbonding_period();
-        let last_update = host.consensus_update_time(self.consensus_id())?;
-        Ok(host_timestamp.saturating_sub(last_update) > unbonding_period)
-    }
-
-    /// Return the configured ConsensusClientId for this client
-    fn consensus_id(&self) -> ConsensusClientId;
 
     /// Return unbonding period
     fn unbonding_period(&self) -> Duration;
@@ -78,16 +90,25 @@ pub trait ConsensusClient {
         &self,
         host: &dyn ISMPHost,
         item: RequestResponse,
-        root: Vec<u8>,
+        root: Hash,
         proof: &Proof,
     ) -> Result<(), Error>;
+
+    /// Verify the state of proof of some arbitrary data. Should return the verified data
+    fn verify_state_proof(
+        &self,
+        host: &dyn ISMPHost,
+        key: Vec<u8>,
+        root: Hash,
+        proof: &Proof,
+    ) -> Result<Vec<u8>, Error>;
 
     /// Verify non-membership of proof of a commitment
     fn verify_non_membership(
         &self,
         host: &dyn ISMPHost,
         item: RequestResponse,
-        root: Vec<u8>,
+        root: Hash,
         proof: &Proof,
     ) -> Result<(), Error>;
 

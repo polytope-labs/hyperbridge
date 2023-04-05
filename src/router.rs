@@ -20,6 +20,11 @@ pub struct Response {
     pub response: Vec<u8>,
 }
 
+pub enum RequestResponse {
+    Request(Request),
+    Response(Response),
+}
+
 pub trait IISMPRouter {
     /// Dispatch a request from a module to the ISMP router.
     /// If request source chain is the host, it should be committed in state as a sha256 hash

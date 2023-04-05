@@ -1,4 +1,6 @@
-use crate::{error::Error, host::ISMPHost, messaging::Proof, prelude::Vec};
+use crate::{
+    error::Error, host::ISMPHost, messaging::Proof, prelude::Vec, router::RequestResponse,
+};
 use codec::{Decode, Encode};
 use core::time::Duration;
 
@@ -75,8 +77,8 @@ pub trait ConsensusClient {
     fn verify_membership(
         &self,
         host: &dyn ISMPHost,
-        key: Vec<u8>,
-        commitment: Vec<u8>,
+        item: RequestResponse,
+        root: Vec<u8>,
         proof: &Proof,
     ) -> Result<(), Error>;
 
@@ -84,8 +86,8 @@ pub trait ConsensusClient {
     fn verify_non_membership(
         &self,
         host: &dyn ISMPHost,
-        key: Vec<u8>,
-        commitment: Vec<u8>,
+        item: RequestResponse,
+        root: Vec<u8>,
         proof: &Proof,
     ) -> Result<(), Error>;
 

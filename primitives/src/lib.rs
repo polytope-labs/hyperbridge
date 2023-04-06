@@ -2,7 +2,6 @@
 #[warn(unused_imports)]
 #[warn(unused_variables)]
 extern crate alloc;
-extern crate core;
 
 pub mod derived_types;
 pub mod error;

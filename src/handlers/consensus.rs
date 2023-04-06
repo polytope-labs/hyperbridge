@@ -24,10 +24,6 @@ use crate::{
 use alloc::collections::BTreeSet;
 
 /// This function handles verification of consensus messages for consensus clients
-/// It is up to the consensus client implementation to check for frozen if the consensus state
-/// is frozen or expired
-/// The client implementation can choose to deposit an event compatible with the host platform on
-/// successful verification
 pub fn handle(host: &dyn ISMPHost, msg: ConsensusMessage) -> Result<MessageResult, Error> {
     let consensus_client = host.consensus_client(msg.consensus_client_id)?;
     let trusted_state = host.consensus_state(msg.consensus_client_id)?;
@@ -36,8 +32,15 @@ pub fn handle(host: &dyn ISMPHost, msg: ConsensusMessage) -> Result<MessageResul
     let delay = host.challenge_period(msg.consensus_client_id);
     let now = host.timestamp();
 
+    // Ensure client is not frozen
+    consensus_client.is_frozen(&trusted_state)?;
+
     if (now - update_time) < delay {
-        Err(Error::DelayNotElapsed { current_time: now, update_time })?
+        Err(Error::ChallengePeriodNotElapsed {
+            consensus_id: msg.consensus_client_id,
+            current_time: now,
+            update_time,
+        })?
     }
 
     host.is_expired(msg.consensus_client_id)?;

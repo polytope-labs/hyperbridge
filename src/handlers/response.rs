@@ -42,7 +42,7 @@ pub fn handle(host: &dyn ISMPHost, msg: ResponseMessage) -> Result<MessageResult
     consensus_client.verify_membership(
         host,
         RequestResponse::Response(msg.response.clone()),
-        state.ismp_root,
+        state,
         &msg.proof,
     )?;
 

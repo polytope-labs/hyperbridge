@@ -1,8 +1,8 @@
 [package]
-name = "patricia-merkle-trie"
+name = "ethereum-trie"
 version = "0.1.0"
 edition = "2021"
-authors = ["Seun Lanlege <seunlanlege@gmail.com>"]
+authors = ["Seun Lanlege <seun@polytope.technology>"]
 
 [dependencies]
 trie-db = { version= "0.24.0", default-features = false }
@@ -30,4 +30,5 @@ std = [
     "hash-db/std",
     "rlp/std",
     "primitive-types/std",
+    "codec/std"
 ]

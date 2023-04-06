@@ -5,7 +5,6 @@ edition = "2021"
 authors = ["Polytope Labs"]
 
 [dependencies]
-base2 = { version="0.2.2", default-features = false }
 sync-committee-primitives = { path= "../primitives", default-features = false }
 ethereum-consensus = { git = "https://github.com/polytope-labs/ethereum-consensus", rev = "d3fe0ad76613b52cdfbdea7c317ecdc35f271e4f", default-features = false }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", rev = "2e28a8800787392045fb3f8f1eaef6c65a8600d7", default-features = false }

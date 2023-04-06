@@ -1666,7 +1666,6 @@ dependencies = [
 name = "sync-committee-verifier"
 version = "0.1.0"
 dependencies = [
- "base2",
  "ethereum-consensus",
  "log",
  "milagro_bls",

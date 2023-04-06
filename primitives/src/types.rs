@@ -15,6 +15,12 @@ pub const BLOCK_ROOTS_INDEX: u64 = 37;
 pub const HISTORICAL_ROOTS_INDEX: u64 = 39;
 pub const HISTORICAL_BATCH_BLOCK_ROOTS_INDEX: u64 = 2;
 pub const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 25;
+pub const FINALIZED_ROOT_INDEX_LOG2: u64 = 5;
+pub const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 5;
+pub const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 5;
+pub const BLOCK_ROOTS_INDEX_LOG2: u64 = 5;
+pub const HISTORICAL_ROOTS_INDEX_LOG2: u64 = 5;
+
 #[cfg(not(feature = "testing"))]
 pub const GENESIS_VALIDATORS_ROOT: [u8; 32] =
 	hex_literal::hex!("4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95");

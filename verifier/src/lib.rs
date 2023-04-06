@@ -7,25 +7,24 @@ pub mod error;
 
 use crate::error::Error;
 use alloc::vec::Vec;
-use base2::Base2;
 use ethereum_consensus::{
 	bellatrix::{compute_domain, mainnet::SYNC_COMMITTEE_SIZE, Checkpoint},
 	primitives::Root,
 	signing::compute_signing_root,
 	state_transition::Context,
 };
-
 use ssz_rs::{
 	calculate_merkle_root, calculate_multi_merkle_root, prelude::is_valid_merkle_branch,
 	GeneralizedIndex, Merkleized, Node,
 };
 use sync_committee_primitives::{
 	types::{
-		AncestryProof, BLOCK_ROOTS_INDEX, DOMAIN_SYNC_COMMITTEE,
+		AncestryProof, BLOCK_ROOTS_INDEX, BLOCK_ROOTS_INDEX_LOG2, DOMAIN_SYNC_COMMITTEE,
 		EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
-		EXECUTION_PAYLOAD_STATE_ROOT_INDEX, EXECUTION_PAYLOAD_TIMESTAMP_INDEX,
-		FINALIZED_ROOT_INDEX, GENESIS_VALIDATORS_ROOT, HISTORICAL_BATCH_BLOCK_ROOTS_INDEX,
-		HISTORICAL_ROOTS_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
+		EXECUTION_PAYLOAD_INDEX_LOG2, EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
+		EXECUTION_PAYLOAD_TIMESTAMP_INDEX, FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_LOG2,
+		GENESIS_VALIDATORS_ROOT, HISTORICAL_BATCH_BLOCK_ROOTS_INDEX, HISTORICAL_ROOTS_INDEX,
+		HISTORICAL_ROOTS_INDEX_LOG2, NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_LOG2,
 	},
 	util::{compute_epoch_at_slot, compute_fork_version, compute_sync_committee_period_at_slot},
 };
@@ -39,10 +38,10 @@ pub fn verify_sync_committee_attestation(
 	trusted_state: LightClientState,
 	update: LightClientUpdate,
 ) -> Result<LightClientState, Error> {
-	if update.finality_proof.finality_branch.len() != FINALIZED_ROOT_INDEX.floor_log2() as usize &&
+	if update.finality_proof.finality_branch.len() != FINALIZED_ROOT_INDEX_LOG2 as usize &&
 		update.sync_committee_update.is_some() &&
 		update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len() !=
-			NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize
+			NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize
 	{
 		Err(Error::InvalidUpdate)?
 	}
@@ -137,7 +136,7 @@ pub fn verify_sync_committee_attestation(
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&finalized_checkpoint.hash_tree_root().map_err(|_| Error::InvalidRoot)?,
 		branch.iter(),
-		FINALIZED_ROOT_INDEX.floor_log2() as usize,
+		FINALIZED_ROOT_INDEX_LOG2 as usize,
 		FINALIZED_ROOT_INDEX as usize,
 		&update.attested_header.state_root,
 	);
@@ -185,7 +184,7 @@ pub fn verify_sync_committee_attestation(
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&execution_payload_root,
 		execution_payload_branch.iter(),
-		EXECUTION_PAYLOAD_INDEX.floor_log2() as usize,
+		EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
 		EXECUTION_PAYLOAD_INDEX as usize,
 		&update.finalized_header.state_root,
 	);
@@ -213,7 +212,7 @@ pub fn verify_sync_committee_attestation(
 				.hash_tree_root()
 				.map_err(|_| Error::MerkleizationError)?,
 			next_sync_committee_branch.iter(),
-			NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize,
+			NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
 			NEXT_SYNC_COMMITTEE_INDEX as usize,
 			&update.attested_header.state_root,
 		);
@@ -247,7 +246,7 @@ pub fn verify_sync_committee_attestation(
 				let is_merkle_branch_valid = is_valid_merkle_branch(
 					&block_roots_root,
 					block_roots_branch_node.iter(),
-					BLOCK_ROOTS_INDEX.floor_log2() as usize,
+					BLOCK_ROOTS_INDEX_LOG2 as usize,
 					BLOCK_ROOTS_INDEX as usize,
 					&update.finalized_header.state_root,
 				);
@@ -304,7 +303,7 @@ pub fn verify_sync_committee_attestation(
 				let is_merkle_branch_valid = is_valid_merkle_branch(
 					&historical_roots_root,
 					historical_roots_branch_nodes.iter(),
-					HISTORICAL_ROOTS_INDEX.floor_log2() as usize,
+					HISTORICAL_ROOTS_INDEX_LOG2 as usize,
 					HISTORICAL_ROOTS_INDEX as usize,
 					&Node::from_bytes(
 						update
@@ -375,7 +374,7 @@ pub fn verify_sync_committee_attestation(
 		let is_merkle_branch_valid = is_valid_merkle_branch(
 			&execution_payload_root,
 			execution_payload_branch.iter(),
-			EXECUTION_PAYLOAD_INDEX.floor_log2() as usize,
+			EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
 			EXECUTION_PAYLOAD_INDEX as usize,
 			&Node::from_bytes(
 				ancestor.header.state_root.as_ref().try_into().map_err(|_| Error::InvalidRoot)?,

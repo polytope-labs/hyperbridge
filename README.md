@@ -1,9 +1,9 @@
-# Merkle Patricia Trie
+# Ethereum Trie
 
 This library allows users to verify ethereum style merkle patricia proofs as specified in this document: https://ethereum.github.io/execution-specs/autoapi/ethereum/frontier/trie/index.html
 
 ```rust
-use patricia_merkle_trie::{
+use ethereum_trie::{
     keccak::{keccak_256, KeccakHasher},
     EIP1186Layout, StorageProof,
 };

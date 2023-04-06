@@ -13,15 +13,18 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@main
 
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          toolchain: nightly
+          targets: wasm32-unknown-unknown
 
       - name: Run cargo check
         run: cargo check
+
+      - name: Build `no-std`
+        run: |
+          cargo +nightly check -p sync-committee-verifier --no-default-features --target=wasm32-unknown-unknown --verbose
 
   test:
     name: Test Suite
@@ -47,9 +50,7 @@ jobs:
       - name: Install rust stable toolchain
         uses: actions-rs/toolchain@v1
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          toolchain: nightly
 
       - name: Install protoc
         run: |
@@ -71,7 +72,7 @@ jobs:
           git clone https://github.com/sigp/lighthouse.git
           cd lighthouse
           git checkout 38514c07f222ff7783834c48cf5c0a6ee7f346d0
-          cargo build -p lighthouse --release
+          cargo +nightly build -p lighthouse --release
           mv target/release/lighthouse ../bin
 
       - name: Install go
@@ -161,4 +162,4 @@ jobs:
 
       - name: Run all tests
         run: |
-          cargo test -p sync-committee-prover -- --nocapture
+          cargo +nightly test -p sync-committee-prover -- --nocapture

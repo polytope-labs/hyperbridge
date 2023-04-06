@@ -1,4 +1,3 @@
-use base2::Base2;
 use ethereum_consensus::{
 	altair::mainnet::EPOCHS_PER_SYNC_COMMITTEE_PERIOD,
 	configs::mainnet::{
@@ -7,11 +6,6 @@ use ethereum_consensus::{
 	},
 	phase0::mainnet::SLOTS_PER_EPOCH,
 };
-
-/// Calculate the subtree index from the ``generalized_index``
-pub fn get_subtree_index(generalized_index: u64) -> u64 {
-	generalized_index % 2 ^ (generalized_index.floor_log2() as u64)
-}
 
 /// Return the sync committe period at the given ``epoch``
 pub fn compute_sync_committee_period(epoch: u64) -> u64 {

@@ -24,17 +24,49 @@ use core::time::Duration;
 
 #[derive(Debug)]
 pub enum Error {
-    UnbondingPeriodElapsed { consensus_id: ConsensusClientId },
-    DelayNotElapsed { update_time: Duration, current_time: Duration },
-    ConsensusStateNotFound { id: ConsensusClientId },
-    StateCommitmentNotFound { height: StateMachineHeight },
-    FrozenConsensusClient { id: ConsensusClientId },
-    FrozenStateMachine { height: StateMachineHeight },
-    RequestCommitmentNotFound { nonce: u64, source: ChainID, dest: ChainID },
-    RequestVerificationFailed { nonce: u64, source: ChainID, dest: ChainID },
-    ResponseVerificationFailed { nonce: u64, source: ChainID, dest: ChainID },
-    ConsensusProofVerificationFailed { id: ConsensusClientId },
-    ExpiredConsensusClient { id: ConsensusClientId },
+    UnbondingPeriodElapsed {
+        consensus_id: ConsensusClientId,
+    },
+    ChallengePeriodNotElapsed {
+        consensus_id: ConsensusClientId,
+        update_time: Duration,
+        current_time: Duration,
+    },
+    ConsensusStateNotFound {
+        id: ConsensusClientId,
+    },
+    StateCommitmentNotFound {
+        height: StateMachineHeight,
+    },
+    FrozenConsensusClient {
+        id: ConsensusClientId,
+    },
+    FrozenStateMachine {
+        height: StateMachineHeight,
+    },
+    RequestCommitmentNotFound {
+        nonce: u64,
+        source: ChainID,
+        dest: ChainID,
+    },
+    RequestVerificationFailed {
+        nonce: u64,
+        source: ChainID,
+        dest: ChainID,
+    },
+    ResponseVerificationFailed {
+        nonce: u64,
+        source: ChainID,
+        dest: ChainID,
+    },
+    ConsensusProofVerificationFailed {
+        id: ConsensusClientId,
+    },
+    ExpiredConsensusClient {
+        id: ConsensusClientId,
+    },
     CannotHandleConsensusMessage,
+    MembershipProofVerificationFailed(String),
+    NonMembershipProofVerificationFailed(String),
     ImplementationSpecific(String),
 }

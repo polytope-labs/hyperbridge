@@ -87,9 +87,9 @@ fn validate_state_machine(
     // Ensure consensus client is not frozen
     let consensus_client_id = proof.height.id.consensus_client;
     let consensus_client = host.consensus_client(consensus_client_id)?;
-    if consensus_client.is_frozen(host, consensus_client_id)? {
-        return Err(Error::FrozenConsensusClient { id: consensus_client_id })
-    }
+    let consensus_state = host.consensus_state(consensus_client_id)?;
+    // Ensure client is not frozen
+    consensus_client.is_frozen(&consensus_state)?;
 
     // Ensure state machine is not frozen
     if host.is_frozen(proof.height)? {
@@ -98,7 +98,8 @@ fn validate_state_machine(
 
     // Ensure delay period has elapsed
     if !verify_delay_passed(host, proof.height)? {
-        return Err(Error::DelayNotElapsed {
+        return Err(Error::ChallengePeriodNotElapsed {
+            consensus_id: consensus_client_id,
             current_time: host.timestamp(),
             update_time: host.consensus_update_time(proof.height.id.consensus_client)?,
         })

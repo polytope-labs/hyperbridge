@@ -18,6 +18,7 @@
 
 extern crate alloc;
 
+mod consensus_clients;
 mod errors;
 pub mod events;
 pub mod host;

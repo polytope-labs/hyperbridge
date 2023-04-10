@@ -1,4 +1,5 @@
 use crate::{
+    consensus_clients::beacon_consensus_client::BeaconConsensusClient,
     primitives::ETHEREUM_CONSENSUS_CLIENT_ID,
     router::{RequestPath, Router},
     Config, ConsensusClientUpdateTime, ConsensusStates, FrozenHeights, LatestStateMachineHeight,
@@ -115,8 +116,16 @@ impl<T: Config> ISMPHost for Host<T> {
         Ok(())
     }
 
-    fn consensus_client(&self, _id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
-        todo!()
+    fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
+        match id {
+            id if id == ETHEREUM_CONSENSUS_CLIENT_ID => {
+                Ok(Box::new(BeaconConsensusClient::default()))
+            }
+            _ => Err(Error::ImplementationSpecific(format!(
+                "No consensus client found for consensus id {}",
+                id
+            ))),
+        }
     }
 
     fn keccak256(&self, bytes: &[u8]) -> [u8; 32] {

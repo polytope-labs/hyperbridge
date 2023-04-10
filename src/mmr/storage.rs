@@ -18,7 +18,6 @@ use codec::Encode;
 use frame_support::log::{debug, trace};
 use mmr_lib::helper;
 use sp_core::offchain::StorageKind;
-use sp_io::offchain_index;
 use sp_std::iter::Peekable;
 #[cfg(not(feature = "std"))]
 use sp_std::prelude::*;
@@ -160,7 +159,7 @@ where
             pos, key
         );
         // Indexing API is used to store the full node content.
-        offchain_index::set(&key, &encoded_node);
+        sp_io::offchain_index::set(&key, &encoded_node);
     }
 }
 

@@ -54,17 +54,23 @@ pub enum HandlingError {
     UnbondingPeriodElapsed {
         consensus_id: ConsensusClientId,
     },
+    MembershipProofVerificationFailed {
+        msg: Vec<u8>,
+    },
+    NonMembershipProofVerificationFailed {
+        msg: Vec<u8>,
+    },
 }
 
 impl From<ismp_rs::error::Error> for HandlingError {
     fn from(value: ismp_rs::error::Error) -> Self {
         match value {
-            IsmpError::DelayNotElapsed { current_time, update_time } => {
+            IsmpError::ChallengePeriodNotElapsed { consensus_id, current_time, update_time } => {
                 HandlingError::ChallengePeriodNotElapsed {
                     update_time: update_time.as_secs(),
                     current_time: current_time.as_secs(),
                     delay_period: None,
-                    consensus_client_id: None,
+                    consensus_client_id: Some(consensus_id),
                 }
             }
             IsmpError::ConsensusStateNotFound { id } => {
@@ -98,6 +104,12 @@ impl From<ismp_rs::error::Error> for HandlingError {
             }
             IsmpError::UnbondingPeriodElapsed { consensus_id } => {
                 HandlingError::UnbondingPeriodElapsed { consensus_id }
+            }
+            IsmpError::MembershipProofVerificationFailed(msg) => {
+                HandlingError::MembershipProofVerificationFailed { msg: msg.as_bytes().to_vec() }
+            }
+            IsmpError::NonMembershipProofVerificationFailed(msg) => {
+                HandlingError::NonMembershipProofVerificationFailed { msg: msg.as_bytes().to_vec() }
             }
         }
     }

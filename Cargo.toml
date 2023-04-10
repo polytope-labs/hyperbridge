@@ -5,27 +5,38 @@ edition = "2021"
 
 
 [dependencies]
-codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false }
+codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
 log = { version = "0.4.17", default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 frame-benchmarking = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false, optional = true }
 frame-support = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
 frame-system = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
-sp-io = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
+sp-io = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false, features = ["disable_panic_handler"] }
 sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
 sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
 sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
 sp-api = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.37", default-features = false }
-ismp-rs = { git = "ssh://git@github.com/polytope-labs/ismp-rust.git", branch = "main", default-features = false }
+ismp-rs = { package = "ismp", git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main", default-features = false }
 mmr-lib = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
 serde = { version = "1.0.136", features = ["derive"], optional = true }
 derive_more = { version = "0.99.17", default-features = false, features = ["from", "into", "display"] }
+sync-committee-primitives = { git="https://github.com/polytope-labs/sync-committee-rs", branch="main", default-features = false }
+sync-committee-verifier = { git="https://github.com/polytope-labs/sync-committee-rs", branch="main", default-features = false }
+patricia-merkle-trie = { package = "ethereum-trie", git ="https://github.com/polytope-labs/ethereum-trie", branch = "main", default-features=false }
+trie-db = { version= "0.24.0", default-features = false }
+hash-db = { version = "0.15.2", default-features = false }
+rlp = { version = "0.5.1", default-features = false }
+hex = { version = "0.4.3", default-features = false }
+hex-literal = "0.3.4"
+rlp-derive = "0.1.0"
+ethabi = { version = "18.0.0", features = ["rlp"], default-features = false }
+hash256-std-hasher = { version = "0.15.2", default-features = false }
 
 [features]
 default = ["std"]
 std = [
     "codec/std",
-    "frame-benchmarking?/std",
+    "frame-benchmarking/std",
     "frame-support/std",
     "frame-system/std",
     "log/std",
@@ -33,11 +44,22 @@ std = [
     "sp-io/std",
     "sp-runtime/std",
     "sp-std/std",
+    "sp-core/std",
     "ismp-rs/std",
     "mmr-lib/std",
     "sp-api/std",
-    "serde"
+    "serde",
+    "patricia-merkle-trie/std",
+    "trie-db/std",
+    "hash-db/std",
+    "rlp/std",
+    "ethabi/std",
+    "hash256-std-hasher/std",
+    "hex/std",
+    "sync-committee-primitives/std",
+    "sync-committee-verifier/std"
 ]
+
 runtime-benchmarks = ["frame-benchmarking/runtime-benchmarks"]
 
 

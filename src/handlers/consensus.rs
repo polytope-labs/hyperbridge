@@ -17,9 +17,9 @@
 
 use crate::{
     error::Error,
-    handlers::{ConsensusUpdateResult, MessageResult},
+    handlers::{ConsensusClientCreatedResult, ConsensusUpdateResult, MessageResult},
     host::ISMPHost,
-    messaging::ConsensusMessage,
+    messaging::{ConsensusMessage, CreateConsensusClient},
 };
 use alloc::collections::BTreeSet;
 
@@ -82,4 +82,34 @@ pub fn handle(host: &dyn ISMPHost, msg: ConsensusMessage) -> Result<MessageResul
         ConsensusUpdateResult { consensus_client_id: msg.consensus_client_id, state_updates };
 
     Ok(MessageResult::ConsensusMessage(result))
+}
+
+/// Handles the creation of consensus clients
+pub fn create_consensus_client(
+    host: &dyn ISMPHost,
+    message: CreateConsensusClient,
+) -> Result<MessageResult, Error> {
+    // Do not attempt to create a new consensus client if consensus state already exists for the
+    // client
+    if host.consensus_state(message.consensus_client_id).is_ok() {
+        return Err(Error::CannotCreateAlreadyExistingConsensusClient {
+            id: message.consensus_client_id,
+        })
+    }
+
+    // Store the initial state for the consensus client
+    host.store_consensus_state(message.consensus_client_id, message.consensus_state)?;
+
+    // Store all intermedite state machine commitments
+    for intermediate_state in message.state_machine_commitments {
+        host.store_state_machine_commitment(
+            intermediate_state.height,
+            intermediate_state.commitment,
+        )?;
+    }
+
+    host.store_consensus_update_time(message.consensus_client_id, host.timestamp())?;
+
+    let result = ConsensusClientCreatedResult { consensus_client_id: message.consensus_client_id };
+    Ok(MessageResult::ConsensusClientCreated(result))
 }

@@ -69,4 +69,7 @@ pub enum Error {
     MembershipProofVerificationFailed(String),
     NonMembershipProofVerificationFailed(String),
     ImplementationSpecific(String),
+    CannotCreateAlreadyExistingConsensusClient {
+        id: ConsensusClientId,
+    },
 }

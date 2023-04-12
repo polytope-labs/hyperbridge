@@ -1,0 +1,1 @@
+pub const ETHEREUM_CONSENSUS_CLIENT_ID: u64 = 1;

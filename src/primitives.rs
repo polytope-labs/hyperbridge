@@ -31,5 +31,3 @@ pub enum Error {
     InvalidLeafIndex,
     InvalidBestKnownBlock,
 }
-
-pub const ETHEREUM_CONSENSUS_CLIENT_ID: u64 = 100;

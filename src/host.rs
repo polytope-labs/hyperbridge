@@ -1,6 +1,8 @@
 use crate::{
-    consensus_clients::beacon_consensus_client::BeaconConsensusClient,
-    primitives::ETHEREUM_CONSENSUS_CLIENT_ID,
+    consensus_clients::{
+        beacon_consensus_client::beacon_client::BeaconConsensusClient,
+        consensus_client_ids::ETHEREUM_CONSENSUS_CLIENT_ID,
+    },
     router::{RequestPath, Router},
     Config, ConsensusClientUpdateTime, ConsensusStates, FrozenHeights, LatestStateMachineHeight,
     RequestAcks, StateCommitments,
@@ -50,7 +52,7 @@ impl<T: Config> ISMPHost for Host<T> {
 
     fn consensus_update_time(&self, id: ConsensusClientId) -> Result<Duration, Error> {
         ConsensusClientUpdateTime::<T>::get(id)
-            .map(|timestamp| Duration::from_nanos(timestamp))
+            .map(|timestamp| Duration::from_secs(timestamp))
             .ok_or_else(|| {
                 Error::ImplementationSpecific(format!("Update time not found for {:?}", id))
             })
@@ -98,7 +100,7 @@ impl<T: Config> ISMPHost for Host<T> {
         id: ConsensusClientId,
         timestamp: Duration,
     ) -> Result<(), Error> {
-        ConsensusClientUpdateTime::<T>::insert(id, timestamp.as_nanos().saturated_into::<u64>());
+        ConsensusClientUpdateTime::<T>::insert(id, timestamp.as_secs().saturated_into::<u64>());
         Ok(())
     }
 

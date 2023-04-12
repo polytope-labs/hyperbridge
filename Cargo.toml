@@ -61,7 +61,7 @@ std = [
 ]
 
 runtime-benchmarks = ["frame-benchmarking/runtime-benchmarks"]
-
+testnet = []
 
 [workspace]
 resolver = "2"

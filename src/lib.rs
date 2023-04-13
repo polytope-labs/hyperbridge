@@ -17,6 +17,8 @@
 //!
 //! This library is intended to aid state machines communicate over ISMP with other
 //! ISMP supported state machines.
+//!
+//! Note: All timestamps are denominated in seconds
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

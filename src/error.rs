@@ -54,6 +54,18 @@ pub enum Error {
         source: ChainID,
         dest: ChainID,
     },
+    RequestTimeoutNotElapsed {
+        nonce: u64,
+        source: ChainID,
+        dest: ChainID,
+        timeout_timestamp: Duration,
+        state_machine_time: Duration,
+    },
+    RequestTimeoutVerificationFailed {
+        nonce: u64,
+        source: ChainID,
+        dest: ChainID,
+    },
     ResponseVerificationFailed {
         nonce: u64,
         source: ChainID,
@@ -65,7 +77,7 @@ pub enum Error {
     ExpiredConsensusClient {
         id: ConsensusClientId,
     },
-    CannotHandleConsensusMessage,
+    CannotHandleMessage,
     MembershipProofVerificationFailed(String),
     NonMembershipProofVerificationFailed(String),
     ImplementationSpecific(String),

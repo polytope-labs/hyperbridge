@@ -37,6 +37,12 @@ pub struct StateCommitment {
     pub state_root: Hash,
 }
 
+impl StateCommitment {
+    pub fn timestamp(&self) -> Duration {
+        Duration::from_secs(self.timestamp)
+    }
+}
+
 /// We define the intermediate state as the commitment to the global state trie at a given height
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]

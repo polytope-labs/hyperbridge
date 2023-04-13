@@ -86,13 +86,18 @@ pub trait ISMPHost {
         let mut source_chain = [0u8; 32];
         let mut dest_chain = [0u8; 32];
         let mut nonce = [0u8; 32];
+        let mut timestamp = [0u8; 32];
         U256::from(req.source_chain as u8).to_big_endian(&mut source_chain);
         U256::from(req.dest_chain as u8).to_big_endian(&mut dest_chain);
         U256::from(req.nonce).to_big_endian(&mut nonce);
+        U256::from(req.timeout_timestamp).to_big_endian(&mut timestamp);
         buf.extend_from_slice(&source_chain);
         buf.extend_from_slice(&dest_chain);
         buf.extend_from_slice(&nonce);
+        buf.extend_from_slice(&timestamp);
         buf.extend_from_slice(&req.data);
+        buf.extend_from_slice(&req.from);
+        buf.extend_from_slice(&req.to);
         self.keccak256(&buf[..]).to_vec()
     }
 
@@ -106,13 +111,18 @@ pub trait ISMPHost {
         let mut source_chain = [0u8; 32];
         let mut dest_chain = [0u8; 32];
         let mut nonce = [0u8; 32];
+        let mut timestamp = [0u8; 32];
         U256::from(req.source_chain as u8).to_big_endian(&mut source_chain);
         U256::from(req.dest_chain as u8).to_big_endian(&mut dest_chain);
         U256::from(req.nonce as u8).to_big_endian(&mut nonce);
+        U256::from(req.timeout_timestamp).to_big_endian(&mut timestamp);
         buf.extend_from_slice(&source_chain);
         buf.extend_from_slice(&dest_chain);
         buf.extend_from_slice(&nonce);
+        buf.extend_from_slice(&timestamp);
         buf.extend_from_slice(&req.data);
+        buf.extend_from_slice(&req.from);
+        buf.extend_from_slice(&req.to);
         buf.extend_from_slice(&res.response);
         self.keccak256(&buf[..]).to_vec()
     }

@@ -32,7 +32,7 @@ pub struct StateCommitment {
     /// Timestamp in seconds
     pub timestamp: u64,
     /// Root hash of the request/response merkle mountain range tree.
-    pub ismp_root: Hash,
+    pub ismp_root: Option<Hash>,
     /// Root hash of the global state trie.
     pub state_root: Hash,
 }

@@ -60,6 +60,9 @@ pub enum HandlingError {
     NonMembershipProofVerificationFailed {
         msg: Vec<u8>,
     },
+    CannotCreateAlreadyExistingConsensusClient {
+        id: ConsensusClientId,
+    },
 }
 
 impl From<ismp_rs::error::Error> for HandlingError {
@@ -110,6 +113,9 @@ impl From<ismp_rs::error::Error> for HandlingError {
             }
             IsmpError::NonMembershipProofVerificationFailed(msg) => {
                 HandlingError::NonMembershipProofVerificationFailed { msg: msg.as_bytes().to_vec() }
+            }
+            IsmpError::CannotCreateAlreadyExistingConsensusClient { id } => {
+                HandlingError::CannotCreateAlreadyExistingConsensusClient { id }
             }
         }
     }

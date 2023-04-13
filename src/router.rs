@@ -17,6 +17,7 @@
 
 use crate::{consensus_client::StateMachineHeight, error::Error, host::ChainID, prelude::Vec};
 use codec::{Decode, Encode};
+use core::time::Duration;
 
 /// The ISMP POST request.
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
@@ -32,7 +33,7 @@ pub struct POST {
     pub from: Vec<u8>,
     /// Module ID of the receiving module
     pub to: Vec<u8>,
-    /// Timestamp which this request expires by.
+    /// Timestamp which this request expires in seconds.
     pub timeout_timestamp: u64,
     /// Encoded Request.
     pub data: Vec<u8>,
@@ -54,7 +55,7 @@ pub struct GET {
     pub keys: Vec<Vec<u8>>,
     /// Height at which to read the state machine.
     pub height: StateMachineHeight,
-    /// Timestamp which this request expires by.
+    /// Timestamp which this request expires in seconds
     pub timeout_timestamp: u64,
 }
 
@@ -110,6 +111,19 @@ impl Request {
             Request::Get(get) => Some(get.keys.clone()),
         }
     }
+
+    /// Returns the timeout timestamp for a request
+    pub fn timeout(&self) -> Duration {
+        match self {
+            Request::Post(post) => Duration::from_secs(post.timeout_timestamp),
+            Request::Get(get) => Duration::from_secs(get.timeout_timestamp),
+        }
+    }
+
+    /// Returns true if the destination chain timestamp has exceeded the request timeout timestamp
+    pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
+        proof_timestamp > self.timeout()
+    }
 }
 
 /// The ISMP response
@@ -135,6 +149,10 @@ pub trait ISMPRouter {
     /// Dispatch a request from a module to the ISMP router.
     /// If request source chain is the host, it should be committed in state as a sha256 hash
     fn dispatch(&self, request: Request) -> Result<(), Error>;
+
+    /// Dispatch a request timeout from a module to the ISMP router.
+    /// If request source chain is the host, it should be committed in state as a sha256 hash
+    fn dispatch_timeout(&self, request: Request) -> Result<(), Error>;
 
     /// Provide a response to a previously received request.
     /// If response source chain is the host, it should be committed in state as a sha256 hash

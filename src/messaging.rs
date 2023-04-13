@@ -57,6 +57,14 @@ pub struct ResponseMessage {
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+pub struct TimeoutMessage {
+    /// Request timeout request
+    pub request: Request,
+    /// Non membership state Proof for the timeout
+    pub timeout_proof: Proof,
+}
+
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Proof {
     /// State machine height
@@ -75,4 +83,6 @@ pub enum Message {
     Request(RequestMessage),
     #[codec(index = 3)]
     Response(ResponseMessage),
+    #[codec(index = 4)]
+    Timeout(TimeoutMessage),
 }

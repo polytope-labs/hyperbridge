@@ -4,28 +4,17 @@ use crate::{
     Config, Event, Pallet, RequestAcks, ResponseAcks,
 };
 use alloc::{format, string::ToString};
+use codec::{Decode, Encode};
 use core::marker::PhantomData;
-use derive_more::Display;
 use ismp_rs::{
     error::Error,
-    host::{ChainID, ISMPHost},
+    host::ISMPHost,
     router::{ISMPRouter, Request, Response},
 };
 
-#[derive(Clone, Debug, Display, PartialEq, Eq)]
-#[display(fmt = "requests/{}-{}/{}", "source_chain", "dest_chain", "nonce")]
-pub struct RequestPath {
-    pub dest_chain: ChainID,
-    pub source_chain: ChainID,
-    pub nonce: u64,
-}
-
-#[derive(Clone, Debug, Display, PartialEq, Eq)]
-#[display(fmt = "responses/{}-{}/{}", "source_chain", "dest_chain", "nonce")]
-pub struct ResponsePath {
-    pub dest_chain: ChainID,
-    pub source_chain: ChainID,
-    pub nonce: u64,
+#[derive(Encode, Decode, scale_info::TypeInfo)]
+pub enum Receipt {
+    Ok,
 }
 
 #[derive(Clone)]
@@ -40,17 +29,10 @@ impl<T: Config> Default for Router<T> {
 impl<T: Config> ISMPRouter for Router<T> {
     fn dispatch(&self, request: Request) -> Result<(), Error> {
         let host = Host::<T>::default();
-        let key = RequestPath {
-            dest_chain: request.dest_chain(),
-            source_chain: request.source_chain(),
-            nonce: request.nonce(),
-        }
-        .to_string()
-        .as_bytes()
-        .to_vec();
+
         let commitment = host.get_request_commitment(&request);
 
-        if RequestAcks::<T>::contains_key(key.clone()) {
+        if RequestAcks::<T>::contains_key(commitment.clone()) {
             return Err(Error::ImplementationSpecific(format!(
                 "Duplicate request: nonce: {} , source: {:?} , dest: {:?}",
                 request.nonce(),
@@ -79,23 +61,16 @@ impl<T: Config> ISMPRouter for Router<T> {
             Pallet::<T>::store_leaf_index_offchain(offchain_key, leaf_index)
         }
 
-        RequestAcks::<T>::insert(key, commitment);
+        RequestAcks::<T>::insert(commitment, Receipt::Ok);
         Ok(())
     }
 
     fn write_response(&self, response: Response) -> Result<(), Error> {
         let host = Host::<T>::default();
-        let key = ResponsePath {
-            dest_chain: response.request.source_chain(),
-            source_chain: response.request.dest_chain(),
-            nonce: response.request.nonce(),
-        }
-        .to_string()
-        .as_bytes()
-        .to_vec();
+
         let commitment = host.get_response_commitment(&response);
 
-        if ResponseAcks::<T>::contains_key(key.clone()) {
+        if ResponseAcks::<T>::contains_key(commitment.clone()) {
             return Err(Error::ImplementationSpecific(format!(
                 "Duplicate response: nonce: {} , source: {:?} , dest: {:?}",
                 response.request.nonce(),
@@ -125,7 +100,7 @@ impl<T: Config> ISMPRouter for Router<T> {
             Pallet::<T>::store_leaf_index_offchain(offchain_key, leaf_index)
         }
 
-        ResponseAcks::<T>::insert(key, commitment);
+        ResponseAcks::<T>::insert(commitment, Receipt::Ok);
 
         Ok(())
     }

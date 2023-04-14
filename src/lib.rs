@@ -52,6 +52,7 @@ pub mod pallet {
         errors::HandlingError,
         mmr::{LeafIndex, Mmr, NodeIndex},
         primitives::ISMP_ID,
+        router::Receipt,
     };
     use alloc::{collections::BTreeSet, string::ToString};
     use frame_support::{pallet_prelude::*, traits::UnixTime};
@@ -173,14 +174,16 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn request_acks)]
     /// Acknowledgements for receipt of requests
-    /// No hashing, just insert raw key in storage
-    pub type RequestAcks<T: Config> = StorageMap<_, Identity, Vec<u8>, Vec<u8>, OptionQuery>;
+    /// The key is the request commitment
+    pub type RequestAcks<T: Config> =
+        StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn response_acks)]
     /// Acknowledgements for receipt of responses
-    /// No hashing, just insert raw key in storage
-    pub type ResponseAcks<T: Config> = StorageMap<_, Identity, Vec<u8>, Vec<u8>, OptionQuery>;
+    /// The key is the response commitment
+    pub type ResponseAcks<T: Config> =
+        StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn consensus_update_results)]

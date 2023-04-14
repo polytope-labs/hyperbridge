@@ -3,7 +3,7 @@ use crate::{
         beacon_consensus_client::beacon_client::BeaconConsensusClient,
         consensus_client_ids::ETHEREUM_CONSENSUS_CLIENT_ID,
     },
-    router::{RequestPath, Router},
+    router::Router,
     Config, ConsensusClientUpdateTime, ConsensusStates, FrozenHeights, LatestStateMachineHeight,
     RequestAcks, StateCommitments,
 };
@@ -75,19 +75,17 @@ impl<T: Config> ISMPHost for Host<T> {
     }
 
     fn request_commitment(&self, req: &Request) -> Result<Vec<u8>, Error> {
-        let key = RequestPath {
-            dest_chain: req.dest_chain(),
-            source_chain: req.source_chain(),
-            nonce: req.nonce(),
-        }
-        .to_string()
-        .as_bytes()
-        .to_vec();
-        RequestAcks::<T>::get(key).ok_or_else(|| Error::RequestCommitmentNotFound {
-            nonce: req.nonce(),
-            source: req.source_chain(),
-            dest: req.dest_chain(),
-        })
+        let commitment = self.get_request_commitment(req);
+
+        let _ = RequestAcks::<T>::get(commitment.clone()).ok_or_else(|| {
+            Error::RequestCommitmentNotFound {
+                nonce: req.nonce(),
+                source: req.source_chain(),
+                dest: req.dest_chain(),
+            }
+        })?;
+
+        Ok(commitment)
     }
 
     fn store_consensus_state(&self, id: ConsensusClientId, state: Vec<u8>) -> Result<(), Error> {

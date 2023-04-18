@@ -24,7 +24,10 @@ use crate::{
 use alloc::collections::BTreeSet;
 
 /// This function handles verification of consensus messages for consensus clients
-pub fn handle(host: &dyn ISMPHost, msg: ConsensusMessage) -> Result<MessageResult, Error> {
+pub fn handle<H>(host: &H, msg: ConsensusMessage) -> Result<MessageResult, Error>
+where
+    H: ISMPHost,
+{
     let consensus_client = host.consensus_client(msg.consensus_client_id)?;
     let trusted_state = host.consensus_state(msg.consensus_client_id)?;
 
@@ -85,10 +88,13 @@ pub fn handle(host: &dyn ISMPHost, msg: ConsensusMessage) -> Result<MessageResul
 }
 
 /// Handles the creation of consensus clients
-pub fn create_consensus_client(
-    host: &dyn ISMPHost,
+pub fn create_consensus_client<H>(
+    host: &H,
     message: CreateConsensusClient,
-) -> Result<MessageResult, Error> {
+) -> Result<MessageResult, Error>
+where
+    H: ISMPHost,
+{
     // Do not attempt to create a new consensus client if consensus state already exists for the
     // client
     if host.consensus_state(message.consensus_client_id).is_ok() {

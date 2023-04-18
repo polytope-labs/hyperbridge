@@ -59,10 +59,10 @@ pub enum MessageResult {
 }
 
 /// This function serves as an entry point to handle the message types provided by the ISMP protocol
-pub fn handle_incoming_message(
-    host: &dyn ISMPHost,
-    message: Message,
-) -> Result<MessageResult, Error> {
+pub fn handle_incoming_message<H>(host: &H, message: Message) -> Result<MessageResult, Error>
+where
+    H: ISMPHost,
+{
     match message {
         Message::Consensus(consensus_message) => consensus::handle(host, consensus_message),
         Message::Request(req) => request::handle(host, req),
@@ -76,10 +76,10 @@ pub fn handle_incoming_message(
 
 /// This function checks to see that the delay period configured on the host chain
 /// for the state machine has elasped.
-fn verify_delay_passed(
-    host: &dyn ISMPHost,
-    proof_height: StateMachineHeight,
-) -> Result<bool, Error> {
+fn verify_delay_passed<H>(host: &H, proof_height: StateMachineHeight) -> Result<bool, Error>
+where
+    H: ISMPHost,
+{
     let update_time = host.consensus_update_time(proof_height.id.consensus_client)?;
     let delay_period = host.challenge_period(proof_height.id.consensus_client);
     let current_timestamp = host.timestamp();
@@ -90,10 +90,10 @@ fn verify_delay_passed(
 /// - It ensures the consensus client is not frozen
 /// - It ensures the state machine is not frozen
 /// - Checks that the delay period configured for the state machine has elaspsed.
-fn validate_state_machine(
-    host: &dyn ISMPHost,
-    proof: &Proof,
-) -> Result<Box<dyn ConsensusClient>, Error> {
+fn validate_state_machine<H>(host: &H, proof: &Proof) -> Result<Box<dyn ConsensusClient>, Error>
+where
+    H: ISMPHost,
+{
     // Ensure consensus client is not frozen
     let consensus_client_id = proof.height.id.consensus_client;
     let consensus_client = host.consensus_client(consensus_client_id)?;

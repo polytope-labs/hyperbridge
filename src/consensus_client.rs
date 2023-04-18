@@ -20,11 +20,10 @@ use crate::{
 };
 use codec::{Decode, Encode};
 use core::time::Duration;
+use primitive_types::H256;
 
-pub type ConsensusClientId = u64;
-
-/// Fixed size hash type
-pub type Hash = [u8; 32];
+/// Consensus client Ids
+pub type ConsensusClientId = [u8; 4];
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
@@ -32,9 +31,9 @@ pub struct StateCommitment {
     /// Timestamp in seconds
     pub timestamp: u64,
     /// Root hash of the request/response merkle mountain range tree.
-    pub ismp_root: Option<Hash>,
+    pub ismp_root: Option<H256>,
     /// Root hash of the global state trie.
-    pub state_root: Hash,
+    pub state_root: H256,
 }
 
 impl StateCommitment {
@@ -89,7 +88,7 @@ pub trait ConsensusClient {
     /// Return unbonding period
     fn unbonding_period(&self) -> Duration;
 
-    /// Verify membership of proof of a commitment
+    /// Verify the merkle mountain range membership of proof of a request/response.
     fn verify_membership(
         &self,
         host: &dyn ISMPHost,
@@ -98,6 +97,9 @@ pub trait ConsensusClient {
         proof: &Proof,
     ) -> Result<(), Error>;
 
+    /// Transform the request/response into it's key in the state trie.
+    fn state_trie_key(&self, request: RequestResponse) -> Vec<u8>;
+
     /// Verify the state of proof of some arbitrary data. Should return the verified data
     fn verify_state_proof(
         &self,
@@ -105,16 +107,7 @@ pub trait ConsensusClient {
         key: Vec<u8>,
         root: StateCommitment,
         proof: &Proof,
-    ) -> Result<Vec<u8>, Error>;
-
-    /// Verify non-membership of proof of a commitment
-    fn verify_non_membership(
-        &self,
-        host: &dyn ISMPHost,
-        item: RequestResponse,
-        root: StateCommitment,
-        proof: &Proof,
-    ) -> Result<(), Error>;
+    ) -> Result<Option<Vec<u8>>, Error>;
 
     /// Decode trusted state and check if consensus client is frozen
     fn is_frozen(&self, trusted_consensus_state: &[u8]) -> Result<(), Error>;

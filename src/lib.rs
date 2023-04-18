@@ -30,6 +30,7 @@ pub mod host;
 pub mod messaging;
 pub mod module;
 pub mod router;
+pub mod util;
 
 pub mod prelude {
     pub use alloc::{format, str::FromStr, string::String, vec, vec::Vec};

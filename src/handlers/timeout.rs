@@ -21,13 +21,17 @@ use crate::{
     host::ISMPHost,
     messaging::TimeoutMessage,
     router::RequestResponse,
+    util::hash_request,
 };
 
 /// This function handles timeouts for Requests
-pub fn handle(host: &dyn ISMPHost, msg: TimeoutMessage) -> Result<MessageResult, Error> {
+pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, Error>
+where
+    H: ISMPHost,
+{
     let consensus_client = validate_state_machine(host, &msg.timeout_proof)?;
     let commitment = host.request_commitment(&msg.request)?;
-    if commitment != host.get_request_commitment(&msg.request) {
+    if commitment != hash_request::<H>(&msg.request) {
         return Err(Error::RequestCommitmentNotFound {
             nonce: msg.request.nonce(),
             source: msg.request.source_chain(),
@@ -46,12 +50,13 @@ pub fn handle(host: &dyn ISMPHost, msg: TimeoutMessage) -> Result<MessageResult,
         })?
     }
 
-    consensus_client.verify_non_membership(
-        host,
-        RequestResponse::Request(msg.request.clone()),
-        state,
-        &msg.timeout_proof,
-    )?;
+    let key = consensus_client.state_trie_key(RequestResponse::Request(msg.request.clone()));
+
+    let request = consensus_client.verify_state_proof(host, key, state, &msg.timeout_proof)?;
+
+    if request.is_some() {
+        Err(Error::ImplementationSpecific("Request not timed out".into()))?
+    }
 
     let result = RequestResponseResult {
         dest_chain: msg.request.source_chain(),

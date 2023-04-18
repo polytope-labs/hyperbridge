@@ -22,7 +22,7 @@ use core::time::Duration;
 /// The ISMP POST request.
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
-pub struct POST {
+pub struct Post {
     /// The source state machine of this request.
     pub source_chain: ChainID,
     /// The destination state machine of this request.
@@ -42,7 +42,7 @@ pub struct POST {
 /// The ISMP GET request.
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
-pub struct GET {
+pub struct Get {
     /// The source state machine of this request.
     pub source_chain: ChainID,
     /// The destination state machine of this request.
@@ -65,10 +65,10 @@ pub struct GET {
 pub enum Request {
     /// A post request allows a module on a state machine to send arbitrary bytes to another module
     /// living in another state machine.
-    Post(POST),
+    Post(Post),
     /// A get request allows a module on a state machine to read the storage of another module
     /// living in another state machine.
-    Get(GET),
+    Get(Get),
 }
 
 impl Request {

@@ -21,15 +21,19 @@ use crate::{
     host::ISMPHost,
     messaging::ResponseMessage,
     router::RequestResponse,
+    util::hash_request,
 };
 
 /// Validate the state machine, verify the response message and dispatch the message to the router
-pub fn handle(host: &dyn ISMPHost, msg: ResponseMessage) -> Result<MessageResult, Error> {
+pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, Error>
+where
+    H: ISMPHost,
+{
     let consensus_client = validate_state_machine(host, &msg.proof)?;
     // For a response to be valid a request commitment must be present in storage
     let commitment = host.request_commitment(&msg.response.request)?;
 
-    if commitment != host.get_request_commitment(&msg.response.request) {
+    if commitment != hash_request::<H>(&msg.response.request) {
         return Err(Error::RequestCommitmentNotFound {
             nonce: msg.response.request.nonce(),
             source: msg.response.request.source_chain(),

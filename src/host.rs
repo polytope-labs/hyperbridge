@@ -33,7 +33,8 @@ use core::{str::FromStr, time::Duration};
 use primitive_types::H256;
 
 pub trait ISMPHost {
-    fn host(&self) -> StateMachineId;
+    /// Must be a known state machine.
+    fn host_state_machine(&self) -> StateMachine;
 
     // Storage Read functions
 

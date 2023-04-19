@@ -1,0 +1,55 @@
+[package]
+name = "ismp-parachain-consensus"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+# crates.io
+codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = ["derive"] }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+hex-literal = "0.4.1"
+merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
+primitive-types = { version = "0.12.1", default-features = false }
+
+# polytope labs
+ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main", default-features = false }
+
+# substrate
+frame-support = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
+frame-system = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
+sp-trie = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
+sp-io = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
+sp-runtime = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
+sp-consensus-aura = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
+
+# cumulus
+parachain-system = { package = "cumulus-pallet-parachain-system", git = "https://github.com/paritytech/cumulus", branch = "release-v0.9.400", default-features = false }
+cumulus-primitives-core = { git = "https://github.com/paritytech/cumulus", branch = "release-v0.9.400", default-features = false }
+
+# local
+ismp-primitives = { path = "../pallet-ismp/primitives", default-features = false }
+
+[dev-dependencies]
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-support/std",
+    "frame-system/std",
+    "scale-info/std",
+    "parachain-system/std",
+    "cumulus-primitives-core/std",
+    "ismp/std",
+    "sp-trie/std",
+    "merkle-mountain-range/std",
+    "sp-consensus-aura/std",
+    "sp-runtime/std",
+    "sp-io/std",
+    "primitive-types/std",
+    "ismp-primitives/std",
+]

@@ -22,6 +22,11 @@ jobs:
           toolchain: nightly
           targets: wasm32-unknown-unknown
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          version: '3.9.1'
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
@@ -38,6 +43,7 @@ jobs:
           eval `ssh-agent -s`
           ssh-add - <<< '${{ secrets.SSH_KEY }}'
           cargo +nightly check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --verbose
+          cargo +nightly check -p ismp-parachain-consensus --no-default-features --target=wasm32-unknown-unknown --verbose
 
       - name: Run tests
         run: |

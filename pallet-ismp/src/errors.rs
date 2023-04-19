@@ -47,7 +47,7 @@ pub enum HandlingError {
     ExpiredConsensusClient {
         id: ConsensusClientId,
     },
-    CannotHandleConsensusMessage,
+    CannotHandleMessage,
     ImplementationSpecific {
         msg: Vec<u8>,
     },
@@ -62,6 +62,18 @@ pub enum HandlingError {
     },
     CannotCreateAlreadyExistingConsensusClient {
         id: ConsensusClientId,
+    },
+    RequestTimeoutNotElapsed {
+        nonce: u64,
+        source: ChainID,
+        dest: ChainID,
+        timeout_timestamp: u64,
+        state_machine_time: u64,
+    },
+    RequestTimeoutVerificationFailed {
+        nonce: u64,
+        source: ChainID,
+        dest: ChainID,
     },
 }
 
@@ -101,7 +113,7 @@ impl From<ismp_rs::error::Error> for HandlingError {
             IsmpError::ExpiredConsensusClient { id } => {
                 HandlingError::ExpiredConsensusClient { id }
             }
-            IsmpError::CannotHandleConsensusMessage => HandlingError::CannotHandleConsensusMessage,
+            IsmpError::CannotHandleMessage => HandlingError::CannotHandleMessage,
             IsmpError::ImplementationSpecific(msg) => {
                 HandlingError::ImplementationSpecific { msg: msg.as_bytes().to_vec() }
             }
@@ -116,6 +128,22 @@ impl From<ismp_rs::error::Error> for HandlingError {
             }
             IsmpError::CannotCreateAlreadyExistingConsensusClient { id } => {
                 HandlingError::CannotCreateAlreadyExistingConsensusClient { id }
+            }
+            IsmpError::RequestTimeoutNotElapsed {
+                nonce,
+                source,
+                dest,
+                timeout_timestamp,
+                state_machine_time,
+            } => HandlingError::RequestTimeoutNotElapsed {
+                nonce,
+                source,
+                dest,
+                timeout_timestamp: timeout_timestamp.as_secs(),
+                state_machine_time: state_machine_time.as_secs(),
+            },
+            IsmpError::RequestTimeoutVerificationFailed { nonce, source, dest } => {
+                HandlingError::RequestTimeoutVerificationFailed { nonce, source, dest }
             }
         }
     }

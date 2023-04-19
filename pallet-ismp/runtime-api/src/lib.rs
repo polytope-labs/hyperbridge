@@ -6,10 +6,9 @@ use ismp_rs::{
     host::ChainID,
     router::{Request, Response},
 };
-use pallet_ismp::{
-    mmr::{Leaf, LeafIndex},
-    primitives::{Error, Proof},
-};
+use pallet_ismp::primitives::{Error, Proof};
+
+use ismp_primitives::mmr::{Leaf, LeafIndex};
 #[cfg(not(feature = "std"))]
 use sp_std::vec::Vec;
 

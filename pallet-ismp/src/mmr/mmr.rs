@@ -14,35 +14,37 @@
 // limitations under the License.
 
 use crate::{
+    host::Host,
     mmr::{
         storage::{OffchainStorage, RuntimeStorage, Storage},
         utils::NodesUtils,
-        FullLeaf, Hasher, NodeIndex, NodeOf,
     },
     primitives::{Error, Proof},
     Config,
 };
+use ismp_primitives::mmr::{DataOrHash, Leaf, MmrHasher, NodeIndex};
+use sp_core::H256;
 use sp_std::prelude::*;
 
 /// A wrapper around an MMR library to expose limited functionality.
 ///
 /// Available functions depend on the storage kind ([Runtime](crate::mmr::storage::RuntimeStorage)
 /// vs [Off-chain](crate::mmr::storage::OffchainStorage)).
-pub struct Mmr<StorageType, T, L>
+pub struct Mmr<StorageType, T>
 where
     T: Config,
-    L: FullLeaf<T>,
-    Storage<StorageType, T, L>: mmr_lib::MMRStore<NodeOf<T, L>>,
+    Storage<StorageType, T>: mmr_lib::MMRStore<DataOrHash<T>>,
+    <T as frame_system::Config>::Hash: From<H256>,
 {
-    mmr: mmr_lib::MMR<NodeOf<T, L>, Hasher<T, L>, Storage<StorageType, T, L>>,
+    mmr: mmr_lib::MMR<DataOrHash<T>, MmrHasher<T, Host<T>>, Storage<StorageType, T>>,
     leaves: NodeIndex,
 }
 
-impl<StorageType, T, L> Mmr<StorageType, T, L>
+impl<StorageType, T> Mmr<StorageType, T>
 where
     T: Config,
-    L: FullLeaf<T>,
-    Storage<StorageType, T, L>: mmr_lib::MMRStore<NodeOf<T, L>>,
+    Storage<StorageType, T>: mmr_lib::MMRStore<DataOrHash<T>>,
+    <T as frame_system::Config>::Hash: From<H256>,
 {
     /// Create a pointer to an existing MMR with given number of leaves.
     pub fn new(leaves: NodeIndex) -> Self {
@@ -58,16 +60,16 @@ where
 }
 
 /// Runtime specific MMR functions.
-impl<T, L> Mmr<RuntimeStorage, T, L>
+impl<T> Mmr<RuntimeStorage, T>
 where
     T: Config,
-    L: FullLeaf<T>,
+    <T as frame_system::Config>::Hash: From<H256>,
 {
     /// Push another item to the MMR.
     ///
     /// Returns element position (index) in the MMR.
-    pub fn push(&mut self, leaf: L) -> Option<NodeIndex> {
-        let position = self.mmr.push(NodeOf::Data(leaf)).map_err(|_| Error::Push).ok()?;
+    pub fn push(&mut self, leaf: Leaf) -> Option<NodeIndex> {
+        let position = self.mmr.push(DataOrHash::Data(leaf)).map_err(|_| Error::Push).ok()?;
 
         self.leaves += 1;
 
@@ -76,18 +78,18 @@ where
 
     /// Commit the changes to underlying storage, return current number of leaves and
     /// calculate the new MMR's root hash.
-    pub fn finalize(self) -> Result<(NodeIndex, <T as Config>::Hash), Error> {
+    pub fn finalize(self) -> Result<(NodeIndex, <T as frame_system::Config>::Hash), Error> {
         let root = self.mmr.get_root().map_err(|_| Error::GetRoot)?;
         self.mmr.commit().map_err(|_| Error::Commit)?;
-        Ok((self.leaves, root.hash()))
+        Ok((self.leaves, root.hash::<Host<T>>()))
     }
 }
 
 /// Off-chain specific MMR functions.
-impl<T, L> Mmr<OffchainStorage, T, L>
+impl<T> Mmr<OffchainStorage, T>
 where
     T: Config,
-    L: FullLeaf<T> + codec::Decode,
+    <T as frame_system::Config>::Hash: From<H256>,
 {
     /// Generate a proof for given leaf indices.
     ///
@@ -96,14 +98,14 @@ where
     pub fn generate_proof(
         &self,
         leaf_indices: Vec<NodeIndex>,
-    ) -> Result<(Vec<L>, Proof<<T as Config>::Hash>), Error> {
+    ) -> Result<(Vec<Leaf>, Proof<<T as frame_system::Config>::Hash>), Error> {
         let positions =
             leaf_indices.iter().map(|index| mmr_lib::leaf_index_to_pos(*index)).collect::<Vec<_>>();
-        let store = <Storage<OffchainStorage, T, L>>::default();
+        let store = <Storage<OffchainStorage, T>>::default();
         let leaves = positions
             .iter()
             .map(|pos| match mmr_lib::MMRStore::get_elem(&store, *pos) {
-                Ok(Some(NodeOf::Data(leaf))) => Ok(leaf),
+                Ok(Some(DataOrHash::Data(leaf))) => Ok(leaf),
                 _ => Err(Error::LeafNotFound),
             })
             .collect::<Result<Vec<_>, Error>>()?;
@@ -115,7 +117,7 @@ where
             .map(|p| Proof {
                 leaf_indices,
                 leaf_count,
-                items: p.proof_items().iter().map(|x| x.hash()).collect(),
+                items: p.proof_items().iter().map(|x| x.hash::<Host<T>>()).collect(),
             })
             .map(|p| (leaves, p))
     }

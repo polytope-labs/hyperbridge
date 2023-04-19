@@ -1,5 +1,7 @@
-use crate::mmr::{LeafIndex, NodeIndex};
+use core::time::Duration;
 use frame_support::RuntimeDebug;
+use ismp_primitives::mmr::{LeafIndex, NodeIndex};
+use ismp_rs::consensus_client::{ConsensusClient, ConsensusClientId};
 use scale_info::TypeInfo;
 use sp_std::prelude::*;
 
@@ -30,4 +32,12 @@ pub enum Error {
     PalletNotIncluded,
     InvalidLeafIndex,
     InvalidBestKnownBlock,
+}
+
+pub trait ConsensusClientProvider {
+    fn consensus_client(
+        id: ConsensusClientId,
+    ) -> Result<Box<dyn ConsensusClient>, ismp_rs::error::Error>;
+
+    fn challenge_period(id: ConsensusClientId) -> Duration;
 }

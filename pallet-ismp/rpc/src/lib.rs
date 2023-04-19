@@ -9,17 +9,17 @@ use jsonrpsee::{
 };
 
 use codec::Encode;
+use ismp_primitives::mmr::{Leaf, LeafIndex};
 use ismp_rs::{
     consensus_client::ConsensusClientId,
     router::{Request, Response},
 };
 use ismp_runtime_api::{IsmpRuntimeApi, LeafIndexQuery};
-use pallet_ismp::mmr::{Leaf, LeafIndex};
 use sc_client_api::{BlockBackend, ProofProvider};
 use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
-use sp_runtime::{generic::BlockId, traits::Block as BlockT};
+use sp_runtime::traits::Block as BlockT;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 /// A type that could be a block number or a block hash
@@ -135,13 +135,13 @@ where
 {
     fn query_requests(&self, query: Vec<LeafIndexQuery>) -> Result<Vec<Request>> {
         let api = self.client.runtime_api();
-        let at = BlockId::Hash(self.client.info().best_hash);
+        let at = self.client.info().best_hash;
         let request_indices: Vec<LeafIndex> =
-            api.get_request_leaf_indices(&at, query).ok().flatten().ok_or_else(|| {
+            api.get_request_leaf_indices(at, query).ok().flatten().ok_or_else(|| {
                 runtime_error_into_rpc_error("Error fetching request leaf indices")
             })?;
 
-        api.get_requests(&at, request_indices)
+        api.get_requests(at, request_indices)
             .ok()
             .flatten()
             .ok_or_else(|| runtime_error_into_rpc_error("Error fetching requests"))
@@ -149,13 +149,13 @@ where
 
     fn query_responses(&self, query: Vec<LeafIndexQuery>) -> Result<Vec<Response>> {
         let api = self.client.runtime_api();
-        let at = BlockId::Hash(self.client.info().best_hash);
+        let at = self.client.info().best_hash;
         let response_indices: Vec<LeafIndex> =
-            api.get_response_leaf_indices(&at, query).ok().flatten().ok_or_else(|| {
+            api.get_response_leaf_indices(at, query).ok().flatten().ok_or_else(|| {
                 runtime_error_into_rpc_error("Error fetching response leaf indices")
             })?;
 
-        api.get_responses(&at, response_indices)
+        api.get_responses(at, response_indices)
             .ok()
             .flatten()
             .ok_or_else(|| runtime_error_into_rpc_error("Error fetching responses"))
@@ -163,14 +163,19 @@ where
 
     fn query_requests_mmr_proof(&self, height: u32, query: Vec<LeafIndexQuery>) -> Result<Proof> {
         let api = self.client.runtime_api();
-        let at = BlockId::Number(height.into());
+        let at = self
+            .client
+            .block_hash(height.into())
+            .ok()
+            .flatten()
+            .ok_or_else(|| runtime_error_into_rpc_error("invalid block height provided"))?;
         let request_indices: Vec<LeafIndex> =
-            api.get_request_leaf_indices(&at, query).ok().flatten().ok_or_else(|| {
+            api.get_request_leaf_indices(at, query).ok().flatten().ok_or_else(|| {
                 runtime_error_into_rpc_error("Error fetching response leaf indices")
             })?;
 
         let (leaves, proof): (Vec<Leaf>, pallet_ismp::primitives::Proof<Block::Hash>) = api
-            .generate_proof(&at, request_indices)
+            .generate_proof(at, request_indices)
             .map_err(|_| runtime_error_into_rpc_error("Error calling runtime api"))?
             .map_err(|_| runtime_error_into_rpc_error("Error generating mmr proof"))?;
         Ok(Proof { proof: proof.encode(), leaves: Some(leaves.encode()), height })
@@ -178,14 +183,19 @@ where
 
     fn query_responses_mmr_proof(&self, height: u32, query: Vec<LeafIndexQuery>) -> Result<Proof> {
         let api = self.client.runtime_api();
-        let at = BlockId::Number(height.into());
+        let at = self
+            .client
+            .block_hash(height.into())
+            .ok()
+            .flatten()
+            .ok_or_else(|| runtime_error_into_rpc_error("invalid block height provided"))?;
         let response_indices: Vec<LeafIndex> =
-            api.get_response_leaf_indices(&at, query).ok().flatten().ok_or_else(|| {
+            api.get_response_leaf_indices(at, query).ok().flatten().ok_or_else(|| {
                 runtime_error_into_rpc_error("Error fetching response leaf indices")
             })?;
 
         let (leaves, proof): (Vec<Leaf>, pallet_ismp::primitives::Proof<Block::Hash>) = api
-            .generate_proof(&at, response_indices)
+            .generate_proof(at, response_indices)
             .map_err(|_| runtime_error_into_rpc_error("Error calling runtime api"))?
             .map_err(|_| runtime_error_into_rpc_error("Error generating mmr proof"))?;
         Ok(Proof { proof: proof.encode(), leaves: Some(leaves.encode()), height })
@@ -202,9 +212,9 @@ where
     ) -> Result<Vec<u8>> {
         let api = self.client.runtime_api();
         let at = height
-            .map(|height| BlockId::Number(height.into()))
-            .unwrap_or(BlockId::Hash(self.client.info().best_hash));
-        api.consensus_state(&at, client_id)
+            .and_then(|height| self.client.block_hash(height.into()).ok().flatten())
+            .unwrap_or(self.client.info().best_hash);
+        api.consensus_state(at, client_id)
             .ok()
             .flatten()
             .ok_or_else(|| runtime_error_into_rpc_error("Error fetching Consensus state"))
@@ -212,8 +222,8 @@ where
 
     fn query_consensus_update_time(&self, client_id: ConsensusClientId) -> Result<u64> {
         let api = self.client.runtime_api();
-        let at = BlockId::Hash(self.client.info().best_hash);
-        api.consensus_update_time(&at, client_id)
+        let at = self.client.info().best_hash;
+        api.consensus_update_time(at, client_id)
             .ok()
             .flatten()
             .ok_or_else(|| runtime_error_into_rpc_error("Error fetching Consensus state"))
@@ -227,12 +237,16 @@ where
         let mut events = HashMap::new();
         for block_number_or_hash in block_numbers {
             let at = match block_number_or_hash {
-                BlockNumberOrHash::Hash(block_hash) => BlockId::Hash(block_hash),
-                BlockNumberOrHash::Number(block_number) => BlockId::Number(block_number.into()),
+                BlockNumberOrHash::Hash(block_hash) => block_hash,
+                BlockNumberOrHash::Number(block_number) => {
+                    self.client.block_hash(block_number.into()).ok().flatten().ok_or_else(|| {
+                        runtime_error_into_rpc_error("Invalid block number provided")
+                    })?
+                }
             };
 
             let temp = api
-                .block_events(&at)
+                .block_events(at)
                 .ok()
                 .flatten()
                 .ok_or_else(|| runtime_error_into_rpc_error("failed to read block events"))?;

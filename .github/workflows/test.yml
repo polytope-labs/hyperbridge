@@ -32,6 +32,11 @@ jobs:
         with:
           version: '3.x'
           repo-token: ${{ secrets.GH_TOKEN }}
+
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
       - uses: actions-rs/cargo@v1
         with:
           command: check
@@ -51,10 +56,15 @@ jobs:
           override: true
       - uses: Swatinem/rust-cache@v1
       - run: rustup target add wasm32-unknown-unknown
+
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
       - uses: actions-rs/cargo@v1
         with:
           command: check
-          args: -p hyperspace-runtime --no-default-features --target=wasm32-unknown-unknown --locked
+          args: -p hyperbridge-runtime --no-default-features --target=wasm32-unknown-unknown --locked
   fmt:
     name: Cargo fmt
     runs-on: ubuntu-latest

@@ -1,2 +1,2 @@
-# hyperspace
-Hyperspace bridge is the transport layer for trustless inter-blockchain communication
+# Hyperbridge
+Hyperbridge is a scalable, multi-chain bridhge network. Powered by zkSNARKs, Secured by Polkadot.

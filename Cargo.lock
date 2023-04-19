@@ -3814,7 +3814,7 @@ dependencies = [
 [[package]]
 name = "ismp-parachain"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#cf7d40d221fa9c00e13a897f0968ab9cbe800c11"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#9fecfce5ab0f8a12c6c0c4dcd0f72f703287b652"
 dependencies = [
  "ckb-merkle-mountain-range",
  "cumulus-pallet-parachain-system",
@@ -3837,7 +3837,7 @@ dependencies = [
 [[package]]
 name = "ismp-primitives"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#cf7d40d221fa9c00e13a897f0968ab9cbe800c11"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#9fecfce5ab0f8a12c6c0c4dcd0f72f703287b652"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-system",
@@ -5940,7 +5940,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#cf7d40d221fa9c00e13a897f0968ab9cbe800c11"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#9fecfce5ab0f8a12c6c0c4dcd0f72f703287b652"
 dependencies = [
  "ckb-merkle-mountain-range",
  "derive_more",

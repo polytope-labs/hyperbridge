@@ -44,7 +44,13 @@ use sp_trie::{LayoutV0, StorageProof, Trie, TrieDBBuilder};
 use crate::RelayChainOracle;
 
 /// The parachain consensus client implementation for ISMP.
-pub struct ParachainConsensusClient<T>(PhantomData<T>);
+pub struct ParachainConsensusClient<T, R>(PhantomData<(T, R)>);
+
+impl<T, R> Default for ParachainConsensusClient<T, R> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
 
 /// Information necessary to prove the sibling parachain's finalization to this
 /// parachain.
@@ -98,9 +104,10 @@ pub const PARACHAIN_CONSENSUS_ID: ConsensusClientId = *b"PARA";
 /// Slot duration in milliseconds
 const SLOT_DURATION: u64 = 12_000;
 
-impl<T> ConsensusClient for ParachainConsensusClient<T>
+impl<T, R> ConsensusClient for ParachainConsensusClient<T, R>
 where
-    T: pallet_ismp::Config + RelayChainOracle,
+    R: RelayChainOracle,
+    T: pallet_ismp::Config,
     T::BlockNumber: Into<u32>,
     T::Hash: From<H256>,
 {
@@ -117,7 +124,7 @@ where
                 ))
             })?;
 
-        let root = T::state_root(update.relay_height).ok_or_else(|| {
+        let root = R::state_root(update.relay_height).ok_or_else(|| {
             Error::ImplementationSpecific(format!(
                 "Cannot find relay chain height: {}",
                 update.relay_height

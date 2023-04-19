@@ -49,19 +49,19 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
+        /// A new relay chain state has been recorded.
         NewRelayChainState { height: relay_chain::BlockNumber },
     }
 
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        fn on_initialize(_n: T::BlockNumber) -> Weight {
+        fn on_finalize(_n: T::BlockNumber) {
             let state = RelaychainDataProvider::<T>::current_relay_chain_state();
             if !RelayChainState::<T>::contains_key(state.number) {
                 RelayChainState::<T>::insert(state.number, state.state_root);
                 Self::deposit_event(Event::<T>::NewRelayChainState { height: state.number })
             }
-            Weight::zero()
         }
     }
 }

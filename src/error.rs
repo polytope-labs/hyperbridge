@@ -17,7 +17,7 @@
 
 use crate::{
     consensus_client::{ConsensusClientId, StateMachineHeight},
-    host::ChainID,
+    host::StateMachine,
 };
 use alloc::string::String;
 use core::time::Duration;
@@ -46,30 +46,30 @@ pub enum Error {
     },
     RequestCommitmentNotFound {
         nonce: u64,
-        source: ChainID,
-        dest: ChainID,
+        source: StateMachine,
+        dest: StateMachine,
     },
     RequestVerificationFailed {
         nonce: u64,
-        source: ChainID,
-        dest: ChainID,
+        source: StateMachine,
+        dest: StateMachine,
     },
     RequestTimeoutNotElapsed {
         nonce: u64,
-        source: ChainID,
-        dest: ChainID,
+        source: StateMachine,
+        dest: StateMachine,
         timeout_timestamp: Duration,
         state_machine_time: Duration,
     },
     RequestTimeoutVerificationFailed {
         nonce: u64,
-        source: ChainID,
-        dest: ChainID,
+        source: StateMachine,
+        dest: StateMachine,
     },
     ResponseVerificationFailed {
         nonce: u64,
-        source: ChainID,
-        dest: ChainID,
+        source: StateMachine,
+        dest: StateMachine,
     },
     ConsensusProofVerificationFailed {
         id: ConsensusClientId,

@@ -23,14 +23,17 @@ use crate::{
     prelude::Vec,
     router::{ISMPRouter, Request},
 };
-use alloc::boxed::Box;
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+};
 use codec::{Decode, Encode};
-use core::time::Duration;
-use derive_more::Display;
+use core::{str::FromStr, time::Duration};
 use primitive_types::H256;
 
 pub trait ISMPHost {
-    fn host(&self) -> ChainID;
+    fn host(&self) -> StateMachineId;
 
     // Storage Read functions
 
@@ -101,23 +104,73 @@ pub trait ISMPHost {
     fn ismp_router(&self) -> Box<dyn ISMPRouter>;
 }
 
-#[derive(Clone, Debug, Copy, Encode, Decode, Display, PartialEq, Eq, scale_info::TypeInfo)]
+/// Currently supported state machines.
+#[derive(
+    Clone, Debug, Copy, Encode, Decode, PartialOrd, Ord, PartialEq, Eq, scale_info::TypeInfo,
+)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
-pub enum ChainID {
+pub enum StateMachine {
+    /// Ethereum Execution layer
     #[codec(index = 0)]
-    ETHEREUM = 0,
+    Ethereum,
+    /// Arbitrum Optimistic L2
     #[codec(index = 1)]
-    GNOSIS = 1,
+    Arbitrum,
+    /// Optimism Optimistic L2
     #[codec(index = 2)]
-    ARBITRUM = 2,
+    Optimism,
+    /// Base Optimistic L2
     #[codec(index = 3)]
-    OPTIMISM = 3,
+    Base,
+    /// Polkadot parachains
     #[codec(index = 4)]
-    BASE = 4,
+    Polkadot(u32),
+    /// Kusama parachains
     #[codec(index = 5)]
-    MOONBEAM = 5,
-    #[codec(index = 6)]
-    ASTAR = 6,
-    #[codec(index = 7)]
-    HYPERSPACE = 7,
+    Kusama(u32),
+}
+
+impl ToString for StateMachine {
+    fn to_string(&self) -> String {
+        match self {
+            StateMachine::Ethereum => "ETHEREUM".to_string(),
+            StateMachine::Arbitrum => "ARBITRUM".to_string(),
+            StateMachine::Optimism => "OPTIMISM".to_string(),
+            StateMachine::Base => "BASE".to_string(),
+            StateMachine::Polkadot(id) => format!("POLKADOT-{id}"),
+            StateMachine::Kusama(id) => format!("KUSAMA-{id}"),
+        }
+    }
+}
+
+impl FromStr for StateMachine {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = match s {
+            "ETHEREUM" => StateMachine::Ethereum,
+            "ARBITRUM" => StateMachine::Arbitrum,
+            "OPTIMISM" => StateMachine::Optimism,
+            "BASE" => StateMachine::Base,
+            name if name.starts_with("POLKADOT-") => {
+                let id = name
+                    .split('-')
+                    .last()
+                    .and_then(|id| u32::from_str(id).ok())
+                    .ok_or_else(|| format!("invalid state machine: {name}"))?;
+                StateMachine::Polkadot(id)
+            }
+            name if name.starts_with("KUSAMA-") => {
+                let id = name
+                    .split('-')
+                    .last()
+                    .and_then(|id| u32::from_str(id).ok())
+                    .ok_or_else(|| format!("invalid state machine: {name}"))?;
+                StateMachine::Kusama(id)
+            }
+            name => Err(format!("Unkown state machine: {name}"))?,
+        };
+
+        Ok(s)
+    }
 }

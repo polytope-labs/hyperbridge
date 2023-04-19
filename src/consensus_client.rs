@@ -16,7 +16,11 @@
 //! Consensus client definitions
 
 use crate::{
-    error::Error, host::ISMPHost, messaging::Proof, prelude::Vec, router::RequestResponse,
+    error::Error,
+    host::{ISMPHost, StateMachine},
+    messaging::Proof,
+    prelude::Vec,
+    router::RequestResponse,
 };
 use codec::{Decode, Encode};
 use core::time::Duration;
@@ -57,7 +61,7 @@ pub struct IntermediateState {
 )]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateMachineId {
-    pub state_id: u64,
+    pub state_id: StateMachine,
     pub consensus_client: ConsensusClientId,
 }
 

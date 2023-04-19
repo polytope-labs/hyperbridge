@@ -9,13 +9,15 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 mod weights;
 pub mod xcm_config;
 
+use core::time::Duration;
 use cumulus_pallet_parachain_system::RelayNumberStrictlyIncreases;
+use ismp_parachain::consensus::ParachainConsensusClient;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
     create_runtime_str, generic, impl_opaque_keys,
-    traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, Verify},
+    traits::{AccountIdLookup, Block as BlockT, IdentifyAccount, Keccak256, Verify},
     transaction_validity::{TransactionSource, TransactionValidity},
     ApplyExtrinsicResult, MultiSignature,
 };
@@ -29,7 +31,7 @@ use frame_support::{
     construct_runtime,
     dispatch::DispatchClass,
     parameter_types,
-    traits::{ConstU32, ConstU64, ConstU8, Everything},
+    traits::{ConstU32, ConstU64, ConstU8, Everything, Get},
     weights::{
         constants::WEIGHT_REF_TIME_PER_SECOND, ConstantMultiplier, Weight, WeightToFeeCoefficient,
         WeightToFeeCoefficients, WeightToFeePolynomial,
@@ -40,6 +42,12 @@ use frame_system::{
     limits::{BlockLength, BlockWeights},
     EnsureRoot,
 };
+use ismp::{
+    consensus_client::{ConsensusClient, ConsensusClientId},
+    error::Error,
+    host::StateMachine,
+};
+use pallet_ismp::{primitives::ConsensusClientProvider, router::ProxyRouter};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 use xcm_config::{XcmConfig, XcmOriginToTransactDispatchOrigin};
@@ -79,7 +87,7 @@ pub type BlockNumber = u32;
 pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
-pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
+pub type Header = generic::Header<BlockNumber, Keccak256>;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
@@ -151,11 +159,11 @@ impl WeightToFeePolynomial for WeightToFee {
 /// to even the core data structures.
 pub mod opaque {
     use super::*;
-    use sp_runtime::{generic, traits::BlakeTwo256};
+    use sp_runtime::{generic, traits::Keccak256};
 
     pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
     /// Opaque block header type.
-    pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
+    pub type Header = generic::Header<BlockNumber, Keccak256>;
     /// Opaque block type.
     pub type Block = generic::Block<Header, UncheckedExtrinsic>;
     /// Opaque block identifier type.
@@ -170,8 +178,8 @@ impl_opaque_keys! {
 
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-    spec_name: create_runtime_str!("hyperspace"),
-    impl_name: create_runtime_str!("hyperspace"),
+    spec_name: create_runtime_str!("hyperbridge"),
+    impl_name: create_runtime_str!("hyperbridge"),
     authoring_version: 1,
     spec_version: 1,
     impl_version: 0,
@@ -271,9 +279,9 @@ impl frame_system::Config for Runtime {
     /// The type for hashing blocks and tries.
     type Hash = Hash;
     /// The hashing algorithm used.
-    type Hashing = BlakeTwo256;
+    type Hashing = Keccak256;
     /// The header type.
-    type Header = generic::Header<BlockNumber, BlakeTwo256>;
+    type Header = generic::Header<BlockNumber, Keccak256>;
     /// The ubiquitous event type.
     type RuntimeEvent = RuntimeEvent;
     /// The ubiquitous origin type.
@@ -444,6 +452,49 @@ impl pallet_collator_selection::Config for Runtime {
     type WeightInfo = ();
 }
 
+pub struct StateMachineProvider;
+
+impl Get<StateMachine> for StateMachineProvider {
+    fn get() -> StateMachine {
+        StateMachine::Kusama(ParachainInfo::get().into())
+    }
+}
+
+pub struct ConsensusProvider;
+
+impl ConsensusClientProvider for ConsensusProvider {
+    fn consensus_client(id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
+        let client = match id {
+            ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID =>
+                Box::new(ParachainConsensusClient::<Runtime, IsmpParachain>::default()),
+            _ => Err(Error::ImplementationSpecific("Unknown consensus client".into()))?,
+        };
+
+        Ok(client)
+    }
+
+    fn challenge_period(id: ConsensusClientId) -> Duration {
+        match id {
+            ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID => Duration::from_secs(0),
+            _ => Duration::MAX,
+        }
+    }
+}
+
+impl ismp_parachain::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+}
+
+impl pallet_ismp::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    const INDEXING_PREFIX: &'static [u8] = b"ISMP";
+    type AdminOrigin = EnsureRoot<AccountId>;
+    type StateMachine = StateMachineProvider;
+    type TimeProvider = Timestamp;
+    type IsmpRouter = ProxyRouter<Runtime>;
+    type ConsensusClientProvider = ConsensusProvider;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime where
@@ -453,10 +504,10 @@ construct_runtime!(
     {
         // System support stuff.
         System: frame_system::{Pallet, Call, Config, Storage, Event<T>} = 0,
+        Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 1,
         ParachainSystem: cumulus_pallet_parachain_system::{
             Pallet, Call, Config, Storage, Inherent, Event<T>, ValidateUnsigned,
-        } = 1,
-        Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 2,
+        } = 2,
         ParachainInfo: parachain_info::{Pallet, Storage, Config} = 3,
 
         // Monetary stuff.
@@ -475,6 +526,10 @@ construct_runtime!(
         PolkadotXcm: pallet_xcm::{Pallet, Call, Event<T>, Origin, Config} = 31,
         CumulusXcm: cumulus_pallet_xcm::{Pallet, Event<T>, Origin} = 32,
         DmpQueue: cumulus_pallet_dmp_queue::{Pallet, Call, Storage, Event<T>} = 33,
+
+        // ISMP stuff
+        Ismp: pallet_ismp::{Pallet, Call, Storage, Event<T>} = 40,
+        IsmpParachain: ismp_parachain::{Pallet, Storage, Event<T>} = 41,
     }
 );
 

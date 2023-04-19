@@ -1,5 +1,5 @@
 [package]
-name = "ismp-parachain-consensus"
+name = "ismp-parachain"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -32,6 +32,7 @@ cumulus-primitives-core = { git = "https://github.com/paritytech/cumulus", branc
 
 # local
 ismp-primitives = { path = "../pallet-ismp/primitives", default-features = false }
+pallet-ismp = { path = "../pallet-ismp", default-features = false }
 
 [dev-dependencies]
 
@@ -52,4 +53,5 @@ std = [
     "sp-io/std",
     "primitive-types/std",
     "ismp-primitives/std",
+    "pallet-ismp/std",
 ]

@@ -3,7 +3,7 @@
 
 use ismp_rs::{
     consensus_client::ConsensusClientId,
-    host::ChainID,
+    host::StateMachine,
     router::{Request, Response},
 };
 use pallet_ismp::primitives::{Error, Proof};
@@ -15,8 +15,8 @@ use sp_std::vec::Vec;
 #[derive(codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct LeafIndexQuery {
-    pub source_chain: ChainID,
-    pub dest_chain: ChainID,
+    pub source_chain: StateMachine,
+    pub dest_chain: StateMachine,
     pub nonce: u64,
 }
 

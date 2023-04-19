@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
@@ -43,7 +47,7 @@ jobs:
       - name: Build `no-std`
         run: |
           cargo +nightly check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --verbose
-          cargo +nightly check -p ismp-parachain-consensus --no-default-features --target=wasm32-unknown-unknown --verbose
+          cargo +nightly check -p ismp-parachain --no-default-features --target=wasm32-unknown-unknown --verbose
 
       - name: Run tests
         run: |

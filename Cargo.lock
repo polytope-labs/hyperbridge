@@ -2995,7 +2995,7 @@ dependencies = [
 [[package]]
 name = "ismp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/ismp-rs.git?branch=main#26534dce3e5980eb33ff5ee1ce1e193cc53ebf1a"
+source = "git+ssh://git@github.com/polytope-labs/ismp-rs.git?branch=main#4b8013cada9f69ccbd550d1fc7e2c5107096559e"
 dependencies = [
  "derive_more",
  "parity-scale-codec",
@@ -3005,7 +3005,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ismp-parachain-consensus"
+name = "ismp-parachain"
 version = "0.1.0"
 dependencies = [
  "ckb-merkle-mountain-range",
@@ -3016,6 +3016,7 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-primitives",
+ "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",

@@ -1,5 +1,5 @@
 use crate::{host::Host, mmr, mmr::mmr::Mmr, Config, Event, Pallet, RequestAcks, ResponseAcks};
-use alloc::{format, string::ToString};
+use alloc::{boxed::Box, format, string::ToString};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use ismp_primitives::mmr::Leaf;
@@ -18,35 +18,36 @@ pub enum Receipt {
 
 /// The proxy router, This router allows for routing requests & responses from a source chain
 /// to a destination chain.
-#[derive(Clone)]
-pub struct ProxyRouter<T, R> {
-    inner: Option<R>,
+pub struct ProxyRouter<T> {
+    inner: Option<Box<dyn ISMPRouter>>,
     _phantom: PhantomData<T>,
 }
 
-impl<T, R> ProxyRouter<T, R> {
+impl<T> ProxyRouter<T> {
     /// Initialize the proxy router with an inner router.
-    pub fn new(router: R) -> Self {
-        Self { inner: Some(router), _phantom: PhantomData }
+    pub fn new<R>(router: R) -> Self
+    where
+        R: ISMPRouter + 'static,
+    {
+        Self { inner: Some(Box::new(router)), _phantom: PhantomData }
     }
 }
 
-impl<T, R> Default for ProxyRouter<T, R> {
+impl<T> Default for ProxyRouter<T> {
     fn default() -> Self {
         Self { inner: None, _phantom: PhantomData }
     }
 }
 
-impl<T, R> ISMPRouter for ProxyRouter<T, R>
+impl<T> ISMPRouter for ProxyRouter<T>
 where
     T: Config,
-    R: ISMPRouter,
     <T as frame_system::Config>::Hash: From<H256>,
 {
     fn dispatch(&self, request: Request) -> Result<(), Error> {
         let host = Host::<T>::default();
 
-        if host.host() != request.dest_chain() {
+        if host.host_state_machine() != request.dest_chain() {
             let commitment = hash_request::<Host<T>>(&request).0.to_vec();
 
             if RequestAcks::<T>::contains_key(commitment.clone()) {
@@ -90,7 +91,7 @@ where
     fn write_response(&self, response: Response) -> Result<(), Error> {
         let host = Host::<T>::default();
 
-        if host.host() != response.request.source_chain() {
+        if host.host_state_machine() != response.request.source_chain() {
             let commitment = hash_response::<Host<T>>(&response).0.to_vec();
 
             if ResponseAcks::<T>::contains_key(commitment.clone()) {

@@ -26,12 +26,13 @@ use ismp::{
         StateMachineId,
     },
     error::Error,
-    host::ISMPHost,
+    host::{ISMPHost, StateMachine},
     messaging::Proof,
     router::RequestResponse,
 };
 use ismp_primitives::mmr::{DataOrHash, Leaf, MmrHasher};
 use merkle_mountain_range::MerkleProof;
+use pallet_ismp::host::Host;
 use primitive_types::H256;
 use sp_consensus_aura::AURA_ENGINE_ID;
 use sp_runtime::{
@@ -43,7 +44,7 @@ use sp_trie::{LayoutV0, StorageProof, Trie, TrieDBBuilder};
 use crate::RelayChainOracle;
 
 /// The parachain consensus client implementation for ISMP.
-pub struct ParachainConsensusClient<T, H>(PhantomData<(T, H)>);
+pub struct ParachainConsensusClient<T>(PhantomData<T>);
 
 /// Information necessary to prove the sibling parachain's finalization to this
 /// parachain.
@@ -97,10 +98,9 @@ pub const PARACHAIN_CONSENSUS_ID: ConsensusClientId = *b"PARA";
 /// Slot duration in milliseconds
 const SLOT_DURATION: u64 = 12_000;
 
-impl<T, H> ConsensusClient for ParachainConsensusClient<T, H>
+impl<T> ConsensusClient for ParachainConsensusClient<T>
 where
-    H: ISMPHost,
-    T: frame_system::Config + RelayChainOracle,
+    T: pallet_ismp::Config + RelayChainOracle,
     T::BlockNumber: Into<u32>,
     T::Hash: From<H256>,
 {
@@ -187,12 +187,17 @@ where
 
             let height: u32 = (*header.number()).into();
 
+            let state_id = match _host.host_state_machine() {
+                StateMachine::Kusama(_) => StateMachine::Kusama(id),
+                StateMachine::Polkadot(_) => StateMachine::Polkadot(id),
+                _ => Err(Error::ImplementationSpecific(
+                    "Host state machine should be a parachain".into(),
+                ))?,
+            };
+
             let intermediate = IntermediateState {
                 height: StateMachineHeight {
-                    id: StateMachineId {
-                        state_id: id as u64,
-                        consensus_client: PARACHAIN_CONSENSUS_ID,
-                    },
+                    id: StateMachineId { state_id, consensus_client: PARACHAIN_CONSENSUS_ID },
                     height: height as u64,
                 },
                 commitment: StateCommitment {
@@ -224,7 +229,8 @@ where
             Error::ImplementationSpecific(format!("Cannot decode membership proof: {e:?}"))
         })?;
         let nodes = membership.proof.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
-        let proof = MerkleProof::<DataOrHash<T>, MmrHasher<T, H>>::new(membership.mmr_size, nodes);
+        let proof =
+            MerkleProof::<DataOrHash<T>, MmrHasher<T, Host<T>>>::new(membership.mmr_size, nodes);
         let leaf = match _item {
             RequestResponse::Request(req) => Leaf::Request(req),
             RequestResponse::Response(res) => Leaf::Response(res),

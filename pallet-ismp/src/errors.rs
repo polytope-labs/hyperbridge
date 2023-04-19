@@ -2,7 +2,7 @@ use codec::{Decode, Encode};
 use ismp_rs::{
     consensus_client::{ConsensusClientId, StateMachineHeight},
     error::Error as IsmpError,
-    host::ChainID,
+    host::StateMachine,
 };
 use sp_std::prelude::*;
 
@@ -28,18 +28,18 @@ pub enum HandlingError {
     },
     RequestCommitmentNotFound {
         nonce: u64,
-        source: ChainID,
-        dest: ChainID,
+        source: StateMachine,
+        dest: StateMachine,
     },
     RequestVerificationFailed {
         nonce: u64,
-        source: ChainID,
-        dest: ChainID,
+        source: StateMachine,
+        dest: StateMachine,
     },
     ResponseVerificationFailed {
         nonce: u64,
-        source: ChainID,
-        dest: ChainID,
+        source: StateMachine,
+        dest: StateMachine,
     },
     ConsensusProofVerificationFailed {
         id: ConsensusClientId,
@@ -65,15 +65,15 @@ pub enum HandlingError {
     },
     RequestTimeoutNotElapsed {
         nonce: u64,
-        source: ChainID,
-        dest: ChainID,
+        source: StateMachine,
+        dest: StateMachine,
         timeout_timestamp: u64,
         state_machine_time: u64,
     },
     RequestTimeoutVerificationFailed {
         nonce: u64,
-        source: ChainID,
-        dest: ChainID,
+        source: StateMachine,
+        dest: StateMachine,
     },
 }
 

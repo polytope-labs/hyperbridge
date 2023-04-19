@@ -2,7 +2,7 @@ use crate::{Config, Event as PalletEvent};
 use alloc::collections::BTreeSet;
 use ismp_rs::{
     consensus_client::{ConsensusClientId, StateMachineHeight, StateMachineId},
-    host::ChainID,
+    host::StateMachine,
 };
 
 #[derive(codec::Encode, codec::Decode)]
@@ -22,17 +22,17 @@ pub enum Event {
 
     Response {
         /// Chain that this response will be routed to
-        dest_chain: ChainID,
+        dest_chain: StateMachine,
         /// Source Chain for this response
-        source_chain: ChainID,
+        source_chain: StateMachine,
         /// Nonce for the request which this response is for
         request_nonce: u64,
     },
     Request {
         /// Chain that this request will be routed to
-        dest_chain: ChainID,
+        dest_chain: StateMachine,
         /// Source Chain for request
-        source_chain: ChainID,
+        source_chain: StateMachine,
         /// Request nonce
         request_nonce: u64,
     },

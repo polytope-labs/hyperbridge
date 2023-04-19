@@ -29,7 +29,7 @@ use crate::host::Host;
 use codec::{Decode, Encode};
 use frame_support::{log::debug, RuntimeDebug};
 use ismp_rs::{
-    host::ChainID,
+    host::StateMachine,
     router::{Request, Response},
 };
 use sp_core::{offchain::StorageKind, H256};
@@ -60,7 +60,7 @@ pub mod pallet {
             ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
         },
         handlers::{handle_incoming_message, MessageResult},
-        host::ChainID,
+        host::StateMachine,
         messaging::Message,
         router::ISMPRouter,
     };
@@ -85,9 +85,14 @@ pub mod pallet {
         /// Each node is stored in the Off-chain DB under key derived from the
         /// [`Self::INDEXING_PREFIX`] and its in-tree index (MMR position).
         const INDEXING_PREFIX: &'static [u8];
+
+        /// Admin origin for privileged actions
         type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
-        const CHAIN_ID: ChainID;
+        /// Host state machine identifier
+        type StateMachine: Get<StateMachine>;
+
+        /// Timestamp provider
         type TimeProvider: UnixTime;
 
         /// Configurable router that dispatches calls to modules
@@ -329,18 +334,18 @@ pub mod pallet {
         /// Response was process successfully
         Response {
             /// Chain that this response will be routed to
-            dest_chain: ChainID,
+            dest_chain: StateMachine,
             /// Source Chain for this response
-            source_chain: ChainID,
+            source_chain: StateMachine,
             /// Nonce for the request which this response is for
             request_nonce: u64,
         },
         /// Request processed successfully
         Request {
             /// Chain that this request will be routed to
-            dest_chain: ChainID,
+            dest_chain: StateMachine,
             /// Source Chain for request
-            source_chain: ChainID,
+            source_chain: StateMachine,
             /// Request nonce
             request_nonce: u64,
         },
@@ -412,16 +417,16 @@ pub struct RequestResponseLog<T: Config> {
 
 impl<T: Config> Pallet<T> {
     pub fn request_leaf_index_offchain_key(
-        source_chain: ChainID,
-        dest_chain: ChainID,
+        source_chain: StateMachine,
+        dest_chain: StateMachine,
         nonce: u64,
     ) -> Vec<u8> {
         (T::INDEXING_PREFIX, "Requests/leaf_indices", source_chain, dest_chain, nonce).encode()
     }
 
     pub fn response_leaf_index_offchain_key(
-        source_chain: ChainID,
-        dest_chain: ChainID,
+        source_chain: StateMachine,
+        dest_chain: StateMachine,
         nonce: u64,
     ) -> Vec<u8> {
         (T::INDEXING_PREFIX, "Responses/leaf_indices", source_chain, dest_chain, nonce).encode()
@@ -462,8 +467,8 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_leaf_index(
-        source_chain: ChainID,
-        dest_chain: ChainID,
+        source_chain: StateMachine,
+        dest_chain: StateMachine,
         nonce: u64,
         is_req: bool,
     ) -> Option<LeafIndex> {

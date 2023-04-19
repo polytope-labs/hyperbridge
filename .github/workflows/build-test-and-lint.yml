@@ -1,0 +1,60 @@
+name: CI suite
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          submodules: recursive
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
+
+      - name: Build
+        run:  cargo +nightly check --all --benches
+
+      - name: Run tests
+        run: cargo +nightly test --all-features --verbose
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          submodules: recursive
+
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Check format
+        run: cargo +nightly fmt --all --check
+
+      - name: Check clippy
+        run: cargo +nightly clippy --all-targets --all-features --verbose -- -D warnings

@@ -1,11 +1,12 @@
 [package]
-name = "tesseract-primitives"
+name = "tesseract-consensus"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 anyhow = "1.0.70"
-async-trait = "0.1.53"
+log = "0.4.17"
 futures = "0.3.28"
+tesseract-primitives = { path = "../primitives" }
+tokio = { version = "1.27.0", features = ["full"] }
 ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main" }
-pallet-ismp = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }

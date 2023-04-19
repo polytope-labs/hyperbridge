@@ -15,7 +15,7 @@ use sp_api::impl_runtime_apis;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
     create_runtime_str, generic, impl_opaque_keys,
-    traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, Verify},
+    traits::{AccountIdLookup, Block as BlockT, IdentifyAccount, Keccak256, Verify},
     transaction_validity::{TransactionSource, TransactionValidity},
     ApplyExtrinsicResult, MultiSignature,
 };
@@ -79,7 +79,7 @@ pub type BlockNumber = u32;
 pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
-pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
+pub type Header = generic::Header<BlockNumber, Keccak256>;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
@@ -151,11 +151,11 @@ impl WeightToFeePolynomial for WeightToFee {
 /// to even the core data structures.
 pub mod opaque {
     use super::*;
-    use sp_runtime::{generic, traits::BlakeTwo256};
+    use sp_runtime::{generic, traits::Keccak256};
 
     pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
     /// Opaque block header type.
-    pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
+    pub type Header = generic::Header<BlockNumber, Keccak256>;
     /// Opaque block type.
     pub type Block = generic::Block<Header, UncheckedExtrinsic>;
     /// Opaque block identifier type.
@@ -170,8 +170,8 @@ impl_opaque_keys! {
 
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-    spec_name: create_runtime_str!("hyperspace"),
-    impl_name: create_runtime_str!("hyperspace"),
+    spec_name: create_runtime_str!("hyperbridge"),
+    impl_name: create_runtime_str!("hyperbridge"),
     authoring_version: 1,
     spec_version: 1,
     impl_version: 0,
@@ -271,9 +271,9 @@ impl frame_system::Config for Runtime {
     /// The type for hashing blocks and tries.
     type Hash = Hash;
     /// The hashing algorithm used.
-    type Hashing = BlakeTwo256;
+    type Hashing = Keccak256;
     /// The header type.
-    type Header = generic::Header<BlockNumber, BlakeTwo256>;
+    type Header = generic::Header<BlockNumber, Keccak256>;
     /// The ubiquitous event type.
     type RuntimeEvent = RuntimeEvent;
     /// The ubiquitous origin type.
@@ -444,6 +444,16 @@ impl pallet_collator_selection::Config for Runtime {
     type WeightInfo = ();
 }
 
+// impl pallet_ismp::Config for Runtime {
+//     type RuntimeEvent = RuntimeEvent;
+//     const INDEXING_PREFIX: &'static [u8] = &[];
+//     type AdminOrigin = EnsureRoot<AccountId>;
+//     const CHAIN_ID: ismp::host::ChainID = ismp::host::ChainID::ETHEREUM;
+//     type TimeProvider = ();
+//     type IsmpRouter = ();
+//     type ConsensusClientProvider = ();
+// }
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime where
@@ -453,10 +463,10 @@ construct_runtime!(
     {
         // System support stuff.
         System: frame_system::{Pallet, Call, Config, Storage, Event<T>} = 0,
+        Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 1,
         ParachainSystem: cumulus_pallet_parachain_system::{
             Pallet, Call, Config, Storage, Inherent, Event<T>, ValidateUnsigned,
-        } = 1,
-        Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 2,
+        } = 2,
         ParachainInfo: parachain_info::{Pallet, Storage, Config} = 3,
 
         // Monetary stuff.

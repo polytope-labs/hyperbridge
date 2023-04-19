@@ -1,5 +1,5 @@
 use cumulus_primitives_core::ParaId;
-use hyperspace_runtime::{AccountId, AuraId, Signature, EXISTENTIAL_DEPOSIT};
+use hyperbridge_runtime::{AccountId, AuraId, Signature, EXISTENTIAL_DEPOSIT};
 use sc_chain_spec::{ChainSpecExtension, ChainSpecGroup};
 use sc_service::ChainType;
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use sp_core::{sr25519, Pair, Public};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 
 /// Specialized `ChainSpec` for the normal parachain runtime.
-pub type ChainSpec = sc_service::GenericChainSpec<hyperspace_runtime::GenesisConfig, Extensions>;
+pub type ChainSpec = sc_service::GenericChainSpec<hyperbridge_runtime::GenesisConfig, Extensions>;
 
 /// The default XCM version to set in genesis config.
 const SAFE_XCM_VERSION: u32 = xcm::prelude::XCM_VERSION;
@@ -56,8 +56,8 @@ where
 /// Generate the session keys from individual elements.
 ///
 /// The input must be a tuple of individual keys (a single arg for now since we have just one key).
-pub fn session_keys(keys: AuraId) -> hyperspace_runtime::SessionKeys {
-    hyperspace_runtime::SessionKeys { aura: keys }
+pub fn session_keys(keys: AuraId) -> hyperbridge_runtime::SessionKeys {
+    hyperbridge_runtime::SessionKeys { aura: keys }
 }
 
 pub fn development_config() -> ChainSpec {
@@ -100,7 +100,7 @@ pub fn development_config() -> ChainSpec {
                     get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
                     get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
                 ],
-                1000.into(),
+                2000.into(),
             )
         },
         Vec::new(),
@@ -110,7 +110,7 @@ pub fn development_config() -> ChainSpec {
         None,
         Extensions {
             relay_chain: "rococo-local".into(), // You MUST set this to the correct network!
-            para_id: 1000,
+            para_id: 2000,
         },
     )
 }
@@ -155,7 +155,7 @@ pub fn local_testnet_config() -> ChainSpec {
                     get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
                     get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
                 ],
-                1000.into(),
+                2000.into(),
             )
         },
         // Bootnodes
@@ -171,7 +171,7 @@ pub fn local_testnet_config() -> ChainSpec {
         // Extensions
         Extensions {
             relay_chain: "rococo-local".into(), // You MUST set this to the correct network!
-            para_id: 1000,
+            para_id: 2000,
         },
     )
 }
@@ -180,23 +180,23 @@ fn testnet_genesis(
     invulnerables: Vec<(AccountId, AuraId)>,
     endowed_accounts: Vec<AccountId>,
     id: ParaId,
-) -> hyperspace_runtime::GenesisConfig {
-    hyperspace_runtime::GenesisConfig {
-        system: hyperspace_runtime::SystemConfig {
-            code: hyperspace_runtime::WASM_BINARY
+) -> hyperbridge_runtime::GenesisConfig {
+    hyperbridge_runtime::GenesisConfig {
+        system: hyperbridge_runtime::SystemConfig {
+            code: hyperbridge_runtime::WASM_BINARY
                 .expect("WASM binary was not build, please build it!")
                 .to_vec(),
         },
-        balances: hyperspace_runtime::BalancesConfig {
+        balances: hyperbridge_runtime::BalancesConfig {
             balances: endowed_accounts.iter().cloned().map(|k| (k, 1 << 60)).collect(),
         },
-        parachain_info: hyperspace_runtime::ParachainInfoConfig { parachain_id: id },
-        collator_selection: hyperspace_runtime::CollatorSelectionConfig {
+        parachain_info: hyperbridge_runtime::ParachainInfoConfig { parachain_id: id },
+        collator_selection: hyperbridge_runtime::CollatorSelectionConfig {
             invulnerables: invulnerables.iter().cloned().map(|(acc, _)| acc).collect(),
             candidacy_bond: EXISTENTIAL_DEPOSIT * 16,
             ..Default::default()
         },
-        session: hyperspace_runtime::SessionConfig {
+        session: hyperbridge_runtime::SessionConfig {
             keys: invulnerables
                 .into_iter()
                 .map(|(acc, aura)| {
@@ -213,7 +213,7 @@ fn testnet_genesis(
         aura: Default::default(),
         aura_ext: Default::default(),
         parachain_system: Default::default(),
-        polkadot_xcm: hyperspace_runtime::PolkadotXcmConfig {
+        polkadot_xcm: hyperbridge_runtime::PolkadotXcmConfig {
             safe_xcm_version: Some(SAFE_XCM_VERSION),
         },
     }

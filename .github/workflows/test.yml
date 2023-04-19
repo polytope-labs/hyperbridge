@@ -54,7 +54,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: check
-          args: -p hyperspace-runtime --no-default-features --target=wasm32-unknown-unknown --locked
+          args: -p hyperbridge-runtime --no-default-features --target=wasm32-unknown-unknown --locked
   fmt:
     name: Cargo fmt
     runs-on: ubuntu-latest

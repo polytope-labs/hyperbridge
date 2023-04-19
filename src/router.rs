@@ -15,7 +15,7 @@
 
 //! ISMPRouter definition
 
-use crate::{consensus_client::StateMachineHeight, error::Error, host::ChainID, prelude::Vec};
+use crate::{consensus_client::StateMachineHeight, error::Error, host::StateMachine, prelude::Vec};
 use codec::{Decode, Encode};
 use core::time::Duration;
 
@@ -24,9 +24,9 @@ use core::time::Duration;
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Post {
     /// The source state machine of this request.
-    pub source_chain: ChainID,
+    pub source_chain: StateMachine,
     /// The destination state machine of this request.
-    pub dest_chain: ChainID,
+    pub dest_chain: StateMachine,
     /// The nonce of this request on the source chain
     pub nonce: u64,
     /// Moudle Id of the sending module
@@ -44,9 +44,9 @@ pub struct Post {
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Get {
     /// The source state machine of this request.
-    pub source_chain: ChainID,
+    pub source_chain: StateMachine,
     /// The destination state machine of this request.
-    pub dest_chain: ChainID,
+    pub dest_chain: StateMachine,
     /// The nonce of this request on the source chain
     pub nonce: u64,
     /// Moudle Id of the sending module
@@ -73,7 +73,7 @@ pub enum Request {
 
 impl Request {
     /// Get the source chain
-    pub fn source_chain(&self) -> ChainID {
+    pub fn source_chain(&self) -> StateMachine {
         match self {
             Request::Get(get) => get.source_chain,
             Request::Post(post) => post.source_chain,
@@ -81,7 +81,7 @@ impl Request {
     }
 
     /// Get the destination chain
-    pub fn dest_chain(&self) -> ChainID {
+    pub fn dest_chain(&self) -> StateMachine {
         match self {
             Request::Get(get) => get.dest_chain,
             Request::Post(post) => post.dest_chain,

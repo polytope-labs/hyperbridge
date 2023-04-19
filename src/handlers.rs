@@ -18,7 +18,7 @@
 use crate::{
     consensus_client::{ConsensusClient, ConsensusClientId, StateMachineHeight},
     error::Error,
-    host::{ChainID, ISMPHost},
+    host::{ISMPHost, StateMachine},
     messaging::{Message, Proof},
 };
 use alloc::{boxed::Box, collections::BTreeSet};
@@ -42,9 +42,9 @@ pub struct ConsensusClientCreatedResult {
 
 pub struct RequestResponseResult {
     /// Destination chain for request or response
-    pub dest_chain: ChainID,
+    pub dest_chain: StateMachine,
     /// Source chain for request or response
-    pub source_chain: ChainID,
+    pub source_chain: StateMachine,
     /// Request nonce
     pub nonce: u64,
 }

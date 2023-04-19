@@ -23,6 +23,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
+extern crate core;
+
 pub mod consensus_client;
 pub mod error;
 pub mod handlers;

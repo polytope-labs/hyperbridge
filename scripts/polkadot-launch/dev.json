@@ -61,7 +61,7 @@
   },
   "parachains": [
     {
-      "bin": "../../target/release/hyperbridge-node",
+      "bin": "../../target/release/hyperbridge",
       "chain": "dev",
       "nodes": [
         {

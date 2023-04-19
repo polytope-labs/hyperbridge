@@ -3458,7 +3458,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyperbridge-node"
+name = "hyperbridge"
 version = "0.1.0"
 dependencies = [
  "clap",
@@ -3538,7 +3538,7 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.3.4",
  "ismp",
- "ismp-parachain-consensus",
+ "ismp-parachain",
  "log",
  "pallet-aura",
  "pallet-authorship",
@@ -3802,7 +3802,7 @@ dependencies = [
 [[package]]
 name = "ismp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/ismp-rs.git?branch=main#26534dce3e5980eb33ff5ee1ce1e193cc53ebf1a"
+source = "git+ssh://git@github.com/polytope-labs/ismp-rs.git?branch=main#4b8013cada9f69ccbd550d1fc7e2c5107096559e"
 dependencies = [
  "derive_more",
  "parity-scale-codec",
@@ -3812,9 +3812,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "ismp-parachain-consensus"
+name = "ismp-parachain"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#f7c2186cbbe6490cdfabceda2374f4e98a3e54b4"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#cf7d40d221fa9c00e13a897f0968ab9cbe800c11"
 dependencies = [
  "ckb-merkle-mountain-range",
  "cumulus-pallet-parachain-system",
@@ -3824,6 +3824,7 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-primitives",
+ "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",
@@ -3836,7 +3837,7 @@ dependencies = [
 [[package]]
 name = "ismp-primitives"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#f7c2186cbbe6490cdfabceda2374f4e98a3e54b4"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#cf7d40d221fa9c00e13a897f0968ab9cbe800c11"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-system",
@@ -5939,7 +5940,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#f7c2186cbbe6490cdfabceda2374f4e98a3e54b4"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#cf7d40d221fa9c00e13a897f0968ab9cbe800c11"
 dependencies = [
  "ckb-merkle-mountain-range",
  "derive_more",

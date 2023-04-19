@@ -20,10 +20,10 @@ use cumulus_primitives_core::ParaId;
 use cumulus_relay_chain_interface::RelayChainInterface;
 
 // Substrate Imports
-use sc_network_sync::SyncingService;
 use sc_consensus::ImportQueue;
 use sc_executor::NativeElseWasmExecutor;
 use sc_network::NetworkBlock;
+use sc_network_sync::SyncingService;
 use sc_service::{Configuration, PartialComponents, TFullBackend, TFullClient, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker, TelemetryWorkerHandle};
 use sp_keystore::SyncCryptoStorePtr;

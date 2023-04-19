@@ -1,7 +1,7 @@
 [package]
-name = "hyperbridge-node"
+name = "hyperbridge"
 version = "0.1.0"
-authors = ["Polytope Labs"]
+authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "The Hyperbridge parachain node"
 edition = "2021"
 build = "build.rs"

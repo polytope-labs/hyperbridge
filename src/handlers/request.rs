@@ -17,7 +17,7 @@
 
 use crate::{
     error::Error,
-    handlers::{validate_state_machine, MessageResult, RequestResponseResult},
+    handlers::{validate_state_machine, MessageResult},
     host::ISMPHost,
     messaging::RequestMessage,
     router::RequestResponse,
@@ -33,20 +33,14 @@ where
     let state = host.state_machine_commitment(msg.proof.height)?;
     consensus_client.verify_membership(
         host,
-        RequestResponse::Request(msg.request.clone()),
+        RequestResponse::Request(msg.requests.clone()),
         state,
         &msg.proof,
     )?;
 
     let router = host.ismp_router();
 
-    let result = RequestResponseResult {
-        dest_chain: msg.request.dest_chain(),
-        source_chain: msg.request.source_chain(),
-        nonce: msg.request.nonce(),
-    };
-
-    router.dispatch(msg.request)?;
+    let result = msg.requests.into_iter().map(|request| router.dispatch(request)).collect();
 
     Ok(MessageResult::Request(result))
 }

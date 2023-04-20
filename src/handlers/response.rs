@@ -17,7 +17,7 @@
 
 use crate::{
     error::Error,
-    handlers::{validate_state_machine, MessageResult, RequestResponseResult},
+    handlers::{validate_state_machine, MessageResult},
     host::ISMPHost,
     messaging::ResponseMessage,
     router::RequestResponse,
@@ -30,35 +30,32 @@ where
     H: ISMPHost,
 {
     let consensus_client = validate_state_machine(host, &msg.proof)?;
-    // For a response to be valid a request commitment must be present in storage
-    let commitment = host.request_commitment(&msg.response.request)?;
+    for response in &msg.responses {
+        // For a response to be valid a request commitment must be present in storage
+        let commitment = host.request_commitment(&response.request)?;
 
-    if commitment != hash_request::<H>(&msg.response.request) {
-        return Err(Error::RequestCommitmentNotFound {
-            nonce: msg.response.request.nonce(),
-            source: msg.response.request.source_chain(),
-            dest: msg.response.request.dest_chain(),
-        })
+        if commitment != hash_request::<H>(&response.request) {
+            return Err(Error::RequestCommitmentNotFound {
+                nonce: response.request.nonce(),
+                source: response.request.source_chain(),
+                dest: response.request.dest_chain(),
+            })
+        }
     }
 
     let state = host.state_machine_commitment(msg.proof.height)?;
     // Verify membership proof
     consensus_client.verify_membership(
         host,
-        RequestResponse::Response(msg.response.clone()),
+        RequestResponse::Response(msg.responses.clone()),
         state,
         &msg.proof,
     )?;
 
     let router = host.ismp_router();
 
-    let result = RequestResponseResult {
-        dest_chain: msg.response.request.source_chain(),
-        source_chain: msg.response.request.dest_chain(),
-        nonce: msg.response.request.nonce(),
-    };
-
-    router.write_response(msg.response)?;
+    let result =
+        msg.responses.into_iter().map(|response| router.write_response(response)).collect();
 
     Ok(MessageResult::Response(result))
 }

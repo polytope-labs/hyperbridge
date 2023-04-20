@@ -42,25 +42,25 @@ pub struct CreateConsensusClient {
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct RequestMessage {
-    /// Request from source chain
-    pub request: Request,
-    /// Membership proof for this request
+    /// Requests from source chain
+    pub requests: Vec<Request>,
+    /// Membership batch proof for these requests
     pub proof: Proof,
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct ResponseMessage {
-    /// Response from sink chain
-    pub response: Response,
-    /// Membership proof for this response
+    /// Responses from sink chain
+    pub responses: Vec<Response>,
+    /// Membership batch proof for these responses
     pub proof: Proof,
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct TimeoutMessage {
-    /// Request timeout request
-    pub request: Request,
-    /// Non membership state Proof for the timeout
+    /// Request timeouts
+    pub requests: Vec<Request>,
+    /// Non membership batch proof for these requests
     pub timeout_proof: Proof,
 }
 

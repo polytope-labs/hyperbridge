@@ -17,7 +17,7 @@
 
 use crate::{
     error::Error,
-    handlers::{validate_state_machine, MessageResult, RequestResponseResult},
+    handlers::{validate_state_machine, MessageResult},
     host::ISMPHost,
     messaging::TimeoutMessage,
     router::RequestResponse,
@@ -30,42 +30,38 @@ where
     H: ISMPHost,
 {
     let consensus_client = validate_state_machine(host, &msg.timeout_proof)?;
-    let commitment = host.request_commitment(&msg.request)?;
-    if commitment != hash_request::<H>(&msg.request) {
-        return Err(Error::RequestCommitmentNotFound {
-            nonce: msg.request.nonce(),
-            source: msg.request.source_chain(),
-            dest: msg.request.dest_chain(),
-        })
-    }
-
     let state = host.state_machine_commitment(msg.timeout_proof.height)?;
-    if !msg.request.timed_out(state.timestamp()) {
-        Err(Error::RequestTimeoutNotElapsed {
-            nonce: msg.request.nonce(),
-            source: msg.request.source_chain(),
-            dest: msg.request.dest_chain(),
-            timeout_timestamp: msg.request.timeout(),
-            state_machine_time: state.timestamp(),
-        })?
+    for request in &msg.requests {
+        let commitment = host.request_commitment(request)?;
+        if commitment != hash_request::<H>(request) {
+            return Err(Error::RequestCommitmentNotFound {
+                nonce: request.nonce(),
+                source: request.source_chain(),
+                dest: request.dest_chain(),
+            })
+        }
+
+        if !request.timed_out(state.timestamp()) {
+            Err(Error::RequestTimeoutNotElapsed {
+                nonce: request.nonce(),
+                source: request.source_chain(),
+                dest: request.dest_chain(),
+                timeout_timestamp: request.timeout(),
+                state_machine_time: state.timestamp(),
+            })?
+        }
     }
 
-    let key = consensus_client.state_trie_key(RequestResponse::Request(msg.request.clone()));
+    let key = consensus_client.state_trie_key(RequestResponse::Request(msg.requests.clone()));
 
-    let request = consensus_client.verify_state_proof(host, key, state, &msg.timeout_proof)?;
+    let requests = consensus_client.verify_state_proof(host, key, state, &msg.timeout_proof)?;
 
-    if request.is_some() {
-        Err(Error::ImplementationSpecific("Request not timed out".into()))?
+    if requests.into_iter().any(|val| val.is_some()) {
+        Err(Error::ImplementationSpecific("Some Requests not timed out".into()))?
     }
-
-    let result = RequestResponseResult {
-        dest_chain: msg.request.source_chain(),
-        source_chain: msg.request.dest_chain(),
-        nonce: msg.request.nonce(),
-    };
 
     let router = host.ismp_router();
-    router.dispatch_timeout(msg.request)?;
+    let result = msg.requests.into_iter().map(|request| router.dispatch_timeout(request)).collect();
 
     Ok(MessageResult::Timeout(result))
 }

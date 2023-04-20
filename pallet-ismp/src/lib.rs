@@ -29,12 +29,16 @@ use crate::host::Host;
 use codec::{Decode, Encode};
 use frame_support::{log::debug, RuntimeDebug};
 use ismp_rs::{
+    consensus_client::{ConsensusClientId, StateMachineId},
     host::StateMachine,
     router::{Request, Response},
 };
 use sp_core::{offchain::StorageKind, H256};
 // Re-export pallet items so that they can be accessed from the crate namespace.
-use ismp_primitives::mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex};
+use ismp_primitives::{
+    mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex},
+    LeafIndexQuery,
+};
 use mmr::mmr::Mmr;
 pub use pallet::*;
 use sp_std::prelude::*;
@@ -266,7 +270,7 @@ pub mod pallet {
                         );
                     }
                     Ok(_) => {
-                        // Do nothing, event has been deposited in ismp router
+                        // Do nothing, event should have been deposited by the ismp router
                     }
                     Err(err) => {
                         errors.push(err.into());
@@ -481,5 +485,50 @@ impl<T: Config> Pallet<T> {
             return LeafIndex::decode(&mut &*elem).ok()
         }
         None
+    }
+
+    /// Return the scale encoded consensus state
+    pub fn get_consensus_state(id: ConsensusClientId) -> Option<Vec<u8>> {
+        ConsensusStates::<T>::get(id)
+    }
+
+    /// Return the timestamp this client was last updated in seconds
+    pub fn get_consensus_update_time(id: ConsensusClientId) -> Option<u64> {
+        ConsensusClientUpdateTime::<T>::get(id)
+    }
+
+    /// Return the latest height of the state machine
+    pub fn get_latest_state_machine_height(id: StateMachineId) -> Option<u64> {
+        LatestStateMachineHeight::<T>::get(id)
+    }
+
+    /// Get Request Leaf Indices
+    pub fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex> {
+        leaf_queries
+            .into_iter()
+            .filter_map(|query| {
+                Self::get_leaf_index(query.source_chain, query.dest_chain, query.nonce, true)
+            })
+            .collect()
+    }
+
+    /// Get Response Leaf Indices
+    pub fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex> {
+        leaf_queries
+            .into_iter()
+            .filter_map(|query| {
+                Self::get_leaf_index(query.source_chain, query.dest_chain, query.nonce, false)
+            })
+            .collect()
+    }
+
+    /// Get actual requests
+    pub fn get_requests(leaf_indices: Vec<LeafIndex>) -> Vec<Request> {
+        leaf_indices.into_iter().filter_map(|leaf_index| Self::get_request(leaf_index)).collect()
+    }
+
+    /// Get actual requests
+    pub fn get_responses(leaf_indices: Vec<LeafIndex>) -> Vec<Response> {
+        leaf_indices.into_iter().filter_map(|leaf_index| Self::get_response(leaf_index)).collect()
     }
 }

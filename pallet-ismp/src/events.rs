@@ -49,6 +49,9 @@ pub fn to_core_protocol_events<T: Config>(event: PalletEvent<T>) -> Option<Event
         PalletEvent::Request { dest_chain, source_chain, request_nonce } => {
             Some(Event::Request { dest_chain, source_chain, request_nonce })
         }
+        PalletEvent::ChallengePeriodStarted { consensus_client_id, state_machines } => {
+            Some(Event::ChallengePeriodStarted { consensus_client_id, state_machines })
+        }
         _ => None,
     }
 }

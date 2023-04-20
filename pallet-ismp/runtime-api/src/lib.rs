@@ -2,23 +2,17 @@
 #![allow(clippy::too_many_arguments)]
 
 use ismp_rs::{
-    consensus_client::ConsensusClientId,
-    host::StateMachine,
+    consensus_client::{ConsensusClientId, StateMachineId},
     router::{Request, Response},
 };
 use pallet_ismp::primitives::{Error, Proof};
 
-use ismp_primitives::mmr::{Leaf, LeafIndex};
+use ismp_primitives::{
+    mmr::{Leaf, LeafIndex},
+    LeafIndexQuery,
+};
 #[cfg(not(feature = "std"))]
 use sp_std::vec::Vec;
-
-#[derive(codec::Encode, codec::Decode)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
-pub struct LeafIndexQuery {
-    pub source_chain: StateMachine,
-    pub dest_chain: StateMachine,
-    pub nonce: u64,
-}
 
 sp_api::decl_runtime_apis! {
     /// ISMP Runtime Apis
@@ -43,16 +37,19 @@ sp_api::decl_runtime_apis! {
         /// Return the timestamp this client was last updated in seconds
         fn consensus_update_time(id: ConsensusClientId) -> Option<u64>;
 
+        /// Return the latest height of the state machine
+        fn latest_state_machine_height(id: StateMachineId) -> Option<u64>;
+
         /// Get Request Leaf Indices
-        fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Option<Vec<LeafIndex>>;
+        fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex>;
 
         /// Get Response Leaf Indices
-        fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Option<Vec<LeafIndex>>;
+        fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex>;
 
         /// Get actual requests
-        fn get_requests(leaf_indices: Vec<LeafIndex>) -> Option<Vec<Request>>;
+        fn get_requests(leaf_indices: Vec<LeafIndex>) -> Vec<Request>;
 
         /// Get actual requests
-        fn get_responses(leaf_indices: Vec<LeafIndex>) -> Option<Vec<Response>>;
+        fn get_responses(leaf_indices: Vec<LeafIndex>) -> Vec<Response>;
     }
 }

@@ -85,8 +85,8 @@ pub struct ParachainStateProof {
 pub struct MembershipProof {
     /// Size of the mmr at the time this proof was generated
     pub mmr_size: u64,
-    /// Mmr pos for this leaf
-    pub mmr_pos: u64,
+    /// Leaf indices for the proof
+    pub leaf_indices: Vec<u64>,
     /// Mmr proof
     pub proof: Vec<H256>,
 }
@@ -228,29 +228,36 @@ where
     fn verify_membership(
         &self,
         _host: &dyn ISMPHost,
-        _item: RequestResponse,
+        item: RequestResponse,
         state: StateCommitment,
-        _proof: &Proof,
+        proof: &Proof,
     ) -> Result<(), Error> {
-        let membership = MembershipProof::decode(&mut &*_proof.proof).map_err(|e| {
+        let membership = MembershipProof::decode(&mut &*proof.proof).map_err(|e| {
             Error::ImplementationSpecific(format!("Cannot decode membership proof: {e:?}"))
         })?;
         let nodes = membership.proof.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
         let proof =
             MerkleProof::<DataOrHash<T>, MmrHasher<T, Host<T>>>::new(membership.mmr_size, nodes);
-        let leaf = match _item {
-            RequestResponse::Request(req) => Leaf::Request(req),
-            RequestResponse::Response(res) => Leaf::Response(res),
+        let leaves = match item {
+            RequestResponse::Request(req) => membership
+                .leaf_indices
+                .into_iter()
+                .zip(req.into_iter())
+                .map(|(pos, req)| (pos, DataOrHash::Data(Leaf::Request(req))))
+                .collect(),
+            RequestResponse::Response(res) => membership
+                .leaf_indices
+                .into_iter()
+                .zip(res.into_iter())
+                .map(|(pos, res)| (pos, DataOrHash::Data(Leaf::Response(res))))
+                .collect(),
         };
         let root = state
             .ismp_root
             .ok_or_else(|| Error::ImplementationSpecific("ISMP root should not be None".into()))?;
 
         let valid = proof
-            .verify(
-                DataOrHash::Hash(root.into()),
-                vec![(membership.mmr_pos, DataOrHash::Data(leaf))],
-            )
+            .verify(DataOrHash::Hash(root.into()), leaves)
             .map_err(|e| Error::ImplementationSpecific(format!("Error verifying mmr: {e:?}")))?;
 
         if !valid {
@@ -260,17 +267,17 @@ where
         Ok(())
     }
 
-    fn state_trie_key(&self, _request: RequestResponse) -> Vec<u8> {
+    fn state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
         todo!()
     }
 
     fn verify_state_proof(
         &self,
         _host: &dyn ISMPHost,
-        key: Vec<u8>,
+        keys: Vec<Vec<u8>>,
         root: StateCommitment,
         proof: &Proof,
-    ) -> Result<Option<Vec<u8>>, Error> {
+    ) -> Result<Vec<Option<Vec<u8>>>, Error> {
         let state_proof: ParachainStateProof = codec::Decode::decode(&mut &*proof.proof)
             .map_err(|e| Error::ImplementationSpecific(format!("failed to decode proof: {e:?}")))?;
 
@@ -278,9 +285,15 @@ where
             HashAlgorithm::Keccak => {
                 let db = StorageProof::new(state_proof.storage_proof).into_memory_db::<Keccak256>();
                 let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root.state_root).build();
-                trie.get(&key).map_err(|e| {
-                    Error::ImplementationSpecific(format!("Error reading state proof: {e:?}"))
-                })?
+                keys.into_iter()
+                    .map(|key| {
+                        trie.get(&key).map_err(|e| {
+                            Error::ImplementationSpecific(format!(
+                                "Error reading state proof: {e:?}"
+                            ))
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
             }
             HashAlgorithm::Blake2 => {
                 let db =
@@ -288,9 +301,15 @@ where
 
                 let trie =
                     TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root.state_root).build();
-                trie.get(&key).map_err(|e| {
-                    Error::ImplementationSpecific(format!("Error reading state proof: {e:?}"))
-                })?
+                keys.into_iter()
+                    .map(|key| {
+                        trie.get(&key).map_err(|e| {
+                            Error::ImplementationSpecific(format!(
+                                "Error reading state proof: {e:?}"
+                            ))
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
             }
         };
 

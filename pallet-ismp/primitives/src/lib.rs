@@ -15,4 +15,14 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use ismp::host::StateMachine;
+
 pub mod mmr;
+
+#[derive(codec::Encode, codec::Decode)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+pub struct LeafIndexQuery {
+    pub source_chain: StateMachine,
+    pub dest_chain: StateMachine,
+    pub nonce: u64,
+}

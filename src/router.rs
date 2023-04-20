@@ -147,26 +147,28 @@ pub enum RequestResponse {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum DispatchResult {
-    Error {
-        /// Descriptive error message
-        msg: String,
-        /// Request nonce
-        nonce: u64,
-        /// Source chain for request or response
-        source: StateMachine,
-        /// Destination chain for request or response
-        dest: StateMachine,
-    },
-    Success {
-        /// Destination chain for request or response
-        dest_chain: StateMachine,
-        /// Source chain for request or response
-        source_chain: StateMachine,
-        /// Request nonce
-        nonce: u64,
-    },
+pub struct DispatchSuccess {
+    /// Destination chain for request or response
+    pub dest_chain: StateMachine,
+    /// Source chain for request or response
+    pub source_chain: StateMachine,
+    /// Request nonce
+    pub nonce: u64,
 }
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct DispatchError {
+    /// Descriptive error message
+    pub msg: String,
+    /// Request nonce
+    pub nonce: u64,
+    /// Source chain for request or response
+    pub source: StateMachine,
+    /// Destination chain for request or response
+    pub dest: StateMachine,
+}
+
+pub type DispatchResult = Result<DispatchSuccess, DispatchError>;
 
 pub trait ISMPRouter {
     /// Dispatch some requests to the ISMP router.

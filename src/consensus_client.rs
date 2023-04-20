@@ -92,7 +92,7 @@ pub trait ConsensusClient {
     /// Return unbonding period
     fn unbonding_period(&self) -> Duration;
 
-    /// Verify the merkle mountain range membership of proof of a request/response.
+    /// Verify the merkle mountain range membership proof of a batch of requests/responses.
     fn verify_membership(
         &self,
         host: &dyn ISMPHost,
@@ -101,17 +101,17 @@ pub trait ConsensusClient {
         proof: &Proof,
     ) -> Result<(), Error>;
 
-    /// Transform the request/response into it's key in the state trie.
-    fn state_trie_key(&self, request: RequestResponse) -> Vec<u8>;
+    /// Transform the requests/responses into their equivalent key in the state trie.
+    fn state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>>;
 
     /// Verify the state of proof of some arbitrary data. Should return the verified data
     fn verify_state_proof(
         &self,
         host: &dyn ISMPHost,
-        key: Vec<u8>,
+        keys: Vec<Vec<u8>>,
         root: StateCommitment,
         proof: &Proof,
-    ) -> Result<Option<Vec<u8>>, Error>;
+    ) -> Result<Vec<Option<Vec<u8>>>, Error>;
 
     /// Decode trusted state and check if consensus client is frozen
     fn is_frozen(&self, trusted_consensus_state: &[u8]) -> Result<(), Error>;

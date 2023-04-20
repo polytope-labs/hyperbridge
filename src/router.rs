@@ -15,7 +15,8 @@
 
 //! ISMPRouter definition
 
-use crate::{consensus_client::StateMachineHeight, error::Error, host::StateMachine, prelude::Vec};
+use crate::{consensus_client::StateMachineHeight, host::StateMachine, prelude::Vec};
+use alloc::string::String;
 use codec::{Decode, Encode};
 use core::time::Duration;
 
@@ -141,20 +142,43 @@ pub type GetResponse = Vec<(Vec<u8>, Vec<u8>)>;
 
 /// Convenience enum for membership verification.
 pub enum RequestResponse {
-    Request(Request),
-    Response(Response),
+    Request(Vec<Request>),
+    Response(Vec<Response>),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum DispatchResult {
+    Error {
+        /// Descriptive error message
+        msg: String,
+        /// Request nonce
+        nonce: u64,
+        /// Source chain for request or response
+        source: StateMachine,
+        /// Destination chain for request or response
+        dest: StateMachine,
+    },
+    Success {
+        /// Destination chain for request or response
+        dest_chain: StateMachine,
+        /// Source chain for request or response
+        source_chain: StateMachine,
+        /// Request nonce
+        nonce: u64,
+    },
 }
 
 pub trait ISMPRouter {
-    /// Dispatch a request from a module to the ISMP router.
-    /// If request source chain is the host, it should be committed in state as a sha256 hash
-    fn dispatch(&self, request: Request) -> Result<(), Error>;
+    /// Dispatch some requests to the ISMP router.
+    /// For outgoing requests, they should be committed in state as a keccak256 hash
+    /// For incoming requests, they should be dispatched to destination modules
+    fn dispatch(&self, request: Request) -> DispatchResult;
 
-    /// Dispatch a request timeout from a module to the ISMP router.
-    /// If request source chain is the host, it should be committed in state as a sha256 hash
-    fn dispatch_timeout(&self, request: Request) -> Result<(), Error>;
+    /// Dispatch request timeouts to the router which should dispatch them to modules
+    fn dispatch_timeout(&self, request: Request) -> DispatchResult;
 
-    /// Provide a response to a previously received request.
-    /// If response source chain is the host, it should be committed in state as a sha256 hash
-    fn write_response(&self, response: Response) -> Result<(), Error>;
+    /// Dispatch some responses to the ISMP router.
+    /// For outgoing responses, the router should commit them to host state as a keccak256 hash
+    /// For incoming responses, they should be dispatched to destination modules
+    fn write_response(&self, response: Response) -> DispatchResult;
 }

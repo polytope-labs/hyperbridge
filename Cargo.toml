@@ -10,5 +10,6 @@ resolver = "2"
 members = [
     "primitives",
     "consensus",
-    "messaging"
+    "messaging",
+    "parachain",
 ]

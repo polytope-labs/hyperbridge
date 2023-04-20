@@ -18,7 +18,7 @@
 use futures::Stream;
 use ismp::{
     consensus_client::{ConsensusClientId, StateMachineHeight, StateMachineId},
-    host::ChainID,
+    host::StateMachine,
     messaging::{ConsensusMessage, Message},
     router::{Request, Response},
 };
@@ -29,8 +29,8 @@ use std::{pin::Pin, time::Duration};
 /// relayed to the counterparty chain.
 
 pub struct Query {
-    pub source_chain: ChainID,
-    pub dest_chain: ChainID,
+    pub source_chain: StateMachine,
+    pub dest_chain: StateMachine,
     pub nonce: u64,
 }
 
@@ -49,9 +49,6 @@ pub struct ChallengePeriodStarted {
 
 #[async_trait::async_trait]
 pub trait IsmpProvider {
-    /// Error type, just needs to implement standard error trait.
-    type Error: std::error::Error + From<String> + Send + Sync + 'static;
-
     /// Transaction  Id type for this chain
     type TransactionId;
 
@@ -60,24 +57,33 @@ pub trait IsmpProvider {
         &self,
         at: u64,
         id: ConsensusClientId,
-    ) -> Result<Vec<u8>, Self::Error>;
+    ) -> Result<Vec<u8>, anyhow::Error>;
+
+    /// Query the latest height at which some state machine was last updated
+    async fn query_latest_state_machine_height(
+        &self,
+        id: StateMachineId,
+    ) -> Result<u32, anyhow::Error>;
 
     /// Query the timestamp at which the client was last updated
     async fn query_consensus_update_time(
         &self,
         id: ConsensusClientId,
-    ) -> Result<Duration, Self::Error>;
+    ) -> Result<Duration, anyhow::Error>;
 
     /// Query a requests proof
-    async fn query_requests_proof(&self, at: u64, keys: Vec<Query>)
-        -> Result<Vec<u8>, Self::Error>;
+    async fn query_requests_proof(
+        &self,
+        at: u64,
+        keys: Vec<Query>,
+    ) -> Result<Vec<u8>, anyhow::Error>;
 
     /// Query a responses proof
     async fn query_responses_proof(
         &self,
         at: u64,
         keys: Vec<Query>,
-    ) -> Result<Vec<u8>, Self::Error>;
+    ) -> Result<Vec<u8>, anyhow::Error>;
 
     /// Query a request timeout proof
     /// keys contains ismp canonical keys without any chain specific prefixes or suffixes
@@ -85,30 +91,28 @@ pub trait IsmpProvider {
         &self,
         at: u64,
         keys: Vec<Vec<u8>>,
-    ) -> Result<Vec<u8>, Self::Error>;
+    ) -> Result<Vec<u8>, anyhow::Error>;
 
     /// Query all ismp events on host that can be processed for a [`StateMachineUpdated`]
     /// event on the counterparty
-    async fn query_ismp_events<T: IsmpHost>(
+    async fn query_ismp_events(
         &self,
         event: StateMachineUpdated,
-    ) -> Result<Vec<Event>, Self::Error>;
+    ) -> Result<Vec<Event>, anyhow::Error>;
 
     /// Query requests
-    async fn query_requests(&self, at: u64, keys: Vec<Query>) -> Result<Vec<Request>, Self::Error>;
+    async fn query_requests(
+        &self,
+        at: u64,
+        keys: Vec<Query>,
+    ) -> Result<Vec<Request>, anyhow::Error>;
 
     /// Query responses
     async fn query_responses(
         &self,
         at: u64,
         keys: Vec<Query>,
-    ) -> Result<Vec<Response>, Self::Error>;
-}
-
-/// Interface for signing transactions
-pub trait KeyProvider {
-    /// Returns an account type supported by the chain
-    fn account_id(&self) -> String;
+    ) -> Result<Vec<Response>, anyhow::Error>;
 }
 
 /// Provides an interface for handling byzantine behaviour. Implementations of this should watch for
@@ -132,7 +136,7 @@ pub trait ByzantineHandler {
 
 /// Provides an interface for the chain to the relayer core for submitting Ismp messages as well as
 #[async_trait::async_trait]
-pub trait IsmpHost: IsmpProvider + ByzantineHandler + KeyProvider + Send + Sync {
+pub trait IsmpHost: IsmpProvider + ByzantineHandler + Send + Sync {
     /// Name of this chain, used in logs.
     fn name(&self) -> &str;
 
@@ -140,22 +144,22 @@ pub trait IsmpHost: IsmpProvider + ByzantineHandler + KeyProvider + Send + Sync 
     fn block_max_gas(&self) -> u64;
 
     /// Should return a numerical estimate of the gas to be consumed for a batch of messages.
-    async fn estimate_gas(&self, msg: Vec<Message>) -> Result<u64, Self::Error>;
+    async fn estimate_gas(&self, msg: Vec<Message>) -> Result<u64, anyhow::Error>;
 
     /// Return a stream that yields [`ConsensusMessage`] when a new consensus update can be sent to
     /// the counterparty
     async fn consensus_notification(
         &self,
-    ) -> Pin<Box<dyn Stream<Item = ConsensusMessage> + Send + Sync>>;
+    ) -> Pin<Box<dyn Stream<Item = Result<ConsensusMessage, anyhow::Error>> + Send>>;
 
     /// Return a stream that yields when new [`StateMachineUpdated`]
     /// event is observed
     async fn state_machine_update_notification(
         &self,
-    ) -> Pin<Box<dyn Stream<Item = StateMachineUpdated> + Send + Sync>>;
+    ) -> Pin<Box<dyn Stream<Item = StateMachineUpdated> + Send>>;
 
     /// This should be used to submit new messages [`Vec<Message>`] from a counterparty chain to
     /// this chain.
     /// Should return the transaction id
-    async fn submit(&self, messages: Vec<Message>) -> Result<Self::TransactionId, Self::Error>;
+    async fn submit(&self, messages: Vec<Message>) -> Result<Self::TransactionId, anyhow::Error>;
 }

@@ -1,0 +1,19 @@
+[package]
+name = "tesseract-parachain-client"
+version = "0.1.0"
+edition = "2021"
+description = "Parachain client implementation for the tesseract relayer"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+anyhow = "1.0.70"
+subxt = "0.28.0"
+codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = ["derive"] }
+futures = "0.3.28"
+async-trait = "0.1.53"
+
+ismp-parachain = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
+pallet-ismp = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
+ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main" }
+
+tesseract-primitives = { path = "../primitives" }

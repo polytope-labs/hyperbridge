@@ -32,13 +32,19 @@ where
             result = consensus_a.next() =>  {
                 match result {
                     None => break,
-                    Some(consensus_message) => {
+                    Some(Ok(consensus_message)) => {
                         chain_b.submit(vec![Message::Consensus(consensus_message)]).await?;
                         log::info!(
-                            target: "hyper-relay",
+                            target: "tesseract",
                             "Submitting consensus update message from {} to {}",
                             chain_a.name(), chain_b.name()
                         );
+                    },
+                    Some(Err(e)) => {
+                        log::error!(
+                            target: "tesseract",
+                            "{} encountered an error in the consenses stream: {e}", chain_a.name()
+                        )
                     }
                 }
             }
@@ -46,13 +52,19 @@ where
             result = consensus_b.next() =>  {
                  match result {
                     None => break,
-                    Some(consensus_message) => {
+                    Some(Ok(consensus_message)) => {
                          chain_a.submit(vec![Message::Consensus(consensus_message)]).await?;
                          log::info!(
-                            target: "hyper-relay",
+                            target: "tesseract",
                             "Submitting consensus update message from {} to {}",
                             chain_b.name(), chain_a.name()
                          );
+                    },
+                    Some(Err(e)) => {
+                        log::error!(
+                            target: "tesseract",
+                            "{} encountered an error in the consenses stream: {e}", chain_b.name()
+                        )
                     }
                 }
             }

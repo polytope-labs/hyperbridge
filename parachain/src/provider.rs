@@ -66,19 +66,11 @@ where
         todo!()
     }
 
-    async fn query_requests(
-        &self,
-        _at: u64,
-        _keys: Vec<Query>,
-    ) -> Result<Vec<Request>, anyhow::Error> {
+    async fn query_requests(&self, _keys: Vec<Query>) -> Result<Vec<Request>, anyhow::Error> {
         todo!()
     }
 
-    async fn query_responses(
-        &self,
-        _at: u64,
-        _keys: Vec<Query>,
-    ) -> Result<Vec<Response>, anyhow::Error> {
+    async fn query_responses(&self, _keys: Vec<Query>) -> Result<Vec<Response>, anyhow::Error> {
         todo!()
     }
 }

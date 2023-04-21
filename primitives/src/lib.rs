@@ -28,18 +28,21 @@ use std::{pin::Pin, time::Duration};
 /// Provides an interface for accessing new events and ISMP data on the chain which must be
 /// relayed to the counterparty chain.
 
+#[derive(Copy, Clone, Debug)]
 pub struct Query {
     pub source_chain: StateMachine,
     pub dest_chain: StateMachine,
     pub nonce: u64,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct StateMachineUpdated {
     pub state_machine_id: StateMachineId,
     pub latest_height: u64,
     pub previous_height: u64,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct ChallengePeriodStarted {
     /// State machine update still in challenge period
     pub state_machine_height: StateMachineHeight,
@@ -101,18 +104,10 @@ pub trait IsmpProvider {
     ) -> Result<Vec<Event>, anyhow::Error>;
 
     /// Query requests
-    async fn query_requests(
-        &self,
-        at: u64,
-        keys: Vec<Query>,
-    ) -> Result<Vec<Request>, anyhow::Error>;
+    async fn query_requests(&self, keys: Vec<Query>) -> Result<Vec<Request>, anyhow::Error>;
 
     /// Query responses
-    async fn query_responses(
-        &self,
-        at: u64,
-        keys: Vec<Query>,
-    ) -> Result<Vec<Response>, anyhow::Error>;
+    async fn query_responses(&self, keys: Vec<Query>) -> Result<Vec<Response>, anyhow::Error>;
 }
 
 /// Provides an interface for handling byzantine behaviour. Implementations of this should watch for
@@ -140,6 +135,10 @@ pub trait IsmpHost: IsmpProvider + ByzantineHandler + Send + Sync {
     /// Name of this chain, used in logs.
     fn name(&self) -> &str;
 
+    /// State Machine Id for this client which would be it's state machine id
+    /// on the counterparty chain
+    fn state_machine_id(&self) -> StateMachineId;
+
     /// Should return a numerical value for the max gas allowed for transactions in a block.
     fn block_max_gas(&self) -> u64;
 
@@ -152,11 +151,12 @@ pub trait IsmpHost: IsmpProvider + ByzantineHandler + Send + Sync {
         &self,
     ) -> Pin<Box<dyn Stream<Item = Result<ConsensusMessage, anyhow::Error>> + Send>>;
 
-    /// Return a stream that yields when new [`StateMachineUpdated`]
-    /// event is observed
+    /// Return a stream that watches for updates to [`counterparty_state_id`], yields when new
+    /// [`StateMachineUpdated`] event is observed for [`counterparty_state_id`]
     async fn state_machine_update_notification(
         &self,
-    ) -> Pin<Box<dyn Stream<Item = StateMachineUpdated> + Send>>;
+        counterparty_state_id: StateMachineId,
+    ) -> Pin<Box<dyn Stream<Item = Result<StateMachineUpdated, anyhow::Error>> + Send>>;
 
     /// This should be used to submit new messages [`Vec<Message>`] from a counterparty chain to
     /// this chain.

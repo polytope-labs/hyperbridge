@@ -2998,7 +2998,7 @@ dependencies = [
 [[package]]
 name = "ismp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/ismp-rs.git?branch=main#4b8013cada9f69ccbd550d1fc7e2c5107096559e"
+source = "git+ssh://git@github.com/polytope-labs/ismp-rs.git?branch=main#01724bb52d192022532a4a51953a4703a2914731"
 dependencies = [
  "derive_more",
  "parity-scale-codec",
@@ -3010,7 +3010,7 @@ dependencies = [
 [[package]]
 name = "ismp-parachain"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#9fecfce5ab0f8a12c6c0c4dcd0f72f703287b652"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#3d7691b9790d3a5d559c79aea71dabc5b6fa8221"
 dependencies = [
  "ckb-merkle-mountain-range",
  "cumulus-pallet-parachain-system",
@@ -3033,13 +3033,14 @@ dependencies = [
 [[package]]
 name = "ismp-primitives"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#9fecfce5ab0f8a12c6c0c4dcd0f72f703287b652"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#3d7691b9790d3a5d559c79aea71dabc5b6fa8221"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-system",
  "ismp",
  "parity-scale-codec",
  "primitive-types",
+ "serde",
  "sp-runtime 7.0.0",
 ]
 
@@ -4593,7 +4594,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#9fecfce5ab0f8a12c6c0c4dcd0f72f703287b652"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#3d7691b9790d3a5d559c79aea71dabc5b6fa8221"
 dependencies = [
  "ckb-merkle-mountain-range",
  "derive_more",
@@ -8532,6 +8533,15 @@ dependencies = [
 [[package]]
 name = "tesseract-message"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "tesseract-primitives",
+ "tokio",
+]
 
 [[package]]
 name = "tesseract-parachain-client"

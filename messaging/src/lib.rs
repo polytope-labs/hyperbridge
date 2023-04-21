@@ -14,3 +14,89 @@
 // limitations under the License.
 
 //! ISMP Message relay
+
+mod event_parser;
+
+use crate::event_parser::parse_ismp_events;
+use futures::StreamExt;
+use ismp::consensus_client::StateMachineHeight;
+use tesseract_primitives::IsmpHost;
+
+pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
+where
+    A: IsmpHost,
+    B: IsmpHost,
+{
+    let mut state_machine_update_stream_a =
+        chain_a.state_machine_update_notification(chain_b.state_machine_id()).await;
+    let mut state_machine_update_stream_b =
+        chain_b.state_machine_update_notification(chain_a.state_machine_id()).await;
+
+    loop {
+        tokio::select! {
+            result = state_machine_update_stream_a.next() =>  {
+                match result {
+                    None => break,
+                    Some(Ok(state_machine_update)) => {
+                        // Chain B's state machine has been updated to a new height on chain A
+                        // We query all the events that have been emitted on chain B that can be submitted to chain A
+                        let events = chain_b.query_ismp_events(state_machine_update).await?;
+                        if events.is_empty() {
+                            continue
+                        }
+                        let state_machine_height = StateMachineHeight {
+                            id: state_machine_update.state_machine_id,
+                            height: state_machine_update.latest_height
+                        };
+                        let messages = parse_ismp_events(&chain_b, events, state_machine_height).await?;
+                        chain_a.submit(messages).await?;
+                        log::info!(
+                            target: "tesseract",
+                            "Submitting ismp messages from {} to {}",
+                            chain_b.name(), chain_a.name()
+                        );
+                    },
+                    Some(Err(e)) => {
+                        log::error!(
+                            target: "tesseract",
+                            "{} encountered an error in the state machine update notification stream: {e}", chain_a.name()
+                        )
+                    }
+                }
+            }
+
+            result = state_machine_update_stream_b.next() =>  {
+                 match result {
+                    None => break,
+                    Some(Ok(state_machine_update)) => {
+                        // Chain A's state machine has been updated to a new height on chain B
+                        // We query all the events that have been emitted on chain A that can be submitted to chain B
+                        let events = chain_a.query_ismp_events(state_machine_update).await?;
+                        if events.is_empty() {
+                            continue
+                        }
+                        let state_machine_height = StateMachineHeight {
+                            id: state_machine_update.state_machine_id,
+                            height: state_machine_update.latest_height
+                        };
+                        let messages = parse_ismp_events(&chain_a, events, state_machine_height).await?;
+                        chain_b.submit(messages).await?;
+                         log::info!(
+                            target: "tesseract",
+                            "Submitting ismp messages from {} to {}",
+                            chain_a.name(), chain_b.name()
+                         );
+                    },
+                    Some(Err(e)) => {
+                        log::error!(
+                            target: "tesseract",
+                            "{} encountered an error in the state machine update notification stream: {e}", chain_b.name()
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}

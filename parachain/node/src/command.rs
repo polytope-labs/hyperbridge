@@ -1,5 +1,4 @@
-use std::net::SocketAddr;
-use std::str::FromStr;
+use std::{net::SocketAddr, str::FromStr};
 
 use codec::Encode;
 use cumulus_client_cli::generate_genesis_block;

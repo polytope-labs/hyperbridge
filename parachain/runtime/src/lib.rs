@@ -529,7 +529,7 @@ construct_runtime!(
 
         // ISMP stuff
         Ismp: pallet_ismp::{Pallet, Call, Storage, Event<T>} = 40,
-        IsmpParachain: ismp_parachain::{Pallet, Storage, Event<T>} = 41,
+        IsmpParachain: ismp_parachain::{Pallet, Storage, Event<T>, Config} = 41,
     }
 );
 

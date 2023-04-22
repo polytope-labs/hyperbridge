@@ -60,10 +60,10 @@ pub fn session_keys(keys: AuraId) -> hyperbridge_runtime::SessionKeys {
     hyperbridge_runtime::SessionKeys { aura: keys }
 }
 
-pub fn development_config() -> ChainSpec {
+pub fn development_config(id: u32) -> ChainSpec {
     // Give your base currency a unit name and decimal places
     let mut properties = sc_chain_spec::Properties::new();
-    properties.insert("tokenSymbol".into(), "UNIT".into());
+    properties.insert("tokenSymbol".into(), "HYPER".into());
     properties.insert("tokenDecimals".into(), 12.into());
     properties.insert("ss58Format".into(), 42.into());
 
@@ -100,7 +100,7 @@ pub fn development_config() -> ChainSpec {
                     get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
                     get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
                 ],
-                2000.into(),
+                id.into(),
             )
         },
         Vec::new(),
@@ -110,7 +110,7 @@ pub fn development_config() -> ChainSpec {
         None,
         Extensions {
             relay_chain: "rococo-local".into(), // You MUST set this to the correct network!
-            para_id: 2000,
+            para_id: id,
         },
     )
 }
@@ -213,6 +213,7 @@ fn testnet_genesis(
         aura: Default::default(),
         aura_ext: Default::default(),
         parachain_system: Default::default(),
+        ismp_parachain: Default::default(),
         polkadot_xcm: hyperbridge_runtime::PolkadotXcmConfig {
             safe_xcm_version: Some(SAFE_XCM_VERSION),
         },

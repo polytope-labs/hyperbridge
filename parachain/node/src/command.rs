@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::str::FromStr;
 
 use codec::Encode;
 use cumulus_client_cli::generate_genesis_block;
@@ -22,7 +23,11 @@ use crate::{
 
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
     Ok(match id {
-        "dev" => Box::new(chain_spec::development_config()),
+        name if name.starts_with("dev-") => {
+            let id = name.split('-').last().expect("dev chainspec should have chain id");
+            let id = u32::from_str(id).expect("can't parse Id into u32");
+            Box::new(chain_spec::development_config(id))
+        },
         "template-rococo" => Box::new(chain_spec::local_testnet_config()),
         "" | "local" => Box::new(chain_spec::local_testnet_config()),
         path => Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?),

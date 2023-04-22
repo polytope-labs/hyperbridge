@@ -27,6 +27,7 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use super::*;
     use cumulus_primitives_core::relay_chain;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
@@ -36,7 +37,9 @@ pub mod pallet {
     pub struct Pallet<T>(_);
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + parachain_system::Config {
+    pub trait Config:
+        frame_system::Config + pallet_ismp::Config + parachain_system::Config
+    {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
     }
 
@@ -62,6 +65,27 @@ pub mod pallet {
                 RelayChainState::<T>::insert(state.number, state.state_root);
                 Self::deposit_event(Event::<T>::NewRelayChainState { height: state.number })
             }
+        }
+    }
+
+    #[pallet::genesis_config]
+    pub struct GenesisConfig;
+
+    #[cfg(feature = "std")]
+    impl Default for GenesisConfig {
+        fn default() -> Self {
+            GenesisConfig
+        }
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> GenesisBuild<T> for GenesisConfig {
+        fn build(&self) {
+            // insert empty bytes
+            pallet_ismp::ConsensusStates::<T>::insert(
+                consensus::PARACHAIN_CONSENSUS_ID,
+                Vec::<u8>::new(),
+            );
         }
     }
 }

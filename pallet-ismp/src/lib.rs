@@ -21,7 +21,7 @@ extern crate alloc;
 mod errors;
 pub mod events;
 pub mod host;
-pub mod mmr;
+mod mmr;
 pub mod primitives;
 pub mod router;
 
@@ -182,6 +182,11 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// State variable that tells us if at least one new leaf was added to the mmr
+    #[pallet::storage]
+    #[pallet::getter(fn new_leaves)]
+    pub type NewLeavesAdded<T> = StorageValue<_, LeafIndex, OptionQuery>;
+
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
@@ -194,6 +199,10 @@ pub mod pallet {
         }
 
         fn on_finalize(_n: T::BlockNumber) {
+            // Only finalize if mmr was modified
+            if !NewLeavesAdded::<T>::exists() {
+                return
+            }
             let leaves = Self::number_of_leaves();
 
             let mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
@@ -214,6 +223,7 @@ pub mod pallet {
 
             let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
             <frame_system::Pallet<T>>::deposit_log(digest);
+            NewLeavesAdded::<T>::kill();
         }
 
         fn offchain_worker(_n: T::BlockNumber) {}
@@ -419,7 +429,10 @@ pub struct RequestResponseLog<T: Config> {
     mmr_root_hash: <T as frame_system::Config>::Hash,
 }
 
-impl<T: Config> Pallet<T> {
+impl<T: Config> Pallet<T>
+where
+    <T as frame_system::Config>::Hash: From<H256>,
+{
     pub fn request_leaf_index_offchain_key(
         source_chain: StateMachine,
         dest_chain: StateMachine,
@@ -436,7 +449,7 @@ impl<T: Config> Pallet<T> {
         (T::INDEXING_PREFIX, "Responses/leaf_indices", source_chain, dest_chain, nonce).encode()
     }
 
-    fn store_leaf_index_offchain(key: Vec<u8>, leaf_index: LeafIndex) {
+    pub fn store_leaf_index_offchain(key: Vec<u8>, leaf_index: LeafIndex) {
         sp_io::offchain_index::set(&key, &leaf_index.encode());
     }
 
@@ -530,5 +543,15 @@ impl<T: Config> Pallet<T> {
     /// Get actual requests
     pub fn get_responses(leaf_indices: Vec<LeafIndex>) -> Vec<Response> {
         leaf_indices.into_iter().filter_map(|leaf_index| Self::get_response(leaf_index)).collect()
+    }
+
+    pub fn mmr_push(leaf: Leaf) -> Option<NodeIndex> {
+        let leaves = Self::number_of_leaves();
+        let mut mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
+        let index = mmr.push(leaf);
+        if !NewLeavesAdded::<T>::exists() && index.is_some() {
+            NewLeavesAdded::<T>::put(index.unwrap())
+        }
+        index
     }
 }

@@ -1,4 +1,4 @@
-use crate::{host::Host, mmr, mmr::mmr::Mmr, Config, Event, Pallet, RequestAcks, ResponseAcks};
+use crate::{host::Host, Config, Event, Pallet, RequestAcks, ResponseAcks};
 use alloc::{boxed::Box, string::ToString};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
@@ -58,13 +58,12 @@ where
                 })?
             }
 
-            let leaves = Pallet::<T>::number_of_leaves();
             let (dest_chain, source_chain, nonce) =
                 (request.dest_chain(), request.source_chain(), request.nonce());
-            let mut mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
             let offchain_key =
                 Pallet::<T>::request_leaf_index_offchain_key(source_chain, dest_chain, nonce);
-            let leaf_index = if let Some(leaf_index) = mmr.push(Leaf::Request(request)) {
+            let leaf_index = if let Some(leaf_index) = Pallet::<T>::mmr_push(Leaf::Request(request))
+            {
                 leaf_index
             } else {
                 Err(DispatchError {
@@ -124,25 +123,25 @@ where
                 })?
             }
 
-            let leaves = Pallet::<T>::number_of_leaves();
             let (dest_chain, source_chain, nonce) = (
                 response.request.source_chain(),
                 response.request.dest_chain(),
                 response.request.nonce(),
             );
-            let mut mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
+
             let offchain_key =
                 Pallet::<T>::response_leaf_index_offchain_key(source_chain, dest_chain, nonce);
-            let leaf_index = if let Some(leaf_index) = mmr.push(Leaf::Response(response)) {
-                leaf_index
-            } else {
-                Err(DispatchError {
-                    msg: "Failed to push response into mmr".to_string(),
-                    nonce,
-                    source: source_chain,
-                    dest: dest_chain,
-                })?
-            };
+            let leaf_index =
+                if let Some(leaf_index) = Pallet::<T>::mmr_push(Leaf::Response(response)) {
+                    leaf_index
+                } else {
+                    Err(DispatchError {
+                        msg: "Failed to push response into mmr".to_string(),
+                        nonce,
+                        source: source_chain,
+                        dest: dest_chain,
+                    })?
+                };
 
             Pallet::<T>::deposit_event(Event::Response {
                 request_nonce: nonce,

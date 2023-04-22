@@ -108,7 +108,7 @@ where
 
     /// Query ISMP Events that were deposited in a series of blocks
     /// Using String keys because HashMap fails to deserialize when key is not a String
-    #[method(name = "ibc_queryEvents")]
+    #[method(name = "ismp_queryEvents")]
     fn query_events(
         &self,
         block_numbers: Vec<BlockNumberOrHash<Hash>>,

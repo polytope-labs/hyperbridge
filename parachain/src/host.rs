@@ -1,7 +1,7 @@
 use crate::ParachainClient;
 use futures::Stream;
 use ismp::{
-    consensus_client::StateMachineId,
+    consensus::StateMachineId,
     messaging::{ConsensusMessage, Message},
 };
 use std::pin::Pin;
@@ -10,7 +10,8 @@ use tesseract_primitives::{IsmpHost, StateMachineUpdated};
 #[async_trait::async_trait]
 impl<T> IsmpHost for ParachainClient<T>
 where
-    T: subxt::Config,
+    T: subxt::Config + Send + Sync + Clone,
+    T::Header: Send + Sync,
 {
     fn name(&self) -> &str {
         todo!()
@@ -36,9 +37,11 @@ where
 
     async fn state_machine_update_notification(
         &self,
-        _counterparty_id: StateMachineId,
+        counterparty_id: StateMachineId,
     ) -> Pin<Box<dyn Stream<Item = Result<StateMachineUpdated, anyhow::Error>> + Send>> {
-        todo!()
+        self.state_machine_update_notification_stream(counterparty_id)
+            .await
+            .expect("Failed to get state machine notification stream")
     }
 
     async fn submit(&self, _messages: Vec<Message>) -> Result<Self::TransactionId, anyhow::Error> {

@@ -15,5 +15,7 @@ async-trait = "0.1.53"
 ismp-parachain = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
 pallet-ismp = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
 ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main" }
-
+ismp-rpc = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
+ismp-primitives = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
+sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.40", features = ["full_crypto"] }
 tesseract-primitives = { path = "../primitives" }

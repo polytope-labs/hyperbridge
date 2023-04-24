@@ -19,7 +19,7 @@ mod event_parser;
 
 use crate::event_parser::parse_ismp_events;
 use futures::StreamExt;
-use ismp::consensus_client::StateMachineHeight;
+use ismp::consensus::StateMachineHeight;
 use tesseract_primitives::IsmpHost;
 
 pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>

@@ -1,5 +1,5 @@
 use ismp::{
-    consensus_client::StateMachineHeight,
+    consensus::StateMachineHeight,
     messaging::{Message, Proof, RequestMessage, ResponseMessage},
 };
 use pallet_ismp::events::Event;

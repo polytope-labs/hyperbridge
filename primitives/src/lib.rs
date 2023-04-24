@@ -17,7 +17,7 @@
 
 use futures::Stream;
 use ismp::{
-    consensus_client::{ConsensusClientId, StateMachineHeight, StateMachineId},
+    consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
     host::StateMachine,
     messaging::{ConsensusMessage, Message},
     router::{Request, Response},
@@ -39,7 +39,6 @@ pub struct Query {
 pub struct StateMachineUpdated {
     pub state_machine_id: StateMachineId,
     pub latest_height: u64,
-    pub previous_height: u64,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -75,6 +74,7 @@ pub trait IsmpProvider {
     ) -> Result<Duration, anyhow::Error>;
 
     /// Query a requests proof
+    /// Return the scale encoded proof
     async fn query_requests_proof(
         &self,
         at: u64,
@@ -82,15 +82,15 @@ pub trait IsmpProvider {
     ) -> Result<Vec<u8>, anyhow::Error>;
 
     /// Query a responses proof
+    /// Return the scale encoded proof
     async fn query_responses_proof(
         &self,
         at: u64,
         keys: Vec<Query>,
     ) -> Result<Vec<u8>, anyhow::Error>;
 
-    /// Query a request timeout proof
-    /// keys contains ismp canonical keys without any chain specific prefixes or suffixes
-    async fn query_timeout_proof(
+    /// Query state proof for some keys, return scaled encoded proof
+    async fn query_state_proof(
         &self,
         at: u64,
         keys: Vec<Vec<u8>>,

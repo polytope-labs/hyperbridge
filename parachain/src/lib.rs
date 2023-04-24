@@ -5,7 +5,7 @@ use crate::{
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use futures::{stream, Stream};
-use ismp::{consensus_client::StateMachineId, host::StateMachine, messaging::ConsensusMessage};
+use ismp::{consensus::StateMachineId, host::StateMachine, messaging::ConsensusMessage};
 use ismp_parachain::consensus::ParachainConsensusProof;
 use std::pin::Pin;
 use subxt::{
@@ -19,6 +19,7 @@ mod byzantine;
 mod codegen;
 mod host;
 mod provider;
+mod state_machine_notifications;
 
 pub use codegen::*;
 

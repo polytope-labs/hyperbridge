@@ -104,6 +104,7 @@ where
             intermediate_state.height,
             intermediate_state.commitment,
         )?;
+        host.store_latest_commitment_height(intermediate_state.height)?;
     }
 
     host.store_consensus_update_time(message.consensus_client_id, host.timestamp())?;

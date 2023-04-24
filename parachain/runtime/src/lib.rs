@@ -11,7 +11,6 @@ pub mod xcm_config;
 
 use core::time::Duration;
 use cumulus_pallet_parachain_system::RelayNumberStrictlyIncreases;
-use ismp_parachain::consensus::ParachainConsensusClient;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
@@ -43,11 +42,20 @@ use frame_system::{
     EnsureRoot,
 };
 use ismp::{
-    consensus::{ConsensusClient, ConsensusClientId},
+    consensus::{ConsensusClient, ConsensusClientId, StateMachineId},
     error::Error,
     host::StateMachine,
+    router::{Request, Response},
 };
-use pallet_ismp::{primitives::ConsensusClientProvider, router::ProxyRouter};
+use ismp_parachain::consensus::ParachainConsensusClient;
+use ismp_primitives::{
+    mmr::{Leaf, LeafIndex},
+    LeafIndexQuery,
+};
+use pallet_ismp::{
+    primitives::{ConsensusClientProvider, Proof},
+    router::ProxyRouter,
+};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 use xcm_config::{XcmConfig, XcmOriginToTransactDispatchOrigin};
@@ -683,6 +691,65 @@ impl_runtime_apis! {
         }
         fn query_length_to_fee(length: u32) -> Balance {
             TransactionPayment::length_to_fee(length)
+        }
+    }
+
+    impl ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
+        /// Return the number of MMR leaves.
+        fn mmr_leaf_count() -> Result<LeafIndex, pallet_ismp::primitives::Error> {
+            Ok(0)
+        }
+
+        /// Return the on-chain MMR root hash.
+        fn mmr_root() -> Result<<Block as BlockT>::Hash, pallet_ismp::primitives::Error> {
+            Ok(Ismp::mmr_root())
+        }
+
+        /// Generate a proof for the provided leaf indices
+        fn generate_proof(
+            leaf_indices: Vec<LeafIndex>
+        ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), pallet_ismp::primitives::Error> {
+            Ismp::generate_proof(leaf_indices)
+        }
+
+        /// Fetch all ISMP events
+        fn block_events() -> Option<Vec<pallet_ismp::events::Event>> {
+            None
+        }
+
+        /// Return the scale encoded consensus state
+        fn consensus_state(id: ConsensusClientId) -> Option<Vec<u8>> {
+            Ismp::consensus_states(id)
+        }
+
+        /// Return the timestamp this client was last updated in seconds
+        fn consensus_update_time(id: ConsensusClientId) -> Option<u64> {
+            Ismp::consensus_update_time(id)
+        }
+
+        /// Return the latest height of the state machine
+        fn latest_state_machine_height(id: StateMachineId) -> Option<u64> {
+            Ismp::get_latest_state_machine_height(id)
+        }
+
+        /// Get Request Leaf Indices
+        fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex> {
+            Ismp::get_request_leaf_indices(leaf_queries)
+        }
+
+        /// Get Response Leaf Indices
+        fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex> {
+            Ismp::get_response_leaf_indices(leaf_queries)
+        }
+
+        /// Get actual requests
+        fn get_requests(leaf_indices: Vec<LeafIndex>) -> Vec<Request> {
+            Ismp::get_requests(leaf_indices)
+        }
+
+        /// Get actual requests
+        fn get_responses(leaf_indices: Vec<LeafIndex>) -> Vec<Response> {
+            Ismp::get_responses(leaf_indices)
         }
     }
 

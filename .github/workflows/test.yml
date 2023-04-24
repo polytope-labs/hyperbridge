@@ -70,12 +70,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2022-10-28
-          override: true
           components: rustfmt
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+
+      - name: Cargo fmt
+        run: cargo +nightly fmt --all --check

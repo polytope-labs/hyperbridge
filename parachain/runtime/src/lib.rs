@@ -43,7 +43,7 @@ use frame_system::{
     EnsureRoot,
 };
 use ismp::{
-    consensus_client::{ConsensusClient, ConsensusClientId},
+    consensus::{ConsensusClient, ConsensusClientId},
     error::Error,
     host::StateMachine,
 };
@@ -452,6 +452,11 @@ impl pallet_collator_selection::Config for Runtime {
     type WeightInfo = ();
 }
 
+impl pallet_sudo::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+}
+
 pub struct StateMachineProvider;
 
 impl Get<StateMachine> for StateMachineProvider {
@@ -520,6 +525,7 @@ construct_runtime!(
         Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>} = 22,
         Aura: pallet_aura::{Pallet, Storage, Config<T>} = 23,
         AuraExt: cumulus_pallet_aura_ext::{Pallet, Storage, Config} = 24,
+        Sudo: pallet_sudo::{Pallet, Storage, Call, Event<T>, Config<T>} = 25,
 
         // XCM helpers.
         XcmpQueue: cumulus_pallet_xcmp_queue::{Pallet, Call, Storage, Event<T>} = 30,
@@ -529,7 +535,7 @@ construct_runtime!(
 
         // ISMP stuff
         Ismp: pallet_ismp::{Pallet, Call, Storage, Event<T>} = 40,
-        IsmpParachain: ismp_parachain::{Pallet, Storage, Event<T>} = 41,
+        IsmpParachain: ismp_parachain::{Pallet, Storage, Event<T>, Config} = 41,
     }
 );
 

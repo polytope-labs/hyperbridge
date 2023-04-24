@@ -3482,6 +3482,8 @@ dependencies = [
  "frame-benchmarking",
  "frame-benchmarking-cli",
  "hyperbridge-runtime",
+ "ismp-rpc",
+ "ismp-runtime-api",
  "jsonrpsee",
  "log",
  "pallet-transaction-payment-rpc",
@@ -3548,6 +3550,8 @@ dependencies = [
  "hex-literal 0.3.4",
  "ismp",
  "ismp-parachain",
+ "ismp-primitives",
+ "ismp-runtime-api",
  "log",
  "pallet-aura",
  "pallet-authorship",
@@ -3856,6 +3860,42 @@ dependencies = [
  "primitive-types",
  "serde",
  "sp-runtime",
+]
+
+[[package]]
+name = "ismp-rpc"
+version = "0.1.0"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#c5ad2b15be6559dc4dfbeab3e1ca198612a9cebb"
+dependencies = [
+ "frame-system",
+ "hex-literal 0.3.4",
+ "ismp",
+ "ismp-primitives",
+ "ismp-runtime-api",
+ "jsonrpsee",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "sc-client-api",
+ "serde",
+ "serde_json",
+ "sp-api",
+ "sp-blockchain",
+ "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
+name = "ismp-runtime-api"
+version = "0.1.0"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#c5ad2b15be6559dc4dfbeab3e1ca198612a9cebb"
+dependencies = [
+ "ismp",
+ "ismp-primitives",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "serde",
+ "sp-api",
+ "sp-std",
 ]
 
 [[package]]

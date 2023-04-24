@@ -50,9 +50,9 @@ where
     C::Api: ismp_runtime_api::IsmpRuntimeApi<Block, H256>,
     P: TransactionPool + Sync + Send + 'static,
 {
+    use ismp_rpc::{IsmpApiServer, IsmpRpcHandler};
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use substrate_frame_rpc_system::{System, SystemApiServer};
-    use ismp_rpc::{IsmpRpcHandler, IsmpApiServer};
 
     let mut module = RpcExtension::new(());
     let FullDeps { client, pool, deny_unsafe } = deps;

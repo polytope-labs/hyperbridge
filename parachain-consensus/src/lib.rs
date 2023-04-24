@@ -19,6 +19,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
+extern crate core;
 
 pub mod consensus;
 
@@ -50,11 +51,7 @@ pub mod pallet {
         StorageMap<_, Blake2_128Concat, relay_chain::BlockNumber, relay_chain::Hash, OptionQuery>;
 
     #[pallet::event]
-    #[pallet::generate_deposit(pub(super) fn deposit_event)]
-    pub enum Event<T: Config> {
-        /// A new relay chain state has been recorded.
-        NewRelayChainState { height: relay_chain::BlockNumber },
-    }
+    pub enum Event<T: Config> {}
 
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
@@ -63,18 +60,23 @@ pub mod pallet {
             let state = RelaychainDataProvider::<T>::current_relay_chain_state();
             if !RelayChainState::<T>::contains_key(state.number) {
                 RelayChainState::<T>::insert(state.number, state.state_root);
-                Self::deposit_event(Event::<T>::NewRelayChainState { height: state.number })
+
+                let digest = sp_runtime::generic::DigestItem::Consensus(
+                    consensus::PARACHAIN_CONSENSUS_ID,
+                    state.number.encode(),
+                );
+                <frame_system::Pallet<T>>::deposit_log(digest);
             }
         }
     }
 
     #[pallet::genesis_config]
-    pub struct GenesisConfig;
+    pub struct GenesisConfig {}
 
     #[cfg(feature = "std")]
     impl Default for GenesisConfig {
         fn default() -> Self {
-            GenesisConfig
+            GenesisConfig {}
         }
     }
 
@@ -85,6 +87,12 @@ pub mod pallet {
             pallet_ismp::ConsensusStates::<T>::insert(
                 consensus::PARACHAIN_CONSENSUS_ID,
                 Vec::<u8>::new(),
+            );
+
+            pallet_ismp::ConsensusClientUpdateTime::<T>::insert(
+                consensus::PARACHAIN_CONSENSUS_ID,
+                // parachains have no challenge period
+                0,
             );
         }
     }

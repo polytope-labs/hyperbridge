@@ -2,7 +2,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use ismp_rs::{
-    consensus_client::{ConsensusClientId, StateMachineId},
+    consensus::{ConsensusClientId, StateMachineId},
     router::{Request, Response},
 };
 use pallet_ismp::primitives::{Error, Proof};

@@ -17,11 +17,11 @@
 
 use core::{marker::PhantomData, time::Duration};
 
-use alloc::{format, vec, vec::Vec};
+use alloc::{collections::BTreeMap, format, vec, vec::Vec};
 use codec::{Decode, Encode};
-use hex_literal::hex;
+use core::fmt::Debug;
 use ismp::{
-    consensus_client::{
+    consensus::{
         ConsensusClient, ConsensusClientId, IntermediateState, StateCommitment, StateMachineHeight,
         StateMachineId,
     },
@@ -34,12 +34,14 @@ use ismp_primitives::mmr::{DataOrHash, Leaf, MmrHasher};
 use merkle_mountain_range::MerkleProof;
 use pallet_ismp::host::Host;
 use primitive_types::H256;
-use sp_consensus_aura::AURA_ENGINE_ID;
+use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_runtime::{
-    traits::{BlakeTwo256, Header, Keccak256},
+    app_crypto::sp_core::storage::StorageKey,
+    generic::Header,
+    traits::{BlakeTwo256, Header as _, Keccak256},
     DigestItem,
 };
-use sp_trie::{LayoutV0, StorageProof, Trie, TrieDBBuilder};
+use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
 
 use crate::RelayChainOracle;
 
@@ -91,10 +93,6 @@ pub struct MembershipProof {
     pub proof: Vec<H256>,
 }
 
-/// Static key for parachain headers in the relay chain storage
-const PARACHAIN_HEADS_KEY: [u8; 32] =
-    hex!("cd710b30bd2eab0352ddcc26417aa1941b3c252fcb29d88eff4f3de5de4476c3");
-
 /// The `ConsensusEngineId` of ISMP digest in the parachain header.
 pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";
 
@@ -113,7 +111,7 @@ where
 {
     fn verify_consensus(
         &self,
-        _host: &dyn ISMPHost,
+        host: &dyn ISMPHost,
         state: Vec<u8>,
         proof: Vec<u8>,
     ) -> Result<(Vec<u8>, Vec<IntermediateState>), Error> {
@@ -131,32 +129,29 @@ where
             ))
         })?;
 
-        let db = StorageProof::new(update.storage_proof).into_memory_db::<BlakeTwo256>();
-        let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
-
-        let parachain_heads_key = PARACHAIN_HEADS_KEY.to_vec();
-
+        let storage_proof = StorageProof::new(update.storage_proof);
         let mut intermediates = vec![];
 
         for id in update.para_ids {
-            let mut full_key = parachain_heads_key.clone();
-            full_key.extend(sp_io::hashing::twox_64(&*id.encode()));
-            let header = trie
-                .get(&full_key)
-                .map_err(|e| {
-                    Error::ImplementationSpecific(
-                        format!("Error verifying parachain header {e:?}",),
-                    )
-                })?
-                .ok_or_else(|| {
-                    Error::ImplementationSpecific(format!(
-                        "Cannot find parachain header for ParaId({id})",
-                    ))
-                })?;
-
+            let full_key = parachain_header_storage_key(id);
+            let header = read_proof_check::<BlakeTwo256, _>(
+                &root,
+                storage_proof.clone(),
+                vec![full_key.as_ref()],
+            )
+            .map_err(|e| {
+                Error::ImplementationSpecific(format!("Error verifying parachain header {e:?}",))
+            })?
+            .remove(full_key.as_ref())
+            .flatten()
+            .ok_or_else(|| {
+                Error::ImplementationSpecific(format!(
+                    "Cannot find parachain header for ParaId({id})",
+                ))
+            })?;
             // ideally all parachain headers are the same
-            let header = T::Header::decode(&mut &*header).map_err(|e| {
-                Error::ImplementationSpecific(format!("Error decoding parachain header: {e:?}",))
+            let header = Header::<u32, BlakeTwo256>::decode(&mut &*header).map_err(|e| {
+                Error::ImplementationSpecific(format!("Error decoding parachain header: {e}"))
             })?;
 
             let (mut timestamp, mut ismp_root) = (0, H256::default());
@@ -165,12 +160,10 @@ where
                     DigestItem::PreRuntime(consensus_engine_id, value)
                         if *consensus_engine_id == AURA_ENGINE_ID =>
                     {
-                        let slot = u64::decode(&mut &value[..]).map_err(|e| {
-                            Error::ImplementationSpecific(format!(
-                                "Cannot decode beacon message: {e:?}"
-                            ))
+                        let slot = Slot::decode(&mut &value[..]).map_err(|e| {
+                            Error::ImplementationSpecific(format!("Cannot slot: {e:?}"))
                         })?;
-                        timestamp = Duration::from_millis(slot * SLOT_DURATION).as_secs();
+                        timestamp = Duration::from_millis(*slot * SLOT_DURATION).as_secs();
                     }
                     DigestItem::Consensus(consensus_engine_id, value)
                         if *consensus_engine_id == ISMP_ID =>
@@ -188,13 +181,13 @@ where
                 };
             }
 
-            if timestamp == 0 || ismp_root == H256::default() {
+            if timestamp == 0 {
                 Err(Error::ImplementationSpecific("Timestamp or ismp root not found".into()))?
             }
 
             let height: u32 = (*header.number()).into();
 
-            let state_id = match _host.host_state_machine() {
+            let state_id = match host.host_state_machine() {
                 StateMachine::Kusama(_) => StateMachine::Kusama(id),
                 StateMachine::Polkadot(_) => StateMachine::Polkadot(id),
                 _ => Err(Error::ImplementationSpecific(
@@ -320,4 +313,45 @@ where
         // parachain consensus client can never be frozen.
         Ok(())
     }
+}
+
+/// This returns the storage key for a parachain header on the relay chain.
+pub fn parachain_header_storage_key(para_id: u32) -> StorageKey {
+    let mut storage_key = frame_support::storage::storage_prefix(b"Paras", b"Heads").to_vec();
+    let encoded_para_id = para_id.encode();
+    storage_key.extend_from_slice(sp_io::hashing::twox_64(&encoded_para_id).as_slice());
+    storage_key.extend_from_slice(&encoded_para_id);
+    StorageKey(storage_key)
+}
+
+/// Lifted directly from [`sp_state_machine::read_proof_check`](https://github.com/paritytech/substrate/blob/b27c470eaff379f512d1dec052aff5d551ed3b03/primitives/state-machine/src/lib.rs#L1075-L1094)
+pub fn read_proof_check<H, I>(
+    root: &H::Out,
+    proof: StorageProof,
+    keys: I,
+) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error>
+where
+    H: hash_db::Hasher,
+    H::Out: Debug,
+    I: IntoIterator,
+    I::Item: AsRef<[u8]>,
+{
+    let db = proof.into_memory_db();
+
+    if !db.contains(root, EMPTY_PREFIX) {
+        Err(Error::ImplementationSpecific("Invalid Proof".into()))?
+    }
+
+    let trie = TrieDBBuilder::<LayoutV0<H>>::new(&db, root).build();
+    let mut result = BTreeMap::new();
+
+    for key in keys.into_iter() {
+        let value = trie
+            .get(key.as_ref())
+            .map_err(|e| Error::ImplementationSpecific(format!("Error reading from trie: {e:?}")))?
+            .and_then(|val| Decode::decode(&mut &val[..]).ok());
+        result.insert(key.as_ref().to_vec(), value);
+    }
+
+    Ok(result)
 }

@@ -49,11 +49,11 @@ pub struct ChallengePeriodStarted {
     pub host_chain_height: u64,
 }
 
+/// Stream alias
+pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>> + Send>>;
+
 #[async_trait::async_trait]
 pub trait IsmpProvider {
-    /// Transaction  Id type for this chain
-    type TransactionId;
-
     /// Query the latest consensus state of a client
     async fn query_consensus_state(
         &self,
@@ -131,9 +131,9 @@ pub trait ByzantineHandler {
 
 /// Provides an interface for the chain to the relayer core for submitting Ismp messages as well as
 #[async_trait::async_trait]
-pub trait IsmpHost: IsmpProvider + ByzantineHandler + Send + Sync {
+pub trait IsmpHost: IsmpProvider + ByzantineHandler + Clone + Send + Sync {
     /// Name of this chain, used in logs.
-    fn name(&self) -> &str;
+    fn name(&self) -> String;
 
     /// State Machine Id for this client which would be it's state machine id
     /// on the counterparty chain
@@ -147,9 +147,12 @@ pub trait IsmpHost: IsmpProvider + ByzantineHandler + Send + Sync {
 
     /// Return a stream that yields [`ConsensusMessage`] when a new consensus update can be sent to
     /// the counterparty
-    async fn consensus_notification(
+    async fn consensus_notification<C>(
         &self,
-    ) -> Pin<Box<dyn Stream<Item = Result<ConsensusMessage, anyhow::Error>> + Send>>;
+        counterparty: C,
+    ) -> Result<BoxStream<ConsensusMessage>, anyhow::Error>
+    where
+        C: IsmpHost + Clone + 'static;
 
     /// Return a stream that watches for updates to [`counterparty_state_id`], yields when new
     /// [`StateMachineUpdated`] event is observed for [`counterparty_state_id`]
@@ -160,6 +163,7 @@ pub trait IsmpHost: IsmpProvider + ByzantineHandler + Send + Sync {
 
     /// This should be used to submit new messages [`Vec<Message>`] from a counterparty chain to
     /// this chain.
-    /// Should return the transaction id
-    async fn submit(&self, messages: Vec<Message>) -> Result<Self::TransactionId, anyhow::Error>;
+    ///
+    /// Should only return Ok if the transaction was successfully inserted into a block.
+    async fn submit(&self, messages: Vec<Message>) -> Result<(), anyhow::Error>;
 }

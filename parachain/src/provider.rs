@@ -1,5 +1,19 @@
+// Copyright (C) 2023 Polytope Labs.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::ParachainClient;
-use anyhow::Error;
 use codec::{Decode, Encode};
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
@@ -7,7 +21,6 @@ use ismp::{
 };
 use ismp_parachain::consensus::{HashAlgorithm, MembershipProof, ParachainStateProof};
 use ismp_primitives::LeafIndexQuery;
-use ismp_rpc::BlockNumberOrHash;
 use pallet_ismp::primitives::Proof as MmrProof;
 use sp_core::H256;
 use std::time::Duration;
@@ -19,8 +32,6 @@ impl<T> IsmpProvider for ParachainClient<T>
 where
     T: subxt::Config,
 {
-    type TransactionId = ();
-
     async fn query_consensus_state(
         &self,
         at: u64,
@@ -88,7 +99,11 @@ where
         Ok(proof.encode())
     }
 
-    async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
+    async fn query_state_proof(
+        &self,
+        at: u64,
+        keys: Vec<Vec<u8>>,
+    ) -> Result<Vec<u8>, anyhow::Error> {
         let params = rpc_params![at, keys];
         let response: ismp_rpc::Proof =
             self.parachain.rpc().request("ismp_queryStateProof", params).await?;
@@ -101,7 +116,7 @@ where
 
     async fn query_ismp_events(
         &self,
-        event: StateMachineUpdated,
+        _event: StateMachineUpdated,
     ) -> Result<Vec<pallet_ismp::events::Event>, anyhow::Error> {
         unimplemented!()
         // let block_numbers: Vec<BlockNumberOrHash<sp_core::H256>> = ((event.previous_height +

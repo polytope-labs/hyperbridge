@@ -5,7 +5,7 @@ pub mod api {
     mod root_mod {
         pub use super::*;
     }
-    pub static PALLETS: [&str; 17usize] = [
+    pub static PALLETS: [&str; 18usize] = [
         "System",
         "Timestamp",
         "ParachainSystem",
@@ -17,6 +17,7 @@ pub mod api {
         "Session",
         "Aura",
         "AuraExt",
+        "Sudo",
         "XcmpQueue",
         "PolkadotXcm",
         "CumulusXcm",
@@ -48,6 +49,8 @@ pub mod api {
         CollatorSelection(collator_selection::Event),
         #[codec(index = 22)]
         Session(session::Event),
+        #[codec(index = 25)]
+        Sudo(sudo::Event),
         #[codec(index = 30)]
         XcmpQueue(xcmp_queue::Event),
         #[codec(index = 31)]
@@ -110,6 +113,13 @@ pub mod api {
             }
             if pallet_name == "Session" {
                 return Ok(Event::Session(session::Event::decode_with_metadata(
+                    &mut &*pallet_bytes,
+                    pallet_ty,
+                    metadata,
+                )?))
+            }
+            if pallet_name == "Sudo" {
+                return Ok(Event::Sudo(sudo::Event::decode_with_metadata(
                     &mut &*pallet_bytes,
                     pallet_ty,
                     metadata,
@@ -223,6 +233,9 @@ pub mod api {
         pub fn aura_ext(&self) -> aura_ext::storage::StorageApi {
             aura_ext::storage::StorageApi
         }
+        pub fn sudo(&self) -> sudo::storage::StorageApi {
+            sudo::storage::StorageApi
+        }
         pub fn xcmp_queue(&self) -> xcmp_queue::storage::StorageApi {
             xcmp_queue::storage::StorageApi
         }
@@ -256,6 +269,9 @@ pub mod api {
         pub fn session(&self) -> session::calls::TransactionApi {
             session::calls::TransactionApi
         }
+        pub fn sudo(&self) -> sudo::calls::TransactionApi {
+            sudo::calls::TransactionApi
+        }
         pub fn xcmp_queue(&self) -> xcmp_queue::calls::TransactionApi {
             xcmp_queue::calls::TransactionApi
         }
@@ -276,9 +292,9 @@ pub mod api {
         let runtime_metadata_hash = client.metadata().metadata_hash(&PALLETS);
         if runtime_metadata_hash !=
             [
-                32u8, 163u8, 180u8, 242u8, 217u8, 65u8, 175u8, 11u8, 16u8, 67u8, 249u8, 231u8,
-                206u8, 165u8, 221u8, 163u8, 253u8, 31u8, 26u8, 78u8, 149u8, 11u8, 84u8, 27u8, 59u8,
-                218u8, 121u8, 43u8, 32u8, 50u8, 241u8, 52u8,
+                229u8, 67u8, 70u8, 19u8, 193u8, 202u8, 77u8, 28u8, 5u8, 250u8, 1u8, 129u8, 192u8,
+                148u8, 224u8, 187u8, 86u8, 142u8, 48u8, 3u8, 34u8, 160u8, 191u8, 29u8, 43u8, 108u8,
+                109u8, 242u8, 133u8, 191u8, 126u8, 89u8,
             ]
         {
             Err(::subxt::error::MetadataError::IncompatibleMetadata)
@@ -949,9 +965,10 @@ pub mod api {
                         "Events",
                         vec![],
                         [
-                            126u8, 99u8, 74u8, 47u8, 117u8, 254u8, 248u8, 241u8, 115u8, 1u8, 140u8,
-                            175u8, 138u8, 130u8, 148u8, 58u8, 160u8, 37u8, 8u8, 50u8, 124u8, 144u8,
-                            244u8, 208u8, 19u8, 137u8, 32u8, 4u8, 8u8, 219u8, 127u8, 203u8,
+                            25u8, 177u8, 221u8, 13u8, 191u8, 62u8, 146u8, 19u8, 175u8, 49u8, 70u8,
+                            230u8, 156u8, 62u8, 249u8, 223u8, 203u8, 213u8, 183u8, 146u8, 175u8,
+                            180u8, 177u8, 101u8, 196u8, 68u8, 176u8, 26u8, 190u8, 90u8, 240u8,
+                            25u8,
                         ],
                     )
                 }
@@ -3921,6 +3938,246 @@ pub mod api {
             }
         }
     }
+    pub mod sudo {
+        use super::{root_mod, runtime_types};
+        ///Contains one variant per dispatchable that can be called by an extrinsic.
+        pub mod calls {
+            use super::{root_mod, runtime_types};
+            type DispatchError = runtime_types::sp_runtime::DispatchError;
+            #[derive(
+                ::subxt::ext::codec::Decode,
+                ::subxt::ext::codec::Encode,
+                ::subxt::ext::scale_decode::DecodeAsType,
+                ::subxt::ext::scale_encode::EncodeAsType,
+                Debug,
+            )]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            pub struct Sudo {
+                pub call: ::std::boxed::Box<runtime_types::hyperbridge_runtime::RuntimeCall>,
+            }
+            #[derive(
+                ::subxt::ext::codec::Decode,
+                ::subxt::ext::codec::Encode,
+                ::subxt::ext::scale_decode::DecodeAsType,
+                ::subxt::ext::scale_encode::EncodeAsType,
+                Debug,
+            )]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            pub struct SudoUncheckedWeight {
+                pub call: ::std::boxed::Box<runtime_types::hyperbridge_runtime::RuntimeCall>,
+                pub weight: runtime_types::sp_weights::weight_v2::Weight,
+            }
+            #[derive(
+                ::subxt::ext::codec::Decode,
+                ::subxt::ext::codec::Encode,
+                ::subxt::ext::scale_decode::DecodeAsType,
+                ::subxt::ext::scale_encode::EncodeAsType,
+                Debug,
+            )]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            pub struct SetKey {
+                pub new: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
+            }
+            #[derive(
+                ::subxt::ext::codec::Decode,
+                ::subxt::ext::codec::Encode,
+                ::subxt::ext::scale_decode::DecodeAsType,
+                ::subxt::ext::scale_encode::EncodeAsType,
+                Debug,
+            )]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            pub struct SudoAs {
+                pub who: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
+                pub call: ::std::boxed::Box<runtime_types::hyperbridge_runtime::RuntimeCall>,
+            }
+            pub struct TransactionApi;
+            impl TransactionApi {
+                ///Authenticates the sudo key and dispatches a function call with `Root` origin.
+                ///
+                ///The dispatch origin for this call must be _Signed_.
+                ///
+                ///## Complexity
+                /// - O(1).
+                pub fn sudo(
+                    &self,
+                    call: runtime_types::hyperbridge_runtime::RuntimeCall,
+                ) -> ::subxt::tx::Payload<Sudo> {
+                    ::subxt::tx::Payload::new_static(
+                        "Sudo",
+                        "sudo",
+                        Sudo { call: ::std::boxed::Box::new(call) },
+                        [
+                            161u8, 254u8, 175u8, 148u8, 45u8, 14u8, 145u8, 105u8, 80u8, 167u8,
+                            163u8, 20u8, 198u8, 250u8, 122u8, 7u8, 153u8, 171u8, 83u8, 15u8, 104u8,
+                            80u8, 191u8, 61u8, 0u8, 135u8, 91u8, 27u8, 49u8, 194u8, 71u8, 154u8,
+                        ],
+                    )
+                }
+                ///Authenticates the sudo key and dispatches a function call with `Root` origin.
+                ///This function does not check the weight of the call, and instead allows the
+                ///Sudo user to specify the weight of the call.
+                ///
+                ///The dispatch origin for this call must be _Signed_.
+                ///
+                ///## Complexity
+                /// - O(1).
+                pub fn sudo_unchecked_weight(
+                    &self,
+                    call: runtime_types::hyperbridge_runtime::RuntimeCall,
+                    weight: runtime_types::sp_weights::weight_v2::Weight,
+                ) -> ::subxt::tx::Payload<SudoUncheckedWeight> {
+                    ::subxt::tx::Payload::new_static(
+                        "Sudo",
+                        "sudo_unchecked_weight",
+                        SudoUncheckedWeight { call: ::std::boxed::Box::new(call), weight },
+                        [
+                            227u8, 174u8, 94u8, 219u8, 60u8, 61u8, 148u8, 43u8, 206u8, 208u8,
+                            152u8, 151u8, 20u8, 125u8, 118u8, 235u8, 47u8, 12u8, 101u8, 18u8,
+                            101u8, 81u8, 208u8, 121u8, 82u8, 200u8, 104u8, 204u8, 184u8, 103u8,
+                            85u8, 121u8,
+                        ],
+                    )
+                }
+                ///Authenticates the current sudo key and sets the given AccountId (`new`) as the
+                /// new sudo key.
+                ///
+                ///The dispatch origin for this call must be _Signed_.
+                ///
+                ///## Complexity
+                /// - O(1).
+                pub fn set_key(
+                    &self,
+                    new: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
+                ) -> ::subxt::tx::Payload<SetKey> {
+                    ::subxt::tx::Payload::new_static(
+                        "Sudo",
+                        "set_key",
+                        SetKey { new },
+                        [
+                            23u8, 224u8, 218u8, 169u8, 8u8, 28u8, 111u8, 199u8, 26u8, 88u8, 225u8,
+                            105u8, 17u8, 19u8, 87u8, 156u8, 97u8, 67u8, 89u8, 173u8, 70u8, 0u8,
+                            5u8, 246u8, 198u8, 135u8, 182u8, 180u8, 44u8, 9u8, 212u8, 95u8,
+                        ],
+                    )
+                }
+                ///Authenticates the sudo key and dispatches a function call with `Signed` origin
+                /// from a given account.
+                ///
+                ///The dispatch origin for this call must be _Signed_.
+                ///
+                ///## Complexity
+                /// - O(1).
+                pub fn sudo_as(
+                    &self,
+                    who: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
+                    call: runtime_types::hyperbridge_runtime::RuntimeCall,
+                ) -> ::subxt::tx::Payload<SudoAs> {
+                    ::subxt::tx::Payload::new_static(
+                        "Sudo",
+                        "sudo_as",
+                        SudoAs { who, call: ::std::boxed::Box::new(call) },
+                        [
+                            171u8, 98u8, 74u8, 90u8, 21u8, 88u8, 66u8, 144u8, 75u8, 42u8, 95u8,
+                            18u8, 198u8, 170u8, 10u8, 182u8, 236u8, 239u8, 240u8, 159u8, 132u8,
+                            212u8, 231u8, 158u8, 79u8, 0u8, 84u8, 104u8, 47u8, 214u8, 71u8, 20u8,
+                        ],
+                    )
+                }
+            }
+        }
+        /**
+        The [event](https://docs.substrate.io/main-docs/build/events-errors/) emitted
+        by this pallet.
+        */
+        pub type Event = runtime_types::pallet_sudo::pallet::Event;
+        pub mod events {
+            use super::runtime_types;
+            #[derive(
+                ::subxt::ext::codec::Decode,
+                ::subxt::ext::codec::Encode,
+                ::subxt::ext::scale_decode::DecodeAsType,
+                ::subxt::ext::scale_encode::EncodeAsType,
+                Debug,
+            )]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            ///A sudo just took place. \[result\]
+            pub struct Sudid {
+                pub sudo_result:
+                    ::core::result::Result<(), runtime_types::sp_runtime::DispatchError>,
+            }
+            impl ::subxt::events::StaticEvent for Sudid {
+                const PALLET: &'static str = "Sudo";
+                const EVENT: &'static str = "Sudid";
+            }
+            #[derive(
+                ::subxt::ext::codec::Decode,
+                ::subxt::ext::codec::Encode,
+                ::subxt::ext::scale_decode::DecodeAsType,
+                ::subxt::ext::scale_encode::EncodeAsType,
+                Debug,
+            )]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            ///The \[sudoer\] just switched identity; the old key is supplied if one existed.
+            pub struct KeyChanged {
+                pub old_sudoer: ::core::option::Option<::subxt::utils::AccountId32>,
+            }
+            impl ::subxt::events::StaticEvent for KeyChanged {
+                const PALLET: &'static str = "Sudo";
+                const EVENT: &'static str = "KeyChanged";
+            }
+            #[derive(
+                ::subxt::ext::codec::Decode,
+                ::subxt::ext::codec::Encode,
+                ::subxt::ext::scale_decode::DecodeAsType,
+                ::subxt::ext::scale_encode::EncodeAsType,
+                Debug,
+            )]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            ///A sudo just took place. \[result\]
+            pub struct SudoAsDone {
+                pub sudo_result:
+                    ::core::result::Result<(), runtime_types::sp_runtime::DispatchError>,
+            }
+            impl ::subxt::events::StaticEvent for SudoAsDone {
+                const PALLET: &'static str = "Sudo";
+                const EVENT: &'static str = "SudoAsDone";
+            }
+        }
+        pub mod storage {
+            use super::runtime_types;
+            pub struct StorageApi;
+            impl StorageApi {
+                /// The `AccountId` of the sudo key.
+                pub fn key(
+                    &self,
+                ) -> ::subxt::storage::address::Address<
+                    ::subxt::storage::address::StaticStorageMapKey,
+                    ::subxt::utils::AccountId32,
+                    ::subxt::storage::address::Yes,
+                    (),
+                    (),
+                > {
+                    ::subxt::storage::address::Address::new_static(
+                        "Sudo",
+                        "Key",
+                        vec![],
+                        [
+                            244u8, 73u8, 188u8, 136u8, 218u8, 163u8, 68u8, 179u8, 122u8, 173u8,
+                            34u8, 108u8, 137u8, 28u8, 182u8, 16u8, 196u8, 92u8, 138u8, 34u8, 102u8,
+                            80u8, 199u8, 88u8, 107u8, 207u8, 36u8, 22u8, 168u8, 167u8, 20u8, 142u8,
+                        ],
+                    )
+                }
+            }
+        }
+    }
     pub mod xcmp_queue {
         use super::{root_mod, runtime_types};
         ///Contains one variant per dispatchable that can be called by an extrinsic.
@@ -6122,7 +6379,7 @@ pub mod api {
             #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
             #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
             pub struct CreateConsensusClient {
-                pub message: runtime_types::ismp::messaging::Message,
+                pub message: runtime_types::ismp::messaging::CreateConsensusClient,
             }
             pub struct TransactionApi;
             impl TransactionApi {
@@ -6136,27 +6393,26 @@ pub mod api {
                         "handle",
                         Handle { messages },
                         [
-                            3u8, 52u8, 45u8, 231u8, 177u8, 79u8, 222u8, 134u8, 51u8, 71u8, 45u8,
-                            158u8, 196u8, 120u8, 227u8, 183u8, 134u8, 170u8, 196u8, 48u8, 90u8,
-                            32u8, 237u8, 244u8, 31u8, 125u8, 242u8, 66u8, 46u8, 228u8, 156u8,
-                            136u8,
+                            139u8, 102u8, 187u8, 247u8, 187u8, 226u8, 112u8, 184u8, 56u8, 19u8,
+                            108u8, 110u8, 57u8, 108u8, 55u8, 163u8, 79u8, 4u8, 95u8, 252u8, 64u8,
+                            29u8, 82u8, 240u8, 28u8, 217u8, 99u8, 73u8, 107u8, 237u8, 234u8, 129u8,
                         ],
                     )
                 }
                 ///Create consensus clients
                 pub fn create_consensus_client(
                     &self,
-                    message: runtime_types::ismp::messaging::Message,
+                    message: runtime_types::ismp::messaging::CreateConsensusClient,
                 ) -> ::subxt::tx::Payload<CreateConsensusClient> {
                     ::subxt::tx::Payload::new_static(
                         "Ismp",
                         "create_consensus_client",
                         CreateConsensusClient { message },
                         [
-                            65u8, 42u8, 23u8, 217u8, 169u8, 87u8, 111u8, 223u8, 185u8, 166u8, 79u8,
-                            139u8, 234u8, 169u8, 188u8, 200u8, 202u8, 93u8, 56u8, 254u8, 98u8,
-                            108u8, 19u8, 50u8, 21u8, 235u8, 168u8, 223u8, 201u8, 109u8, 186u8,
-                            179u8,
+                            33u8, 216u8, 80u8, 63u8, 220u8, 183u8, 218u8, 172u8, 134u8, 129u8,
+                            154u8, 164u8, 188u8, 170u8, 173u8, 249u8, 228u8, 12u8, 217u8, 83u8,
+                            15u8, 95u8, 85u8, 71u8, 214u8, 101u8, 137u8, 211u8, 139u8, 94u8, 74u8,
+                            235u8,
                         ],
                     )
                 }
@@ -6179,11 +6435,10 @@ pub mod api {
             )]
             #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
             #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-            ///Event to be emitted when the challenge period for a state machine update has elapsed
+            ///Emitted when a state machine is successfully updated to a new height
             pub struct StateMachineUpdated {
-                pub state_machine_id: runtime_types::ismp::consensus_client::StateMachineId,
+                pub state_machine_id: runtime_types::ismp::consensus::StateMachineId,
                 pub latest_height: ::core::primitive::u64,
-                pub previous_height: ::core::primitive::u64,
             }
             impl ::subxt::events::StaticEvent for StateMachineUpdated {
                 const PALLET: &'static str = "Ismp";
@@ -6202,8 +6457,8 @@ pub mod api {
             pub struct ChallengePeriodStarted {
                 pub consensus_client_id: [::core::primitive::u8; 4usize],
                 pub state_machines: ::std::vec::Vec<(
-                    runtime_types::ismp::consensus_client::StateMachineHeight,
-                    runtime_types::ismp::consensus_client::StateMachineHeight,
+                    runtime_types::ismp::consensus::StateMachineHeight,
+                    runtime_types::ismp::consensus::StateMachineHeight,
                 )>,
             }
             impl ::subxt::events::StaticEvent for ChallengePeriodStarted {
@@ -6381,12 +6636,10 @@ pub mod api {
                 }
                 pub fn state_commitments(
                     &self,
-                    _0: impl ::std::borrow::Borrow<
-                        runtime_types::ismp::consensus_client::StateMachineHeight,
-                    >,
+                    _0: impl ::std::borrow::Borrow<runtime_types::ismp::consensus::StateMachineHeight>,
                 ) -> ::subxt::storage::address::Address<
                     ::subxt::storage::address::StaticStorageMapKey,
-                    runtime_types::ismp::consensus_client::StateCommitment,
+                    runtime_types::ismp::consensus::StateCommitment,
                     ::subxt::storage::address::Yes,
                     (),
                     ::subxt::storage::address::Yes,
@@ -6407,7 +6660,7 @@ pub mod api {
                     &self,
                 ) -> ::subxt::storage::address::Address<
                     ::subxt::storage::address::StaticStorageMapKey,
-                    runtime_types::ismp::consensus_client::StateCommitment,
+                    runtime_types::ismp::consensus::StateCommitment,
                     (),
                     (),
                     ::subxt::storage::address::Yes,
@@ -6469,9 +6722,7 @@ pub mod api {
                 }
                 pub fn frozen_heights(
                     &self,
-                    _0: impl ::std::borrow::Borrow<
-                        runtime_types::ismp::consensus_client::StateMachineId,
-                    >,
+                    _0: impl ::std::borrow::Borrow<runtime_types::ismp::consensus::StateMachineId>,
                 ) -> ::subxt::storage::address::Address<
                     ::subxt::storage::address::StaticStorageMapKey,
                     ::core::primitive::u64,
@@ -6513,9 +6764,7 @@ pub mod api {
                 /// The latest accepted state machine height
                 pub fn latest_state_machine_height(
                     &self,
-                    _0: impl ::std::borrow::Borrow<
-                        runtime_types::ismp::consensus_client::StateMachineId,
-                    >,
+                    _0: impl ::std::borrow::Borrow<runtime_types::ismp::consensus::StateMachineId>,
                 ) -> ::subxt::storage::address::Address<
                     ::subxt::storage::address::StaticStorageMapKey,
                     ::core::primitive::u64,
@@ -6696,8 +6945,8 @@ pub mod api {
                 ) -> ::subxt::storage::address::Address<
                     ::subxt::storage::address::StaticStorageMapKey,
                     ::std::vec::Vec<(
-                        runtime_types::ismp::consensus_client::StateMachineHeight,
-                        runtime_types::ismp::consensus_client::StateMachineHeight,
+                        runtime_types::ismp::consensus::StateMachineHeight,
+                        runtime_types::ismp::consensus::StateMachineHeight,
                     )>,
                     ::subxt::storage::address::Yes,
                     (),
@@ -6722,8 +6971,8 @@ pub mod api {
                 ) -> ::subxt::storage::address::Address<
                     ::subxt::storage::address::StaticStorageMapKey,
                     ::std::vec::Vec<(
-                        runtime_types::ismp::consensus_client::StateMachineHeight,
-                        runtime_types::ismp::consensus_client::StateMachineHeight,
+                        runtime_types::ismp::consensus::StateMachineHeight,
+                        runtime_types::ismp::consensus::StateMachineHeight,
                     )>,
                     (),
                     (),
@@ -6741,6 +6990,27 @@ pub mod api {
                         ],
                     )
                 }
+                /// State variable that tells us if at least one new leaf was added to the mmr
+                pub fn new_leaves_added(
+                    &self,
+                ) -> ::subxt::storage::address::Address<
+                    ::subxt::storage::address::StaticStorageMapKey,
+                    ::core::primitive::u64,
+                    ::subxt::storage::address::Yes,
+                    (),
+                    (),
+                > {
+                    ::subxt::storage::address::Address::new_static(
+                        "Ismp",
+                        "NewLeavesAdded",
+                        vec![],
+                        [
+                            94u8, 194u8, 10u8, 246u8, 244u8, 140u8, 23u8, 97u8, 163u8, 14u8, 64u8,
+                            80u8, 223u8, 84u8, 50u8, 99u8, 172u8, 191u8, 63u8, 57u8, 211u8, 170u8,
+                            187u8, 157u8, 241u8, 253u8, 130u8, 77u8, 155u8, 106u8, 90u8, 249u8,
+                        ],
+                    )
+                }
             }
         }
     }
@@ -6753,24 +7023,6 @@ pub mod api {
         pub type Event = runtime_types::ismp_parachain::pallet::Event;
         pub mod events {
             use super::runtime_types;
-            #[derive(
-                ::subxt::ext::codec::CompactAs,
-                ::subxt::ext::codec::Decode,
-                ::subxt::ext::codec::Encode,
-                ::subxt::ext::scale_decode::DecodeAsType,
-                ::subxt::ext::scale_encode::EncodeAsType,
-                Debug,
-            )]
-            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
-            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-            ///A new relay chain state has been recorded.
-            pub struct NewRelayChainState {
-                pub height: ::core::primitive::u32,
-            }
-            impl ::subxt::events::StaticEvent for NewRelayChainState {
-                const PALLET: &'static str = "IsmpParachain";
-                const EVENT: &'static str = "NewRelayChainState";
-            }
         }
         pub mod storage {
             use super::runtime_types;
@@ -7984,6 +8236,8 @@ pub mod api {
                 CollatorSelection(runtime_types::pallet_collator_selection::pallet::Call),
                 #[codec(index = 22)]
                 Session(runtime_types::pallet_session::pallet::Call),
+                #[codec(index = 25)]
+                Sudo(runtime_types::pallet_sudo::pallet::Call),
                 #[codec(index = 30)]
                 XcmpQueue(runtime_types::cumulus_pallet_xcmp_queue::pallet::Call),
                 #[codec(index = 31)]
@@ -8015,6 +8269,8 @@ pub mod api {
                 CollatorSelection(runtime_types::pallet_collator_selection::pallet::Event),
                 #[codec(index = 22)]
                 Session(runtime_types::pallet_session::pallet::Event),
+                #[codec(index = 25)]
+                Sudo(runtime_types::pallet_sudo::pallet::Event),
                 #[codec(index = 30)]
                 XcmpQueue(runtime_types::cumulus_pallet_xcmp_queue::pallet::Event),
                 #[codec(index = 31)]
@@ -8043,7 +8299,7 @@ pub mod api {
         }
         pub mod ismp {
             use super::runtime_types;
-            pub mod consensus_client {
+            pub mod consensus {
                 use super::runtime_types;
                 #[derive(
                     ::subxt::ext::codec::Decode,
@@ -8055,8 +8311,8 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct IntermediateState {
-                    pub height: runtime_types::ismp::consensus_client::StateMachineHeight,
-                    pub commitment: runtime_types::ismp::consensus_client::StateCommitment,
+                    pub height: runtime_types::ismp::consensus::StateMachineHeight,
+                    pub commitment: runtime_types::ismp::consensus::StateCommitment,
                 }
                 #[derive(
                     ::subxt::ext::codec::Decode,
@@ -8082,7 +8338,7 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct StateMachineHeight {
-                    pub id: runtime_types::ismp::consensus_client::StateMachineId,
+                    pub id: runtime_types::ismp::consensus::StateMachineId,
                     pub height: ::core::primitive::u64,
                 }
                 #[derive(
@@ -8153,7 +8409,7 @@ pub mod api {
                     pub consensus_state: ::std::vec::Vec<::core::primitive::u8>,
                     pub consensus_client_id: [::core::primitive::u8; 4usize],
                     pub state_machine_commitments:
-                        ::std::vec::Vec<runtime_types::ismp::consensus_client::IntermediateState>,
+                        ::std::vec::Vec<runtime_types::ismp::consensus::IntermediateState>,
                 }
                 #[derive(
                     ::subxt::ext::codec::Decode,
@@ -8166,14 +8422,12 @@ pub mod api {
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub enum Message {
                     #[codec(index = 0)]
-                    CreateConsensusClient(runtime_types::ismp::messaging::CreateConsensusClient),
-                    #[codec(index = 1)]
                     Consensus(runtime_types::ismp::messaging::ConsensusMessage),
-                    #[codec(index = 2)]
+                    #[codec(index = 1)]
                     Request(runtime_types::ismp::messaging::RequestMessage),
-                    #[codec(index = 3)]
+                    #[codec(index = 2)]
                     Response(runtime_types::ismp::messaging::ResponseMessage),
-                    #[codec(index = 4)]
+                    #[codec(index = 3)]
                     Timeout(runtime_types::ismp::messaging::TimeoutMessage),
                 }
                 #[derive(
@@ -8186,7 +8440,7 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct Proof {
-                    pub height: runtime_types::ismp::consensus_client::StateMachineHeight,
+                    pub height: runtime_types::ismp::consensus::StateMachineHeight,
                     pub proof: ::std::vec::Vec<::core::primitive::u8>,
                 }
                 #[derive(
@@ -8199,7 +8453,7 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct RequestMessage {
-                    pub request: runtime_types::ismp::router::Request,
+                    pub requests: ::std::vec::Vec<runtime_types::ismp::router::Request>,
                     pub proof: runtime_types::ismp::messaging::Proof,
                 }
                 #[derive(
@@ -8212,7 +8466,7 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct ResponseMessage {
-                    pub response: runtime_types::ismp::router::Response,
+                    pub responses: ::std::vec::Vec<runtime_types::ismp::router::Response>,
                     pub proof: runtime_types::ismp::messaging::Proof,
                 }
                 #[derive(
@@ -8225,7 +8479,7 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct TimeoutMessage {
-                    pub request: runtime_types::ismp::router::Request,
+                    pub requests: ::std::vec::Vec<runtime_types::ismp::router::Request>,
                     pub timeout_proof: runtime_types::ismp::messaging::Proof,
                 }
             }
@@ -8246,7 +8500,7 @@ pub mod api {
                     pub nonce: ::core::primitive::u64,
                     pub from: ::std::vec::Vec<::core::primitive::u8>,
                     pub keys: ::std::vec::Vec<::std::vec::Vec<::core::primitive::u8>>,
-                    pub height: runtime_types::ismp::consensus_client::StateMachineHeight,
+                    pub height: runtime_types::ismp::consensus::StateMachineHeight,
                     pub timeout_timestamp: ::core::primitive::u64,
                 }
                 #[derive(
@@ -8314,11 +8568,7 @@ pub mod api {
                 The [event](https://docs.substrate.io/main-docs/build/events-errors/) emitted
                 by this pallet.
                 */
-                pub enum Event {
-                    #[codec(index = 0)]
-                    ///A new relay chain state has been recorded.
-                    NewRelayChainState { height: ::core::primitive::u32 },
-                }
+                pub enum Event {}
             }
         }
         pub mod pallet_balances {
@@ -8773,13 +9023,13 @@ pub mod api {
                     ConsensusStateNotFound { id: [::core::primitive::u8; 4usize] },
                     #[codec(index = 2)]
                     StateCommitmentNotFound {
-                        height: runtime_types::ismp::consensus_client::StateMachineHeight,
+                        height: runtime_types::ismp::consensus::StateMachineHeight,
                     },
                     #[codec(index = 3)]
                     FrozenConsensusClient { id: [::core::primitive::u8; 4usize] },
                     #[codec(index = 4)]
                     FrozenStateMachine {
-                        height: runtime_types::ismp::consensus_client::StateMachineHeight,
+                        height: runtime_types::ismp::consensus::StateMachineHeight,
                     },
                     #[codec(index = 5)]
                     RequestCommitmentNotFound {
@@ -8855,7 +9105,9 @@ pub mod api {
                     handle { messages: ::std::vec::Vec<runtime_types::ismp::messaging::Message> },
                     #[codec(index = 1)]
                     ///Create consensus clients
-                    create_consensus_client { message: runtime_types::ismp::messaging::Message },
+                    create_consensus_client {
+                        message: runtime_types::ismp::messaging::CreateConsensusClient,
+                    },
                 }
                 #[derive(
                     ::subxt::ext::codec::Decode,
@@ -8893,20 +9145,18 @@ pub mod api {
                 /// custom implementation.
                 pub enum Event {
                     #[codec(index = 0)]
-                    ///Event to be emitted when the challenge period for a state machine update
-                    /// has elapsed
+                    ///Emitted when a state machine is successfully updated to a new height
                     StateMachineUpdated {
-                        state_machine_id: runtime_types::ismp::consensus_client::StateMachineId,
+                        state_machine_id: runtime_types::ismp::consensus::StateMachineId,
                         latest_height: ::core::primitive::u64,
-                        previous_height: ::core::primitive::u64,
                     },
                     #[codec(index = 1)]
                     ///Signifies that a client has begun it's challenge period
                     ChallengePeriodStarted {
                         consensus_client_id: [::core::primitive::u8; 4usize],
                         state_machines: ::std::vec::Vec<(
-                            runtime_types::ismp::consensus_client::StateMachineHeight,
-                            runtime_types::ismp::consensus_client::StateMachineHeight,
+                            runtime_types::ismp::consensus::StateMachineHeight,
+                            runtime_types::ismp::consensus::StateMachineHeight,
                         )>,
                     },
                     #[codec(index = 2)]
@@ -9042,6 +9292,116 @@ pub mod api {
                     ///New session has happened. Note that the argument is the session index, not
                     /// the block number as the type might suggest.
                     NewSession { session_index: ::core::primitive::u32 },
+                }
+            }
+        }
+        pub mod pallet_sudo {
+            use super::runtime_types;
+            pub mod pallet {
+                use super::runtime_types;
+                #[derive(
+                    ::subxt::ext::codec::Decode,
+                    ::subxt::ext::codec::Encode,
+                    ::subxt::ext::scale_decode::DecodeAsType,
+                    ::subxt::ext::scale_encode::EncodeAsType,
+                    Debug,
+                )]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                ///Contains one variant per dispatchable that can be called by an extrinsic.
+                pub enum Call {
+                    #[codec(index = 0)]
+                    ///Authenticates the sudo key and dispatches a function call with `Root`
+                    /// origin.
+                    ///
+                    ///The dispatch origin for this call must be _Signed_.
+                    ///
+                    ///## Complexity
+                    /// - O(1).
+                    sudo {
+                        call: ::std::boxed::Box<runtime_types::hyperbridge_runtime::RuntimeCall>,
+                    },
+                    #[codec(index = 1)]
+                    ///Authenticates the sudo key and dispatches a function call with `Root`
+                    /// origin. This function does not check the weight of the
+                    /// call, and instead allows the Sudo user to specify the
+                    /// weight of the call.
+                    ///
+                    ///The dispatch origin for this call must be _Signed_.
+                    ///
+                    ///## Complexity
+                    /// - O(1).
+                    sudo_unchecked_weight {
+                        call: ::std::boxed::Box<runtime_types::hyperbridge_runtime::RuntimeCall>,
+                        weight: runtime_types::sp_weights::weight_v2::Weight,
+                    },
+                    #[codec(index = 2)]
+                    ///Authenticates the current sudo key and sets the given AccountId (`new`) as
+                    /// the new sudo key.
+                    ///
+                    ///The dispatch origin for this call must be _Signed_.
+                    ///
+                    ///## Complexity
+                    /// - O(1).
+                    set_key { new: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()> },
+                    #[codec(index = 3)]
+                    ///Authenticates the sudo key and dispatches a function call with `Signed`
+                    /// origin from a given account.
+                    ///
+                    ///The dispatch origin for this call must be _Signed_.
+                    ///
+                    ///## Complexity
+                    /// - O(1).
+                    sudo_as {
+                        who: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
+                        call: ::std::boxed::Box<runtime_types::hyperbridge_runtime::RuntimeCall>,
+                    },
+                }
+                #[derive(
+                    ::subxt::ext::codec::Decode,
+                    ::subxt::ext::codec::Encode,
+                    ::subxt::ext::scale_decode::DecodeAsType,
+                    ::subxt::ext::scale_encode::EncodeAsType,
+                    Debug,
+                )]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                ///Error for the Sudo pallet
+                pub enum Error {
+                    #[codec(index = 0)]
+                    ///Sender must be the Sudo account
+                    RequireSudo,
+                }
+                #[derive(
+                    ::subxt::ext::codec::Decode,
+                    ::subxt::ext::codec::Encode,
+                    ::subxt::ext::scale_decode::DecodeAsType,
+                    ::subxt::ext::scale_encode::EncodeAsType,
+                    Debug,
+                )]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                /**
+                The [event](https://docs.substrate.io/main-docs/build/events-errors/) emitted
+                by this pallet.
+                */
+                pub enum Event {
+                    #[codec(index = 0)]
+                    ///A sudo just took place. \[result\]
+                    Sudid {
+                        sudo_result:
+                            ::core::result::Result<(), runtime_types::sp_runtime::DispatchError>,
+                    },
+                    #[codec(index = 1)]
+                    ///The \[sudoer\] just switched identity; the old key is supplied if one
+                    /// existed.
+                    KeyChanged { old_sudoer: ::core::option::Option<::subxt::utils::AccountId32> },
+                    #[codec(index = 2)]
+                    ///A sudo just took place. \[result\]
+                    SudoAsDone {
+                        sudo_result:
+                            ::core::result::Result<(), runtime_types::sp_runtime::DispatchError>,
+                    },
                 }
             }
         }

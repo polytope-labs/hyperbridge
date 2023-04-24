@@ -1,5 +1,5 @@
 [package]
-name = "tesseract-parachain-client"
+name = "tesseract-parachain"
 version = "0.1.0"
 edition = "2021"
 description = "Parachain client implementation for the tesseract relayer"
@@ -7,15 +7,19 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 anyhow = "1.0.70"
-subxt = "0.28.0"
+#subxt = { version = "0.28.0", features = ["substrate-compat"] }
+subxt = { git = "https://github.com/polytope-labs/subxt", branch = "master" }
 codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = ["derive"] }
 futures = "0.3.28"
 async-trait = "0.1.53"
+urlencoding = "2.1.2"
+hex-literal = "0.4.1"
 
 ismp-parachain = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
 pallet-ismp = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
 ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main" }
 ismp-rpc = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
 ismp-primitives = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
-sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.40", features = ["full_crypto"] }
 tesseract-primitives = { path = "../primitives" }
+
+sp-core = { version = "20.0.0", features = ["full_crypto"] }

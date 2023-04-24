@@ -12,4 +12,5 @@ members = [
     "consensus",
     "messaging",
     "parachain",
+    "integration-tests",
 ]

@@ -8394,8 +8394,7 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 [[package]]
 name = "subxt"
 version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53b9c4ddefcb2d87eb18a6336f65635c29208f766d0deefaa2a1a19f7426a993"
+source = "git+https://github.com/polytope-labs/subxt?branch=master#3431801e236ecca0e08be507ad119897b5712597"
 dependencies = [
  "base58",
  "blake2",
@@ -8429,8 +8428,7 @@ dependencies = [
 [[package]]
 name = "subxt-codegen"
 version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e924f41069e9273236398ff89662d6d336468a5d94faac812129d44547db0e7f"
+source = "git+https://github.com/polytope-labs/subxt?branch=master#3431801e236ecca0e08be507ad119897b5712597"
 dependencies = [
  "darling",
  "frame-metadata",
@@ -8450,8 +8448,7 @@ dependencies = [
 [[package]]
 name = "subxt-macro"
 version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ced0b043a069ee039f8700d3dfda01be156e4229c82277c305bc8e79a7dd855d"
+source = "git+https://github.com/polytope-labs/subxt?branch=master#3431801e236ecca0e08be507ad119897b5712597"
 dependencies = [
  "darling",
  "proc-macro-error",
@@ -8462,8 +8459,7 @@ dependencies = [
 [[package]]
 name = "subxt-metadata"
 version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18be3b8f4308fe7369ee1df66ae59c2eca79de20eab57b0f41c75736e843300f"
+source = "git+https://github.com/polytope-labs/subxt?branch=master#3431801e236ecca0e08be507ad119897b5712597"
 dependencies = [
  "frame-metadata",
  "parity-scale-codec",
@@ -8583,6 +8579,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tesseract-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "ismp",
+ "ismp-parachain",
+ "parity-scale-codec",
+ "sp-io 22.0.0",
+ "subxt",
+ "tesseract-consensus",
+ "tesseract-parachain",
+ "tesseract-primitives",
+ "tokio",
+]
+
+[[package]]
 name = "tesseract-message"
 version = "0.1.0"
 dependencies = [
@@ -8596,21 +8609,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "tesseract-parachain-client"
+name = "tesseract-parachain"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "futures",
+ "hex-literal 0.4.1",
  "ismp",
  "ismp-parachain",
  "ismp-primitives",
  "ismp-rpc",
  "pallet-ismp",
  "parity-scale-codec",
- "sp-core 7.0.0",
+ "sp-core 20.0.0",
  "subxt",
  "tesseract-primitives",
+ "urlencoding",
 ]
 
 [[package]]
@@ -9235,6 +9250,12 @@ dependencies = [
  "idna 0.3.0",
  "percent-encoding",
 ]
+
+[[package]]
+name = "urlencoding"
+version = "2.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8db7427f936968176eaa7cdf81b7f98b980b18495ec28f1b5791ac3bfe3eea9"
 
 [[package]]
 name = "utf8parse"

@@ -21,11 +21,11 @@ use tesseract_primitives::IsmpHost;
 
 pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
 where
-    A: IsmpHost,
-    B: IsmpHost,
+    A: IsmpHost + 'static,
+    B: IsmpHost + 'static,
 {
-    let mut consensus_a = chain_a.consensus_notification().await;
-    let mut consensus_b = chain_b.consensus_notification().await;
+    let mut consensus_a = chain_a.consensus_notification(chain_b.clone()).await?;
+    let mut consensus_b = chain_b.consensus_notification(chain_a.clone()).await?;
 
     loop {
         tokio::select! {
@@ -33,12 +33,12 @@ where
                 match result {
                     None => break,
                     Some(Ok(consensus_message)) => {
-                        chain_b.submit(vec![Message::Consensus(consensus_message)]).await?;
                         log::info!(
                             target: "tesseract",
                             "Submitting consensus update message from {} to {}",
                             chain_a.name(), chain_b.name()
                         );
+                        chain_b.submit(vec![Message::Consensus(consensus_message)]).await?;
                     },
                     Some(Err(e)) => {
                         log::error!(
@@ -53,12 +53,12 @@ where
                  match result {
                     None => break,
                     Some(Ok(consensus_message)) => {
-                         chain_a.submit(vec![Message::Consensus(consensus_message)]).await?;
                          log::info!(
                             target: "tesseract",
                             "Submitting consensus update message from {} to {}",
                             chain_b.name(), chain_a.name()
                          );
+                         chain_a.submit(vec![Message::Consensus(consensus_message)]).await?;
                     },
                     Some(Err(e)) => {
                         log::error!(

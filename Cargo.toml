@@ -2,7 +2,8 @@
 name = "ismp"
 version = "0.1.0"
 edition = "2021"
-authors = ["Polytope Labs"]
+description = "Rust implementation of the ISMP protocol"
+authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [package.metadata.docs.rs]
 all-features = true

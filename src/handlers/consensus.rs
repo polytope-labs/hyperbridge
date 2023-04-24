@@ -91,18 +91,10 @@ where
 pub fn create_consensus_client<H>(
     host: &H,
     message: CreateConsensusClient,
-) -> Result<MessageResult, Error>
+) -> Result<ConsensusClientCreatedResult, Error>
 where
     H: ISMPHost,
 {
-    // Do not attempt to create a new consensus client if consensus state already exists for the
-    // client
-    if host.consensus_state(message.consensus_client_id).is_ok() {
-        return Err(Error::CannotCreateAlreadyExistingConsensusClient {
-            id: message.consensus_client_id,
-        })
-    }
-
     // Store the initial state for the consensus client
     host.store_consensus_state(message.consensus_client_id, message.consensus_state)?;
 
@@ -116,6 +108,5 @@ where
 
     host.store_consensus_update_time(message.consensus_client_id, host.timestamp())?;
 
-    let result = ConsensusClientCreatedResult { consensus_client_id: message.consensus_client_id };
-    Ok(MessageResult::ConsensusClientCreated(result))
+    Ok(ConsensusClientCreatedResult { consensus_client_id: message.consensus_client_id })
 }

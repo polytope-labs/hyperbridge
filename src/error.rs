@@ -16,7 +16,7 @@
 //! ISMP error definitions
 
 use crate::{
-    consensus_client::{ConsensusClientId, StateMachineHeight},
+    consensus::{ConsensusClientId, StateMachineHeight},
     host::StateMachine,
 };
 use alloc::string::String;

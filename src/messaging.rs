@@ -16,7 +16,7 @@
 //! ISMP message types
 
 use crate::{
-    consensus_client::{ConsensusClientId, IntermediateState, StateMachineHeight},
+    consensus::{ConsensusClientId, IntermediateState, StateMachineHeight},
     router::{Request, Response},
 };
 use alloc::vec::Vec;
@@ -76,13 +76,11 @@ pub struct Proof {
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum Message {
     #[codec(index = 0)]
-    CreateConsensusClient(CreateConsensusClient),
-    #[codec(index = 1)]
     Consensus(ConsensusMessage),
-    #[codec(index = 2)]
+    #[codec(index = 1)]
     Request(RequestMessage),
-    #[codec(index = 3)]
+    #[codec(index = 2)]
     Response(ResponseMessage),
-    #[codec(index = 4)]
+    #[codec(index = 3)]
     Timeout(TimeoutMessage),
 }

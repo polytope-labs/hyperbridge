@@ -16,7 +16,7 @@
 //! ISMP handler definitions
 
 use crate::{
-    consensus_client::{ConsensusClient, ConsensusClientId, StateMachineHeight},
+    consensus::{ConsensusClient, ConsensusClientId, StateMachineHeight},
     error::Error,
     host::ISMPHost,
     messaging::{Message, Proof},
@@ -28,6 +28,8 @@ mod consensus;
 mod request;
 mod response;
 mod timeout;
+
+pub use consensus::create_consensus_client;
 
 pub struct ConsensusUpdateResult {
     /// Consensus client Id
@@ -46,7 +48,6 @@ pub enum MessageResult {
     ConsensusMessage(ConsensusUpdateResult),
     Request(Vec<DispatchResult>),
     Response(Vec<DispatchResult>),
-    ConsensusClientCreated(ConsensusClientCreatedResult),
     Timeout(Vec<DispatchResult>),
 }
 
@@ -59,9 +60,6 @@ where
         Message::Consensus(consensus_message) => consensus::handle(host, consensus_message),
         Message::Request(req) => request::handle(host, req),
         Message::Response(resp) => response::handle(host, resp),
-        Message::CreateConsensusClient(create_consensus_client_message) => {
-            consensus::create_consensus_client(host, create_consensus_client_message)
-        }
         Message::Timeout(timeout) => timeout::handle(host, timeout),
     }
 }

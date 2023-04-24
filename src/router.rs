@@ -15,7 +15,7 @@
 
 //! ISMPRouter definition
 
-use crate::{consensus_client::StateMachineHeight, host::StateMachine, prelude::Vec};
+use crate::{consensus::StateMachineHeight, host::StateMachine, prelude::Vec};
 use alloc::string::String;
 use codec::{Decode, Encode};
 use core::time::Duration;

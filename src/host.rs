@@ -16,7 +16,7 @@
 //! The ISMPHost definition
 
 use crate::{
-    consensus_client::{
+    consensus::{
         ConsensusClient, ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
     },
     error::Error,

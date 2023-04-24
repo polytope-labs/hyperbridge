@@ -6,7 +6,7 @@ use alloc::{format, string::ToString};
 use core::time::Duration;
 use frame_support::traits::{Get, UnixTime};
 use ismp_rs::{
-    consensus_client::{
+    consensus::{
         ConsensusClient, ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
     },
     error::Error,

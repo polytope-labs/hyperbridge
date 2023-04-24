@@ -14,7 +14,7 @@ use ismp_primitives::{
     LeafIndexQuery,
 };
 use ismp_rs::{
-    consensus_client::{ConsensusClientId, StateMachineId},
+    consensus::{ConsensusClientId, StateMachineId},
     router::{Request, Response},
 };
 use ismp_runtime_api::IsmpRuntimeApi;

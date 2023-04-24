@@ -1,7 +1,7 @@
 use core::time::Duration;
 use frame_support::RuntimeDebug;
 use ismp_primitives::mmr::{LeafIndex, NodeIndex};
-use ismp_rs::consensus_client::{ConsensusClient, ConsensusClientId};
+use ismp_rs::consensus::{ConsensusClient, ConsensusClientId};
 use scale_info::TypeInfo;
 use sp_std::prelude::*;
 

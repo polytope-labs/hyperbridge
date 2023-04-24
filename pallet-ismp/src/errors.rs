@@ -1,6 +1,6 @@
 use codec::{Decode, Encode};
 use ismp_rs::{
-    consensus_client::{ConsensusClientId, StateMachineHeight},
+    consensus::{ConsensusClientId, StateMachineHeight},
     error::Error as IsmpError,
     host::StateMachine,
 };

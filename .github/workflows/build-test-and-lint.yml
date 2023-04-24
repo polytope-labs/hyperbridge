@@ -27,7 +27,7 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
+          toolchain: nightly-2022-10-28
           targets: wasm32-unknown-unknown
 
       - name: Install Protoc
@@ -42,12 +42,12 @@ jobs:
 
       - name: Build
         run: |
-          cargo +nightly check --workspace --all-targets --all-features --verbose
+          cargo +nightly-2022-10-28 check --workspace --all-targets --all-features --verbose
 
       - name: Build `no-std`
         run: |
-          cargo +nightly check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --verbose
-          cargo +nightly check -p ismp-parachain --no-default-features --target=wasm32-unknown-unknown --verbose
+          cargo +nightly-2022-10-28 check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --verbose
+          cargo +nightly-2022-10-28 check -p ismp-parachain --no-default-features --target=wasm32-unknown-unknown --verbose
 
   lint:
     runs-on: ubuntu-latest

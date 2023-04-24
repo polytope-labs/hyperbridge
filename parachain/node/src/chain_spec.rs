@@ -101,7 +101,7 @@ pub fn development_config(id: u32) -> ChainSpec {
                     get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
                 ],
                 id.into(),
-                get_account_id_from_seed::<sr25519::Public>("Alice")
+                get_account_id_from_seed::<sr25519::Public>("Alice"),
             )
         },
         Vec::new(),
@@ -157,7 +157,7 @@ pub fn local_testnet_config() -> ChainSpec {
                     get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
                 ],
                 2000.into(),
-                get_account_id_from_seed::<sr25519::Public>("Alice")
+                get_account_id_from_seed::<sr25519::Public>("Alice"),
             )
         },
         // Bootnodes
@@ -217,9 +217,7 @@ fn testnet_genesis(
         aura_ext: Default::default(),
         parachain_system: Default::default(),
         ismp_parachain: Default::default(),
-        sudo: hyperbridge_runtime::SudoConfig {
-            key: Some(sudo),
-        },
+        sudo: hyperbridge_runtime::SudoConfig { key: Some(sudo) },
         polkadot_xcm: hyperbridge_runtime::PolkadotXcmConfig {
             safe_xcm_version: Some(SAFE_XCM_VERSION),
         },

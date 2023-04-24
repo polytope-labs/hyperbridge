@@ -43,7 +43,7 @@ use frame_system::{
     EnsureRoot,
 };
 use ismp::{
-    consensus_client::{ConsensusClient, ConsensusClientId},
+    consensus::{ConsensusClient, ConsensusClientId},
     error::Error,
     host::StateMachine,
 };

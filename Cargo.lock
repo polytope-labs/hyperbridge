@@ -3549,15 +3549,16 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.3.4",
  "ismp",
+ "ismp-assets",
  "ismp-parachain",
- "ismp-primitives",
+ "ismp-primitives 0.1.0 (git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main)",
  "ismp-runtime-api",
  "log",
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",
  "pallet-collator-selection",
- "pallet-ismp",
+ "pallet-ismp 0.1.0 (git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main)",
  "pallet-session",
  "pallet-sudo",
  "pallet-timestamp",
@@ -3825,6 +3826,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-assets"
+version = "0.1.0"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=ismp-assets#282b68a613c6aad089def787aec009f0160c1844"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp 0.1.0 (git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=ismp-assets)",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime",
+]
+
+[[package]]
 name = "ismp-parachain"
 version = "0.1.0"
 source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#c5ad2b15be6559dc4dfbeab3e1ca198612a9cebb"
@@ -3837,8 +3852,8 @@ dependencies = [
  "hash-db",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-primitives",
- "pallet-ismp",
+ "ismp-primitives 0.1.0 (git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main)",
+ "pallet-ismp 0.1.0 (git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main)",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",
@@ -3846,6 +3861,19 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-trie",
+]
+
+[[package]]
+name = "ismp-primitives"
+version = "0.1.0"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=ismp-assets#282b68a613c6aad089def787aec009f0160c1844"
+dependencies = [
+ "ckb-merkle-mountain-range",
+ "frame-system",
+ "ismp",
+ "parity-scale-codec",
+ "primitive-types",
+ "sp-runtime",
 ]
 
 [[package]]
@@ -3870,10 +3898,10 @@ dependencies = [
  "frame-system",
  "hex-literal 0.3.4",
  "ismp",
- "ismp-primitives",
+ "ismp-primitives 0.1.0 (git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main)",
  "ismp-runtime-api",
  "jsonrpsee",
- "pallet-ismp",
+ "pallet-ismp 0.1.0 (git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main)",
  "parity-scale-codec",
  "sc-client-api",
  "serde",
@@ -3890,8 +3918,8 @@ version = "0.1.0"
 source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#c5ad2b15be6559dc4dfbeab3e1ca198612a9cebb"
 dependencies = [
  "ismp",
- "ismp-primitives",
- "pallet-ismp",
+ "ismp-primitives 0.1.0 (git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main)",
+ "pallet-ismp 0.1.0 (git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main)",
  "parity-scale-codec",
  "serde",
  "sp-api",
@@ -5991,6 +6019,27 @@ dependencies = [
 [[package]]
 name = "pallet-ismp"
 version = "0.1.0"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=ismp-assets#282b68a613c6aad089def787aec009f0160c1844"
+dependencies = [
+ "ckb-merkle-mountain-range",
+ "derive_more",
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "ismp-primitives 0.1.0 (git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=ismp-assets)",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-api",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
+name = "pallet-ismp"
+version = "0.1.0"
 source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#c5ad2b15be6559dc4dfbeab3e1ca198612a9cebb"
 dependencies = [
  "ckb-merkle-mountain-range",
@@ -5999,7 +6048,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "ismp",
- "ismp-primitives",
+ "ismp-primitives 0.1.0 (git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main)",
  "log",
  "parity-scale-codec",
  "scale-info",

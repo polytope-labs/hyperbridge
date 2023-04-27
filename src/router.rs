@@ -146,7 +146,7 @@ pub enum RequestResponse {
     Response(Vec<Response>),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct DispatchSuccess {
     /// Destination chain for request or response
     pub dest_chain: StateMachine,
@@ -156,7 +156,7 @@ pub struct DispatchSuccess {
     pub nonce: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct DispatchError {
     /// Descriptive error message
     pub msg: String,

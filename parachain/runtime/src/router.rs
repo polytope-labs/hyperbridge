@@ -1,8 +1,15 @@
-use crate::{alloc::string::ToString, Runtime};
+use crate::{
+    alloc::{
+        format,
+        string::{String, ToString},
+    },
+    Runtime,
+};
 use frame_support::PalletId;
 use ismp::{
+    host::StateMachine,
     module::ISMPModule,
-    router::{DispatchError, DispatchResult, ISMPRouter, Request, Response},
+    router::{DispatchError, DispatchResult, DispatchSuccess, ISMPRouter, Request, Response},
 };
 use pallet_ismp::router::ProxyRouter;
 
@@ -15,11 +22,31 @@ fn to_pallet_id(bytes: &[u8]) -> Result<PalletId, &'static str> {
     Ok(PalletId(buf))
 }
 
+fn to_dispatch_error(
+    msg: String,
+    nonce: u64,
+    source: StateMachine,
+    dest: StateMachine,
+) -> DispatchError {
+    DispatchError { msg, nonce, source, dest }
+}
+
+fn to_dispatch_success(
+    nonce: u64,
+    source_chain: StateMachine,
+    dest_chain: StateMachine,
+) -> DispatchSuccess {
+    DispatchSuccess { dest_chain, source_chain, nonce }
+}
+
 #[derive(Default)]
 pub struct ModuleRouter;
 
 impl ISMPRouter for ModuleRouter {
     fn dispatch(&self, request: Request) -> DispatchResult {
+        let dest = request.dest_chain();
+        let source = request.source_chain();
+        let nonce = request.nonce();
         let to = match &request {
             Request::Post(post) => &post.to,
             Request::Get(get) => &get.from,
@@ -27,17 +54,19 @@ impl ISMPRouter for ModuleRouter {
 
         let pallet_id = to_pallet_id(to).map_err(|e| DispatchError {
             msg: e.to_string(),
-            nonce: request.nonce(),
-            source: request.source_chain(),
-            dest: request.dest_chain(),
+            nonce,
+            source,
+            dest,
         })?;
         match pallet_id {
-            ismp_assets::PALLET_ID => ismp_assets::Pallet::<Runtime>::on_accept(request),
+            ismp_assets::PALLET_ID => ismp_assets::Pallet::<Runtime>::on_accept(request)
+                .map(|_| to_dispatch_success(nonce, source, dest))
+                .map_err(|e| to_dispatch_error(format!("{:?}", e), nonce, source, dest)),
             _ => Err(DispatchError {
                 msg: "Destination module not found".to_string(),
-                nonce: request.nonce(),
-                source: request.source_chain(),
-                dest: request.dest_chain(),
+                nonce,
+                source,
+                dest,
             }),
         }
     }
@@ -47,26 +76,34 @@ impl ISMPRouter for ModuleRouter {
             Request::Post(post) => &post.from,
             Request::Get(get) => &get.from,
         };
+        let dest = request.dest_chain();
+        let source = request.source_chain();
+        let nonce = request.nonce();
 
         let pallet_id = to_pallet_id(from).map_err(|e| DispatchError {
             msg: e.to_string(),
-            nonce: request.nonce(),
-            source: request.source_chain(),
-            dest: request.dest_chain(),
+            nonce,
+            source,
+            dest,
         })?;
         match pallet_id {
-            ismp_assets::PALLET_ID => ismp_assets::Pallet::<Runtime>::on_timeout(request),
+            ismp_assets::PALLET_ID => ismp_assets::Pallet::<Runtime>::on_timeout(request)
+                .map(|_| to_dispatch_success(nonce, source, dest))
+                .map_err(|e| to_dispatch_error(format!("{:?}", e), nonce, source, dest)),
             _ => Err(DispatchError {
                 msg: "Destination module not found".to_string(),
-                nonce: request.nonce(),
-                source: request.source_chain(),
-                dest: request.dest_chain(),
+                nonce,
+                source,
+                dest,
             }),
         }
     }
 
     fn write_response(&self, response: Response) -> DispatchResult {
         let request = &response.request;
+        let dest = request.dest_chain();
+        let source = request.source_chain();
+        let nonce = request.nonce();
         let from = match &request {
             Request::Post(post) => &post.from,
             Request::Get(get) => &get.from,
@@ -74,17 +111,19 @@ impl ISMPRouter for ModuleRouter {
 
         let pallet_id = to_pallet_id(from).map_err(|e| DispatchError {
             msg: e.to_string(),
-            nonce: request.nonce(),
-            source: request.source_chain(),
-            dest: request.dest_chain(),
+            nonce,
+            source,
+            dest,
         })?;
         match pallet_id {
-            ismp_assets::PALLET_ID => ismp_assets::Pallet::<Runtime>::on_response(response),
+            ismp_assets::PALLET_ID => ismp_assets::Pallet::<Runtime>::on_response(response)
+                .map(|_| to_dispatch_success(nonce, source, dest))
+                .map_err(|e| to_dispatch_error(format!("{:?}", e), nonce, source, dest)),
             _ => Err(DispatchError {
                 msg: "Destination module not found".to_string(),
-                nonce: request.nonce(),
-                source: request.source_chain(),
-                dest: request.dest_chain(),
+                nonce,
+                source,
+                dest,
             }),
         }
     }

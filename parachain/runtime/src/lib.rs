@@ -513,7 +513,7 @@ impl ismp_assets::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Balance = Balance;
     type NativeCurrency = Balances;
-    type NonceProvider = Ismp;
+    type IsmpDispatch = Ismp;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.

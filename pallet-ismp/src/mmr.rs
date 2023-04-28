@@ -1,3 +1,3 @@
 pub mod mmr;
 pub mod storage;
-mod utils;
+pub mod utils;

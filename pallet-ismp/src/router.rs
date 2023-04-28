@@ -60,27 +60,18 @@ where
 
             let (dest_chain, source_chain, nonce) =
                 (request.dest_chain(), request.source_chain(), request.nonce());
-            let offchain_key =
-                Pallet::<T>::request_leaf_index_offchain_key(source_chain, dest_chain, nonce);
-            let leaf_index = if let Some(leaf_index) = Pallet::<T>::mmr_push(Leaf::Request(request))
-            {
-                leaf_index
-            } else {
-                Err(DispatchError {
-                    msg: "Failed to push request into mmr".to_string(),
-                    nonce,
-                    source: source_chain,
-                    dest: dest_chain,
-                })?
-            };
+            Pallet::<T>::mmr_push(Leaf::Request(request)).ok_or_else(|| DispatchError {
+                msg: "Failed to push request into mmr".to_string(),
+                nonce,
+                source: source_chain,
+                dest: dest_chain,
+            })?;
             // Deposit Event
             Pallet::<T>::deposit_event(Event::Request {
                 request_nonce: nonce,
                 source_chain,
                 dest_chain,
             });
-            // Store a map of request to leaf_index
-            Pallet::<T>::store_leaf_index_offchain(offchain_key, leaf_index);
             RequestAcks::<T>::insert(commitment, Receipt::Ok);
             Ok(DispatchSuccess { dest_chain, source_chain, nonce })
         } else if let Some(ref router) = self.inner {
@@ -129,26 +120,18 @@ where
                 response.request.nonce(),
             );
 
-            let offchain_key =
-                Pallet::<T>::response_leaf_index_offchain_key(source_chain, dest_chain, nonce);
-            let leaf_index =
-                if let Some(leaf_index) = Pallet::<T>::mmr_push(Leaf::Response(response)) {
-                    leaf_index
-                } else {
-                    Err(DispatchError {
-                        msg: "Failed to push response into mmr".to_string(),
-                        nonce,
-                        source: source_chain,
-                        dest: dest_chain,
-                    })?
-                };
+            Pallet::<T>::mmr_push(Leaf::Response(response)).ok_or_else(|| DispatchError {
+                msg: "Failed to push response into mmr".to_string(),
+                nonce,
+                source: source_chain,
+                dest: dest_chain,
+            })?;
 
             Pallet::<T>::deposit_event(Event::Response {
                 request_nonce: nonce,
                 dest_chain,
                 source_chain,
             });
-            Pallet::<T>::store_leaf_index_offchain(offchain_key, leaf_index);
             ResponseAcks::<T>::insert(commitment, Receipt::Ok);
             Ok(DispatchSuccess { dest_chain, source_chain, nonce })
         } else if let Some(ref router) = self.inner {

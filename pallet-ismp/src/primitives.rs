@@ -1,7 +1,11 @@
 use core::time::Duration;
 use frame_support::RuntimeDebug;
 use ismp_primitives::mmr::{LeafIndex, NodeIndex};
-use ismp_rs::consensus::{ConsensusClient, ConsensusClientId};
+use ismp_rs::{
+    consensus::{ConsensusClient, ConsensusClientId, StateMachineHeight},
+    host::StateMachine,
+    router::Request,
+};
 use scale_info::TypeInfo;
 use sp_std::prelude::*;
 
@@ -40,4 +44,39 @@ pub trait ConsensusClientProvider {
     ) -> Result<Box<dyn ConsensusClient>, ismp_rs::error::Error>;
 
     fn challenge_period(id: ConsensusClientId) -> Duration;
+}
+
+pub enum IsmpMessage {
+    Post {
+        /// The destination state machine of this request.
+        dest_chain: StateMachine,
+        /// Moudle Id of the sending module
+        from: Vec<u8>,
+        /// Module ID of the receiving module
+        to: Vec<u8>,
+        /// Timestamp which this request expires in seconds.
+        timeout_timestamp: u64,
+        /// Encoded Request.
+        data: Vec<u8>,
+    },
+    Get {
+        /// The destination state machine of this request.
+        dest_chain: StateMachine,
+        /// Moudle Id of the sending module
+        from: Vec<u8>,
+        /// Storage keys that this request is interested in.
+        keys: Vec<Vec<u8>>,
+        /// Height at which to read the state machine.
+        height: StateMachineHeight,
+        /// Timestamp which this request expires in seconds
+        timeout_timestamp: u64,
+    },
+    Response {
+        request: Request,
+        response: Vec<u8>,
+    },
+}
+
+pub trait IsmpDispatch {
+    fn dispatch_message(msg: IsmpMessage) -> Result<(), ismp_rs::router::DispatchError>;
 }

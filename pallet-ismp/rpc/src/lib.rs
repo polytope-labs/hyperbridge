@@ -255,7 +255,6 @@ where
             let temp = api
                 .block_events(at)
                 .ok()
-                .flatten()
                 .ok_or_else(|| runtime_error_into_rpc_error("failed to read block events"))?;
             events.insert(block_number_or_hash.to_string(), temp);
         }

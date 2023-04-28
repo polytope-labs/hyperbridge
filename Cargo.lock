@@ -3004,13 +3004,26 @@ dependencies = [
 [[package]]
 name = "ismp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/ismp-rs.git?branch=main#32cc5cda31092b265b531dd263fa9d9f82c00065"
+source = "git+ssh://git@github.com/polytope-labs/ismp-rs.git?branch=main#f20b0486956ded6f7148fafe6ab9700db7fc70dc"
 dependencies = [
  "derive_more",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",
  "serde",
+]
+
+[[package]]
+name = "ismp-assets"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime",
 ]
 
 [[package]]
@@ -4592,12 +4605,14 @@ version = "0.1.0"
 dependencies = [
  "ckb-merkle-mountain-range",
  "derive_more",
+ "env_logger",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "ismp",
  "ismp-primitives",
  "log",
+ "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
  "serde",
@@ -4606,6 +4621,24 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
+]
+
+[[package]]
+name = "pallet-timestamp"
+version = "4.0.0-dev"
+source = "git+https://github.com/paritytech/substrate?branch=polkadot-v0.9.40#98f2e3451c9143278ec53c6718940aeabcd3b68a"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-inherents",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+ "sp-timestamp",
 ]
 
 [[package]]
@@ -8530,7 +8563,7 @@ checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
  "digest 0.10.6",
- "rand 0.8.5",
+ "rand 0.7.3",
  "static_assertions",
 ]
 

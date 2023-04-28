@@ -21,9 +21,10 @@ use ismp::{
 };
 use ismp_parachain::consensus::{HashAlgorithm, MembershipProof, ParachainStateProof};
 use ismp_primitives::LeafIndexQuery;
-use pallet_ismp::primitives::Proof as MmrProof;
-use sp_core::H256;
-use std::time::Duration;
+use ismp_rpc::BlockNumberOrHash;
+use pallet_ismp::{primitives::Proof as MmrProof, NodesUtils};
+use sp_core::{sp_std::sync::Arc, H256};
+use std::{collections::HashMap, time::Duration};
 use subxt::rpc_params;
 use tesseract_primitives::{IsmpProvider, Query, StateMachineUpdated};
 
@@ -34,10 +35,10 @@ where
 {
     async fn query_consensus_state(
         &self,
-        at: u64,
+        at: Option<u64>,
         id: ConsensusClientId,
     ) -> Result<Vec<u8>, anyhow::Error> {
-        let params = rpc_params![Some(at), id];
+        let params = rpc_params![at, id];
         let response = self.parachain.rpc().request("ismp_queryConsensusState", params).await?;
 
         Ok(response)
@@ -75,7 +76,7 @@ where
             self.parachain.rpc().request("ismp_queryRequestsMmrProof", params).await?;
         let mmr_proof: MmrProof<H256> = Decode::decode(&mut &*response.proof)?;
         let proof = MembershipProof {
-            mmr_size: mmr_proof.leaf_count,
+            mmr_size: NodesUtils::new(mmr_proof.leaf_count).size(),
             leaf_indices: mmr_proof.leaf_indices,
             proof: mmr_proof.items,
         };
@@ -92,7 +93,7 @@ where
             self.parachain.rpc().request("ismp_queryResponsesMmrProof", params).await?;
         let mmr_proof: MmrProof<H256> = Decode::decode(&mut &*response.proof)?;
         let proof = MembershipProof {
-            mmr_size: mmr_proof.leaf_count,
+            mmr_size: NodesUtils::new(mmr_proof.leaf_count).size(),
             leaf_indices: mmr_proof.leaf_indices,
             proof: mmr_proof.items,
         };
@@ -116,19 +117,22 @@ where
 
     async fn query_ismp_events(
         &self,
-        _event: StateMachineUpdated,
+        event: StateMachineUpdated,
     ) -> Result<Vec<pallet_ismp::events::Event>, anyhow::Error> {
-        unimplemented!()
-        // let block_numbers: Vec<BlockNumberOrHash<sp_core::H256>> = ((event.previous_height +
-        // 1)..=     event.latest_height)
-        //     .into_iter()
-        //     .map(|block_height| BlockNumberOrHash::Number(block_height as u32))
-        //     .collect();
-        //
-        // let params = rpc_params![block_numbers];
-        // let response = self.parachain.rpc().request("ismp_queryEvents", params).await?;
-        //
-        // Ok(response)
+        let latest_state_machine_height = Arc::clone(&self.latest_state_machine_height);
+
+        let block_numbers: Vec<BlockNumberOrHash<sp_core::H256>> =
+            ((*latest_state_machine_height.lock() + 1)..=event.latest_height)
+                .into_iter()
+                .map(|block_height| BlockNumberOrHash::Number(block_height as u32))
+                .collect();
+        *latest_state_machine_height.lock() = event.latest_height;
+
+        let params = rpc_params![block_numbers];
+        let response: HashMap<String, Vec<pallet_ismp::events::Event>> =
+            self.parachain.rpc().request("ismp_queryEvents", params).await?;
+
+        Ok(response.values().into_iter().cloned().flatten().collect())
     }
 
     async fn query_requests(&self, keys: Vec<Query>) -> Result<Vec<Request>, anyhow::Error> {

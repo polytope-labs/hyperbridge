@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{parachain, ParachainClient};
+use crate::{parachain, try_sending_with_tip, ParachainClient};
 use codec::Encode;
 use futures::Stream;
 use ismp::{
@@ -23,7 +23,7 @@ use ismp::{
 use sp_core::{sr25519, Pair as _};
 use std::pin::Pin;
 use subxt::{
-    config::ExtrinsicParams,
+    config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
     ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
     tx::Signer,
 };
@@ -34,7 +34,8 @@ impl<T> IsmpHost for ParachainClient<T>
 where
     T: subxt::Config + Send + Sync + Clone,
     T::Header: Send + Sync,
-    <T::ExtrinsicParams as ExtrinsicParams<T::Index, T::Hash>>::OtherParams: Default + Send,
+    <T::ExtrinsicParams as ExtrinsicParams<T::Index, T::Hash>>::OtherParams:
+        Default + Send + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
     T::AccountId:
         From<sp_core::crypto::AccountId32> + Into<T::Address> + Clone + 'static + Send + Sync,
     T::Signature: From<MultiSignature> + Send + Sync,
@@ -44,7 +45,10 @@ where
     }
 
     fn state_machine_id(&self) -> StateMachineId {
-        todo!()
+        StateMachineId {
+            state_id: self.state_machine,
+            consensus_client: ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID,
+        }
     }
 
     fn block_max_gas(&self) -> u64 {
@@ -82,13 +86,8 @@ where
 
         let tx =
             parachain::api::tx().ismp().handle(codec::Decode::decode(&mut &*messages.encode())?);
-        let tx = self
-            .parachain
-            .tx()
-            .sign_and_submit_then_watch_default(&tx, &signer)
-            .await?
-            .wait_for_in_block()
-            .await?;
+        let progress = try_sending_with_tip(&self.parachain, signer, tx).await?;
+        let tx = progress.wait_for_in_block().await?;
         tx.wait_for_success().await?;
 
         Ok(())

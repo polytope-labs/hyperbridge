@@ -17,10 +17,17 @@
 
 use codec::Encode;
 use ismp::{host::StateMachine, messaging::CreateConsensusClient};
-use sp_core::{bytes::from_hex, sr25519, Pair};
+use parking_lot::Mutex;
+use sp_core::{bytes::from_hex, sp_std::sync::Arc, sr25519, Pair};
 use subxt::{
-    config::ExtrinsicParams,
-    ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+    config::{
+        extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
+    },
+    ext::{
+        scale_encode::EncodeAsFields,
+        sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+    },
+    tx::{Payload, TxProgress},
     OnlineClient, PolkadotConfig,
 };
 
@@ -29,6 +36,8 @@ mod codegen;
 mod host;
 mod notifications;
 mod provider;
+#[cfg(feature = "testing")]
+mod testing;
 
 use crate::{
     host::InMemorySigner,
@@ -45,6 +54,8 @@ pub struct ParachainConfig {
     pub parachain: String,
     /// Relayer account seed
     pub signer: String,
+    /// Latest state machine height
+    pub latest_state_machine_height: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -55,10 +66,10 @@ pub struct ParachainClient<T: subxt::Config> {
     relay_chain: OnlineClient<PolkadotConfig>,
     /// Subxt client for the parachain.
     parachain: OnlineClient<T>,
-    /// RPC url for the parachain
-    parachain_url: String,
     /// Private key of the signing account
-    signer: sr25519::Pair,
+    pub signer: sr25519::Pair,
+    /// Latest state machine height.
+    latest_state_machine_height: Arc<Mutex<u64>>,
 }
 
 impl<T> ParachainClient<T>
@@ -76,13 +87,26 @@ where
 
         let bytes = from_hex(&config.signer)?;
         let signer = sr25519::Pair::from_seed_slice(&bytes)?;
-
+        // If latest height of the state machine on the counterparty is not provided in config
+        // Set it to the latest parachain height
+        let latest_state_machine_height =
+            if let Some(latest_state_machine_height) = config.latest_state_machine_height {
+                latest_state_machine_height
+            } else {
+                parachain
+                    .rpc()
+                    .header(None)
+                    .await?
+                    .expect("block header should be available")
+                    .number()
+                    .into()
+            };
         Ok(ParachainClient {
             state_machine: config.state_machine,
             relay_chain,
             parachain,
-            parachain_url: config.parachain,
             signer,
+            latest_state_machine_height: Arc::new(Mutex::new(latest_state_machine_height)),
         })
     }
 
@@ -112,4 +136,27 @@ where
 
         Ok(())
     }
+
+    pub fn account(&self) -> T::AccountId {
+        MultiSigner::Sr25519(self.signer.public()).into_account().into()
+    }
+}
+
+/// Send transaction with a tip
+pub async fn try_sending_with_tip<T: subxt::Config, CallData: EncodeAsFields>(
+    client: &OnlineClient<T>,
+    signer: InMemorySigner<T>,
+    payload: Payload<CallData>,
+) -> Result<TxProgress<T, OnlineClient<T>>, anyhow::Error>
+where
+    <T::ExtrinsicParams as ExtrinsicParams<T::Index, T::Hash>>::OtherParams:
+        Default + Send + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
+    T::Signature: From<MultiSignature> + Send + Sync,
+{
+    let other_params = BaseExtrinsicParamsBuilder::new();
+    let base_tip = 10_000;
+    let other_params = other_params.tip(PlainTip::new(base_tip));
+    let progress =
+        client.tx().sign_and_submit_then_watch(&payload, &signer, other_params.into()).await?;
+    Ok(progress)
 }

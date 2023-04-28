@@ -57,7 +57,7 @@ pub trait IsmpProvider {
     /// Query the latest consensus state of a client
     async fn query_consensus_state(
         &self,
-        at: u64,
+        at: Option<u64>,
         id: ConsensusClientId,
     ) -> Result<Vec<u8>, anyhow::Error>;
 

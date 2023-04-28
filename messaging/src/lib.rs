@@ -20,6 +20,7 @@ mod event_parser;
 use crate::event_parser::parse_ismp_events;
 use futures::StreamExt;
 use ismp::consensus::StateMachineHeight;
+use pallet_ismp::events::Event;
 use tesseract_primitives::IsmpHost;
 
 pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
@@ -40,21 +41,33 @@ where
                     Some(Ok(state_machine_update)) => {
                         // Chain B's state machine has been updated to a new height on chain A
                         // We query all the events that have been emitted on chain B that can be submitted to chain A
-                        let events = chain_b.query_ismp_events(state_machine_update).await?;
+                        // filter events list to contain only Request and Response events
+                        let events = chain_b.query_ismp_events(state_machine_update).await?.into_iter()
+                            .filter(|ev| matches!(ev, Event::Request {..} | Event::Response {..})).collect::<Vec<_>>();
+
                         if events.is_empty() {
                             continue
                         }
+                        log::info!(
+                            target: "tesseract",
+                            "Events from {} {:?}", chain_b.name(),
+                            events
+                         );
                         let state_machine_height = StateMachineHeight {
                             id: state_machine_update.state_machine_id,
                             height: state_machine_update.latest_height
                         };
+                        log::info!(
+                            target: "tesseract",
+                            "Latest update {:?}", state_machine_update
+                        );
                         let messages = parse_ismp_events(&chain_b, events, state_machine_height).await?;
-                        chain_a.submit(messages).await?;
                         log::info!(
                             target: "tesseract",
                             "Submitting ismp messages from {} to {}",
                             chain_b.name(), chain_a.name()
                         );
+                        chain_a.submit(messages).await?;
                     },
                     Some(Err(e)) => {
                         log::error!(
@@ -71,21 +84,33 @@ where
                     Some(Ok(state_machine_update)) => {
                         // Chain A's state machine has been updated to a new height on chain B
                         // We query all the events that have been emitted on chain A that can be submitted to chain B
-                        let events = chain_a.query_ismp_events(state_machine_update).await?;
+
+                        // filter events list to contain only Request and Response events
+                        let events = chain_a.query_ismp_events(state_machine_update).await?.into_iter()
+                            .filter(|ev| matches!(&ev, Event::Request {..} | Event::Response{..})).collect::<Vec<_>>();
                         if events.is_empty() {
                             continue
                         }
+                        log::info!(
+                            target: "tesseract",
+                            "Events from {} {:?}", chain_a.name(),
+                            events
+                         );
                         let state_machine_height = StateMachineHeight {
                             id: state_machine_update.state_machine_id,
                             height: state_machine_update.latest_height
                         };
+                        log::info!(
+                            target: "tesseract",
+                            "Latest update {:?}", state_machine_update
+                         );
                         let messages = parse_ismp_events(&chain_a, events, state_machine_height).await?;
-                        chain_b.submit(messages).await?;
-                         log::info!(
+                        log::info!(
                             target: "tesseract",
                             "Submitting ismp messages from {} to {}",
                             chain_a.name(), chain_b.name()
                          );
+                        chain_b.submit(messages).await?;
                     },
                     Some(Err(e)) => {
                         log::error!(

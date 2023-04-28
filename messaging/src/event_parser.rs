@@ -31,24 +31,29 @@ pub async fn parse_ismp_events<A: IsmpHost>(
             _ => {}
         }
     }
+    let mut messages = vec![];
 
-    let requests = source.query_requests(request_queries.clone()).await?;
-    let responses = source.query_responses(response_queries.clone()).await?;
-
-    let responses_proof =
-        source.query_responses_proof(state_machine_height.height, response_queries).await?;
-    let requests_proof =
-        source.query_requests_proof(state_machine_height.height, request_queries).await?;
-
-    let request_message = RequestMessage {
-        requests,
-        proof: Proof { height: state_machine_height, proof: requests_proof },
+    if !request_queries.is_empty() {
+        let requests = source.query_requests(request_queries.clone()).await?;
+        let requests_proof =
+            source.query_requests_proof(state_machine_height.height, request_queries).await?;
+        let msg = RequestMessage {
+            requests,
+            proof: Proof { height: state_machine_height, proof: requests_proof },
+        };
+        messages.push(Message::Request(msg))
     };
 
-    let response_message = ResponseMessage {
-        responses,
-        proof: Proof { height: state_machine_height, proof: responses_proof },
+    if !response_queries.is_empty() {
+        let responses = source.query_responses(response_queries.clone()).await?;
+        let responses_proof =
+            source.query_responses_proof(state_machine_height.height, response_queries).await?;
+        let msg = ResponseMessage {
+            responses,
+            proof: Proof { height: state_machine_height, proof: responses_proof },
+        };
+        messages.push(Message::Response(msg))
     };
 
-    Ok(vec![Message::Request(request_message), Message::Response(response_message)])
+    Ok(messages)
 }

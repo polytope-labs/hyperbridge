@@ -5,7 +5,7 @@ use ismp_rs::{
     host::StateMachine,
 };
 
-#[derive(codec::Encode, codec::Decode)]
+#[derive(Clone, codec::Encode, codec::Decode, Debug)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub enum Event {
     // Emitted when a state machine is successfully updated to a new height
@@ -37,7 +37,7 @@ pub enum Event {
     },
 }
 
-pub fn to_core_protocol_events<T: Config>(event: PalletEvent<T>) -> Option<Event> {
+pub fn to_core_protocol_event<T: Config>(event: PalletEvent<T>) -> Option<Event> {
     match event {
         PalletEvent::StateMachineUpdated { state_machine_id, latest_height } => {
             Some(Event::StateMachineUpdated { state_machine_id, latest_height })

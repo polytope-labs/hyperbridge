@@ -58,13 +58,10 @@ where
     T: Config,
 {
     fn get_elem(&self, pos: NodeIndex) -> mmr_lib::Result<Option<DataOrHash<T>>> {
-        // Find out which leaf added node `pos` in the MMR.
-        let ancestor_leaf_idx = NodesUtils::leaf_index_that_added_node(pos);
-
         let key = Pallet::<T>::offchain_key(pos);
         debug!(
-            target: "runtime::mmr::offchain", "offchain db get {}: leaf idx {:?}, key {:?}",
-            pos, ancestor_leaf_idx, key
+            target: "runtime::mmr::offchain", "offchain db get {}: key {:?}",
+            pos, key
         );
         // Try to retrieve the element from Off-chain DB.
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {

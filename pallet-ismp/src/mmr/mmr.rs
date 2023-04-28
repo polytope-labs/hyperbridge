@@ -51,12 +51,6 @@ where
         let size = NodesUtils::new(leaves).size();
         Self { mmr: mmr_lib::MMR::new(size, Default::default()), leaves }
     }
-
-    /// Return the internal size of the MMR (number of nodes).
-    #[cfg(test)]
-    pub fn size(&self) -> NodeIndex {
-        self.mmr.mmr_size()
-    }
 }
 
 /// Runtime specific MMR functions.
@@ -65,23 +59,21 @@ where
     T: Config,
     <T as frame_system::Config>::Hash: From<H256>,
 {
-    /// Push another item to the MMR.
+    /// Push another item to the MMR and commit
     ///
-    /// Returns element position (index) in the MMR.
-    pub fn push(&mut self, leaf: Leaf) -> Option<NodeIndex> {
+    /// Returns number of leaves and the element position (index) in the MMR.
+    pub fn push(mut self, leaf: Leaf) -> Option<NodeIndex> {
         let position = self.mmr.push(DataOrHash::Data(leaf)).map_err(|_| Error::Push).ok()?;
-
-        self.leaves += 1;
-
+        let num_leaves = self.leaves + 1;
+        self.leaves = num_leaves;
+        self.mmr.commit().ok()?;
         Some(position)
     }
 
-    /// Commit the changes to underlying storage, return current number of leaves and
-    /// calculate the new MMR's root hash.
-    pub fn finalize(self) -> Result<(NodeIndex, <T as frame_system::Config>::Hash), Error> {
+    /// Calculate the new MMR's root hash.
+    pub fn finalize(self) -> Result<<T as frame_system::Config>::Hash, Error> {
         let root = self.mmr.get_root().map_err(|_| Error::GetRoot)?;
-        self.mmr.commit().map_err(|_| Error::Commit)?;
-        Ok((self.leaves, root.hash::<Host<T>>()))
+        Ok(root.hash::<Host<T>>())
     }
 }
 
@@ -97,10 +89,8 @@ where
     /// (i.e. you can't run the function in the pruned storage).
     pub fn generate_proof(
         &self,
-        leaf_indices: Vec<NodeIndex>,
+        positions: Vec<NodeIndex>,
     ) -> Result<(Vec<Leaf>, Proof<<T as frame_system::Config>::Hash>), Error> {
-        let positions =
-            leaf_indices.iter().map(|index| mmr_lib::leaf_index_to_pos(*index)).collect::<Vec<_>>();
         let store = <Storage<OffchainStorage, T>>::default();
         let leaves = positions
             .iter()
@@ -109,13 +99,13 @@ where
                 _ => Err(Error::LeafNotFound),
             })
             .collect::<Result<Vec<_>, Error>>()?;
-
+        log::trace!(target: "runtime::mmr", "Positions {:?}", positions);
         let leaf_count = self.leaves;
         self.mmr
-            .gen_proof(positions)
+            .gen_proof(positions.clone())
             .map_err(|_| Error::GenerateProof)
             .map(|p| Proof {
-                leaf_indices,
+                leaf_indices: positions,
                 leaf_count,
                 items: p.proof_items().iter().map(|x| x.hash::<Host<T>>()).collect(),
             })

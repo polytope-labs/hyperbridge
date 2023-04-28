@@ -22,13 +22,19 @@ mod errors;
 pub mod events;
 pub mod host;
 mod mmr;
+#[cfg(test)]
+mod mock;
 pub mod primitives;
 pub mod router;
+#[cfg(test)]
+mod tests;
+
+pub use mmr::utils::NodesUtils;
 
 use crate::host::Host;
 use codec::{Decode, Encode};
 use core::time::Duration;
-use frame_support::{log::debug, RuntimeDebug};
+use frame_support::{log::debug, traits::Get, RuntimeDebug};
 use ismp_rs::{
     consensus::{ConsensusClientId, StateMachineId},
     host::StateMachine,
@@ -37,11 +43,12 @@ use ismp_rs::{
 };
 use sp_core::{offchain::StorageKind, H256};
 // Re-export pallet items so that they can be accessed from the crate namespace.
+use crate::primitives::{IsmpDispatch, IsmpMessage};
 use ismp_primitives::{
     mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex},
     LeafIndexQuery,
 };
-use ismp_rs::host::ISMPHost;
+use ismp_rs::{host::ISMPHost, router::ISMPRouter};
 use mmr::mmr::Mmr;
 pub use pallet::*;
 use sp_std::prelude::*;
@@ -183,10 +190,10 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// State variable that tells us if at least one new leaf was added to the mmr
+    /// Latest Nonce value for messages sent from this chain
     #[pallet::storage]
-    #[pallet::getter(fn new_leaves)]
-    pub type NewLeavesAdded<T> = StorageValue<_, LeafIndex, OptionQuery>;
+    #[pallet::getter(fn nonce)]
+    pub type Nonce<T> = StorageValue<_, u64, ValueQuery>;
 
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
@@ -201,26 +208,23 @@ pub mod pallet {
 
         fn on_finalize(_n: T::BlockNumber) {
             // Only finalize if mmr was modified
-            let root = if !NewLeavesAdded::<T>::exists() {
-                <RootHash<T>>::get()
-            } else {
-                let leaves = Self::number_of_leaves();
+            let leaves = Self::number_of_leaves();
+            let root = if leaves != 0 {
                 let mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
-
                 // Update the size, `mmr.finalize()` should also never fail.
-                let (leaves, root) = match mmr.finalize() {
-                    Ok((leaves, root)) => (leaves, root),
+                let root = match mmr.finalize() {
+                    Ok(root) => root,
                     Err(e) => {
                         log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
                         return
                     }
                 };
 
-                <NumberOfLeaves<T>>::put(leaves);
                 <RootHash<T>>::put(root);
-                NewLeavesAdded::<T>::kill();
 
                 root
+            } else {
+                H256::default().into()
             };
 
             let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, root.encode());
@@ -390,6 +394,11 @@ where
     pub fn mmr_root() -> <T as frame_system::Config>::Hash {
         Self::mmr_root_hash()
     }
+
+    /// Return mmr leaf count
+    pub fn mmr_leaf_count() -> LeafIndex {
+        Self::number_of_leaves()
+    }
 }
 
 impl<T: Config> Pallet<T> {
@@ -414,7 +423,7 @@ impl<T: Config> Pallet<T> {
     }
 
     fn offchain_key(pos: NodeIndex) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "Requests/Responses", pos).encode()
+        (T::INDEXING_PREFIX, "leaves", pos).encode()
     }
 }
 
@@ -432,7 +441,7 @@ where
         dest_chain: StateMachine,
         nonce: u64,
     ) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "Requests/leaf_indices", source_chain, dest_chain, nonce).encode()
+        (T::INDEXING_PREFIX, "requests_leaf_indices", source_chain, dest_chain, nonce).encode()
     }
 
     pub fn response_leaf_index_offchain_key(
@@ -440,7 +449,7 @@ where
         dest_chain: StateMachine,
         nonce: u64,
     ) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "Responses/leaf_indices", source_chain, dest_chain, nonce).encode()
+        (T::INDEXING_PREFIX, "responses_leaf_indices", source_chain, dest_chain, nonce).encode()
     }
 
     pub fn store_leaf_index_offchain(key: Vec<u8>, leaf_index: LeafIndex) {
@@ -540,12 +549,65 @@ where
     }
 
     pub fn mmr_push(leaf: Leaf) -> Option<NodeIndex> {
+        let offchain_key = match &leaf {
+            Leaf::Request(req) => Pallet::<T>::request_leaf_index_offchain_key(
+                req.source_chain(),
+                req.dest_chain(),
+                req.nonce(),
+            ),
+            Leaf::Response(res) => Pallet::<T>::response_leaf_index_offchain_key(
+                res.request.dest_chain(),
+                res.request.source_chain(),
+                res.request.nonce(),
+            ),
+        };
         let leaves = Self::number_of_leaves();
-        let mut mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
-        let index = mmr.push(leaf);
-        if !NewLeavesAdded::<T>::exists() && index.is_some() {
-            NewLeavesAdded::<T>::put(index.unwrap())
+        let mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
+        let pos = mmr.push(leaf)?;
+        Pallet::<T>::store_leaf_index_offchain(offchain_key, pos);
+        Some(pos)
+    }
+}
+
+impl<T: Config> Pallet<T> {
+    fn next_nonce() -> u64 {
+        let nonce = Nonce::<T>::get();
+        Nonce::<T>::put(nonce + 1);
+        nonce
+    }
+}
+
+impl<T: Config> IsmpDispatch for Pallet<T> {
+    fn dispatch_message(msg: IsmpMessage) -> Result<(), ismp_rs::router::DispatchError> {
+        let router = T::IsmpRouter::default();
+        match msg {
+            IsmpMessage::Post { timeout_timestamp, dest_chain, data, from, to } => {
+                let post = ismp_rs::router::Post {
+                    source_chain: T::StateMachine::get(),
+                    dest_chain,
+                    nonce: Pallet::<T>::next_nonce(),
+                    from,
+                    to,
+                    timeout_timestamp,
+                    data,
+                };
+                router.dispatch(Request::Post(post)).map(|_| ())
+            }
+            IsmpMessage::Get { timeout_timestamp, dest_chain, keys, height, from } => {
+                let get = ismp_rs::router::Get {
+                    source_chain: T::StateMachine::get(),
+                    dest_chain,
+                    nonce: Pallet::<T>::next_nonce(),
+                    from,
+                    keys,
+                    height,
+                    timeout_timestamp,
+                };
+                router.dispatch(Request::Get(get)).map(|_| ())
+            }
+            IsmpMessage::Response { response, request } => {
+                router.write_response(Response { request, response }).map(|_| ())
+            }
         }
-        index
     }
 }

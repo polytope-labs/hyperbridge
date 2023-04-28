@@ -29,6 +29,10 @@ derive_more = { version = "0.99.17", default-features = false, features = ["from
 # local
 ismp-primitives = { path = "./primitives", default-features = false }
 
+[dev-dependencies]
+env_logger = "0.10.0"
+pallet-timestamp = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.40" }
+
 [features]
 default = ["std"]
 std = [

@@ -7,4 +7,5 @@ members = [
     "pallet-ismp/primitives",
     "pallet-ismp",
     "parachain-consensus",
+    "ismp-assets"
 ]

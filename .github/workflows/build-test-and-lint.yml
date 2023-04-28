@@ -49,6 +49,10 @@ jobs:
           cargo +nightly-2022-10-28 check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --verbose
           cargo +nightly-2022-10-28 check -p ismp-parachain --no-default-features --target=wasm32-unknown-unknown --verbose
 
+      - name: Test
+        run: |
+          cargo +nightly-2022-10-28 test -p pallet-ismp --all-targets --all-features --verbose
+
   lint:
     runs-on: ubuntu-latest
     steps:

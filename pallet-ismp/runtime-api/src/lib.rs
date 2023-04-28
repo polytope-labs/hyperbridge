@@ -29,7 +29,7 @@ sp_api::decl_runtime_apis! {
         ) -> Result<(Vec<Leaf>, Proof<Hash>), Error>;
 
         /// Fetch all ISMP events
-        fn block_events() -> Option<Vec<pallet_ismp::events::Event>>;
+        fn block_events() -> Vec<pallet_ismp::events::Event>;
 
         /// Return the scale encoded consensus state
         fn consensus_state(id: ConsensusClientId) -> Option<Vec<u8>>;

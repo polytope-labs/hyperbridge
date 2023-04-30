@@ -55,6 +55,7 @@ use ismp_primitives::{
 use pallet_ismp::{
     primitives::{ConsensusClientProvider, Proof},
     router::ProxyRouter,
+    weights as PalletIsmpWeights,
 };
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
@@ -506,6 +507,7 @@ impl pallet_ismp::Config for Runtime {
     type TimeProvider = Timestamp;
     type IsmpRouter = ProxyRouter<Runtime>;
     type ConsensusClientProvider = ConsensusProvider;
+    type WeightInfo = PalletIsmpWeights::SubstrateWeight<Runtime>;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -560,6 +562,7 @@ mod benches {
         [pallet_timestamp, Timestamp]
         [pallet_collator_selection, CollatorSelection]
         [cumulus_pallet_xcmp_queue, XcmpQueue]
+        [pallet_ismp, Ismp]
     );
 }
 

@@ -1,7 +1,7 @@
 [workspace]
-resolver = "2"
 members = [
-    # Parachain
-     "parachain/runtime",
-     "parachain/node",
+  # Parachain
+  "parachain/runtime",
+  "parachain/node",
 ]
+resolver = "2"

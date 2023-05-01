@@ -3549,6 +3549,7 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.3.4",
  "ismp",
+ "ismp-assets",
  "ismp-parachain",
  "ismp-primitives",
  "ismp-runtime-api",
@@ -3822,6 +3823,20 @@ dependencies = [
  "primitive-types",
  "scale-info",
  "serde",
+]
+
+[[package]]
+name = "ismp-assets"
+version = "0.1.0"
+source = "git+ssh://git@github.com/polytope-labs/substrate-ismp.git?branch=main#6cbc5e823de6e12a200b3094a9526176c42eb89c"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime",
 ]
 
 [[package]]

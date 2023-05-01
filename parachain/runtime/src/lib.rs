@@ -6,6 +6,9 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+extern crate alloc;
+
+mod router;
 mod weights;
 pub mod xcm_config;
 
@@ -54,7 +57,6 @@ use ismp_primitives::{
 };
 use pallet_ismp::{
     primitives::{ConsensusClientProvider, Proof},
-    router::ProxyRouter,
     weights as PalletIsmpWeights,
 };
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -70,6 +72,7 @@ use polkadot_runtime_common::{BlockHashCount, SlowAdjustingFeeUpdate};
 use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
+use crate::router::Router;
 use xcm::latest::prelude::BodyId;
 use xcm_executor::XcmExecutor;
 
@@ -479,8 +482,9 @@ pub struct ConsensusProvider;
 impl ConsensusClientProvider for ConsensusProvider {
     fn consensus_client(id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
         let client = match id {
-            ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID =>
-                Box::new(ParachainConsensusClient::<Runtime, IsmpParachain>::default()),
+            ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID => {
+                Box::new(ParachainConsensusClient::<Runtime, IsmpParachain>::default())
+            },
             _ => Err(Error::ImplementationSpecific("Unknown consensus client".into()))?,
         };
 
@@ -505,9 +509,16 @@ impl pallet_ismp::Config for Runtime {
     type AdminOrigin = EnsureRoot<AccountId>;
     type StateMachine = StateMachineProvider;
     type TimeProvider = Timestamp;
-    type IsmpRouter = ProxyRouter<Runtime>;
+    type IsmpRouter = Router;
     type ConsensusClientProvider = ConsensusProvider;
     type WeightInfo = PalletIsmpWeights::SubstrateWeight<Runtime>;
+}
+
+impl ismp_assets::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Balance = Balance;
+    type NativeCurrency = Balances;
+    type IsmpDispatch = Ismp;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -546,6 +557,7 @@ construct_runtime!(
         // ISMP stuff
         Ismp: pallet_ismp::{Pallet, Call, Storage, Event<T>} = 40,
         IsmpParachain: ismp_parachain::{Pallet, Storage, Event<T>, Config} = 41,
+        IsmpAssets: ismp_assets::{Pallet, Call, Storage, Event<T>} = 42,
     }
 );
 
@@ -700,7 +712,7 @@ impl_runtime_apis! {
     impl ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
         /// Return the number of MMR leaves.
         fn mmr_leaf_count() -> Result<LeafIndex, pallet_ismp::primitives::Error> {
-            Ok(0)
+            Ok(Ismp::mmr_leaf_count())
         }
 
         /// Return the on-chain MMR root hash.
@@ -716,8 +728,18 @@ impl_runtime_apis! {
         }
 
         /// Fetch all ISMP events
-        fn block_events() -> Option<Vec<pallet_ismp::events::Event>> {
-            None
+        fn block_events() -> Vec<pallet_ismp::events::Event> {
+            let raw_events = frame_system::Pallet::<Self>::read_events_no_consensus().into_iter();
+            raw_events.filter_map(|e| {
+                let frame_system::EventRecord{ event, ..} = *e;
+
+                match event {
+                    RuntimeEvent::Ismp(event) => {
+                        pallet_ismp::events::to_core_protocol_event(event)
+                    },
+                    _ => None
+                }
+            }).collect()
         }
 
         /// Return the scale encoded consensus state

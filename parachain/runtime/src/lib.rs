@@ -482,9 +482,8 @@ pub struct ConsensusProvider;
 impl ConsensusClientProvider for ConsensusProvider {
     fn consensus_client(id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
         let client = match id {
-            ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID => {
-                Box::new(ParachainConsensusClient::<Runtime, IsmpParachain>::default())
-            },
+            ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID =>
+                Box::new(ParachainConsensusClient::<Runtime, IsmpParachain>::default()),
             _ => Err(Error::ImplementationSpecific("Unknown consensus client".into()))?,
         };
 

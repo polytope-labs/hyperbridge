@@ -28,14 +28,14 @@ jobs:
           cache-on-failure: true
 
       - name: Build
-        run:  cargo +nightly check --all --benches
+        run:  cargo +nightly check --all --benches --workspace
 
       - name: Build `no-std`
-        run:  cargo +nightly build --no-default-features --verbose --target=wasm32-unknown-unknown
+        run:  cargo +nightly build -p ismp --no-default-features --verbose --target=wasm32-unknown-unknown
 
       - name: Run tests
-        run: cargo +nightly test --all-features --verbose
-
+        run: cargo +nightly test --all-features --workspace --verbose
+      
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -59,4 +59,4 @@ jobs:
         run: cargo +nightly fmt --all --check
 
       - name: Check clippy
-        run: cargo +nightly clippy --all-targets --all-features --verbose -- -D warnings
+        run: cargo +nightly clippy --all-targets  --workspace --all-features --verbose -- -D warnings

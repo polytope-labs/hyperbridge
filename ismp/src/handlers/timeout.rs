@@ -23,6 +23,7 @@ use crate::{
     router::RequestResponse,
     util::hash_request,
 };
+use alloc::vec::Vec;
 
 /// This function handles timeouts for Requests
 pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, Error>
@@ -61,7 +62,15 @@ where
     }
 
     let router = host.ismp_router();
-    let result = msg.requests.into_iter().map(|request| router.dispatch_timeout(request)).collect();
+    let result = msg
+        .requests
+        .into_iter()
+        .map(|request| {
+            let res = router.dispatch_timeout(request.clone());
+            host.delete_request_commitment(&request)?;
+            Ok(res)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(MessageResult::Timeout(result))
 }

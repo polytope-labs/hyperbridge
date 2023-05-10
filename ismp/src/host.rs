@@ -55,6 +55,8 @@ pub trait ISMPHost {
     fn is_frozen(&self, height: StateMachineHeight) -> Result<bool, Error>;
     /// Fetch commitment of a request from storage
     fn request_commitment(&self, req: &Request) -> Result<H256, Error>;
+    /// Get request receipt, should return Some(()) if a receipt exists in storage
+    fn get_request_receipt(&self, req: &Request) -> Option<()>;
 
     // Storage Write functions
 
@@ -76,6 +78,10 @@ pub trait ISMPHost {
     fn freeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error>;
     /// Store latest height for a state machine
     fn store_latest_commitment_height(&self, height: StateMachineHeight) -> Result<(), Error>;
+    /// Delete a request commitment from storage
+    fn delete_request_commitment(&self, req: &Request) -> Result<(), Error>;
+    /// Store a receipt for a request, receipt can be anything
+    fn store_request_receipt(&self, req: &Request) -> Result<(), Error>;
 
     /// Should return a handle to the consensus client based on the id
     fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error>;
@@ -94,7 +100,7 @@ pub trait ISMPHost {
         let host_timestamp = self.timestamp();
         let unbonding_period = self.consensus_client(consensus_id)?.unbonding_period();
         let last_update = self.consensus_update_time(consensus_id)?;
-        if host_timestamp.saturating_sub(last_update) > unbonding_period {
+        if host_timestamp.saturating_sub(last_update) >= unbonding_period {
             Err(Error::UnbondingPeriodElapsed { consensus_id })?
         }
 
@@ -107,7 +113,7 @@ pub trait ISMPHost {
 
 /// Currently supported state machines.
 #[derive(
-    Clone, Debug, Copy, Encode, Decode, PartialOrd, Ord, PartialEq, Eq, scale_info::TypeInfo,
+    Clone, Debug, Copy, Encode, Decode, PartialOrd, Ord, PartialEq, Eq, Hash, scale_info::TypeInfo,
 )]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub enum StateMachine {

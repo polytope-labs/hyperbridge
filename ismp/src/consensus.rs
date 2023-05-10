@@ -29,7 +29,7 @@ use primitive_types::H256;
 /// Consensus client Ids
 pub type ConsensusClientId = [u8; 4];
 
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateCommitment {
     /// Timestamp in seconds
@@ -47,7 +47,7 @@ impl StateCommitment {
 }
 
 /// We define the intermediate state as the commitment to the global state trie at a given height
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct IntermediateState {
     pub height: StateMachineHeight,
@@ -57,7 +57,7 @@ pub struct IntermediateState {
 /// Since consensus systems may come to conensus about the state of multiple state machines, we
 /// identify each state machine individually.
 #[derive(
-    Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Ord, PartialOrd,
+    Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Hash, Ord, PartialOrd,
 )]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateMachineId {
@@ -66,7 +66,7 @@ pub struct StateMachineId {
 }
 
 #[derive(
-    Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Ord, PartialOrd,
+    Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Hash, Ord, PartialOrd,
 )]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateMachineHeight {

@@ -23,6 +23,7 @@ use crate::{
     router::RequestResponse,
     util::hash_request,
 };
+use alloc::vec::Vec;
 
 /// Validate the state machine, verify the response message and dispatch the message to the router
 pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, Error>
@@ -54,8 +55,16 @@ where
 
     let router = host.ismp_router();
 
-    let result =
-        msg.responses.into_iter().map(|response| router.write_response(response)).collect();
+    let result = msg
+        .responses
+        .into_iter()
+        .map(|response| {
+            let request = response.request.clone();
+            let res = router.write_response(response);
+            host.delete_request_commitment(&request)?;
+            Ok(res)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(MessageResult::Response(result))
 }

@@ -38,7 +38,7 @@ where
     // Ensure client is not frozen
     consensus_client.is_frozen(&trusted_state)?;
 
-    if (now - update_time) < delay {
+    if (now - update_time) <= delay {
         Err(Error::ChallengePeriodNotElapsed {
             consensus_id: msg.consensus_client_id,
             current_time: now,

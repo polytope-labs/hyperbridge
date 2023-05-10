@@ -123,7 +123,7 @@ impl Request {
 
     /// Returns true if the destination chain timestamp has exceeded the request timeout timestamp
     pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
-        proof_timestamp > self.timeout()
+        proof_timestamp >= self.timeout()
     }
 }
 

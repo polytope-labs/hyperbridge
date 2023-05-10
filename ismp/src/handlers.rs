@@ -31,6 +31,7 @@ mod timeout;
 
 pub use consensus::create_consensus_client;
 
+#[derive(Debug)]
 pub struct ConsensusUpdateResult {
     /// Consensus client Id
     pub consensus_client_id: ConsensusClientId,
@@ -44,6 +45,7 @@ pub struct ConsensusClientCreatedResult {
 }
 
 /// Result returned when ismp messages are handled successfully
+#[derive(Debug)]
 pub enum MessageResult {
     ConsensusMessage(ConsensusUpdateResult),
     Request(Vec<DispatchResult>),

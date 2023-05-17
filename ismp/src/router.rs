@@ -15,8 +15,8 @@
 
 //! ISMPRouter definition
 
-use crate::{consensus::StateMachineHeight, host::StateMachine, prelude::Vec};
-use alloc::string::String;
+use crate::{consensus::StateMachineHeight, error::Error, host::StateMachine, prelude::Vec};
+use alloc::string::{String, ToString};
 use codec::{Decode, Encode};
 use core::time::Duration;
 
@@ -30,7 +30,7 @@ pub struct Post {
     pub dest_chain: StateMachine,
     /// The nonce of this request on the source chain
     pub nonce: u64,
-    /// Moudle Id of the sending module
+    /// Module Id of the sending module
     pub from: Vec<u8>,
     /// Module ID of the receiving module
     pub to: Vec<u8>,
@@ -50,13 +50,21 @@ pub struct Get {
     pub dest_chain: StateMachine,
     /// The nonce of this request on the source chain
     pub nonce: u64,
-    /// Moudle Id of the sending module
+    /// Module Id of the sending module
     pub from: Vec<u8>,
-    /// Storage keys that this request is interested in.
+    /// Raw Storage keys that would be used to fetch the values from the counterparty
+    /// For deriving storage keys for ink contract fields follow the guide in the link below
+    /// https://use.ink/datastructures/storage-in-metadata#a-full-example
+    /// The algorithms for calculating raw storage keys for different substrate pallet storage
+    /// types are described in the following links
+    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/map.rs#L34-L42
+    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/double_map.rs#L34-L44
+    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/nmap.rs#L39-L48
+    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37
     pub keys: Vec<Vec<u8>>,
     /// Height at which to read the state machine.
     pub height: StateMachineHeight,
-    /// Timestamp which this request expires in seconds
+    /// Host timestamp at which this request expires in seconds
     pub timeout_timestamp: u64,
 }
 
@@ -125,20 +133,74 @@ impl Request {
     pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
         proof_timestamp >= self.timeout()
     }
+
+    pub fn get_request(&self) -> Result<Get, Error> {
+        match self {
+            Request::Post(_) => {
+                Err(Error::ImplementationSpecific("Expected Get request".to_string()))
+            }
+            Request::Get(get) => Ok(get.clone()),
+        }
+    }
+
+    pub fn is_type_get(&self) -> bool {
+        match self {
+            Request::Post(_) => false,
+            Request::Get(_) => true,
+        }
+    }
 }
 
 /// The ISMP response
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
-pub struct Response {
-    /// The request that triggered this response.
-    pub request: Request,
-    /// The response message.
-    pub response: Vec<u8>,
+pub enum Response {
+    Post {
+        /// The request that triggered this response.
+        post: Post,
+        /// The response message.
+        response: Vec<u8>,
+    },
+    Get {
+        /// The Get request that triggered this response.
+        get: Get,
+        /// Values derived from the state proof
+        values: Vec<(Vec<u8>, Option<Vec<u8>>)>,
+    },
 }
 
-/// This is the concrete type for Get requests
-pub type GetResponse = Vec<(Vec<u8>, Vec<u8>)>;
+impl Response {
+    pub fn request(&self) -> Request {
+        match self {
+            Response::Post { post, .. } => Request::Post(post.clone()),
+            Response::Get { get, .. } => Request::Get(get.clone()),
+        }
+    }
+
+    /// Get the source chain for this response
+    pub fn source_chain(&self) -> StateMachine {
+        match self {
+            Response::Get { get, .. } => get.dest_chain,
+            Response::Post { post, .. } => post.dest_chain,
+        }
+    }
+
+    /// Get the destination chain for this response
+    pub fn dest_chain(&self) -> StateMachine {
+        match self {
+            Response::Get { get, .. } => get.source_chain,
+            Response::Post { post, .. } => post.source_chain,
+        }
+    }
+
+    /// Get the request nonce
+    pub fn nonce(&self) -> u64 {
+        match self {
+            Response::Get { get, .. } => get.nonce,
+            Response::Post { post, .. } => post.nonce,
+        }
+    }
+}
 
 /// Convenience enum for membership verification.
 pub enum RequestResponse {

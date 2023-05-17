@@ -258,23 +258,23 @@ impl ISMPRouter for MockRouter {
 
     fn write_response(&self, response: Response) -> DispatchResult {
         let host = self.0.clone();
-        if response.request.source_chain() != host.host_state_machine() {
+        if response.dest_chain() != host.host_state_machine() {
             let hash = hash_response::<Host>(&response);
             if host.responses.borrow().contains(&hash) {
                 return Err(DispatchError {
-                    msg: "Duplicate request".to_string(),
-                    nonce: response.request.nonce(),
-                    source: response.request.source_chain(),
-                    dest: response.request.dest_chain(),
+                    msg: "Duplicate response".to_string(),
+                    nonce: response.nonce(),
+                    source: response.source_chain(),
+                    dest: response.dest_chain(),
                 })
             }
             host.responses.borrow_mut().insert(hash);
         }
 
         Ok(DispatchSuccess {
-            dest_chain: response.request.dest_chain(),
-            source_chain: response.request.source_chain(),
-            nonce: response.request.nonce(),
+            dest_chain: response.dest_chain(),
+            source_chain: response.source_chain(),
+            nonce: response.nonce(),
         })
     }
 }

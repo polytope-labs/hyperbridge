@@ -19,7 +19,7 @@ use crate::{
     consensus::{ConsensusClient, ConsensusClientId, StateMachineHeight},
     error::Error,
     host::ISMPHost,
-    messaging::{Message, Proof},
+    messaging::Message,
     router::DispatchResult,
 };
 use alloc::{boxed::Box, collections::BTreeSet, vec::Vec};
@@ -82,28 +82,31 @@ where
 /// - It ensures the consensus client is not frozen
 /// - It ensures the state machine is not frozen
 /// - Checks that the delay period configured for the state machine has elaspsed.
-fn validate_state_machine<H>(host: &H, proof: &Proof) -> Result<Box<dyn ConsensusClient>, Error>
+fn validate_state_machine<H>(
+    host: &H,
+    proof_height: StateMachineHeight,
+) -> Result<Box<dyn ConsensusClient>, Error>
 where
     H: ISMPHost,
 {
     // Ensure consensus client is not frozen
-    let consensus_client_id = proof.height.id.consensus_client;
+    let consensus_client_id = proof_height.id.consensus_client;
     let consensus_client = host.consensus_client(consensus_client_id)?;
     let consensus_state = host.consensus_state(consensus_client_id)?;
     // Ensure client is not frozen
     consensus_client.is_frozen(&consensus_state)?;
 
     // Ensure state machine is not frozen
-    if host.is_frozen(proof.height)? {
-        return Err(Error::FrozenStateMachine { height: proof.height })
+    if host.is_frozen(proof_height)? {
+        return Err(Error::FrozenStateMachine { height: proof_height })
     }
 
     // Ensure delay period has elapsed
-    if !verify_delay_passed(host, proof.height)? {
+    if !verify_delay_passed(host, proof_height)? {
         return Err(Error::ChallengePeriodNotElapsed {
             consensus_id: consensus_client_id,
             current_time: host.timestamp(),
-            update_time: host.consensus_update_time(proof.height.id.consensus_client)?,
+            update_time: host.consensus_update_time(proof_height.id.consensus_client)?,
         })
     }
 

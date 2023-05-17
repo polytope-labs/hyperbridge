@@ -15,7 +15,7 @@
 
 //! ISMP Testsuite
 
-mod mocks;
+pub mod mocks;
 #[cfg(test)]
 mod tests;
 
@@ -47,11 +47,8 @@ fn setup_mock_client<H: ISMPHost>(host: &H) -> IntermediateState {
     };
 
     host.store_consensus_state(MOCK_CONSENSUS_CLIENT_ID, vec![]).unwrap();
-    host.store_state_machine_commitment(
-        intermediate_state.height,
-        intermediate_state.commitment.clone(),
-    )
-    .unwrap();
+    host.store_state_machine_commitment(intermediate_state.height, intermediate_state.commitment)
+        .unwrap();
 
     intermediate_state
 }
@@ -83,7 +80,7 @@ pub fn check_challenge_period<H: ISMPHost>(host: &H) -> Result<(), &'static str>
         timeout_timestamp: 0,
         data: vec![0u8; 64],
     };
-    let request = Request::Post(post);
+    let request = Request::Post(post.clone());
     // Request message handling check
     let request_message = Message::Request(RequestMessage {
         requests: vec![request.clone()],
@@ -95,8 +92,8 @@ pub fn check_challenge_period<H: ISMPHost>(host: &H) -> Result<(), &'static str>
     assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
 
     // Response message handling check
-    let response_message = Message::Response(ResponseMessage {
-        responses: vec![Response { request: request.clone(), response: vec![] }],
+    let response_message = Message::Response(ResponseMessage::Post {
+        responses: vec![Response::Post { post, response: vec![] }],
         proof: Proof { height: intermediate_state.height, proof: vec![] },
     });
 
@@ -104,7 +101,7 @@ pub fn check_challenge_period<H: ISMPHost>(host: &H) -> Result<(), &'static str>
     assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
 
     // Timeout mesaage handling check
-    let timeout_message = Message::Timeout(TimeoutMessage {
+    let timeout_message = Message::Timeout(TimeoutMessage::Post {
         requests: vec![request],
         timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
     });
@@ -156,7 +153,7 @@ pub fn frozen_check<H: ISMPHost>(host: &H) -> Result<(), &'static str> {
         timeout_timestamp: 0,
         data: vec![0u8; 64],
     };
-    let request = Request::Post(post);
+    let request = Request::Post(post.clone());
     // Request message handling check
     let request_message = Message::Request(RequestMessage {
         requests: vec![request.clone()],
@@ -168,8 +165,8 @@ pub fn frozen_check<H: ISMPHost>(host: &H) -> Result<(), &'static str> {
     assert!(matches!(res, Err(ismp::error::Error::FrozenStateMachine { .. })));
 
     // Response message handling check
-    let response_message = Message::Response(ResponseMessage {
-        responses: vec![Response { request: request.clone(), response: vec![] }],
+    let response_message = Message::Response(ResponseMessage::Post {
+        responses: vec![Response::Post { post, response: vec![] }],
         proof: Proof { height: intermediate_state.height, proof: vec![] },
     });
 
@@ -177,7 +174,7 @@ pub fn frozen_check<H: ISMPHost>(host: &H) -> Result<(), &'static str> {
     assert!(matches!(res, Err(ismp::error::Error::FrozenStateMachine { .. })));
 
     // Timeout mesaage handling check
-    let timeout_message = Message::Timeout(TimeoutMessage {
+    let timeout_message = Message::Timeout(TimeoutMessage::Post {
         requests: vec![request],
         timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
     });
@@ -209,7 +206,7 @@ pub fn timeout_post_processing_check<H: ISMPHost>(host: &H) -> Result<(), &'stat
     router.dispatch(request.clone()).unwrap();
 
     // Timeout mesaage handling check
-    let timeout_message = Message::Timeout(TimeoutMessage {
+    let timeout_message = Message::Timeout(TimeoutMessage::Post {
         requests: vec![request.clone()],
         timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
     });
@@ -256,7 +253,7 @@ pub fn write_outgoing_commitments(host: &dyn ISMPHost) -> Result<(), &'static st
         timeout_timestamp: 0,
         data: vec![0u8; 64],
     };
-    let response = Response { request: Request::Post(post), response: vec![0u8; 64] };
+    let response = Response::Post { post, response: vec![0u8; 64] };
     // Dispatch the outgoing response for the first time
     router.write_response(response.clone()).map_err(|_| "Router failed to dispatch request")?;
     // Dispatch the same response a second time

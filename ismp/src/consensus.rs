@@ -29,7 +29,7 @@ use primitive_types::H256;
 /// Consensus client Ids
 pub type ConsensusClientId = [u8; 4];
 
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateCommitment {
     /// Timestamp in seconds

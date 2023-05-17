@@ -84,4 +84,5 @@ pub enum Error {
     CannotCreateAlreadyExistingConsensusClient {
         id: ConsensusClientId,
     },
+    InsufficientProofHeight,
 }

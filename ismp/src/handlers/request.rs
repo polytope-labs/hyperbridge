@@ -29,7 +29,7 @@ pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, Error>
 where
     H: ISMPHost,
 {
-    let consensus_client = validate_state_machine(host, &msg.proof)?;
+    let consensus_client = validate_state_machine(host, msg.proof.height)?;
     // Verify membership proof
     let state = host.state_machine_commitment(msg.proof.height)?;
 

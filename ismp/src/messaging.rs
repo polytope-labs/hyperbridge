@@ -15,11 +15,15 @@
 
 //! ISMP message types
 
+// Messages are processed in batches, all messages in a batch should
+// originate from the same chain
+
 use crate::{
     consensus::{ConsensusClientId, IntermediateState, StateMachineHeight},
+    error::Error,
     router::{Request, Response},
 };
-use alloc::vec::Vec;
+use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, Encode};
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
@@ -49,19 +53,85 @@ pub struct RequestMessage {
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub struct ResponseMessage {
-    /// Responses from sink chain
-    pub responses: Vec<Response>,
-    /// Membership batch proof for these responses
-    pub proof: Proof,
+pub enum ResponseMessage {
+    Post {
+        /// Responses from sink chain
+        responses: Vec<Response>,
+        /// Membership batch proof for these responses
+        proof: Proof,
+    },
+    Get {
+        /// Request batch
+        requests: Vec<Request>,
+        /// State proof
+        proof: Proof,
+    },
+}
+
+impl ResponseMessage {
+    pub fn requests(&self) -> Vec<Request> {
+        match self {
+            ResponseMessage::Post { responses, .. } => {
+                responses.iter().map(|res| res.request()).collect()
+            }
+            ResponseMessage::Get { requests, .. } => requests.clone(),
+        }
+    }
+
+    pub fn proof(&self) -> &Proof {
+        match self {
+            ResponseMessage::Post { proof, .. } => proof,
+            ResponseMessage::Get { proof, .. } => proof,
+        }
+    }
+}
+
+/// Returns an error if the proof height is less than any of the retrieval heights specified in the
+/// get requests
+pub fn sufficient_proof_height(requests: &[Request], proof: &Proof) -> Result<(), Error> {
+    let check = requests.iter().any(|req| match req {
+        Request::Get(get) => get.height > proof.height,
+        _ => true,
+    });
+    if check {
+        Err(Error::InsufficientProofHeight)
+    } else {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub struct TimeoutMessage {
-    /// Request timeouts
-    pub requests: Vec<Request>,
-    /// Non membership batch proof for these requests
-    pub timeout_proof: Proof,
+pub enum TimeoutMessage {
+    Post {
+        /// Request timeouts
+        requests: Vec<Request>,
+        /// Non membership batch proof for these requests
+        timeout_proof: Proof,
+    },
+    /// There are no proofs for Get timeouts, we only need to
+    /// ensure that the timeout timestamp has elapsed on the host
+    Get {
+        /// Requests that have timed out
+        requests: Vec<Request>,
+    },
+}
+
+impl TimeoutMessage {
+    pub fn requests(&self) -> &[Request] {
+        match self {
+            TimeoutMessage::Post { requests, .. } => requests,
+            TimeoutMessage::Get { requests } => requests,
+        }
+    }
+
+    pub fn timeout_proof(&self) -> Result<&Proof, Error> {
+        match self {
+            TimeoutMessage::Post { timeout_proof, .. } => Ok(timeout_proof),
+            _ => Err(Error::ImplementationSpecific(
+                "Method should not be called on Get request".to_string(),
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]

@@ -30,47 +30,83 @@ pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, Error>
 where
     H: ISMPHost,
 {
-    let consensus_client = validate_state_machine(host, &msg.timeout_proof)?;
-    let state = host.state_machine_commitment(msg.timeout_proof.height)?;
-    for request in &msg.requests {
-        let commitment = host.request_commitment(request)?;
-        if commitment != hash_request::<H>(request) {
-            return Err(Error::RequestCommitmentNotFound {
-                nonce: request.nonce(),
-                source: request.source_chain(),
-                dest: request.dest_chain(),
-            })
+    let results = match msg {
+        TimeoutMessage::Post { requests, timeout_proof } => {
+            let consensus_client = validate_state_machine(host, timeout_proof.height)?;
+            let state = host.state_machine_commitment(timeout_proof.height)?;
+            for request in &requests {
+                // Ensure a commitment exists for all requests in the batch
+                let commitment = host.request_commitment(request)?;
+                if commitment != hash_request::<H>(request) {
+                    return Err(Error::RequestCommitmentNotFound {
+                        nonce: request.nonce(),
+                        source: request.source_chain(),
+                        dest: request.dest_chain(),
+                    })
+                }
+
+                if !request.timed_out(state.timestamp()) {
+                    Err(Error::RequestTimeoutNotElapsed {
+                        nonce: request.nonce(),
+                        source: request.source_chain(),
+                        dest: request.dest_chain(),
+                        timeout_timestamp: request.timeout(),
+                        state_machine_time: state.timestamp(),
+                    })?
+                }
+            }
+
+            let key = consensus_client.state_trie_key(RequestResponse::Request(requests.clone()));
+
+            let values = consensus_client.verify_state_proof(host, key, state, &timeout_proof)?;
+
+            if values.into_iter().any(|val| val.is_some()) {
+                Err(Error::ImplementationSpecific("Some Requests not timed out".into()))?
+            }
+
+            let router = host.ismp_router();
+            requests
+                .into_iter()
+                .map(|request| {
+                    let res = router.dispatch_timeout(request.clone());
+                    host.delete_request_commitment(&request)?;
+                    Ok(res)
+                })
+                .collect::<Result<Vec<_>, _>>()?
         }
+        TimeoutMessage::Get { requests } => {
+            for request in &requests {
+                let commitment = host.request_commitment(request)?;
+                if commitment != hash_request::<H>(request) {
+                    return Err(Error::RequestCommitmentNotFound {
+                        nonce: request.nonce(),
+                        source: request.source_chain(),
+                        dest: request.dest_chain(),
+                    })
+                }
 
-        if !request.timed_out(state.timestamp()) {
-            Err(Error::RequestTimeoutNotElapsed {
-                nonce: request.nonce(),
-                source: request.source_chain(),
-                dest: request.dest_chain(),
-                timeout_timestamp: request.timeout(),
-                state_machine_time: state.timestamp(),
-            })?
+                // Ensure the get timeout has elapsed on the host
+                if !request.timed_out(host.timestamp()) {
+                    Err(Error::RequestTimeoutNotElapsed {
+                        nonce: request.nonce(),
+                        source: request.source_chain(),
+                        dest: request.dest_chain(),
+                        timeout_timestamp: request.timeout(),
+                        state_machine_time: host.timestamp(),
+                    })?
+                }
+            }
+            let router = host.ismp_router();
+            requests
+                .into_iter()
+                .map(|request| {
+                    let res = router.dispatch_timeout(request.clone());
+                    host.delete_request_commitment(&request)?;
+                    Ok(res)
+                })
+                .collect::<Result<Vec<_>, _>>()?
         }
-    }
+    };
 
-    let key = consensus_client.state_trie_key(RequestResponse::Request(msg.requests.clone()));
-
-    let requests = consensus_client.verify_state_proof(host, key, state, &msg.timeout_proof)?;
-
-    if requests.into_iter().any(|val| val.is_some()) {
-        Err(Error::ImplementationSpecific("Some Requests not timed out".into()))?
-    }
-
-    let router = host.ismp_router();
-    let result = msg
-        .requests
-        .into_iter()
-        .map(|request| {
-            let res = router.dispatch_timeout(request.clone());
-            host.delete_request_commitment(&request)?;
-            Ok(res)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(MessageResult::Timeout(result))
+    Ok(MessageResult::Timeout(results))
 }

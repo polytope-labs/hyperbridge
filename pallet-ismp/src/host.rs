@@ -1,6 +1,6 @@
 use crate::{
-    primitives::ConsensusClientProvider, Config, ConsensusClientUpdateTime, ConsensusStates,
-    FrozenHeights, LatestStateMachineHeight, RequestAcks, StateCommitments,
+    primitives::ConsensusClientProvider, router::Receipt, Config, ConsensusClientUpdateTime,
+    ConsensusStates, FrozenHeights, LatestStateMachineHeight, RequestAcks, StateCommitments,
 };
 use alloc::{format, string::ToString};
 use core::time::Duration;
@@ -88,6 +88,20 @@ where
         Ok(commitment)
     }
 
+    fn get_request_receipt(&self, req: &Request) -> Option<()> {
+        let commitment = hash_request::<Self>(req);
+
+        let _ = RequestAcks::<T>::get(commitment.0.to_vec())
+            .ok_or_else(|| Error::RequestCommitmentNotFound {
+                nonce: req.nonce(),
+                source: req.source_chain(),
+                dest: req.dest_chain(),
+            })
+            .ok()?;
+
+        Some(())
+    }
+
     fn store_consensus_state(&self, id: ConsensusClientId, state: Vec<u8>) -> Result<(), Error> {
         ConsensusStates::<T>::insert(id, state);
         Ok(())
@@ -118,6 +132,19 @@ where
 
     fn store_latest_commitment_height(&self, height: StateMachineHeight) -> Result<(), Error> {
         LatestStateMachineHeight::<T>::insert(height.id, height.height);
+        Ok(())
+    }
+
+    fn delete_request_commitment(&self, req: &Request) -> Result<(), Error> {
+        let hash = hash_request::<Self>(req);
+        // We can't delete actual leaves in the mmr so this serves as a replacement for that
+        RequestAcks::<T>::remove(hash.0.to_vec());
+        Ok(())
+    }
+
+    fn store_request_receipt(&self, req: &Request) -> Result<(), Error> {
+        let hash = hash_request::<Self>(req);
+        RequestAcks::<T>::insert(hash.0.to_vec(), Receipt::Ok);
         Ok(())
     }
 

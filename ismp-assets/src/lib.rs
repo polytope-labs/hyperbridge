@@ -14,6 +14,7 @@
 // limitations under the License.
 
 //! ISMP Assets
+//! Simple Demo for Asset transfer over ISMP
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;

@@ -32,6 +32,7 @@ ismp-primitives = { path = "./primitives", default-features = false }
 [dev-dependencies]
 env_logger = "0.10.0"
 pallet-timestamp = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.40" }
+ismp-testsuite = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main" }
 
 [features]
 default = ["std"]

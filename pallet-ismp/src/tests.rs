@@ -1,8 +1,15 @@
 use crate::{mock::*, *};
-use std::ops::Range;
+use std::{
+    ops::Range,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use frame_support::traits::OnFinalize;
 use ismp_primitives::mmr::MmrHasher;
+use ismp_testsuite::{
+    check_challenge_period, check_client_expiry, frozen_check, timeout_post_processing_check,
+    write_outgoing_commitments,
+};
 use mmr_lib::MerkleProof;
 use sp_core::{
     offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
@@ -157,5 +164,65 @@ fn should_generate_and_verify_batch_proof_for_leaves_inserted_across_multiple_bl
             .unwrap();
 
         assert_eq!(root, calculated_root.hash::<Host<Test>>())
+    })
+}
+
+fn set_timestamp() {
+    Timestamp::set_timestamp(
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+    );
+}
+
+#[test]
+fn check_for_duplicate_requests_and_responses() {
+    let mut ext = new_test_ext();
+
+    ext.execute_with(|| {
+        set_timestamp();
+        let host = Host::<Test>::default();
+        write_outgoing_commitments(&host).unwrap();
+    })
+}
+
+#[test]
+fn should_reject_updates_within_challenge_period() {
+    let mut ext = new_test_ext();
+
+    ext.execute_with(|| {
+        set_timestamp();
+        let host = Host::<Test>::default();
+        check_challenge_period(&host).unwrap()
+    })
+}
+
+#[test]
+fn should_reject_messages_for_frozen_state_machines() {
+    let mut ext = new_test_ext();
+
+    ext.execute_with(|| {
+        set_timestamp();
+        let host = Host::<Test>::default();
+        frozen_check(&host).unwrap()
+    })
+}
+
+#[test]
+fn should_reject_expired_check_clients() {
+    let mut ext = new_test_ext();
+
+    ext.execute_with(|| {
+        set_timestamp();
+        let host = Host::<Test>::default();
+        check_client_expiry(&host).unwrap()
+    })
+}
+#[test]
+fn should_process_timeouts_correctly() {
+    let mut ext = new_test_ext();
+
+    ext.execute_with(|| {
+        set_timestamp();
+        let host = Host::<Test>::default();
+        timeout_post_processing_check(&host).unwrap()
     })
 }

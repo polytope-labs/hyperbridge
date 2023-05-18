@@ -4,7 +4,7 @@ use ismp_primitives::mmr::{LeafIndex, NodeIndex};
 use ismp_rs::{
     consensus::{ConsensusClient, ConsensusClientId, StateMachineHeight},
     host::StateMachine,
-    router::Request,
+    router::Post,
 };
 use scale_info::TypeInfo;
 use sp_std::prelude::*;
@@ -50,7 +50,7 @@ pub enum IsmpMessage {
     Post {
         /// The destination state machine of this request.
         dest_chain: StateMachine,
-        /// Moudle Id of the sending module
+        /// Module Id of the sending module
         from: Vec<u8>,
         /// Module ID of the receiving module
         to: Vec<u8>,
@@ -62,17 +62,17 @@ pub enum IsmpMessage {
     Get {
         /// The destination state machine of this request.
         dest_chain: StateMachine,
-        /// Moudle Id of the sending module
+        /// Module Id of the sending module
         from: Vec<u8>,
-        /// Storage keys that this request is interested in.
+        /// Raw Storage keys that this request is interested in.
         keys: Vec<Vec<u8>>,
         /// Height at which to read the state machine.
         height: StateMachineHeight,
-        /// Timestamp which this request expires in seconds
+        /// Host Timestamp which this request expires in seconds
         timeout_timestamp: u64,
     },
     Response {
-        request: Request,
+        post: Post,
         response: Vec<u8>,
     },
 }

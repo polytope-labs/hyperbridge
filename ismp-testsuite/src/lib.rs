@@ -140,7 +140,7 @@ pub fn frozen_check<H: ISMPHost>(host: &H) -> Result<(), &'static str> {
 
     let frozen_height = StateMachineHeight {
         id: intermediate_state.height.id,
-        height: intermediate_state.height.height + 1,
+        height: intermediate_state.height.height - 1,
     };
     host.freeze_state_machine(frozen_height).unwrap();
 

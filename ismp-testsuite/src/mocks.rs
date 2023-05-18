@@ -134,7 +134,7 @@ impl ISMPHost for Host {
             .frozen_state_machines
             .borrow()
             .get(&height.id)
-            .map(|frozen_height| frozen_height >= &height)
+            .map(|frozen_height| &height >= frozen_height)
             .unwrap_or(false);
         Ok(val)
     }

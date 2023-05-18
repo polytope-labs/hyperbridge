@@ -72,6 +72,8 @@ where
                 source_chain,
                 dest_chain,
             });
+            // We have this step because we can't delete leaves from the mmr
+            // So this helps us prevent processing of duplicate outgoing requests
             RequestAcks::<T>::insert(commitment, Receipt::Ok);
             Ok(DispatchSuccess { dest_chain, source_chain, nonce })
         } else if let Some(ref router) = self.inner {
@@ -102,23 +104,20 @@ where
     fn write_response(&self, response: Response) -> DispatchResult {
         let host = Host::<T>::default();
 
-        if host.host_state_machine() != response.request.source_chain() {
+        if host.host_state_machine() != response.dest_chain() {
             let commitment = hash_response::<Host<T>>(&response).0.to_vec();
 
             if ResponseAcks::<T>::contains_key(commitment.clone()) {
                 Err(DispatchError {
                     msg: "Duplicate response".to_string(),
-                    nonce: response.request.nonce(),
-                    source: response.request.source_chain(),
-                    dest: response.request.dest_chain(),
+                    nonce: response.nonce(),
+                    source: response.source_chain(),
+                    dest: response.dest_chain(),
                 })?
             }
 
-            let (dest_chain, source_chain, nonce) = (
-                response.request.source_chain(),
-                response.request.dest_chain(),
-                response.request.nonce(),
-            );
+            let (dest_chain, source_chain, nonce) =
+                (response.dest_chain(), response.source_chain(), response.nonce());
 
             Pallet::<T>::mmr_push(Leaf::Response(response)).ok_or_else(|| DispatchError {
                 msg: "Failed to push response into mmr".to_string(),
@@ -139,9 +138,9 @@ where
         } else {
             Err(DispatchError {
                 msg: "Missing a module router".to_string(),
-                nonce: response.request.nonce(),
-                source: response.request.source_chain(),
-                dest: response.request.dest_chain(),
+                nonce: response.nonce(),
+                source: response.source_chain(),
+                dest: response.dest_chain(),
             })?
         }
     }

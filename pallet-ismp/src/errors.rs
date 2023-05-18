@@ -75,6 +75,7 @@ pub enum HandlingError {
         source: StateMachine,
         dest: StateMachine,
     },
+    InsufficientProofHeight,
 }
 
 impl From<ismp_rs::error::Error> for HandlingError {
@@ -145,6 +146,7 @@ impl From<ismp_rs::error::Error> for HandlingError {
             IsmpError::RequestTimeoutVerificationFailed { nonce, source, dest } => {
                 HandlingError::RequestTimeoutVerificationFailed { nonce, source, dest }
             }
+            IsmpError::InsufficientProofHeight => HandlingError::InsufficientProofHeight,
         }
     }
 }

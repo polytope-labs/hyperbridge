@@ -30,7 +30,7 @@ pub struct StateMachineProvider;
 
 impl Get<StateMachine> for StateMachineProvider {
     fn get() -> StateMachine {
-        StateMachine::Kusama(2000)
+        StateMachine::Kusama(100)
     }
 }
 
@@ -38,21 +38,13 @@ pub struct ConsensusProvider;
 
 impl ConsensusClientProvider for ConsensusProvider {
     fn consensus_client(
-        id: ConsensusClientId,
+        _id: ConsensusClientId,
     ) -> Result<Box<dyn ConsensusClient>, ismp_rs::error::Error> {
-        let client = match id {
-            _ => Err(ismp_rs::error::Error::ImplementationSpecific(
-                "Unknown consensus client".into(),
-            ))?,
-        };
-
-        Ok(client)
+        Ok(Box::new(ismp_testsuite::mocks::MockClient))
     }
 
-    fn challenge_period(id: ConsensusClientId) -> Duration {
-        match id {
-            _ => Duration::MAX,
-        }
+    fn challenge_period(_id: ConsensusClientId) -> Duration {
+        Duration::from_secs(60 * 60)
     }
 }
 

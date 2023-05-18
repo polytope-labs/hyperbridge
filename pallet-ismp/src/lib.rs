@@ -166,7 +166,7 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn request_acks)]
-    /// Acknowledgements for receipt of requests
+    /// Acknowledgements for incoming and outgoing requests
     /// The key is the request commitment
     pub type RequestAcks<T: Config> =
         StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
@@ -556,9 +556,9 @@ where
                 req.nonce(),
             ),
             Leaf::Response(res) => Pallet::<T>::response_leaf_index_offchain_key(
-                res.request.dest_chain(),
-                res.request.source_chain(),
-                res.request.nonce(),
+                res.dest_chain(),
+                res.source_chain(),
+                res.nonce(),
             ),
         };
         let leaves = Self::number_of_leaves();
@@ -605,8 +605,8 @@ impl<T: Config> IsmpDispatch for Pallet<T> {
                 };
                 router.dispatch(Request::Get(get)).map(|_| ())
             }
-            IsmpMessage::Response { response, request } => {
-                router.write_response(Response { request, response }).map(|_| ())
+            IsmpMessage::Response { response, post } => {
+                router.write_response(Response::Post { post, response }).map(|_| ())
             }
         }
     }

@@ -100,7 +100,7 @@ impl ISMPRouter for ModuleRouter {
     }
 
     fn write_response(&self, response: Response) -> DispatchResult {
-        let request = &response.request;
+        let request = &response.request();
         let dest = request.dest_chain();
         let source = request.source_chain();
         let nonce = request.nonce();

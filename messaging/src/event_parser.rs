@@ -1,6 +1,7 @@
 use ismp::{
     consensus::StateMachineHeight,
     messaging::{Message, Proof, RequestMessage, ResponseMessage},
+    router::Request,
 };
 use pallet_ismp::events::Event;
 use tesseract_primitives::{IsmpHost, Query};
@@ -34,7 +35,12 @@ pub async fn parse_ismp_events<A: IsmpHost>(
     let mut messages = vec![];
 
     if !request_queries.is_empty() {
-        let requests = source.query_requests(request_queries.clone()).await?;
+        let requests = source
+            .query_requests(request_queries.clone())
+            .await?
+            .into_iter()
+            .filter(|req| matches!(&req, &Request::Post(..)))
+            .collect();
         let requests_proof =
             source.query_requests_proof(state_machine_height.height, request_queries).await?;
         let msg = RequestMessage {
@@ -48,7 +54,7 @@ pub async fn parse_ismp_events<A: IsmpHost>(
         let responses = source.query_responses(response_queries.clone()).await?;
         let responses_proof =
             source.query_responses_proof(state_machine_height.height, response_queries).await?;
-        let msg = ResponseMessage {
+        let msg = ResponseMessage::Post {
             responses,
             proof: Proof { height: state_machine_height, proof: responses_proof },
         };

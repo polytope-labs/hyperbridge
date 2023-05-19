@@ -308,9 +308,9 @@ pub mod api {
         let runtime_metadata_hash = client.metadata().metadata_hash(&PALLETS);
         if runtime_metadata_hash !=
             [
-                20u8, 80u8, 226u8, 103u8, 32u8, 34u8, 220u8, 4u8, 11u8, 138u8, 154u8, 34u8, 20u8,
-                34u8, 32u8, 34u8, 83u8, 19u8, 27u8, 130u8, 10u8, 94u8, 159u8, 12u8, 89u8, 13u8,
-                13u8, 73u8, 16u8, 191u8, 22u8, 183u8,
+                110u8, 129u8, 232u8, 170u8, 242u8, 241u8, 169u8, 131u8, 88u8, 186u8, 150u8, 127u8,
+                87u8, 206u8, 41u8, 59u8, 75u8, 86u8, 31u8, 59u8, 242u8, 136u8, 116u8, 107u8, 70u8,
+                61u8, 222u8, 159u8, 77u8, 134u8, 140u8, 136u8,
             ]
         {
             Err(::subxt::error::MetadataError::IncompatibleMetadata)
@@ -981,9 +981,10 @@ pub mod api {
                         "Events",
                         vec![],
                         [
-                            126u8, 7u8, 252u8, 2u8, 148u8, 106u8, 57u8, 241u8, 159u8, 56u8, 20u8,
-                            109u8, 231u8, 2u8, 8u8, 108u8, 145u8, 42u8, 14u8, 200u8, 94u8, 46u8,
-                            84u8, 81u8, 237u8, 61u8, 171u8, 120u8, 78u8, 63u8, 208u8, 142u8,
+                            7u8, 91u8, 11u8, 252u8, 86u8, 0u8, 230u8, 91u8, 192u8, 252u8, 134u8,
+                            172u8, 244u8, 45u8, 64u8, 234u8, 199u8, 125u8, 47u8, 183u8, 229u8,
+                            203u8, 125u8, 153u8, 76u8, 158u8, 123u8, 218u8, 192u8, 51u8, 127u8,
+                            208u8,
                         ],
                     )
                 }
@@ -4026,10 +4027,10 @@ pub mod api {
                         "sudo",
                         Sudo { call: ::std::boxed::Box::new(call) },
                         [
-                            248u8, 217u8, 237u8, 188u8, 186u8, 210u8, 115u8, 5u8, 191u8, 121u8,
-                            186u8, 11u8, 20u8, 176u8, 214u8, 100u8, 132u8, 228u8, 246u8, 254u8,
-                            24u8, 45u8, 124u8, 207u8, 76u8, 111u8, 156u8, 24u8, 171u8, 93u8, 166u8,
-                            113u8,
+                            151u8, 75u8, 249u8, 68u8, 47u8, 141u8, 54u8, 7u8, 33u8, 164u8, 82u8,
+                            151u8, 241u8, 95u8, 111u8, 39u8, 209u8, 49u8, 139u8, 240u8, 201u8,
+                            128u8, 98u8, 184u8, 224u8, 211u8, 180u8, 121u8, 210u8, 190u8, 234u8,
+                            41u8,
                         ],
                     )
                 }
@@ -4051,10 +4052,10 @@ pub mod api {
                         "sudo_unchecked_weight",
                         SudoUncheckedWeight { call: ::std::boxed::Box::new(call), weight },
                         [
-                            194u8, 58u8, 174u8, 80u8, 179u8, 215u8, 215u8, 217u8, 127u8, 250u8,
-                            173u8, 188u8, 226u8, 60u8, 158u8, 33u8, 117u8, 177u8, 20u8, 207u8,
-                            135u8, 171u8, 140u8, 120u8, 161u8, 123u8, 126u8, 15u8, 249u8, 187u8,
-                            20u8, 23u8,
+                            198u8, 22u8, 71u8, 204u8, 141u8, 40u8, 178u8, 116u8, 149u8, 22u8, 29u8,
+                            113u8, 186u8, 185u8, 170u8, 203u8, 202u8, 106u8, 110u8, 190u8, 3u8,
+                            212u8, 140u8, 111u8, 111u8, 234u8, 249u8, 77u8, 145u8, 237u8, 75u8,
+                            95u8,
                         ],
                     )
                 }
@@ -4097,10 +4098,9 @@ pub mod api {
                         "sudo_as",
                         SudoAs { who, call: ::std::boxed::Box::new(call) },
                         [
-                            140u8, 73u8, 79u8, 189u8, 154u8, 115u8, 100u8, 122u8, 108u8, 2u8,
-                            232u8, 62u8, 130u8, 84u8, 96u8, 19u8, 194u8, 209u8, 151u8, 138u8,
-                            110u8, 243u8, 68u8, 82u8, 127u8, 133u8, 47u8, 92u8, 211u8, 10u8, 160u8,
-                            147u8,
+                            137u8, 190u8, 60u8, 54u8, 8u8, 20u8, 48u8, 11u8, 218u8, 93u8, 88u8,
+                            146u8, 233u8, 83u8, 153u8, 139u8, 219u8, 162u8, 255u8, 229u8, 142u8,
+                            185u8, 214u8, 25u8, 96u8, 42u8, 50u8, 70u8, 93u8, 185u8, 162u8, 178u8,
                         ],
                     )
                 }
@@ -6410,9 +6410,10 @@ pub mod api {
                         "handle",
                         Handle { messages },
                         [
-                            139u8, 102u8, 187u8, 247u8, 187u8, 226u8, 112u8, 184u8, 56u8, 19u8,
-                            108u8, 110u8, 57u8, 108u8, 55u8, 163u8, 79u8, 4u8, 95u8, 252u8, 64u8,
-                            29u8, 82u8, 240u8, 28u8, 217u8, 99u8, 73u8, 107u8, 237u8, 234u8, 129u8,
+                            193u8, 54u8, 46u8, 125u8, 91u8, 75u8, 167u8, 226u8, 213u8, 190u8,
+                            129u8, 41u8, 156u8, 128u8, 53u8, 233u8, 13u8, 71u8, 230u8, 58u8, 181u8,
+                            51u8, 234u8, 148u8, 129u8, 218u8, 226u8, 238u8, 236u8, 94u8, 168u8,
+                            72u8,
                         ],
                     )
                 }
@@ -6864,7 +6865,7 @@ pub mod api {
                         ],
                     )
                 }
-                /// Acknowledgements for receipt of requests
+                /// Acknowledgements for incoming and outgoing requests
                 /// The key is the request commitment
                 pub fn request_acks(
                     &self,
@@ -6887,7 +6888,7 @@ pub mod api {
                         ],
                     )
                 }
-                /// Acknowledgements for receipt of requests
+                /// Acknowledgements for incoming and outgoing requests
                 /// The key is the request commitment
                 pub fn request_acks_root(
                     &self,
@@ -8582,9 +8583,17 @@ pub mod api {
                 )]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct ResponseMessage {
-                    pub responses: ::std::vec::Vec<runtime_types::ismp::router::Response>,
-                    pub proof: runtime_types::ismp::messaging::Proof,
+                pub enum ResponseMessage {
+                    #[codec(index = 0)]
+                    Post {
+                        responses: ::std::vec::Vec<runtime_types::ismp::router::Response>,
+                        proof: runtime_types::ismp::messaging::Proof,
+                    },
+                    #[codec(index = 1)]
+                    Get {
+                        requests: ::std::vec::Vec<runtime_types::ismp::router::Request>,
+                        proof: runtime_types::ismp::messaging::Proof,
+                    },
                 }
                 #[derive(
                     ::subxt::ext::codec::Decode,
@@ -8595,9 +8604,14 @@ pub mod api {
                 )]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct TimeoutMessage {
-                    pub requests: ::std::vec::Vec<runtime_types::ismp::router::Request>,
-                    pub timeout_proof: runtime_types::ismp::messaging::Proof,
+                pub enum TimeoutMessage {
+                    #[codec(index = 0)]
+                    Post {
+                        requests: ::std::vec::Vec<runtime_types::ismp::router::Request>,
+                        timeout_proof: runtime_types::ismp::messaging::Proof,
+                    },
+                    #[codec(index = 1)]
+                    Get { requests: ::std::vec::Vec<runtime_types::ismp::router::Request> },
                 }
             }
             pub mod router {
@@ -8662,9 +8676,20 @@ pub mod api {
                 )]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct Response {
-                    pub request: runtime_types::ismp::router::Request,
-                    pub response: ::std::vec::Vec<::core::primitive::u8>,
+                pub enum Response {
+                    #[codec(index = 0)]
+                    Post {
+                        post: runtime_types::ismp::router::Post,
+                        response: ::std::vec::Vec<::core::primitive::u8>,
+                    },
+                    #[codec(index = 1)]
+                    Get {
+                        get: runtime_types::ismp::router::Get,
+                        values: ::std::vec::Vec<(
+                            ::std::vec::Vec<::core::primitive::u8>,
+                            ::core::option::Option<::std::vec::Vec<::core::primitive::u8>>,
+                        )>,
+                    },
                 }
             }
         }
@@ -9288,6 +9313,8 @@ pub mod api {
                         source: runtime_types::ismp::host::StateMachine,
                         dest: runtime_types::ismp::host::StateMachine,
                     },
+                    #[codec(index = 18)]
+                    InsufficientProofHeight,
                 }
             }
             pub mod pallet {

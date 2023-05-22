@@ -4,7 +4,10 @@ use crate::*;
 use crate::{primitives::ConsensusClientProvider, router::ProxyRouter};
 use frame_support::traits::{ConstU32, ConstU64, Get};
 use frame_system::EnsureRoot;
-use ismp_rs::consensus::ConsensusClient;
+use ismp_rs::{
+    consensus::ConsensusClient,
+    router::{DispatchResult, DispatchSuccess},
+};
 use sp_core::H256;
 use sp_runtime::{
     testing::Header,
@@ -88,6 +91,60 @@ impl Config for Test {
     type AdminOrigin = EnsureRoot<sp_core::sr25519::Public>;
     type StateMachine = StateMachineProvider;
     type TimeProvider = Timestamp;
-    type IsmpRouter = ProxyRouter<Test>;
+    type IsmpRouter = Router;
     type ConsensusClientProvider = ConsensusProvider;
+    type WeightInfo = ();
+    type WeightProvider = ();
+}
+
+#[derive(Default)]
+pub struct ModuleRouter;
+
+impl ISMPRouter for ModuleRouter {
+    fn dispatch(&self, request: Request) -> DispatchResult {
+        let dest = request.dest_chain();
+        let source = request.source_chain();
+        let nonce = request.nonce();
+
+        Ok(DispatchSuccess { dest_chain: dest, source_chain: source, nonce })
+    }
+
+    fn dispatch_timeout(&self, request: Request) -> DispatchResult {
+        let dest = request.dest_chain();
+        let source = request.source_chain();
+        let nonce = request.nonce();
+        Ok(DispatchSuccess { dest_chain: dest, source_chain: source, nonce })
+    }
+
+    fn write_response(&self, response: Response) -> DispatchResult {
+        let request = &response.request();
+        let dest = request.dest_chain();
+        let source = request.source_chain();
+        let nonce = request.nonce();
+        Ok(DispatchSuccess { dest_chain: dest, source_chain: source, nonce })
+    }
+}
+
+pub struct Router {
+    inner: ProxyRouter<Test>,
+}
+
+impl Default for Router {
+    fn default() -> Self {
+        Self { inner: ProxyRouter::<Test>::new(ModuleRouter::default()) }
+    }
+}
+
+impl ISMPRouter for Router {
+    fn dispatch(&self, request: Request) -> DispatchResult {
+        self.inner.dispatch(request)
+    }
+
+    fn dispatch_timeout(&self, request: Request) -> DispatchResult {
+        self.inner.dispatch_timeout(request)
+    }
+
+    fn write_response(&self, response: Response) -> DispatchResult {
+        self.inner.write_response(response)
+    }
 }

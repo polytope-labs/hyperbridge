@@ -18,16 +18,18 @@
 
 extern crate alloc;
 
+pub mod benchmarking;
 mod errors;
 pub mod events;
 pub mod host;
 mod mmr;
 #[cfg(test)]
-mod mock;
+pub mod mock;
 pub mod primitives;
 pub mod router;
 #[cfg(test)]
-mod tests;
+pub mod tests;
+pub mod weight_info;
 
 pub use mmr::utils::NodesUtils;
 
@@ -64,6 +66,7 @@ pub mod pallet {
         errors::HandlingError,
         primitives::{ConsensusClientProvider, ISMP_ID},
         router::Receipt,
+        weight_info::{WeightInfo, WeightProvider},
     };
     use alloc::collections::BTreeSet;
     use frame_support::{pallet_prelude::*, traits::UnixTime};
@@ -77,6 +80,7 @@ pub mod pallet {
         router::ISMPRouter,
     };
     use sp_core::H256;
+    use weight_info::get_weight;
 
     /// Our pallet's configuration trait. All our types and constants go in here. If the
     /// pallet is dependent on specific other pallets, then their configuration traits
@@ -111,6 +115,10 @@ pub mod pallet {
         type IsmpRouter: ISMPRouter + Default;
         /// Provides concrete implementations of consensus clients
         type ConsensusClientProvider: ConsensusClientProvider;
+        /// Weight Info
+        type WeightInfo: WeightInfo;
+        /// Weight provider for consensus clients and module callbacks
+        type WeightProvider: WeightProvider;
     }
 
     // Simple declaration of the `Pallet` type. It is placeholder we use to implement traits and
@@ -173,7 +181,7 @@ pub mod pallet {
 
     #[pallet::storage]
     #[pallet::getter(fn response_acks)]
-    /// Acknowledgements for receipt of responses
+    /// Acknowledgements for incoming and outgoing responses
     /// The key is the response commitment
     pub type ResponseAcks<T: Config> =
         StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
@@ -240,8 +248,9 @@ pub mod pallet {
         <T as frame_system::Config>::Hash: From<H256>,
     {
         /// Handles ismp messages
-        #[pallet::weight(0)]
+        #[pallet::weight(get_weight::<T>(&messages))]
         #[pallet::call_index(0)]
+        #[frame_support::transactional]
         pub fn handle(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResult {
             let _ = ensure_signed(origin)?;
             // Define a host
@@ -306,7 +315,7 @@ pub mod pallet {
         }
 
         /// Create consensus clients
-        #[pallet::weight(0)]
+        #[pallet::weight(<T as Config>::WeightInfo::create_consensus_client())]
         #[pallet::call_index(1)]
         pub fn create_consensus_client(
             origin: OriginFor<T>,
@@ -343,7 +352,7 @@ pub mod pallet {
         },
         /// Indicates that a consensus client has been created
         ConsensusClientCreated { consensus_client_id: ConsensusClientId },
-        /// Response was process successfully
+        /// An Outgoing Response has been deposited
         Response {
             /// Chain that this response will be routed to
             dest_chain: StateMachine,
@@ -352,7 +361,7 @@ pub mod pallet {
             /// Nonce for the request which this response is for
             request_nonce: u64,
         },
-        /// Request processed successfully
+        /// An Outgoing Request has been deposited
         Request {
             /// Chain that this request will be routed to
             dest_chain: StateMachine,

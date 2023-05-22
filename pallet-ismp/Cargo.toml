@@ -14,6 +14,7 @@ sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkad
 sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.40", default-features = false }
 sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.40", default-features = false }
 sp-api = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.40", default-features = false }
+pallet-timestamp = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.40", default-features = false, optional = true }
 
  # polytope labs
 ismp-rs = { package = "ismp", git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main", default-features = false }
@@ -54,4 +55,9 @@ std = [
     "ismp-primitives/std",
 ]
 
-runtime-benchmarks = ["frame-benchmarking/runtime-benchmarks"]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "pallet-timestamp/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "frame-support/runtime-benchmarks"
+]

@@ -387,13 +387,14 @@ fn build_consensus(
                     )
                 })?;
 
-                let consensus_inherent = ismp_parachain_inherent::ConsensusInherentProvider::create(
-                    client.clone(),
-                    relay_parent,
-                    &relay_chain_interface,
-                    validation_data,
-                )
-                .await?;
+                let consensus_inherent =
+                    ismp_parachain_inherent::ConsensusInherentProvider::create(
+                        client.clone(),
+                        relay_parent,
+                        &relay_chain_interface,
+                        validation_data,
+                    )
+                    .await?;
 
                 Ok((slot, timestamp, parachain_inherent, consensus_inherent))
             }

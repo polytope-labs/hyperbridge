@@ -184,7 +184,6 @@ fn testnet_genesis(
     id: ParaId,
     sudo: AccountId,
 ) -> hyperbridge_runtime::GenesisConfig {
-
     let sibling = match id.into() {
         2000u32 => 2001,
         2001u32 => 2000,

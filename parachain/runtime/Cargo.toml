@@ -72,6 +72,7 @@ pallet-ismp = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", b
 ismp-assets = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 ismp-parachain = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 ismp-runtime-api = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
+ismp-parachain-runtime-api = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "seun/parachain-consensus-inherent", default-features = false }
 ismp-primitives = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main", default-features = false }
 
@@ -110,6 +111,7 @@ std = [
 	"ismp-parachain/std",
 	"ismp-primitives/std",
 	"ismp-runtime-api/std",
+	"ismp-parachain-runtime-api/std",
 	"ismp-assets/std",
 	"parachain-info/std",
 	"polkadot-parachain/std",

@@ -184,6 +184,12 @@ fn testnet_genesis(
     id: ParaId,
     sudo: AccountId,
 ) -> hyperbridge_runtime::GenesisConfig {
+
+    let sibling = match id.into() {
+        2000u32 => 2001,
+        2001u32 => 2000,
+        _ => unimplemented!(),
+    };
     hyperbridge_runtime::GenesisConfig {
         system: hyperbridge_runtime::SystemConfig {
             code: hyperbridge_runtime::WASM_BINARY
@@ -216,7 +222,7 @@ fn testnet_genesis(
         aura: Default::default(),
         aura_ext: Default::default(),
         parachain_system: Default::default(),
-        ismp_parachain: Default::default(),
+        ismp_parachain: hyperbridge_runtime::IsmpParachainConfig { parachains: vec![sibling] },
         sudo: hyperbridge_runtime::SudoConfig { key: Some(sudo) },
         polkadot_xcm: hyperbridge_runtime::PolkadotXcmConfig {
             safe_xcm_version: Some(SAFE_XCM_VERSION),

@@ -71,6 +71,7 @@ cumulus-relay-chain-interface = { git = "https://github.com/paritytech/cumulus.g
 # polytope-labs
 ismp-rpc = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
 ismp-runtime-api = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
+ismp-parachain-inherent = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "seun/parachain-consensus-inherent" }
 
 
 [build-dependencies]

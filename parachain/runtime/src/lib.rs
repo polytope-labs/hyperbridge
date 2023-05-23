@@ -190,7 +190,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("hyperbridge"),
     impl_name: create_runtime_str!("hyperbridge"),
     authoring_version: 1,
-    spec_version: 1,
+    spec_version: 100,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -507,6 +507,8 @@ impl pallet_ismp::Config for Runtime {
     type TimeProvider = Timestamp;
     type IsmpRouter = Router;
     type ConsensusClientProvider = ConsensusProvider;
+    type WeightInfo = ();
+    type WeightProvider = ();
 }
 
 impl ismp_assets::Config for Runtime {
@@ -550,9 +552,9 @@ construct_runtime!(
         DmpQueue: cumulus_pallet_dmp_queue::{Pallet, Call, Storage, Event<T>} = 33,
 
         // ISMP stuff
-        Ismp: pallet_ismp::{Pallet, Call, Storage, Event<T>} = 40,
-        IsmpParachain: ismp_parachain::{Pallet, Storage, Event<T>, Config} = 41,
-        IsmpAssets: ismp_assets::{Pallet, Call, Storage, Event<T>} = 42,
+        Ismp: pallet_ismp = 40,
+        IsmpParachain: ismp_parachain = 41,
+        IsmpAssets: ismp_assets = 42,
     }
 );
 
@@ -769,6 +771,12 @@ impl_runtime_apis! {
         /// Get actual requests
         fn get_responses(leaf_indices: Vec<LeafIndex>) -> Vec<Response> {
             Ismp::get_responses(leaf_indices)
+        }
+    }
+
+    impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {
+        fn para_ids() -> Vec<u32> {
+            IsmpParachain::para_ids()
         }
     }
 

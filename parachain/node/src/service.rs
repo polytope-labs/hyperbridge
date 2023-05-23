@@ -357,10 +357,13 @@ fn build_consensus(
         telemetry.clone(),
     );
 
+    let client_clone = client.clone();
+
     let params = BuildAuraConsensusParams {
         proposer_factory,
         create_inherent_data_providers: move |_, (relay_parent, validation_data)| {
             let relay_chain_interface = relay_chain_interface.clone();
+            let client = client_clone.clone();
             async move {
                 let parachain_inherent =
                     cumulus_primitives_parachain_inherent::ParachainInherentData::create_at(
@@ -383,7 +386,16 @@ fn build_consensus(
                         "Failed to create parachain inherent",
                     )
                 })?;
-                Ok((slot, timestamp, parachain_inherent))
+
+                let consensus_inherent = ismp_parachain_inherent::ConsensusInherentProvider::create(
+                    client.clone(),
+                    relay_parent,
+                    &relay_chain_interface,
+                    validation_data,
+                )
+                .await?;
+
+                Ok((slot, timestamp, parachain_inherent, consensus_inherent))
             }
         },
         block_import,

@@ -1,11 +1,12 @@
 [workspace]
 resolver = "2"
-
 members = [
     "pallet-ismp/rpc",
     "pallet-ismp/runtime-api",
     "pallet-ismp/primitives",
     "pallet-ismp",
-    "parachain-consensus",
+    "parachain/inherent",
+    "parachain/runtime-api",
+    "parachain",
     "ismp-assets"
 ]

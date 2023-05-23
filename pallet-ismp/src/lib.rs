@@ -36,22 +36,26 @@ pub use mmr::utils::NodesUtils;
 use crate::host::Host;
 use codec::{Decode, Encode};
 use core::time::Duration;
-use frame_support::{log::debug, traits::Get, RuntimeDebug};
+use frame_support::{dispatch::DispatchResult, log::debug, traits::Get, RuntimeDebug};
 use ismp_rs::{
     consensus::{ConsensusClientId, StateMachineId},
+    handlers::{handle_incoming_message, MessageResult},
     host::StateMachine,
     messaging::CreateConsensusClient,
     router::{Request, Response},
 };
 use sp_core::{offchain::StorageKind, H256};
 // Re-export pallet items so that they can be accessed from the crate namespace.
-use crate::primitives::{IsmpDispatch, IsmpMessage};
+use crate::{
+    errors::HandlingError,
+    mmr::mmr::Mmr,
+    primitives::{IsmpDispatch, IsmpMessage},
+};
 use ismp_primitives::{
     mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex},
     LeafIndexQuery,
 };
-use ismp_rs::{host::ISMPHost, router::ISMPRouter};
-use mmr::mmr::Mmr;
+use ismp_rs::{host::ISMPHost, messaging::Message, router::ISMPRouter};
 pub use pallet::*;
 use sp_std::prelude::*;
 
@@ -74,7 +78,7 @@ pub mod pallet {
     use ismp_primitives::mmr::{LeafIndex, NodeIndex};
     use ismp_rs::{
         consensus::{ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId},
-        handlers::{self, handle_incoming_message, MessageResult},
+        handlers::{self},
         host::StateMachine,
         messaging::Message,
         router::ISMPRouter,
@@ -253,65 +257,8 @@ pub mod pallet {
         #[frame_support::transactional]
         pub fn handle(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResult {
             let _ = ensure_signed(origin)?;
-            // Define a host
-            let host = Host::<T>::default();
-            let mut errors: Vec<HandlingError> = vec![];
 
-            for message in messages {
-                match handle_incoming_message(&host, message) {
-                    Ok(MessageResult::ConsensusMessage(res)) => {
-                        // check if this is a trusted state machine
-                        let is_trusted_state_machine = host
-                            .challenge_period(res.consensus_client_id.clone()) ==
-                            Duration::from_secs(0);
-
-                        if is_trusted_state_machine {
-                            for (_, latest_height) in res.state_updates.into_iter() {
-                                Self::deposit_event(Event::<T>::StateMachineUpdated {
-                                    state_machine_id: latest_height.id,
-                                    latest_height: latest_height.height,
-                                })
-                            }
-                        } else {
-                            if let Some(pending_updates) =
-                                ConsensusUpdateResults::<T>::get(res.consensus_client_id)
-                            {
-                                for (_, latest_height) in pending_updates.into_iter() {
-                                    Self::deposit_event(Event::<T>::StateMachineUpdated {
-                                        state_machine_id: latest_height.id,
-                                        latest_height: latest_height.height,
-                                    })
-                                }
-                            }
-
-                            Self::deposit_event(Event::<T>::ChallengePeriodStarted {
-                                consensus_client_id: res.consensus_client_id,
-                                state_machines: res.state_updates.clone(),
-                            });
-
-                            // Store the new update result that have just entered the challenge
-                            // period
-                            ConsensusUpdateResults::<T>::insert(
-                                res.consensus_client_id,
-                                res.state_updates,
-                            );
-                        }
-                    }
-                    Ok(_) => {
-                        // Do nothing, event should have been deposited by the ismp router
-                    }
-                    Err(err) => {
-                        errors.push(err.into());
-                    }
-                }
-            }
-
-            if !errors.is_empty() {
-                debug!(target: "ismp-rust", "Handling Errors {:?}", errors);
-                Self::deposit_event(Event::<T>::HandlingErrors { errors })
-            }
-
-            Ok(())
+            Self::handle_messages(messages)
         }
 
         /// Create consensus clients
@@ -397,6 +344,69 @@ where
         let leaves_count = NumberOfLeaves::<T>::get();
         let mmr = Mmr::<mmr::storage::OffchainStorage, T>::new(leaves_count);
         mmr.generate_proof(leaf_indices)
+    }
+
+    /// Provides a way to handle messages.
+    pub fn handle_messages(messages: Vec<Message>) -> DispatchResult {
+        // Define a host
+        let host = Host::<T>::default();
+        let mut errors: Vec<HandlingError> = vec![];
+
+        for message in messages {
+            match handle_incoming_message(&host, message) {
+                Ok(MessageResult::ConsensusMessage(res)) => {
+                    // check if this is a trusted state machine
+                    let is_trusted_state_machine = host
+                        .challenge_period(res.consensus_client_id.clone()) ==
+                        Duration::from_secs(0);
+
+                    if is_trusted_state_machine {
+                        for (_, latest_height) in res.state_updates.into_iter() {
+                            Self::deposit_event(Event::<T>::StateMachineUpdated {
+                                state_machine_id: latest_height.id,
+                                latest_height: latest_height.height,
+                            })
+                        }
+                    } else {
+                        if let Some(pending_updates) =
+                            ConsensusUpdateResults::<T>::get(res.consensus_client_id)
+                        {
+                            for (_, latest_height) in pending_updates.into_iter() {
+                                Self::deposit_event(Event::<T>::StateMachineUpdated {
+                                    state_machine_id: latest_height.id,
+                                    latest_height: latest_height.height,
+                                })
+                            }
+                        }
+
+                        Self::deposit_event(Event::<T>::ChallengePeriodStarted {
+                            consensus_client_id: res.consensus_client_id,
+                            state_machines: res.state_updates.clone(),
+                        });
+
+                        // Store the new update result that have just entered the challenge
+                        // period
+                        ConsensusUpdateResults::<T>::insert(
+                            res.consensus_client_id,
+                            res.state_updates,
+                        );
+                    }
+                }
+                Ok(_) => {
+                    // Do nothing, event should have been deposited by the ismp router
+                }
+                Err(err) => {
+                    errors.push(err.into());
+                }
+            }
+        }
+
+        if !errors.is_empty() {
+            debug!(target: "ismp-rust", "Handling Errors {:?}", errors);
+            Self::deposit_event(Event::<T>::HandlingErrors { errors })
+        }
+
+        Ok(())
     }
 
     /// Return the on-chain MMR root hash.

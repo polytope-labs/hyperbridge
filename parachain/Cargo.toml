@@ -22,6 +22,7 @@ ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main"
 frame-support = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
 frame-system = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
 sp-trie = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
+sp-inherents = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
 sp-io = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
 sp-runtime = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
 sp-consensus-aura = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.40" }
@@ -52,6 +53,7 @@ std = [
     "sp-consensus-aura/std",
     "sp-runtime/std",
     "sp-io/std",
+    "sp-inherents/std",
     "primitive-types/std",
     "ismp-primitives/std",
     "pallet-ismp/std",

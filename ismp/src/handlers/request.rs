@@ -18,7 +18,7 @@
 use crate::{
     error::Error,
     handlers::{validate_state_machine, MessageResult},
-    host::ISMPHost,
+    host::IsmpHost,
     messaging::RequestMessage,
     router::RequestResponse,
 };
@@ -27,7 +27,7 @@ use alloc::vec::Vec;
 /// Validate the state machine, verify the request message and dispatch the message to the router
 pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, Error>
 where
-    H: ISMPHost,
+    H: IsmpHost,
 {
     let consensus_client = validate_state_machine(host, msg.proof.height)?;
     // Verify membership proof

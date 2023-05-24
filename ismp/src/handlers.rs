@@ -18,7 +18,7 @@
 use crate::{
     consensus::{ConsensusClient, ConsensusClientId, StateMachineHeight},
     error::Error,
-    host::ISMPHost,
+    host::IsmpHost,
     messaging::Message,
     router::DispatchResult,
 };
@@ -31,6 +31,7 @@ mod timeout;
 
 pub use consensus::create_consensus_client;
 
+/// The result of successfully processing a [`ConsensusMessage`]
 #[derive(Debug)]
 pub struct ConsensusUpdateResult {
     /// Consensus client Id
@@ -39,6 +40,7 @@ pub struct ConsensusUpdateResult {
     pub state_updates: BTreeSet<(StateMachineHeight, StateMachineHeight)>,
 }
 
+/// The result of successfully processing a [`CreateConsensusClient`] message
 pub struct ConsensusClientCreatedResult {
     /// Consensus client Id
     pub consensus_client_id: ConsensusClientId,
@@ -47,16 +49,20 @@ pub struct ConsensusClientCreatedResult {
 /// Result returned when ismp messages are handled successfully
 #[derive(Debug)]
 pub enum MessageResult {
+    /// The [`ConsensusMessage`] result
     ConsensusMessage(ConsensusUpdateResult),
+    /// The [`DispatchResult`] for requests
     Request(Vec<DispatchResult>),
+    /// The [`DispatchResult`] for responses
     Response(Vec<DispatchResult>),
+    /// The [`DispatchResult`] for timeouts
     Timeout(Vec<DispatchResult>),
 }
 
 /// This function serves as an entry point to handle the message types provided by the ISMP protocol
 pub fn handle_incoming_message<H>(host: &H, message: Message) -> Result<MessageResult, Error>
 where
-    H: ISMPHost,
+    H: IsmpHost,
 {
     match message {
         Message::Consensus(consensus_message) => consensus::handle(host, consensus_message),
@@ -70,7 +76,7 @@ where
 /// for the state machine has elasped.
 fn verify_delay_passed<H>(host: &H, proof_height: StateMachineHeight) -> Result<bool, Error>
 where
-    H: ISMPHost,
+    H: IsmpHost,
 {
     let update_time = host.consensus_update_time(proof_height.id.consensus_client)?;
     let delay_period = host.challenge_period(proof_height.id.consensus_client);
@@ -87,7 +93,7 @@ fn validate_state_machine<H>(
     proof_height: StateMachineHeight,
 ) -> Result<Box<dyn ConsensusClient>, Error>
 where
-    H: ISMPHost,
+    H: IsmpHost,
 {
     // Ensure consensus client is not frozen
     let consensus_client_id = proof_height.id.consensus_client;

@@ -21,6 +21,7 @@
 //! Note: All timestamps are denominated in seconds
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![deny(missing_docs)]
 
 extern crate alloc;
 extern crate core;
@@ -35,5 +36,6 @@ pub mod router;
 pub mod util;
 
 pub mod prelude {
+    //! Some useful imports in the crate prelude.
     pub use alloc::{format, str::FromStr, string::String, vec, vec::Vec};
 }

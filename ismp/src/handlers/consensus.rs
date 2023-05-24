@@ -18,7 +18,7 @@
 use crate::{
     error::Error,
     handlers::{ConsensusClientCreatedResult, ConsensusUpdateResult, MessageResult},
-    host::ISMPHost,
+    host::IsmpHost,
     messaging::{ConsensusMessage, CreateConsensusClient},
 };
 use alloc::collections::BTreeSet;
@@ -26,7 +26,7 @@ use alloc::collections::BTreeSet;
 /// This function handles verification of consensus messages for consensus clients
 pub fn handle<H>(host: &H, msg: ConsensusMessage) -> Result<MessageResult, Error>
 where
-    H: ISMPHost,
+    H: IsmpHost,
 {
     let consensus_client = host.consensus_client(msg.consensus_client_id)?;
     let trusted_state = host.consensus_state(msg.consensus_client_id)?;
@@ -93,7 +93,7 @@ pub fn create_consensus_client<H>(
     message: CreateConsensusClient,
 ) -> Result<ConsensusClientCreatedResult, Error>
 where
-    H: ISMPHost,
+    H: IsmpHost,
 {
     // Store the initial state for the consensus client
     host.store_consensus_state(message.consensus_client_id, message.consensus_state)?;

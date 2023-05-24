@@ -4,10 +4,10 @@ use ismp::{
         StateMachineId,
     },
     error::Error,
-    host::{ISMPHost, StateMachine},
+    host::{IsmpHost, StateMachine},
     messaging::Proof,
     router::{
-        DispatchError, DispatchResult, DispatchSuccess, ISMPRouter, Request, RequestResponse,
+        DispatchError, DispatchResult, DispatchSuccess, IsmpRouter, Request, RequestResponse,
         Response,
     },
     util::{hash_request, hash_response},
@@ -33,7 +33,7 @@ pub struct MockConsensusState {
 impl ConsensusClient for MockClient {
     fn verify_consensus(
         &self,
-        _host: &dyn ISMPHost,
+        _host: &dyn IsmpHost,
         _trusted_consensus_state: Vec<u8>,
         _proof: Vec<u8>,
     ) -> Result<(Vec<u8>, Vec<IntermediateState>), Error> {
@@ -46,7 +46,7 @@ impl ConsensusClient for MockClient {
 
     fn verify_membership(
         &self,
-        _host: &dyn ISMPHost,
+        _host: &dyn IsmpHost,
         _item: RequestResponse,
         _root: StateCommitment,
         _proof: &Proof,
@@ -60,7 +60,7 @@ impl ConsensusClient for MockClient {
 
     fn verify_state_proof(
         &self,
-        _host: &dyn ISMPHost,
+        _host: &dyn IsmpHost,
         _keys: Vec<Vec<u8>>,
         _root: StateCommitment,
         _proof: &Proof,
@@ -85,7 +85,7 @@ pub struct Host {
     latest_state_height: Rc<RefCell<HashMap<StateMachineId, u64>>>,
 }
 
-impl ISMPHost for Host {
+impl IsmpHost for Host {
     fn host_state_machine(&self) -> StateMachine {
         StateMachine::Polkadot(1000)
     }
@@ -216,14 +216,14 @@ impl ISMPHost for Host {
         Duration::from_secs(60 * 60)
     }
 
-    fn ismp_router(&self) -> Box<dyn ISMPRouter> {
+    fn ismp_router(&self) -> Box<dyn IsmpRouter> {
         Box::new(MockRouter(self.clone()))
     }
 }
 
 pub struct MockRouter(pub Host);
 
-impl ISMPRouter for MockRouter {
+impl IsmpRouter for MockRouter {
     fn dispatch(&self, request: Request) -> DispatchResult {
         let host = &self.0.clone();
         if request.dest_chain() != host.host_state_machine() {

@@ -1,5 +1,7 @@
+//! ISMP utilities
+
 use crate::{
-    host::ISMPHost,
+    host::IsmpHost,
     router::{Request, Response},
 };
 use alloc::{string::ToString, vec::Vec};
@@ -7,7 +9,7 @@ use codec::Encode;
 use primitive_types::H256;
 
 /// Return the keccak256 hash of a request
-pub fn hash_request<H: ISMPHost>(req: &Request) -> H256 {
+pub fn hash_request<H: IsmpHost>(req: &Request) -> H256 {
     match req {
         Request::Post(post) => {
             let mut buf = Vec::new();
@@ -46,7 +48,7 @@ pub fn hash_request<H: ISMPHost>(req: &Request) -> H256 {
 }
 
 /// Return the keccak256 of a response
-pub fn hash_response<H: ISMPHost>(res: &Response) -> H256 {
+pub fn hash_response<H: IsmpHost>(res: &Response) -> H256 {
     let (req, response) = match res {
         Response::Post { ref post, response } => (post, response),
         // Responses to get messages are never hashed

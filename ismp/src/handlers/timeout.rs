@@ -18,7 +18,7 @@
 use crate::{
     error::Error,
     handlers::{validate_state_machine, MessageResult},
-    host::ISMPHost,
+    host::IsmpHost,
     messaging::TimeoutMessage,
     router::RequestResponse,
     util::hash_request,
@@ -28,7 +28,7 @@ use alloc::vec::Vec;
 /// This function handles timeouts for Requests
 pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, Error>
 where
-    H: ISMPHost,
+    H: IsmpHost,
 {
     let results = match msg {
         TimeoutMessage::Post { requests, timeout_proof } => {

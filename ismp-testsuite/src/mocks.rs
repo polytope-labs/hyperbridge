@@ -54,7 +54,7 @@ impl ConsensusClient for MockClient {
         Ok(())
     }
 
-    fn state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
+    fn state_trie_key(&self, _request: Vec<Request>) -> Vec<Vec<u8>> {
         Default::default()
     }
 

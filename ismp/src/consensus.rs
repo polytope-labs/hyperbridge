@@ -20,7 +20,7 @@ use crate::{
     host::{IsmpHost, StateMachine},
     messaging::Proof,
     prelude::Vec,
-    router::RequestResponse,
+    router::{Request, RequestResponse},
 };
 use codec::{Decode, Encode};
 use core::time::Duration;
@@ -113,7 +113,7 @@ pub trait ConsensusClient {
     ) -> Result<(), Error>;
 
     /// Transform the requests/responses into their equivalent key in the state trie.
-    fn state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>>;
+    fn state_trie_key(&self, request: Vec<Request>) -> Vec<Vec<u8>>;
 
     /// Verify the state of proof of some arbitrary data. Should return the verified data
     fn verify_state_proof(

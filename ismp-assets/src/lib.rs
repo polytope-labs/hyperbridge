@@ -16,17 +16,19 @@
 //! ISMP Assets
 //! Simple Demo for Asset transfer over ISMP
 #![cfg_attr(not(feature = "std"), no_std)]
+#![deny(missing_docs)]
 
 extern crate alloc;
 
 use alloc::string::ToString;
 use frame_support::{traits::fungible::Mutate, PalletId};
 use ismp::{
-    module::ISMPModule,
+    module::IsmpModule,
     router::{Request, Response},
 };
 pub use pallet::*;
 
+/// Constant Pallet ID
 pub const PALLET_ID: PalletId = PalletId(*b"ismp-ast");
 
 #[frame_support::pallet]
@@ -46,34 +48,51 @@ pub mod pallet {
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
+    /// Pallet Configuration
     #[pallet::config]
     pub trait Config: frame_system::Config {
+        /// Overarching event
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        /// Native balance
         type Balance: Balance + Into<<Self::NativeCurrency as Inspect<Self::AccountId>>::Balance>;
+        /// Native currency implementation
         type NativeCurrency: Mutate<Self::AccountId>;
+        /// Ismp message disptacher
         type IsmpDispatch: IsmpDispatch;
     }
 
+    /// Pallet events
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
+        /// Some balance has been transferred
         BalanceTransferred {
+            /// Source account
             from: T::AccountId,
+            /// Destination account
             to: T::AccountId,
+            /// Amount being transferred
             amount: T::Balance,
+            /// Destination chain's Id
             dest_chain: StateMachine,
         },
-
+        /// Some balance has been received
         BalanceReceived {
+            /// Source account
             from: T::AccountId,
+            /// Receiving account
             to: T::AccountId,
+            /// Amount that was received
             amount: T::Balance,
+            /// Source chain's Id
             source_chain: StateMachine,
         },
     }
 
+    /// Pallet Errors
     #[pallet::error]
     pub enum Error<T> {
+        /// Error encountered when initializing transfer
         TransferFailed,
     }
 
@@ -83,6 +102,7 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
+        /// Transfer some funds over ISMP
         #[pallet::weight(1_000_000)]
         #[pallet::call_index(0)]
         pub fn transfer(
@@ -111,32 +131,42 @@ pub mod pallet {
         }
     }
 
+    /// Transfer payload
+    /// This would be encoded to bytes as the request data
     #[derive(
         Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
     )]
     pub struct Payload<AccountId, Balance> {
+        /// Destination account
         pub to: AccountId,
+        /// Source account
         pub from: AccountId,
+        /// Amount to be transferred
         pub amount: Balance,
     }
 
+    /// Extrinsic Parameters for initializing a cross chain transfer
     #[derive(
         Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
     )]
     pub struct TransferParams<AccountId, Balance> {
+        /// Destination account
         pub to: AccountId,
+        /// Amount to transfer
         pub amount: Balance,
+        /// Destination chain's Id
         pub dest_chain: StateMachine,
-        /// Timeout timestamp in seconds
+        /// Timeout timestamp on destination chain in seconds
         pub timeout: u64,
     }
 }
 
+/// Ismp dispatch error
 fn ismp_dispatch_error(msg: &'static str) -> ismp::error::Error {
     ismp::error::Error::ImplementationSpecific(msg.to_string())
 }
 
-impl<T: Config> ISMPModule for Pallet<T> {
+impl<T: Config> IsmpModule for Pallet<T> {
     fn on_accept(request: Request) -> Result<(), ismp::error::Error> {
         let source_chain = request.source_chain();
         let data = match request {

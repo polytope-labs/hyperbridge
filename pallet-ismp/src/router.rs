@@ -1,24 +1,44 @@
+// Copyright (C) 2023 Polytope Labs.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Implementation for the ISMP Router
 use crate::{host::Host, Config, Event, Pallet, RequestAcks, ResponseAcks};
 use alloc::{boxed::Box, string::ToString};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use ismp_primitives::mmr::Leaf;
 use ismp_rs::{
-    host::ISMPHost,
-    router::{DispatchError, DispatchResult, DispatchSuccess, ISMPRouter, Request, Response},
+    host::IsmpHost,
+    router::{DispatchError, DispatchResult, DispatchSuccess, IsmpRouter, Request, Response},
     util::{hash_request, hash_response},
 };
 use sp_core::H256;
 
+/// A receipt or an outgoing or incoming request or response
 #[derive(Encode, Decode, scale_info::TypeInfo)]
 pub enum Receipt {
+    /// Ok
     Ok,
 }
 
 /// The proxy router, This router allows for routing requests & responses from a source chain
 /// to a destination chain.
 pub struct ProxyRouter<T> {
-    inner: Option<Box<dyn ISMPRouter>>,
+    /// Module router
+    inner: Option<Box<dyn IsmpRouter>>,
+    /// Phantom
     _phantom: PhantomData<T>,
 }
 
@@ -26,7 +46,7 @@ impl<T> ProxyRouter<T> {
     /// Initialize the proxy router with an inner router.
     pub fn new<R>(router: R) -> Self
     where
-        R: ISMPRouter + 'static,
+        R: IsmpRouter + 'static,
     {
         Self { inner: Some(Box::new(router)), _phantom: PhantomData }
     }
@@ -38,7 +58,7 @@ impl<T> Default for ProxyRouter<T> {
     }
 }
 
-impl<T> ISMPRouter for ProxyRouter<T>
+impl<T> IsmpRouter for ProxyRouter<T>
 where
     T: Config,
     <T as frame_system::Config>::Hash: From<H256>,

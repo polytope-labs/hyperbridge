@@ -17,6 +17,7 @@
 //!
 //! This allows parachains communicate over ISMP leveraging the relay chain as a consensus oracle.
 #![cfg_attr(not(feature = "std"), no_std)]
+#![deny(missing_docs)]
 
 extern crate alloc;
 extern crate core;
@@ -44,10 +45,12 @@ pub mod pallet {
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
+    /// The config trait
     #[pallet::config]
     pub trait Config:
         frame_system::Config + pallet_ismp::Config + parachain_system::Config
     {
+        /// The overarching event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
     }
 
@@ -61,10 +64,12 @@ pub mod pallet {
     #[pallet::storage]
     pub type ConsensusUpdated<T: Config> = StorageValue<_, bool>;
 
-    /// Tracks whether we've already seen the `update_parachain_consensus` inherent
+    /// List of parachains who's headers will be inserted in the `update_parachain_consensus`
+    /// inherent
     #[pallet::storage]
     pub type Parachains<T: Config> = StorageMap<_, Identity, u32, ()>;
 
+    /// Events emitted by this pallet
     #[pallet::event]
     pub enum Event<T: Config> {}
 
@@ -101,7 +106,7 @@ pub mod pallet {
 
         /// Add some new parachains to the list of parachains we care about
         #[pallet::call_index(1)]
-        #[pallet::weight(0)] // todo: fix weight
+        #[pallet::weight(0)]
         pub fn add_parachain(origin: OriginFor<T>, para_ids: Vec<u32>) -> DispatchResult {
             ensure_root(origin)?;
             for id in para_ids {
@@ -113,7 +118,7 @@ pub mod pallet {
 
         /// Remove some parachains from the list of parachains we care about
         #[pallet::call_index(2)]
-        #[pallet::weight(0)] // todo: fix weight
+        #[pallet::weight(0)]
         pub fn remove_parachain(origin: OriginFor<T>, para_ids: Vec<u32>) -> DispatchResult {
             ensure_root(origin)?;
             for id in para_ids {
@@ -173,6 +178,7 @@ pub mod pallet {
         }
     }
 
+    /// The genesis config
     #[pallet::genesis_config]
     pub struct GenesisConfig {
         /// List of parachains to track at genesis

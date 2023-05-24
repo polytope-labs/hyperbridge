@@ -26,9 +26,10 @@ use ismp::{
         StateMachineId,
     },
     error::Error,
-    host::{ISMPHost, StateMachine},
+    host::{IsmpHost, StateMachine},
     messaging::Proof,
-    router::RequestResponse,
+    router::{Request, RequestResponse},
+    util::hash_request,
 };
 use ismp_primitives::mmr::{DataOrHash, Leaf, MmrHasher};
 use merkle_mountain_range::MerkleProof;
@@ -70,7 +71,9 @@ pub struct ParachainConsensusProof {
 /// Hashing algorithm for the state proof
 #[derive(Debug, Encode, Decode)]
 pub enum HashAlgorithm {
+    /// For chains that use keccak as their hashing algo
     Keccak,
+    /// For chains that use blake2 as their hashing algo
     Blake2,
 }
 
@@ -112,7 +115,7 @@ where
 {
     fn verify_consensus(
         &self,
-        host: &dyn ISMPHost,
+        host: &dyn IsmpHost,
         state: Vec<u8>,
         proof: Vec<u8>,
     ) -> Result<(Vec<u8>, Vec<IntermediateState>), Error> {
@@ -232,7 +235,7 @@ where
 
     fn verify_membership(
         &self,
-        _host: &dyn ISMPHost,
+        _host: &dyn IsmpHost,
         item: RequestResponse,
         state: StateCommitment,
         proof: &Proof,
@@ -273,13 +276,26 @@ where
         Ok(())
     }
 
-    fn state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
-        todo!()
+    fn state_trie_key(&self, requests: Vec<Request>) -> Vec<Vec<u8>> {
+        let mut keys = vec![];
+
+        for req in requests {
+            match req {
+                Request::Post(post) => {
+                    let request = Request::Post(post);
+                    let commitment = hash_request::<Host<T>>(&request).0.to_vec();
+                    keys.push(pallet_ismp::RequestAcks::<T>::hashed_key_for(commitment));
+                }
+                Request::Get(_) => continue,
+            }
+        }
+
+        keys
     }
 
     fn verify_state_proof(
         &self,
-        _host: &dyn ISMPHost,
+        _host: &dyn IsmpHost,
         keys: Vec<Vec<u8>>,
         root: StateCommitment,
         proof: &Proof,

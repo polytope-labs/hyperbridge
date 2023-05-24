@@ -12,6 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#![deny(missing_docs)]
 
 //! ISMP Parachain Consensus Inherent Provider
 //!
@@ -31,7 +32,8 @@ use std::sync::Arc;
 pub struct ConsensusInherentProvider(Option<ConsensusMessage>);
 
 impl ConsensusInherentProvider {
-    /// Create the [`ConsensusInherentProvider`] at the given `relay_parent`.
+    /// Create the [`ConsensusMessage`] at the given `relay_parent`. Will be [`None`] if no para ids
+    /// have been confguired.
     pub async fn create<C, B>(
         client: Arc<C>,
         relay_parent: PHash,

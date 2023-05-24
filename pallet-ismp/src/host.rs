@@ -1,3 +1,19 @@
+// Copyright (C) 2023 Polytope Labs.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Host implementation for ISMP
 use crate::{
     primitives::ConsensusClientProvider, router::Receipt, Config, ConsensusClientUpdateTime,
     ConsensusStates, FrozenHeights, LatestStateMachineHeight, RequestAcks, StateCommitments,
@@ -10,14 +26,15 @@ use ismp_rs::{
         ConsensusClient, ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
     },
     error::Error,
-    host::{ISMPHost, StateMachine},
-    router::{ISMPRouter, Request},
+    host::{IsmpHost, StateMachine},
+    router::{IsmpRouter, Request},
     util::hash_request,
 };
 use sp_core::H256;
 use sp_runtime::SaturatedConversion;
 use sp_std::prelude::*;
 
+/// An implementation for the IsmpHost
 #[derive(Clone)]
 pub struct Host<T: Config>(core::marker::PhantomData<T>);
 
@@ -27,7 +44,7 @@ impl<T: Config> Default for Host<T> {
     }
 }
 
-impl<T: Config> ISMPHost for Host<T>
+impl<T: Config> IsmpHost for Host<T>
 where
     <T as frame_system::Config>::Hash: From<H256>,
 {
@@ -163,7 +180,7 @@ where
         <T as Config>::ConsensusClientProvider::challenge_period(id)
     }
 
-    fn ismp_router(&self) -> Box<dyn ISMPRouter> {
+    fn ismp_router(&self) -> Box<dyn IsmpRouter> {
         Box::new(T::IsmpRouter::default())
     }
 }

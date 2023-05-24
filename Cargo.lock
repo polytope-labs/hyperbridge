@@ -3004,7 +3004,7 @@ dependencies = [
 [[package]]
 name = "ismp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/ismp-rs.git?branch=main#f33ea2c2a376496ff7d3c644dc725e797d535e01"
+source = "git+ssh://git@github.com/polytope-labs/ismp-rs.git?branch=main#c51850fdd6ff87e8ccf839704343d3c68987742c"
 dependencies = [
  "derive_more",
  "parity-scale-codec",
@@ -3125,7 +3125,7 @@ dependencies = [
 [[package]]
 name = "ismp-testsuite"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/ismp-rs.git?branch=main#f33ea2c2a376496ff7d3c644dc725e797d535e01"
+source = "git+ssh://git@github.com/polytope-labs/ismp-rs.git?branch=main#c51850fdd6ff87e8ccf839704343d3c68987742c"
 dependencies = [
  "ismp",
  "parity-scale-codec",

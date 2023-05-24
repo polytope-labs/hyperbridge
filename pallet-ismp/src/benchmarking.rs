@@ -1,3 +1,19 @@
+// Copyright (C) 2023 Polytope Labs.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Benchmarking
 // Only enable this module for benchmarking.
 #![cfg(feature = "runtime-benchmarks")]
 
@@ -5,14 +21,11 @@ use crate::*;
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 
-// Running the benchmarks correctly
-// Add the [`BenchmarkClient`] as one of the consensus clients available to pallet-ismp in the
-// runtime configuration
-// In your module router configuration add the [`BenchmarkIsmpModule`] as one of the ismp modules
-// using the pallet id defined here as it's module id.
-
-// Details on using the benchmarks macro can be seen at:
-//   https://paritytech.github.io/substrate/master/frame_benchmarking/trait.Benchmarking.html#tymethod.benchmarks
+/// Running the benchmarks correctly.
+/// Add the [`BenchmarkClient`] as one of the consensus clients available to pallet-ismp in the
+/// runtime configuration.
+/// In your module router configuration add the [`BenchmarkIsmpModule`] as one of the ismp modules
+/// using the pallet id defined here as it's module id.
 #[benchmarks(
     where
         <T as frame_system::Config>::Hash: From<H256>,
@@ -22,17 +35,19 @@ use frame_system::RawOrigin;
 pub mod benchmarks {
     use super::*;
     use crate::router::Receipt;
-    use frame_support::PalletId;
+    use frame_support::{traits::Hooks, PalletId};
     use frame_system::EventRecord;
     use ismp_rs::{
         consensus::{ConsensusClient, IntermediateState, StateCommitment, StateMachineHeight},
         error::Error as IsmpError,
         messaging::{Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
-        module::ISMPModule,
+        module::IsmpModule,
         router::{Post, RequestResponse},
         util::hash_request,
     };
+    use sp_std::prelude::Vec;
 
+    /// Verify the the last event emitted
     fn assert_last_event<T: Config>(generic_event: <T as Config>::RuntimeEvent) {
         let events = frame_system::Pallet::<T>::events();
         let system_event: <T as frame_system::Config>::RuntimeEvent = generic_event.into();
@@ -40,15 +55,17 @@ pub mod benchmarks {
         assert_eq!(event, &system_event);
     }
 
+    /// A mock consensus client for benchmarking
     #[derive(Default)]
     pub struct BenchmarkClient;
 
+    /// Consensus client id for benchmarking consensus client
     pub const BENCHMARK_CONSENSUS_CLIENT_ID: [u8; 4] = [1u8; 4];
 
     impl ConsensusClient for BenchmarkClient {
         fn verify_consensus(
             &self,
-            _host: &dyn ISMPHost,
+            _host: &dyn IsmpHost,
             _trusted_consensus_state: Vec<u8>,
             _proof: Vec<u8>,
         ) -> Result<(Vec<u8>, Vec<IntermediateState>), IsmpError> {
@@ -61,7 +78,7 @@ pub mod benchmarks {
 
         fn verify_membership(
             &self,
-            _host: &dyn ISMPHost,
+            _host: &dyn IsmpHost,
             _item: RequestResponse,
             _root: StateCommitment,
             _proof: &Proof,
@@ -69,13 +86,13 @@ pub mod benchmarks {
             Ok(())
         }
 
-        fn state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
+        fn state_trie_key(&self, _request: Vec<Request>) -> Vec<Vec<u8>> {
             Default::default()
         }
 
         fn verify_state_proof(
             &self,
-            _host: &dyn ISMPHost,
+            _host: &dyn IsmpHost,
             _keys: Vec<Vec<u8>>,
             _root: StateCommitment,
             _proof: &Proof,
@@ -90,8 +107,9 @@ pub mod benchmarks {
 
     /// This module should be added to the module router in runtime for benchmarks to pass
     pub struct BenchmarkIsmpModule;
+    /// module id for the mock benchmarking module
     pub const MODULE_ID: PalletId = PalletId(*b"benchmak");
-    impl ISMPModule for BenchmarkIsmpModule {
+    impl IsmpModule for BenchmarkIsmpModule {
         fn on_accept(_request: Request) -> Result<(), IsmpError> {
             Ok(())
         }
@@ -105,6 +123,7 @@ pub mod benchmarks {
         }
     }
 
+    /// Sets the current timestamp
     fn set_timestamp<T: pallet_timestamp::Config>()
     where
         <T as pallet_timestamp::Config>::Moment: From<u64>,
@@ -146,7 +165,7 @@ pub mod benchmarks {
         );
     }
 
-    fn setup_mock_client<H: ISMPHost>(host: &H) -> IntermediateState {
+    fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
         let intermediate_state = IntermediateState {
             height: StateMachineHeight {
                 id: StateMachineId {
@@ -266,6 +285,31 @@ pub mod benchmarks {
         handle(RawOrigin::Signed(caller), vec![Message::Timeout(msg)]);
 
         assert!(RequestAcks::<T>::get(commitment.0.to_vec()).is_none());
+    }
+
+    #[benchmark]
+    fn on_finalize(x: Linear<1, 100>) {
+        for nonce in 0..x {
+            let post = ismp_rs::router::Post {
+                source_chain: StateMachine::Kusama(2000),
+                dest_chain: StateMachine::Kusama(2001),
+                nonce: nonce.into(),
+                from: vec![0u8; 32],
+                to: vec![1u8; 32],
+                timeout_timestamp: 100,
+                data: vec![2u8; 64],
+            };
+
+            let request = Request::Post(post);
+            let leaf = Leaf::Request(request);
+
+            Pallet::<T>::mmr_push(leaf.clone()).unwrap();
+        }
+
+        #[block]
+        {
+            Pallet::<T>::on_finalize(2u32.into())
+        }
     }
 
     impl_benchmark_test_suite!(Pallet, crate::tests::new_test_ext(), crate::mock::Test);

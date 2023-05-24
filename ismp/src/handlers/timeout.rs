@@ -20,7 +20,6 @@ use crate::{
     handlers::{validate_state_machine, MessageResult},
     host::IsmpHost,
     messaging::TimeoutMessage,
-    router::RequestResponse,
     util::hash_request,
 };
 use alloc::vec::Vec;
@@ -56,7 +55,7 @@ where
                 }
             }
 
-            let key = consensus_client.state_trie_key(RequestResponse::Request(requests.clone()));
+            let key = consensus_client.state_trie_key(requests.clone());
 
             let values = consensus_client.verify_state_proof(host, key, state, &timeout_proof)?;
 

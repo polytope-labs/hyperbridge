@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! ISMPRouter definition
+//! IsmpRouter definition
 
 use crate::{consensus::StateMachineHeight, error::Error, host::StateMachine, prelude::Vec};
 use alloc::string::{String, ToString};
@@ -134,6 +134,7 @@ impl Request {
         proof_timestamp >= self.timeout()
     }
 
+    /// Returns a get request or an error
     pub fn get_request(&self) -> Result<Get, Error> {
         match self {
             Request::Post(_) => {
@@ -143,6 +144,7 @@ impl Request {
         }
     }
 
+    /// Returns true if request is a get request
     pub fn is_type_get(&self) -> bool {
         match self {
             Request::Post(_) => false,
@@ -155,12 +157,14 @@ impl Request {
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub enum Response {
+    /// The response to a POST request
     Post {
         /// The request that triggered this response.
         post: Post,
         /// The response message.
         response: Vec<u8>,
     },
+    /// The response to a GET request
     Get {
         /// The Get request that triggered this response.
         get: Get,
@@ -170,6 +174,7 @@ pub enum Response {
 }
 
 impl Response {
+    /// Return the underlying request in the response
     pub fn request(&self) -> Request {
         match self {
             Response::Post { post, .. } => Request::Post(post.clone()),
@@ -204,10 +209,13 @@ impl Response {
 
 /// Convenience enum for membership verification.
 pub enum RequestResponse {
+    /// A batch of requests
     Request(Vec<Request>),
+    /// A batch of responses
     Response(Vec<Response>),
 }
 
+/// The result of successfully dispatching a request or response
 #[derive(Debug, PartialEq, Eq)]
 pub struct DispatchSuccess {
     /// Destination chain for request or response
@@ -218,6 +226,7 @@ pub struct DispatchSuccess {
     pub nonce: u64,
 }
 
+/// The result of unsuccessfully dispatching a request or response
 #[derive(Debug, PartialEq, Eq)]
 pub struct DispatchError {
     /// Descriptive error message
@@ -230,9 +239,11 @@ pub struct DispatchError {
     pub dest: StateMachine,
 }
 
+/// A type alias for dispatch results
 pub type DispatchResult = Result<DispatchSuccess, DispatchError>;
 
-pub trait ISMPRouter {
+/// The ISMP router dictates how messsages are route to [`IsmpModules`]
+pub trait IsmpRouter {
     /// Dispatch some requests to the ISMP router.
     /// For outgoing requests, they should be committed in state as a keccak256 hash
     /// For incoming requests, they should be dispatched to destination modules

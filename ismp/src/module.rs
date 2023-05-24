@@ -20,7 +20,9 @@ use crate::{
     router::{Request, Response},
 };
 
-pub trait ISMPModule {
+/// Individual modules which live on a state machine must conform to this interface in order to send
+/// and receive ISMP requests and reponses
+pub trait IsmpModule {
     /// Called by the local ISMP router on a module, to notify module of a new request
     /// the module may choose to respond immediately, or in a later block
     fn on_accept(request: Request) -> Result<(), Error>;

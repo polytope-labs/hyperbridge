@@ -17,7 +17,7 @@
 
 use crate::{
     error::Error,
-    host::{ISMPHost, StateMachine},
+    host::{IsmpHost, StateMachine},
     messaging::Proof,
     prelude::Vec,
     router::RequestResponse,
@@ -29,6 +29,9 @@ use primitive_types::H256;
 /// Consensus client Ids
 pub type ConsensusClientId = [u8; 4];
 
+/// The state commitment represents a commitment to the state machine's state (trie) at a given
+/// height. Optionally holds a commitment to the ISMP request/response trie if supported by the
+/// state machine.
 #[derive(Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateCommitment {
@@ -41,6 +44,7 @@ pub struct StateCommitment {
 }
 
 impl StateCommitment {
+    /// Returns the timestamp
     pub fn timestamp(&self) -> Duration {
         Duration::from_secs(self.timestamp)
     }
@@ -50,7 +54,9 @@ impl StateCommitment {
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct IntermediateState {
+    /// The state machine height holds the state mahine identifier and a block height
     pub height: StateMachineHeight,
+    /// The corresponding state commitment for the state machine at the given block height.
     pub commitment: StateCommitment,
 }
 
@@ -61,16 +67,21 @@ pub struct IntermediateState {
 )]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateMachineId {
+    /// The state machine identifier
     pub state_id: StateMachine,
+    /// It's consensus client identifier
     pub consensus_client: ConsensusClientId,
 }
 
+/// Identifies a state machine at a given height
 #[derive(
     Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Hash, Ord, PartialOrd,
 )]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateMachineHeight {
+    /// The state machine identifier
     pub id: StateMachineId,
+    /// the corresponding block height
     pub height: u64,
 }
 
@@ -84,7 +95,7 @@ pub trait ConsensusClient {
     /// - finally return the new consensusState and verified state commitments.
     fn verify_consensus(
         &self,
-        host: &dyn ISMPHost,
+        host: &dyn IsmpHost,
         trusted_consensus_state: Vec<u8>,
         proof: Vec<u8>,
     ) -> Result<(Vec<u8>, Vec<IntermediateState>), Error>;
@@ -95,7 +106,7 @@ pub trait ConsensusClient {
     /// Verify the merkle mountain range membership proof of a batch of requests/responses.
     fn verify_membership(
         &self,
-        host: &dyn ISMPHost,
+        host: &dyn IsmpHost,
         item: RequestResponse,
         root: StateCommitment,
         proof: &Proof,
@@ -107,7 +118,7 @@ pub trait ConsensusClient {
     /// Verify the state of proof of some arbitrary data. Should return the verified data
     fn verify_state_proof(
         &self,
-        host: &dyn ISMPHost,
+        host: &dyn IsmpHost,
         keys: Vec<Vec<u8>>,
         root: StateCommitment,
         proof: &Proof,

@@ -26,6 +26,8 @@ use crate::{
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, Encode};
 
+/// A consensus message is used to update the state of a consensus client and its children state
+/// machines.
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct ConsensusMessage {
     /// Scale Encoded Consensus Proof
@@ -34,6 +36,7 @@ pub struct ConsensusMessage {
     pub consensus_client_id: ConsensusClientId,
 }
 
+/// Used for creating the initial consensus state for a given consensus client.
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct CreateConsensusClient {
     /// Scale encoded consensus state
@@ -44,6 +47,7 @@ pub struct CreateConsensusClient {
     pub state_machine_commitments: Vec<IntermediateState>,
 }
 
+/// A request message holds a batch of requests to be dispatched from a source state machine
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct RequestMessage {
     /// Requests from source chain
@@ -52,14 +56,17 @@ pub struct RequestMessage {
     pub proof: Proof,
 }
 
+/// A request message holds a batch of responses to be dispatched from a source state machine
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum ResponseMessage {
+    /// A POST request for sending data
     Post {
         /// Responses from sink chain
         responses: Vec<Response>,
         /// Membership batch proof for these responses
         proof: Proof,
     },
+    /// A GET request for querying data
     Get {
         /// Request batch
         requests: Vec<Request>,
@@ -69,6 +76,7 @@ pub enum ResponseMessage {
 }
 
 impl ResponseMessage {
+    /// Returns the requests in this message.
     pub fn requests(&self) -> Vec<Request> {
         match self {
             ResponseMessage::Post { responses, .. } => {
@@ -78,6 +86,7 @@ impl ResponseMessage {
         }
     }
 
+    /// Retuns the associated proof
     pub fn proof(&self) -> &Proof {
         match self {
             ResponseMessage::Post { proof, .. } => proof,
@@ -100,8 +109,10 @@ pub fn sufficient_proof_height(requests: &[Request], proof: &Proof) -> Result<()
     }
 }
 
+/// A request message holds a batch of requests to be timed-out
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum TimeoutMessage {
+    /// A non memership proof for POST requests
     Post {
         /// Request timeouts
         requests: Vec<Request>,
@@ -117,6 +128,7 @@ pub enum TimeoutMessage {
 }
 
 impl TimeoutMessage {
+    /// Returns the requests in this message.
     pub fn requests(&self) -> &[Request] {
         match self {
             TimeoutMessage::Post { requests, .. } => requests,
@@ -124,6 +136,7 @@ impl TimeoutMessage {
         }
     }
 
+    /// Returns the associated proof
     pub fn timeout_proof(&self) -> Result<&Proof, Error> {
         match self {
             TimeoutMessage::Post { timeout_proof, .. } => Ok(timeout_proof),
@@ -134,6 +147,7 @@ impl TimeoutMessage {
     }
 }
 
+/// Proof holds the relevant proof data for the context in which it's used.
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Proof {
@@ -143,14 +157,19 @@ pub struct Proof {
     pub proof: Vec<u8>,
 }
 
+/// The Overaching ISMP message type.
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum Message {
+    /// A consensus update message
     #[codec(index = 0)]
     Consensus(ConsensusMessage),
+    /// A request message
     #[codec(index = 1)]
     Request(RequestMessage),
+    /// A response message
     #[codec(index = 2)]
     Response(ResponseMessage),
+    /// A request timeout message
     #[codec(index = 3)]
     Timeout(TimeoutMessage),
 }

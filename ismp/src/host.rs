@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The ISMPHost definition
+//! The IsmpHost definition
 
 use crate::{
     consensus::{
@@ -21,7 +21,7 @@ use crate::{
     },
     error::Error,
     prelude::Vec,
-    router::{ISMPRouter, Request},
+    router::{IsmpRouter, Request},
 };
 use alloc::{
     boxed::Box,
@@ -32,7 +32,9 @@ use codec::{Decode, Encode};
 use core::{str::FromStr, time::Duration};
 use primitive_types::H256;
 
-pub trait ISMPHost {
+/// Defines the necessary interfaces that must be satisfied by a state machine for it be ISMP
+/// compatible.
+pub trait IsmpHost {
     /// Must be a known state machine.
     fn host_state_machine(&self) -> StateMachine;
 
@@ -108,7 +110,7 @@ pub trait ISMPHost {
     }
 
     /// Return a handle to the router
-    fn ismp_router(&self) -> Box<dyn ISMPRouter>;
+    fn ismp_router(&self) -> Box<dyn IsmpRouter>;
 }
 
 /// Currently supported state machines.

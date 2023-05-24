@@ -143,6 +143,7 @@ impl<T> Storage<RuntimeStorage, T>
 where
     T: Config,
 {
+    /// Store a node in the offchain db
     fn store_to_offchain(pos: NodeIndex, node: &DataOrHash<T>) {
         let encoded_node = node.encode();
 
@@ -156,6 +157,7 @@ where
     }
 }
 
+/// Calculate peaks to prune and store
 fn peaks_to_prune_and_store(
     old_size: NodeIndex,
     new_size: NodeIndex,

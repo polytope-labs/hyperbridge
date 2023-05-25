@@ -31,7 +31,7 @@ where
 {
     let results = match msg {
         TimeoutMessage::Post { requests, timeout_proof } => {
-            let consensus_client = validate_state_machine(host, timeout_proof.height)?;
+            let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
             for request in &requests {
                 // Ensure a commitment exists for all requests in the batch
@@ -55,9 +55,9 @@ where
                 }
             }
 
-            let key = consensus_client.state_trie_key(requests.clone());
+            let key = state_machine.state_trie_key(requests.clone());
 
-            let values = consensus_client.verify_state_proof(host, key, state, &timeout_proof)?;
+            let values = state_machine.verify_state_proof(host, key, state, &timeout_proof)?;
 
             if values.into_iter().any(|val| val.is_some()) {
                 Err(Error::ImplementationSpecific("Some Requests not timed out".into()))?
@@ -67,7 +67,7 @@ where
             requests
                 .into_iter()
                 .map(|request| {
-                    let res = router.dispatch_timeout(request.clone());
+                    let res = router.handle_timeout(request.clone());
                     host.delete_request_commitment(&request)?;
                     Ok(res)
                 })
@@ -99,7 +99,7 @@ where
             requests
                 .into_iter()
                 .map(|request| {
-                    let res = router.dispatch_timeout(request.clone());
+                    let res = router.handle_timeout(request.clone());
                     host.delete_request_commitment(&request)?;
                     Ok(res)
                 })

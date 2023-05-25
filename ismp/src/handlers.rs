@@ -14,22 +14,21 @@
 // limitations under the License.
 
 //! ISMP handler definitions
-
 use crate::{
-    consensus::{ConsensusClient, ConsensusClientId, StateMachineHeight},
+    consensus::{ConsensusClientId, StateMachineClient, StateMachineHeight},
     error::Error,
     host::IsmpHost,
     messaging::Message,
     router::DispatchResult,
 };
+
 use alloc::{boxed::Box, collections::BTreeSet, vec::Vec};
+pub use consensus::create_client;
 
 mod consensus;
 mod request;
 mod response;
 mod timeout;
-
-pub use consensus::create_consensus_client;
 
 /// The result of successfully processing a [`ConsensusMessage`]
 #[derive(Debug)]
@@ -51,6 +50,8 @@ pub struct ConsensusClientCreatedResult {
 pub enum MessageResult {
     /// The [`ConsensusMessage`] result
     ConsensusMessage(ConsensusUpdateResult),
+    /// Result of freezing a consensus client.
+    FrozenClient(ConsensusClientId),
     /// The [`DispatchResult`] for requests
     Request(Vec<DispatchResult>),
     /// The [`DispatchResult`] for responses
@@ -65,7 +66,8 @@ where
     H: IsmpHost,
 {
     match message {
-        Message::Consensus(consensus_message) => consensus::handle(host, consensus_message),
+        Message::Consensus(consensus_message) => consensus::update_client(host, consensus_message),
+        Message::FraudProof(fraud_proof) => consensus::freeze_client(host, fraud_proof),
         Message::Request(req) => request::handle(host, req),
         Message::Response(resp) => response::handle(host, resp),
         Message::Timeout(timeout) => timeout::handle(host, timeout),
@@ -91,21 +93,18 @@ where
 fn validate_state_machine<H>(
     host: &H,
     proof_height: StateMachineHeight,
-) -> Result<Box<dyn ConsensusClient>, Error>
+) -> Result<Box<dyn StateMachineClient>, Error>
 where
     H: IsmpHost,
 {
     // Ensure consensus client is not frozen
     let consensus_client_id = proof_height.id.consensus_client;
     let consensus_client = host.consensus_client(consensus_client_id)?;
-    let consensus_state = host.consensus_state(consensus_client_id)?;
     // Ensure client is not frozen
-    consensus_client.is_frozen(&consensus_state)?;
+    host.is_consensus_client_frozen(consensus_client_id)?;
 
     // Ensure state machine is not frozen
-    if host.is_frozen(proof_height)? {
-        return Err(Error::FrozenStateMachine { height: proof_height })
-    }
+    host.is_state_machine_frozen(proof_height)?;
 
     // Ensure delay period has elapsed
     if !verify_delay_passed(host, proof_height)? {
@@ -116,5 +115,5 @@ where
         })
     }
 
-    Ok(consensus_client)
+    consensus_client.state_machine(proof_height.id.state_id)
 }

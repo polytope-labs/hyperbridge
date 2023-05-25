@@ -30,7 +30,7 @@ pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, Error>
 where
     H: IsmpHost,
 {
-    let consensus_client = validate_state_machine(host, msg.proof().height)?;
+    let state_machine = validate_state_machine(host, msg.proof().height)?;
     for request in &msg.requests() {
         // For a response to be valid a request commitment must be present in storage
         let commitment = host.request_commitment(request)?;
@@ -49,7 +49,7 @@ where
     let result = match msg {
         ResponseMessage::Post { responses, proof } => {
             // Verify membership proof
-            consensus_client.verify_membership(
+            state_machine.verify_membership(
                 host,
                 RequestResponse::Response(responses.clone()),
                 state,
@@ -60,10 +60,10 @@ where
 
             responses
                 .into_iter()
+                .filter(|res| host.response_receipt(res).is_none())
                 .map(|response| {
-                    let request = response.request();
-                    let res = router.write_response(response);
-                    host.delete_request_commitment(&request)?;
+                    let res = router.handle_response(response.clone());
+                    host.store_response_receipt(&response)?;
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?
@@ -81,14 +81,13 @@ where
                         Error::ImplementationSpecific("Missing keys for get request".to_string())
                     })?;
                     let values =
-                        consensus_client.verify_state_proof(host, keys.clone(), state, &proof)?;
+                        state_machine.verify_state_proof(host, keys.clone(), state, &proof)?;
 
                     let router = host.ismp_router();
-                    let res = router.write_response(Response::Get {
+                    let res = router.handle_response(Response::Get {
                         get: request.get_request()?,
                         values: keys.into_iter().zip(values.into_iter()).collect(),
                     });
-                    host.delete_request_commitment(&request)?;
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?

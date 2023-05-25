@@ -29,11 +29,11 @@ pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, Error>
 where
     H: IsmpHost,
 {
-    let consensus_client = validate_state_machine(host, msg.proof.height)?;
+    let state_machine = validate_state_machine(host, msg.proof.height)?;
     // Verify membership proof
     let state = host.state_machine_commitment(msg.proof.height)?;
 
-    consensus_client.verify_membership(
+    state_machine.verify_membership(
         host,
         RequestResponse::Request(msg.requests.clone()),
         state,
@@ -45,9 +45,9 @@ where
     let result = msg
         .requests
         .into_iter()
-        .filter(|req| host.get_request_receipt(req).is_none())
+        .filter(|req| host.request_receipt(req).is_none())
         .map(|request| {
-            let res = router.dispatch(request.clone());
+            let res = router.handle_request(request.clone());
             host.store_request_receipt(&request)?;
             Ok(res)
         })

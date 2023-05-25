@@ -1,11 +1,11 @@
 use ismp::{
     consensus::{
-        ConsensusClient, ConsensusClientId, IntermediateState, StateCommitment, StateMachineHeight,
-        StateMachineId,
+        ConsensusClient, ConsensusClientId, StateCommitment, StateMachineClient,
+        StateMachineHeight, StateMachineId,
     },
     error::Error,
     host::{IsmpHost, StateMachine},
-    messaging::Proof,
+    messaging::{Proof, StateCommitmentHeight},
     router::{
         DispatchError, DispatchResult, DispatchSuccess, IsmpRouter, Request, RequestResponse,
         Response,
@@ -15,7 +15,7 @@ use ismp::{
 use primitive_types::H256;
 use std::{
     cell::RefCell,
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     rc::Rc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -36,14 +36,32 @@ impl ConsensusClient for MockClient {
         _host: &dyn IsmpHost,
         _trusted_consensus_state: Vec<u8>,
         _proof: Vec<u8>,
-    ) -> Result<(Vec<u8>, Vec<IntermediateState>), Error> {
+    ) -> Result<(Vec<u8>, BTreeMap<StateMachine, StateCommitmentHeight>), Error> {
         Ok(Default::default())
+    }
+
+    fn verify_fraud_proof(
+        &self,
+        _host: &dyn IsmpHost,
+        _trusted_consensus_state: Vec<u8>,
+        _proof_1: Vec<u8>,
+        _proof_2: Vec<u8>,
+    ) -> Result<(), Error> {
+        Ok(())
     }
 
     fn unbonding_period(&self) -> Duration {
         Duration::from_secs(60 * 60 * 60)
     }
 
+    fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+        Ok(Box::new(MockStateMachineClient))
+    }
+}
+
+pub struct MockStateMachineClient;
+
+impl StateMachineClient for MockStateMachineClient {
     fn verify_membership(
         &self,
         _host: &dyn IsmpHost,
@@ -67,10 +85,6 @@ impl ConsensusClient for MockClient {
     ) -> Result<Vec<Option<Vec<u8>>>, Error> {
         Ok(Default::default())
     }
-
-    fn is_frozen(&self, _trusted_consensus_state: &[u8]) -> Result<(), Error> {
-        Ok(())
-    }
 }
 
 #[derive(Default, Clone)]
@@ -90,11 +104,11 @@ impl IsmpHost for Host {
         StateMachine::Polkadot(1000)
     }
 
-    fn latest_commitment_height(&self, id: StateMachineId) -> Result<StateMachineHeight, Error> {
+    fn latest_commitment_height(&self, id: StateMachineId) -> Result<u64, Error> {
         self.latest_state_height
             .borrow()
             .get(&id)
-            .map(|height| StateMachineHeight { id, height: *height })
+            .copied()
             .ok_or_else(|| Error::ImplementationSpecific("latest height not found".into()))
     }
 
@@ -129,14 +143,22 @@ impl IsmpHost for Host {
         SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
     }
 
-    fn is_frozen(&self, height: StateMachineHeight) -> Result<bool, Error> {
+    fn is_state_machine_frozen(&self, machine: StateMachineHeight) -> Result<(), Error> {
         let val = self
             .frozen_state_machines
             .borrow()
-            .get(&height.id)
-            .map(|frozen_height| &height >= frozen_height)
+            .get(&machine.id)
+            .map(|frozen_height| machine.height >= frozen_height.height)
             .unwrap_or(false);
-        Ok(val)
+        if val {
+            Err(Error::FrozenStateMachine { height: machine })?;
+        }
+
+        Ok(())
+    }
+
+    fn is_consensus_client_frozen(&self, _client: ConsensusClientId) -> Result<(), Error> {
+        Ok(())
     }
 
     fn request_commitment(&self, req: &Request) -> Result<H256, Error> {
@@ -148,9 +170,17 @@ impl IsmpHost for Host {
             .ok_or_else(|| Error::ImplementationSpecific("Request commitment not found".into()))
     }
 
-    fn get_request_receipt(&self, req: &Request) -> Option<()> {
+    fn next_nonce(&self) -> u64 {
+        0
+    }
+
+    fn request_receipt(&self, req: &Request) -> Option<()> {
         let hash = hash_request::<Self>(req);
         self.receipts.borrow().get(&hash).map(|_| ())
+    }
+
+    fn response_receipt(&self, _res: &Response) -> Option<()> {
+        Some(())
     }
 
     fn store_consensus_state(&self, id: ConsensusClientId, state: Vec<u8>) -> Result<(), Error> {
@@ -181,6 +211,10 @@ impl IsmpHost for Host {
         Ok(())
     }
 
+    fn freeze_consensus_client(&self, _client: ConsensusClientId) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn store_latest_commitment_height(&self, height: StateMachineHeight) -> Result<(), Error> {
         self.latest_state_height.borrow_mut().insert(height.id, height.height);
         Ok(())
@@ -195,6 +229,10 @@ impl IsmpHost for Host {
     fn store_request_receipt(&self, req: &Request) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
         self.receipts.borrow_mut().insert(hash, ());
+        Ok(())
+    }
+
+    fn store_response_receipt(&self, _req: &Response) -> Result<(), Error> {
         Ok(())
     }
 
@@ -224,7 +262,7 @@ impl IsmpHost for Host {
 pub struct MockRouter(pub Host);
 
 impl IsmpRouter for MockRouter {
-    fn dispatch(&self, request: Request) -> DispatchResult {
+    fn handle_request(&self, request: Request) -> DispatchResult {
         let host = &self.0.clone();
         if request.dest_chain() != host.host_state_machine() {
             let hash = hash_request::<Host>(&request);
@@ -248,7 +286,7 @@ impl IsmpRouter for MockRouter {
         })
     }
 
-    fn dispatch_timeout(&self, request: Request) -> DispatchResult {
+    fn handle_timeout(&self, request: Request) -> DispatchResult {
         Ok(DispatchSuccess {
             dest_chain: request.dest_chain(),
             source_chain: request.source_chain(),
@@ -256,7 +294,7 @@ impl IsmpRouter for MockRouter {
         })
     }
 
-    fn write_response(&self, response: Response) -> DispatchResult {
+    fn handle_response(&self, response: Response) -> DispatchResult {
         let host = self.0.clone();
         if response.dest_chain() != host.host_state_machine() {
             let hash = hash_response::<Host>(&response);

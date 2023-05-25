@@ -15,7 +15,7 @@
 
 //! IsmpRouter definition
 
-use crate::{consensus::StateMachineHeight, error::Error, host::StateMachine, prelude::Vec};
+use crate::{error::Error, host::StateMachine, prelude::Vec};
 use alloc::string::{String, ToString};
 use codec::{Decode, Encode};
 use core::time::Duration;
@@ -63,7 +63,7 @@ pub struct Get {
     /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37
     pub keys: Vec<Vec<u8>>,
     /// Height at which to read the state machine.
-    pub height: StateMachineHeight,
+    pub height: u64,
     /// Host timestamp at which this request expires in seconds
     pub timeout_timestamp: u64,
 }
@@ -153,17 +153,22 @@ impl Request {
     }
 }
 
+/// The response to a POST request
+#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+pub struct PostResponse {
+    /// The request that triggered this response.
+    pub post: Post,
+    /// The response message.
+    pub response: Vec<u8>,
+}
+
 /// The ISMP response
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub enum Response {
     /// The response to a POST request
-    Post {
-        /// The request that triggered this response.
-        post: Post,
-        /// The response message.
-        response: Vec<u8>,
-    },
+    Post(PostResponse),
     /// The response to a GET request
     Get {
         /// The Get request that triggered this response.
@@ -177,7 +182,7 @@ impl Response {
     /// Return the underlying request in the response
     pub fn request(&self) -> Request {
         match self {
-            Response::Post { post, .. } => Request::Post(post.clone()),
+            Response::Post(res) => Request::Post(res.post.clone()),
             Response::Get { get, .. } => Request::Get(get.clone()),
         }
     }
@@ -186,7 +191,7 @@ impl Response {
     pub fn source_chain(&self) -> StateMachine {
         match self {
             Response::Get { get, .. } => get.dest_chain,
-            Response::Post { post, .. } => post.dest_chain,
+            Response::Post(res) => res.post.dest_chain,
         }
     }
 
@@ -194,7 +199,7 @@ impl Response {
     pub fn dest_chain(&self) -> StateMachine {
         match self {
             Response::Get { get, .. } => get.source_chain,
-            Response::Post { post, .. } => post.source_chain,
+            Response::Post(res) => res.post.source_chain,
         }
     }
 
@@ -202,7 +207,7 @@ impl Response {
     pub fn nonce(&self) -> u64 {
         match self {
             Response::Get { get, .. } => get.nonce,
-            Response::Post { post, .. } => post.nonce,
+            Response::Post(res) => res.post.nonce,
         }
     }
 }
@@ -242,18 +247,62 @@ pub struct DispatchError {
 /// A type alias for dispatch results
 pub type DispatchResult = Result<DispatchSuccess, DispatchError>;
 
-/// The ISMP router dictates how messsages are route to [`IsmpModules`]
+/// The Ismp router dictates how messsages are route to [`IsmpModules`]
 pub trait IsmpRouter {
-    /// Dispatch some requests to the ISMP router.
+    /// Dispatch some requests to the Ismp router.
     /// For outgoing requests, they should be committed in state as a keccak256 hash
     /// For incoming requests, they should be dispatched to destination modules
-    fn dispatch(&self, request: Request) -> DispatchResult;
+    fn handle_request(&self, request: Request) -> DispatchResult;
 
     /// Dispatch request timeouts to the router which should dispatch them to modules
-    fn dispatch_timeout(&self, request: Request) -> DispatchResult;
+    fn handle_timeout(&self, request: Request) -> DispatchResult;
 
-    /// Dispatch some responses to the ISMP router.
-    /// For outgoing responses, the router should commit them to host state as a keccak256 hash
+    /// Dispatch some responses to the Ismp router.
     /// For incoming responses, they should be dispatched to destination modules
-    fn write_response(&self, response: Response) -> DispatchResult;
+    fn handle_response(&self, response: Response) -> DispatchResult;
+}
+
+/// Simplified POST request, intended to be used for sending outgoing requests
+pub struct DispatchPost {
+    /// The destination state machine of this request.
+    pub dest_chain: StateMachine,
+    /// Module Id of the sending module
+    pub from: Vec<u8>,
+    /// Module ID of the receiving module
+    pub to: Vec<u8>,
+    /// Timestamp which this request expires in seconds.
+    pub timeout_timestamp: u64,
+    /// Encoded Request.
+    pub data: Vec<u8>,
+}
+
+/// Simplified GET request, intended to be used for sending outgoing requests
+pub struct DispatchGet {
+    /// The destination state machine of this request.
+    pub dest_chain: StateMachine,
+    /// Module Id of the sending module
+    pub from: Vec<u8>,
+    /// Raw Storage keys that would be used to fetch the values from the counterparty
+    pub keys: Vec<Vec<u8>>,
+    /// Height at which to read the state machine.
+    pub height: u64,
+    /// Host timestamp at which this request expires in seconds
+    pub timeout_timestamp: u64,
+}
+
+/// Simplified request, intended to be used for sending outgoing requests
+pub enum DispatchRequest {
+    /// The POST variant
+    Post(DispatchPost),
+    /// The GET variant
+    Get(DispatchGet),
+}
+
+/// The Ismp dispatcher allows [`IsmpModules`] to send out outgoing [`Request`] or [`Response`]
+pub trait IsmpDispatcher {
+    /// Dispatches an outgoing request, the dispatcher should commit them to host state trie
+    fn dispatch_request(&self, request: DispatchRequest) -> DispatchResult;
+
+    /// Dispatches an outgoing response, the dispatcher should commit them to host state trie
+    fn dispatch_response(&self, response: PostResponse) -> DispatchResult;
 }

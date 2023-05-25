@@ -33,7 +33,7 @@ pub fn hash_request<H: IsmpHost>(req: &Request) -> H256 {
             let source_chain = get.source_chain.to_string();
             let dest_chain = get.dest_chain.to_string();
             let nonce = get.nonce.to_be_bytes();
-            let height = get.height.encode();
+            let height = get.height.to_be_bytes();
             let timestamp = get.timeout_timestamp.to_be_bytes();
             buf.extend_from_slice(source_chain.as_bytes());
             buf.extend_from_slice(dest_chain.as_bytes());
@@ -50,7 +50,7 @@ pub fn hash_request<H: IsmpHost>(req: &Request) -> H256 {
 /// Return the keccak256 of a response
 pub fn hash_response<H: IsmpHost>(res: &Response) -> H256 {
     let (req, response) = match res {
-        Response::Post { ref post, response } => (post, response),
+        Response::Post(res) => (&res.post, &res.response),
         // Responses to get messages are never hashed
         _ => return Default::default(),
     };

@@ -21,35 +21,63 @@ use crate::Config;
 use alloc::boxed::Box;
 use frame_support::weights::Weight;
 use ismp_rs::{
-    consensus::ConsensusClientId,
-    messaging::{ConsensusMessage, Message, Proof, ResponseMessage, TimeoutMessage},
+    consensus::{ConsensusClientId, StateMachineId},
+    messaging::{
+        ConsensusMessage, FraudProofMessage, Message, Proof, ResponseMessage, TimeoutMessage,
+    },
     router::{Request, Response},
 };
 
 /// A trait that provides information about how consensus client execute in the runtime
 pub trait ConsensusClientWeight {
     /// Returns the weight that would be used in processing this consensus message
-    fn verify_consensus(&self, msg: ConsensusMessage) -> Weight;
+    fn verify_consensus(&self, msg: &ConsensusMessage) -> Weight;
+    /// Returns the weight that would be used in processing this fraud proof message
+    fn verify_fraud_proof(&self, msg: &FraudProofMessage) -> Weight;
     /// Returns weight used in verifying this membership proof
     /// `items` is the number of values being verified
     /// The weight should ideally depend on the number of items being verified
-    fn verify_membership(&self, items: usize, proof: &Proof) -> Weight;
+    fn verify_membership(
+        &self,
+        state_machine: StateMachineId,
+        items: usize,
+        proof: &Proof,
+    ) -> Weight;
     /// Returns weight used in verifying this state proof
     /// `items` is the number of keys being verified
     /// The weight should ideally depend on the number of items being verified
-    fn verify_state_proof(&self, items: usize, proof: &Proof) -> Weight;
+    fn verify_state_proof(
+        &self,
+        state_machine: StateMachineId,
+        items: usize,
+        proof: &Proof,
+    ) -> Weight;
 }
 
 impl ConsensusClientWeight for () {
-    fn verify_consensus(&self, _msg: ConsensusMessage) -> Weight {
+    fn verify_consensus(&self, _msg: &ConsensusMessage) -> Weight {
         Weight::zero()
     }
 
-    fn verify_membership(&self, _items: usize, _proof: &Proof) -> Weight {
+    fn verify_fraud_proof(&self, _msg: &FraudProofMessage) -> Weight {
         Weight::zero()
     }
 
-    fn verify_state_proof(&self, _items: usize, _proof: &Proof) -> Weight {
+    fn verify_membership(
+        &self,
+        _state_machine: StateMachineId,
+        _items: usize,
+        _proof: &Proof,
+    ) -> Weight {
+        Weight::zero()
+    }
+
+    fn verify_state_proof(
+        &self,
+        _state_machine: StateMachineId,
+        _items: usize,
+        _proof: &Proof,
+    ) -> Weight {
         Weight::zero()
     }
 }
@@ -139,8 +167,14 @@ impl WeightInfo for () {
 pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
     messages.into_iter().fold(Weight::zero(), |acc, msg| {
         match msg {
-            Message::Consensus(_) => acc + <T as Config>::WeightInfo::create_consensus_client(),
+            Message::Consensus(msg) => {
+                let consensus_handler =
+                    <T as Config>::WeightProvider::consensus_client(msg.consensus_client_id)
+                        .unwrap_or(Box::new(()));
+                consensus_handler.verify_consensus(msg)
+            }
             Message::Request(msg) => {
+                let state_machine = msg.proof.height.id;
                 let cb_weight = msg.requests.iter().fold(Weight::zero(), |acc, req| {
                     let dest_module = match req {
                         Request::Post(ref post) => post.to.as_slice(),
@@ -157,8 +191,11 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 )
                 .unwrap_or(Box::new(()));
 
-                let proof_verification_weight =
-                    consensus_handler.verify_membership(msg.requests.len(), &msg.proof);
+                let proof_verification_weight = consensus_handler.verify_membership(
+                    state_machine,
+                    msg.requests.len(),
+                    &msg.proof,
+                );
 
                 acc + cb_weight +
                     proof_verification_weight +
@@ -166,9 +203,10 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
             }
             Message::Response(msg) => match msg {
                 ResponseMessage::Post { responses, proof } => {
+                    let state_machine = proof.height.id;
                     let cb_weight = responses.iter().fold(Weight::zero(), |acc, res| {
                         let dest_module = match res {
-                            Response::Post { ref post, .. } => post.from.as_slice(),
+                            Response::Post(ref post) => post.post.from.as_slice(),
                             _ => return acc,
                         };
                         let handle = <T as Config>::WeightProvider::module_callback(dest_module)
@@ -182,13 +220,14 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                     .unwrap_or(Box::new(()));
 
                     let proof_verification_weight =
-                        consensus_handler.verify_membership(responses.len(), &proof);
+                        consensus_handler.verify_membership(state_machine, responses.len(), &proof);
 
                     acc + cb_weight +
                         proof_verification_weight +
                         <T as Config>::WeightInfo::handle_response_message()
                 }
                 ResponseMessage::Get { requests, proof } => {
+                    let state_machine = proof.height.id;
                     let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
                         let dest_module = match req {
                             Request::Get(ref get) => get.from.as_slice(),
@@ -208,7 +247,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                     .unwrap_or(Box::new(()));
 
                     let proof_verification_weight =
-                        consensus_handler.verify_state_proof(requests.len(), &proof);
+                        consensus_handler.verify_state_proof(state_machine, requests.len(), &proof);
 
                     acc + cb_weight +
                         proof_verification_weight +
@@ -217,6 +256,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
             },
             Message::Timeout(msg) => match msg {
                 TimeoutMessage::Post { requests, timeout_proof } => {
+                    let state_machine = timeout_proof.height.id;
                     let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
                         let dest_module = match req {
                             Request::Post(ref post) => post.from.as_slice(),
@@ -232,8 +272,11 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                     )
                     .unwrap_or(Box::new(()));
 
-                    let proof_verification_weight =
-                        consensus_handler.verify_state_proof(requests.len(), &timeout_proof);
+                    let proof_verification_weight = consensus_handler.verify_state_proof(
+                        state_machine,
+                        requests.len(),
+                        &timeout_proof,
+                    );
 
                     acc + cb_weight +
                         proof_verification_weight +
@@ -252,6 +295,13 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                     acc + cb_weight + <T as Config>::WeightInfo::handle_timeout_message()
                 }
             },
+
+            Message::FraudProof(msg) => {
+                let consensus_handler =
+                    <T as Config>::WeightProvider::consensus_client(msg.consensus_client_id)
+                        .unwrap_or(Box::new(()));
+                consensus_handler.verify_fraud_proof(msg)
+            }
         }
     })
 }

@@ -15,8 +15,9 @@
 
 //! Host implementation for ISMP
 use crate::{
-    primitives::ConsensusClientProvider, router::Receipt, Config, ConsensusClientUpdateTime,
-    ConsensusStates, FrozenHeights, LatestStateMachineHeight, RequestAcks, StateCommitments,
+    dispatcher::Receipt, primitives::ConsensusClientProvider, Config, ConsensusClientUpdateTime,
+    ConsensusStates, FrozenConsensusClients, FrozenHeights, IncomingRequestAcks,
+    IncomingResponseAcks, LatestStateMachineHeight, Nonce, OutgoingRequestAcks, StateCommitments,
 };
 use alloc::{format, string::ToString};
 use core::time::Duration;
@@ -27,8 +28,8 @@ use ismp_rs::{
     },
     error::Error,
     host::{IsmpHost, StateMachine},
-    router::{IsmpRouter, Request},
-    util::hash_request,
+    router::{IsmpRouter, Request, Response},
+    util::{hash_request, hash_response},
 };
 use sp_core::H256;
 use sp_runtime::SaturatedConversion;
@@ -52,12 +53,8 @@ where
         T::StateMachine::get()
     }
 
-    fn latest_commitment_height(&self, id: StateMachineId) -> Result<StateMachineHeight, Error> {
-        LatestStateMachineHeight::<T>::get(id)
-            .map(|height| StateMachineHeight { id, height })
-            .ok_or_else(|| {
-                Error::ImplementationSpecific("Missing latest state machine height".to_string())
-            })
+    fn latest_commitment_height(&self, id: StateMachineId) -> Result<u64, Error> {
+        Ok(LatestStateMachineHeight::<T>::get(id))
     }
 
     fn state_machine_commitment(
@@ -83,18 +80,10 @@ where
         <T::TimeProvider as UnixTime>::now()
     }
 
-    fn is_frozen(&self, height: StateMachineHeight) -> Result<bool, Error> {
-        if let Some(frozen_height) = FrozenHeights::<T>::get(height.id) {
-            Ok(height.height >= frozen_height)
-        } else {
-            Ok(false)
-        }
-    }
-
     fn request_commitment(&self, req: &Request) -> Result<H256, Error> {
         let commitment = hash_request::<Self>(req);
 
-        let _ = RequestAcks::<T>::get(commitment.0.to_vec()).ok_or_else(|| {
+        let _ = OutgoingRequestAcks::<T>::get(commitment.0.to_vec()).ok_or_else(|| {
             Error::RequestCommitmentNotFound {
                 nonce: req.nonce(),
                 source: req.source_chain(),
@@ -105,10 +94,10 @@ where
         Ok(commitment)
     }
 
-    fn get_request_receipt(&self, req: &Request) -> Option<()> {
+    fn request_receipt(&self, req: &Request) -> Option<()> {
         let commitment = hash_request::<Self>(req);
 
-        let _ = RequestAcks::<T>::get(commitment.0.to_vec())
+        let _ = IncomingRequestAcks::<T>::get(commitment.0.to_vec())
             .ok_or_else(|| Error::RequestCommitmentNotFound {
                 nonce: req.nonce(),
                 source: req.source_chain(),
@@ -155,13 +144,13 @@ where
     fn delete_request_commitment(&self, req: &Request) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
         // We can't delete actual leaves in the mmr so this serves as a replacement for that
-        RequestAcks::<T>::remove(hash.0.to_vec());
+        OutgoingRequestAcks::<T>::remove(hash.0.to_vec());
         Ok(())
     }
 
     fn store_request_receipt(&self, req: &Request) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
-        RequestAcks::<T>::insert(hash.0.to_vec(), Receipt::Ok);
+        IncomingRequestAcks::<T>::insert(hash.0.to_vec(), Receipt::Ok);
         Ok(())
     }
 
@@ -182,5 +171,48 @@ where
 
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {
         Box::new(T::IsmpRouter::default())
+    }
+
+    fn is_state_machine_frozen(&self, machine: StateMachineHeight) -> Result<(), Error> {
+        if let Some(frozen_height) = FrozenHeights::<T>::get(machine.id) {
+            if machine.height >= frozen_height {
+                Err(Error::FrozenStateMachine { height: machine })?
+            }
+        }
+        Ok(())
+    }
+
+    fn is_consensus_client_frozen(&self, client: ConsensusClientId) -> Result<(), Error> {
+        if FrozenConsensusClients::<T>::get(client) {
+            Err(Error::FrozenConsensusClient { id: client })?
+        }
+        Ok(())
+    }
+
+    fn next_nonce(&self) -> u64 {
+        let nonce = Nonce::<T>::get();
+        Nonce::<T>::put(nonce + 1);
+        nonce
+    }
+
+    fn response_receipt(&self, res: &Response) -> Option<()> {
+        let commitment = hash_response::<Self>(res);
+
+        let _ = IncomingResponseAcks::<T>::get(commitment.0.to_vec())
+            .ok_or_else(|| Error::ImplementationSpecific("Response receipt not found".to_string()))
+            .ok()?;
+
+        Some(())
+    }
+
+    fn freeze_consensus_client(&self, client: ConsensusClientId) -> Result<(), Error> {
+        FrozenConsensusClients::<T>::insert(client, true);
+        Ok(())
+    }
+
+    fn store_response_receipt(&self, res: &Response) -> Result<(), Error> {
+        let hash = hash_response::<Self>(res);
+        IncomingResponseAcks::<T>::insert(hash.0.to_vec(), Receipt::Ok);
+        Ok(())
     }
 }

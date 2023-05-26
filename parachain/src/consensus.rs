@@ -17,17 +17,14 @@
 
 use core::{marker::PhantomData, time::Duration};
 
-use alloc::{collections::BTreeMap, format, vec, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
 use codec::{Decode, Encode};
 use core::fmt::Debug;
 use ismp::{
-    consensus::{
-        ConsensusClient, ConsensusClientId, IntermediateState, StateCommitment, StateMachineHeight,
-        StateMachineId,
-    },
+    consensus::{ConsensusClient, ConsensusClientId, StateCommitment, StateMachineClient},
     error::Error,
     host::{IsmpHost, StateMachine},
-    messaging::Proof,
+    messaging::{Proof, StateCommitmentHeight},
     router::{Request, RequestResponse},
     util::hash_request,
 };
@@ -50,7 +47,16 @@ use crate::RelayChainOracle;
 /// The parachain consensus client implementation for ISMP.
 pub struct ParachainConsensusClient<T, R>(PhantomData<(T, R)>);
 
+/// The parachain state machine implementation for ISMP.
+pub struct ParachainStateMachine<T>(PhantomData<T>);
+
 impl<T, R> Default for ParachainConsensusClient<T, R> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T> Default for ParachainStateMachine<T> {
     fn default() -> Self {
         Self(PhantomData)
     }
@@ -118,7 +124,7 @@ where
         host: &dyn IsmpHost,
         state: Vec<u8>,
         proof: Vec<u8>,
-    ) -> Result<(Vec<u8>, Vec<IntermediateState>), Error> {
+    ) -> Result<(Vec<u8>, BTreeMap<StateMachine, StateCommitmentHeight>), Error> {
         let update: ParachainConsensusProof =
             codec::Decode::decode(&mut &proof[..]).map_err(|e| {
                 Error::ImplementationSpecific(format!(
@@ -147,7 +153,7 @@ where
             })?;
 
         let storage_proof = StorageProof::new(update.storage_proof);
-        let mut intermediates = vec![];
+        let mut intermediates = BTreeMap::new();
 
         let keys = update.para_ids.iter().map(|id| parachain_header_storage_key(*id).0);
         let headers =
@@ -169,7 +175,7 @@ where
                 Error::ImplementationSpecific(format!("Error decoding parachain header: {e}"))
             })?;
 
-            let (mut timestamp, mut ismp_root) = (0, H256::default());
+            let (mut timestamp, mut overlay_root) = (0, H256::default());
             for digest in header.digest().logs.iter() {
                 match digest {
                     DigestItem::PreRuntime(consensus_engine_id, value)
@@ -189,7 +195,7 @@ where
                             ))?
                         }
 
-                        ismp_root = H256::from_slice(&value);
+                        overlay_root = H256::from_slice(&value);
                     }
                     // don't really care about the rest
                     _ => {}
@@ -210,19 +216,16 @@ where
                 ))?,
             };
 
-            let intermediate = IntermediateState {
-                height: StateMachineHeight {
-                    id: StateMachineId { state_id, consensus_client: PARACHAIN_CONSENSUS_ID },
-                    height: height as u64,
-                },
+            let intermediate = StateCommitmentHeight {
                 commitment: StateCommitment {
                     timestamp,
-                    ismp_root: Some(ismp_root),
-                    state_root: H256::from_slice(header.state_root().as_ref()),
+                    overlay_root: Some(overlay_root),
+                    state_root: header.state_root,
                 },
+                height: height.into(),
             };
 
-            intermediates.push(intermediate);
+            intermediates.insert(state_id, intermediate);
         }
 
         Ok((state, intermediates))
@@ -233,6 +236,28 @@ where
         Duration::from_secs(u64::MAX)
     }
 
+    fn verify_fraud_proof(
+        &self,
+        _host: &dyn IsmpHost,
+        _trusted_consensus_state: Vec<u8>,
+        _proof_1: Vec<u8>,
+        _proof_2: Vec<u8>,
+    ) -> Result<(), Error> {
+        // There are no fraud proofs for the parachain client
+        Ok(())
+    }
+
+    fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+        Ok(Box::new(ParachainStateMachine::<T>::default()))
+    }
+}
+
+impl<T> StateMachineClient for ParachainStateMachine<T>
+where
+    T: pallet_ismp::Config + super::Config,
+    T::BlockNumber: Into<u32>,
+    T::Hash: From<H256>,
+{
     fn verify_membership(
         &self,
         _host: &dyn IsmpHost,
@@ -261,7 +286,7 @@ where
                 .collect(),
         };
         let root = state
-            .ismp_root
+            .overlay_root
             .ok_or_else(|| Error::ImplementationSpecific("ISMP root should not be None".into()))?;
 
         let calc_root = proof
@@ -284,7 +309,7 @@ where
                 Request::Post(post) => {
                     let request = Request::Post(post);
                     let commitment = hash_request::<Host<T>>(&request).0.to_vec();
-                    keys.push(pallet_ismp::RequestAcks::<T>::hashed_key_for(commitment));
+                    keys.push(pallet_ismp::OutgoingRequestAcks::<T>::hashed_key_for(commitment));
                 }
                 Request::Get(_) => continue,
             }
@@ -336,11 +361,6 @@ where
         };
 
         Ok(data)
-    }
-
-    fn is_frozen(&self, _: &[u8]) -> Result<(), Error> {
-        // parachain consensus client can never be frozen.
-        Ok(())
     }
 }
 

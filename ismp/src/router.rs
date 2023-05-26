@@ -16,7 +16,10 @@
 //! IsmpRouter definition
 
 use crate::{error::Error, host::StateMachine, prelude::Vec};
-use alloc::string::{String, ToString};
+use alloc::{
+    collections::BTreeMap,
+    string::{String, ToString},
+};
 use codec::{Decode, Encode};
 use core::time::Duration;
 
@@ -163,6 +166,16 @@ pub struct PostResponse {
     pub response: Vec<u8>,
 }
 
+/// The response to a POST request
+#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+pub struct GetResponse {
+    /// The Get request that triggered this response.
+    pub get: Get,
+    /// Values derived from the state proof
+    pub values: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+}
+
 /// The ISMP response
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
@@ -170,12 +183,7 @@ pub enum Response {
     /// The response to a POST request
     Post(PostResponse),
     /// The response to a GET request
-    Get {
-        /// The Get request that triggered this response.
-        get: Get,
-        /// Values derived from the state proof
-        values: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-    },
+    Get(GetResponse),
 }
 
 impl Response {
@@ -183,14 +191,14 @@ impl Response {
     pub fn request(&self) -> Request {
         match self {
             Response::Post(res) => Request::Post(res.post.clone()),
-            Response::Get { get, .. } => Request::Get(get.clone()),
+            Response::Get(res) => Request::Get(res.get.clone()),
         }
     }
 
     /// Get the source chain for this response
     pub fn source_chain(&self) -> StateMachine {
         match self {
-            Response::Get { get, .. } => get.dest_chain,
+            Response::Get(res) => res.get.dest_chain,
             Response::Post(res) => res.post.dest_chain,
         }
     }
@@ -198,7 +206,7 @@ impl Response {
     /// Get the destination chain for this response
     pub fn dest_chain(&self) -> StateMachine {
         match self {
-            Response::Get { get, .. } => get.source_chain,
+            Response::Get(res) => res.get.source_chain,
             Response::Post(res) => res.post.source_chain,
         }
     }
@@ -206,7 +214,7 @@ impl Response {
     /// Get the request nonce
     pub fn nonce(&self) -> u64 {
         match self {
-            Response::Get { get, .. } => get.nonce,
+            Response::Get(res) => res.get.nonce,
             Response::Post(res) => res.post.nonce,
         }
     }

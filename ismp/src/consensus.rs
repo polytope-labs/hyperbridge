@@ -138,5 +138,5 @@ pub trait StateMachineClient {
         keys: Vec<Vec<u8>>,
         root: StateCommitment,
         proof: &Proof,
-    ) -> Result<Vec<Option<Vec<u8>>>, Error>;
+    ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error>;
 }

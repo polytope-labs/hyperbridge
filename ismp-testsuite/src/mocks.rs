@@ -7,8 +7,8 @@ use ismp::{
     host::{IsmpHost, StateMachine},
     messaging::{Proof, StateCommitmentHeight},
     router::{
-        DispatchError, DispatchResult, DispatchSuccess, IsmpRouter, Request, RequestResponse,
-        Response,
+        DispatchError, DispatchRequest, DispatchResult, DispatchSuccess, Get, IsmpDispatcher,
+        IsmpRouter, Post, PostResponse, Request, RequestResponse, Response,
     },
     util::{hash_request, hash_response},
 };
@@ -17,6 +17,7 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet, HashMap},
     rc::Rc,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -97,6 +98,7 @@ pub struct Host {
     consensus_update_time: Rc<RefCell<HashMap<ConsensusClientId, Duration>>>,
     frozen_state_machines: Rc<RefCell<HashMap<StateMachineId, StateMachineHeight>>>,
     latest_state_height: Rc<RefCell<HashMap<StateMachineId, u64>>>,
+    nonce: Rc<RefCell<u64>>,
 }
 
 impl IsmpHost for Host {
@@ -171,7 +173,9 @@ impl IsmpHost for Host {
     }
 
     fn next_nonce(&self) -> u64 {
-        0
+        let nonce = *self.nonce.borrow();
+        *self.nonce.borrow_mut() = nonce + 1;
+        nonce
     }
 
     fn request_receipt(&self, req: &Request) -> Option<()> {
@@ -179,8 +183,9 @@ impl IsmpHost for Host {
         self.receipts.borrow().get(&hash).map(|_| ())
     }
 
-    fn response_receipt(&self, _res: &Response) -> Option<()> {
-        Some(())
+    fn response_receipt(&self, res: &Response) -> Option<()> {
+        let hash = hash_response::<Self>(res);
+        self.receipts.borrow().get(&hash).map(|_| ())
     }
 
     fn store_consensus_state(&self, id: ConsensusClientId, state: Vec<u8>) -> Result<(), Error> {
@@ -232,7 +237,9 @@ impl IsmpHost for Host {
         Ok(())
     }
 
-    fn store_response_receipt(&self, _req: &Response) -> Result<(), Error> {
+    fn store_response_receipt(&self, res: &Response) -> Result<(), Error> {
+        let hash = hash_response::<Self>(res);
+        self.receipts.borrow_mut().insert(hash, ());
         Ok(())
     }
 
@@ -265,16 +272,6 @@ impl IsmpRouter for MockRouter {
     fn handle_request(&self, request: Request) -> DispatchResult {
         let host = &self.0.clone();
         if request.dest_chain() != host.host_state_machine() {
-            let hash = hash_request::<Host>(&request);
-            if host.requests.borrow().contains(&hash) {
-                return Err(DispatchError {
-                    msg: "Duplicate request".to_string(),
-                    nonce: request.nonce(),
-                    source: request.source_chain(),
-                    dest: request.dest_chain(),
-                })
-            }
-            host.requests.borrow_mut().insert(hash);
         } else {
             host.store_request_receipt(&request).unwrap();
         }
@@ -295,20 +292,67 @@ impl IsmpRouter for MockRouter {
     }
 
     fn handle_response(&self, response: Response) -> DispatchResult {
-        let host = self.0.clone();
-        if response.dest_chain() != host.host_state_machine() {
-            let hash = hash_response::<Host>(&response);
-            if host.responses.borrow().contains(&hash) {
-                return Err(DispatchError {
-                    msg: "Duplicate response".to_string(),
-                    nonce: response.nonce(),
-                    source: response.source_chain(),
-                    dest: response.dest_chain(),
-                })
-            }
-            host.responses.borrow_mut().insert(hash);
-        }
+        Ok(DispatchSuccess {
+            dest_chain: response.dest_chain(),
+            source_chain: response.source_chain(),
+            nonce: response.nonce(),
+        })
+    }
+}
 
+pub struct MockDispatcher(pub Arc<Host>);
+
+impl IsmpDispatcher for MockDispatcher {
+    fn dispatch_request(&self, request: DispatchRequest) -> DispatchResult {
+        let host = self.0.clone();
+        let request = match request {
+            DispatchRequest::Get(dispatch_get) => {
+                let get = Get {
+                    source_chain: host.host_state_machine(),
+                    dest_chain: dispatch_get.dest_chain,
+                    nonce: host.next_nonce(),
+                    from: dispatch_get.from,
+                    keys: dispatch_get.keys,
+                    height: dispatch_get.height,
+                    timeout_timestamp: dispatch_get.timeout_timestamp,
+                };
+                Request::Get(get)
+            }
+            DispatchRequest::Post(dispatch_post) => {
+                let post = Post {
+                    source_chain: host.host_state_machine(),
+                    dest_chain: dispatch_post.dest_chain,
+                    nonce: host.next_nonce(),
+                    from: dispatch_post.from,
+                    to: dispatch_post.to,
+                    timeout_timestamp: dispatch_post.timeout_timestamp,
+                    data: dispatch_post.data,
+                };
+                Request::Post(post)
+            }
+        };
+        let hash = hash_request::<Host>(&request);
+        host.requests.borrow_mut().insert(hash);
+        Ok(DispatchSuccess {
+            dest_chain: request.dest_chain(),
+            source_chain: request.source_chain(),
+            nonce: request.nonce(),
+        })
+    }
+
+    fn dispatch_response(&self, response: PostResponse) -> DispatchResult {
+        let host = self.0.clone();
+        let response = Response::Post(response);
+        let hash = hash_response::<Host>(&response);
+        if host.responses.borrow().contains(&hash) {
+            return Err(DispatchError {
+                msg: "Duplicate response".to_string(),
+                nonce: response.nonce(),
+                source: response.source_chain(),
+                dest: response.dest_chain(),
+            })
+        }
+        host.responses.borrow_mut().insert(hash);
         Ok(DispatchSuccess {
             dest_chain: response.dest_chain(),
             source_chain: response.source_chain(),

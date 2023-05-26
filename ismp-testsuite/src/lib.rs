@@ -27,7 +27,9 @@ use ismp::{
     messaging::{
         ConsensusMessage, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage,
     },
-    router::{Post, PostResponse, Request, Response},
+    router::{
+        DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse, Request, Response,
+    },
 };
 
 fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
@@ -186,12 +188,21 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
 }
 
 /// Ensure all timeout post processing is correctly done.
-pub fn timeout_post_processing_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
+pub fn timeout_post_processing_check<H: IsmpHost>(
+    host: &H,
+    dispatcher: &dyn IsmpDispatcher,
+) -> Result<(), &'static str> {
     let intermediate_state = setup_mock_client(host);
     let challenge_period = host.challenge_period(MOCK_CONSENSUS_CLIENT_ID);
     let previous_update_time = host.timestamp() - (challenge_period * 2);
     host.store_consensus_update_time(MOCK_CONSENSUS_CLIENT_ID, previous_update_time).unwrap();
-
+    let dispatch_post = DispatchPost {
+        dest_chain: StateMachine::Kusama(2000),
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: intermediate_state.commitment.timestamp,
+        data: vec![0u8; 64],
+    };
     let post = Post {
         source_chain: host.host_state_machine(),
         dest_chain: StateMachine::Kusama(2000),
@@ -202,10 +213,10 @@ pub fn timeout_post_processing_check<H: IsmpHost>(host: &H) -> Result<(), &'stat
         data: vec![0u8; 64],
     };
     let request = Request::Post(post);
-    let router = host.ismp_router();
-    router.handle_request(request.clone()).unwrap();
+    let dispatch_request = DispatchRequest::Post(dispatch_post);
+    dispatcher.dispatch_request(dispatch_request).unwrap();
 
-    // Timeout mesaage handling check
+    // Timeout message handling check
     let timeout_message = Message::Timeout(TimeoutMessage::Post {
         requests: vec![request.clone()],
         timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
@@ -223,9 +234,25 @@ pub fn timeout_post_processing_check<H: IsmpHost>(host: &H) -> Result<(), &'stat
     Check correctness of router implementation
 */
 
-/// Check that router stores commitments for outgoing requests and responses and rejects duplicates
-pub fn write_outgoing_commitments(host: &dyn IsmpHost) -> Result<(), &'static str> {
-    let router = host.ismp_router();
+/// Check that dispatcher stores commitments for outgoing requests and responses and rejects
+/// duplicate responses
+pub fn write_outgoing_commitments(
+    host: &dyn IsmpHost,
+    dispatcher: &dyn IsmpDispatcher,
+) -> Result<(), &'static str> {
+    let post = DispatchPost {
+        dest_chain: StateMachine::Kusama(2000),
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+    };
+    let dispatch_request = DispatchRequest::Post(post);
+    // Dispatch the request the first time
+    dispatcher
+        .dispatch_request(dispatch_request)
+        .map_err(|_| "Dispatcher failed to dispatch request")?;
+    // Fetch commitment from storage
     let post = Post {
         source_chain: host.host_state_machine(),
         dest_chain: StateMachine::Kusama(2000),
@@ -236,14 +263,8 @@ pub fn write_outgoing_commitments(host: &dyn IsmpHost) -> Result<(), &'static st
         data: vec![0u8; 64],
     };
     let request = Request::Post(post);
-    // Dispatch the request the first time
-    router.handle_request(request.clone()).map_err(|_| "Router failed to dispatch request")?;
-    // Fetch commitment from storage
     host.request_commitment(&request)
         .map_err(|_| "Expected Request commitment to be found in storage")?;
-    // Dispatch the same request a second time
-    let err = router.handle_request(request);
-    assert!(err.is_err(), "Expected router to return error for duplicate request");
     let post = Post {
         source_chain: StateMachine::Kusama(2000),
         dest_chain: host.host_state_machine(),
@@ -253,11 +274,13 @@ pub fn write_outgoing_commitments(host: &dyn IsmpHost) -> Result<(), &'static st
         timeout_timestamp: 0,
         data: vec![0u8; 64],
     };
-    let response = Response::Post(PostResponse { post, response: vec![] });
+    let response = PostResponse { post, response: vec![] };
     // Dispatch the outgoing response for the first time
-    router.handle_response(response.clone()).map_err(|_| "Router failed to dispatch request")?;
+    dispatcher
+        .dispatch_response(response.clone())
+        .map_err(|_| "Router failed to dispatch request")?;
     // Dispatch the same response a second time
-    let err = router.handle_response(response);
+    let err = dispatcher.dispatch_response(response);
     assert!(err.is_err(), "Expected router to return error for duplicate response");
 
     Ok(())

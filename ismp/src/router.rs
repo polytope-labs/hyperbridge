@@ -263,6 +263,7 @@ pub trait IsmpRouter {
 }
 
 /// Simplified POST request, intended to be used for sending outgoing requests
+#[derive(Clone)]
 pub struct DispatchPost {
     /// The destination state machine of this request.
     pub dest_chain: StateMachine,
@@ -277,6 +278,7 @@ pub struct DispatchPost {
 }
 
 /// Simplified GET request, intended to be used for sending outgoing requests
+#[derive(Clone)]
 pub struct DispatchGet {
     /// The destination state machine of this request.
     pub dest_chain: StateMachine,
@@ -291,6 +293,7 @@ pub struct DispatchGet {
 }
 
 /// Simplified request, intended to be used for sending outgoing requests
+#[derive(Clone)]
 pub enum DispatchRequest {
     /// The POST variant
     Post(DispatchPost),

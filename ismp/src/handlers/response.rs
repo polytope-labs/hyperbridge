@@ -20,7 +20,7 @@ use crate::{
     handlers::{validate_state_machine, MessageResult},
     host::IsmpHost,
     messaging::{sufficient_proof_height, ResponseMessage},
-    router::{RequestResponse, Response},
+    router::{GetResponse, RequestResponse, Response},
     util::hash_request,
 };
 use alloc::{string::ToString, vec::Vec};
@@ -80,14 +80,13 @@ where
                     let keys = request.keys().ok_or_else(|| {
                         Error::ImplementationSpecific("Missing keys for get request".to_string())
                     })?;
-                    let values =
-                        state_machine.verify_state_proof(host, keys.clone(), state, &proof)?;
+                    let values = state_machine.verify_state_proof(host, keys, state, &proof)?;
 
                     let router = host.ismp_router();
-                    let res = router.handle_response(Response::Get {
+                    let res = router.handle_response(Response::Get(GetResponse {
                         get: request.get_request()?,
-                        values: keys.into_iter().zip(values.into_iter()).collect(),
-                    });
+                        values,
+                    }));
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?

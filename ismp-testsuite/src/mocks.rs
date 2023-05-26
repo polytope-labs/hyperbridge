@@ -83,7 +83,7 @@ impl StateMachineClient for MockStateMachineClient {
         _keys: Vec<Vec<u8>>,
         _root: StateCommitment,
         _proof: &Proof,
-    ) -> Result<Vec<Option<Vec<u8>>>, Error> {
+    ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
         Ok(Default::default())
     }
 }

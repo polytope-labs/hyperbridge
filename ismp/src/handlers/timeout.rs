@@ -59,7 +59,7 @@ where
 
             let values = state_machine.verify_state_proof(host, key, state, &timeout_proof)?;
 
-            if values.into_iter().any(|val| val.is_some()) {
+            if values.into_iter().any(|(_key, val)| val.is_some()) {
                 Err(Error::ImplementationSpecific("Some Requests not timed out".into()))?
             }
 

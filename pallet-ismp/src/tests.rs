@@ -19,11 +19,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::dispatcher::Dispatcher;
 use frame_support::traits::OnFinalize;
 use ismp_primitives::mmr::MmrHasher;
 use ismp_rs::{
     consensus::{IntermediateState, StateCommitment, StateMachineHeight},
     messaging::{Proof, ResponseMessage, TimeoutMessage},
+    router::{DispatchGet, DispatchRequest, IsmpDispatcher},
 };
 use ismp_testsuite::{
     check_challenge_period, check_client_expiry, frozen_check, mocks::MOCK_CONSENSUS_CLIENT_ID,
@@ -193,13 +195,14 @@ fn set_timestamp(now: Option<u64>) {
 }
 
 #[test]
-fn check_for_duplicate_requests_and_responses() {
+fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
     let mut ext = new_test_ext();
 
     ext.execute_with(|| {
         set_timestamp(None);
         let host = Host::<Test>::default();
-        write_outgoing_commitments(&host).unwrap();
+        let dispatcher = Dispatcher::<Test>::default();
+        write_outgoing_commitments(&host, &dispatcher).unwrap();
     })
 }
 
@@ -243,7 +246,8 @@ fn should_handle_post_request_timeouts_correctly() {
     ext.execute_with(|| {
         set_timestamp(None);
         let host = Host::<Test>::default();
-        timeout_post_processing_check(&host).unwrap()
+        let dispatcher = Dispatcher::<Test>::default();
+        timeout_post_processing_check(&host, &dispatcher).unwrap()
     })
 }
 
@@ -258,7 +262,7 @@ fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
         },
         commitment: StateCommitment {
             timestamp: 1000,
-            ismp_root: None,
+            overlay_root: None,
             state_root: Default::default(),
         },
     };
@@ -279,34 +283,23 @@ fn should_handle_get_request_timeouts_correctly() {
         let requests = (0..2)
             .into_iter()
             .map(|i| {
-                let msg = IsmpMessage::Get {
+                let msg = DispatchGet {
                     dest_chain: StateMachine::Ethereum,
                     from: vec![0u8; 32],
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
-                    height: StateMachineHeight {
-                        id: StateMachineId {
-                            state_id: StateMachine::Ethereum,
-                            consensus_client: MOCK_CONSENSUS_CLIENT_ID,
-                        },
-                        height: 2,
-                    },
+                    height: 2,
                     timeout_timestamp: 1000,
                 };
 
-                <Pallet<Test> as IsmpDispatch>::dispatch_message(msg).unwrap();
+                let dispatcher = Dispatcher::<Test>::default();
+                dispatcher.dispatch_request(DispatchRequest::Get(msg)).unwrap();
                 let get = ismp_rs::router::Get {
                     source_chain: host.host_state_machine(),
                     dest_chain: StateMachine::Ethereum,
                     nonce: i,
                     from: vec![0u8; 32],
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
-                    height: StateMachineHeight {
-                        id: StateMachineId {
-                            state_id: StateMachine::Ethereum,
-                            consensus_client: MOCK_CONSENSUS_CLIENT_ID,
-                        },
-                        height: 2,
-                    },
+                    height: 2,
                     timeout_timestamp: 1000,
                 };
                 ismp_rs::router::Request::Get(get)
@@ -333,34 +326,23 @@ fn should_handle_get_request_responses_correctly() {
         let requests = (0..2)
             .into_iter()
             .map(|i| {
-                let msg = IsmpMessage::Get {
+                let msg = DispatchGet {
                     dest_chain: StateMachine::Ethereum,
                     from: vec![0u8; 32],
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
-                    height: StateMachineHeight {
-                        id: StateMachineId {
-                            state_id: StateMachine::Ethereum,
-                            consensus_client: MOCK_CONSENSUS_CLIENT_ID,
-                        },
-                        height: 2,
-                    },
+                    height: 2,
                     timeout_timestamp: 1000,
                 };
 
-                <Pallet<Test> as IsmpDispatch>::dispatch_message(msg).unwrap();
+                let dispatcher = Dispatcher::<Test>::default();
+                dispatcher.dispatch_request(DispatchRequest::Get(msg)).unwrap();
                 let get = ismp_rs::router::Get {
                     source_chain: host.host_state_machine(),
                     dest_chain: StateMachine::Ethereum,
                     nonce: i,
                     from: vec![0u8; 32],
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
-                    height: StateMachineHeight {
-                        id: StateMachineId {
-                            state_id: StateMachine::Ethereum,
-                            consensus_client: MOCK_CONSENSUS_CLIENT_ID,
-                        },
-                        height: 2,
-                    },
+                    height: 2,
                     timeout_timestamp: 1000,
                 };
                 ismp_rs::router::Request::Get(get)
@@ -388,7 +370,7 @@ fn should_handle_get_request_responses_correctly() {
         for request in requests {
             // commitments should not be found in storage after response has been processed
             // successfully
-            assert!(host.request_commitment(&request).is_err())
+            assert!(host.request_receipt(&request).is_none())
         }
     })
 }

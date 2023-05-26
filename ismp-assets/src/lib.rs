@@ -42,8 +42,10 @@ pub mod pallet {
         },
     };
     use frame_system::pallet_prelude::*;
-    use ismp::host::StateMachine;
-    use pallet_ismp::primitives::{IsmpDispatch, IsmpMessage};
+    use ismp::{
+        host::StateMachine,
+        router::{DispatchPost, DispatchRequest, IsmpDispatcher},
+    };
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -58,7 +60,7 @@ pub mod pallet {
         /// Native currency implementation
         type NativeCurrency: Mutate<Self::AccountId>;
         /// Ismp message disptacher
-        type IsmpDispatch: IsmpDispatch;
+        type IsmpDispatcher: IsmpDispatcher + Default;
     }
 
     /// Pallet events
@@ -111,7 +113,7 @@ pub mod pallet {
         ) -> DispatchResult {
             let origin = ensure_signed(origin)?;
             let payload = Payload { to: params.to, from: origin.clone(), amount: params.amount };
-            let request = IsmpMessage::Post {
+            let post = DispatchPost {
                 dest_chain: params.dest_chain,
                 from: PALLET_ID.0.to_vec(),
                 to: PALLET_ID.0.to_vec(),
@@ -119,7 +121,10 @@ pub mod pallet {
                 data: payload.encode(),
             };
 
-            T::IsmpDispatch::dispatch_message(request).map_err(|_| Error::<T>::TransferFailed)?;
+            let dispatcher = T::IsmpDispatcher::default();
+            dispatcher
+                .dispatch_request(DispatchRequest::Post(post))
+                .map_err(|_| Error::<T>::TransferFailed)?;
             <T::NativeCurrency as Mutate<T::AccountId>>::burn_from(&origin, params.amount.into())?;
             Self::deposit_event(Event::<T>::BalanceTransferred {
                 from: payload.from,

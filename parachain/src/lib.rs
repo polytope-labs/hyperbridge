@@ -26,7 +26,9 @@ pub mod consensus;
 
 use alloc::{vec, vec::Vec};
 use cumulus_primitives_core::relay_chain;
+use ismp::{handlers, messaging::CreateConsensusClient};
 pub use pallet::*;
+use pallet_ismp::host::Host;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -34,11 +36,7 @@ pub mod pallet {
     use cumulus_primitives_core::relay_chain;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
-    use ismp::{
-        consensus::StateMachineId,
-        host::StateMachine,
-        messaging::{ConsensusMessage, Message},
-    };
+    use ismp::messaging::{ConsensusMessage, Message};
     use parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
     use primitive_types::H256;
 
@@ -193,38 +191,25 @@ pub mod pallet {
     }
 
     #[pallet::genesis_build]
-    impl<T: Config> GenesisBuild<T> for GenesisConfig {
+    impl<T: Config> GenesisBuild<T> for GenesisConfig
+    where
+        <T as frame_system::Config>::Hash: From<H256>,
+    {
         fn build(&self) {
-            // insert empty bytes
-            pallet_ismp::ConsensusStates::<T>::insert(
-                consensus::PARACHAIN_CONSENSUS_ID,
-                Vec::<u8>::new(),
-            );
+            let host = Host::<T>::default();
 
-            pallet_ismp::ConsensusClientUpdateTime::<T>::insert(
-                consensus::PARACHAIN_CONSENSUS_ID,
-                // parachains have no challenge period
-                0,
-            );
+            let message = CreateConsensusClient {
+                // insert empty bytes
+                consensus_state: vec![],
+                consensus_client_id: consensus::PARACHAIN_CONSENSUS_ID,
+                state_machine_commitments: vec![],
+            };
+            handlers::create_client(&host, message)
+                .expect("Failed to initialize parachain consensus client");
 
             // insert the parachain ids
             for id in &self.parachains {
                 Parachains::<T>::insert(id, ());
-
-                let state_id = match T::StateMachine::get() {
-                    StateMachine::Polkadot(_) => StateMachine::Polkadot(*id),
-                    StateMachine::Kusama(_) => StateMachine::Kusama(*id),
-                    _ => panic!("State machine should be configured as a parachain!"),
-                };
-
-                // insert the "latest" parachain height
-                pallet_ismp::LatestStateMachineHeight::<T>::insert(
-                    StateMachineId {
-                        consensus_client: consensus::PARACHAIN_CONSENSUS_ID,
-                        state_id,
-                    },
-                    0,
-                );
             }
         }
     }

@@ -22,6 +22,7 @@
 extern crate alloc;
 
 pub mod benchmarking;
+pub mod dispatcher;
 mod errors;
 pub mod events;
 pub mod host;
@@ -29,7 +30,6 @@ mod mmr;
 #[cfg(test)]
 pub mod mock;
 pub mod primitives;
-pub mod router;
 #[cfg(test)]
 pub mod tests;
 pub mod weight_info;
@@ -49,16 +49,12 @@ use ismp_rs::{
 };
 use sp_core::{offchain::StorageKind, H256};
 // Re-export pallet items so that they can be accessed from the crate namespace.
-use crate::{
-    errors::HandlingError,
-    mmr::mmr::Mmr,
-    primitives::{IsmpDispatch, IsmpMessage},
-};
+use crate::{errors::HandlingError, mmr::mmr::Mmr};
 use ismp_primitives::{
     mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex},
     LeafIndexQuery,
 };
-use ismp_rs::{host::IsmpHost, messaging::Message, router::IsmpRouter};
+use ismp_rs::{host::IsmpHost, messaging::Message};
 pub use pallet::*;
 use sp_std::prelude::*;
 
@@ -70,9 +66,9 @@ pub mod pallet {
     // Import various types used to declare pallet in scope.
     use super::*;
     use crate::{
+        dispatcher::Receipt,
         errors::HandlingError,
         primitives::{ConsensusClientProvider, ISMP_ID},
-        router::Receipt,
         weight_info::{WeightInfo, WeightProvider},
     };
     use alloc::collections::BTreeSet;
@@ -171,11 +167,18 @@ pub mod pallet {
     pub type FrozenHeights<T: Config> =
         StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
 
+    /// Holds a map of consensus clients frozen due to byzantine
+    /// behaviour
+    #[pallet::storage]
+    #[pallet::getter(fn frozen_consensus_clients)]
+    pub type FrozenConsensusClients<T: Config> =
+        StorageMap<_, Blake2_128Concat, ConsensusClientId, bool, ValueQuery>;
+
     /// The latest verified height for a state machine
     #[pallet::storage]
     #[pallet::getter(fn latest_state_height)]
     pub type LatestStateMachineHeight<T: Config> =
-        StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
+        StorageMap<_, Blake2_128Concat, StateMachineId, u64, ValueQuery>;
 
     /// Holds the timestamp at which a consensus client was recently updated.
     /// Used in ensuring that the configured challenge period elapses.
@@ -184,18 +187,32 @@ pub mod pallet {
     pub type ConsensusClientUpdateTime<T: Config> =
         StorageMap<_, Twox64Concat, ConsensusClientId, u64, OptionQuery>;
 
-    /// Acknowledgements for incoming and outgoing requests
+    /// Acknowledgements for outgoing requests
+    /// The key is the request commitment
+    #[pallet::storage]
+    #[pallet::getter(fn outgoing_request_acks)]
+    pub type OutgoingRequestAcks<T: Config> =
+        StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
+
+    /// Acknowledgements for outgoing responses
+    /// The key is the response commitment
+    #[pallet::storage]
+    #[pallet::getter(fn outgoing_response_acks)]
+    pub type OutgoingResponseAcks<T: Config> =
+        StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
+
+    /// Acknowledgements for incoming requests
     /// The key is the request commitment
     #[pallet::storage]
     #[pallet::getter(fn request_acks)]
-    pub type RequestAcks<T: Config> =
+    pub type IncomingRequestAcks<T: Config> =
         StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
 
-    /// Acknowledgements for incoming and outgoing responses
+    /// Acknowledgements for incoming responses
     /// The key is the response commitment
     #[pallet::storage]
     #[pallet::getter(fn response_acks)]
-    pub type ResponseAcks<T: Config> =
+    pub type IncomingResponseAcks<T: Config> =
         StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
 
     /// Consensus update results still in challenge period
@@ -279,7 +296,7 @@ pub mod pallet {
             T::AdminOrigin::ensure_origin(origin)?;
             let host = Host::<T>::default();
 
-            let result = handlers::create_consensus_client(&host, message)
+            let result = handlers::create_client(&host, message)
                 .map_err(|_| Error::<T>::ConsensusClientCreationFailed)?;
 
             Self::deposit_event(Event::<T>::ConsensusClientCreated {
@@ -535,7 +552,7 @@ where
 
     /// Return the latest height of the state machine
     pub fn get_latest_state_machine_height(id: StateMachineId) -> Option<u64> {
-        LatestStateMachineHeight::<T>::get(id)
+        Some(LatestStateMachineHeight::<T>::get(id))
     }
 
     /// Get Request Leaf Indices
@@ -619,47 +636,5 @@ impl<T: Config> Pallet<T> {
     /// Returns the offchain key for an index
     fn offchain_key(pos: NodeIndex) -> Vec<u8> {
         (T::INDEXING_PREFIX, "leaves", pos).encode()
-    }
-
-    /// Returns the next available nonce
-    fn next_nonce() -> u64 {
-        let nonce = Nonce::<T>::get();
-        Nonce::<T>::put(nonce + 1);
-        nonce
-    }
-}
-
-impl<T: Config> IsmpDispatch for Pallet<T> {
-    fn dispatch_message(msg: IsmpMessage) -> Result<(), ismp_rs::router::DispatchError> {
-        let router = T::IsmpRouter::default();
-        match msg {
-            IsmpMessage::Post { timeout_timestamp, dest_chain, data, from, to } => {
-                let post = ismp_rs::router::Post {
-                    source_chain: T::StateMachine::get(),
-                    dest_chain,
-                    nonce: Pallet::<T>::next_nonce(),
-                    from,
-                    to,
-                    timeout_timestamp,
-                    data,
-                };
-                router.dispatch(Request::Post(post)).map(|_| ())
-            }
-            IsmpMessage::Get { timeout_timestamp, dest_chain, keys, height, from } => {
-                let get = ismp_rs::router::Get {
-                    source_chain: T::StateMachine::get(),
-                    dest_chain,
-                    nonce: Pallet::<T>::next_nonce(),
-                    from,
-                    keys,
-                    height,
-                    timeout_timestamp,
-                };
-                router.dispatch(Request::Get(get)).map(|_| ())
-            }
-            IsmpMessage::Response { response, post } => {
-                router.write_response(Response::Post { post, response }).map(|_| ())
-            }
-        }
     }
 }

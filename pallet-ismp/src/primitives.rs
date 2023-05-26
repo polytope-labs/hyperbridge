@@ -17,11 +17,7 @@
 use core::time::Duration;
 use frame_support::RuntimeDebug;
 use ismp_primitives::mmr::{LeafIndex, NodeIndex};
-use ismp_rs::{
-    consensus::{ConsensusClient, ConsensusClientId, StateMachineHeight},
-    host::StateMachine,
-    router::Post,
-};
+use ismp_rs::consensus::{ConsensusClient, ConsensusClientId};
 use scale_info::TypeInfo;
 use sp_std::prelude::*;
 
@@ -65,47 +61,4 @@ pub trait ConsensusClientProvider {
 
     /// Returns the challenge period configured for a consensus client
     fn challenge_period(id: ConsensusClientId) -> Duration;
-}
-
-/// An internal message type for pallet ISMP
-pub enum IsmpMessage {
-    /// A post request
-    Post {
-        /// The destination state machine of this request.
-        dest_chain: StateMachine,
-        /// Module Id of the sending module
-        from: Vec<u8>,
-        /// Module ID of the receiving module
-        to: Vec<u8>,
-        /// Timestamp which this request expires in seconds.
-        timeout_timestamp: u64,
-        /// Encoded Request.
-        data: Vec<u8>,
-    },
-    /// A get request
-    Get {
-        /// The destination state machine of this request.
-        dest_chain: StateMachine,
-        /// Module Id of the sending module
-        from: Vec<u8>,
-        /// Raw Storage keys that this request is interested in.
-        keys: Vec<Vec<u8>>,
-        /// Height at which to read the state machine.
-        height: StateMachineHeight,
-        /// Host Timestamp which this request expires in seconds
-        timeout_timestamp: u64,
-    },
-    /// A response
-    Response {
-        /// Post request
-        post: Post,
-        /// Opaque response bytes
-        response: Vec<u8>,
-    },
-}
-
-/// A trait that exposes an interface for modules to dispatch ismp messages to the router
-pub trait IsmpDispatch {
-    /// Dispatch an ismp message to the router
-    fn dispatch_message(msg: IsmpMessage) -> Result<(), ismp_rs::router::DispatchError>;
 }

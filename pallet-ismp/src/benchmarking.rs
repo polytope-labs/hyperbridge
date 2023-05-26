@@ -34,16 +34,22 @@ use frame_system::RawOrigin;
 )]
 pub mod benchmarks {
     use super::*;
-    use crate::router::Receipt;
+    use crate::dispatcher::Receipt;
+    use alloc::collections::BTreeMap;
     use frame_support::{traits::Hooks, PalletId};
     use frame_system::EventRecord;
     use ismp_rs::{
-        consensus::{ConsensusClient, IntermediateState, StateCommitment, StateMachineHeight},
+        consensus::{
+            ConsensusClient, IntermediateState, StateCommitment, StateMachineClient,
+            StateMachineHeight,
+        },
         error::Error as IsmpError,
-        messaging::{Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
+        messaging::{
+            Message, Proof, RequestMessage, ResponseMessage, StateCommitmentHeight, TimeoutMessage,
+        },
         module::IsmpModule,
-        router::{Post, RequestResponse},
-        util::hash_request,
+        router::{Post, PostResponse, RequestResponse},
+        util::{hash_request, hash_response},
     };
     use sp_std::prelude::Vec;
 
@@ -68,14 +74,36 @@ pub mod benchmarks {
             _host: &dyn IsmpHost,
             _trusted_consensus_state: Vec<u8>,
             _proof: Vec<u8>,
-        ) -> Result<(Vec<u8>, Vec<IntermediateState>), IsmpError> {
+        ) -> Result<(Vec<u8>, BTreeMap<StateMachine, StateCommitmentHeight>), IsmpError> {
             Ok(Default::default())
+        }
+
+        fn verify_fraud_proof(
+            &self,
+            _host: &dyn IsmpHost,
+            _trusted_consensus_state: Vec<u8>,
+            _proof_1: Vec<u8>,
+            _proof_2: Vec<u8>,
+        ) -> Result<(), IsmpError> {
+            Ok(())
         }
 
         fn unbonding_period(&self) -> Duration {
             Duration::from_secs(60 * 60 * 60)
         }
 
+        fn state_machine(
+            &self,
+            _id: StateMachine,
+        ) -> Result<Box<dyn StateMachineClient>, IsmpError> {
+            Ok(Box::new(BenchmarkStateMachine))
+        }
+    }
+
+    /// Mock State Machine
+    pub struct BenchmarkStateMachine;
+
+    impl StateMachineClient for BenchmarkStateMachine {
         fn verify_membership(
             &self,
             _host: &dyn IsmpHost,
@@ -98,10 +126,6 @@ pub mod benchmarks {
             _proof: &Proof,
         ) -> Result<Vec<Option<Vec<u8>>>, IsmpError> {
             Ok(Default::default())
-        }
-
-        fn is_frozen(&self, _trusted_consensus_state: &[u8]) -> Result<(), IsmpError> {
-            Ok(())
         }
     }
 
@@ -134,26 +158,24 @@ pub mod benchmarks {
     #[benchmark]
     fn create_consensus_client() {
         set_timestamp::<T>();
-        let intermediate_state = IntermediateState {
-            height: StateMachineHeight {
-                id: StateMachineId {
-                    state_id: StateMachine::Polkadot(1000),
-                    consensus_client: BENCHMARK_CONSENSUS_CLIENT_ID,
-                },
-                height: 1,
-            },
-
-            commitment: StateCommitment {
-                timestamp: 1651280681,
-                ismp_root: None,
-                state_root: Default::default(),
-            },
-        };
 
         let message = CreateConsensusClient {
             consensus_state: Default::default(),
             consensus_client_id: BENCHMARK_CONSENSUS_CLIENT_ID,
-            state_machine_commitments: vec![intermediate_state],
+            state_machine_commitments: vec![(
+                StateMachineId {
+                    state_id: StateMachine::Ethereum,
+                    consensus_client: BENCHMARK_CONSENSUS_CLIENT_ID,
+                },
+                StateCommitmentHeight {
+                    commitment: StateCommitment {
+                        timestamp: 1651280681,
+                        overlay_root: None,
+                        state_root: Default::default(),
+                    },
+                    height: 1,
+                },
+            )],
         };
 
         #[extrinsic_call]
@@ -176,7 +198,7 @@ pub mod benchmarks {
             },
             commitment: StateCommitment {
                 timestamp: 1000,
-                ismp_root: None,
+                overlay_root: None,
                 state_root: Default::default(),
             },
         };
@@ -206,7 +228,7 @@ pub mod benchmarks {
             from: MODULE_ID.0.to_vec(),
             to: MODULE_ID.0.to_vec(),
             timeout_timestamp: 5000,
-            data: vec![],
+            data: "handle_request_message".as_bytes().to_vec(),
         };
 
         let msg = RequestMessage {
@@ -219,7 +241,7 @@ pub mod benchmarks {
         handle(RawOrigin::Signed(caller), vec![Message::Request(msg)]);
 
         let commitment = hash_request::<Host<T>>(&Request::Post(post));
-        assert!(RequestAcks::<T>::get(commitment.0.to_vec()).is_some());
+        assert!(IncomingRequestAcks::<T>::get(commitment.0.to_vec()).is_some());
     }
 
     #[benchmark]
@@ -234,15 +256,15 @@ pub mod benchmarks {
             from: MODULE_ID.0.to_vec(),
             to: MODULE_ID.0.to_vec(),
             timeout_timestamp: 5000,
-            data: vec![],
+            data: "handle_response_message".as_bytes().to_vec(),
         };
         let request = Request::Post(post.clone());
 
         let commitment = hash_request::<Host<T>>(&request);
-        RequestAcks::<T>::insert(commitment.0.to_vec(), Receipt::Ok);
+        OutgoingRequestAcks::<T>::insert(commitment.0.to_vec(), Receipt::Ok);
 
-        let response = Response::Post { post, response: vec![] };
-
+        let response = Response::Post(PostResponse { post, response: vec![] });
+        let response_commitment = hash_response::<Host<T>>(&response);
         let msg = ResponseMessage::Post {
             responses: vec![response],
             proof: Proof { height: intermediate_state.height, proof: vec![] },
@@ -253,7 +275,7 @@ pub mod benchmarks {
         #[extrinsic_call]
         handle(RawOrigin::Signed(caller), vec![Message::Response(msg)]);
 
-        assert!(RequestAcks::<T>::get(commitment.0.to_vec()).is_none());
+        assert!(IncomingResponseAcks::<T>::get(response_commitment.0.to_vec()).is_some());
     }
 
     #[benchmark]
@@ -268,12 +290,12 @@ pub mod benchmarks {
             from: MODULE_ID.0.to_vec(),
             to: MODULE_ID.0.to_vec(),
             timeout_timestamp: 500,
-            data: vec![],
+            data: "handle_timeout_message".as_bytes().to_vec(),
         };
         let request = Request::Post(post.clone());
 
         let commitment = hash_request::<Host<T>>(&request);
-        RequestAcks::<T>::insert(commitment.0.to_vec(), Receipt::Ok);
+        OutgoingRequestAcks::<T>::insert(commitment.0.to_vec(), Receipt::Ok);
 
         let msg = TimeoutMessage::Post {
             requests: vec![request],
@@ -284,7 +306,7 @@ pub mod benchmarks {
         #[extrinsic_call]
         handle(RawOrigin::Signed(caller), vec![Message::Timeout(msg)]);
 
-        assert!(RequestAcks::<T>::get(commitment.0.to_vec()).is_none());
+        assert!(OutgoingRequestAcks::<T>::get(commitment.0.to_vec()).is_none());
     }
 
     #[benchmark]

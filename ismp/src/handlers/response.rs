@@ -76,6 +76,7 @@ where
             // individually
             requests
                 .into_iter()
+                .filter(|req| host.request_receipt(req).is_none())
                 .map(|request| {
                     let keys = request.keys().ok_or_else(|| {
                         Error::ImplementationSpecific("Missing keys for get request".to_string())
@@ -87,6 +88,7 @@ where
                         get: request.get_request()?,
                         values,
                     }));
+                    host.store_request_receipt(&request)?;
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?

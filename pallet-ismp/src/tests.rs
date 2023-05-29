@@ -368,9 +368,7 @@ fn should_handle_get_request_responses_correctly() {
         Pallet::<Test>::handle_messages(vec![Message::Response(response)]).unwrap();
 
         for request in requests {
-            // commitments should not be found in storage after response has been processed
-            // successfully
-            assert!(host.request_receipt(&request).is_none())
+            assert!(host.request_receipt(&request).is_some())
         }
     })
 }

@@ -124,7 +124,7 @@ pub mod benchmarks {
             _keys: Vec<Vec<u8>>,
             _root: StateCommitment,
             _proof: &Proof,
-        ) -> Result<Vec<Option<Vec<u8>>>, IsmpError> {
+        ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, IsmpError> {
             Ok(Default::default())
         }
     }

@@ -25,7 +25,7 @@ use ismp_rs::{
     messaging::{
         ConsensusMessage, FraudProofMessage, Message, Proof, ResponseMessage, TimeoutMessage,
     },
-    router::{Request, Response},
+    router::{GetResponse, Request, Response},
 };
 
 /// A trait that provides information about how consensus client execute in the runtime
@@ -235,10 +235,10 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                         };
                         let handle = <T as Config>::WeightProvider::module_callback(dest_module)
                             .unwrap_or(Box::new(()));
-                        acc + handle.on_response(&Response::Get {
+                        acc + handle.on_response(&Response::Get(GetResponse {
                             get: req.get_request().unwrap(),
                             values: Default::default(),
-                        })
+                        }))
                     });
 
                     let consensus_handler = <T as Config>::WeightProvider::consensus_client(

@@ -324,7 +324,7 @@ where
         keys: Vec<Vec<u8>>,
         root: StateCommitment,
         proof: &Proof,
-    ) -> Result<Vec<Option<Vec<u8>>>, Error> {
+    ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
         let state_proof: ParachainStateProof = codec::Decode::decode(&mut &*proof.proof)
             .map_err(|e| Error::ImplementationSpecific(format!("failed to decode proof: {e:?}")))?;
 
@@ -334,13 +334,14 @@ where
                 let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root.state_root).build();
                 keys.into_iter()
                     .map(|key| {
-                        trie.get(&key).map_err(|e| {
+                        let value = trie.get(&key).map_err(|e| {
                             Error::ImplementationSpecific(format!(
                                 "Error reading state proof: {e:?}"
                             ))
-                        })
+                        })?;
+                        Ok((key, value))
                     })
-                    .collect::<Result<Vec<_>, _>>()?
+                    .collect::<Result<BTreeMap<_, _>, _>>()?
             }
             HashAlgorithm::Blake2 => {
                 let db =
@@ -350,13 +351,14 @@ where
                     TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root.state_root).build();
                 keys.into_iter()
                     .map(|key| {
-                        trie.get(&key).map_err(|e| {
+                        let value = trie.get(&key).map_err(|e| {
                             Error::ImplementationSpecific(format!(
                                 "Error reading state proof: {e:?}"
                             ))
-                        })
+                        })?;
+                        Ok((key, value))
                     })
-                    .collect::<Result<Vec<_>, _>>()?
+                    .collect::<Result<BTreeMap<_, _>, _>>()?
             }
         };
 

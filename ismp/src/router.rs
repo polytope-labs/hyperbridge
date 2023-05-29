@@ -255,18 +255,15 @@ pub struct DispatchError {
 /// A type alias for dispatch results
 pub type DispatchResult = Result<DispatchSuccess, DispatchError>;
 
-/// The Ismp router dictates how messsages are route to [`IsmpModules`]
+/// The Ismp router dictates how messsages are routed to [`IsmpModules`]
 pub trait IsmpRouter {
-    /// Dispatch some requests to the Ismp router.
-    /// For outgoing requests, they should be committed in state as a keccak256 hash
-    /// For incoming requests, they should be dispatched to destination modules
+    /// Dispatch the incoming request to destination modules
     fn handle_request(&self, request: Request) -> DispatchResult;
 
-    /// Dispatch request timeouts to the router which should dispatch them to modules
+    /// Dispatch the request timeouts to destination modules
     fn handle_timeout(&self, request: Request) -> DispatchResult;
 
-    /// Dispatch some responses to the Ismp router.
-    /// For incoming responses, they should be dispatched to destination modules
+    /// Dispatch the incoming response to destination modules
     fn handle_response(&self, response: Response) -> DispatchResult;
 }
 

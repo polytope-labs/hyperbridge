@@ -22,7 +22,7 @@ use ismp_rs::{
 };
 
 /// Ismp Core Protocol Events
-#[derive(Clone, codec::Encode, codec::Decode, Debug)]
+#[derive(Clone, codec::Encode, codec::Decode, Debug, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub enum Event {
     /// Emitted when a state machine is successfully updated to a new height

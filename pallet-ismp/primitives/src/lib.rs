@@ -24,7 +24,7 @@ use ismp::host::StateMachine;
 pub mod mmr;
 
 /// Queries a request leaf in the mmr
-#[derive(codec::Encode, codec::Decode)]
+#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct LeafIndexQuery {
     /// The source of the request

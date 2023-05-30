@@ -36,7 +36,7 @@ pub struct Proof<Hash> {
 }
 
 /// Merkle Mountain Range operation error.
-#[derive(RuntimeDebug, codec::Encode, codec::Decode, PartialEq, Eq)]
+#[derive(RuntimeDebug, codec::Encode, codec::Decode, PartialEq, Eq, scale_info::TypeInfo)]
 #[allow(missing_docs)]
 pub enum Error {
     InvalidNumericOp,

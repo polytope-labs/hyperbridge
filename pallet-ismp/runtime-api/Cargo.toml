@@ -8,8 +8,8 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-sp-api = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.40", default-features = false }
-sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.40", default-features = false }
+sp-api = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
+sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
 pallet-ismp = { path = "..", default-features = false }
 ismp-primitives = { path = "../primitives", default-features = false }
 ismp-rs = { package = "ismp", git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main", default-features = false }

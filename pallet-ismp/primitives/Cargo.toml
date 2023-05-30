@@ -10,7 +10,7 @@ frame-system = { git = "https://github.com/paritytech/substrate", branch = "polk
 sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
 
 # polytope labs
-ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main", default-features = false }
+ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main", default-features = false }
 
 # crates.io
 merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }

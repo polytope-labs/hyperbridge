@@ -12,7 +12,7 @@ sp-api = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v
 sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
 pallet-ismp = { path = "..", default-features = false }
 ismp-primitives = { path = "../primitives", default-features = false }
-ismp-rs = { package = "ismp", git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main", default-features = false }
+ismp-rs = { package = "ismp", git = "https://github.com/polytope-labs/ismp-rs", branch = "main", default-features = false }
 serde = { version = "1.0.136", features = ["derive"], optional = true }
 
 [dependencies.codec]

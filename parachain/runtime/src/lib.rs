@@ -12,8 +12,10 @@ mod router;
 mod weights;
 pub mod xcm_config;
 
+use codec::{Decode, Encode, MaxEncodedLen};
 use core::time::Duration;
 use cumulus_pallet_parachain_system::RelayNumberStrictlyIncreases;
+use scale_info::TypeInfo;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
@@ -69,7 +71,7 @@ use polkadot_runtime_common::{BlockHashCount, SlowAdjustingFeeUpdate};
 use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
-use crate::router::Router;
+use crate::router::ProxyRouter;
 use xcm::latest::prelude::BodyId;
 use xcm_executor::XcmExecutor;
 
@@ -341,6 +343,15 @@ parameter_types! {
     pub const ExistentialDeposit: Balance = EXISTENTIAL_DEPOSIT;
 }
 
+/// A reason for placing a hold on funds.
+#[derive(
+    Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, MaxEncodedLen, Debug, TypeInfo,
+)]
+pub enum HoldReason {
+    /// The NIS Pallet has reserved it for a non-fungible receipt.
+    Nis,
+}
+
 impl pallet_balances::Config for Runtime {
     /// The type for recording an account's balance.
     type Balance = Balance;
@@ -353,6 +364,10 @@ impl pallet_balances::Config for Runtime {
     type MaxLocks = ConstU32<50>;
     type MaxReserves = ConstU32<50>;
     type ReserveIdentifier = [u8; 8];
+    type FreezeIdentifier = ();
+    type MaxFreezes = ();
+    type HoldIdentifier = HoldReason;
+    type MaxHolds = ConstU32<1>;
 }
 
 parameter_types! {
@@ -505,7 +520,7 @@ impl pallet_ismp::Config for Runtime {
     type AdminOrigin = EnsureRoot<AccountId>;
     type StateMachine = StateMachineProvider;
     type TimeProvider = Timestamp;
-    type IsmpRouter = Router;
+    type IsmpRouter = ProxyRouter;
     type ConsensusClientProvider = ConsensusProvider;
     type WeightInfo = ();
     type WeightProvider = ();
@@ -515,7 +530,7 @@ impl ismp_assets::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Balance = Balance;
     type NativeCurrency = Balances;
-    type IsmpDispatch = Ismp;
+    type IsmpDispatcher = pallet_ismp::dispatcher::Dispatcher<Runtime>;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -603,6 +618,15 @@ impl_runtime_apis! {
         fn metadata() -> OpaqueMetadata {
             OpaqueMetadata::new(Runtime::metadata().into())
         }
+
+        fn metadata_at_version(version: u32) -> Option<OpaqueMetadata> {
+            Runtime::metadata_at_version(version)
+        }
+
+        fn metadata_versions() -> sp_std::vec::Vec<u32> {
+            Runtime::metadata_versions()
+        }
+
     }
 
     impl sp_block_builder::BlockBuilder<Block> for Runtime {

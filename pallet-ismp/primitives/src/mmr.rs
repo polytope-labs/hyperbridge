@@ -32,7 +32,7 @@ pub type LeafIndex = u64;
 pub type NodeIndex = u64;
 
 /// A concrete Leaf for the MMR
-#[derive(Debug, Clone, Decode, Encode, PartialEq, Eq)]
+#[derive(Debug, Clone, Decode, Encode, PartialEq, Eq, scale_info::TypeInfo)]
 pub enum Leaf {
     /// A request variant
     Request(Request),
@@ -51,7 +51,7 @@ impl Leaf {
 }
 
 /// An element representing either full data or its hash.
-#[derive(Clone, PartialEq, Eq, Encode, Decode)]
+#[derive(Clone, PartialEq, Eq, Encode, Decode, scale_info::TypeInfo)]
 pub enum DataOrHash<T: frame_system::Config> {
     /// Arbitrary data in its full form.
     Data(Leaf),

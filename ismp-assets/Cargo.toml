@@ -13,7 +13,7 @@ codec = { package = "parity-scale-codec", version = "3.2.2", default-features = 
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 
 # polytope labs
-ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main", default-features = false }
+ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main", default-features = false }
 
 # substrate
 frame-support = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }

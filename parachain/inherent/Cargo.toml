@@ -20,6 +20,6 @@ cumulus-primitives-core = {  git = "https://github.com/paritytech/cumulus", bran
 cumulus-relay-chain-interface = {  git = "https://github.com/paritytech/cumulus", branch = "release-v0.9.420" }
 
 # polytope-labs
-ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main" }
+ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
 ismp-parachain = { path = "../" }
 ismp-parachain-runtime-api = { path = "../runtime-api" }

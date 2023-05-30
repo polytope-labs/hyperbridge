@@ -17,7 +17,7 @@ where
     <T as frame_system::Config>::Hash: From<H256>,
 {
     /// Handle an incoming request
-    pub fn handle_request(&self, request: Request) -> DispatchResult {
+    pub fn handle_request(request: Request) -> DispatchResult {
         let commitment = hash_request::<Host<T>>(&request).0.to_vec();
 
         if IncomingRequestAcks::<T>::contains_key(commitment.clone()) {
@@ -49,7 +49,7 @@ where
     }
 
     /// Handle an incoming response
-    pub fn handle_response(&self, response: Response) -> DispatchResult {
+    pub fn handle_response(response: Response) -> DispatchResult {
         let commitment = hash_response::<Host<T>>(&response).0.to_vec();
 
         if IncomingResponseAcks::<T>::contains_key(commitment.clone()) {

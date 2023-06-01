@@ -20,6 +20,14 @@ This repo holds all the required components substrate runtimes need to interoper
 
 Installation and integration guides can be found in the [book](https://substrate-ismp.polytope.technology).
 
+## Testing and Testing Guide
+Please see [CI](.github/workflows/ci.yml) for test coverage.
+
+## Run Test in Docker
+```bash
+docker run --memory="24g" --rm --user root -v "$PWD":/app -w /app rust:latest /bin/bash -c "apt update && apt install -y protobuf-compiler libclang-dev && cargo test --release --manifest-path=./Cargo.toml"
+```
+
 ## License
 
 This library is licensed under the Apache 2.0 License, Copyright (c) 2023 Polytope Labs.

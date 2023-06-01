@@ -118,11 +118,11 @@ impl ResponseMessage {
 /// Returns an error if the proof height is less than any of the retrieval heights specified in the
 /// get requests
 pub fn sufficient_proof_height(requests: &[Request], proof: &Proof) -> Result<(), Error> {
-    let check = requests.iter().any(|req| match req {
+    let check = requests.iter().all(|req| match req {
         Request::Get(get) => get.height == proof.height.height,
-        _ => true,
+        _ => false,
     });
-    if check {
+    if !check {
         Err(Error::InsufficientProofHeight)
     } else {
         Ok(())

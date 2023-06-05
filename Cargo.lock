@@ -3029,7 +3029,7 @@ dependencies = [
 [[package]]
 name = "ismp"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/ismp-rs?branch=main#1932c2c45f7c6ff104dd27b87aa06769739697fb"
+source = "git+https://github.com/polytope-labs/ismp-rs?branch=main#1628c9d7519ae39b8badf02ed42b6c7fa23f28a0"
 dependencies = [
  "derive_more",
  "parity-scale-codec",
@@ -3045,6 +3045,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "ismp",
+ "pallet-balances",
  "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
@@ -3151,7 +3152,7 @@ dependencies = [
 [[package]]
 name = "ismp-testsuite"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/ismp-rs?branch=main#1932c2c45f7c6ff104dd27b87aa06769739697fb"
+source = "git+https://github.com/polytope-labs/ismp-rs?branch=main#1628c9d7519ae39b8badf02ed42b6c7fa23f28a0"
 dependencies = [
  "ismp",
  "parity-scale-codec",
@@ -4649,6 +4650,21 @@ checksum = "a1914cd452d8fccd6f9db48147b29fd4ae05bea9dc5d9ad578509f72415de282"
 dependencies = [
  "cfg-if",
  "libm 0.1.4",
+]
+
+[[package]]
+name = "pallet-balances"
+version = "4.0.0-dev"
+source = "git+https://github.com/paritytech/substrate?branch=polkadot-v0.9.42#569aae5341ea0c1d10426fa1ec13a36c0b64393b"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime",
+ "sp-std 5.0.0",
 ]
 
 [[package]]

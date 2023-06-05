@@ -215,8 +215,16 @@ where
         Ok(Proof { proof: proof.encode(), leaves: Some(leaves.encode()), height })
     }
 
-    fn query_state_proof(&self, _height: u32, _keys: Vec<Vec<u8>>) -> Result<Proof> {
-        unimplemented!()
+    fn query_state_proof(&self, height: u32, keys: Vec<Vec<u8>>) -> Result<Proof> {
+        let at = self.client.block_hash(height.into()).ok().flatten().ok_or_else(|| {
+            runtime_error_into_rpc_error("Could not find valid blockhash for provided height")
+        })?;
+        let proof: Vec<_> = self
+            .client
+            .read_proof(at, &mut keys.iter().map(|key| key.as_slice()))
+            .map(|proof| proof.into_iter_nodes().collect())
+            .map_err(|_| runtime_error_into_rpc_error("Error reading state proof"))?;
+        Ok(Proof { proof: proof.encode(), leaves: None, height })
     }
 
     fn query_consensus_state(

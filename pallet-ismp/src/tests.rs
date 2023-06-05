@@ -330,7 +330,7 @@ fn should_handle_get_request_responses_correctly() {
                     dest_chain: StateMachine::Ethereum,
                     from: vec![0u8; 32],
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
-                    height: 2,
+                    height: 3,
                     timeout_timestamp: 1000,
                 };
 
@@ -342,7 +342,7 @@ fn should_handle_get_request_responses_correctly() {
                     nonce: i,
                     from: vec![0u8; 32],
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
-                    height: 2,
+                    height: 3,
                     timeout_timestamp: 1000,
                 };
                 ismp_rs::router::Request::Get(get)

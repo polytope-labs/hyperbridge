@@ -18,6 +18,7 @@ ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main", defa
 # substrate
 frame-support = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 frame-system = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
+pallet-balances = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-runtime = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 
 # local
@@ -34,5 +35,6 @@ std = [
     "sp-runtime/std",
     "scale-info/std",
     "ismp/std",
-    "pallet-ismp/std"
+    "pallet-ismp/std",
+    "pallet-balances/std"
 ]

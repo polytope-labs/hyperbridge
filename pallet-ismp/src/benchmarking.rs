@@ -134,7 +134,7 @@ pub mod benchmarks {
     /// module id for the mock benchmarking module
     pub const MODULE_ID: PalletId = PalletId(*b"benchmak");
     impl IsmpModule for BenchmarkIsmpModule {
-        fn on_accept(_request: Request) -> Result<(), IsmpError> {
+        fn on_accept(_request: Post) -> Result<(), IsmpError> {
             Ok(())
         }
 

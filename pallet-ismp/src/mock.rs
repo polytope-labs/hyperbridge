@@ -21,7 +21,7 @@ use frame_support::traits::{ConstU32, ConstU64, Get};
 use frame_system::EnsureRoot;
 use ismp_rs::{
     consensus::ConsensusClient,
-    router::{DispatchResult, DispatchSuccess, IsmpRouter},
+    router::{DispatchResult, DispatchSuccess, IsmpRouter, Post},
 };
 use sp_core::H256;
 use sp_runtime::{
@@ -116,10 +116,10 @@ impl Config for Test {
 pub struct ModuleRouter;
 
 impl IsmpRouter for ModuleRouter {
-    fn handle_request(&self, request: Request) -> DispatchResult {
-        let dest = request.dest_chain();
-        let source = request.source_chain();
-        let nonce = request.nonce();
+    fn handle_request(&self, request: Post) -> DispatchResult {
+        let dest = request.dest_chain;
+        let source = request.source_chain;
+        let nonce = request.nonce;
 
         Ok(DispatchSuccess { dest_chain: dest, source_chain: source, nonce })
     }

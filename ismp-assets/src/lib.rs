@@ -53,7 +53,7 @@ pub mod pallet {
 
     /// Pallet Configuration
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_balances::Config {
+    pub trait Config: frame_system::Config + pallet_balances::Config + pallet_ismp::Config {
         /// Overarching event
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         /// Native balance
@@ -136,8 +136,13 @@ pub mod pallet {
 
             // next, construct the request to be sent out
             let payload = Payload { to: params.to, from: origin.clone(), amount: params.amount };
+            let dest = match T::StateMachine::get() {
+                StateMachine::Kusama(_) => StateMachine::Kusama(params.dest_id),
+                StateMachine::Polkadot(_) => StateMachine::Polkadot(params.dest_id),
+                _ => Err(DispatchError::Other("Pallet only supports parachain hosts"))?,
+            };
             let post = DispatchPost {
-                dest_chain: params.dest_chain,
+                dest_chain: dest,
                 from: PALLET_ID.0.to_vec(),
                 to: PALLET_ID.0.to_vec(),
                 timeout_timestamp: params.timeout,
@@ -155,7 +160,7 @@ pub mod pallet {
                 from: payload.from,
                 to: payload.to,
                 amount: payload.amount,
-                dest_chain: params.dest_chain,
+                dest_chain: dest,
             });
 
             Ok(())
@@ -212,8 +217,8 @@ pub mod pallet {
         pub to: AccountId,
         /// Amount to transfer
         pub amount: Balance,
-        /// Destination chain's Id
-        pub dest_chain: StateMachine,
+        /// Destination parachain Id
+        pub dest_id: u32,
         /// Timeout timestamp on destination chain in seconds
         pub timeout: u64,
     }

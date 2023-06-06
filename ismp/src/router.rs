@@ -126,9 +126,16 @@ impl Request {
 
     /// Returns the timeout timestamp for a request
     pub fn timeout(&self) -> Duration {
-        match self {
-            Request::Post(post) => Duration::from_secs(post.timeout_timestamp),
-            Request::Get(get) => Duration::from_secs(get.timeout_timestamp),
+        let timeout = match self {
+            Request::Post(post) => post.timeout_timestamp,
+            Request::Get(get) => get.timeout_timestamp,
+        };
+
+        // zero timeout means no timeout.
+        if timeout == 0 {
+            Duration::from_secs(u64::MAX)
+        } else {
+            Duration::from_secs(timeout)
         }
     }
 

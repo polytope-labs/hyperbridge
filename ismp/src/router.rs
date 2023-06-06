@@ -265,7 +265,7 @@ pub type DispatchResult = Result<DispatchSuccess, DispatchError>;
 /// The Ismp router dictates how messsages are routed to [`IsmpModules`]
 pub trait IsmpRouter {
     /// Dispatch the incoming request to destination modules
-    fn handle_request(&self, request: Request) -> DispatchResult;
+    fn handle_request(&self, request: Post) -> DispatchResult;
 
     /// Dispatch the request timeouts to destination modules
     fn handle_timeout(&self, request: Request) -> DispatchResult;

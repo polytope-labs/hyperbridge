@@ -85,7 +85,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
     let request = Request::Post(post.clone());
     // Request message handling check
     let request_message = Message::Request(RequestMessage {
-        requests: vec![request.clone()],
+        requests: vec![post.clone()],
         proof: Proof { height: intermediate_state.height, proof: vec![] },
     });
 
@@ -158,7 +158,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     let request = Request::Post(post.clone());
     // Request message handling check
     let request_message = Message::Request(RequestMessage {
-        requests: vec![request.clone()],
+        requests: vec![post.clone()],
         proof: Proof { height: intermediate_state.height, proof: vec![] },
     });
 

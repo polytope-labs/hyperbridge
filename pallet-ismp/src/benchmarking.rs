@@ -27,10 +27,10 @@ use frame_system::RawOrigin;
 /// In your module router configuration add the [`BenchmarkIsmpModule`] as one of the ismp modules
 /// using the pallet id defined here as it's module id.
 #[benchmarks(
-    where
-        <T as frame_system::Config>::Hash: From<H256>,
-        T: pallet_timestamp::Config,
-        <T as pallet_timestamp::Config>::Moment: From<u64>
+where
+<T as frame_system::Config>::Hash: From<H256>,
+T: pallet_timestamp::Config,
+<T as pallet_timestamp::Config>::Moment: From<u64>
 )]
 pub mod benchmarks {
     use super::*;
@@ -232,7 +232,7 @@ pub mod benchmarks {
         };
 
         let msg = RequestMessage {
-            requests: vec![Request::Post(post.clone())],
+            requests: vec![post.clone()],
             proof: Proof { height: intermediate_state.height, proof: vec![] },
         };
         let caller = whitelisted_caller();

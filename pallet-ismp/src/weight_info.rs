@@ -25,7 +25,7 @@ use ismp_rs::{
     messaging::{
         ConsensusMessage, FraudProofMessage, Message, Proof, ResponseMessage, TimeoutMessage,
     },
-    router::{GetResponse, Request, Response},
+    router::{GetResponse, Post, Request, Response},
 };
 
 /// A trait that provides information about how consensus client execute in the runtime
@@ -85,7 +85,7 @@ impl ConsensusClientWeight for () {
 /// A trait that provides weight information about how module callbacks execute
 pub trait IsmpModuleWeight {
     /// Returns the weight used in processing this request
-    fn on_accept(&self, request: &Request) -> Weight;
+    fn on_accept(&self, request: &Post) -> Weight;
     /// Returns the weight used in processing this timeout
     fn on_timeout(&self, request: &Request) -> Weight;
     /// Returns the weight used in processing this response
@@ -93,7 +93,7 @@ pub trait IsmpModuleWeight {
 }
 
 impl IsmpModuleWeight for () {
-    fn on_accept(&self, _request: &Request) -> Weight {
+    fn on_accept(&self, _request: &Post) -> Weight {
         Weight::zero()
     }
 
@@ -165,143 +165,134 @@ impl WeightInfo for () {
 
 /// Returns the weight that would be consumed when executing a batch of messages
 pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
-    messages.into_iter().fold(Weight::zero(), |acc, msg| {
-        match msg {
-            Message::Consensus(msg) => {
-                let consensus_handler =
-                    <T as Config>::WeightProvider::consensus_client(msg.consensus_client_id)
-                        .unwrap_or(Box::new(()));
-                consensus_handler.verify_consensus(msg)
-            }
-            Message::Request(msg) => {
-                let state_machine = msg.proof.height.id;
-                let cb_weight = msg.requests.iter().fold(Weight::zero(), |acc, req| {
-                    let dest_module = match req {
-                        Request::Post(ref post) => post.to.as_slice(),
-                        // Get requests are never submitted
+    messages.into_iter().fold(Weight::zero(), |acc, msg| match msg {
+        Message::Consensus(msg) => {
+            let consensus_handler =
+                <T as Config>::WeightProvider::consensus_client(msg.consensus_client_id)
+                    .unwrap_or(Box::new(()));
+            consensus_handler.verify_consensus(msg)
+        }
+        Message::Request(msg) => {
+            let state_machine = msg.proof.height.id;
+            let cb_weight = msg.requests.iter().fold(Weight::zero(), |acc, req| {
+                let dest_module = req.to.as_slice();
+                let handle = <T as Config>::WeightProvider::module_callback(dest_module)
+                    .unwrap_or(Box::new(()));
+                acc + handle.on_accept(&req)
+            });
+
+            let consensus_handler = <T as Config>::WeightProvider::consensus_client(
+                msg.proof.height.id.consensus_client,
+            )
+            .unwrap_or(Box::new(()));
+
+            let proof_verification_weight =
+                consensus_handler.verify_membership(state_machine, msg.requests.len(), &msg.proof);
+
+            acc + cb_weight +
+                proof_verification_weight +
+                <T as Config>::WeightInfo::handle_request_message()
+        }
+        Message::Response(msg) => match msg {
+            ResponseMessage::Post { responses, proof } => {
+                let state_machine = proof.height.id;
+                let cb_weight = responses.iter().fold(Weight::zero(), |acc, res| {
+                    let dest_module = match res {
+                        Response::Post(ref post) => post.post.from.as_slice(),
                         _ => return acc,
                     };
                     let handle = <T as Config>::WeightProvider::module_callback(dest_module)
                         .unwrap_or(Box::new(()));
-                    acc + handle.on_accept(&req)
+                    acc + handle.on_response(&res)
                 });
 
                 let consensus_handler = <T as Config>::WeightProvider::consensus_client(
-                    msg.proof.height.id.consensus_client,
+                    proof.height.id.consensus_client,
                 )
                 .unwrap_or(Box::new(()));
 
-                let proof_verification_weight = consensus_handler.verify_membership(
+                let proof_verification_weight =
+                    consensus_handler.verify_membership(state_machine, responses.len(), &proof);
+
+                acc + cb_weight +
+                    proof_verification_weight +
+                    <T as Config>::WeightInfo::handle_response_message()
+            }
+            ResponseMessage::Get { requests, proof } => {
+                let state_machine = proof.height.id;
+                let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
+                    let dest_module = match req {
+                        Request::Get(ref get) => get.from.as_slice(),
+                        _ => return acc,
+                    };
+                    let handle = <T as Config>::WeightProvider::module_callback(dest_module)
+                        .unwrap_or(Box::new(()));
+                    acc + handle.on_response(&Response::Get(GetResponse {
+                        get: req.get_request().unwrap(),
+                        values: Default::default(),
+                    }))
+                });
+
+                let consensus_handler = <T as Config>::WeightProvider::consensus_client(
+                    proof.height.id.consensus_client,
+                )
+                .unwrap_or(Box::new(()));
+
+                let proof_verification_weight =
+                    consensus_handler.verify_state_proof(state_machine, requests.len(), &proof);
+
+                acc + cb_weight +
+                    proof_verification_weight +
+                    <T as Config>::WeightInfo::handle_response_message()
+            }
+        },
+        Message::Timeout(msg) => match msg {
+            TimeoutMessage::Post { requests, timeout_proof } => {
+                let state_machine = timeout_proof.height.id;
+                let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
+                    let dest_module = match req {
+                        Request::Post(ref post) => post.from.as_slice(),
+                        _ => return acc,
+                    };
+                    let handle = <T as Config>::WeightProvider::module_callback(dest_module)
+                        .unwrap_or(Box::new(()));
+                    acc + handle.on_timeout(&req)
+                });
+
+                let consensus_handler = <T as Config>::WeightProvider::consensus_client(
+                    timeout_proof.height.id.consensus_client,
+                )
+                .unwrap_or(Box::new(()));
+
+                let proof_verification_weight = consensus_handler.verify_state_proof(
                     state_machine,
-                    msg.requests.len(),
-                    &msg.proof,
+                    requests.len(),
+                    &timeout_proof,
                 );
 
                 acc + cb_weight +
                     proof_verification_weight +
-                    <T as Config>::WeightInfo::handle_request_message()
+                    <T as Config>::WeightInfo::handle_response_message()
             }
-            Message::Response(msg) => match msg {
-                ResponseMessage::Post { responses, proof } => {
-                    let state_machine = proof.height.id;
-                    let cb_weight = responses.iter().fold(Weight::zero(), |acc, res| {
-                        let dest_module = match res {
-                            Response::Post(ref post) => post.post.from.as_slice(),
-                            _ => return acc,
-                        };
-                        let handle = <T as Config>::WeightProvider::module_callback(dest_module)
-                            .unwrap_or(Box::new(()));
-                        acc + handle.on_response(&res)
-                    });
-
-                    let consensus_handler = <T as Config>::WeightProvider::consensus_client(
-                        proof.height.id.consensus_client,
-                    )
-                    .unwrap_or(Box::new(()));
-
-                    let proof_verification_weight =
-                        consensus_handler.verify_membership(state_machine, responses.len(), &proof);
-
-                    acc + cb_weight +
-                        proof_verification_weight +
-                        <T as Config>::WeightInfo::handle_response_message()
-                }
-                ResponseMessage::Get { requests, proof } => {
-                    let state_machine = proof.height.id;
-                    let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
-                        let dest_module = match req {
-                            Request::Get(ref get) => get.from.as_slice(),
-                            _ => return acc,
-                        };
-                        let handle = <T as Config>::WeightProvider::module_callback(dest_module)
-                            .unwrap_or(Box::new(()));
-                        acc + handle.on_response(&Response::Get(GetResponse {
-                            get: req.get_request().unwrap(),
-                            values: Default::default(),
-                        }))
-                    });
-
-                    let consensus_handler = <T as Config>::WeightProvider::consensus_client(
-                        proof.height.id.consensus_client,
-                    )
-                    .unwrap_or(Box::new(()));
-
-                    let proof_verification_weight =
-                        consensus_handler.verify_state_proof(state_machine, requests.len(), &proof);
-
-                    acc + cb_weight +
-                        proof_verification_weight +
-                        <T as Config>::WeightInfo::handle_response_message()
-                }
-            },
-            Message::Timeout(msg) => match msg {
-                TimeoutMessage::Post { requests, timeout_proof } => {
-                    let state_machine = timeout_proof.height.id;
-                    let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
-                        let dest_module = match req {
-                            Request::Post(ref post) => post.from.as_slice(),
-                            _ => return acc,
-                        };
-                        let handle = <T as Config>::WeightProvider::module_callback(dest_module)
-                            .unwrap_or(Box::new(()));
-                        acc + handle.on_timeout(&req)
-                    });
-
-                    let consensus_handler = <T as Config>::WeightProvider::consensus_client(
-                        timeout_proof.height.id.consensus_client,
-                    )
-                    .unwrap_or(Box::new(()));
-
-                    let proof_verification_weight = consensus_handler.verify_state_proof(
-                        state_machine,
-                        requests.len(),
-                        &timeout_proof,
-                    );
-
-                    acc + cb_weight +
-                        proof_verification_weight +
-                        <T as Config>::WeightInfo::handle_response_message()
-                }
-                TimeoutMessage::Get { requests } => {
-                    let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
-                        let dest_module = match req {
-                            Request::Get(ref get) => get.from.as_slice(),
-                            _ => return acc,
-                        };
-                        let handle = <T as Config>::WeightProvider::module_callback(dest_module)
-                            .unwrap_or(Box::new(()));
-                        acc + handle.on_timeout(&req)
-                    });
-                    acc + cb_weight + <T as Config>::WeightInfo::handle_timeout_message()
-                }
-            },
-
-            Message::FraudProof(msg) => {
-                let consensus_handler =
-                    <T as Config>::WeightProvider::consensus_client(msg.consensus_client_id)
+            TimeoutMessage::Get { requests } => {
+                let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
+                    let dest_module = match req {
+                        Request::Get(ref get) => get.from.as_slice(),
+                        _ => return acc,
+                    };
+                    let handle = <T as Config>::WeightProvider::module_callback(dest_module)
                         .unwrap_or(Box::new(()));
-                consensus_handler.verify_fraud_proof(msg)
+                    acc + handle.on_timeout(&req)
+                });
+                acc + cb_weight + <T as Config>::WeightInfo::handle_timeout_message()
             }
+        },
+
+        Message::FraudProof(msg) => {
+            let consensus_handler =
+                <T as Config>::WeightProvider::consensus_client(msg.consensus_client_id)
+                    .unwrap_or(Box::new(()));
+            consensus_handler.verify_fraud_proof(msg)
         }
     })
 }

@@ -3,15 +3,14 @@ use crate::{
         format,
         string::{String, ToString},
     },
-    Runtime,
+    Runtime, StateMachineProvider,
 };
-use frame_support::PalletId;
+use frame_support::{pallet_prelude::Get, PalletId};
 use ismp::{
     host::StateMachine,
-    module::ISMPModule,
-    router::{DispatchError, DispatchResult, DispatchSuccess, ISMPRouter, Request, Response},
+    module::IsmpModule,
+    router::{DispatchError, DispatchResult, DispatchSuccess, IsmpRouter, Request, Response},
 };
-use pallet_ismp::router::ProxyRouter;
 
 fn to_pallet_id(bytes: &[u8]) -> Result<PalletId, &'static str> {
     if bytes.len() != 8 {
@@ -42,8 +41,8 @@ fn to_dispatch_success(
 #[derive(Default)]
 pub struct ModuleRouter;
 
-impl ISMPRouter for ModuleRouter {
-    fn dispatch(&self, request: Request) -> DispatchResult {
+impl IsmpRouter for ModuleRouter {
+    fn handle_request(&self, request: Request) -> DispatchResult {
         let dest = request.dest_chain();
         let source = request.source_chain();
         let nonce = request.nonce();
@@ -71,7 +70,7 @@ impl ISMPRouter for ModuleRouter {
         }
     }
 
-    fn dispatch_timeout(&self, request: Request) -> DispatchResult {
+    fn handle_timeout(&self, request: Request) -> DispatchResult {
         let from = match &request {
             Request::Post(post) => &post.from,
             Request::Get(get) => &get.from,
@@ -99,7 +98,7 @@ impl ISMPRouter for ModuleRouter {
         }
     }
 
-    fn write_response(&self, response: Response) -> DispatchResult {
+    fn handle_response(&self, response: Response) -> DispatchResult {
         let request = &response.request();
         let dest = request.dest_chain();
         let source = request.source_chain();
@@ -129,26 +128,29 @@ impl ISMPRouter for ModuleRouter {
     }
 }
 
-pub struct Router {
-    inner: ProxyRouter<Runtime>,
+#[derive(Default)]
+pub struct ProxyRouter {
+    inner: ModuleRouter,
 }
 
-impl Default for Router {
-    fn default() -> Self {
-        Self { inner: ProxyRouter::<Runtime>::new(ModuleRouter::default()) }
-    }
-}
-
-impl ISMPRouter for Router {
-    fn dispatch(&self, request: Request) -> DispatchResult {
-        self.inner.dispatch(request)
+impl IsmpRouter for ProxyRouter {
+    fn handle_request(&self, request: Request) -> DispatchResult {
+        if request.dest_chain() != StateMachineProvider::get() {
+            pallet_ismp::Pallet::<Runtime>::handle_request(request)
+        } else {
+            self.inner.handle_request(request)
+        }
     }
 
-    fn dispatch_timeout(&self, request: Request) -> DispatchResult {
-        self.inner.dispatch_timeout(request)
+    fn handle_timeout(&self, request: Request) -> DispatchResult {
+        self.inner.handle_timeout(request)
     }
 
-    fn write_response(&self, response: Response) -> DispatchResult {
-        self.inner.write_response(response)
+    fn handle_response(&self, response: Response) -> DispatchResult {
+        if response.dest_chain() != StateMachineProvider::get() {
+            pallet_ismp::Pallet::<Runtime>::handle_response(response)
+        } else {
+            self.inner.handle_response(response)
+        }
     }
 }

@@ -21,7 +21,7 @@
 use crate::{
     consensus::{ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId},
     error::Error,
-    router::{Request, Response},
+    router::{Post, Request, Response},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, Encode};
@@ -71,7 +71,7 @@ pub struct CreateConsensusClient {
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct RequestMessage {
     /// Requests from source chain
-    pub requests: Vec<Request>,
+    pub requests: Vec<Post>,
     /// Membership batch proof for these requests
     pub proof: Proof,
 }

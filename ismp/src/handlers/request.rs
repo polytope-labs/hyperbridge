@@ -20,7 +20,7 @@ use crate::{
     handlers::{validate_state_machine, MessageResult},
     host::IsmpHost,
     messaging::RequestMessage,
-    router::RequestResponse,
+    router::{Request, RequestResponse},
 };
 use alloc::vec::Vec;
 
@@ -35,7 +35,7 @@ where
 
     state_machine.verify_membership(
         host,
-        RequestResponse::Request(msg.requests.clone()),
+        RequestResponse::Request(msg.requests.clone().into_iter().map(Request::Post).collect()),
         state,
         &msg.proof,
     )?;
@@ -45,10 +45,13 @@ where
     let result = msg
         .requests
         .into_iter()
-        .filter(|req| host.request_receipt(req).is_none() && !req.timed_out(state.timestamp()))
+        .filter(|req| {
+            let req = Request::Post(req.clone());
+            host.request_receipt(&req).is_none() && !req.timed_out(state.timestamp())
+        })
         .map(|request| {
             let res = router.handle_request(request.clone());
-            host.store_request_receipt(&request)?;
+            host.store_request_receipt(&Request::Post(request))?;
             Ok(res)
         })
         .collect::<Result<Vec<_>, _>>()?;

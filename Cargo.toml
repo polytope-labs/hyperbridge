@@ -8,7 +8,7 @@ members = [
     "parachain/inherent",
     "parachain/runtime-api",
     "parachain",
-    "ismp-assets"
+    "ismp-demo"
 ]
 
 [workspace.dependencies]

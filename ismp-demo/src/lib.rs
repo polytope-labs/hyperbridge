@@ -34,7 +34,7 @@ pub const PALLET_ID: PalletId = PalletId(*b"ismp-ast");
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use alloc::vec;
+    use alloc::{collections::BTreeMap, vec};
     use frame_support::{
         pallet_prelude::*,
         traits::{
@@ -94,12 +94,7 @@ pub mod pallet {
         /// Get request dispatched
         GetRequestDispatched,
         /// Token issuance on some counterparty parachain
-        CounterpartyIssuance {
-            /// Parachain Id
-            chain: StateMachine,
-            /// Total issuance on counterparty parachain
-            total_issuance: u128,
-        },
+        GetResponse(BTreeMap<Vec<u8>, Option<Vec<u8>>>),
     }
 
     /// Pallet Errors
@@ -137,8 +132,8 @@ pub mod pallet {
             // next, construct the request to be sent out
             let payload = Payload { to: params.to, from: origin.clone(), amount: params.amount };
             let dest = match T::StateMachine::get() {
-                StateMachine::Kusama(_) => StateMachine::Kusama(params.dest_id),
-                StateMachine::Polkadot(_) => StateMachine::Polkadot(params.dest_id),
+                StateMachine::Kusama(_) => StateMachine::Kusama(params.para_id),
+                StateMachine::Polkadot(_) => StateMachine::Polkadot(params.para_id),
                 _ => Err(DispatchError::Other("Pallet only supports parachain hosts"))?,
             };
             let post = DispatchPost {
@@ -170,19 +165,20 @@ pub mod pallet {
         /// parachain
         #[pallet::weight(Weight::from_parts(1_000_000, 0))]
         #[pallet::call_index(1)]
-        pub fn counterparty_issuance(
-            origin: OriginFor<T>,
-            dest_chain: StateMachine,
-            height: u64,
-            timeout: u64,
-        ) -> DispatchResult {
+        pub fn get_request(origin: OriginFor<T>, params: GetRequest) -> DispatchResult {
             ensure_signed(origin)?;
+            let dest_chain = match T::StateMachine::get() {
+                StateMachine::Kusama(_) => StateMachine::Kusama(params.para_id),
+                StateMachine::Polkadot(_) => StateMachine::Polkadot(params.para_id),
+                _ => Err(DispatchError::Other("Pallet only supports parachain hosts"))?,
+            };
+
             let get = DispatchGet {
                 dest_chain,
                 from: PALLET_ID.0.to_vec(),
-                keys: vec![pallet_balances::TotalIssuance::<T>::hashed_key().to_vec()],
-                height,
-                timeout_timestamp: timeout,
+                keys: params.keys,
+                height: params.height as u64,
+                timeout_timestamp: params.timeout,
             };
 
             let dispatcher = T::IsmpDispatcher::default();
@@ -208,6 +204,21 @@ pub mod pallet {
         pub amount: Balance,
     }
 
+    /// The get request payload
+    #[derive(
+        Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+    )]
+    pub struct GetRequest {
+        /// Destination parachain
+        para_id: u32,
+        /// Height at which to read state
+        height: u32,
+        /// request timeout
+        timeout: u64,
+        /// Storage keys to read
+        keys: Vec<Vec<u8>>,
+    }
+
     /// Extrinsic Parameters for initializing a cross chain transfer
     #[derive(
         Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
@@ -215,10 +226,13 @@ pub mod pallet {
     pub struct TransferParams<AccountId, Balance> {
         /// Destination account
         pub to: AccountId,
+
         /// Amount to transfer
         pub amount: Balance,
+
         /// Destination parachain Id
-        pub dest_id: u32,
+        pub para_id: u32,
+
         /// Timeout timestamp on destination chain in seconds
         pub timeout: u64,
     }
@@ -250,30 +264,13 @@ impl<T: Config> IsmpModule for Pallet<T> {
 
     fn on_response(response: Response) -> Result<(), ismp::error::Error> {
         match response {
-            Response::Post(_) => {
-                Err(ismp_dispatch_error("Balance transfer protocol does not accept post responses"))
-            }
-            Response::Get(get_res) => {
-                let total_issuance = get_res
-                    .values
-                    .get(pallet_balances::TotalIssuance::<T>::hashed_key().to_vec().as_slice())
-                    .cloned()
-                    .flatten();
+            Response::Post(_) => Err(ismp_dispatch_error(
+                "Balance transfer protocol does not accept post responses",
+            ))?,
+            Response::Get(res) => Pallet::<T>::deposit_event(Event::<T>::GetResponse(res.values)),
+        };
 
-                match total_issuance {
-                    Some(total_issuance) => {
-                        let total_issuance: u128 = codec::Decode::decode(&mut &*total_issuance)
-                            .map_err(|_| ismp_dispatch_error("Failed to decode total issuance"))?;
-                        Pallet::<T>::deposit_event(Event::<T>::CounterpartyIssuance {
-                            chain: get_res.get.dest_chain,
-                            total_issuance,
-                        });
-                        Ok(())
-                    }
-                    _ => Err(ismp_dispatch_error("Received None")),
-                }
-            }
-        }
+        Ok(())
     }
 
     fn on_timeout(request: Request) -> Result<(), ismp::error::Error> {

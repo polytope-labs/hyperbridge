@@ -1,5 +1,5 @@
 [package]
-name = "ismp-assets"
+name = "ismp-demo"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -20,6 +20,7 @@ frame-support = { default-features = false, git = "https://github.com/paritytech
 frame-system = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 pallet-balances = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-runtime = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
+sp-core = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 
 # local
 pallet-ismp = { path = "../pallet-ismp", default-features = false }

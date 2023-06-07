@@ -3039,7 +3039,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ismp-assets"
+name = "ismp-demo"
 version = "0.1.0"
 dependencies = [
  "frame-support",
@@ -3049,6 +3049,7 @@ dependencies = [
  "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
+ "sp-core 7.0.0",
  "sp-runtime",
 ]
 

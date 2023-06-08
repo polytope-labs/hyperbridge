@@ -34,7 +34,7 @@ T: pallet_timestamp::Config,
 )]
 pub mod benchmarks {
     use super::*;
-    use crate::dispatcher::Receipt;
+    use crate::{dispatcher::Receipt, primitives::ModuleId};
     use alloc::collections::BTreeMap;
     use frame_support::{traits::Hooks, PalletId};
     use frame_system::EventRecord;
@@ -132,17 +132,17 @@ pub mod benchmarks {
     /// This module should be added to the module router in runtime for benchmarks to pass
     pub struct BenchmarkIsmpModule;
     /// module id for the mock benchmarking module
-    pub const MODULE_ID: PalletId = PalletId(*b"benchmak");
+    pub const MODULE_ID: ModuleId = ModuleId::Pallet(PalletId(*b"benchmak"));
     impl IsmpModule for BenchmarkIsmpModule {
-        fn on_accept(_request: Post) -> Result<(), IsmpError> {
+        fn on_accept(&self, _request: Post) -> Result<(), ismp_rs::error::Error> {
             Ok(())
         }
 
-        fn on_response(_response: Response) -> Result<(), IsmpError> {
+        fn on_response(&self, _response: Response) -> Result<(), ismp_rs::error::Error> {
             Ok(())
         }
 
-        fn on_timeout(_request: Request) -> Result<(), IsmpError> {
+        fn on_timeout(&self, _request: Request) -> Result<(), ismp_rs::error::Error> {
             Ok(())
         }
     }
@@ -225,8 +225,8 @@ pub mod benchmarks {
             source_chain: StateMachine::Ethereum,
             dest_chain: <T as Config>::StateMachine::get(),
             nonce: 0,
-            from: MODULE_ID.0.to_vec(),
-            to: MODULE_ID.0.to_vec(),
+            from: MODULE_ID.encode(),
+            to: MODULE_ID.encode(),
             timeout_timestamp: 5000,
             data: "handle_request_message".as_bytes().to_vec(),
         };
@@ -253,8 +253,8 @@ pub mod benchmarks {
             source_chain: <T as Config>::StateMachine::get(),
             dest_chain: StateMachine::Ethereum,
             nonce: 0,
-            from: MODULE_ID.0.to_vec(),
-            to: MODULE_ID.0.to_vec(),
+            from: MODULE_ID.encode(),
+            to: MODULE_ID.encode(),
             timeout_timestamp: 5000,
             data: "handle_response_message".as_bytes().to_vec(),
         };
@@ -287,8 +287,8 @@ pub mod benchmarks {
             source_chain: <T as Config>::StateMachine::get(),
             dest_chain: StateMachine::Ethereum,
             nonce: 0,
-            from: MODULE_ID.0.to_vec(),
-            to: MODULE_ID.0.to_vec(),
+            from: MODULE_ID.encode(),
+            to: MODULE_ID.encode(),
             timeout_timestamp: 500,
             data: "handle_timeout_message".as_bytes().to_vec(),
         };

@@ -51,7 +51,7 @@ use ismp_rs::{
 use sp_core::{offchain::StorageKind, H256};
 // Re-export pallet items so that they can be accessed from the crate namespace.
 use crate::{
-    errors::{to_request_results, to_response_results, to_timeout_results, HandlingError},
+    errors::{HandlingError, ModuleCallbackResult},
     mmr::mmr::Mmr,
 };
 use ismp_primitives::{
@@ -391,7 +391,6 @@ where
         // Define a host
         let host = Host::<T>::default();
         let mut errors: Vec<HandlingError> = vec![];
-        let mut module_dispatch_results = vec![];
 
         for message in messages {
             match handle_incoming_message(&host, message) {
@@ -434,16 +433,13 @@ where
                     }
                 }
                 Ok(MessageResult::Response(res)) => {
-                    let results = to_response_results(res);
-                    module_dispatch_results.extend(results);
+                    debug!(target: "ismp-modules", "Module Callback Results {:?}", ModuleCallbackResult::Response(res));
                 }
                 Ok(MessageResult::Request(res)) => {
-                    let results = to_request_results(res);
-                    module_dispatch_results.extend(results);
+                    debug!(target: "ismp-modules", "Module Callback Results {:?}", ModuleCallbackResult::Request(res));
                 }
                 Ok(MessageResult::Timeout(res)) => {
-                    let results = to_timeout_results(res);
-                    module_dispatch_results.extend(results);
+                    debug!(target: "ismp-modules", "Module Callback Results {:?}", ModuleCallbackResult::Timeout(res));
                 }
                 Err(err) => {
                     errors.push(err.into());
@@ -455,10 +451,6 @@ where
         if !errors.is_empty() {
             debug!(target: "pallet-ismp", "Handling Errors {:?}", errors);
             Self::deposit_event(Event::<T>::HandlingErrors { errors })
-        }
-
-        if !module_dispatch_results.is_empty() {
-            debug!(target: "ismp-modules", "Module Callback Results {:?}", module_dispatch_results);
         }
 
         Ok(())

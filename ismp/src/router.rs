@@ -15,12 +15,7 @@
 
 //! IsmpRouter definition
 
-use crate::{
-    error::Error,
-    host::StateMachine,
-    module::{DispatchResult, IsmpModule},
-    prelude::Vec,
-};
+use crate::{error::Error, host::StateMachine, module::IsmpModule, prelude::Vec};
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString};
 use codec::{Decode, Encode};
 use core::time::Duration;
@@ -311,8 +306,8 @@ pub enum DispatchRequest {
 /// The Ismp dispatcher allows [`IsmpModules`] to send out outgoing [`Request`] or [`Response`]
 pub trait IsmpDispatcher {
     /// Dispatches an outgoing request, the dispatcher should commit them to host state trie
-    fn dispatch_request(&self, request: DispatchRequest) -> DispatchResult;
+    fn dispatch_request(&self, request: DispatchRequest) -> Result<(), Error>;
 
     /// Dispatches an outgoing response, the dispatcher should commit them to host state trie
-    fn dispatch_response(&self, response: PostResponse) -> DispatchResult;
+    fn dispatch_response(&self, response: PostResponse) -> Result<(), Error>;
 }

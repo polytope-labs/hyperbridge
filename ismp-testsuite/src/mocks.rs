@@ -6,7 +6,7 @@ use ismp::{
     error::Error,
     host::{IsmpHost, StateMachine},
     messaging::{Proof, StateCommitmentHeight},
-    module::{DispatchError, DispatchResult, DispatchSuccess, IsmpModule},
+    module::IsmpModule,
     router::{
         DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse, Request,
         RequestResponse, Response,
@@ -271,28 +271,16 @@ impl IsmpHost for Host {
 pub struct MockModule;
 
 impl IsmpModule for MockModule {
-    fn on_accept(&self, request: Post) -> DispatchResult {
-        Ok(DispatchSuccess {
-            dest_chain: request.dest_chain,
-            source_chain: request.source_chain,
-            nonce: request.nonce,
-        })
+    fn on_accept(&self, _request: Post) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn on_response(&self, response: Response) -> DispatchResult {
-        Ok(DispatchSuccess {
-            dest_chain: response.dest_chain(),
-            source_chain: response.source_chain(),
-            nonce: response.nonce(),
-        })
+    fn on_response(&self, _response: Response) -> Result<(), Error> {
+        Ok(())
     }
 
-    fn on_timeout(&self, request: Request) -> DispatchResult {
-        Ok(DispatchSuccess {
-            dest_chain: request.dest_chain(),
-            source_chain: request.source_chain(),
-            nonce: request.nonce(),
-        })
+    fn on_timeout(&self, _request: Request) -> Result<(), Error> {
+        Ok(())
     }
 }
 
@@ -307,7 +295,7 @@ impl IsmpRouter for MockRouter {
 pub struct MockDispatcher(pub Arc<Host>);
 
 impl IsmpDispatcher for MockDispatcher {
-    fn dispatch_request(&self, request: DispatchRequest) -> DispatchResult {
+    fn dispatch_request(&self, request: DispatchRequest) -> Result<(), Error> {
         let host = self.0.clone();
         let request = match request {
             DispatchRequest::Get(dispatch_get) => {
@@ -337,30 +325,17 @@ impl IsmpDispatcher for MockDispatcher {
         };
         let hash = hash_request::<Host>(&request);
         host.requests.borrow_mut().insert(hash);
-        Ok(DispatchSuccess {
-            dest_chain: request.dest_chain(),
-            source_chain: request.source_chain(),
-            nonce: request.nonce(),
-        })
+        Ok(())
     }
 
-    fn dispatch_response(&self, response: PostResponse) -> DispatchResult {
+    fn dispatch_response(&self, response: PostResponse) -> Result<(), Error> {
         let host = self.0.clone();
         let response = Response::Post(response);
         let hash = hash_response::<Host>(&response);
         if host.responses.borrow().contains(&hash) {
-            return Err(DispatchError {
-                msg: "Duplicate response".to_string(),
-                nonce: response.nonce(),
-                source: response.source_chain(),
-                dest: response.dest_chain(),
-            })
+            return Err(Error::ImplementationSpecific("Duplicate response".to_string()))
         }
         host.responses.borrow_mut().insert(hash);
-        Ok(DispatchSuccess {
-            dest_chain: response.dest_chain(),
-            source_chain: response.source_chain(),
-            nonce: response.nonce(),
-        })
+        Ok(())
     }
 }

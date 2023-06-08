@@ -16,6 +16,7 @@
 //! ISMPModule definition
 
 use crate::{
+    error::Error,
     host::StateMachine,
     router::{Post as PostRequest, Request, Response},
 };
@@ -40,9 +41,9 @@ pub struct DispatchError {
     /// Request nonce
     pub nonce: u64,
     /// Source chain for request or response
-    pub source: StateMachine,
+    pub source_chain: StateMachine,
     /// Destination chain for request or response
-    pub dest: StateMachine,
+    pub dest_chain: StateMachine,
 }
 
 /// A type alias for dispatch results
@@ -53,13 +54,13 @@ pub type DispatchResult = Result<DispatchSuccess, DispatchError>;
 pub trait IsmpModule {
     /// Called by the message handler on a module, to notify module of a new POST request
     /// the module may choose to respond immediately, or in a later block
-    fn on_accept(&self, request: PostRequest) -> DispatchResult;
+    fn on_accept(&self, request: PostRequest) -> Result<(), Error>;
 
     /// Called by the message handler on a module, to notify module of a response to a previously
     /// sent out request
-    fn on_response(&self, response: Response) -> DispatchResult;
+    fn on_response(&self, response: Response) -> Result<(), Error>;
 
     /// Called by the message handler on a module, to notify module of requests that were previously
     /// sent but have now timed-out
-    fn on_timeout(&self, request: Request) -> DispatchResult;
+    fn on_timeout(&self, request: Request) -> Result<(), Error>;
 }

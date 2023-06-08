@@ -44,6 +44,7 @@ jobs:
         run: |
           cargo +nightly-2022-10-28 check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --verbose
           cargo +nightly-2022-10-28 check -p ismp-parachain --no-default-features --target=wasm32-unknown-unknown --verbose
+          cargo +nightly-2022-10-28 check -p ismp-demo --no-default-features --target=wasm32-unknown-unknown --verbose
 
       - name: Test
         run: |

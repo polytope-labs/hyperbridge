@@ -20,9 +20,10 @@ use crate::{
     handlers::{validate_state_machine, MessageResult},
     host::IsmpHost,
     messaging::TimeoutMessage,
+    module::{DispatchError, DispatchSuccess},
     util::hash_request,
 };
-use alloc::vec::Vec;
+use alloc::{format, vec::Vec};
 
 /// This function handles timeouts for Requests
 pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, Error>
@@ -68,7 +69,19 @@ where
                 .into_iter()
                 .map(|request| {
                     let cb = router.module_for_id(request.source_module())?;
-                    let res = cb.on_timeout(request.clone());
+                    let res = cb
+                        .on_timeout(request.clone())
+                        .map(|_| DispatchSuccess {
+                            dest_chain: request.dest_chain(),
+                            source_chain: request.source_chain(),
+                            nonce: request.nonce(),
+                        })
+                        .map_err(|e| DispatchError {
+                            msg: format!("{:?}", e),
+                            nonce: request.nonce(),
+                            source_chain: request.source_chain(),
+                            dest_chain: request.dest_chain(),
+                        });
                     host.delete_request_commitment(&request)?;
                     Ok(res)
                 })
@@ -101,7 +114,19 @@ where
                 .into_iter()
                 .map(|request| {
                     let cb = router.module_for_id(request.source_module())?;
-                    let res = cb.on_timeout(request.clone());
+                    let res = cb
+                        .on_timeout(request.clone())
+                        .map(|_| DispatchSuccess {
+                            dest_chain: request.dest_chain(),
+                            source_chain: request.source_chain(),
+                            nonce: request.nonce(),
+                        })
+                        .map_err(|e| DispatchError {
+                            msg: format!("{:?}", e),
+                            nonce: request.nonce(),
+                            source_chain: request.source_chain(),
+                            dest_chain: request.dest_chain(),
+                        });
                     host.delete_request_commitment(&request)?;
                     Ok(res)
                 })

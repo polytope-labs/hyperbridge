@@ -20,9 +20,10 @@ use crate::{
     handlers::{validate_state_machine, MessageResult},
     host::IsmpHost,
     messaging::RequestMessage,
+    module::{DispatchError, DispatchSuccess},
     router::{Request, RequestResponse},
 };
-use alloc::vec::Vec;
+use alloc::{format, vec::Vec};
 
 /// Validate the state machine, verify the request message and dispatch the message to the router
 pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, Error>
@@ -51,7 +52,19 @@ where
         })
         .map(|request| {
             let cb = router.module_for_id(request.to.clone())?;
-            let res = cb.on_accept(request.clone());
+            let res = cb
+                .on_accept(request.clone())
+                .map(|_| DispatchSuccess {
+                    dest_chain: request.dest_chain,
+                    source_chain: request.source_chain,
+                    nonce: request.nonce,
+                })
+                .map_err(|e| DispatchError {
+                    msg: format!("{:?}", e),
+                    nonce: request.nonce,
+                    source_chain: request.source_chain,
+                    dest_chain: request.dest_chain,
+                });
             host.store_request_receipt(&Request::Post(request))?;
             Ok(res)
         })

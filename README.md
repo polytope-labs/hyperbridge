@@ -7,7 +7,14 @@ Rust implementation of the Interoperable State Machine Protocol. This project is
 This repo provides an implementation of the neccessary components laid out in the [ISMP spec](https://github.com/polytope-labs/ismp).
 
 ## Testing and Testing Guide
-Please see [CI](.github/workflows/ci.yml) for test coverage.
+This guide assumes [Rust](https://www.rust-lang.org/tools/install) and  it's [nightly](https://rust-lang.github.io/rustup/concepts/channels.html#:~:text=it%20just%20run-,rustup%20toolchain%20install%20nightly,-%3A) version is installed.
+
+To run the tests suite associated with this library;
+```
+cargo +nightly test --all-features --workspace
+```
+
+Please see [CI](.github/workflows/ci.yml) for more test coverage.
 
 ## Run Test in Docker
 ```bash

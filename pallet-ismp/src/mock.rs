@@ -21,7 +21,8 @@ use frame_support::traits::{ConstU32, ConstU64, Get};
 use frame_system::EnsureRoot;
 use ismp_rs::{
     consensus::ConsensusClient,
-    router::{DispatchResult, DispatchSuccess, IsmpRouter, Post},
+    module::IsmpModule,
+    router::{IsmpRouter, Post},
 };
 use sp_core::H256;
 use sp_runtime::{
@@ -113,29 +114,27 @@ impl Config for Test {
 }
 
 #[derive(Default)]
+pub struct MockModule;
+
+impl IsmpModule for MockModule {
+    fn on_accept(&self, _request: Post) -> Result<(), ismp_rs::error::Error> {
+        Ok(())
+    }
+
+    fn on_response(&self, _response: Response) -> Result<(), ismp_rs::error::Error> {
+        Ok(())
+    }
+
+    fn on_timeout(&self, _request: Request) -> Result<(), ismp_rs::error::Error> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
 pub struct ModuleRouter;
 
 impl IsmpRouter for ModuleRouter {
-    fn handle_request(&self, request: Post) -> DispatchResult {
-        let dest = request.dest_chain;
-        let source = request.source_chain;
-        let nonce = request.nonce;
-
-        Ok(DispatchSuccess { dest_chain: dest, source_chain: source, nonce })
-    }
-
-    fn handle_timeout(&self, request: Request) -> DispatchResult {
-        let dest = request.dest_chain();
-        let source = request.source_chain();
-        let nonce = request.nonce();
-        Ok(DispatchSuccess { dest_chain: dest, source_chain: source, nonce })
-    }
-
-    fn handle_response(&self, response: Response) -> DispatchResult {
-        let request = &response.request();
-        let dest = request.dest_chain();
-        let source = request.source_chain();
-        let nonce = request.nonce();
-        Ok(DispatchSuccess { dest_chain: dest, source_chain: source, nonce })
+    fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, ismp_rs::error::Error> {
+        Ok(Box::new(MockModule))
     }
 }

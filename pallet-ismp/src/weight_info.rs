@@ -17,7 +17,7 @@
 //! This module provides a guide on how to provide static weights for consensus clients and module
 //! callbacks
 
-use crate::Config;
+use crate::{primitives::ModuleId, Config};
 use alloc::boxed::Box;
 use frame_support::weights::Weight;
 use ismp_rs::{
@@ -112,7 +112,7 @@ pub trait WeightProvider {
     fn consensus_client(id: ConsensusClientId) -> Option<Box<dyn ConsensusClientWeight>>;
 
     /// Returns a reference to the weight provider for a module
-    fn module_callback(dest_module: &[u8]) -> Option<Box<dyn IsmpModuleWeight>>;
+    fn module_callback(dest_module: ModuleId) -> Option<Box<dyn IsmpModuleWeight>>;
 }
 
 impl WeightProvider for () {
@@ -120,7 +120,7 @@ impl WeightProvider for () {
         None
     }
 
-    fn module_callback(_dest_module: &[u8]) -> Option<Box<dyn IsmpModuleWeight>> {
+    fn module_callback(_dest_module: ModuleId) -> Option<Box<dyn IsmpModuleWeight>> {
         None
     }
 }
@@ -175,8 +175,10 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
         Message::Request(msg) => {
             let state_machine = msg.proof.height.id;
             let cb_weight = msg.requests.iter().fold(Weight::zero(), |acc, req| {
-                let dest_module = req.to.as_slice();
-                let handle = <T as Config>::WeightProvider::module_callback(dest_module)
+                let dest_module = codec::Decode::decode(&mut req.to.as_slice()).ok();
+                let handle = dest_module
+                    .map(|id| <T as Config>::WeightProvider::module_callback(id))
+                    .flatten()
                     .unwrap_or(Box::new(()));
                 acc + handle.on_accept(&req)
             });
@@ -198,10 +200,15 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 let state_machine = proof.height.id;
                 let cb_weight = responses.iter().fold(Weight::zero(), |acc, res| {
                     let dest_module = match res {
-                        Response::Post(ref post) => post.post.from.as_slice(),
+                        Response::Post(ref post) => {
+                            codec::Decode::decode(&mut post.post.from.as_slice()).ok()
+                        }
                         _ => return acc,
                     };
-                    let handle = <T as Config>::WeightProvider::module_callback(dest_module)
+
+                    let handle = dest_module
+                        .map(|id| <T as Config>::WeightProvider::module_callback(id))
+                        .flatten()
                         .unwrap_or(Box::new(()));
                     acc + handle.on_response(&res)
                 });
@@ -222,10 +229,14 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 let state_machine = proof.height.id;
                 let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
                     let dest_module = match req {
-                        Request::Get(ref get) => get.from.as_slice(),
+                        Request::Get(ref get) => {
+                            codec::Decode::decode(&mut get.from.as_slice()).ok()
+                        }
                         _ => return acc,
                     };
-                    let handle = <T as Config>::WeightProvider::module_callback(dest_module)
+                    let handle = dest_module
+                        .map(|id| <T as Config>::WeightProvider::module_callback(id))
+                        .flatten()
                         .unwrap_or(Box::new(()));
                     acc + handle.on_response(&Response::Get(GetResponse {
                         get: req.get_request().unwrap(),
@@ -251,10 +262,14 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 let state_machine = timeout_proof.height.id;
                 let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
                     let dest_module = match req {
-                        Request::Post(ref post) => post.from.as_slice(),
+                        Request::Post(ref post) => {
+                            codec::Decode::decode(&mut post.from.as_slice()).ok()
+                        }
                         _ => return acc,
                     };
-                    let handle = <T as Config>::WeightProvider::module_callback(dest_module)
+                    let handle = dest_module
+                        .map(|id| <T as Config>::WeightProvider::module_callback(id))
+                        .flatten()
                         .unwrap_or(Box::new(()));
                     acc + handle.on_timeout(&req)
                 });
@@ -277,10 +292,14 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
             TimeoutMessage::Get { requests } => {
                 let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
                     let dest_module = match req {
-                        Request::Get(ref get) => get.from.as_slice(),
+                        Request::Get(ref get) => {
+                            codec::Decode::decode(&mut get.from.as_slice()).ok()
+                        }
                         _ => return acc,
                     };
-                    let handle = <T as Config>::WeightProvider::module_callback(dest_module)
+                    let handle = dest_module
+                        .map(|id| <T as Config>::WeightProvider::module_callback(id))
+                        .flatten()
                         .unwrap_or(Box::new(()));
                     acc + handle.on_timeout(&req)
                 });

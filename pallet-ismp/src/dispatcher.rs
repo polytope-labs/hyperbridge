@@ -20,11 +20,9 @@ use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use ismp_primitives::mmr::Leaf;
 use ismp_rs::{
+    error::Error as IsmpError,
     host::IsmpHost,
-    router::{
-        DispatchError, DispatchRequest, DispatchResult, DispatchSuccess, Get, IsmpDispatcher, Post,
-        PostResponse, Request, Response,
-    },
+    router::{DispatchRequest, Get, IsmpDispatcher, Post, PostResponse, Request, Response},
     util::{hash_request, hash_response},
 };
 use sp_core::H256;
@@ -50,7 +48,7 @@ where
     T: Config,
     <T as frame_system::Config>::Hash: From<H256>,
 {
-    fn dispatch_request(&self, request: DispatchRequest) -> DispatchResult {
+    fn dispatch_request(&self, request: DispatchRequest) -> Result<(), IsmpError> {
         let host = Host::<T>::default();
         let request = match request {
             DispatchRequest::Get(dispatch_get) => {
@@ -83,11 +81,8 @@ where
 
         let (dest_chain, source_chain, nonce) =
             (request.dest_chain(), request.source_chain(), request.nonce());
-        Pallet::<T>::mmr_push(Leaf::Request(request)).ok_or_else(|| DispatchError {
-            msg: "Failed to push request into mmr".to_string(),
-            nonce,
-            source: source_chain,
-            dest: dest_chain,
+        Pallet::<T>::mmr_push(Leaf::Request(request)).ok_or_else(|| {
+            IsmpError::ImplementationSpecific("Failed to push request into mmr".to_string())
         })?;
         // Deposit Event
         Pallet::<T>::deposit_event(Event::Request {
@@ -97,31 +92,23 @@ where
         });
         // We need this step since it's not trivial to check the mmr for commitments on chain
         OutgoingRequestAcks::<T>::insert(commitment, Receipt::Ok);
-        Ok(DispatchSuccess { dest_chain, source_chain, nonce })
+        Ok(())
     }
 
-    fn dispatch_response(&self, response: PostResponse) -> DispatchResult {
+    fn dispatch_response(&self, response: PostResponse) -> Result<(), IsmpError> {
         let response = Response::Post(response);
 
         let commitment = hash_response::<Host<T>>(&response).0.to_vec();
 
         if OutgoingResponseAcks::<T>::contains_key(commitment.clone()) {
-            Err(DispatchError {
-                msg: "Duplicate response".to_string(),
-                nonce: response.nonce(),
-                source: response.source_chain(),
-                dest: response.dest_chain(),
-            })?
+            Err(IsmpError::ImplementationSpecific("Duplicate response".to_string()))?
         }
 
         let (dest_chain, source_chain, nonce) =
             (response.dest_chain(), response.source_chain(), response.nonce());
 
-        Pallet::<T>::mmr_push(Leaf::Response(response)).ok_or_else(|| DispatchError {
-            msg: "Failed to push response into mmr".to_string(),
-            nonce,
-            source: source_chain,
-            dest: dest_chain,
+        Pallet::<T>::mmr_push(Leaf::Response(response)).ok_or_else(|| {
+            IsmpError::ImplementationSpecific("Failed to push response into mmr".to_string())
         })?;
 
         Pallet::<T>::deposit_event(Event::Response {
@@ -130,6 +117,6 @@ where
             source_chain,
         });
         OutgoingResponseAcks::<T>::insert(commitment, Receipt::Ok);
-        Ok(DispatchSuccess { dest_chain, source_chain, nonce })
+        Ok(())
     }
 }

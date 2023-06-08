@@ -15,10 +15,11 @@
 
 //! Pallet primitives
 use core::time::Duration;
-use frame_support::RuntimeDebug;
+use frame_support::{PalletId, RuntimeDebug};
 use ismp_primitives::mmr::{LeafIndex, NodeIndex};
 use ismp_rs::consensus::{ConsensusClient, ConsensusClientId};
 use scale_info::TypeInfo;
+use sp_core::{crypto::AccountId32, H160};
 use sp_std::prelude::*;
 
 /// The `ConsensusEngineId` of ISMP.
@@ -61,4 +62,15 @@ pub trait ConsensusClientProvider {
 
     /// Returns the challenge period configured for a consensus client
     fn challenge_period(id: ConsensusClientId) -> Duration;
+}
+
+/// Module identification types supported by ismp
+#[derive(codec::Encode, codec::Decode, PartialEq, Eq, scale_info::TypeInfo)]
+pub enum ModuleId {
+    /// Unique Pallet identification in runtime
+    Pallet(PalletId),
+    /// Contract account id
+    Contract(AccountId32),
+    /// Evm contract
+    Evm(H160),
 }

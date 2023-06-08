@@ -19,7 +19,7 @@ use crate::{
     consensus::{ConsensusClientId, StateMachineHeight},
     host::StateMachine,
 };
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 use core::time::Duration;
 
 /// Errors that may be encountered by the ISMP module
@@ -135,4 +135,6 @@ pub enum Error {
     },
     /// Supplied proof height is invalid
     InsufficientProofHeight,
+    /// An Ismp Module was not found for the given raw id
+    ModuleNotFound(Vec<u8>),
 }

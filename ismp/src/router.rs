@@ -15,11 +15,13 @@
 
 //! IsmpRouter definition
 
-use crate::{error::Error, host::StateMachine, prelude::Vec};
-use alloc::{
-    collections::BTreeMap,
-    string::{String, ToString},
+use crate::{
+    error::Error,
+    host::StateMachine,
+    module::{DispatchResult, IsmpModule},
+    prelude::Vec,
 };
+use alloc::{boxed::Box, collections::BTreeMap, string::ToString};
 use codec::{Decode, Encode};
 use core::time::Duration;
 
@@ -89,6 +91,22 @@ impl Request {
         match self {
             Request::Get(get) => get.source_chain,
             Request::Post(post) => post.source_chain,
+        }
+    }
+
+    /// Module where this request originated on source chain
+    pub fn source_module(&self) -> Vec<u8> {
+        match self {
+            Request::Get(get) => get.from.clone(),
+            Request::Post(post) => post.from.clone(),
+        }
+    }
+
+    /// Module that this request will be routed to on destination chain
+    pub fn destination_module(&self) -> Vec<u8> {
+        match self {
+            Request::Get(get) => get.from.clone(),
+            Request::Post(post) => post.to.clone(),
         }
     }
 
@@ -202,6 +220,14 @@ impl Response {
         }
     }
 
+    /// Module that this response will be routed to on destination chain
+    pub fn destination_module(&self) -> Vec<u8> {
+        match self {
+            Response::Get(get) => get.get.from.clone(),
+            Response::Post(post) => post.post.from.clone(),
+        }
+    }
+
     /// Get the source chain for this response
     pub fn source_chain(&self) -> StateMachine {
         match self {
@@ -235,43 +261,12 @@ pub enum RequestResponse {
     Response(Vec<Response>),
 }
 
-/// The result of successfully dispatching a request or response
-#[derive(Debug, PartialEq, Eq)]
-pub struct DispatchSuccess {
-    /// Destination chain for request or response
-    pub dest_chain: StateMachine,
-    /// Source chain for request or response
-    pub source_chain: StateMachine,
-    /// Request nonce
-    pub nonce: u64,
-}
-
-/// The result of unsuccessfully dispatching a request or response
-#[derive(Debug, PartialEq, Eq)]
-pub struct DispatchError {
-    /// Descriptive error message
-    pub msg: String,
-    /// Request nonce
-    pub nonce: u64,
-    /// Source chain for request or response
-    pub source: StateMachine,
-    /// Destination chain for request or response
-    pub dest: StateMachine,
-}
-
-/// A type alias for dispatch results
-pub type DispatchResult = Result<DispatchSuccess, DispatchError>;
-
 /// The Ismp router dictates how messsages are routed to [`IsmpModules`]
 pub trait IsmpRouter {
-    /// Dispatch the incoming request to destination modules
-    fn handle_request(&self, request: Post) -> DispatchResult;
-
-    /// Dispatch the request timeouts to destination modules
-    fn handle_timeout(&self, request: Request) -> DispatchResult;
-
-    /// Dispatch the incoming response to destination modules
-    fn handle_response(&self, response: Response) -> DispatchResult;
+    /// Get module handler by id
+    /// Should decode the module id and return a handler to the appropriate `IsmpModule`
+    /// implementation
+    fn module_for_id(&self, bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error>;
 }
 
 /// Simplified POST request, intended to be used for sending outgoing requests

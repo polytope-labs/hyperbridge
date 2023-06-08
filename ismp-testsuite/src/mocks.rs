@@ -6,9 +6,10 @@ use ismp::{
     error::Error,
     host::{IsmpHost, StateMachine},
     messaging::{Proof, StateCommitmentHeight},
+    module::{DispatchError, DispatchResult, DispatchSuccess, IsmpModule},
     router::{
-        DispatchError, DispatchRequest, DispatchResult, DispatchSuccess, Get, IsmpDispatcher,
-        IsmpRouter, Post, PostResponse, Request, RequestResponse, Response,
+        DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse, Request,
+        RequestResponse, Response,
     },
     util::{hash_request, hash_response},
 };
@@ -266,38 +267,40 @@ impl IsmpHost for Host {
     }
 }
 
-pub struct MockRouter(pub Host);
+#[derive(Default)]
+pub struct MockModule;
 
-impl IsmpRouter for MockRouter {
-    fn handle_request(&self, request: Post) -> DispatchResult {
-        let host = &self.0.clone();
-        let request = Request::Post(request);
-        if request.dest_chain() != host.host_state_machine() {
-        } else {
-            host.store_request_receipt(&request).unwrap();
-        }
-
+impl IsmpModule for MockModule {
+    fn on_accept(&self, request: Post) -> DispatchResult {
         Ok(DispatchSuccess {
-            dest_chain: request.dest_chain(),
-            source_chain: request.source_chain(),
-            nonce: request.nonce(),
+            dest_chain: request.dest_chain,
+            source_chain: request.source_chain,
+            nonce: request.nonce,
         })
     }
 
-    fn handle_timeout(&self, request: Request) -> DispatchResult {
-        Ok(DispatchSuccess {
-            dest_chain: request.dest_chain(),
-            source_chain: request.source_chain(),
-            nonce: request.nonce(),
-        })
-    }
-
-    fn handle_response(&self, response: Response) -> DispatchResult {
+    fn on_response(&self, response: Response) -> DispatchResult {
         Ok(DispatchSuccess {
             dest_chain: response.dest_chain(),
             source_chain: response.source_chain(),
             nonce: response.nonce(),
         })
+    }
+
+    fn on_timeout(&self, request: Request) -> DispatchResult {
+        Ok(DispatchSuccess {
+            dest_chain: request.dest_chain(),
+            source_chain: request.source_chain(),
+            nonce: request.nonce(),
+        })
+    }
+}
+
+pub struct MockRouter(pub Host);
+
+impl IsmpRouter for MockRouter {
+    fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+        Ok(Box::new(MockModule))
     }
 }
 

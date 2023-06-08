@@ -19,9 +19,9 @@ use crate::{
     error::Error,
     host::IsmpHost,
     messaging::Message,
-    router::DispatchResult,
 };
 
+use crate::module::DispatchResult;
 use alloc::{boxed::Box, collections::BTreeSet, vec::Vec};
 pub use consensus::create_client;
 

@@ -67,7 +67,8 @@ where
             requests
                 .into_iter()
                 .map(|request| {
-                    let res = router.handle_timeout(request.clone());
+                    let cb = router.module_for_id(request.source_module())?;
+                    let res = cb.on_timeout(request.clone());
                     host.delete_request_commitment(&request)?;
                     Ok(res)
                 })
@@ -99,7 +100,8 @@ where
             requests
                 .into_iter()
                 .map(|request| {
-                    let res = router.handle_timeout(request.clone());
+                    let cb = router.module_for_id(request.source_module())?;
+                    let res = cb.on_timeout(request.clone());
                     host.delete_request_commitment(&request)?;
                     Ok(res)
                 })

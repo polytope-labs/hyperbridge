@@ -1,4 +1,4 @@
-# pallet-ismp ![Unit Tests](https://github.com/polytope-labs/substrate-ismp/actions/workflows/ci.yml/badge.svg) [![Telegram: YourGroup](https://img.shields.io/badge/-Telegram-blue?style=flat-square&logo=Telegram&logoColor=white&link=https://t.me/YourGroup)](https://t.me/ismp_support) [![Discord: YourServer](https://img.shields.io/badge/-Discord-7289DA?style=flat-square&logo=Discord&logoColor=white&link=https://discord.gg/YourServer)](https://discord.gg/vKAa3XcCBX)
+# pallet-ismp ![Unit Tests](https://github.com/polytope-labs/substrate-ismp/actions/workflows/ci.yml/badge.svg) [![Telegram: YourGroup](https://img.shields.io/badge/-Telegram-blue?style=flat-square&logo=Telegram&logoColor=white&link=https://t.me/YourGroup)](https://t.me/ismp_guide) [![Discord: YourServer](https://img.shields.io/badge/-Discord-7289DA?style=flat-square&logo=Discord&logoColor=white&link=https://discord.gg/YourServer)](https://discord.gg/vKAa3XcCBX)
 
 Implementation of the Interoperable State Machine Protocol for substrate runtimes. This project is [funded by the web3 foundation](https://github.com/w3f/Grants-Program/blob/master/applications/ismp.md).
 
@@ -21,6 +21,13 @@ This repo holds all the required components substrate runtimes need to interoper
 Installation and integration guides can be found in the [book](https://substrate-ismp.polytope.technology).
 
 ## Testing and Testing Guide
+This guide assumes [Rust](https://www.rust-lang.org/tools/install) and  it's [nightly](https://rust-lang.github.io/rustup/concepts/channels.html#:~:text=it%20just%20run-,rustup%20toolchain%20install%20nightly,-%3A) version is installed, followed by calling the [init](https://github.com/paritytech/polkadot/blob/master/scripts/init.sh) script from the official Polkadot repo to initailize a WASM build environment.
+
+To run the unit tests associated with this library;
+```
+cargo +nightly test -p pallet-ismp --all-targets --all-features
+```
+
 Please see [CI](.github/workflows/ci.yml) for test coverage.
 
 ## Run Test in Docker

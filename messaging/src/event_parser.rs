@@ -1,5 +1,6 @@
 use ismp::{
     consensus::StateMachineHeight,
+    host::StateMachine,
     messaging::{Message, Proof, RequestMessage, ResponseMessage},
     router::Request,
 };
@@ -9,11 +10,14 @@ use tesseract_primitives::{IsmpHost, Query};
 /// Parse events emitted from [`source`] into messages to be submitted to the counterparty
 /// The [`state_machine_height`] parameter is the latest available height of [`source`] on
 /// the counterparty chain
-pub async fn parse_ismp_events<A: IsmpHost>(
+/// Returns a tuple where the first item are messages to be submitted to the sink
+/// and the second items are messages to be submitted to the source
+pub async fn parse_ismp_events<A: IsmpHost, B: IsmpHost>(
     source: &A,
+    sink: &B,
     events: Vec<Event>,
     state_machine_height: StateMachineHeight,
-) -> Result<Vec<Message>, anyhow::Error> {
+) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error> {
     let mut request_queries = vec![];
     let mut response_queries = vec![];
 
@@ -33,21 +37,65 @@ pub async fn parse_ismp_events<A: IsmpHost>(
         }
     }
     let mut messages = vec![];
+    let mut get_responses = vec![];
 
     if !request_queries.is_empty() {
-        let requests = source
-            .query_requests(request_queries.clone())
-            .await?
-            .into_iter()
-            .filter(|req| matches!(&req, &Request::Post(..)))
+        let requests = source.query_requests(request_queries.clone()).await?;
+        let mut post_requests = vec![];
+        let mut get_requests = vec![];
+
+        for request in requests {
+            match request {
+                Request::Post(post) => post_requests.push(post),
+                Request::Get(get) => get_requests.push(get),
+            }
+        }
+
+        let post_request_queries: Vec<_> = post_requests
+            .iter()
+            .map(|req| Query {
+                source_chain: req.source_chain,
+                dest_chain: req.dest_chain,
+                nonce: req.nonce,
+            })
             .collect();
-        let requests_proof =
-            source.query_requests_proof(state_machine_height.height, request_queries).await?;
-        let msg = RequestMessage {
-            requests,
-            proof: Proof { height: state_machine_height, proof: requests_proof },
-        };
-        messages.push(Message::Request(msg))
+        if !post_request_queries.is_empty() {
+            let requests_proof = source
+                .query_requests_proof(state_machine_height.height, post_request_queries)
+                .await?;
+            let msg = RequestMessage {
+                requests: post_requests,
+                proof: Proof { height: state_machine_height, proof: requests_proof },
+            };
+            messages.push(Message::Request(msg));
+        }
+
+        // Handle get messages
+        // Only handles cases where the get request height is <= the latest state machine
+        // update
+        // todo: Handle cases where the get is requested for a height in the future
+        let sink_latest_height_on_source =
+            source.query_latest_state_machine_height(sink.state_machine_id()).await? as u64;
+        log::info!(
+            target: "tesseract",
+            "Get requests {:?}",
+            get_requests
+        );
+        dbg!(sink_latest_height_on_source);
+        for get_request in get_requests {
+            let height = get_request.height;
+            if height <= sink_latest_height_on_source {
+                let state_proof = sink.query_state_proof(height, get_request.keys.clone()).await?;
+                let msg = ResponseMessage::Get {
+                    requests: vec![Request::Get(get_request)],
+                    proof: Proof {
+                        height: StateMachineHeight { id: sink.state_machine_id(), height },
+                        proof: state_proof,
+                    },
+                };
+                get_responses.push(Message::Response(msg))
+            }
+        }
     };
 
     if !response_queries.is_empty() {
@@ -61,5 +109,14 @@ pub async fn parse_ismp_events<A: IsmpHost>(
         messages.push(Message::Response(msg))
     };
 
-    Ok(messages)
+    Ok((messages, get_responses))
+}
+
+/// Return true for Request and Response events designated for the counterparty
+pub fn filter_events(counterparty: StateMachine, ev: &Event) -> bool {
+    match ev {
+        Event::Response { dest_chain, .. } => *dest_chain == counterparty,
+        Event::Request { dest_chain, .. } => *dest_chain == counterparty,
+        _ => false,
+    }
 }

@@ -16,12 +16,12 @@ urlencoding = "2.1.2"
 hex-literal = "0.4.1"
 parking_lot = "0.12.1"
 
-ismp-parachain = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
-pallet-ismp = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
-ismp-assets = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
-ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main" }
-ismp-rpc = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
-ismp-primitives = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
+ismp-parachain = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+ismp-demo = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
+ismp-rpc = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
 tesseract-primitives = { path = "../primitives" }
 
 sp-core = { version = "20.0.0", features = ["full_crypto"] }

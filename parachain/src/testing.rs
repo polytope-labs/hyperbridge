@@ -1,6 +1,7 @@
 use crate::{host::InMemorySigner, parachain, try_sending_with_tip, ParachainClient};
 use codec::Encode;
 use futures::stream::StreamExt;
+use ismp_demo::GetRequest;
 use sp_core::Pair;
 use std::time::Duration;
 use subxt::{
@@ -55,9 +56,13 @@ where
         Ok(Duration::from_millis(timestamp))
     }
 
+    pub fn latest_state_machine_height(&self) -> u64 {
+        self.latest_state_machine_height.lock().clone()
+    }
+
     pub async fn transfer(
         &self,
-        params: ismp_assets::TransferParams<T::AccountId, u128>,
+        params: ismp_demo::TransferParams<T::AccountId, u128>,
     ) -> Result<(), anyhow::Error> {
         let signer = InMemorySigner {
             account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
@@ -65,7 +70,7 @@ where
         };
 
         let tx = parachain::api::tx()
-            .ismp_assets()
+            .ismp_demo()
             .transfer(codec::Decode::decode(&mut &*params.encode())?);
         let progress = try_sending_with_tip(&self.parachain, signer, tx).await?;
         let tx = progress.wait_for_in_block().await?;
@@ -75,10 +80,27 @@ where
         Ok(())
     }
 
-    pub async fn ismp_assets_events_stream(
+    pub async fn get_request(&self, get_req: GetRequest) -> Result<(), anyhow::Error> {
+        let signer = InMemorySigner {
+            account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
+            signer: self.signer.clone(),
+        };
+
+        let tx = parachain::api::tx()
+            .ismp_demo()
+            .get_request(codec::Decode::decode(&mut &*get_req.encode())?);
+        let progress = try_sending_with_tip(&self.parachain, signer, tx).await?;
+        let tx = progress.wait_for_in_block().await?;
+
+        tx.wait_for_success().await?;
+
+        Ok(())
+    }
+
+    pub async fn ismp_demo_events_stream<E: subxt::events::StaticEvent>(
         &self,
         count: usize,
-    ) -> Result<Vec<parachain::api::ismp_assets::events::BalanceReceived>, anyhow::Error> {
+    ) -> Result<Vec<E>, anyhow::Error> {
         let subscription = self.parachain.rpc().subscribe_best_block_headers().await?;
         let client = self.parachain.clone();
         let stream = subscription.filter_map(move |header| {
@@ -86,10 +108,7 @@ where
             async move {
                 let events = client.events().at(header.ok()?.hash()).await.ok()?;
 
-                events
-                    .find::<parachain::api::ismp_assets::events::BalanceReceived>()
-                    .collect::<Result<Vec<_>, _>>()
-                    .ok()
+                events.find::<E>().collect::<Result<Vec<_>, _>>().ok()
             }
         });
 

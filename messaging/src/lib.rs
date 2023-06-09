@@ -17,10 +17,9 @@
 
 mod event_parser;
 
-use crate::event_parser::parse_ismp_events;
+use crate::event_parser::{filter_events, parse_ismp_events};
 use futures::StreamExt;
 use ismp::consensus::StateMachineHeight;
-use pallet_ismp::events::Event;
 use tesseract_primitives::IsmpHost;
 
 pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
@@ -43,7 +42,7 @@ where
                         // We query all the events that have been emitted on chain B that can be submitted to chain A
                         // filter events list to contain only Request and Response events
                         let events = chain_b.query_ismp_events(state_machine_update).await?.into_iter()
-                            .filter(|ev| matches!(ev, Event::Request {..} | Event::Response {..})).collect::<Vec<_>>();
+                            .filter(|ev| filter_events(chain_a.state_machine_id().state_id, ev)).collect::<Vec<_>>();
 
                         if events.is_empty() {
                             continue
@@ -61,13 +60,25 @@ where
                             target: "tesseract",
                             "Latest update {:?}", state_machine_update
                         );
-                        let messages = parse_ismp_events(&chain_b, events, state_machine_height).await?;
-                        log::info!(
-                            target: "tesseract",
-                            "Submitting ismp messages from {} to {}",
-                            chain_b.name(), chain_a.name()
-                        );
-                        chain_a.submit(messages).await?;
+                        let (messages, get_responses) = parse_ismp_events(&chain_b, &chain_a, events, state_machine_height).await?;
+
+                        if !messages.is_empty() {
+                            log::info!(
+                                target: "tesseract",
+                                "Submitting ismp messages from {} to {}",
+                                chain_b.name(), chain_a.name()
+                            );
+                            chain_a.submit(messages).await?;
+                        }
+
+                        if !get_responses.is_empty() {
+                            log::info!(
+                                target: "tesseract",
+                                "Submitting GET response messages to {}",
+                                chain_b.name()
+                            );
+                            chain_b.submit(get_responses).await?;
+                        }
                     },
                     Some(Err(e)) => {
                         log::error!(
@@ -87,7 +98,7 @@ where
 
                         // filter events list to contain only Request and Response events
                         let events = chain_a.query_ismp_events(state_machine_update).await?.into_iter()
-                            .filter(|ev| matches!(&ev, Event::Request {..} | Event::Response{..})).collect::<Vec<_>>();
+                            .filter(|ev| filter_events(chain_b.state_machine_id().state_id, ev)).collect::<Vec<_>>();
                         if events.is_empty() {
                             continue
                         }
@@ -104,13 +115,24 @@ where
                             target: "tesseract",
                             "Latest update {:?}", state_machine_update
                          );
-                        let messages = parse_ismp_events(&chain_a, events, state_machine_height).await?;
-                        log::info!(
-                            target: "tesseract",
-                            "Submitting ismp messages from {} to {}",
-                            chain_a.name(), chain_b.name()
-                         );
-                        chain_b.submit(messages).await?;
+                        let (messages, get_responses) = parse_ismp_events(&chain_a, &chain_b, events, state_machine_height).await?;
+                        if !messages.is_empty() {
+                            log::info!(
+                                target: "tesseract",
+                                "Submitting ismp messages from {} to {}",
+                                chain_a.name(), chain_b.name()
+                            );
+                            chain_b.submit(messages).await?;
+                        }
+
+                        if !get_responses.is_empty() {
+                            log::info!(
+                                target: "tesseract",
+                                "Submitting GET response messages to {}",
+                                chain_a.name()
+                            );
+                            chain_a.submit(get_responses).await?;
+                        }
                     },
                     Some(Err(e)) => {
                         log::error!(

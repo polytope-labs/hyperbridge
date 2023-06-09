@@ -9,4 +9,4 @@ log = "0.4.17"
 futures = "0.3.28"
 tesseract-primitives = { path = "../primitives" }
 tokio = { version = "1.27.0", features = ["full"] }
-ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main" }
+ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }

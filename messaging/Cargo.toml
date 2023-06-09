@@ -10,7 +10,7 @@ anyhow = "1.0.70"
 log = "0.4.17"
 futures = "0.3.28"
 tokio = { version = "1.27.0", features = ["full"] }
-pallet-ismp = { git = "ssh://git@github.com/polytope-labs/substrate-ismp.git", branch = "main" }
+pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
 tesseract-primitives = { path = "../primitives" }
-ismp = { git = "ssh://git@github.com/polytope-labs/ismp-rs.git", branch = "main" }
+ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
 

@@ -71,7 +71,7 @@ use polkadot_runtime_common::{BlockHashCount, SlowAdjustingFeeUpdate};
 use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
-use crate::router::ProxyRouter;
+use crate::router::Router;
 use xcm::latest::prelude::BodyId;
 use xcm_executor::XcmExecutor;
 
@@ -520,13 +520,13 @@ impl pallet_ismp::Config for Runtime {
     type AdminOrigin = EnsureRoot<AccountId>;
     type StateMachine = StateMachineProvider;
     type TimeProvider = Timestamp;
-    type IsmpRouter = ProxyRouter;
+    type IsmpRouter = Router;
     type ConsensusClientProvider = ConsensusProvider;
     type WeightInfo = ();
     type WeightProvider = ();
 }
 
-impl ismp_assets::Config for Runtime {
+impl ismp_demo::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Balance = Balance;
     type NativeCurrency = Balances;
@@ -569,7 +569,7 @@ construct_runtime!(
         // ISMP stuff
         Ismp: pallet_ismp = 40,
         IsmpParachain: ismp_parachain = 41,
-        IsmpAssets: ismp_assets = 42,
+        IsmpDemo: ismp_demo = 42,
     }
 );
 

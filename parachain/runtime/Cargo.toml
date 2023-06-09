@@ -69,7 +69,7 @@ parachain-info = { git = "https://github.com/paritytech/cumulus.git", branch = "
 
 # polytope-labs
 pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
-ismp-assets = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
+ismp-demo = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 ismp-parachain = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 ismp-runtime-api = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 ismp-parachain-runtime-api = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
@@ -112,7 +112,7 @@ std = [
 	"ismp-primitives/std",
 	"ismp-runtime-api/std",
 	"ismp-parachain-runtime-api/std",
-	"ismp-assets/std",
+	"ismp-demo/std",
 	"parachain-info/std",
 	"polkadot-parachain/std",
 	"polkadot-runtime-common/std",

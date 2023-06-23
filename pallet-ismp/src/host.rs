@@ -16,8 +16,8 @@
 //! Host implementation for ISMP
 use crate::{
     dispatcher::Receipt, primitives::ConsensusClientProvider, Config, ConsensusClientUpdateTime,
-    ConsensusStates, FrozenConsensusClients, FrozenHeights, IncomingRequestAcks,
-    IncomingResponseAcks, LatestStateMachineHeight, Nonce, OutgoingRequestAcks, StateCommitments,
+    ConsensusStates, FrozenConsensusClients, FrozenHeights, LatestStateMachineHeight, Nonce,
+    RequestCommitments, RequestReceipts, ResponseReceipts, StateCommitments,
 };
 use alloc::{format, string::ToString};
 use core::time::Duration;
@@ -28,8 +28,8 @@ use ismp_rs::{
     },
     error::Error,
     host::{IsmpHost, StateMachine},
-    router::{IsmpRouter, Request, Response},
-    util::{hash_request, hash_response},
+    router::{IsmpRouter, Request},
+    util::hash_request,
 };
 use sp_core::H256;
 use sp_runtime::SaturatedConversion;
@@ -80,24 +80,18 @@ where
         <T::TimeProvider as UnixTime>::now()
     }
 
-    fn request_commitment(&self, req: &Request) -> Result<H256, Error> {
-        let commitment = hash_request::<Self>(req);
-
-        let _ = OutgoingRequestAcks::<T>::get(commitment.0.to_vec()).ok_or_else(|| {
-            Error::RequestCommitmentNotFound {
-                nonce: req.nonce(),
-                source: req.source_chain(),
-                dest: req.dest_chain(),
-            }
+    fn request_commitment(&self, commitment: H256) -> Result<(), Error> {
+        let _ = RequestCommitments::<T>::get(commitment.0.to_vec()).ok_or_else(|| {
+            Error::ImplementationSpecific("Request commitment not found".to_string())
         })?;
 
-        Ok(commitment)
+        Ok(())
     }
 
     fn request_receipt(&self, req: &Request) -> Option<()> {
         let commitment = hash_request::<Self>(req);
 
-        let _ = IncomingRequestAcks::<T>::get(commitment.0.to_vec())
+        let _ = RequestReceipts::<T>::get(commitment.0.to_vec())
             .ok_or_else(|| Error::RequestCommitmentNotFound {
                 nonce: req.nonce(),
                 source: req.source_chain(),
@@ -144,13 +138,13 @@ where
     fn delete_request_commitment(&self, req: &Request) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
         // We can't delete actual leaves in the mmr so this serves as a replacement for that
-        OutgoingRequestAcks::<T>::remove(hash.0.to_vec());
+        RequestCommitments::<T>::remove(hash.0.to_vec());
         Ok(())
     }
 
     fn store_request_receipt(&self, req: &Request) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
-        IncomingRequestAcks::<T>::insert(hash.0.to_vec(), Receipt::Ok);
+        RequestReceipts::<T>::insert(hash.0.to_vec(), Receipt::Ok);
         Ok(())
     }
 
@@ -195,10 +189,10 @@ where
         nonce
     }
 
-    fn response_receipt(&self, res: &Response) -> Option<()> {
-        let commitment = hash_response::<Self>(res);
+    fn response_receipt(&self, res: &Request) -> Option<()> {
+        let commitment = hash_request::<Self>(res);
 
-        let _ = IncomingResponseAcks::<T>::get(commitment.0.to_vec())
+        let _ = ResponseReceipts::<T>::get(commitment.0.to_vec())
             .ok_or_else(|| Error::ImplementationSpecific("Response receipt not found".to_string()))
             .ok()?;
 
@@ -210,9 +204,9 @@ where
         Ok(())
     }
 
-    fn store_response_receipt(&self, res: &Response) -> Result<(), Error> {
-        let hash = hash_response::<Self>(res);
-        IncomingResponseAcks::<T>::insert(hash.0.to_vec(), Receipt::Ok);
+    fn store_response_receipt(&self, req: &Request) -> Result<(), Error> {
+        let hash = hash_request::<Self>(req);
+        ResponseReceipts::<T>::insert(hash.0.to_vec(), Receipt::Ok);
         Ok(())
     }
 }

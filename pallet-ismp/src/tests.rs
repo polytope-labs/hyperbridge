@@ -26,6 +26,7 @@ use ismp_rs::{
     consensus::{IntermediateState, StateCommitment, StateMachineHeight},
     messaging::{Proof, ResponseMessage, TimeoutMessage},
     router::{DispatchGet, DispatchRequest, IsmpDispatcher},
+    util::hash_request,
 };
 use ismp_testsuite::{
     check_challenge_period, check_client_expiry, frozen_check, mocks::MOCK_CONSENSUS_CLIENT_ID,
@@ -312,7 +313,8 @@ fn should_handle_get_request_timeouts_correctly() {
         Pallet::<Test>::handle_messages(vec![Message::Timeout(timeout_msg)]).unwrap();
         for request in requests {
             // commitments should not be found in storage after timeout has been processed
-            assert!(host.request_commitment(&request).is_err())
+            let commitment = hash_request::<Host<Test>>(&request);
+            assert!(host.request_commitment(commitment).is_err())
         }
     })
 }
@@ -368,7 +370,7 @@ fn should_handle_get_request_responses_correctly() {
         Pallet::<Test>::handle_messages(vec![Message::Response(response)]).unwrap();
 
         for request in requests {
-            assert!(host.request_receipt(&request).is_some())
+            assert!(host.response_receipt(&request).is_some())
         }
     })
 }

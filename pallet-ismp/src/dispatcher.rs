@@ -14,11 +14,11 @@
 // limitations under the License.
 
 //! Implementation for the ISMP Router
-use crate::{host::Host, Config, Event, OutgoingRequestAcks, OutgoingResponseAcks, Pallet};
+use crate::{host::Host, Config, Event, Pallet, RequestCommitments, ResponseCommitments};
 use alloc::string::ToString;
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
-use ismp_primitives::mmr::Leaf;
+use ismp_primitives::{mmr::Leaf, LeafIndexQuery};
 use ismp_rs::{
     error::Error as IsmpError,
     host::IsmpHost,
@@ -91,7 +91,10 @@ where
             dest_chain,
         });
         // We need this step since it's not trivial to check the mmr for commitments on chain
-        OutgoingRequestAcks::<T>::insert(commitment, Receipt::Ok);
+        RequestCommitments::<T>::insert(
+            commitment,
+            LeafIndexQuery { source_chain, dest_chain, nonce },
+        );
         Ok(())
     }
 
@@ -100,7 +103,7 @@ where
 
         let commitment = hash_response::<Host<T>>(&response).0.to_vec();
 
-        if OutgoingResponseAcks::<T>::contains_key(commitment.clone()) {
+        if ResponseCommitments::<T>::contains_key(commitment.clone()) {
             Err(IsmpError::ImplementationSpecific("Duplicate response".to_string()))?
         }
 
@@ -116,7 +119,7 @@ where
             dest_chain,
             source_chain,
         });
-        OutgoingResponseAcks::<T>::insert(commitment, Receipt::Ok);
+        ResponseCommitments::<T>::insert(commitment, Receipt::Ok);
         Ok(())
     }
 }

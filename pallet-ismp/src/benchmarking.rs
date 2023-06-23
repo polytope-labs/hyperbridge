@@ -34,7 +34,7 @@ T: pallet_timestamp::Config,
 )]
 pub mod benchmarks {
     use super::*;
-    use crate::{dispatcher::Receipt, primitives::ModuleId};
+    use crate::primitives::ModuleId;
     use alloc::collections::BTreeMap;
     use frame_support::{traits::Hooks, PalletId};
     use frame_system::EventRecord;
@@ -49,7 +49,7 @@ pub mod benchmarks {
         },
         module::IsmpModule,
         router::{Post, PostResponse, RequestResponse},
-        util::{hash_request, hash_response},
+        util::hash_request,
     };
     use sp_std::prelude::Vec;
 
@@ -241,7 +241,7 @@ pub mod benchmarks {
         handle(RawOrigin::Signed(caller), vec![Message::Request(msg)]);
 
         let commitment = hash_request::<Host<T>>(&Request::Post(post));
-        assert!(IncomingRequestAcks::<T>::get(commitment.0.to_vec()).is_some());
+        assert!(RequestReceipts::<T>::get(commitment.0.to_vec()).is_some());
     }
 
     #[benchmark]
@@ -261,10 +261,17 @@ pub mod benchmarks {
         let request = Request::Post(post.clone());
 
         let commitment = hash_request::<Host<T>>(&request);
-        OutgoingRequestAcks::<T>::insert(commitment.0.to_vec(), Receipt::Ok);
+        RequestCommitments::<T>::insert(
+            commitment.0.to_vec(),
+            LeafIndexQuery {
+                source_chain: post.source_chain,
+                dest_chain: post.dest_chain,
+                nonce: post.nonce,
+            },
+        );
 
         let response = Response::Post(PostResponse { post, response: vec![] });
-        let response_commitment = hash_response::<Host<T>>(&response);
+        let request_commitment = hash_request::<Host<T>>(&response.request());
         let msg = ResponseMessage::Post {
             responses: vec![response],
             proof: Proof { height: intermediate_state.height, proof: vec![] },
@@ -275,7 +282,7 @@ pub mod benchmarks {
         #[extrinsic_call]
         handle(RawOrigin::Signed(caller), vec![Message::Response(msg)]);
 
-        assert!(IncomingResponseAcks::<T>::get(response_commitment.0.to_vec()).is_some());
+        assert!(ResponseReceipts::<T>::get(request_commitment.0.to_vec()).is_some());
     }
 
     #[benchmark]
@@ -295,7 +302,14 @@ pub mod benchmarks {
         let request = Request::Post(post.clone());
 
         let commitment = hash_request::<Host<T>>(&request);
-        OutgoingRequestAcks::<T>::insert(commitment.0.to_vec(), Receipt::Ok);
+        RequestCommitments::<T>::insert(
+            commitment.0.to_vec(),
+            LeafIndexQuery {
+                source_chain: post.source_chain,
+                dest_chain: post.dest_chain,
+                nonce: post.nonce,
+            },
+        );
 
         let msg = TimeoutMessage::Post {
             requests: vec![request],
@@ -306,7 +320,7 @@ pub mod benchmarks {
         #[extrinsic_call]
         handle(RawOrigin::Signed(caller), vec![Message::Timeout(msg)]);
 
-        assert!(OutgoingRequestAcks::<T>::get(commitment.0.to_vec()).is_none());
+        assert!(RequestCommitments::<T>::get(commitment.0.to_vec()).is_none());
     }
 
     #[benchmark]

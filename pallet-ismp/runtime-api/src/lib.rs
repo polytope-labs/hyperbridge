@@ -20,7 +20,7 @@
 
 use ismp_rs::{
     consensus::{ConsensusClientId, StateMachineId},
-    router::{Request, Response},
+    router::{Get, Request, Response},
 };
 use pallet_ismp::primitives::{Error, Proof};
 
@@ -65,6 +65,9 @@ sp_api::decl_runtime_apis! {
 
         /// Get actual requests
         fn get_requests(leaf_indices: Vec<LeafIndex>) -> Vec<Request>;
+
+        /// Fetch all Get requests that have received no response
+        fn pending_get_requests() -> Vec<Get>;
 
         /// Get actual requests
         fn get_responses(leaf_indices: Vec<LeafIndex>) -> Vec<Response>;

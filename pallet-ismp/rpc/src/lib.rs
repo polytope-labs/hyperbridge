@@ -30,7 +30,7 @@ use ismp_primitives::{
 };
 use ismp_rs::{
     consensus::{ConsensusClientId, StateMachineId},
-    router::{Request, Response},
+    router::{Get, Request, Response},
 };
 use ismp_runtime_api::IsmpRuntimeApi;
 use sc_client_api::{BlockBackend, ProofProvider};
@@ -128,6 +128,10 @@ where
         &self,
         block_numbers: Vec<BlockNumberOrHash<Hash>>,
     ) -> Result<HashMap<String, Vec<pallet_ismp::events::Event>>>;
+
+    /// Query pending get requests that have a `state_machine_height` <=  `height`.
+    #[method(name = "ismp_pendingGetRequests")]
+    fn pending_get_requests(&self, height: u64) -> Result<Vec<Get>>;
 }
 
 /// An implementation of ISMP specific RPC methods.
@@ -257,6 +261,15 @@ where
         api.latest_state_machine_height(at, id).ok().flatten().ok_or_else(|| {
             runtime_error_into_rpc_error("Error fetching latest state machine height")
         })
+    }
+
+    fn pending_get_requests(&self, height: u64) -> Result<Vec<Get>> {
+        let api = self.client.runtime_api();
+        let at = self.client.info().best_hash;
+
+        api.pending_get_requests(at)
+            .map(|reqs| reqs.into_iter().filter(|req| req.height <= height).collect())
+            .map_err(|_| runtime_error_into_rpc_error("Error fetching get requests"))
     }
 
     fn query_events(

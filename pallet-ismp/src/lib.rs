@@ -191,32 +191,32 @@ pub mod pallet {
     pub type ConsensusClientUpdateTime<T: Config> =
         StorageMap<_, Twox64Concat, ConsensusClientId, u64, OptionQuery>;
 
-    /// Acknowledgements for outgoing requests
+    /// Commitments for outgoing requests
     /// The key is the request commitment
     #[pallet::storage]
-    #[pallet::getter(fn outgoing_request_acks)]
-    pub type OutgoingRequestAcks<T: Config> =
-        StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
+    #[pallet::getter(fn request_commitments)]
+    pub type RequestCommitments<T: Config> =
+        StorageMap<_, Blake2_128Concat, Vec<u8>, LeafIndexQuery, OptionQuery>;
 
-    /// Acknowledgements for outgoing responses
+    /// Commitments for outgoing responses
     /// The key is the response commitment
     #[pallet::storage]
-    #[pallet::getter(fn outgoing_response_acks)]
-    pub type OutgoingResponseAcks<T: Config> =
+    #[pallet::getter(fn response_commitments)]
+    pub type ResponseCommitments<T: Config> =
         StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
 
-    /// Acknowledgements for incoming requests
+    /// Receipts for incoming requests
     /// The key is the request commitment
     #[pallet::storage]
-    #[pallet::getter(fn request_acks)]
-    pub type IncomingRequestAcks<T: Config> =
+    #[pallet::getter(fn request_receipts)]
+    pub type RequestReceipts<T: Config> =
         StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
 
-    /// Acknowledgements for incoming responses
-    /// The key is the response commitment
+    /// Receipts for incoming responses
+    /// The key is the request commitment
     #[pallet::storage]
-    #[pallet::getter(fn response_acks)]
-    pub type IncomingResponseAcks<T: Config> =
+    #[pallet::getter(fn response_receipts)]
+    pub type ResponseReceipts<T: Config> =
         StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
 
     /// Consensus update results still in challenge period
@@ -549,6 +549,20 @@ where
             return LeafIndex::decode(&mut &*elem).ok()
         }
         None
+    }
+
+    /// Get unfulfilled Get requests
+    pub fn pending_get_requests() -> Vec<ismp_rs::router::Get> {
+        RequestCommitments::<T>::iter()
+            .filter_map(|(key, query)| {
+                let leaf_index =
+                    Self::get_leaf_index(query.source_chain, query.dest_chain, query.nonce, true)?;
+                let req = Self::get_request(leaf_index)?;
+                (req.is_type_get() && !ResponseReceipts::<T>::contains_key(key))
+                    .then(|| req.get_request().ok())
+                    .flatten()
+            })
+            .collect()
     }
 
     /// Return the scale encoded consensus state

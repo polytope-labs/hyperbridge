@@ -60,7 +60,7 @@ where
                     nonce: request.nonce,
                 })
                 .map_err(|e| DispatchError {
-                    msg: format!("{:?}", e),
+                    msg: format!("{e:?}"),
                     nonce: request.nonce,
                     source_chain: request.source_chain,
                     dest_chain: request.dest_chain,

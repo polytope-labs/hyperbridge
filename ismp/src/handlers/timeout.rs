@@ -36,14 +36,8 @@ where
             let state = host.state_machine_commitment(timeout_proof.height)?;
             for request in &requests {
                 // Ensure a commitment exists for all requests in the batch
-                let commitment = host.request_commitment(request)?;
-                if commitment != hash_request::<H>(request) {
-                    return Err(Error::RequestCommitmentNotFound {
-                        nonce: request.nonce(),
-                        source: request.source_chain(),
-                        dest: request.dest_chain(),
-                    })
-                }
+                let commitment = hash_request::<H>(request);
+                host.request_commitment(commitment)?;
 
                 if !request.timed_out(state.timestamp()) {
                     Err(Error::RequestTimeoutNotElapsed {
@@ -77,7 +71,7 @@ where
                             nonce: request.nonce(),
                         })
                         .map_err(|e| DispatchError {
-                            msg: format!("{:?}", e),
+                            msg: format!("{e:?}"),
                             nonce: request.nonce(),
                             source_chain: request.source_chain(),
                             dest_chain: request.dest_chain(),
@@ -89,14 +83,8 @@ where
         }
         TimeoutMessage::Get { requests } => {
             for request in &requests {
-                let commitment = host.request_commitment(request)?;
-                if commitment != hash_request::<H>(request) {
-                    return Err(Error::RequestCommitmentNotFound {
-                        nonce: request.nonce(),
-                        source: request.source_chain(),
-                        dest: request.dest_chain(),
-                    })
-                }
+                let commitment = hash_request::<H>(request);
+                host.request_commitment(commitment)?;
 
                 // Ensure the get timeout has elapsed on the host
                 if !request.timed_out(host.timestamp()) {
@@ -122,7 +110,7 @@ where
                             nonce: request.nonce(),
                         })
                         .map_err(|e| DispatchError {
-                            msg: format!("{:?}", e),
+                            msg: format!("{e:?}"),
                             nonce: request.nonce(),
                             source_chain: request.source_chain(),
                             dest_chain: request.dest_chain(),

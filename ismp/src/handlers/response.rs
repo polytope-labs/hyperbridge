@@ -32,23 +32,22 @@ where
     H: IsmpHost,
 {
     let state_machine = validate_state_machine(host, msg.proof().height)?;
-    for request in &msg.requests() {
-        // For a response to be valid a request commitment must be present in storage
-        let commitment = host.request_commitment(request)?;
-
-        if commitment != hash_request::<H>(request) {
-            return Err(Error::RequestCommitmentNotFound {
-                nonce: request.nonce(),
-                source: request.source_chain(),
-                dest: request.dest_chain(),
-            })
-        }
-    }
 
     let state = host.state_machine_commitment(msg.proof().height)?;
 
     let result = match msg {
         ResponseMessage::Post { responses, proof } => {
+            // For a response to be valid a request commitment must be present in storage
+            // Also we must not have received a response for this request
+            let responses = responses
+                .into_iter()
+                .filter(|response| {
+                    let request = response.request();
+                    let commitment = hash_request::<H>(&request);
+                    host.request_commitment(commitment).is_ok() &&
+                        host.response_receipt(&request).is_none()
+                })
+                .collect::<Vec<_>>();
             // Verify membership proof
             state_machine.verify_membership(
                 host,
@@ -61,7 +60,6 @@ where
 
             responses
                 .into_iter()
-                .filter(|res| host.response_receipt(res).is_none())
                 .map(|response| {
                     let cb = router.module_for_id(response.destination_module())?;
                     let res = cb
@@ -72,17 +70,25 @@ where
                             nonce: response.nonce(),
                         })
                         .map_err(|e| DispatchError {
-                            msg: format!("{:?}", e),
+                            msg: format!("{e:?}"),
                             nonce: response.nonce(),
                             source_chain: response.source_chain(),
                             dest_chain: response.dest_chain(),
                         });
-                    host.store_response_receipt(&response)?;
+                    host.store_response_receipt(&response.request())?;
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?
         }
         ResponseMessage::Get { requests, proof } => {
+            let requests = requests
+                .into_iter()
+                .filter(|request| {
+                    let commitment = hash_request::<H>(request);
+                    host.request_commitment(commitment).is_ok() &&
+                        host.response_receipt(request).is_none()
+                })
+                .collect::<Vec<_>>();
             // Ensure the proof height is greater than each retrieval height specified in the Get
             // requests
             sufficient_proof_height(&requests, &proof)?;
@@ -90,7 +96,6 @@ where
             // individually
             requests
                 .into_iter()
-                .filter(|req| host.request_receipt(req).is_none())
                 .map(|request| {
                     let keys = request.keys().ok_or_else(|| {
                         Error::ImplementationSpecific("Missing keys for get request".to_string())
@@ -110,12 +115,12 @@ where
                             nonce: request.nonce(),
                         })
                         .map_err(|e| DispatchError {
-                            msg: format!("{:?}", e),
+                            msg: format!("{e:?}"),
                             nonce: request.nonce(),
                             source_chain: request.source_chain(),
                             dest_chain: request.dest_chain(),
                         });
-                    host.store_request_receipt(&request)?;
+                    host.store_response_receipt(&request)?;
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?

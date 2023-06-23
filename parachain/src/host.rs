@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{parachain, try_sending_with_tip, ParachainClient};
+use crate::{extrinsic::Extrinsic, send_extrinsic, ParachainClient};
 use codec::Encode;
 use futures::Stream;
 use ismp::{
@@ -84,9 +84,9 @@ where
             signer: self.signer.clone(),
         };
 
-        let tx =
-            parachain::api::tx().ismp().handle(codec::Decode::decode(&mut &*messages.encode())?);
-        let progress = try_sending_with_tip(&self.parachain, signer, tx).await?;
+        let call = messages.encode();
+        let tx = Extrinsic::new("Ismp", "handle", call);
+        let progress = send_extrinsic(&self.parachain, signer, tx).await?;
         let tx = progress.wait_for_in_block().await?;
         tx.wait_for_success().await?;
 

@@ -42,12 +42,11 @@ pub async fn parse_ismp_events<A: IsmpHost, B: IsmpHost>(
     if !request_queries.is_empty() {
         let requests = source.query_requests(request_queries.clone()).await?;
         let mut post_requests = vec![];
-        let mut get_requests = vec![];
 
         for request in requests {
             match request {
                 Request::Post(post) => post_requests.push(post),
-                Request::Get(get) => get_requests.push(get),
+                _ => {}
             }
         }
 
@@ -69,34 +68,29 @@ pub async fn parse_ismp_events<A: IsmpHost, B: IsmpHost>(
             };
             messages.push(Message::Request(msg));
         }
-
-        // Handle get messages
-        // Only handles cases where the get request height is <= the latest state machine
-        // update
-        // todo: Handle cases where the get is requested for a height in the future
-        let sink_latest_height_on_source =
-            source.query_latest_state_machine_height(sink.state_machine_id()).await? as u64;
-        log::info!(
-            target: "tesseract",
-            "Get requests {:?}",
-            get_requests
-        );
-        dbg!(sink_latest_height_on_source);
-        for get_request in get_requests {
-            let height = get_request.height;
-            if height <= sink_latest_height_on_source {
-                let state_proof = sink.query_state_proof(height, get_request.keys.clone()).await?;
-                let msg = ResponseMessage::Get {
-                    requests: vec![Request::Get(get_request)],
-                    proof: Proof {
-                        height: StateMachineHeight { id: sink.state_machine_id(), height },
-                        proof: state_proof,
-                    },
-                };
-                get_responses.push(Message::Response(msg))
-            }
-        }
     };
+
+    // Let's handle get requests
+    let sink_latest_height_on_source =
+        source.query_latest_state_machine_height(sink.state_machine_id()).await? as u64;
+    let get_requests = source.query_pending_get_requests(sink_latest_height_on_source).await?;
+    log::info!(
+        target: "tesseract",
+        "Get requests {:?}",
+        get_requests
+    );
+    for get_request in get_requests {
+        let height = get_request.height;
+        let state_proof = sink.query_state_proof(height, get_request.keys.clone()).await?;
+        let msg = ResponseMessage::Get {
+            requests: vec![Request::Get(get_request)],
+            proof: Proof {
+                height: StateMachineHeight { id: sink.state_machine_id(), height },
+                proof: state_proof,
+            },
+        };
+        get_responses.push(Message::Response(msg))
+    }
 
     if !response_queries.is_empty() {
         let responses = source.query_responses(response_queries.clone()).await?;

@@ -2,6 +2,7 @@
 name = "tesseract"
 version = "0.1.0"
 edition = "2021"
+description = "Chain agnostic relayer implementation for ISMP"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [workspace]

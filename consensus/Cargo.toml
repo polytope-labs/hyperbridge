@@ -2,6 +2,8 @@
 name = "tesseract-consensus"
 version = "0.1.0"
 edition = "2021"
+description = "Chain agnostic ISMP consensus relay"
+authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 anyhow = "1.0.70"

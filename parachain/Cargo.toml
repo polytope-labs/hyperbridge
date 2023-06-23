@@ -7,8 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 anyhow = "1.0.70"
-#subxt = { version = "0.28.0", features = ["substrate-compat"] }
-subxt = { git = "https://github.com/polytope-labs/subxt", branch = "master", features = ["substrate-compat"] }
+subxt = { version = "0.29.0", features = ["substrate-compat"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 futures = "0.3.28"
 async-trait = "0.1.53"
@@ -24,7 +23,7 @@ ismp-rpc = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "
 ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
 tesseract-primitives = { path = "../primitives" }
 
-sp-core = { version = "20.0.0", features = ["full_crypto"] }
+sp-core = { version = "21.0.0", features = ["full_crypto"] }
 
 [features]
 testing = []

@@ -13,36 +13,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! tesseract-parachain client implementation
+//! Parachain client implementation for tesseract.
 
-use codec::Encode;
-use ismp::{host::StateMachine, messaging::CreateConsensusClient};
+use ismp::host::StateMachine;
 use parking_lot::Mutex;
 use sp_core::{bytes::from_hex, sp_std::sync::Arc, sr25519, Pair};
 use subxt::{
     config::{
         extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
     },
-    ext::{
-        scale_encode::EncodeAsFields,
-        sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
-    },
-    tx::{Payload, TxProgress},
+    ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+    tx::{TxPayload, TxProgress},
     OnlineClient, PolkadotConfig,
 };
 
 mod byzantine;
 mod codegen;
+mod extrinsic;
 mod host;
 mod notifications;
 mod provider;
 #[cfg(feature = "testing")]
 mod testing;
 
-use crate::{
-    host::InMemorySigner,
-    parachain::api::{runtime_types, runtime_types::hyperbridge_runtime},
-};
+use crate::host::InMemorySigner;
 pub use codegen::*;
 
 pub struct ParachainConfig {
@@ -110,43 +104,16 @@ where
         })
     }
 
-    pub async fn create_consensus_client(
-        &self,
-        message: CreateConsensusClient,
-    ) -> Result<(), anyhow::Error> {
-        let signer = InMemorySigner {
-            account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
-            signer: self.signer.clone(),
-        };
-
-        let tx = parachain::api::tx().sudo().sudo(hyperbridge_runtime::RuntimeCall::Ismp(
-            runtime_types::pallet_ismp::pallet::Call::create_consensus_client {
-                message: codec::Decode::decode(&mut &*message.encode())?,
-            },
-        ));
-        let tx = self
-            .parachain
-            .tx()
-            .sign_and_submit_then_watch_default(&tx, &signer)
-            .await?
-            .wait_for_in_block()
-            .await?;
-
-        tx.wait_for_success().await?;
-
-        Ok(())
-    }
-
     pub fn account(&self) -> T::AccountId {
         MultiSigner::Sr25519(self.signer.public()).into_account().into()
     }
 }
 
-/// Send transaction with a tip
-pub async fn try_sending_with_tip<T: subxt::Config, CallData: EncodeAsFields>(
+/// Send a transaction
+pub async fn send_extrinsic<T: subxt::Config, Tx: TxPayload>(
     client: &OnlineClient<T>,
     signer: InMemorySigner<T>,
-    payload: Payload<CallData>,
+    payload: Tx,
 ) -> Result<TxProgress<T, OnlineClient<T>>, anyhow::Error>
 where
     <T::ExtrinsicParams as ExtrinsicParams<T::Index, T::Hash>>::OtherParams:
@@ -154,8 +121,6 @@ where
     T::Signature: From<MultiSignature> + Send + Sync,
 {
     let other_params = BaseExtrinsicParamsBuilder::new();
-    let base_tip = 10_000;
-    let other_params = other_params.tip(PlainTip::new(base_tip));
     let progress =
         client.tx().sign_and_submit_then_watch(&payload, &signer, other_params.into()).await?;
     Ok(progress)

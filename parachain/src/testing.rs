@@ -1,6 +1,24 @@
-use crate::{host::InMemorySigner, parachain, try_sending_with_tip, ParachainClient};
+// Copyright (C) 2023 Polytope Labs.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Testing utilities
+
+use crate::{extrinsic::Extrinsic, host::InMemorySigner, send_extrinsic, ParachainClient};
 use codec::Encode;
 use futures::stream::StreamExt;
+use hex_literal::hex;
 use ismp_demo::GetRequest;
 use sp_core::Pair;
 use std::time::Duration;
@@ -8,8 +26,8 @@ use subxt::{
     config::{
         extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
     },
+    events::EventDetails,
     ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
-    utils::AccountId32,
 };
 
 impl<T> ParachainClient<T>
@@ -27,32 +45,11 @@ where
         + Sync,
     T::Signature: From<MultiSignature> + Send + Sync,
 {
-    pub async fn balance(&self) -> Result<u128, anyhow::Error> {
-        let addr =
-            parachain::api::storage().system().account(<sp_core::sr25519::Public as Into<
-                AccountId32,
-            >>::into(self.signer.public()));
-        let account = self
-            .parachain
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&addr)
-            .await?
-            .expect("Account should exist");
-        Ok(account.data.free)
-    }
-
     pub async fn timestamp(&self) -> Result<Duration, anyhow::Error> {
-        let addr = parachain::api::storage().timestamp().now();
-        let timestamp = self
-            .parachain
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&addr)
-            .await?
-            .expect("Timestamp should exist");
+        let addr: [u8; 32] =
+            hex!("f0c365c3cf59d671eb72da0e7a4113c49f1f0515f462cdcf84e0f1d6045dfcbb");
+        let timestamp = self.parachain.rpc().storage(&addr, None).await.unwrap().unwrap();
+        let timestamp: u64 = codec::Decode::decode(&mut &*timestamp.0).unwrap();
         Ok(Duration::from_millis(timestamp))
     }
 
@@ -69,10 +66,10 @@ where
             signer: self.signer.clone(),
         };
 
-        let tx = parachain::api::tx()
-            .ismp_demo()
-            .transfer(codec::Decode::decode(&mut &*params.encode())?);
-        let progress = try_sending_with_tip(&self.parachain, signer, tx).await?;
+        let call = params.encode();
+        let tx = Extrinsic::new("IsmpDemo", "transfer", call);
+
+        let progress = send_extrinsic(&self.parachain, signer, tx).await?;
         let tx = progress.wait_for_in_block().await?;
 
         tx.wait_for_success().await?;
@@ -86,10 +83,10 @@ where
             signer: self.signer.clone(),
         };
 
-        let tx = parachain::api::tx()
-            .ismp_demo()
-            .get_request(codec::Decode::decode(&mut &*get_req.encode())?);
-        let progress = try_sending_with_tip(&self.parachain, signer, tx).await?;
+        let call = get_req.encode();
+        let tx = Extrinsic::new("IsmpDemo", "get_request", call);
+
+        let progress = send_extrinsic(&self.parachain, signer, tx).await?;
         let tx = progress.wait_for_in_block().await?;
 
         tx.wait_for_success().await?;
@@ -97,10 +94,12 @@ where
         Ok(())
     }
 
-    pub async fn ismp_demo_events_stream<E: subxt::events::StaticEvent>(
+    pub async fn ismp_demo_events_stream(
         &self,
         count: usize,
-    ) -> Result<Vec<E>, anyhow::Error> {
+        pallet_name: &'static str,
+        variant_name: &'static str,
+    ) -> Result<Vec<EventDetails<T>>, anyhow::Error> {
         let subscription = self.parachain.rpc().subscribe_best_block_headers().await?;
         let client = self.parachain.clone();
         let stream = subscription.filter_map(move |header| {
@@ -108,7 +107,18 @@ where
             async move {
                 let events = client.events().at(header.ok()?.hash()).await.ok()?;
 
-                events.find::<E>().collect::<Result<Vec<_>, _>>().ok()
+                let events = events
+                    .iter()
+                    .filter_map(|ev| {
+                        let ev = ev.ok()?;
+                        let ev_metadata = ev.event_metadata();
+                        (ev_metadata.pallet.name() == pallet_name &&
+                            ev_metadata.variant.name == variant_name)
+                            .then(|| ev)
+                    })
+                    .collect();
+
+                Some(events)
             }
         });
 

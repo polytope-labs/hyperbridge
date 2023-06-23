@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use crate::ParachainClient;
+use anyhow::anyhow;
 use ismp::messaging::ConsensusMessage;
 use tesseract_primitives::{ByzantineHandler, ChallengePeriodStarted, IsmpHost};
 
@@ -26,7 +27,7 @@ where
         &self,
         _challenge_event: ChallengePeriodStarted,
     ) -> Result<ConsensusMessage, anyhow::Error> {
-        todo!()
+        Err(anyhow!("Parachains consensus can't misbehave"))?
     }
 
     async fn check_for_byzantine_attack<C: IsmpHost>(
@@ -34,6 +35,6 @@ where
         _counterparty: &C,
         _consensus_message: ConsensusMessage,
     ) -> Result<(), anyhow::Error> {
-        todo!()
+        Err(anyhow!("Parachains consensus can't misbehave"))?
     }
 }

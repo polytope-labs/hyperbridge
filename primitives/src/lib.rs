@@ -14,15 +14,15 @@
 // limitations under the License.
 
 //! Traits and types required to compose the tesseract relayer
-
 use futures::Stream;
 use ismp::{
     consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
     host::StateMachine,
     messaging::{ConsensusMessage, Message},
-    router::{Request, Response},
+    router::{Get, Request, Response},
 };
 use pallet_ismp::events::Event;
+use parity_scale_codec::{Decode, Encode};
 use std::{pin::Pin, time::Duration};
 
 /// Provides an interface for accessing new events and ISMP data on the chain which must be
@@ -35,7 +35,7 @@ pub struct Query {
     pub nonce: u64,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Encode, Decode)]
 pub struct StateMachineUpdated {
     pub state_machine_id: StateMachineId,
     pub latest_height: u64,
@@ -108,6 +108,9 @@ pub trait IsmpProvider {
 
     /// Query responses
     async fn query_responses(&self, keys: Vec<Query>) -> Result<Vec<Response>, anyhow::Error>;
+
+    /// Query requests
+    async fn query_pending_get_requests(&self, height: u64) -> Result<Vec<Get>, anyhow::Error>;
 }
 
 /// Provides an interface for handling byzantine behaviour. Implementations of this should watch for

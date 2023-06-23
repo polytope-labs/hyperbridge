@@ -2,6 +2,8 @@
 name = "tesseract-primitives"
 version = "0.1.0"
 edition = "2021"
+description = "Tesseract relayer primitives"
+authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 anyhow = "1.0.70"
@@ -9,3 +11,4 @@ async-trait = "0.1.53"
 futures = "0.3.28"
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
 pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+parity-scale-codec = "3.2.2"

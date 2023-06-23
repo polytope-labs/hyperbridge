@@ -14,10 +14,11 @@
 // limitations under the License.
 
 use crate::ParachainClient;
+use anyhow::Error;
 use codec::{Decode, Encode};
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
-    router::{Request, Response},
+    router::{Get, Request, Response},
 };
 use ismp_parachain::consensus::{HashAlgorithm, MembershipProof, ParachainStateProof};
 use ismp_primitives::LeafIndexQuery;
@@ -148,6 +149,12 @@ where
         let params = rpc_params![queries];
         let response = self.parachain.rpc().request("ismp_queryResponses", params).await?;
 
+        Ok(response)
+    }
+
+    async fn query_pending_get_requests(&self, height: u64) -> Result<Vec<Get>, Error> {
+        let response =
+            self.parachain.rpc().request("ismp_pendingGetRequests", rpc_params![height]).await?;
         Ok(response)
     }
 }

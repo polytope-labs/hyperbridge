@@ -164,12 +164,11 @@ impl IsmpHost for Host {
         Ok(())
     }
 
-    fn request_commitment(&self, req: &Request) -> Result<H256, Error> {
-        let hash = hash_request::<Self>(req);
+    fn request_commitment(&self, hash: H256) -> Result<(), Error> {
         self.requests
             .borrow()
             .contains(&hash)
-            .then_some(hash)
+            .then_some(())
             .ok_or_else(|| Error::ImplementationSpecific("Request commitment not found".into()))
     }
 
@@ -184,8 +183,8 @@ impl IsmpHost for Host {
         self.receipts.borrow().get(&hash).map(|_| ())
     }
 
-    fn response_receipt(&self, res: &Response) -> Option<()> {
-        let hash = hash_response::<Self>(res);
+    fn response_receipt(&self, res: &Request) -> Option<()> {
+        let hash = hash_request::<Self>(res);
         self.receipts.borrow().get(&hash).map(|_| ())
     }
 
@@ -238,8 +237,8 @@ impl IsmpHost for Host {
         Ok(())
     }
 
-    fn store_response_receipt(&self, res: &Response) -> Result<(), Error> {
-        let hash = hash_response::<Self>(res);
+    fn store_response_receipt(&self, res: &Request) -> Result<(), Error> {
+        let hash = hash_request::<Self>(res);
         self.receipts.borrow_mut().insert(hash, ());
         Ok(())
     }

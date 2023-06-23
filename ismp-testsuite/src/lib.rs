@@ -30,6 +30,7 @@ use ismp::{
     router::{
         DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse, Request, Response,
     },
+    util::hash_request,
 };
 
 fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
@@ -225,8 +226,9 @@ pub fn timeout_post_processing_check<H: IsmpHost>(
     handle_incoming_message(host, timeout_message).unwrap();
 
     // Assert that request commitment was deleted
-    let commitment = host.request_commitment(&request);
-    assert!(matches!(commitment, Err(..)));
+    let commitment = hash_request::<H>(&request);
+    let res = host.request_commitment(commitment);
+    assert!(matches!(res, Err(..)));
     Ok(())
 }
 
@@ -236,8 +238,8 @@ pub fn timeout_post_processing_check<H: IsmpHost>(
 
 /// Check that dispatcher stores commitments for outgoing requests and responses and rejects
 /// duplicate responses
-pub fn write_outgoing_commitments(
-    host: &dyn IsmpHost,
+pub fn write_outgoing_commitments<H: IsmpHost>(
+    host: &H,
     dispatcher: &dyn IsmpDispatcher,
 ) -> Result<(), &'static str> {
     let post = DispatchPost {
@@ -263,7 +265,8 @@ pub fn write_outgoing_commitments(
         data: vec![0u8; 64],
     };
     let request = Request::Post(post);
-    host.request_commitment(&request)
+    let commitment = hash_request::<H>(&request);
+    host.request_commitment(commitment)
         .map_err(|_| "Expected Request commitment to be found in storage")?;
     let post = Post {
         source_chain: StateMachine::Kusama(2000),

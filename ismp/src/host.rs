@@ -21,7 +21,7 @@ use crate::{
     },
     error::Error,
     prelude::Vec,
-    router::{IsmpRouter, Request, Response},
+    router::{IsmpRouter, Request},
 };
 use alloc::{
     boxed::Box,
@@ -63,17 +63,17 @@ pub trait IsmpHost {
     /// Checks if a state machine is frozen at the provided height
     fn is_consensus_client_frozen(&self, client: ConsensusClientId) -> Result<(), Error>;
 
-    /// Fetch commitment of an outgoing request from storage
-    fn request_commitment(&self, req: &Request) -> Result<H256, Error>;
+    /// Should return an error if request commitment does not exist in storage
+    fn request_commitment(&self, req: H256) -> Result<(), Error>;
 
     /// Increment and return the next available nonce for an outgoing request.
     fn next_nonce(&self) -> u64;
 
-    /// Get an incoming request receipt, should return Some(()) if a receipt exists in storage
+    /// Should return Some(()) if a receipt for this request exists in storage
     fn request_receipt(&self, req: &Request) -> Option<()>;
 
-    /// Get an incoming response receipt, should return Some(()) if a receipt exists in storage
-    fn response_receipt(&self, res: &Response) -> Option<()>;
+    /// Should return Some(()) if a response has been received for the given request
+    fn response_receipt(&self, res: &Request) -> Option<()>;
 
     /// Store an encoded consensus state
     fn store_consensus_state(&self, id: ConsensusClientId, state: Vec<u8>) -> Result<(), Error>;
@@ -108,9 +108,8 @@ pub trait IsmpHost {
     /// Prevents duplicate incoming requests from being processed.
     fn store_request_receipt(&self, req: &Request) -> Result<(), Error>;
 
-    /// Stores a receipt for an incoming response after it is successfully routed to a module.
-    /// Prevents duplicate incoming responses from being processed.
-    fn store_response_receipt(&self, req: &Response) -> Result<(), Error>;
+    /// Stores a receipt that shows that the given request has received a response
+    fn store_response_receipt(&self, req: &Request) -> Result<(), Error>;
 
     /// Should return a handle to the consensus client based on the id
     fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error>;

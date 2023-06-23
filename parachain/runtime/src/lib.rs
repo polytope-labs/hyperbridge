@@ -796,6 +796,10 @@ impl_runtime_apis! {
         fn get_responses(leaf_indices: Vec<LeafIndex>) -> Vec<Response> {
             Ismp::get_responses(leaf_indices)
         }
+
+        fn pending_get_requests() -> Vec<ismp::router::Get> {
+            Ismp::pending_get_requests()
+        }
     }
 
     impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {

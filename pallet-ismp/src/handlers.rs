@@ -1,11 +1,10 @@
 //! Some extra utilities for pallet-ismp
 
 use crate::{
-    dispatcher::Receipt, host::Host, Config, Event, IncomingRequestAcks, IncomingResponseAcks,
-    Pallet,
+    dispatcher::Receipt, host::Host, Config, Event, Pallet, RequestCommitments, ResponseCommitments,
 };
 use alloc::string::ToString;
-use ismp_primitives::mmr::Leaf;
+use ismp_primitives::{mmr::Leaf, LeafIndexQuery};
 use ismp_rs::{
     error::Error as IsmpError,
     router::{Request, Response},
@@ -21,7 +20,7 @@ where
     pub fn handle_request(request: Request) -> Result<(), IsmpError> {
         let commitment = hash_request::<Host<T>>(&request).0.to_vec();
 
-        if IncomingRequestAcks::<T>::contains_key(commitment.clone()) {
+        if RequestCommitments::<T>::contains_key(commitment.clone()) {
             Err(IsmpError::ImplementationSpecific("Duplicate request".to_string()))?
         }
 
@@ -37,7 +36,10 @@ where
             dest_chain,
         });
 
-        IncomingRequestAcks::<T>::insert(commitment, Receipt::Ok);
+        RequestCommitments::<T>::insert(
+            commitment,
+            LeafIndexQuery { source_chain, dest_chain, nonce },
+        );
         Ok(())
     }
 
@@ -45,7 +47,7 @@ where
     pub fn handle_response(response: Response) -> Result<(), IsmpError> {
         let commitment = hash_response::<Host<T>>(&response).0.to_vec();
 
-        if IncomingResponseAcks::<T>::contains_key(commitment.clone()) {
+        if ResponseCommitments::<T>::contains_key(commitment.clone()) {
             Err(IsmpError::ImplementationSpecific("Duplicate response".to_string()))?
         }
 
@@ -61,7 +63,7 @@ where
             dest_chain,
             source_chain,
         });
-        IncomingResponseAcks::<T>::insert(commitment, Receipt::Ok);
+        ResponseCommitments::<T>::insert(commitment, Receipt::Ok);
         Ok(())
     }
 }

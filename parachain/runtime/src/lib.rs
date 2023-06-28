@@ -15,6 +15,7 @@ pub mod xcm_config;
 use codec::{Decode, Encode, MaxEncodedLen};
 use core::time::Duration;
 use cumulus_pallet_parachain_system::RelayNumberStrictlyIncreases;
+use ismp_primitives::RelayChainOracle;
 use scale_info::TypeInfo;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
@@ -523,6 +524,7 @@ impl pallet_ismp::Config for Runtime {
     type IsmpRouter = Router;
     type ConsensusClientProvider = ConsensusProvider;
     type WeightInfo = ();
+    type RelayChainOracle = IsmpParachain;
     type WeightProvider = ();
 }
 
@@ -730,6 +732,11 @@ impl_runtime_apis! {
     }
 
     impl ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
+        /// Return the host state machine
+        fn host_state_machine() -> StateMachine {
+            StateMachineProvider::get()
+        }
+
         /// Return the number of MMR leaves.
         fn mmr_leaf_count() -> Result<LeafIndex, pallet_ismp::primitives::Error> {
             Ok(Ismp::mmr_leaf_count())
@@ -805,6 +812,11 @@ impl_runtime_apis! {
     impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {
         fn para_ids() -> Vec<u32> {
             IsmpParachain::para_ids()
+        }
+
+        /// Return a known relay chain storage root for a given height.
+        fn relay_chain_state_root(height: u32) -> Option<Hash> {
+            IsmpParachain::state_root(height)
         }
     }
 

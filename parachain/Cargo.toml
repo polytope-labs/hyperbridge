@@ -9,6 +9,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 # crates.io
+serde = { version = "1.0.136", features = ["derive"], optional = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = ["derive"] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 hex-literal = "0.4.1"
@@ -59,4 +60,5 @@ std = [
     "ismp-primitives/std",
     "pallet-ismp/std",
     "hash-db/std",
+    "serde",
 ]

@@ -16,6 +16,7 @@
 //! Parachain client implementation for tesseract.
 
 use ismp::host::StateMachine;
+use ismp_parachain::consensus::HashAlgorithm;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, sp_std::sync::Arc, sr25519, Pair};
@@ -46,6 +47,8 @@ pub use config::*;
 pub struct ParachainConfig {
     /// State machine Identifier for this client.
     pub state_machine: StateMachine,
+    /// The hashing algorithm that parachain uses.
+    pub hashing: HashAlgorithm,
     /// RPC url for the relay chain. Unneeded if the host is a parachain.
     pub relay_chain: String,
     /// RPC url for the parachain
@@ -60,6 +63,8 @@ pub struct ParachainConfig {
 pub struct ParachainClient<T: subxt::Config> {
     /// State machine Identifier for this client.
     pub state_machine: StateMachine,
+    /// The hashing algorithm that parachain uses.
+    hashing: HashAlgorithm,
     /// Subxt client for the relay chain. Unneeded if the host is a parachain.
     relay_chain: OnlineClient<PolkadotConfig>,
     /// Subxt client for the parachain.
@@ -101,6 +106,7 @@ where
             };
         Ok(ParachainClient {
             state_machine: config.state_machine,
+            hashing: config.hashing,
             relay_chain,
             parachain,
             signer,

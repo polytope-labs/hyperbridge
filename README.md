@@ -1,6 +1,8 @@
 # tesseract
 
-Tesseract is a relayer implementation for the ISMP protocol. Currently this supports relaying between:
+<img src="assets/tesseract.jpg" />
+
+Tesseract is a multi-~~dimensional~~chain relayer implementation for the ISMP protocol. Currently this supports relaying between:
 
 - [x] Parachains
 - [ ] Substrate based chains

@@ -15,28 +15,13 @@
 
 //! Tesseract config utilities
 
-use parachain::{Blake2Parachain, KeccakParachain, ParachainClient};
+use ismp_parachain::consensus::HashAlgorithm;
+use parachain::{Blake2Parachain, KeccakParachain, ParachainClient, ParachainConfig};
 use serde::{Deserialize, Serialize};
 
 crate::chain! {
     KeccakParachain(ParachainConfig, ParachainClient<KeccakParachain>),
     Parachain(ParachainConfig, ParachainClient<Blake2Parachain>),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Hashing {
-    Keccak,
-    Blake2,
-}
-
-/// Holds the configuration options needed by parachains.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ParachainConfig {
-    /// The hashing algorithm that parachain uses.
-    hashing: Hashing,
-
-    #[serde(flatten)]
-    inner: parachain::ParachainConfig,
 }
 
 /// Defines the format of the tesseract config.toml file.
@@ -54,12 +39,12 @@ impl AnyConfig {
         let client = match self {
             AnyConfig::KeccakParachain(config) | AnyConfig::Parachain(config) => {
                 match config.hashing {
-                    Hashing::Keccak => AnyClient::KeccakParachain(
-                        ParachainClient::<KeccakParachain>::new(config.inner).await?,
+                    HashAlgorithm::Keccak => AnyClient::KeccakParachain(
+                        ParachainClient::<KeccakParachain>::new(config).await?,
                     ),
-                    Hashing::Blake2 => AnyClient::Parachain(
-                        ParachainClient::<Blake2Parachain>::new(config.inner).await?,
-                    ),
+                    HashAlgorithm::Blake2 => {
+                        AnyClient::Parachain(ParachainClient::<Blake2Parachain>::new(config).await?)
+                    }
                 }
             }
         };
@@ -71,21 +56,20 @@ impl AnyConfig {
 #[cfg(test)]
 mod tests {
     use super::ParachainConfig;
-    use crate::config::{AnyConfig, Hashing};
+    use crate::config::AnyConfig;
     use ismp::host::StateMachine;
+    use ismp_parachain::consensus::HashAlgorithm;
 
     #[test]
     fn serialize() {
         let config_a = ParachainConfig {
-            hashing: Hashing::Keccak,
-            inner: parachain::ParachainConfig {
-                state_machine: StateMachine::Kusama(2000),
-                relay_chain: "ws://localhost:9944".to_string(),
-                parachain: "ws://localhost:9988".to_string(),
-                signer: "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a"
-                    .to_string(),
-                latest_state_machine_height: None,
-            },
+            hashing: HashAlgorithm::Keccak,
+            state_machine: StateMachine::Kusama(2000),
+            relay_chain: "ws://localhost:9944".to_string(),
+            parachain: "ws://localhost:9988".to_string(),
+            signer: "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a"
+                .to_string(),
+            latest_state_machine_height: None,
         };
 
         let value = toml::to_string(&AnyConfig::Parachain(config_a)).unwrap();

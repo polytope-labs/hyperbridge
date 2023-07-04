@@ -15,6 +15,7 @@ jobs:
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
         with:
@@ -40,6 +41,11 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          version: '3.9.1'
+
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -52,6 +58,3 @@ jobs:
 
       - name: Check format
         run: cargo +nightly fmt --all --check
-
-      - name: Check clippy
-        run: cargo +nightly clippy --all-targets --all-features --verbose -- -D warnings

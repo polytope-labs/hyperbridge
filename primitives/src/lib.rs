@@ -162,7 +162,7 @@ pub trait IsmpHost: IsmpProvider + ByzantineHandler + Clone + Send + Sync {
     async fn state_machine_update_notification(
         &self,
         counterparty_state_id: StateMachineId,
-    ) -> Pin<Box<dyn Stream<Item = Result<StateMachineUpdated, anyhow::Error>> + Send>>;
+    ) -> BoxStream<StateMachineUpdated>;
 
     /// This should be used to submit new messages [`Vec<Message>`] from a counterparty chain to
     /// this chain.

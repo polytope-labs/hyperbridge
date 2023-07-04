@@ -1,0 +1,27 @@
+[package]
+name = "tesseract"
+version = "0.1.0"
+edition = "2021"
+description = "Chain agnostic relayer implementation for ISMP"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+parachain = { package = "tesseract-parachain", path = "../parachain" }
+consensus = { package = "tesseract-consensus", path = "../consensus" }
+primitives = { package = "tesseract-primitives", path = "../primitives" }
+messaging = { package = "tesseract-messaging", path = "../messaging" }
+
+# polytope labs
+ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
+pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+
+# crates.io
+log = "0.4.19"
+env_logger = "0.10.0"
+anyhow = "1.0.71"
+futures = "0.3.28"
+serde = { version = "1.0.164", features = ["derive"] }
+toml = "0.7.4"
+async-trait = "0.1.68"
+clap = "4.3.5"
+tokio = { version = "1.28.2", features = ["macros", "rt-multi-thread", "fs"] }

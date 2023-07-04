@@ -17,6 +17,7 @@
 
 use ismp::host::StateMachine;
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, sp_std::sync::Arc, sr25519, Pair};
 use subxt::{
     config::{
@@ -29,6 +30,7 @@ use subxt::{
 
 mod byzantine;
 mod codegen;
+mod config;
 mod extrinsic;
 mod host;
 mod notifications;
@@ -38,7 +40,9 @@ mod testing;
 
 use crate::host::InMemorySigner;
 pub use codegen::*;
+pub use config::*;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParachainConfig {
     /// State machine Identifier for this client.
     pub state_machine: StateMachine,

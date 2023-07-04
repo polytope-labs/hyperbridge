@@ -19,6 +19,7 @@ use futures::StreamExt;
 use ismp::messaging::Message;
 use tesseract_primitives::IsmpHost;
 
+/// Relays [`ConsensusMessage`] updates.
 pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
 where
     A: IsmpHost + 'static,

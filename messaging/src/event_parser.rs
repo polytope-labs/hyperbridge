@@ -44,9 +44,8 @@ pub async fn parse_ismp_events<A: IsmpHost, B: IsmpHost>(
         let mut post_requests = vec![];
 
         for request in requests {
-            match request {
-                Request::Post(post) => post_requests.push(post),
-                _ => {}
+            if let Request::Post(post) = request {
+                post_requests.push(post)
             }
         }
 

@@ -1,17 +1,14 @@
-[package]
-name = "tesseract"
-version = "0.1.0"
-edition = "2021"
-description = "Chain agnostic relayer implementation for ISMP"
-authors = ["Polytope Labs <hello@polytope.technology>"]
-
 [workspace]
 resolver = "2"
-
 members = [
     "primitives",
     "consensus",
     "messaging",
     "parachain",
+    "relayer",
     "integration-tests",
 ]
+
+[profile.release]
+panic = "unwind"
+opt-level = 3

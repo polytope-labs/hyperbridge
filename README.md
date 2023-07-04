@@ -1,19 +1,29 @@
-## tesseract
+# tesseract
 
-Messaging and Consensus Relayer for the ismp protocol
+Tesseract is a relayer implementation for the ISMP protocol. Currently this supports relaying between:
 
-## Integration test guide
-The Integration tests test messaging between two parachains.
-For these tests, it is expected that both parachains use the same runtime and have `pallet-ismp`, `ismp-parachain` and `ismp-demo` included.
+- [x] Parachains
+- [ ] Substrate based chains
+- [ ] EVM based chains
 
-To run the tests follow the guide below:
-1. `git clone git@github.com:polytope-labs/tesseract.git`
-2. `cargo install subxt-cli`
-3. In a separate terminal launch the relaychain and two parachains with offchain indexing enabled on both parachains.   
-   The first parachain should be configured with para_id 2000 and websocket port 9988  
-   The second should be configured with para_id 2001 and websocket port 9188.
-4. Generate relaychain runtime types `subxt codegen --url=ws://localhost:9944 | rustfmt --edition=2018 --emit=stdout > /<absolute path to tesseract repo root>/parachain/src/codegen/relay_chain.rs`.
-5. From the `tesseract` repo root run `cargo +nightly  test -p tesseract-integration-tests test_messaging_relay -- --nocapture` 
-6. Navigate to the extrinsics tab of the block explorer and send some transactions from the `ismp-demo` pallet.
-7. If an automated testing experience is preferred run `cargo +nightly  test -p tesseract-integration-tests test_parachain_parachain_messaging_relay -- --nocapture`
-   and watch the block explorer for events.
+## Usage Guides
+
+Consult the [ISMP book](https://substrate-ismp.polytope.technology) for more information on how to use this in combination with the [substrate-ismp](https://github.com/polytope-labs/substrate-ismp) stack
+
+## Docker Guide
+
+First build the image locally:
+
+```bash
+DOCKER_BUILDKIT=0 docker build -t tesseract .
+```
+
+Next run the relayer given a config file
+
+```bash
+ docker run tesseract --config ./integration-tests/config.toml
+```
+
+## License
+
+This software is licensed under the Apache 2.0 License, Copyright (c) 2023 Polytope Labs.

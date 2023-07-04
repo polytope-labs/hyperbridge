@@ -3070,6 +3070,7 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types",
  "scale-info",
+ "serde",
  "sp-consensus-aura",
  "sp-inherents",
  "sp-io",

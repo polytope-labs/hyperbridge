@@ -21,7 +21,7 @@ use crate::{
     messaging::Message,
 };
 
-use crate::module::DispatchResult;
+use crate::{consensus::ConsensusStateId, module::DispatchResult};
 use alloc::{boxed::Box, collections::BTreeSet, vec::Vec};
 pub use consensus::create_client;
 
@@ -35,6 +35,8 @@ mod timeout;
 pub struct ConsensusUpdateResult {
     /// Consensus client Id
     pub consensus_client_id: ConsensusClientId,
+    /// Consensus state Id
+    pub consensus_state_id: ConsensusStateId,
     /// Tuple of previous latest height and new latest height for a state machine
     pub state_updates: BTreeSet<(StateMachineHeight, StateMachineHeight)>,
 }
@@ -43,6 +45,8 @@ pub struct ConsensusUpdateResult {
 pub struct ConsensusClientCreatedResult {
     /// Consensus client Id
     pub consensus_client_id: ConsensusClientId,
+    /// Consensus state Id
+    pub consensus_state_id: ConsensusStateId,
 }
 
 /// Result returned when ismp messages are handled successfully
@@ -50,8 +54,8 @@ pub struct ConsensusClientCreatedResult {
 pub enum MessageResult {
     /// The [`ConsensusMessage`] result
     ConsensusMessage(ConsensusUpdateResult),
-    /// Result of freezing a consensus client.
-    FrozenClient(ConsensusClientId),
+    /// Result of freezing a consensus state.
+    FrozenClient(ConsensusStateId),
     /// The [`DispatchResult`] for requests
     Request(Vec<DispatchResult>),
     /// The [`DispatchResult`] for responses
@@ -76,12 +80,16 @@ where
 
 /// This function checks to see that the delay period configured on the host chain
 /// for the state machine has elasped.
-fn verify_delay_passed<H>(host: &H, proof_height: StateMachineHeight) -> Result<bool, Error>
+fn verify_delay_passed<H>(host: &H, proof_height: &StateMachineHeight) -> Result<bool, Error>
 where
     H: IsmpHost,
 {
-    let update_time = host.consensus_update_time(proof_height.id.consensus_client)?;
-    let delay_period = host.challenge_period(proof_height.id.consensus_client);
+    let update_time = host.consensus_update_time(proof_height.id.consensus_state_id)?;
+    let delay_period = host.challenge_period(proof_height.id.consensus_state_id).ok_or(
+        Error::ChallengePeriodNotConfigured {
+            consensus_state_id: proof_height.id.consensus_state_id,
+        },
+    )?;
     let current_timestamp = host.timestamp();
     Ok(current_timestamp - update_time > delay_period)
 }
@@ -98,20 +106,24 @@ where
     H: IsmpHost,
 {
     // Ensure consensus client is not frozen
-    let consensus_client_id = proof_height.id.consensus_client;
+    let consensus_client_id = host.consensus_client_id(proof_height.id.consensus_state_id).ok_or(
+        Error::ConsensusStateIdNotRecognized {
+            consensus_state_id: proof_height.id.consensus_state_id,
+        },
+    )?;
     let consensus_client = host.consensus_client(consensus_client_id)?;
     // Ensure client is not frozen
-    host.is_consensus_client_frozen(consensus_client_id)?;
+    host.is_consensus_client_frozen(proof_height.id.consensus_state_id)?;
 
     // Ensure state machine is not frozen
     host.is_state_machine_frozen(proof_height)?;
 
     // Ensure delay period has elapsed
-    if !verify_delay_passed(host, proof_height)? {
+    if !verify_delay_passed(host, &proof_height)? {
         return Err(Error::ChallengePeriodNotElapsed {
-            consensus_id: consensus_client_id,
+            consensus_state_id: proof_height.id.consensus_state_id,
             current_time: host.timestamp(),
-            update_time: host.consensus_update_time(proof_height.id.consensus_client)?,
+            update_time: host.consensus_update_time(proof_height.id.consensus_state_id)?,
         })
     }
 

@@ -23,7 +23,7 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
+          toolchain: nightly-2022-10-28
           targets: wasm32-unknown-unknown
 
       - name: Rust cache
@@ -32,13 +32,13 @@ jobs:
           cache-on-failure: true
 
       - name: Build
-        run:  cargo +nightly check --all --benches --workspace
+        run:  cargo +nightly-2022-10-28 check --all --benches --workspace
 
       - name: Build `no-std`
-        run:  cargo +nightly build -p ismp --no-default-features --verbose --target=wasm32-unknown-unknown
+        run:  cargo +nightly-2022-10-28 build -p ismp --no-default-features --verbose --target=wasm32-unknown-unknown
 
       - name: Run tests
-        run: cargo +nightly test --all-features --workspace --verbose
+        run: cargo +nightly-2022-10-28 test --all-features --workspace --verbose
       
   lint:
     runs-on: ubuntu-latest
@@ -52,6 +52,7 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly-2022-10-28
           components: rustfmt, clippy
 
       - name: Rust cache
@@ -60,7 +61,7 @@ jobs:
           cache-on-failure: true
 
       - name: Check format
-        run: cargo +nightly fmt --all --check
+        run: cargo +nightly-2022-10-28 fmt --all --check
 
       - name: Check clippy
-        run: cargo +nightly clippy --all-targets  --workspace --all-features --verbose -- -D warnings
+        run: cargo +nightly-2022-10-28 clippy --all-targets  --workspace --all-features --verbose -- -D warnings

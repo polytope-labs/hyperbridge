@@ -16,7 +16,7 @@
 //! ISMP error definitions
 
 use crate::{
-    consensus::{ConsensusClientId, StateMachineHeight},
+    consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight},
     host::StateMachine,
 };
 use alloc::{string::String, vec::Vec};
@@ -29,13 +29,13 @@ pub enum Error {
     /// consensus updates.
     UnbondingPeriodElapsed {
         /// The consensus client identifier
-        consensus_id: ConsensusClientId,
+        consensus_state_id: ConsensusStateId,
     },
     /// The challange period for the given consensus client has not yet elapsed and cannot process
     /// new consensus updates in the mean time.
     ChallengePeriodNotElapsed {
         /// The consensus client identifier
-        consensus_id: ConsensusClientId,
+        consensus_state_id: ConsensusStateId,
         /// The last time the consensus client was updated
         update_time: Duration,
         /// The current time
@@ -44,7 +44,7 @@ pub enum Error {
     /// A consensus state was not found for the given consensus client.
     ConsensusStateNotFound {
         /// The consensus client identifier
-        id: ConsensusClientId,
+        consensus_state_id: ConsensusStateId,
     },
     /// A state commitment was not found for the given consensus client.
     StateCommitmentNotFound {
@@ -55,6 +55,8 @@ pub enum Error {
     FrozenConsensusClient {
         /// The consensus client identifier
         id: ConsensusClientId,
+        /// The consensus client identifier
+        consensus_state_id: ConsensusStateId,
     },
     /// The given state machine has been frozen
     FrozenStateMachine {
@@ -137,4 +139,27 @@ pub enum Error {
     InsufficientProofHeight,
     /// An Ismp Module was not found for the given raw id
     ModuleNotFound(Vec<u8>),
+    /// Unknown consensus state id
+    ConsensusStateIdNotRecognized {
+        /// Consensus state Id
+        consensus_state_id: ConsensusStateId,
+    },
+
+    /// Challenge period has not been configured for this consensus state
+    ChallengePeriodNotConfigured {
+        /// Consensus state Id
+        consensus_state_id: ConsensusStateId,
+    },
+
+    /// Consensus state id already exists
+    DuplicateConsensusStateId {
+        /// Consensus state Id
+        consensus_state_id: ConsensusStateId,
+    },
+
+    /// Unbonding period has not been configured for this consensus state
+    UnnbondingPeriodNotConfigured {
+        /// Consensus state Id
+        consensus_state_id: ConsensusStateId,
+    },
 }

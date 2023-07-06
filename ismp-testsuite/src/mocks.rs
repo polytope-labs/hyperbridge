@@ -1,6 +1,6 @@
 use ismp::{
     consensus::{
-        ConsensusClient, ConsensusClientId, StateCommitment, StateMachineClient,
+        ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
         StateMachineHeight, StateMachineId,
     },
     error::Error,
@@ -36,6 +36,7 @@ impl ConsensusClient for MockClient {
     fn verify_consensus(
         &self,
         _host: &dyn IsmpHost,
+        _consensus_state_id: ConsensusStateId,
         _trusted_consensus_state: Vec<u8>,
         _proof: Vec<u8>,
     ) -> Result<(Vec<u8>, BTreeMap<StateMachine, StateCommitmentHeight>), Error> {
@@ -50,10 +51,6 @@ impl ConsensusClient for MockClient {
         _proof_2: Vec<u8>,
     ) -> Result<(), Error> {
         Ok(())
-    }
-
-    fn unbonding_period(&self) -> Duration {
-        Duration::from_secs(60 * 60 * 60)
     }
 
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
@@ -94,9 +91,10 @@ pub struct Host {
     requests: Rc<RefCell<BTreeSet<H256>>>,
     receipts: Rc<RefCell<HashMap<H256, ()>>>,
     responses: Rc<RefCell<BTreeSet<H256>>>,
-    consensus_states: Rc<RefCell<HashMap<ConsensusClientId, Vec<u8>>>>,
+    consensus_clients: Rc<RefCell<HashMap<ConsensusStateId, ConsensusClientId>>>,
+    consensus_states: Rc<RefCell<HashMap<ConsensusStateId, Vec<u8>>>>,
     state_commitments: Rc<RefCell<HashMap<StateMachineHeight, StateCommitment>>>,
-    consensus_update_time: Rc<RefCell<HashMap<ConsensusClientId, Duration>>>,
+    consensus_update_time: Rc<RefCell<HashMap<ConsensusStateId, Duration>>>,
     frozen_state_machines: Rc<RefCell<HashMap<StateMachineId, StateMachineHeight>>>,
     latest_state_height: Rc<RefCell<HashMap<StateMachineId, u64>>>,
     nonce: Rc<RefCell<u64>>,
@@ -126,7 +124,7 @@ impl IsmpHost for Host {
             .ok_or_else(|| Error::ImplementationSpecific("state commitment not found".into()))
     }
 
-    fn consensus_update_time(&self, id: ConsensusClientId) -> Result<Duration, Error> {
+    fn consensus_update_time(&self, id: ConsensusStateId) -> Result<Duration, Error> {
         self.consensus_update_time
             .borrow()
             .get(&id)
@@ -134,7 +132,14 @@ impl IsmpHost for Host {
             .ok_or_else(|| Error::ImplementationSpecific("Consensus update time not found".into()))
     }
 
-    fn consensus_state(&self, id: ConsensusClientId) -> Result<Vec<u8>, Error> {
+    fn consensus_client_id(
+        &self,
+        consensus_state_id: ConsensusStateId,
+    ) -> Option<ConsensusClientId> {
+        self.consensus_clients.borrow().get(&consensus_state_id).copied()
+    }
+
+    fn consensus_state(&self, id: ConsensusStateId) -> Result<Vec<u8>, Error> {
         self.consensus_states
             .borrow()
             .get(&id)
@@ -160,7 +165,7 @@ impl IsmpHost for Host {
         Ok(())
     }
 
-    fn is_consensus_client_frozen(&self, _client: ConsensusClientId) -> Result<(), Error> {
+    fn is_consensus_client_frozen(&self, _client: ConsensusStateId) -> Result<(), Error> {
         Ok(())
     }
 
@@ -188,14 +193,23 @@ impl IsmpHost for Host {
         self.receipts.borrow().get(&hash).map(|_| ())
     }
 
-    fn store_consensus_state(&self, id: ConsensusClientId, state: Vec<u8>) -> Result<(), Error> {
+    fn store_consensus_state_id(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        client_id: ConsensusClientId,
+    ) -> Result<(), Error> {
+        self.consensus_clients.borrow_mut().insert(consensus_state_id, client_id);
+        Ok(())
+    }
+
+    fn store_consensus_state(&self, id: ConsensusStateId, state: Vec<u8>) -> Result<(), Error> {
         self.consensus_states.borrow_mut().insert(id, state);
         Ok(())
     }
 
     fn store_consensus_update_time(
         &self,
-        id: ConsensusClientId,
+        id: ConsensusStateId,
         timestamp: Duration,
     ) -> Result<(), Error> {
         self.consensus_update_time.borrow_mut().insert(id, timestamp);
@@ -216,7 +230,7 @@ impl IsmpHost for Host {
         Ok(())
     }
 
-    fn freeze_consensus_client(&self, _client: ConsensusClientId) -> Result<(), Error> {
+    fn freeze_consensus_client(&self, _client: ConsensusStateId) -> Result<(), Error> {
         Ok(())
     }
 
@@ -257,8 +271,12 @@ impl IsmpHost for Host {
         sp_core::keccak_256(bytes).into()
     }
 
-    fn challenge_period(&self, _id: ConsensusClientId) -> Duration {
-        Duration::from_secs(60 * 60)
+    fn challenge_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {
+        Some(Duration::from_secs(60 * 60))
+    }
+
+    fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {
+        Some(Duration::from_secs(60 * 60 * 60))
     }
 
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {

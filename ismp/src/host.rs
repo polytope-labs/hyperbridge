@@ -101,6 +101,13 @@ pub trait IsmpHost {
         consensus_state: Vec<u8>,
     ) -> Result<(), Error>;
 
+    /// Store the unbonding period for a consensus state.
+    fn store_unbonding_period(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        period: u64,
+    ) -> Result<(), Error>;
+
     /// Store the timestamp when the consensus client was updated
     fn store_consensus_update_time(
         &self,

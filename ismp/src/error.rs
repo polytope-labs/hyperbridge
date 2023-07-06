@@ -54,8 +54,6 @@ pub enum Error {
     /// The given consensus client has been frozen
     FrozenConsensusClient {
         /// The consensus client identifier
-        id: ConsensusClientId,
-        /// The consensus client identifier
         consensus_state_id: ConsensusStateId,
     },
     /// The given state machine has been frozen

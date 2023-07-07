@@ -27,6 +27,8 @@ mod errors;
 pub mod events;
 pub mod handlers;
 pub mod host;
+#[cfg(any(feature = "runtime-benchmarks", test))]
+mod ismp_mocks;
 mod mmr;
 #[cfg(test)]
 pub mod mock;
@@ -45,7 +47,7 @@ use ismp_rs::{
     consensus::{ConsensusClientId, StateMachineId},
     handlers::{handle_incoming_message, MessageResult},
     host::StateMachine,
-    messaging::CreateConsensusClient,
+    messaging::CreateConsensusState,
     router::{Request, Response},
 };
 use sp_core::{offchain::StorageKind, H256};
@@ -80,7 +82,10 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use ismp_primitives::mmr::{LeafIndex, NodeIndex};
     use ismp_rs::{
-        consensus::{ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId},
+        consensus::{
+            ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
+            StateMachineId,
+        },
         handlers::{self},
         host::StateMachine,
         messaging::Message,
@@ -171,12 +176,22 @@ pub mod pallet {
     pub type FrozenHeights<T: Config> =
         StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
 
+    /// A mapping of ConsensusStateId to ConsensusClientId
+    #[pallet::storage]
+    pub type ConsensusStateClient<T: Config> =
+        StorageMap<_, Blake2_128Concat, ConsensusStateId, ConsensusClientId, OptionQuery>;
+
+    /// A mapping of ConsensusStateId to Unbonding periods
+    #[pallet::storage]
+    pub type UnbondingPeriod<T: Config> =
+        StorageMap<_, Blake2_128Concat, ConsensusStateId, u64, OptionQuery>;
+
     /// Holds a map of consensus clients frozen due to byzantine
     /// behaviour
     #[pallet::storage]
     #[pallet::getter(fn frozen_consensus_clients)]
     pub type FrozenConsensusClients<T: Config> =
-        StorageMap<_, Blake2_128Concat, ConsensusClientId, bool, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, ConsensusStateId, bool, ValueQuery>;
 
     /// The latest verified height for a state machine
     #[pallet::storage]
@@ -275,6 +290,15 @@ pub mod pallet {
         fn offchain_worker(_n: T::BlockNumber) {}
     }
 
+    /// Params to update the unbonding period for a consensus state
+    #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+    pub struct UnbondingUpdate {
+        /// Consensus state identifier
+        consensus_state_id: ConsensusStateId,
+        /// Unbonding duration
+        unbonding_period: u64,
+    }
+
     #[pallet::call]
     impl<T: Config> Pallet<T>
     where
@@ -295,7 +319,7 @@ pub mod pallet {
         #[pallet::call_index(1)]
         pub fn create_consensus_client(
             origin: OriginFor<T>,
-            message: CreateConsensusClient,
+            message: CreateConsensusState,
         ) -> DispatchResult {
             T::AdminOrigin::ensure_origin(origin)?;
             let host = Host::<T>::default();
@@ -306,6 +330,23 @@ pub mod pallet {
             Self::deposit_event(Event::<T>::ConsensusClientCreated {
                 consensus_client_id: result.consensus_client_id,
             });
+
+            Ok(())
+        }
+
+        /// Set the unbonding period for a consensus state.
+        #[pallet::weight(<T as Config>::WeightInfo::create_consensus_client())]
+        #[pallet::call_index(2)]
+        pub fn set_unbonding_period(
+            origin: OriginFor<T>,
+            message: UnbondingUpdate,
+        ) -> DispatchResult {
+            T::AdminOrigin::ensure_origin(origin)?;
+
+            let host = Host::<T>::default();
+
+            host.store_unbonding_period(message.consensus_state_id, message.unbonding_period)
+                .map_err(|_| Error::<T>::UnbondingPeriodUpdateFailed)?;
 
             Ok(())
         }
@@ -365,6 +406,8 @@ pub mod pallet {
         InvalidMessage,
         /// Encountered an error while creating the consensus client.
         ConsensusClientCreationFailed,
+        /// Couldn't update unbonding period
+        UnbondingPeriodUpdateFailed,
     }
 }
 
@@ -398,7 +441,7 @@ where
                     // check if this is a trusted state machine
                     let is_trusted_state_machine = host
                         .challenge_period(res.consensus_client_id.clone()) ==
-                        Duration::from_secs(0);
+                        Some(Duration::from_secs(0));
 
                     if is_trusted_state_machine {
                         for (_, latest_height) in res.state_updates.into_iter() {

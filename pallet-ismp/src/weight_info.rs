@@ -133,6 +133,8 @@ pub trait WeightInfo {
     fn on_finalize(n: u32) -> Weight;
     /// Returns the weight consumed in creating a consensus client
     fn create_consensus_client() -> Weight;
+    /// Returns the weight consumed in setting the unbonding period
+    fn set_unbonding_period() -> Weight;
     /// Returns the weight consumed in handling a request
     fn handle_request_message() -> Weight;
     /// Returns the weight consumed in handling a response
@@ -147,6 +149,10 @@ impl WeightInfo for () {
     }
 
     fn create_consensus_client() -> Weight {
+        Weight::zero()
+    }
+
+    fn set_unbonding_period() -> Weight {
         Weight::zero()
     }
 
@@ -168,7 +174,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
     messages.into_iter().fold(Weight::zero(), |acc, msg| match msg {
         Message::Consensus(msg) => {
             let consensus_handler =
-                <T as Config>::WeightProvider::consensus_client(msg.consensus_client_id)
+                <T as Config>::WeightProvider::consensus_client(msg.consensus_state_id)
                     .unwrap_or(Box::new(()));
             consensus_handler.verify_consensus(msg)
         }
@@ -184,7 +190,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
             });
 
             let consensus_handler = <T as Config>::WeightProvider::consensus_client(
-                msg.proof.height.id.consensus_client,
+                msg.proof.height.id.consensus_state_id,
             )
             .unwrap_or(Box::new(()));
 
@@ -214,7 +220,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 });
 
                 let consensus_handler = <T as Config>::WeightProvider::consensus_client(
-                    proof.height.id.consensus_client,
+                    proof.height.id.consensus_state_id,
                 )
                 .unwrap_or(Box::new(()));
 
@@ -245,7 +251,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 });
 
                 let consensus_handler = <T as Config>::WeightProvider::consensus_client(
-                    proof.height.id.consensus_client,
+                    proof.height.id.consensus_state_id,
                 )
                 .unwrap_or(Box::new(()));
 
@@ -275,7 +281,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 });
 
                 let consensus_handler = <T as Config>::WeightProvider::consensus_client(
-                    timeout_proof.height.id.consensus_client,
+                    timeout_proof.height.id.consensus_state_id, // todo: consensus client id
                 )
                 .unwrap_or(Box::new(()));
 
@@ -309,7 +315,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
 
         Message::FraudProof(msg) => {
             let consensus_handler =
-                <T as Config>::WeightProvider::consensus_client(msg.consensus_client_id)
+                <T as Config>::WeightProvider::consensus_client(msg.consensus_state_id)
                     .unwrap_or(Box::new(()));
             consensus_handler.verify_fraud_proof(msg)
         }

@@ -65,7 +65,7 @@ impl ConsensusInherentProvider {
             storage_proof,
         };
         let message = ConsensusMessage {
-            consensus_client_id: ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID,
+            consensus_state_id: ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID,
             consensus_proof: consensus_proof.encode(),
         };
 

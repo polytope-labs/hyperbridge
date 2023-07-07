@@ -19,11 +19,9 @@ use crate::*;
 use crate::primitives::ConsensusClientProvider;
 use frame_support::traits::{ConstU32, ConstU64, Get};
 use frame_system::EnsureRoot;
-use ismp_rs::{
-    consensus::ConsensusClient,
-    module::IsmpModule,
-    router::{IsmpRouter, Post},
-};
+use ismp_rs::{consensus::ConsensusClient, module::IsmpModule, router::IsmpRouter};
+
+use crate::ismp_mocks::{MockConsensusClient, MockModule};
 use sp_core::H256;
 use sp_runtime::{
     testing::Header,
@@ -59,11 +57,11 @@ impl ConsensusClientProvider for ConsensusProvider {
     fn consensus_client(
         _id: ConsensusClientId,
     ) -> Result<Box<dyn ConsensusClient>, ismp_rs::error::Error> {
-        Ok(Box::new(ismp_testsuite::mocks::MockClient))
+        Ok(Box::new(MockConsensusClient))
     }
 
-    fn challenge_period(_id: ConsensusClientId) -> Duration {
-        Duration::from_secs(60 * 60)
+    fn challenge_period(_id: ConsensusClientId) -> Option<Duration> {
+        Some(Duration::from_secs(60 * 60))
     }
 }
 
@@ -111,23 +109,6 @@ impl Config for Test {
     type ConsensusClientProvider = ConsensusProvider;
     type WeightInfo = ();
     type WeightProvider = ();
-}
-
-#[derive(Default)]
-pub struct MockModule;
-
-impl IsmpModule for MockModule {
-    fn on_accept(&self, _request: Post) -> Result<(), ismp_rs::error::Error> {
-        Ok(())
-    }
-
-    fn on_response(&self, _response: Response) -> Result<(), ismp_rs::error::Error> {
-        Ok(())
-    }
-
-    fn on_timeout(&self, _request: Request) -> Result<(), ismp_rs::error::Error> {
-        Ok(())
-    }
 }
 
 #[derive(Default)]

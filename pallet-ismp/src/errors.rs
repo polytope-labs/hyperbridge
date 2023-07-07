@@ -70,7 +70,7 @@ pub enum HandlingError {
         msg: Vec<u8>,
     },
     UnbondingPeriodElapsed {
-        consensus_id: ConsensusClientId,
+        id: ConsensusClientId,
     },
     MembershipProofVerificationFailed {
         msg: Vec<u8>,
@@ -107,21 +107,25 @@ pub enum ModuleCallbackResult {
 impl From<ismp_rs::error::Error> for HandlingError {
     fn from(value: ismp_rs::error::Error) -> Self {
         match value {
-            IsmpError::ChallengePeriodNotElapsed { consensus_id, current_time, update_time } => {
-                HandlingError::ChallengePeriodNotElapsed {
-                    update_time: update_time.as_secs(),
-                    current_time: current_time.as_secs(),
-                    delay_period: None,
-                    consensus_client_id: Some(consensus_id),
-                }
-            }
-            IsmpError::ConsensusStateNotFound { id } => {
-                HandlingError::ConsensusStateNotFound { id }
+            IsmpError::ChallengePeriodNotElapsed {
+                consensus_state_id,
+                current_time,
+                update_time,
+            } => HandlingError::ChallengePeriodNotElapsed {
+                update_time: update_time.as_secs(),
+                current_time: current_time.as_secs(),
+                delay_period: None,
+                consensus_client_id: Some(consensus_state_id),
+            },
+            IsmpError::ConsensusStateNotFound { consensus_state_id } => {
+                HandlingError::ConsensusStateNotFound { id: consensus_state_id }
             }
             IsmpError::StateCommitmentNotFound { height } => {
                 HandlingError::StateCommitmentNotFound { height }
             }
-            IsmpError::FrozenConsensusClient { id } => HandlingError::FrozenConsensusClient { id },
+            IsmpError::FrozenConsensusClient { consensus_state_id } => {
+                HandlingError::FrozenConsensusClient { id: consensus_state_id }
+            }
             IsmpError::FrozenStateMachine { height } => {
                 HandlingError::FrozenStateMachine { height }
             }
@@ -144,8 +148,8 @@ impl From<ismp_rs::error::Error> for HandlingError {
             IsmpError::ImplementationSpecific(msg) => {
                 HandlingError::ImplementationSpecific { msg: msg.as_bytes().to_vec() }
             }
-            IsmpError::UnbondingPeriodElapsed { consensus_id } => {
-                HandlingError::UnbondingPeriodElapsed { consensus_id }
+            IsmpError::UnbondingPeriodElapsed { consensus_state_id } => {
+                HandlingError::UnbondingPeriodElapsed { id: consensus_state_id }
             }
             IsmpError::MembershipProofVerificationFailed(msg) => {
                 HandlingError::MembershipProofVerificationFailed { msg: msg.as_bytes().to_vec() }
@@ -174,6 +178,16 @@ impl From<ismp_rs::error::Error> for HandlingError {
             }
             IsmpError::InsufficientProofHeight => HandlingError::InsufficientProofHeight,
             IsmpError::ModuleNotFound(id) => HandlingError::ModuleNotFound(id),
+            IsmpError::ConsensusStateIdNotRecognized { .. } => {
+                HandlingError::InsufficientProofHeight
+            }
+            IsmpError::ChallengePeriodNotConfigured { .. } => {
+                HandlingError::InsufficientProofHeight
+            }
+            IsmpError::DuplicateConsensusStateId { .. } => HandlingError::InsufficientProofHeight,
+            IsmpError::UnnbondingPeriodNotConfigured { .. } => {
+                HandlingError::InsufficientProofHeight
+            }
         }
     }
 }

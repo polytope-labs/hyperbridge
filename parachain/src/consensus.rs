@@ -21,7 +21,9 @@ use alloc::{boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
 use codec::{Decode, Encode};
 use core::fmt::Debug;
 use ismp::{
-    consensus::{ConsensusClient, ConsensusClientId, StateCommitment, StateMachineClient},
+    consensus::{
+        ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
+    },
     error::Error,
     host::{IsmpHost, StateMachine},
     messaging::{Proof, StateCommitmentHeight},
@@ -123,6 +125,7 @@ where
     fn verify_consensus(
         &self,
         host: &dyn IsmpHost,
+        _consensus_state_id: ConsensusStateId,
         state: Vec<u8>,
         proof: Vec<u8>,
     ) -> Result<(Vec<u8>, BTreeMap<StateMachine, StateCommitmentHeight>), Error> {
@@ -230,11 +233,6 @@ where
         }
 
         Ok((state, intermediates))
-    }
-
-    fn unbonding_period(&self) -> Duration {
-        // there's no notion of client expiry, since there's shared security.
-        Duration::from_secs(u64::MAX)
     }
 
     fn verify_fraud_proof(

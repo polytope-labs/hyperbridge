@@ -22,10 +22,10 @@ use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 
 /// Running the benchmarks correctly.
-/// Add the [`BenchmarkClient`] as one of the consensus clients available to pallet-ismp in the
-/// runtime configuration.
-/// In your module router configuration add the [`BenchmarkIsmpModule`] as one of the ismp modules
-/// using the pallet id defined here as it's module id.
+/// Add the [`crate::ismp_mocks::MockConsensusClient`] as one of the consensus clients available to
+/// pallet-ismp in the runtime configuration.
+/// In your module router configuration add the [`crate::ismp_mocks::MockModule`] as one of the ismp
+/// modules using the [`crate::ismp_mocks::ModuleId`] as it's module id
 #[benchmarks(
 where
 <T as frame_system::Config>::Hash: From<H256>,
@@ -34,24 +34,25 @@ T: pallet_timestamp::Config,
 )]
 pub mod benchmarks {
     use super::*;
-    use crate::primitives::ModuleId;
-    use alloc::collections::BTreeMap;
-    use frame_support::{traits::Hooks, PalletId};
+    use crate::{
+        host::Host,
+        ismp_mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
+        Config, Event, Pallet, RequestCommitments, RequestReceipts, ResponseReceipts,
+    };
+    use codec::Encode;
+    use frame_support::traits::{Get, Hooks};
     use frame_system::EventRecord;
+    use ismp_primitives::{mmr::Leaf, LeafIndexQuery};
     use ismp_rs::{
-        consensus::{
-            ConsensusClient, IntermediateState, StateCommitment, StateMachineClient,
-            StateMachineHeight,
-        },
-        error::Error as IsmpError,
+        consensus::{StateCommitment, StateMachineId},
+        host::{Ethereum, StateMachine},
         messaging::{
-            Message, Proof, RequestMessage, ResponseMessage, StateCommitmentHeight, TimeoutMessage,
+            CreateConsensusState, Message, Proof, RequestMessage, ResponseMessage,
+            StateCommitmentHeight, TimeoutMessage,
         },
-        module::IsmpModule,
-        router::{Post, PostResponse, RequestResponse},
+        router::{Post, PostResponse, Request, Response},
         util::hash_request,
     };
-    use sp_std::prelude::Vec;
 
     /// Verify the the last event emitted
     fn assert_last_event<T: Config>(generic_event: <T as Config>::RuntimeEvent) {
@@ -61,111 +62,17 @@ pub mod benchmarks {
         assert_eq!(event, &system_event);
     }
 
-    /// A mock consensus client for benchmarking
-    #[derive(Default)]
-    pub struct BenchmarkClient;
-
-    /// Consensus client id for benchmarking consensus client
-    pub const BENCHMARK_CONSENSUS_CLIENT_ID: [u8; 4] = [1u8; 4];
-
-    impl ConsensusClient for BenchmarkClient {
-        fn verify_consensus(
-            &self,
-            _host: &dyn IsmpHost,
-            _trusted_consensus_state: Vec<u8>,
-            _proof: Vec<u8>,
-        ) -> Result<(Vec<u8>, BTreeMap<StateMachine, StateCommitmentHeight>), IsmpError> {
-            Ok(Default::default())
-        }
-
-        fn verify_fraud_proof(
-            &self,
-            _host: &dyn IsmpHost,
-            _trusted_consensus_state: Vec<u8>,
-            _proof_1: Vec<u8>,
-            _proof_2: Vec<u8>,
-        ) -> Result<(), IsmpError> {
-            Ok(())
-        }
-
-        fn unbonding_period(&self) -> Duration {
-            Duration::from_secs(60 * 60 * 60)
-        }
-
-        fn state_machine(
-            &self,
-            _id: StateMachine,
-        ) -> Result<Box<dyn StateMachineClient>, IsmpError> {
-            Ok(Box::new(BenchmarkStateMachine))
-        }
-    }
-
-    /// Mock State Machine
-    pub struct BenchmarkStateMachine;
-
-    impl StateMachineClient for BenchmarkStateMachine {
-        fn verify_membership(
-            &self,
-            _host: &dyn IsmpHost,
-            _item: RequestResponse,
-            _root: StateCommitment,
-            _proof: &Proof,
-        ) -> Result<(), IsmpError> {
-            Ok(())
-        }
-
-        fn state_trie_key(&self, _request: Vec<Request>) -> Vec<Vec<u8>> {
-            Default::default()
-        }
-
-        fn verify_state_proof(
-            &self,
-            _host: &dyn IsmpHost,
-            _keys: Vec<Vec<u8>>,
-            _root: StateCommitment,
-            _proof: &Proof,
-        ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, IsmpError> {
-            Ok(Default::default())
-        }
-    }
-
-    /// This module should be added to the module router in runtime for benchmarks to pass
-    pub struct BenchmarkIsmpModule;
-    /// module id for the mock benchmarking module
-    pub const MODULE_ID: ModuleId = ModuleId::Pallet(PalletId(*b"benchmak"));
-    impl IsmpModule for BenchmarkIsmpModule {
-        fn on_accept(&self, _request: Post) -> Result<(), ismp_rs::error::Error> {
-            Ok(())
-        }
-
-        fn on_response(&self, _response: Response) -> Result<(), ismp_rs::error::Error> {
-            Ok(())
-        }
-
-        fn on_timeout(&self, _request: Request) -> Result<(), ismp_rs::error::Error> {
-            Ok(())
-        }
-    }
-
-    /// Sets the current timestamp
-    fn set_timestamp<T: pallet_timestamp::Config>()
-    where
-        <T as pallet_timestamp::Config>::Moment: From<u64>,
-    {
-        pallet_timestamp::Pallet::<T>::set_timestamp(1000_000_000u64.into());
-    }
-
     #[benchmark]
     fn create_consensus_client() {
-        set_timestamp::<T>();
-
-        let message = CreateConsensusClient {
+        let message = CreateConsensusState {
             consensus_state: Default::default(),
-            consensus_client_id: BENCHMARK_CONSENSUS_CLIENT_ID,
+            consensus_client_id: MOCK_CONSENSUS_STATE_ID,
+            consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+            unbonding_period: u64::MAX,
             state_machine_commitments: vec![(
                 StateMachineId {
-                    state_id: StateMachine::Ethereum,
-                    consensus_client: BENCHMARK_CONSENSUS_CLIENT_ID,
+                    state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+                    consensus_state_id: MOCK_CONSENSUS_STATE_ID,
                 },
                 StateCommitmentHeight {
                     commitment: StateCommitment {
@@ -182,47 +89,17 @@ pub mod benchmarks {
         _(RawOrigin::Root, message);
 
         assert_last_event::<T>(
-            Event::ConsensusClientCreated { consensus_client_id: BENCHMARK_CONSENSUS_CLIENT_ID }
-                .into(),
+            Event::ConsensusClientCreated { consensus_client_id: MOCK_CONSENSUS_STATE_ID }.into(),
         );
-    }
-
-    fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
-        let intermediate_state = IntermediateState {
-            height: StateMachineHeight {
-                id: StateMachineId {
-                    state_id: StateMachine::Ethereum,
-                    consensus_client: BENCHMARK_CONSENSUS_CLIENT_ID,
-                },
-                height: 1,
-            },
-            commitment: StateCommitment {
-                timestamp: 1000,
-                overlay_root: None,
-                state_root: Default::default(),
-            },
-        };
-
-        host.store_consensus_state(BENCHMARK_CONSENSUS_CLIENT_ID, vec![]).unwrap();
-        host.store_consensus_update_time(BENCHMARK_CONSENSUS_CLIENT_ID, Duration::from_secs(1000))
-            .unwrap();
-        host.store_state_machine_commitment(
-            intermediate_state.height,
-            intermediate_state.commitment,
-        )
-        .unwrap();
-
-        intermediate_state
     }
 
     // The Benchmark consensus client should be added to the runtime for these benchmarks to work
     #[benchmark]
     fn handle_request_message() {
-        set_timestamp::<T>();
         let host = Host::<T>::default();
-        let intermediate_state = setup_mock_client(&host);
+        let height = setup_mock_client::<_, T>(&host);
         let post = Post {
-            source_chain: StateMachine::Ethereum,
+            source_chain: StateMachine::Ethereum(Ethereum::ExecutionLayer),
             dest_chain: <T as Config>::StateMachine::get(),
             nonce: 0,
             from: MODULE_ID.encode(),
@@ -231,10 +108,8 @@ pub mod benchmarks {
             data: "handle_request_message".as_bytes().to_vec(),
         };
 
-        let msg = RequestMessage {
-            requests: vec![post.clone()],
-            proof: Proof { height: intermediate_state.height, proof: vec![] },
-        };
+        let msg =
+            RequestMessage { requests: vec![post.clone()], proof: Proof { height, proof: vec![] } };
         let caller = whitelisted_caller();
 
         #[extrinsic_call]
@@ -246,12 +121,11 @@ pub mod benchmarks {
 
     #[benchmark]
     fn handle_response_message() {
-        set_timestamp::<T>();
         let host = Host::<T>::default();
-        let intermediate_state = setup_mock_client(&host);
+        let height = setup_mock_client::<_, T>(&host);
         let post = Post {
             source_chain: <T as Config>::StateMachine::get(),
-            dest_chain: StateMachine::Ethereum,
+            dest_chain: StateMachine::Ethereum(Ethereum::ExecutionLayer),
             nonce: 0,
             from: MODULE_ID.encode(),
             to: MODULE_ID.encode(),
@@ -274,7 +148,7 @@ pub mod benchmarks {
         let request_commitment = hash_request::<Host<T>>(&response.request());
         let msg = ResponseMessage::Post {
             responses: vec![response],
-            proof: Proof { height: intermediate_state.height, proof: vec![] },
+            proof: Proof { height, proof: vec![] },
         };
 
         let caller = whitelisted_caller();
@@ -287,12 +161,11 @@ pub mod benchmarks {
 
     #[benchmark]
     fn handle_timeout_message() {
-        set_timestamp::<T>();
         let host = Host::<T>::default();
-        let intermediate_state = setup_mock_client(&host);
+        let height = setup_mock_client::<_, T>(&host);
         let post = Post {
             source_chain: <T as Config>::StateMachine::get(),
-            dest_chain: StateMachine::Ethereum,
+            dest_chain: StateMachine::Ethereum(Ethereum::ExecutionLayer),
             nonce: 0,
             from: MODULE_ID.encode(),
             to: MODULE_ID.encode(),
@@ -313,7 +186,7 @@ pub mod benchmarks {
 
         let msg = TimeoutMessage::Post {
             requests: vec![request],
-            timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
+            timeout_proof: Proof { height, proof: vec![] },
         };
         let caller = whitelisted_caller();
 

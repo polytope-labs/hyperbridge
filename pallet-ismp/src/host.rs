@@ -16,15 +16,17 @@
 //! Host implementation for ISMP
 use crate::{
     dispatcher::Receipt, primitives::ConsensusClientProvider, Config, ConsensusClientUpdateTime,
-    ConsensusStates, FrozenConsensusClients, FrozenHeights, LatestStateMachineHeight, Nonce,
-    RequestCommitments, RequestReceipts, ResponseReceipts, StateCommitments,
+    ConsensusStateClient, ConsensusStates, FrozenConsensusClients, FrozenHeights,
+    LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts, ResponseReceipts,
+    StateCommitments, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use core::time::Duration;
 use frame_support::traits::{Get, UnixTime};
 use ismp_rs::{
     consensus::{
-        ConsensusClient, ConsensusClientId, StateCommitment, StateMachineHeight, StateMachineId,
+        ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
+        StateMachineId,
     },
     error::Error,
     host::{IsmpHost, StateMachine},
@@ -73,7 +75,8 @@ where
     }
 
     fn consensus_state(&self, id: ConsensusClientId) -> Result<Vec<u8>, Error> {
-        ConsensusStates::<T>::get(id).ok_or_else(|| Error::ConsensusStateNotFound { id })
+        ConsensusStates::<T>::get(id)
+            .ok_or_else(|| Error::ConsensusStateNotFound { consensus_state_id: id })
     }
 
     fn timestamp(&self) -> Duration {
@@ -159,7 +162,7 @@ where
         sp_io::hashing::keccak_256(bytes).into()
     }
 
-    fn challenge_period(&self, id: ConsensusClientId) -> Duration {
+    fn challenge_period(&self, id: ConsensusClientId) -> Option<Duration> {
         <T as Config>::ConsensusClientProvider::challenge_period(id)
     }
 
@@ -176,9 +179,9 @@ where
         Ok(())
     }
 
-    fn is_consensus_client_frozen(&self, client: ConsensusClientId) -> Result<(), Error> {
+    fn is_consensus_client_frozen(&self, client: ConsensusStateId) -> Result<(), Error> {
         if FrozenConsensusClients::<T>::get(client) {
-            Err(Error::FrozenConsensusClient { id: client })?
+            Err(Error::FrozenConsensusClient { consensus_state_id: client })?
         }
         Ok(())
     }
@@ -199,7 +202,7 @@ where
         Some(())
     }
 
-    fn freeze_consensus_client(&self, client: ConsensusClientId) -> Result<(), Error> {
+    fn freeze_consensus_client(&self, client: ConsensusStateId) -> Result<(), Error> {
         FrozenConsensusClients::<T>::insert(client, true);
         Ok(())
     }
@@ -207,6 +210,35 @@ where
     fn store_response_receipt(&self, req: &Request) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
         ResponseReceipts::<T>::insert(hash.0.to_vec(), Receipt::Ok);
+        Ok(())
+    }
+
+    fn consensus_client_id(
+        &self,
+        consensus_state_id: ConsensusStateId,
+    ) -> Option<ConsensusClientId> {
+        ConsensusStateClient::<T>::get(&consensus_state_id)
+    }
+
+    fn store_consensus_state_id(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        client_id: ConsensusClientId,
+    ) -> Result<(), Error> {
+        ConsensusStateClient::<T>::insert(consensus_state_id, client_id);
+        Ok(())
+    }
+
+    fn unbonding_period(&self, consensus_state_id: ConsensusStateId) -> Option<Duration> {
+        UnbondingPeriod::<T>::get(&consensus_state_id).map(Duration::from_secs)
+    }
+
+    fn store_unbonding_period(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        period: u64,
+    ) -> Result<(), Error> {
+        UnbondingPeriod::<T>::insert(consensus_state_id, period);
         Ok(())
     }
 }

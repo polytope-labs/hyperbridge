@@ -26,7 +26,7 @@ pub mod consensus;
 
 use alloc::{vec, vec::Vec};
 use cumulus_primitives_core::relay_chain;
-use ismp::{handlers, messaging::CreateConsensusClient};
+use ismp::handlers;
 pub use pallet::*;
 use pallet_ismp::host::Host;
 
@@ -36,7 +36,7 @@ pub mod pallet {
     use cumulus_primitives_core::relay_chain;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
-    use ismp::messaging::{ConsensusMessage, Message};
+    use ismp::messaging::{ConsensusMessage, CreateConsensusState, Message};
     use parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
     use primitive_types::H256;
 
@@ -92,7 +92,7 @@ pub mod pallet {
             );
 
             assert_eq!(
-                data.consensus_client_id,
+                data.consensus_state_id,
                 consensus::PARACHAIN_CONSENSUS_ID,
                 "Only parachain consensus updates should be passed in the inherents!"
             );
@@ -198,9 +198,11 @@ pub mod pallet {
         fn build(&self) {
             let host = Host::<T>::default();
 
-            let message = CreateConsensusClient {
+            let message = CreateConsensusState {
                 // insert empty bytes
                 consensus_state: vec![],
+                unbonding_period: u64::MAX,
+                consensus_state_id: consensus::PARACHAIN_CONSENSUS_ID,
                 consensus_client_id: consensus::PARACHAIN_CONSENSUS_ID,
                 state_machine_commitments: vec![],
             };

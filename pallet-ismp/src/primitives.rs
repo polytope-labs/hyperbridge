@@ -61,7 +61,7 @@ pub trait ConsensusClientProvider {
     ) -> Result<Box<dyn ConsensusClient>, ismp_rs::error::Error>;
 
     /// Returns the challenge period configured for a consensus client
-    fn challenge_period(id: ConsensusClientId) -> Duration;
+    fn challenge_period(id: ConsensusClientId) -> Option<Duration>;
 }
 
 /// Module identification types supported by ismp

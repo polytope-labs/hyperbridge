@@ -14,8 +14,8 @@ pub fn hash_request<H: IsmpHost>(req: &Request) -> H256 {
         Request::Post(post) => {
             let mut buf = Vec::new();
 
-            let source_chain = post.source_chain.to_string();
-            let dest_chain = post.dest_chain.to_string();
+            let source_chain = post.source.to_string();
+            let dest_chain = post.dest.to_string();
             let nonce = post.nonce.to_be_bytes();
             let timestamp = post.timeout_timestamp.to_be_bytes();
             buf.extend_from_slice(source_chain.as_bytes());
@@ -30,8 +30,8 @@ pub fn hash_request<H: IsmpHost>(req: &Request) -> H256 {
         Request::Get(get) => {
             let mut buf = Vec::new();
 
-            let source_chain = get.source_chain.to_string();
-            let dest_chain = get.dest_chain.to_string();
+            let source_chain = get.source.to_string();
+            let dest_chain = get.dest.to_string();
             let nonce = get.nonce.to_be_bytes();
             let height = get.height.to_be_bytes();
             let timestamp = get.timeout_timestamp.to_be_bytes();
@@ -55,8 +55,8 @@ pub fn hash_response<H: IsmpHost>(res: &Response) -> H256 {
         _ => return Default::default(),
     };
     let mut buf = Vec::new();
-    let source_chain = req.source_chain.to_string();
-    let dest_chain = req.dest_chain.to_string();
+    let source_chain = req.source.to_string();
+    let dest_chain = req.dest.to_string();
     let nonce = req.nonce.to_be_bytes();
     let timestamp = req.timeout_timestamp.to_be_bytes();
     buf.extend_from_slice(source_chain.as_bytes());

@@ -15,7 +15,10 @@
 
 //! Testing utilities
 
-use crate::{extrinsic::Extrinsic, host::InMemorySigner, send_extrinsic, ParachainClient};
+use crate::{
+    extrinsic::{send_extrinsic, Extrinsic, InMemorySigner},
+    SubstrateClient,
+};
 use codec::Encode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
@@ -30,25 +33,26 @@ use subxt::{
     ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
 };
 
-impl<T> ParachainClient<T>
+impl<T, C> SubstrateClient<T, C>
 where
-    T: subxt::Config + Send + Sync + Clone,
-    T::Header: Send + Sync,
-    <T::ExtrinsicParams as ExtrinsicParams<T::Index, T::Hash>>::OtherParams:
-        Default + Send + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
-    T::AccountId: From<sp_core::crypto::AccountId32>
-        + Into<T::Address>
+    T: Send + Sync + Clone,
+    C: subxt::Config + Send + Sync + Clone,
+    C::Header: Send + Sync,
+    <C::ExtrinsicParams as ExtrinsicParams<C::Index, C::Hash>>::OtherParams:
+        Default + Send + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+    C::AccountId: From<sp_core::crypto::AccountId32>
+        + Into<C::Address>
         + Encode
         + Clone
         + 'static
         + Send
         + Sync,
-    T::Signature: From<MultiSignature> + Send + Sync,
+    C::Signature: From<MultiSignature> + Send + Sync,
 {
     pub async fn timestamp(&self) -> Result<Duration, anyhow::Error> {
         let addr: [u8; 32] =
             hex!("f0c365c3cf59d671eb72da0e7a4113c49f1f0515f462cdcf84e0f1d6045dfcbb");
-        let timestamp = self.parachain.rpc().storage(&addr, None).await.unwrap().unwrap();
+        let timestamp = self.client.rpc().storage(&addr, None).await.unwrap().unwrap();
         let timestamp: u64 = codec::Decode::decode(&mut &*timestamp.0).unwrap();
         Ok(Duration::from_millis(timestamp))
     }
@@ -59,7 +63,7 @@ where
 
     pub async fn transfer(
         &self,
-        params: ismp_demo::TransferParams<T::AccountId, u128>,
+        params: ismp_demo::TransferParams<C::AccountId, u128>,
     ) -> Result<(), anyhow::Error> {
         let signer = InMemorySigner {
             account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
@@ -69,7 +73,7 @@ where
         let call = params.encode();
         let tx = Extrinsic::new("IsmpDemo", "transfer", call);
 
-        let progress = send_extrinsic(&self.parachain, signer, tx).await?;
+        let progress = send_extrinsic(&self.client, signer, tx).await?;
         let tx = progress.wait_for_in_block().await?;
 
         tx.wait_for_success().await?;
@@ -86,7 +90,7 @@ where
         let call = get_req.encode();
         let tx = Extrinsic::new("IsmpDemo", "get_request", call);
 
-        let progress = send_extrinsic(&self.parachain, signer, tx).await?;
+        let progress = send_extrinsic(&self.client, signer, tx).await?;
         let tx = progress.wait_for_in_block().await?;
 
         tx.wait_for_success().await?;
@@ -99,9 +103,9 @@ where
         count: usize,
         pallet_name: &'static str,
         variant_name: &'static str,
-    ) -> Result<Vec<EventDetails<T>>, anyhow::Error> {
-        let subscription = self.parachain.rpc().subscribe_best_block_headers().await?;
-        let client = self.parachain.clone();
+    ) -> Result<Vec<EventDetails<C>>, anyhow::Error> {
+        let subscription = self.client.rpc().subscribe_best_block_headers().await?;
+        let client = self.client.clone();
         let stream = subscription.filter_map(move |header| {
             let client = client.clone();
             async move {
@@ -134,5 +138,9 @@ where
             }
         }
         Err(anyhow::Error::msg("Stream ended"))
+    }
+
+    pub fn account(&self) -> C::AccountId {
+        MultiSigner::Sr25519(self.signer.public()).into_account().into()
     }
 }

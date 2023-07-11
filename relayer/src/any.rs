@@ -40,74 +40,17 @@ macro_rules! chain {
 
         #[async_trait::async_trait]
         impl primitives::IsmpHost for AnyClient {
-            fn name(&self) -> String {
-                match self {
-					$(
-						$(#[$($meta)*])*
-						Self::$name(chain) => chain.name(),
-					)*
-				}
-            }
-
-            fn state_machine_id(&self) -> ismp::consensus::StateMachineId {
-                match self {
-					$(
-						$(#[$($meta)*])*
-						Self::$name(chain) => chain.state_machine_id(),
-					)*
-				}
-            }
-
-            fn block_max_gas(&self) -> u64 {
-                match self {
-					$(
-						$(#[$($meta)*])*
-						Self::$name(chain) => chain.block_max_gas(),
-					)*
-				}
-            }
-
-            async fn estimate_gas(&self, msg: Vec<ismp::messaging::Message>) -> Result<u64, anyhow::Error> {
-                match self {
-					$(
-						$(#[$($meta)*])*
-						Self::$name(chain) => chain.estimate_gas(msg).await,
-					)*
-				}
-            }
-
             async fn consensus_notification<C>(
                 &self,
                 counterparty: C,
             ) -> Result<primitives::BoxStream<ismp::messaging::ConsensusMessage>, anyhow::Error>
             where
-                C: primitives::IsmpHost + Clone + 'static
+                C: primitives::IsmpHost + primitives::IsmpProvider + Clone + 'static
             {
                 match self {
 					$(
 						$(#[$($meta)*])*
 						Self::$name(chain) => chain.consensus_notification(counterparty).await,
-					)*
-				}
-            }
-
-            async fn state_machine_update_notification(
-                &self,
-                counterparty_state_id: ismp::consensus::StateMachineId,
-            ) -> primitives::BoxStream<primitives::StateMachineUpdated> {
-                match self {
-					$(
-						$(#[$($meta)*])*
-						Self::$name(chain) => chain.state_machine_update_notification(counterparty_state_id).await,
-					)*
-				}
-            }
-
-            async fn submit(&self, messages: Vec<ismp::messaging::Message>) -> Result<(), anyhow::Error> {
-                match self {
-					$(
-						$(#[$($meta)*])*
-						Self::$name(chain) => chain.submit(messages).await,
 					)*
 				}
             }
@@ -226,6 +169,64 @@ macro_rules! chain {
 					$(
 						$(#[$($meta)*])*
 						Self::$name(chain) => chain.query_pending_get_requests(height).await,
+					)*
+				}
+            }
+
+
+            fn name(&self) -> String {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.name(),
+					)*
+				}
+            }
+
+            fn state_machine_id(&self) -> ismp::consensus::StateMachineId {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.state_machine_id(),
+					)*
+				}
+            }
+
+            fn block_max_gas(&self) -> u64 {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.block_max_gas(),
+					)*
+				}
+            }
+
+            async fn estimate_gas(&self, msg: Vec<ismp::messaging::Message>) -> Result<u64, anyhow::Error> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.estimate_gas(msg).await,
+					)*
+				}
+            }
+
+            async fn state_machine_update_notification(
+                &self,
+                counterparty_state_id: ismp::consensus::StateMachineId,
+            ) -> primitives::BoxStream<primitives::StateMachineUpdated> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.state_machine_update_notification(counterparty_state_id).await,
+					)*
+				}
+            }
+
+            async fn submit(&self, messages: Vec<ismp::messaging::Message>) -> Result<(), anyhow::Error> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.submit(messages).await,
 					)*
 				}
             }

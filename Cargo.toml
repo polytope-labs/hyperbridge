@@ -4,7 +4,8 @@ members = [
     "primitives",
     "consensus",
     "messaging",
-    "parachain",
+    "substrate/common",
+    "substrate/parachain",
     "relayer",
     "integration-tests",
 ]

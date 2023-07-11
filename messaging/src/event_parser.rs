@@ -5,19 +5,23 @@ use ismp::{
     router::Request,
 };
 use pallet_ismp::events::Event;
-use tesseract_primitives::{IsmpHost, Query};
+use tesseract_primitives::{IsmpHost, IsmpProvider, Query};
 
 /// Parse events emitted from [`source`] into messages to be submitted to the counterparty
 /// The [`state_machine_height`] parameter is the latest available height of [`source`] on
 /// the counterparty chain
 /// Returns a tuple where the first item are messages to be submitted to the sink
 /// and the second items are messages to be submitted to the source
-pub async fn parse_ismp_events<A: IsmpHost, B: IsmpHost>(
+pub async fn parse_ismp_events<A, B>(
     source: &A,
     sink: &B,
     events: Vec<Event>,
     state_machine_height: StateMachineHeight,
-) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error> {
+) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error>
+where
+    A: IsmpHost + IsmpProvider,
+    B: IsmpHost + IsmpProvider,
+{
     let mut request_queries = vec![];
     let mut response_queries = vec![];
 

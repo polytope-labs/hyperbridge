@@ -13,13 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ParachainClient;
+use crate::ParachainHost;
 use anyhow::anyhow;
 use ismp::messaging::ConsensusMessage;
 use tesseract_primitives::{ByzantineHandler, ChallengePeriodStarted, IsmpHost};
 
 #[async_trait::async_trait]
-impl<T> ByzantineHandler for ParachainClient<T>
+impl<T> ByzantineHandler for ParachainHost<T>
 where
     T: subxt::Config,
 {

@@ -12,7 +12,6 @@ subxt = { version = "0.29.0", features = ["substrate-compat"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 futures = "0.3.28"
 async-trait = "0.1.53"
-urlencoding = "2.1.2"
 hex-literal = "0.4.1"
 parking_lot = "0.12.1"
 
@@ -22,9 +21,10 @@ ismp-demo = { git = "https://github.com/polytope-labs/substrate-ismp", branch = 
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
 ismp-rpc = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
 ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
-tesseract-primitives = { path = "../primitives" }
+
+substrate-common = { path = "../common" }
+tesseract-primitives = { path = "../../primitives" }
 
 sp-core = { version = "21.0.0", features = ["full_crypto"] }
 
-[features]
-testing = []
+

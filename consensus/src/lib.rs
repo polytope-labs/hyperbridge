@@ -17,13 +17,13 @@
 
 use futures::StreamExt;
 use ismp::messaging::Message;
-use tesseract_primitives::IsmpHost;
+use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 /// Relays [`ConsensusMessage`] updates.
 pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
 where
-    A: IsmpHost + 'static,
-    B: IsmpHost + 'static,
+    A: IsmpHost + IsmpProvider + 'static,
+    B: IsmpHost + IsmpProvider + 'static,
 {
     log::info!(target: "tesseract", "🛰️ Starting consensus relay");
     let mut consensus_a = chain_a.consensus_notification(chain_b.clone()).await?;

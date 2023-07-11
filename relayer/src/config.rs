@@ -16,13 +16,19 @@
 //! Tesseract config utilities
 
 use ismp_parachain::consensus::HashAlgorithm;
-use parachain::{Blake2Parachain, KeccakParachain, ParachainClient, ParachainConfig};
+use parachain::{ParachainConfig, ParachainHost};
 use primitives::config::RelayerConfig;
 use serde::{Deserialize, Serialize};
+use substrate_common::{
+    config::{Blake2Parachain, KeccakParachain},
+    SubstrateClient,
+};
+
+type Parachain<T> = SubstrateClient<ParachainHost<T>, T>;
 
 crate::chain! {
-    KeccakParachain(ParachainConfig, ParachainClient<KeccakParachain>),
-    Parachain(ParachainConfig, ParachainClient<Blake2Parachain>),
+    KeccakParachain(ParachainConfig, Parachain<KeccakParachain>),
+    Parachain(ParachainConfig, Parachain<Blake2Parachain>),
 }
 
 /// Defines the format of the tesseract config.toml file.
@@ -41,38 +47,19 @@ impl AnyConfig {
     pub async fn into_client(self) -> Result<AnyClient, anyhow::Error> {
         let client = match self {
             AnyConfig::KeccakParachain(config) | AnyConfig::Parachain(config) => {
-                match config.hashing {
-                    HashAlgorithm::Keccak => AnyClient::KeccakParachain(
-                        ParachainClient::<KeccakParachain>::new(config).await?,
-                    ),
+                match config.substrate.hashing {
+                    HashAlgorithm::Keccak => {
+                        let host = ParachainHost::new(&config).await?;
+                        AnyClient::KeccakParachain(Parachain::new(host, config.substrate).await?)
+                    }
                     HashAlgorithm::Blake2 => {
-                        AnyClient::Parachain(ParachainClient::<Blake2Parachain>::new(config).await?)
+                        let host = ParachainHost::new(&config).await?;
+                        AnyClient::Parachain(Parachain::new(host, config.substrate).await?)
                     }
                 }
             }
         };
 
         Ok(client)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ParachainConfig;
-    use crate::config::AnyConfig;
-    use ismp::host::StateMachine;
-    use ismp_parachain::consensus::HashAlgorithm;
-    use primitives::config::{MessageKind, RelayerConfig};
-
-    #[test]
-    fn serialize() {
-        let config = RelayerConfig {
-            messages: vec![MessageKind::Consensus, MessageKind::PostRequest],
-            module_filter: vec![],
-        };
-
-        let value = toml::to_string(&config).unwrap();
-
-        println!("{value}");
     }
 }

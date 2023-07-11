@@ -20,7 +20,7 @@ mod event_parser;
 use crate::event_parser::{filter_events, parse_ismp_events};
 use futures::StreamExt;
 use ismp::consensus::StateMachineHeight;
-use tesseract_primitives::{config::RelayerConfig, IsmpHost};
+use tesseract_primitives::{config::RelayerConfig, IsmpHost, IsmpProvider};
 
 pub async fn relay<A, B>(
     chain_a: A,
@@ -28,8 +28,8 @@ pub async fn relay<A, B>(
     _config: Option<RelayerConfig>,
 ) -> Result<(), anyhow::Error>
 where
-    A: IsmpHost,
-    B: IsmpHost,
+    A: IsmpHost + IsmpProvider,
+    B: IsmpHost + IsmpProvider,
 {
     log::info!(target: "tesseract", "🛰️ Starting messaging relay");
     let mut state_machine_update_stream_a =
@@ -61,10 +61,6 @@ where
                             id: state_machine_update.state_machine_id,
                             height: state_machine_update.latest_height
                         };
-                        log::info!(
-                            target: "tesseract",
-                            "Latest update {:?}", state_machine_update
-                        );
                         let (messages, get_responses) = parse_ismp_events(&chain_b, &chain_a, events, state_machine_height).await?;
 
                         if !messages.is_empty() {

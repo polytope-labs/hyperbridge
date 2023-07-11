@@ -14,87 +14,30 @@
 // limitations under the License.
 
 use crate::{
-    relay_chain, relay_chain::api::runtime_types::polkadot_parachain::primitives::Id,
-    ParachainClient,
+    relay_chain, relay_chain::api::runtime_types::polkadot_parachain::primitives::Id, ParachainHost,
 };
 use anyhow::anyhow;
 use codec::{Decode, Encode};
-use futures::{stream, Stream, StreamExt};
+use futures::stream;
 use ismp::{consensus::StateMachineId, host::StateMachine, messaging::ConsensusMessage};
 use ismp_parachain::consensus::{ParachainConsensusProof, PARACHAIN_CONSENSUS_ID};
-use std::pin::Pin;
-use subxt::{
-    config::Header as _,
-    events::EventDetails,
-    ext::sp_runtime::{generic::Header, traits::BlakeTwo256, DigestItem},
-    Config,
-};
-use tesseract_primitives::{IsmpHost, StateMachineUpdated};
+use subxt::ext::sp_runtime::{generic::Header, traits::BlakeTwo256, DigestItem};
+use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider};
 
-fn decode_state_machine_update_event<T: Config>(
-    ev: EventDetails<T>,
-) -> Result<Option<StateMachineUpdated>, anyhow::Error> {
-    let ev_metadata = ev.event_metadata();
-    if ev_metadata.pallet.name() == "Ismp" && ev_metadata.variant.name == "StateMachineUpdated" {
-        let bytes = ev.field_bytes();
-        let event: StateMachineUpdated = codec::Decode::decode(&mut &*bytes)?;
-        Ok(Some(event))
-    } else {
-        Ok(None)
-    }
-}
-
-impl<T> ParachainClient<T>
+#[async_trait::async_trait]
+impl<T> IsmpHost for ParachainHost<T>
 where
     T: subxt::Config + Send + Sync + Clone,
     T::Header: Send + Sync,
 {
-    pub async fn state_machine_update_notification_stream(
-        &self,
-        counterparty_state_id: StateMachineId,
-    ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<StateMachineUpdated, anyhow::Error>> + Send>>,
-        anyhow::Error,
-    > {
-        let client = self.parachain.clone();
-
-        let subscription = self.parachain.rpc().subscribe_best_block_headers().await?;
-
-        let stream = subscription.filter_map(move |header| {
-            let client = client.clone();
-            async move {
-                let events = client.events().at(header.ok()?.hash()).await.ok()?;
-
-                let event = events
-                    .iter()
-                    .filter_map(|ev| {
-                        let ev = ev.ok()?;
-                        decode_state_machine_update_event(ev).transpose()
-                    })
-                    .find(|ev| match ev {
-                        Ok(StateMachineUpdated { state_machine_id, .. }) => {
-                            state_machine_id == &counterparty_state_id
-                        }
-                        _ => false,
-                    });
-                event
-            }
-        });
-
-        Ok(Box::pin(stream))
-    }
-
-    pub async fn consensus_notification_stream<C>(
+    async fn consensus_notification<C>(
         &self,
         counterparty: C,
-    ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<ConsensusMessage, anyhow::Error>> + Send + 'static>>,
-        anyhow::Error,
-    >
+    ) -> Result<BoxStream<ConsensusMessage>, anyhow::Error>
     where
-        C: IsmpHost + Clone + 'static,
+        C: IsmpHost + IsmpProvider + 'static,
     {
-        let client = ParachainClient::clone(&self);
+        let client = ParachainHost::clone(&self);
 
         let stream = stream::try_unfold((), move |state| {
             let client = client.clone();

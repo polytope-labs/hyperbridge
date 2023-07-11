@@ -113,6 +113,32 @@ pub trait IsmpProvider {
 
     /// Query requests
     async fn query_pending_get_requests(&self, height: u64) -> Result<Vec<Get>, anyhow::Error>;
+
+    /// Name of this chain, used in logs.
+    fn name(&self) -> String;
+
+    /// State Machine Id for this client which would be it's state machine id
+    /// on the counterparty chain
+    fn state_machine_id(&self) -> StateMachineId;
+
+    /// Should return a numerical value for the max gas allowed for transactions in a block.
+    fn block_max_gas(&self) -> u64;
+
+    /// Should return a numerical estimate of the gas to be consumed for a batch of messages.
+    async fn estimate_gas(&self, msg: Vec<Message>) -> Result<u64, anyhow::Error>;
+
+    /// Return a stream that watches for updates to [`counterparty_state_id`], yields when new
+    /// [`StateMachineUpdated`] event is observed for [`counterparty_state_id`]
+    async fn state_machine_update_notification(
+        &self,
+        counterparty_state_id: StateMachineId,
+    ) -> BoxStream<StateMachineUpdated>;
+
+    /// This should be used to submit new messages [`Vec<Message>`] from a counterparty chain to
+    /// this chain.
+    ///
+    /// Should only return Ok if the transaction was successfully inserted into a block.
+    async fn submit(&self, messages: Vec<Message>) -> Result<(), anyhow::Error>;
 }
 
 /// Provides an interface for handling byzantine behaviour. Implementations of this should watch for
@@ -136,20 +162,7 @@ pub trait ByzantineHandler {
 
 /// Provides an interface for the chain to the relayer core for submitting Ismp messages as well as
 #[async_trait::async_trait]
-pub trait IsmpHost: IsmpProvider + ByzantineHandler + Clone + Send + Sync {
-    /// Name of this chain, used in logs.
-    fn name(&self) -> String;
-
-    /// State Machine Id for this client which would be it's state machine id
-    /// on the counterparty chain
-    fn state_machine_id(&self) -> StateMachineId;
-
-    /// Should return a numerical value for the max gas allowed for transactions in a block.
-    fn block_max_gas(&self) -> u64;
-
-    /// Should return a numerical estimate of the gas to be consumed for a batch of messages.
-    async fn estimate_gas(&self, msg: Vec<Message>) -> Result<u64, anyhow::Error>;
-
+pub trait IsmpHost: ByzantineHandler + Clone + Send + Sync {
     /// Return a stream that yields [`ConsensusMessage`] when a new consensus update can be sent to
     /// the counterparty
     async fn consensus_notification<C>(
@@ -157,18 +170,5 @@ pub trait IsmpHost: IsmpProvider + ByzantineHandler + Clone + Send + Sync {
         counterparty: C,
     ) -> Result<BoxStream<ConsensusMessage>, anyhow::Error>
     where
-        C: IsmpHost + Clone + 'static;
-
-    /// Return a stream that watches for updates to [`counterparty_state_id`], yields when new
-    /// [`StateMachineUpdated`] event is observed for [`counterparty_state_id`]
-    async fn state_machine_update_notification(
-        &self,
-        counterparty_state_id: StateMachineId,
-    ) -> BoxStream<StateMachineUpdated>;
-
-    /// This should be used to submit new messages [`Vec<Message>`] from a counterparty chain to
-    /// this chain.
-    ///
-    /// Should only return Ok if the transaction was successfully inserted into a block.
-    async fn submit(&self, messages: Vec<Message>) -> Result<(), anyhow::Error>;
+        C: IsmpHost + IsmpProvider + Clone + 'static;
 }

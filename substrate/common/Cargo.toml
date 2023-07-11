@@ -1,0 +1,27 @@
+[package]
+name = "substrate-common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0.164", features = ["derive"] }
+anyhow = "1.0.70"
+futures = "0.3.28"
+async-trait = "0.1.71"
+parking_lot = "0.12.1"
+hex-literal = { version ="0.4.1", optional = true }
+subxt = { version = "0.29.0", features = ["substrate-compat"] }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+sp-core = { version = "21.0.0", features = ["full_crypto"] }
+
+primitives = { package = "tesseract-primitives", path = "../../primitives" }
+
+ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
+ismp-parachain = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+ismp-demo = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+ismp-rpc = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+
+[features]
+testing = ["hex-literal"]

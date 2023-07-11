@@ -9165,6 +9165,8 @@ dependencies = [
  "ismp",
  "pallet-ismp",
  "parity-scale-codec",
+ "serde",
+ "sp-core 21.0.0",
 ]
 
 [[package]]

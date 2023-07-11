@@ -17,6 +17,7 @@
 
 use crate::{config::Config, logging};
 use clap::Parser;
+use primitives::config::MessageKind;
 
 /// Tesseract, the multi-chain ISMP relayer
 #[derive(Parser, Debug)]
@@ -33,12 +34,16 @@ impl Cli {
 
         let config = tokio::fs::read_to_string(&self.config).await?;
 
-        let tesseract_config = toml::from_str::<Config>(&config)?;
+        let Config { chain_a, chain_b, relayer } = toml::from_str::<Config>(&config)?;
 
-        let chain_a = tesseract_config.chain_a.into_client().await?;
-        let chain_b = tesseract_config.chain_b.into_client().await?;
+        let chain_a = chain_a.into_client().await?;
+        let chain_b = chain_b.into_client().await?;
 
-        messaging::relay(chain_a, chain_b).await?;
+        if relayer.messages.iter().any(|msg| matches!(msg, MessageKind::Consensus)) {
+            tokio::spawn(consensus::relay(chain_a.clone(), chain_b.clone()));
+        }
+
+        messaging::relay(chain_a, chain_b, Some(relayer)).await?;
 
         Ok(())
     }

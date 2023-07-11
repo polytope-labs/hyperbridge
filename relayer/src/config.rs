@@ -17,6 +17,7 @@
 
 use ismp_parachain::consensus::HashAlgorithm;
 use parachain::{Blake2Parachain, KeccakParachain, ParachainClient, ParachainConfig};
+use primitives::config::RelayerConfig;
 use serde::{Deserialize, Serialize};
 
 crate::chain! {
@@ -31,6 +32,8 @@ pub struct Config {
     pub chain_a: AnyConfig,
     /// Configuration options for chain B.
     pub chain_b: AnyConfig,
+    /// Configuration options for the relayer.
+    pub relayer: RelayerConfig,
 }
 
 impl AnyConfig {
@@ -59,20 +62,16 @@ mod tests {
     use crate::config::AnyConfig;
     use ismp::host::StateMachine;
     use ismp_parachain::consensus::HashAlgorithm;
+    use primitives::config::{MessageKind, RelayerConfig};
 
     #[test]
     fn serialize() {
-        let config_a = ParachainConfig {
-            hashing: HashAlgorithm::Keccak,
-            state_machine: StateMachine::Kusama(2000),
-            relay_chain: "ws://localhost:9944".to_string(),
-            parachain: "ws://localhost:9988".to_string(),
-            signer: "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a"
-                .to_string(),
-            latest_state_machine_height: None,
+        let config = RelayerConfig {
+            messages: vec![MessageKind::Consensus, MessageKind::PostRequest],
+            module_filter: vec![],
         };
 
-        let value = toml::to_string(&AnyConfig::Parachain(config_a)).unwrap();
+        let value = toml::to_string(&config).unwrap();
 
         println!("{value}");
     }

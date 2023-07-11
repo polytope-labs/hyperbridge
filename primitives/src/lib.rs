@@ -14,6 +14,8 @@
 // limitations under the License.
 
 //! Traits and types required to compose the tesseract relayer
+pub mod config;
+
 use futures::Stream;
 use ismp::{
     consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},

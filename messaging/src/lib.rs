@@ -20,13 +20,18 @@ mod event_parser;
 use crate::event_parser::{filter_events, parse_ismp_events};
 use futures::StreamExt;
 use ismp::consensus::StateMachineHeight;
-use tesseract_primitives::IsmpHost;
+use tesseract_primitives::{config::RelayerConfig, IsmpHost};
 
-pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
+pub async fn relay<A, B>(
+    chain_a: A,
+    chain_b: B,
+    _config: Option<RelayerConfig>,
+) -> Result<(), anyhow::Error>
 where
     A: IsmpHost,
     B: IsmpHost,
 {
+    log::info!(target: "tesseract", "🛰️ Starting messaging relay");
     let mut state_machine_update_stream_a =
         chain_a.state_machine_update_notification(chain_b.state_machine_id()).await;
     let mut state_machine_update_stream_b =
@@ -50,7 +55,7 @@ where
                         log::info!(
                             target: "tesseract",
                             "Events from {} {:?}", chain_b.name(),
-                            events
+                            events // event names
                          );
                         let state_machine_height = StateMachineHeight {
                             id: state_machine_update.state_machine_id,
@@ -65,7 +70,7 @@ where
                         if !messages.is_empty() {
                             log::info!(
                                 target: "tesseract",
-                                "Submitting ismp messages from {} to {}",
+                                "🛰️Submitting ismp messages from {} to {}",
                                 chain_b.name(), chain_a.name()
                             );
                             chain_a.submit(messages).await?;
@@ -74,7 +79,7 @@ where
                         if !get_responses.is_empty() {
                             log::info!(
                                 target: "tesseract",
-                                "Submitting GET response messages to {}",
+                                "🛰️Submitting GET response messages to {}",
                                 chain_b.name()
                             );
                             chain_b.submit(get_responses).await?;
@@ -111,15 +116,11 @@ where
                             id: state_machine_update.state_machine_id,
                             height: state_machine_update.latest_height
                         };
-                        log::info!(
-                            target: "tesseract",
-                            "Latest update {:?}", state_machine_update
-                         );
                         let (messages, get_responses) = parse_ismp_events(&chain_a, &chain_b, events, state_machine_height).await?;
                         if !messages.is_empty() {
                             log::info!(
                                 target: "tesseract",
-                                "Submitting ismp messages from {} to {}",
+                                "🛰️Submitting ismp messages from {} to {}",
                                 chain_a.name(), chain_b.name()
                             );
                             chain_b.submit(messages).await?;
@@ -128,7 +129,7 @@ where
                         if !get_responses.is_empty() {
                             log::info!(
                                 target: "tesseract",
-                                "Submitting GET response messages to {}",
+                                "🛰️Submitting GET response messages to {}",
                                 chain_a.name()
                             );
                             chain_a.submit(get_responses).await?;

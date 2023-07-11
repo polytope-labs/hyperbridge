@@ -14,7 +14,7 @@ Consult the [ISMP book](https://substrate-ismp.polytope.technology) for more inf
 
 ## Docker Guide
 
-First build the image locally:
+Optionally build the image locally:
 
 ```bash
 DOCKER_BUILDKIT=0 docker build -t tesseract .
@@ -23,7 +23,13 @@ DOCKER_BUILDKIT=0 docker build -t tesseract .
 Next run the relayer given a config file
 
 ```bash
- docker run tesseract --config ./integration-tests/config.toml
+docker run tesseract --config ./integration-tests/config.toml
+```
+
+Or run our pre build images:
+
+```bash
+docker run polytopelabs/tesseract:latest --config ./integration-tests/config.toml
 ```
 
 ## License

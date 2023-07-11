@@ -73,11 +73,6 @@ pub async fn parse_ismp_events<A: IsmpHost, B: IsmpHost>(
     let sink_latest_height_on_source =
         source.query_latest_state_machine_height(sink.state_machine_id()).await? as u64;
     let get_requests = source.query_pending_get_requests(sink_latest_height_on_source).await?;
-    log::info!(
-        target: "tesseract",
-        "Get requests {:?}",
-        get_requests
-    );
     for get_request in get_requests {
         let height = get_request.height;
         let state_proof = sink.query_state_proof(height, get_request.keys.clone()).await?;

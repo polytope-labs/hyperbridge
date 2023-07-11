@@ -25,6 +25,7 @@ where
     A: IsmpHost + 'static,
     B: IsmpHost + 'static,
 {
+    log::info!(target: "tesseract", "🛰️ Starting consensus relay");
     let mut consensus_a = chain_a.consensus_notification(chain_b.clone()).await?;
     let mut consensus_b = chain_b.consensus_notification(chain_a.clone()).await?;
 
@@ -36,7 +37,7 @@ where
                     Some(Ok(consensus_message)) => {
                         log::info!(
                             target: "tesseract",
-                            "Submitting consensus update message from {} to {}",
+                            "🛰️ Submitting consensus update message from {} to {}",
                             chain_a.name(), chain_b.name()
                         );
                         chain_b.submit(vec![Message::Consensus(consensus_message)]).await?;
@@ -56,7 +57,7 @@ where
                     Some(Ok(consensus_message)) => {
                          log::info!(
                             target: "tesseract",
-                            "Submitting consensus update message from {} to {}",
+                            "🛰️ Transmitting consensus update message from {} to {}",
                             chain_b.name(), chain_a.name()
                          );
                          chain_a.submit(vec![Message::Consensus(consensus_message)]).await?;

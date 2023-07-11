@@ -82,8 +82,8 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
     assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
 
     let post = Post {
-        source_chain: host.host_state_machine(),
-        dest_chain: StateMachine::Kusama(2000),
+        source: host.host_state_machine(),
+        dest: StateMachine::Kusama(2000),
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
@@ -154,8 +154,8 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     host.freeze_state_machine(frozen_height).unwrap();
 
     let post = Post {
-        source_chain: host.host_state_machine(),
-        dest_chain: StateMachine::Kusama(2000),
+        source: host.host_state_machine(),
+        dest: StateMachine::Kusama(2000),
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
@@ -204,15 +204,15 @@ pub fn timeout_post_processing_check<H: IsmpHost>(
     let previous_update_time = host.timestamp() - (challenge_period * 2);
     host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time).unwrap();
     let dispatch_post = DispatchPost {
-        dest_chain: StateMachine::Kusama(2000),
+        dest: StateMachine::Kusama(2000),
         from: vec![0u8; 32],
         to: vec![0u8; 32],
         timeout_timestamp: intermediate_state.commitment.timestamp,
         data: vec![0u8; 64],
     };
     let post = Post {
-        source_chain: host.host_state_machine(),
-        dest_chain: StateMachine::Kusama(2000),
+        source: host.host_state_machine(),
+        dest: StateMachine::Kusama(2000),
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
@@ -249,7 +249,7 @@ pub fn write_outgoing_commitments<H: IsmpHost>(
     dispatcher: &dyn IsmpDispatcher,
 ) -> Result<(), &'static str> {
     let post = DispatchPost {
-        dest_chain: StateMachine::Kusama(2000),
+        dest: StateMachine::Kusama(2000),
         from: vec![0u8; 32],
         to: vec![0u8; 32],
         timeout_timestamp: 0,
@@ -262,8 +262,8 @@ pub fn write_outgoing_commitments<H: IsmpHost>(
         .map_err(|_| "Dispatcher failed to dispatch request")?;
     // Fetch commitment from storage
     let post = Post {
-        source_chain: host.host_state_machine(),
-        dest_chain: StateMachine::Kusama(2000),
+        source: host.host_state_machine(),
+        dest: StateMachine::Kusama(2000),
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
@@ -275,8 +275,8 @@ pub fn write_outgoing_commitments<H: IsmpHost>(
     host.request_commitment(commitment)
         .map_err(|_| "Expected Request commitment to be found in storage")?;
     let post = Post {
-        source_chain: StateMachine::Kusama(2000),
-        dest_chain: host.host_state_machine(),
+        source: StateMachine::Kusama(2000),
+        dest: host.host_state_machine(),
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],

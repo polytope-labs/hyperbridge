@@ -152,6 +152,13 @@ pub trait IsmpHost {
     /// Should return the configured delay period for a consensus state
     fn challenge_period(&self, consensus_state_id: ConsensusStateId) -> Option<Duration>;
 
+    /// Set the challenge period in seconds for a consensus state.
+    fn store_challenge_period(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        period: u64,
+    ) -> Result<(), Error>;
+
     /// Check if the client has expired since the last update
     fn is_expired(&self, consensus_state_id: ConsensusStateId) -> Result<(), Error> {
         let host_timestamp = self.timestamp();
@@ -205,10 +212,10 @@ pub enum StateMachine {
     /// Kusama parachains
     #[codec(index = 2)]
     Kusama(u32),
-    /// We identify
+    /// We identify standalone state machines by their consensus state
     #[codec(index = 3)]
     Grandpa(ConsensusStateId),
-    /// State machines chains running on beefy consensus client
+    /// State machines chains running on beefy consensus state
     #[codec(index = 4)]
     Beefy(ConsensusStateId),
 }
@@ -217,21 +224,15 @@ impl ToString for StateMachine {
     fn to_string(&self) -> String {
         match self {
             StateMachine::Ethereum(ethereum) => match ethereum {
-                Ethereum::ExecutionLayer => "ETHEREUM".to_string(),
-                Ethereum::Arbitrum => "ARBITRUM".to_string(),
-                Ethereum::Optimism => "OPTIMISM".to_string(),
+                Ethereum::ExecutionLayer => "ETHE".to_string(),
+                Ethereum::Arbitrum => "ARBI".to_string(),
+                Ethereum::Optimism => "OPTI".to_string(),
                 Ethereum::Base => "BASE".to_string(),
             },
             StateMachine::Polkadot(id) => format!("POLKADOT-{id}"),
             StateMachine::Kusama(id) => format!("KUSAMA-{id}"),
-            StateMachine::Grandpa(id) => format!(
-                "GRANDPA-{}",
-                serde_json::to_string(id).expect("Array to string is infallible")
-            ),
-            StateMachine::Beefy(id) => format!(
-                "BEEFY-{}",
-                serde_json::to_string(id).expect("Array to string is infallible")
-            ),
+            StateMachine::Grandpa(id) => format!("GRANDPA-{}", u32::from_be_bytes(*id)),
+            StateMachine::Beefy(id) => format!("BEEFY-{}", u32::from_be_bytes(*id)),
         }
     }
 }
@@ -241,9 +242,9 @@ impl FromStr for StateMachine {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = match s {
-            "ETHEREUM" => StateMachine::Ethereum(Ethereum::ExecutionLayer),
-            "ARBITRUM" => StateMachine::Ethereum(Ethereum::Arbitrum),
-            "OPTIMISM" => StateMachine::Ethereum(Ethereum::Optimism),
+            "ETHE" => StateMachine::Ethereum(Ethereum::ExecutionLayer),
+            "ARBI" => StateMachine::Ethereum(Ethereum::Arbitrum),
+            "OPTI" => StateMachine::Ethereum(Ethereum::Optimism),
             "BASE" => StateMachine::Ethereum(Ethereum::Base),
             name if name.starts_with("POLKADOT-") => {
                 let id = name
@@ -265,7 +266,7 @@ impl FromStr for StateMachine {
                 let id = name
                     .split('-')
                     .last()
-                    .and_then(|id| serde_json::from_str(id).ok())
+                    .and_then(|id| u32::from_str(id).ok().map(u32::to_be_bytes))
                     .ok_or_else(|| format!("invalid state machine: {name}"))?;
                 StateMachine::Grandpa(id)
             }
@@ -273,7 +274,7 @@ impl FromStr for StateMachine {
                 let id = name
                     .split('-')
                     .last()
-                    .and_then(|id| serde_json::from_str(id).ok())
+                    .and_then(|id| u32::from_str(id).ok().map(u32::to_be_bytes))
                     .ok_or_else(|| format!("invalid state machine: {name}"))?;
                 StateMachine::Beefy(id)
             }
@@ -297,6 +298,9 @@ mod tests {
 
         let grandpa_string = grandpa.to_string();
         let beefy_string = beefy.to_string();
+
+        dbg!(&grandpa_string);
+        dbg!(&beefy_string);
 
         assert_eq!(grandpa, StateMachine::from_str(&grandpa_string).unwrap());
         assert_eq!(beefy, StateMachine::from_str(&beefy_string).unwrap());

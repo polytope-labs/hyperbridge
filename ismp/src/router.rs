@@ -25,9 +25,9 @@ use core::time::Duration;
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Post {
     /// The source state machine of this request.
-    pub source_chain: StateMachine,
+    pub source: StateMachine,
     /// The destination state machine of this request.
-    pub dest_chain: StateMachine,
+    pub dest: StateMachine,
     /// The nonce of this request on the source chain
     pub nonce: u64,
     /// Module Id of the sending module
@@ -45,9 +45,9 @@ pub struct Post {
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Get {
     /// The source state machine of this request.
-    pub source_chain: StateMachine,
+    pub source: StateMachine,
     /// The destination state machine of this request.
-    pub dest_chain: StateMachine,
+    pub dest: StateMachine,
     /// The nonce of this request on the source chain
     pub nonce: u64,
     /// Module Id of the sending module
@@ -84,8 +84,8 @@ impl Request {
     /// Get the source chain
     pub fn source_chain(&self) -> StateMachine {
         match self {
-            Request::Get(get) => get.source_chain,
-            Request::Post(post) => post.source_chain,
+            Request::Get(get) => get.source,
+            Request::Post(post) => post.source,
         }
     }
 
@@ -108,8 +108,8 @@ impl Request {
     /// Get the destination chain
     pub fn dest_chain(&self) -> StateMachine {
         match self {
-            Request::Get(get) => get.dest_chain,
-            Request::Post(post) => post.dest_chain,
+            Request::Get(get) => get.dest,
+            Request::Post(post) => post.dest,
         }
     }
 
@@ -226,16 +226,16 @@ impl Response {
     /// Get the source chain for this response
     pub fn source_chain(&self) -> StateMachine {
         match self {
-            Response::Get(res) => res.get.dest_chain,
-            Response::Post(res) => res.post.dest_chain,
+            Response::Get(res) => res.get.dest,
+            Response::Post(res) => res.post.dest,
         }
     }
 
     /// Get the destination chain for this response
     pub fn dest_chain(&self) -> StateMachine {
         match self {
-            Response::Get(res) => res.get.source_chain,
-            Response::Post(res) => res.post.source_chain,
+            Response::Get(res) => res.get.source,
+            Response::Post(res) => res.post.source,
         }
     }
 
@@ -268,7 +268,7 @@ pub trait IsmpRouter {
 #[derive(Clone)]
 pub struct DispatchPost {
     /// The destination state machine of this request.
-    pub dest_chain: StateMachine,
+    pub dest: StateMachine,
     /// Module Id of the sending module
     pub from: Vec<u8>,
     /// Module ID of the receiving module
@@ -283,7 +283,7 @@ pub struct DispatchPost {
 #[derive(Clone)]
 pub struct DispatchGet {
     /// The destination state machine of this request.
-    pub dest_chain: StateMachine,
+    pub dest: StateMachine,
     /// Module Id of the sending module
     pub from: Vec<u8>,
     /// Raw Storage keys that would be used to fetch the values from the counterparty

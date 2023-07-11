@@ -283,6 +283,14 @@ impl IsmpHost for Host {
         Some(Duration::from_secs(60 * 60))
     }
 
+    fn store_challenge_period(
+        &self,
+        _consensus_state_id: ConsensusStateId,
+        _period: u64,
+    ) -> Result<(), Error> {
+        todo!()
+    }
+
     fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {
         Some(Duration::from_secs(60 * 60 * 60))
     }
@@ -325,8 +333,8 @@ impl IsmpDispatcher for MockDispatcher {
         let request = match request {
             DispatchRequest::Get(dispatch_get) => {
                 let get = Get {
-                    source_chain: host.host_state_machine(),
-                    dest_chain: dispatch_get.dest_chain,
+                    source: host.host_state_machine(),
+                    dest: dispatch_get.dest,
                     nonce: host.next_nonce(),
                     from: dispatch_get.from,
                     keys: dispatch_get.keys,
@@ -337,8 +345,8 @@ impl IsmpDispatcher for MockDispatcher {
             }
             DispatchRequest::Post(dispatch_post) => {
                 let post = Post {
-                    source_chain: host.host_state_machine(),
-                    dest_chain: dispatch_post.dest_chain,
+                    source: host.host_state_machine(),
+                    dest: dispatch_post.dest,
                     nonce: host.next_nonce(),
                     from: dispatch_post.from,
                     to: dispatch_post.to,

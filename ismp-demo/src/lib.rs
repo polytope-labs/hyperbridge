@@ -137,7 +137,7 @@ pub mod pallet {
                 _ => Err(DispatchError::Other("Pallet only supports parachain hosts"))?,
             };
             let post = DispatchPost {
-                dest_chain: dest,
+                dest,
                 from: PALLET_ID.encode(),
                 to: PALLET_ID.encode(),
                 timeout_timestamp: params.timeout,
@@ -167,14 +167,14 @@ pub mod pallet {
         #[pallet::call_index(1)]
         pub fn get_request(origin: OriginFor<T>, params: GetRequest) -> DispatchResult {
             ensure_signed(origin)?;
-            let dest_chain = match T::StateMachine::get() {
+            let dest = match T::StateMachine::get() {
                 StateMachine::Kusama(_) => StateMachine::Kusama(params.para_id),
                 StateMachine::Polkadot(_) => StateMachine::Polkadot(params.para_id),
                 _ => Err(DispatchError::Other("Pallet only supports parachain hosts"))?,
             };
 
             let get = DispatchGet {
-                dest_chain,
+                dest,
                 from: PALLET_ID.encode(),
                 keys: params.keys,
                 height: params.height as u64,
@@ -248,7 +248,7 @@ impl<T: Config> Default for IsmpModuleCallback<T> {
 
 impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
     fn on_accept(&self, request: Post) -> Result<(), IsmpError> {
-        let source_chain = request.source_chain;
+        let source_chain = request.source;
 
         let payload = <Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(
             &mut &*request.data,

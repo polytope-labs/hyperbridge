@@ -66,8 +66,8 @@ fn push_leaves(range: Range<u64>) -> Vec<NodeIndex> {
     let mut positions = vec![];
     for nonce in range {
         let post = ismp_rs::router::Post {
-            source_chain: StateMachine::Kusama(2000),
-            dest_chain: StateMachine::Kusama(2001),
+            source: StateMachine::Kusama(2000),
+            dest: StateMachine::Kusama(2001),
             nonce,
             from: vec![0u8; 32],
             to: vec![1u8; 32],
@@ -218,6 +218,7 @@ fn should_reject_updates_within_challenge_period() {
     ext.execute_with(|| {
         set_timestamp(None);
         let host = Host::<Test>::default();
+        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
         check_challenge_period(&host).unwrap()
     })
 }
@@ -229,6 +230,7 @@ fn should_reject_messages_for_frozen_state_machines() {
     ext.execute_with(|| {
         set_timestamp(None);
         let host = Host::<Test>::default();
+        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
         frozen_check(&host).unwrap()
     })
 }
@@ -241,6 +243,7 @@ fn should_reject_expired_check_clients() {
         set_timestamp(None);
         let host = Host::<Test>::default();
         host.store_unbonding_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
+        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
         check_client_expiry(&host).unwrap()
     })
 }
@@ -253,6 +256,7 @@ fn should_handle_post_request_timeouts_correctly() {
         set_timestamp(None);
         let host = Host::<Test>::default();
         let dispatcher = Dispatcher::<Test>::default();
+        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
         timeout_post_processing_check(&host, &dispatcher).unwrap()
     })
 }
@@ -263,11 +267,12 @@ fn should_handle_get_request_timeouts_correctly() {
     ext.execute_with(|| {
         let host = Host::<Test>::default();
         setup_mock_client::<_, Test>(&host);
+        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
         let requests = (0..2)
             .into_iter()
             .map(|i| {
                 let msg = DispatchGet {
-                    dest_chain: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+                    dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     from: vec![0u8; 32],
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 2,
@@ -277,8 +282,8 @@ fn should_handle_get_request_timeouts_correctly() {
                 let dispatcher = Dispatcher::<Test>::default();
                 dispatcher.dispatch_request(DispatchRequest::Get(msg)).unwrap();
                 let get = ismp_rs::router::Get {
-                    source_chain: host.host_state_machine(),
-                    dest_chain: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+                    source: host.host_state_machine(),
+                    dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     nonce: i,
                     from: vec![0u8; 32],
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
@@ -307,11 +312,12 @@ fn should_handle_get_request_responses_correctly() {
     ext.execute_with(|| {
         let host = Host::<Test>::default();
         setup_mock_client::<_, Test>(&host);
+        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 60 * 60).unwrap();
         let requests = (0..2)
             .into_iter()
             .map(|i| {
                 let msg = DispatchGet {
-                    dest_chain: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+                    dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     from: vec![0u8; 32],
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 3,
@@ -321,8 +327,8 @@ fn should_handle_get_request_responses_correctly() {
                 let dispatcher = Dispatcher::<Test>::default();
                 dispatcher.dispatch_request(DispatchRequest::Get(msg)).unwrap();
                 let get = ismp_rs::router::Get {
-                    source_chain: host.host_state_machine(),
-                    dest_chain: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+                    source: host.host_state_machine(),
+                    dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     nonce: i,
                     from: vec![0u8; 32],
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],

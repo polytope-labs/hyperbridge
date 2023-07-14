@@ -14,7 +14,6 @@
 // limitations under the License.
 
 //! Pallet primitives
-use core::time::Duration;
 use frame_support::{PalletId, RuntimeDebug};
 use ismp_primitives::mmr::{LeafIndex, NodeIndex};
 use ismp_rs::consensus::{ConsensusClient, ConsensusClientId};
@@ -59,9 +58,6 @@ pub trait ConsensusClientProvider {
     fn consensus_client(
         id: ConsensusClientId,
     ) -> Result<Box<dyn ConsensusClient>, ismp_rs::error::Error>;
-
-    /// Returns the challenge period configured for a consensus client
-    fn challenge_period(id: ConsensusClientId) -> Option<Duration>;
 }
 
 /// Module identification types supported by ismp

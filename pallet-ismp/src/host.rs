@@ -15,10 +15,10 @@
 
 //! Host implementation for ISMP
 use crate::{
-    dispatcher::Receipt, primitives::ConsensusClientProvider, Config, ConsensusClientUpdateTime,
-    ConsensusStateClient, ConsensusStates, FrozenConsensusClients, FrozenHeights,
-    LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts, ResponseReceipts,
-    StateCommitments, UnbondingPeriod,
+    dispatcher::Receipt, primitives::ConsensusClientProvider, ChallengePeriod, Config,
+    ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
+    FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts,
+    ResponseReceipts, StateCommitments, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use core::time::Duration;
@@ -162,8 +162,8 @@ where
         sp_io::hashing::keccak_256(bytes).into()
     }
 
-    fn challenge_period(&self, id: ConsensusClientId) -> Option<Duration> {
-        <T as Config>::ConsensusClientProvider::challenge_period(id)
+    fn challenge_period(&self, id: ConsensusStateId) -> Option<Duration> {
+        ChallengePeriod::<T>::get(&id).map(Duration::from_secs)
     }
 
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {
@@ -239,6 +239,15 @@ where
         period: u64,
     ) -> Result<(), Error> {
         UnbondingPeriod::<T>::insert(consensus_state_id, period);
+        Ok(())
+    }
+
+    fn store_challenge_period(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        period: u64,
+    ) -> Result<(), Error> {
+        ChallengePeriod::<T>::insert(consensus_state_id, period);
         Ok(())
     }
 }

@@ -186,6 +186,11 @@ pub mod pallet {
     pub type UnbondingPeriod<T: Config> =
         StorageMap<_, Blake2_128Concat, ConsensusStateId, u64, OptionQuery>;
 
+    /// A mapping of ConsensusStateId to Challenge periods
+    #[pallet::storage]
+    pub type ChallengePeriod<T: Config> =
+        StorageMap<_, Blake2_128Concat, ConsensusStateId, u64, OptionQuery>;
+
     /// Holds a map of consensus clients frozen due to byzantine
     /// behaviour
     #[pallet::storage]
@@ -299,6 +304,15 @@ pub mod pallet {
         unbonding_period: u64,
     }
 
+    /// Params to update the challenge period for a consensus state
+    #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+    pub struct ChallengeUpdate {
+        /// Consensus state identifier
+        pub consensus_state_id: ConsensusStateId,
+        /// Challenge period duration
+        pub challenge_period: u64,
+    }
+
     #[pallet::call]
     impl<T: Config> Pallet<T>
     where
@@ -335,7 +349,7 @@ pub mod pallet {
         }
 
         /// Set the unbonding period for a consensus state.
-        #[pallet::weight(<T as Config>::WeightInfo::create_consensus_client())]
+        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(1))]
         #[pallet::call_index(2)]
         pub fn set_unbonding_period(
             origin: OriginFor<T>,
@@ -347,6 +361,23 @@ pub mod pallet {
 
             host.store_unbonding_period(message.consensus_state_id, message.unbonding_period)
                 .map_err(|_| Error::<T>::UnbondingPeriodUpdateFailed)?;
+
+            Ok(())
+        }
+
+        /// Set the challenge period for a consensus state.
+        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(1))]
+        #[pallet::call_index(3)]
+        pub fn set_challenge_period(
+            origin: OriginFor<T>,
+            message: ChallengeUpdate,
+        ) -> DispatchResult {
+            T::AdminOrigin::ensure_origin(origin)?;
+
+            let host = Host::<T>::default();
+
+            host.store_challenge_period(message.consensus_state_id, message.challenge_period)
+                .map_err(|_| Error::<T>::ChallengePeriodUpdateFailed)?;
 
             Ok(())
         }
@@ -408,6 +439,8 @@ pub mod pallet {
         ConsensusClientCreationFailed,
         /// Couldn't update unbonding period
         UnbondingPeriodUpdateFailed,
+        /// Couldn't update challenge period
+        ChallengePeriodUpdateFailed,
     }
 }
 
@@ -440,7 +473,7 @@ where
                 Ok(MessageResult::ConsensusMessage(res)) => {
                     // check if this is a trusted state machine
                     let is_trusted_state_machine = host
-                        .challenge_period(res.consensus_client_id.clone()) ==
+                        .challenge_period(res.consensus_state_id.clone()) ==
                         Some(Duration::from_secs(0));
 
                     if is_trusted_state_machine {

@@ -59,10 +59,6 @@ impl ConsensusClientProvider for ConsensusProvider {
     ) -> Result<Box<dyn ConsensusClient>, ismp_rs::error::Error> {
         Ok(Box::new(MockConsensusClient))
     }
-
-    fn challenge_period(_id: ConsensusClientId) -> Option<Duration> {
-        Some(Duration::from_secs(60 * 60))
-    }
 }
 
 impl frame_system::Config for Test {

@@ -89,6 +89,9 @@ pub struct StateMachineHeight {
     pub height: u64,
 }
 
+/// A map of state machine to verified state commitments
+pub type VerifiedCommitments = BTreeMap<StateMachine, Vec<StateCommitmentHeight>>;
+
 /// We define the consensus client as a module that handles logic for consensus proof verification,
 /// and State-Proof verification as well.
 pub trait ConsensusClient {
@@ -99,7 +102,7 @@ pub trait ConsensusClient {
         consensus_state_id: ConsensusStateId,
         trusted_consensus_state: Vec<u8>,
         proof: Vec<u8>,
-    ) -> Result<(Vec<u8>, BTreeMap<StateMachine, StateCommitmentHeight>), Error>;
+    ) -> Result<(Vec<u8>, VerifiedCommitments), Error>;
 
     /// Given two distinct consensus proofs, verify that they're both valid and represent
     /// conflicting views of the network. returns Ok(()) if they're both valid.

@@ -1,11 +1,11 @@
 use ismp::{
     consensus::{
         ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
-        StateMachineHeight, StateMachineId,
+        StateMachineHeight, StateMachineId, VerifiedCommitments,
     },
     error::Error,
     host::{IsmpHost, StateMachine},
-    messaging::{Proof, StateCommitmentHeight},
+    messaging::Proof,
     module::IsmpModule,
     router::{
         DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse, Request,
@@ -39,7 +39,7 @@ impl ConsensusClient for MockClient {
         _consensus_state_id: ConsensusStateId,
         _trusted_consensus_state: Vec<u8>,
         _proof: Vec<u8>,
-    ) -> Result<(Vec<u8>, BTreeMap<StateMachine, StateCommitmentHeight>), Error> {
+    ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
         Ok(Default::default())
     }
 

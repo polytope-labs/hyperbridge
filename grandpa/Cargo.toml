@@ -1,45 +1,38 @@
 [package]
-name = "ismp-parachain"
+name = "pallet-grandpa-client"
 version = "0.1.0"
 edition = "2021"
-authors = ["Polytope Labs <hello@polytope.technology>"]
-
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-# crates.io
-serde = { version = "1.0.136", features = ["derive"], optional = true }
-codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = ["derive"] }
-scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
-hex-literal = "0.4.1"
-merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
+codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = [
+    "derive"
+] }
 primitive-types = { version = "0.12.1", default-features = false }
-hash-db = { version = "0.16.0", default-features = false }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
+finality-grandpa = { version = "0.16.0", features = ["derive-codec"], default-features = false }
 
 # polytope labs
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main", default-features = false }
+primitives = { package = "ismp-grandpa-primitives", path = "./primitives", default-features = false }
+verifier = { package = "ismp-grandpa-verifier", path = "./verifier", default-features = false}
+pallet-ismp = { path = "../pallet-ismp", default-features = false }
+
 
 # substrate
 frame-support = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 frame-system = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-trie = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
-sp-inherents = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-io = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-runtime = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
 sp-consensus-aura = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
+sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
 
 # cumulus
-parachain-system = { package = "cumulus-pallet-parachain-system", git = "https://github.com/paritytech/cumulus", branch = "release-v0.9.420", default-features = false }
 cumulus-primitives-core = { git = "https://github.com/paritytech/cumulus", branch = "release-v0.9.420", default-features = false }
 
-# local
 ismp-primitives = { path = "../pallet-ismp/primitives", default-features = false }
-pallet-ismp = { path = "../pallet-ismp", default-features = false }
 substrate-state-machine = { path = "../pallet-ismp/primitives/state-machine", default-features = false }
-
-[dev-dependencies]
-
 
 [features]
 default = ["std"]
@@ -48,19 +41,19 @@ std = [
     "frame-support/std",
     "frame-system/std",
     "scale-info/std",
-    "parachain-system/std",
     "cumulus-primitives-core/std",
     "ismp/std",
     "sp-trie/std",
-    "merkle-mountain-range/std",
     "sp-consensus-aura/std",
     "sp-runtime/std",
     "sp-io/std",
-    "sp-inherents/std",
     "primitive-types/std",
-    "ismp-primitives/std",
     "pallet-ismp/std",
-    "hash-db/std",
-    "serde",
-    "substrate-state-machine/std"
+    "sp-core/std",
+    "primitives/std",
+    "verifier/std",
+    "merkle-mountain-range/std",
+    "ismp-primitives/std",
+    "substrate-state-machine/std",
+    "finality-grandpa/std",
 ]

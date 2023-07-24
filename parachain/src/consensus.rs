@@ -17,7 +17,7 @@
 
 use core::{marker::PhantomData, time::Duration};
 
-use alloc::{boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use codec::{Decode, Encode};
 use core::fmt::Debug;
 use ismp::{
@@ -27,39 +27,27 @@ use ismp::{
     },
     error::Error,
     host::{IsmpHost, StateMachine},
-    messaging::{Proof, StateCommitmentHeight},
-    router::{Request, RequestResponse},
-    util::hash_request,
+    messaging::StateCommitmentHeight,
 };
-use ismp_primitives::mmr::{DataOrHash, Leaf, MmrHasher};
-use merkle_mountain_range::MerkleProof;
-use pallet_ismp::host::Host;
+use ismp_primitives::ISMP_ID;
 use parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
 use primitive_types::H256;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_runtime::{
     app_crypto::sp_core::storage::StorageKey,
     generic::Header,
-    traits::{BlakeTwo256, Header as _, Keccak256},
+    traits::{BlakeTwo256, Header as _},
     DigestItem,
 };
 use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
+use substrate_state_machine::SubstrateStateMachine;
 
 use crate::RelayChainOracle;
 
 /// The parachain consensus client implementation for ISMP.
 pub struct ParachainConsensusClient<T, R>(PhantomData<(T, R)>);
 
-/// The parachain state machine implementation for ISMP.
-pub struct ParachainStateMachine<T>(PhantomData<T>);
-
 impl<T, R> Default for ParachainConsensusClient<T, R> {
-    fn default() -> Self {
-        Self(PhantomData)
-    }
-}
-
-impl<T> Default for ParachainStateMachine<T> {
     fn default() -> Self {
         Self(PhantomData)
     }
@@ -76,39 +64,6 @@ pub struct ParachainConsensusProof {
     /// Storage proof for the parachain headers
     pub storage_proof: Vec<Vec<u8>>,
 }
-
-/// Hashing algorithm for the state proof
-#[derive(Debug, Encode, Decode, Clone)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
-pub enum HashAlgorithm {
-    /// For chains that use keccak as their hashing algo
-    Keccak,
-    /// For chains that use blake2 as their hashing algo
-    Blake2,
-}
-
-/// Holds the relevant data needed for state proof verification
-#[derive(Debug, Encode, Decode, Clone)]
-pub struct SubstrateStateProof {
-    /// Algorithm to use for state proof verification
-    pub hasher: HashAlgorithm,
-    /// Storage proof for the parachain headers
-    pub storage_proof: Vec<Vec<u8>>,
-}
-
-/// Holds the relevant data needed for request/response proof verification
-#[derive(Debug, Encode, Decode, Clone)]
-pub struct MembershipProof {
-    /// Size of the mmr at the time this proof was generated
-    pub mmr_size: u64,
-    /// Leaf indices for the proof
-    pub leaf_indices: Vec<u64>,
-    /// Mmr proof
-    pub proof: Vec<H256>,
-}
-
-/// The `ConsensusEngineId` of ISMP digest in the parachain header.
-pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";
 
 /// ConsensusClientId for [`ParachainConsensusClient`]
 pub const PARACHAIN_CONSENSUS_ID: ConsensusClientId = *b"PARA";
@@ -251,124 +206,9 @@ where
     }
 
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-        Ok(Box::new(ParachainStateMachine::<T>::default()))
+        Ok(Box::new(SubstrateStateMachine::<T>::default()))
     }
 }
-
-impl<T> StateMachineClient for ParachainStateMachine<T>
-where
-    T: pallet_ismp::Config + super::Config,
-    T::BlockNumber: Into<u32>,
-    T::Hash: From<H256>,
-{
-    fn verify_membership(
-        &self,
-        _host: &dyn IsmpHost,
-        item: RequestResponse,
-        state: StateCommitment,
-        proof: &Proof,
-    ) -> Result<(), Error> {
-        let membership = MembershipProof::decode(&mut &*proof.proof).map_err(|e| {
-            Error::ImplementationSpecific(format!("Cannot decode membership proof: {e:?}"))
-        })?;
-        let nodes = membership.proof.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
-        let proof =
-            MerkleProof::<DataOrHash<T>, MmrHasher<T, Host<T>>>::new(membership.mmr_size, nodes);
-        let leaves: Vec<(u64, DataOrHash<T>)> = match item {
-            RequestResponse::Request(req) => membership
-                .leaf_indices
-                .into_iter()
-                .zip(req.into_iter())
-                .map(|(pos, req)| (pos, DataOrHash::Data(Leaf::Request(req))))
-                .collect(),
-            RequestResponse::Response(res) => membership
-                .leaf_indices
-                .into_iter()
-                .zip(res.into_iter())
-                .map(|(pos, res)| (pos, DataOrHash::Data(Leaf::Response(res))))
-                .collect(),
-        };
-        let root = state
-            .overlay_root
-            .ok_or_else(|| Error::ImplementationSpecific("ISMP root should not be None".into()))?;
-
-        let calc_root = proof
-            .calculate_root(leaves.clone())
-            .map_err(|e| Error::ImplementationSpecific(format!("Error verifying mmr: {e:?}")))?;
-        let valid = calc_root.hash::<Host<T>>() == root.into();
-
-        if !valid {
-            Err(Error::ImplementationSpecific("Invalid membership proof".into()))?
-        }
-
-        Ok(())
-    }
-
-    fn state_trie_key(&self, requests: Vec<Request>) -> Vec<Vec<u8>> {
-        let mut keys = vec![];
-
-        for req in requests {
-            match req {
-                Request::Post(post) => {
-                    let request = Request::Post(post);
-                    let commitment = hash_request::<Host<T>>(&request).0.to_vec();
-                    keys.push(pallet_ismp::RequestReceipts::<T>::hashed_key_for(commitment));
-                }
-                Request::Get(_) => continue,
-            }
-        }
-
-        keys
-    }
-
-    fn verify_state_proof(
-        &self,
-        _host: &dyn IsmpHost,
-        keys: Vec<Vec<u8>>,
-        root: StateCommitment,
-        proof: &Proof,
-    ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
-        let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
-            .map_err(|e| Error::ImplementationSpecific(format!("failed to decode proof: {e:?}")))?;
-
-        let data = match state_proof.hasher {
-            HashAlgorithm::Keccak => {
-                let db = StorageProof::new(state_proof.storage_proof).into_memory_db::<Keccak256>();
-                let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root.state_root).build();
-                keys.into_iter()
-                    .map(|key| {
-                        let value = trie.get(&key).map_err(|e| {
-                            Error::ImplementationSpecific(format!(
-                                "Error reading state proof: {e:?}"
-                            ))
-                        })?;
-                        Ok((key, value))
-                    })
-                    .collect::<Result<BTreeMap<_, _>, _>>()?
-            }
-            HashAlgorithm::Blake2 => {
-                let db =
-                    StorageProof::new(state_proof.storage_proof).into_memory_db::<BlakeTwo256>();
-
-                let trie =
-                    TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root.state_root).build();
-                keys.into_iter()
-                    .map(|key| {
-                        let value = trie.get(&key).map_err(|e| {
-                            Error::ImplementationSpecific(format!(
-                                "Error reading state proof: {e:?}"
-                            ))
-                        })?;
-                        Ok((key, value))
-                    })
-                    .collect::<Result<BTreeMap<_, _>, _>>()?
-            }
-        };
-
-        Ok(data)
-    }
-}
-
 /// This returns the storage key for a parachain header on the relay chain.
 pub fn parachain_header_storage_key(para_id: u32) -> StorageKey {
     let mut storage_key = frame_support::storage::storage_prefix(b"Paras", b"Heads").to_vec();

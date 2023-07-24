@@ -2,28 +2,32 @@
 
 Implementation of the Interoperable State Machine Protocol for substrate runtimes. This project is [funded by the web3 foundation](https://github.com/w3f/Grants-Program/blob/master/applications/ismp.md).
 
+<img src="https://drive.google.com/uc?export=view&id=1aW_M8dULbPLNo4jTP2PsdNgW2UPST1jB"  style="max-width: 100%; height: auto;">
+
 ## Overview
 
-This repo holds all the required components substrate runtimes need to interoperate together using [ISMP](https://github.com/polytope-labs/ismp)  
+This repo holds all the required components substrate runtimes need to interoperate together using [ISMP](https://github.com/polytope-labs/ismp)
 
-* [pallet-ismp](./)  
-* [ismp-runtime-api](./pallet-ismp/runtime-api)  
-* [ismp-rpc](./pallet-ismp/rpc)
+- [pallet-ismp](./)
+- [ismp-runtime-api](./pallet-ismp/runtime-api)
+- [ismp-rpc](./pallet-ismp/rpc)
 
 ### Parachain Support
 
-* [ismp-parachain](./parachain)
-* [ismp-parachain-inherent](./parachain/inherent)
-* [ismp-parachain-runtime-api](./parachain/runtime-api)
+- [ismp-parachain](./parachain)
+- [ismp-parachain-inherent](./parachain/inherent)
+- [ismp-parachain-runtime-api](./parachain/runtime-api)
 
 ## Documentation
 
 Installation and integration guides can be found in the [book](https://substrate-ismp.polytope.technology).
 
 ## Testing and Testing Guide
-This guide assumes [Rust](https://www.rust-lang.org/tools/install) and  it's [nightly](https://rust-lang.github.io/rustup/concepts/channels.html#:~:text=it%20just%20run-,rustup%20toolchain%20install%20nightly,-%3A) version is installed, followed by calling the [init](https://github.com/paritytech/polkadot/blob/master/scripts/init.sh) script from the official Polkadot repo to initailize a WASM build environment.
+
+This guide assumes [Rust](https://www.rust-lang.org/tools/install) and it's [nightly](https://rust-lang.github.io/rustup/concepts/channels.html#:~:text=it%20just%20run-,rustup%20toolchain%20install%20nightly,-%3A) version is installed, followed by calling the [init](https://github.com/paritytech/polkadot/blob/master/scripts/init.sh) script from the official Polkadot repo to initailize a WASM build environment.
 
 To run the unit tests associated with this library;
+
 ```
 cargo +nightly test -p pallet-ismp --all-targets --all-features
 ```
@@ -31,6 +35,7 @@ cargo +nightly test -p pallet-ismp --all-targets --all-features
 Please see [CI](.github/workflows/ci.yml) for test coverage.
 
 ## Run Test in Docker
+
 ```bash
 docker run --memory="24g" --rm --user root -v "$PWD":/app -w /app rust:latest /bin/bash -c "apt update && apt install -y protobuf-compiler libclang-dev && cargo test --release --manifest-path=./Cargo.toml"
 ```

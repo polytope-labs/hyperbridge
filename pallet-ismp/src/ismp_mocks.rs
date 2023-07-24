@@ -5,6 +5,7 @@ use frame_support::PalletId;
 use ismp_rs::{
     consensus::{
         ConsensusClient, StateCommitment, StateMachineClient, StateMachineHeight, StateMachineId,
+        VerifiedCommitments,
     },
     error::Error as IsmpError,
     handlers,
@@ -54,7 +55,7 @@ impl ConsensusClient for MockConsensusClient {
         _cs_id: ismp_rs::consensus::ConsensusStateId,
         _trusted_consensus_state: Vec<u8>,
         _proof: Vec<u8>,
-    ) -> Result<(Vec<u8>, BTreeMap<StateMachine, StateCommitmentHeight>), IsmpError> {
+    ) -> Result<(Vec<u8>, VerifiedCommitments), IsmpError> {
         Ok(Default::default())
     }
 

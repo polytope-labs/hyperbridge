@@ -23,6 +23,7 @@ use core::fmt::Debug;
 use ismp::{
     consensus::{
         ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
+        VerifiedCommitments,
     },
     error::Error,
     host::{IsmpHost, StateMachine},
@@ -128,7 +129,7 @@ where
         _consensus_state_id: ConsensusStateId,
         state: Vec<u8>,
         proof: Vec<u8>,
-    ) -> Result<(Vec<u8>, BTreeMap<StateMachine, StateCommitmentHeight>), Error> {
+    ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
         let update: ParachainConsensusProof =
             codec::Decode::decode(&mut &proof[..]).map_err(|e| {
                 Error::ImplementationSpecific(format!(
@@ -166,6 +167,8 @@ where
             })?;
 
         for (key, header) in headers {
+            let mut state_commitments_vec = Vec::new();
+
             let id = codec::Decode::decode(&mut &key[(key.len() - 4)..]).map_err(|e| {
                 Error::ImplementationSpecific(format!("Error decoding parachain header: {e}"))
             })?;
@@ -229,7 +232,8 @@ where
                 height: height.into(),
             };
 
-            intermediates.insert(state_id, intermediate);
+            state_commitments_vec.push(intermediate);
+            intermediates.insert(state_id, state_commitments_vec);
         }
 
         Ok((state, intermediates))

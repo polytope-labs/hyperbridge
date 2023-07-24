@@ -74,13 +74,16 @@ pub mod pallet {
     use crate::{
         dispatcher::Receipt,
         errors::HandlingError,
-        primitives::{ConsensusClientProvider, ISMP_ID},
+        primitives::ConsensusClientProvider,
         weight_info::{WeightInfo, WeightProvider},
     };
     use alloc::collections::BTreeSet;
     use frame_support::{pallet_prelude::*, traits::UnixTime};
     use frame_system::pallet_prelude::*;
-    use ismp_primitives::mmr::{LeafIndex, NodeIndex};
+    use ismp_primitives::{
+        mmr::{LeafIndex, NodeIndex},
+        ISMP_ID,
+    };
     use ismp_rs::{
         consensus::{
             ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,

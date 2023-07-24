@@ -1,0 +1,29 @@
+[package]
+name = "ismp-grandpa-prover"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+
+[dependencies]
+hex = "0.4.3"
+anyhow = "1.0.64"
+serde = "1.0.144"
+subxt = "0.29.0"
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+derive_more = "0.99.17"
+downcast-rs = "1.2.0"
+jsonrpsee = { version = "0.16.2", features = ["async-client", "jsonrpsee-ws-client"] }
+jsonrpsee-ws-client = "0.16.2"
+finality-grandpa = "0.16.0"
+
+sc-consensus-grandpa-rpc = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42" }
+sp-consensus-grandpa = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42" }
+sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42" }
+sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42" }
+sp-trie = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42" }
+sp-state-machine = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42" }
+
+
+primitives = { package = "ismp-grandpa-primitives", path = "../primitives" }
+ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }

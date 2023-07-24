@@ -21,9 +21,6 @@ use scale_info::TypeInfo;
 use sp_core::{crypto::AccountId32, H160};
 use sp_std::prelude::*;
 
-/// The `ConsensusEngineId` of ISMP.
-pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";
-
 /// An MMR proof data for a group of leaves.
 #[derive(codec::Encode, codec::Decode, RuntimeDebug, Clone, PartialEq, Eq, TypeInfo)]
 pub struct Proof<Hash> {

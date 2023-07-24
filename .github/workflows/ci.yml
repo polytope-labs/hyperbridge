@@ -38,17 +38,20 @@ jobs:
 
       - name: Build
         run: |
-          cargo +nightly-2022-10-28 check --workspace --all-targets --all-features --verbose
+          cargo +nightly-2022-10-28 check --workspace --all-targets --all-features --verbose --locked
 
       - name: Build `no-std`
         run: |
-          cargo +nightly-2022-10-28 check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --verbose
-          cargo +nightly-2022-10-28 check -p ismp-parachain --no-default-features --target=wasm32-unknown-unknown --verbose
-          cargo +nightly-2022-10-28 check -p ismp-demo --no-default-features --target=wasm32-unknown-unknown --verbose
+          cargo +nightly-2022-10-28 check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --verbose --locked
+          cargo +nightly-2022-10-28 check -p ismp-parachain --no-default-features --target=wasm32-unknown-unknown --verbose --locked
+          cargo +nightly-2022-10-28 check -p ismp-demo --no-default-features --target=wasm32-unknown-unknown --verbose --locked
+          cargo +nightly-2022-10-28 check -p ismp-grandpa-primitives --no-default-features --target=wasm32-unknown-unknown --verbose --locked
+          cargo +nightly-2022-10-28 check -p ismp-grandpa-verifier --no-default-features --target=wasm32-unknown-unknown --verbose --locked
+          cargo +nightly-2022-10-28 check -p pallet-grandpa-client --no-default-features --target=wasm32-unknown-unknown --verbose --locked
 
       - name: Test
         run: |
-          cargo +nightly-2022-10-28 test -p pallet-ismp --all-targets --all-features --verbose
+          cargo +nightly-2022-10-28 test -p pallet-ismp --all-targets --all-features --verbose --locked
 
   lint:
     runs-on: ubuntu-latest

@@ -340,6 +340,7 @@ impl IsmpDispatcher for MockDispatcher {
                     keys: dispatch_get.keys,
                     height: dispatch_get.height,
                     timeout_timestamp: dispatch_get.timeout_timestamp,
+                    gas_limit: dispatch_get.gas_limit,
                 };
                 Request::Get(get)
             }
@@ -352,6 +353,7 @@ impl IsmpDispatcher for MockDispatcher {
                     to: dispatch_post.to,
                     timeout_timestamp: dispatch_post.timeout_timestamp,
                     data: dispatch_post.data,
+                    gas_limit: dispatch_post.gas_limit,
                 };
                 Request::Post(post)
             }

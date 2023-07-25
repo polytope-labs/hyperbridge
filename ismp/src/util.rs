@@ -5,7 +5,6 @@ use crate::{
     router::{Request, Response},
 };
 use alloc::{string::ToString, vec::Vec};
-use codec::Encode;
 use primitive_types::H256;
 
 /// Return the keccak256 hash of a request
@@ -25,6 +24,7 @@ pub fn hash_request<H: IsmpHost>(req: &Request) -> H256 {
             buf.extend_from_slice(&post.from);
             buf.extend_from_slice(&post.to);
             buf.extend_from_slice(&post.data);
+            buf.extend_from_slice(&post.gas_limit.to_be_bytes());
             H::keccak256(&buf[..])
         }
         Request::Get(get) => {
@@ -41,7 +41,8 @@ pub fn hash_request<H: IsmpHost>(req: &Request) -> H256 {
             buf.extend_from_slice(&height);
             buf.extend_from_slice(&timestamp);
             buf.extend_from_slice(&get.from);
-            buf.extend_from_slice(&get.keys.encode());
+            get.keys.iter().for_each(|key| buf.extend_from_slice(key));
+            buf.extend_from_slice(&get.gas_limit.to_be_bytes());
             H::keccak256(&buf[..])
         }
     }

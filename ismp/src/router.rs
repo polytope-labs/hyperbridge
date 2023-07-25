@@ -38,6 +38,9 @@ pub struct Post {
     pub timeout_timestamp: u64,
     /// Encoded Request.
     pub data: Vec<u8>,
+    /// Gas limit for executing the request on destination
+    /// This value should be zero if destination module is not a contract
+    pub gas_limit: u64,
 }
 
 /// The ISMP GET request.
@@ -66,6 +69,9 @@ pub struct Get {
     pub height: u64,
     /// Host timestamp at which this request expires in seconds
     pub timeout_timestamp: u64,
+    /// Gas limit for executing the response to this get request
+    /// This value should be zero if the sending module is not a contract
+    pub gas_limit: u64,
 }
 
 /// The ISMP request.
@@ -277,6 +283,9 @@ pub struct DispatchPost {
     pub timeout_timestamp: u64,
     /// Encoded Request.
     pub data: Vec<u8>,
+    /// Gas limit for executing request on destination chain
+    /// This should be zero if the destination module is not a contract
+    pub gas_limit: u64,
 }
 
 /// Simplified GET request, intended to be used for sending outgoing requests
@@ -292,6 +301,9 @@ pub struct DispatchGet {
     pub height: u64,
     /// Host timestamp at which this request expires in seconds
     pub timeout_timestamp: u64,
+    /// Gas limit for executing the response to this get request
+    /// This value should be zero if the dispatching module is not a contract
+    pub gas_limit: u64,
 }
 
 /// Simplified request, intended to be used for sending outgoing requests

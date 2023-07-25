@@ -69,6 +69,8 @@ pub struct CreateConsensusState {
     pub consensus_state_id: ConsensusStateId,
     /// Unbonding period for this consensus state.
     pub unbonding_period: u64,
+    /// Challenge period for this consensus state
+    pub challenge_period: u64,
     /// State machine commitments
     pub state_machine_commitments: Vec<(StateMachineId, StateCommitmentHeight)>,
 }

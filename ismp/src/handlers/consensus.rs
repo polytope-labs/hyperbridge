@@ -118,6 +118,7 @@ where
     // Store the initial state for the consensus client
     host.store_consensus_state(message.consensus_state_id, message.consensus_state)?;
     host.store_unbonding_period(message.consensus_state_id, message.unbonding_period)?;
+    host.store_challenge_period(message.consensus_state_id, message.challenge_period)?;
     host.store_consensus_state_id(message.consensus_state_id, message.consensus_client_id)?;
 
     // Store all intermedite state machine commitments

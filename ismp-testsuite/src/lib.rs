@@ -89,6 +89,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
+        gas_limit: 0,
     };
     let request = Request::Post(post.clone());
     // Request message handling check
@@ -161,6 +162,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
+        gas_limit: 0,
     };
     let request = Request::Post(post.clone());
     // Request message handling check
@@ -209,6 +211,7 @@ pub fn timeout_post_processing_check<H: IsmpHost>(
         to: vec![0u8; 32],
         timeout_timestamp: intermediate_state.commitment.timestamp,
         data: vec![0u8; 64],
+        gas_limit: 0,
     };
     let post = Post {
         source: host.host_state_machine(),
@@ -218,6 +221,7 @@ pub fn timeout_post_processing_check<H: IsmpHost>(
         to: vec![0u8; 32],
         timeout_timestamp: intermediate_state.commitment.timestamp,
         data: vec![0u8; 64],
+        gas_limit: 0,
     };
     let request = Request::Post(post);
     let dispatch_request = DispatchRequest::Post(dispatch_post);
@@ -254,6 +258,7 @@ pub fn write_outgoing_commitments<H: IsmpHost>(
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
+        gas_limit: 0,
     };
     let dispatch_request = DispatchRequest::Post(post);
     // Dispatch the request the first time
@@ -269,6 +274,7 @@ pub fn write_outgoing_commitments<H: IsmpHost>(
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
+        gas_limit: 0,
     };
     let request = Request::Post(post);
     let commitment = hash_request::<H>(&request);
@@ -282,6 +288,7 @@ pub fn write_outgoing_commitments<H: IsmpHost>(
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
+        gas_limit: 0,
     };
     let response = PostResponse { post, response: vec![] };
     // Dispatch the outgoing response for the first time

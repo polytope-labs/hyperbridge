@@ -27,11 +27,9 @@ mod errors;
 pub mod events;
 pub mod handlers;
 pub mod host;
-#[cfg(any(feature = "runtime-benchmarks", test))]
-mod ismp_mocks;
 mod mmr;
-#[cfg(test)]
-pub mod mock;
+#[cfg(any(feature = "runtime-benchmarks", test))]
+pub mod mocks;
 pub mod primitives;
 #[cfg(test)]
 pub mod tests;
@@ -300,20 +298,13 @@ pub mod pallet {
 
     /// Params to update the unbonding period for a consensus state
     #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-    pub struct UnbondingUpdate {
-        /// Consensus state identifier
-        consensus_state_id: ConsensusStateId,
-        /// Unbonding duration
-        unbonding_period: u64,
-    }
-
-    /// Params to update the challenge period for a consensus state
-    #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-    pub struct ChallengeUpdate {
+    pub struct UpdateConsensusState {
         /// Consensus state identifier
         pub consensus_state_id: ConsensusStateId,
+        /// Unbonding duration
+        pub unbonding_period: Option<u64>,
         /// Challenge period duration
-        pub challenge_period: u64,
+        pub challenge_period: Option<u64>,
     }
 
     #[pallet::call]
@@ -352,35 +343,25 @@ pub mod pallet {
         }
 
         /// Set the unbonding period for a consensus state.
-        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(1))]
+        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(2))]
         #[pallet::call_index(2)]
-        pub fn set_unbonding_period(
+        pub fn update_consensus_state(
             origin: OriginFor<T>,
-            message: UnbondingUpdate,
+            message: UpdateConsensusState,
         ) -> DispatchResult {
             T::AdminOrigin::ensure_origin(origin)?;
 
             let host = Host::<T>::default();
 
-            host.store_unbonding_period(message.consensus_state_id, message.unbonding_period)
-                .map_err(|_| Error::<T>::UnbondingPeriodUpdateFailed)?;
+            if let Some(unbonding_period) = message.unbonding_period {
+                host.store_unbonding_period(message.consensus_state_id, unbonding_period)
+                    .map_err(|_| Error::<T>::UnbondingPeriodUpdateFailed)?;
+            }
 
-            Ok(())
-        }
-
-        /// Set the challenge period for a consensus state.
-        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(1))]
-        #[pallet::call_index(3)]
-        pub fn set_challenge_period(
-            origin: OriginFor<T>,
-            message: ChallengeUpdate,
-        ) -> DispatchResult {
-            T::AdminOrigin::ensure_origin(origin)?;
-
-            let host = Host::<T>::default();
-
-            host.store_challenge_period(message.consensus_state_id, message.challenge_period)
-                .map_err(|_| Error::<T>::ChallengePeriodUpdateFailed)?;
+            if let Some(challenge_period) = message.challenge_period {
+                host.store_challenge_period(message.consensus_state_id, challenge_period)
+                    .map_err(|_| Error::<T>::UnbondingPeriodUpdateFailed)?;
+            }
 
             Ok(())
         }

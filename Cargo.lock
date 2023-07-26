@@ -3144,7 +3144,7 @@ dependencies = [
 [[package]]
 name = "ismp"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/ismp-rs?branch=main#a5c64058503888bc38cd13755db2f717a139f7e1"
+source = "git+https://github.com/polytope-labs/ismp-rs?branch=main#dca2cc6ef9ce28129e5f8c16de59f0970bd711f4"
 dependencies = [
  "derive_more",
  "parity-scale-codec",
@@ -3167,6 +3167,31 @@ dependencies = [
  "scale-info",
  "sp-core 7.0.0",
  "sp-runtime 7.0.0",
+]
+
+[[package]]
+name = "ismp-grandpa"
+version = "0.1.0"
+dependencies = [
+ "ckb-merkle-mountain-range",
+ "cumulus-primitives-core",
+ "finality-grandpa",
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "ismp-grandpa-primitives",
+ "ismp-grandpa-verifier",
+ "ismp-primitives",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
+ "sp-consensus-aura",
+ "sp-core 7.0.0",
+ "sp-io 7.0.0",
+ "sp-runtime 7.0.0",
+ "sp-trie 7.0.0",
+ "substrate-state-machine",
 ]
 
 [[package]]
@@ -3349,7 +3374,7 @@ dependencies = [
 [[package]]
 name = "ismp-testsuite"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/ismp-rs?branch=main#a5c64058503888bc38cd13755db2f717a139f7e1"
+source = "git+https://github.com/polytope-labs/ismp-rs?branch=main#dca2cc6ef9ce28129e5f8c16de59f0970bd711f4"
 dependencies = [
  "ismp",
  "parity-scale-codec",
@@ -4148,9 +4173,9 @@ dependencies = [
 
 [[package]]
 name = "libz-sys"
-version = "1.1.10"
+version = "1.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24e6ab01971eb092ffe6a7d42f49f9ff42662f17604681e2843ad65077ba47dc"
+checksum = "121f7402cc6ab5821dad08d1b9d11618a9ea4da992343909fecf8e430e86364c"
 dependencies = [
  "cc",
  "pkg-config",
@@ -4947,31 +4972,6 @@ dependencies = [
  "scale-info",
  "sp-runtime 7.0.0",
  "sp-std 5.0.0",
-]
-
-[[package]]
-name = "pallet-grandpa-client"
-version = "0.1.0"
-dependencies = [
- "ckb-merkle-mountain-range",
- "cumulus-primitives-core",
- "finality-grandpa",
- "frame-support",
- "frame-system",
- "ismp",
- "ismp-grandpa-primitives",
- "ismp-grandpa-verifier",
- "ismp-primitives",
- "pallet-ismp",
- "parity-scale-codec",
- "primitive-types",
- "scale-info",
- "sp-consensus-aura",
- "sp-core 7.0.0",
- "sp-io 7.0.0",
- "sp-runtime 7.0.0",
- "sp-trie 7.0.0",
- "substrate-state-machine",
 ]
 
 [[package]]
@@ -11947,9 +11947,9 @@ checksum = "1a515f5799fe4961cb532f983ce2b23082366b898e52ffbce459c86f67c8378a"
 
 [[package]]
 name = "winnow"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81fac9742fd1ad1bd9643b991319f72dd031016d44b77039a26977eb667141e7"
+checksum = "25b5872fa2e10bd067ae946f927e726d7d603eaeb6e02fa6a350e0722d2b8c11"
 dependencies = [
  "memchr",
 ]

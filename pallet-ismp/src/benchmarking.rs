@@ -36,7 +36,7 @@ pub mod benchmarks {
     use super::*;
     use crate::{
         host::Host,
-        ismp_mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
+        mocks::ismp::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
         Config, Event, Pallet, RequestCommitments, RequestReceipts, ResponseReceipts,
     };
     use codec::Encode;
@@ -69,6 +69,7 @@ pub mod benchmarks {
             consensus_client_id: MOCK_CONSENSUS_STATE_ID,
             consensus_state_id: MOCK_CONSENSUS_STATE_ID,
             unbonding_period: u64::MAX,
+            challenge_period: 0,
             state_machine_commitments: vec![(
                 StateMachineId {
                     state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
@@ -103,6 +104,8 @@ pub mod benchmarks {
             source: StateMachine::Ethereum(Ethereum::ExecutionLayer),
             dest: <T as Config>::StateMachine::get(),
             nonce: 0,
+            gas_limit: 0,
+
             from: MODULE_ID.encode(),
             to: MODULE_ID.encode(),
             timeout_timestamp: 5000,
@@ -132,6 +135,8 @@ pub mod benchmarks {
             from: MODULE_ID.encode(),
             to: MODULE_ID.encode(),
             timeout_timestamp: 5000,
+            gas_limit: 0,
+
             data: "handle_response_message".as_bytes().to_vec(),
         };
         let request = Request::Post(post.clone());
@@ -166,6 +171,7 @@ pub mod benchmarks {
             source: <T as Config>::StateMachine::get(),
             dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
             nonce: 0,
+            gas_limit: 0,
             from: MODULE_ID.encode(),
             to: MODULE_ID.encode(),
             timeout_timestamp: 500,
@@ -199,6 +205,7 @@ pub mod benchmarks {
                 dest: StateMachine::Kusama(2001),
                 nonce: nonce.into(),
                 from: vec![0u8; 32],
+                gas_limit: 0,
                 to: vec![1u8; 32],
                 timeout_timestamp: 100,
                 data: vec![2u8; 64],
@@ -216,5 +223,5 @@ pub mod benchmarks {
         }
     }
 
-    impl_benchmark_test_suite!(Pallet, crate::tests::new_test_ext(), crate::mock::Test);
+    impl_benchmark_test_suite!(Pallet, crate::tests::new_test_ext(), crate::mocks::Test);
 }

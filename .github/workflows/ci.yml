@@ -47,7 +47,7 @@ jobs:
           cargo +nightly-2022-10-28 check -p ismp-demo --no-default-features --target=wasm32-unknown-unknown --verbose --locked
           cargo +nightly-2022-10-28 check -p ismp-grandpa-primitives --no-default-features --target=wasm32-unknown-unknown --verbose --locked
           cargo +nightly-2022-10-28 check -p ismp-grandpa-verifier --no-default-features --target=wasm32-unknown-unknown --verbose --locked
-          cargo +nightly-2022-10-28 check -p pallet-grandpa-client --no-default-features --target=wasm32-unknown-unknown --verbose --locked
+          cargo +nightly-2022-10-28 check -p ismp-grandpa --no-default-features --target=wasm32-unknown-unknown --verbose --locked
 
       - name: Test
         run: |

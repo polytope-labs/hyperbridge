@@ -10,7 +10,7 @@ Tesseract is a multi-~~dimensional~~chain relayer implementation for the ISMP pr
 
 ## Usage Guides
 
-Consult the [ISMP book](https://substrate-ismp.polytope.technology) for more information on how to use this in combination with the [substrate-ismp](https://github.com/polytope-labs/substrate-ismp) stack
+Consult the [ISMP book](https://ismp.polytope.technology) for more information on how to use this in combination with the [substrate-ismp](https://github.com/polytope-labs/substrate-ismp) stack
 
 ## Docker Guide
 

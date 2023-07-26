@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific lang
 
-use crate::consensus_message::ConsensusMessage;
+use crate::messages::ConsensusMessage;
 use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;

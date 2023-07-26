@@ -13,6 +13,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Mock implementations for tests & benchmarks
+#![allow(missing_docs)]
+pub mod ismp;
+
 use crate as pallet_ismp;
 use crate::*;
 
@@ -21,7 +25,7 @@ use frame_support::traits::{ConstU32, ConstU64, Get};
 use frame_system::EnsureRoot;
 use ismp_rs::{consensus::ConsensusClient, module::IsmpModule, router::IsmpRouter};
 
-use crate::ismp_mocks::{MockConsensusClient, MockModule};
+use ismp::{MockConsensusClient, MockModule};
 use sp_core::H256;
 use sp_runtime::{
     testing::Header,

@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{mock::*, *};
+use crate::{mocks::*, *};
 use std::{
     ops::Range,
     time::{SystemTime, UNIX_EPOCH},
@@ -21,7 +21,7 @@ use std::{
 
 use crate::{
     dispatcher::Dispatcher,
-    ismp_mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID},
+    mocks::ismp::{setup_mock_client, MOCK_CONSENSUS_STATE_ID},
 };
 use frame_support::traits::OnFinalize;
 use ismp_primitives::mmr::MmrHasher;
@@ -73,6 +73,7 @@ fn push_leaves(range: Range<u64>) -> Vec<NodeIndex> {
             to: vec![1u8; 32],
             timeout_timestamp: 100 * nonce,
             data: vec![2u8; 64],
+            gas_limit: 0,
         };
 
         let request = Request::Post(post);
@@ -274,6 +275,7 @@ fn should_handle_get_request_timeouts_correctly() {
                 let msg = DispatchGet {
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     from: vec![0u8; 32],
+                    gas_limit: 0,
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 2,
                     timeout_timestamp: 1000,
@@ -289,6 +291,7 @@ fn should_handle_get_request_timeouts_correctly() {
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 2,
                     timeout_timestamp: 1000,
+                    gas_limit: 0,
                 };
                 ismp_rs::router::Request::Get(get)
             })
@@ -319,6 +322,8 @@ fn should_handle_get_request_responses_correctly() {
                 let msg = DispatchGet {
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     from: vec![0u8; 32],
+                    gas_limit: 0,
+
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 3,
                     timeout_timestamp: 1000,
@@ -331,6 +336,7 @@ fn should_handle_get_request_responses_correctly() {
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     nonce: i,
                     from: vec![0u8; 32],
+                    gas_limit: 0,
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 3,
                     timeout_timestamp: 1000,

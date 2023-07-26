@@ -142,6 +142,7 @@ pub mod pallet {
                 to: PALLET_ID.encode(),
                 timeout_timestamp: params.timeout,
                 data: payload.encode(),
+                gas_limit: 0,
             };
 
             // dispatch the request
@@ -179,6 +180,7 @@ pub mod pallet {
                 keys: params.keys,
                 height: params.height as u64,
                 timeout_timestamp: params.timeout,
+                gas_limit: 0,
             };
 
             let dispatcher = T::IsmpDispatcher::default();

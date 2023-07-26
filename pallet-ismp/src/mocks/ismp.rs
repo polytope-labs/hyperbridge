@@ -115,6 +115,7 @@ where
             consensus_client_id: MOCK_CONSENSUS_STATE_ID,
             consensus_state_id: MOCK_CONSENSUS_STATE_ID,
             unbonding_period: 1_000_000,
+            challenge_period: 0,
             state_machine_commitments: vec![(
                 StateMachineId {
                     state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),

@@ -20,7 +20,7 @@ This repo holds all the required components substrate runtimes need to interoper
 
 ## Documentation
 
-Installation and integration guides can be found in the [book](https://substrate-ismp.polytope.technology).
+Installation and integration guides can be found in the [book](https://ismp.polytope.technology).
 
 ## Testing and Testing Guide
 

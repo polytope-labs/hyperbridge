@@ -173,6 +173,17 @@ pub trait IsmpHost {
         Ok(())
     }
 
+    /// return the state machines that are allowed to proxy requests.
+    fn allowed_proxies(&self) -> Vec<StateMachine>;
+
+    /// Store the whitelist of allowed proxies, this should overwrite the existing whitelist.
+    fn store_allowed_proxies(&self, allowed: Vec<StateMachine>);
+
+    /// Checks if the host allows this state machine to proxy requests.
+    fn is_allowed_proxy(&self, source: &StateMachine) -> bool {
+        self.allowed_proxies().iter().any(|proxy| proxy == source)
+    }
+
     /// Return the unbonding period (i.e the time it takes for a validator's deposit to be unstaked
     /// from the network)
     fn unbonding_period(&self, consensus_state_id: ConsensusStateId) -> Option<Duration>;
@@ -224,9 +235,9 @@ impl ToString for StateMachine {
     fn to_string(&self) -> String {
         match self {
             StateMachine::Ethereum(ethereum) => match ethereum {
-                Ethereum::ExecutionLayer => "ETHE".to_string(),
-                Ethereum::Arbitrum => "ARBI".to_string(),
-                Ethereum::Optimism => "OPTI".to_string(),
+                Ethereum::ExecutionLayer => "ETH".to_string(),
+                Ethereum::Arbitrum => "ARB".to_string(),
+                Ethereum::Optimism => "OP".to_string(),
                 Ethereum::Base => "BASE".to_string(),
             },
             StateMachine::Polkadot(id) => format!("POLKADOT-{id}"),

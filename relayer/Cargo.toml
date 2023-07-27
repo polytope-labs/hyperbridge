@@ -16,6 +16,7 @@ messaging = { package = "tesseract-messaging", path = "../messaging" }
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
 pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
 ismp-parachain = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
 
 # crates.io
 log = "0.4.19"

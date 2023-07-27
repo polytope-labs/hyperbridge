@@ -55,11 +55,7 @@ where
 
         let post_request_queries: Vec<_> = post_requests
             .iter()
-            .map(|req| Query {
-                source_chain: req.source_chain,
-                dest_chain: req.dest_chain,
-                nonce: req.nonce,
-            })
+            .map(|req| Query { source_chain: req.source, dest_chain: req.dest, nonce: req.nonce })
             .collect();
         if !post_request_queries.is_empty() {
             let requests_proof = source

@@ -102,7 +102,7 @@ where
                             let latest_height = counterparty
                                 .query_latest_state_machine_height(StateMachineId {
                                     state_id: client.state_machine,
-                                    consensus_client: PARACHAIN_CONSENSUS_ID,
+                                    consensus_state_id: PARACHAIN_CONSENSUS_ID,
                                 })
                                 .await?;
 
@@ -132,7 +132,7 @@ where
 
                             let message = ConsensusMessage {
                                 consensus_proof: proof.encode(),
-                                consensus_client_id: PARACHAIN_CONSENSUS_ID,
+                                consensus_state_id: PARACHAIN_CONSENSUS_ID,
                             };
 
                             return Ok(Some((message, state)))

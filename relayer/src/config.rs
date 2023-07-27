@@ -15,7 +15,7 @@
 
 //! Tesseract config utilities
 
-use ismp_parachain::consensus::HashAlgorithm;
+use ismp_primitives::HashAlgorithm;
 use parachain::{ParachainConfig, ParachainHost};
 use primitives::config::RelayerConfig;
 use serde::{Deserialize, Serialize};

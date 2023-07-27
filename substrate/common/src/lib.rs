@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use ismp::{consensus::ConsensusClientId, host::StateMachine};
-use ismp_parachain::consensus::HashAlgorithm;
+use ismp_primitives::HashAlgorithm;
 use parking_lot::Mutex;
 use primitives::IsmpHost;
 use serde::{Deserialize, Serialize};

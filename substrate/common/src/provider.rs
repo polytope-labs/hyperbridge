@@ -25,8 +25,7 @@ use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     router::{Get, Request, Response},
 };
-use ismp_parachain::consensus::{MembershipProof, SubstrateStateProof};
-use ismp_primitives::LeafIndexQuery;
+use ismp_primitives::{LeafIndexQuery, MembershipProof, SubstrateStateProof};
 use ismp_rpc::BlockNumberOrHash;
 use pallet_ismp::{primitives::Proof as MmrProof, NodesUtils};
 use primitives::{BoxStream, IsmpProvider, Query, StateMachineUpdated};
@@ -182,7 +181,7 @@ where
     }
 
     fn state_machine_id(&self) -> StateMachineId {
-        StateMachineId { state_id: self.state_machine, consensus_client: self.consensus_client }
+        StateMachineId { state_id: self.state_machine, consensus_state_id: self.consensus_client }
     }
 
     fn block_max_gas(&self) -> u64 {

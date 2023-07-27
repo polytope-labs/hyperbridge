@@ -65,7 +65,9 @@ where
                     source_chain: request.source,
                     dest_chain: request.dest,
                 });
-            host.store_request_receipt(&Request::Post(request))?;
+            if res.is_ok() {
+                host.store_request_receipt(&Request::Post(request))?;
+            }
             Ok(res)
         })
         .collect::<Result<Vec<_>, _>>()?;

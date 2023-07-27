@@ -83,6 +83,9 @@ pub type Signature = MultiSignature;
 /// to the public key of our transaction signing scheme.
 pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
 
+/// The hasher for the runtime.
+pub type RuntimeHasher = Keccak256;
+
 /// Balance of an account.
 pub type Balance = u128;
 
@@ -99,7 +102,7 @@ pub type BlockNumber = u32;
 pub type Address = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
-pub type Header = generic::Header<BlockNumber, Keccak256>;
+pub type Header = generic::Header<BlockNumber, RuntimeHasher>;
 
 /// Block type as expected by this runtime.
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
@@ -171,11 +174,11 @@ impl WeightToFeePolynomial for WeightToFee {
 /// to even the core data structures.
 pub mod opaque {
     use super::*;
-    use sp_runtime::{generic, traits::Keccak256};
+    use sp_runtime::{generic, traits::RuntimeHasher};
 
     pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
     /// Opaque block header type.
-    pub type Header = generic::Header<BlockNumber, Keccak256>;
+    pub type Header = generic::Header<BlockNumber, RuntimeHasher>;
     /// Opaque block type.
     pub type Block = generic::Block<Header, UncheckedExtrinsic>;
     /// Opaque block identifier type.
@@ -291,9 +294,9 @@ impl frame_system::Config for Runtime {
     /// The type for hashing blocks and tries.
     type Hash = Hash;
     /// The hashing algorithm used.
-    type Hashing = Keccak256;
+    type Hashing = RuntimeHasher;
     /// The header type.
-    type Header = generic::Header<BlockNumber, Keccak256>;
+    type Header = generic::Header<BlockNumber, RuntimeHasher>;
     /// The ubiquitous event type.
     type RuntimeEvent = RuntimeEvent;
     /// The ubiquitous origin type.

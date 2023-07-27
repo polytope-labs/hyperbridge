@@ -21,6 +21,11 @@ pub struct ProxyModule;
 
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
+        if request.source_chain == StateMachineProvider::get() {
+            // lol, you really didn't think it would be that easy?
+            Err(Error::CannotHandleMessage)?
+        }
+
         if request.dest_chain != StateMachineProvider::get() {
             return pallet_ismp::Pallet::<Runtime>::handle_request(Request::Post(request))
         }

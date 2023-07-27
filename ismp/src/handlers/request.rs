@@ -18,7 +18,7 @@
 use crate::{
     error::Error,
     handlers::{validate_state_machine, MessageResult},
-    host::IsmpHost,
+    host::{IsmpHost, StateMachine},
     messaging::RequestMessage,
     module::{DispatchError, DispatchSuccess},
     router::{Request, RequestResponse},
@@ -41,6 +41,10 @@ where
         &msg.proof,
     )?;
 
+    let check_source = |source: StateMachine| -> bool {
+        msg.proof.height.id.state_id == source || host.is_allowed_proxy(&source)
+    };
+
     let router = host.ismp_router();
     // If a receipt exists for any request then it's a duplicate and it is not dispatched
     let result = msg
@@ -48,7 +52,9 @@ where
         .into_iter()
         .filter(|req| {
             let req = Request::Post(req.clone());
-            host.request_receipt(&req).is_none() && !req.timed_out(state.timestamp())
+            host.request_receipt(&req).is_none() &&
+                !req.timed_out(state.timestamp()) &&
+                check_source(req.source_chain())
         })
         .map(|request| {
             let cb = router.module_for_id(request.to.clone())?;

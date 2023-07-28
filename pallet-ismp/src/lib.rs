@@ -122,7 +122,6 @@ pub mod pallet {
 
         /// Configurable router that dispatches calls to modules
         type IsmpRouter: IsmpRouter + Default;
-
         /// Provides concrete implementations of consensus clients
         type ConsensusClientProvider: ConsensusClientProvider;
 
@@ -204,6 +203,11 @@ pub mod pallet {
     #[pallet::getter(fn latest_state_height)]
     pub type LatestStateMachineHeight<T: Config> =
         StorageMap<_, Blake2_128Concat, StateMachineId, u64, ValueQuery>;
+
+    /// Bounded vec of allowed proxies
+    #[pallet::storage]
+    #[pallet::getter(fn allowed_proxies)]
+    pub type AllowedProxies<T: Config> = StorageValue<_, Vec<StateMachine>, ValueQuery>;
 
     /// Holds the timestamp at which a consensus client was recently updated.
     /// Used in ensuring that the configured challenge period elapses.
@@ -362,6 +366,18 @@ pub mod pallet {
                 host.store_challenge_period(message.consensus_state_id, challenge_period)
                     .map_err(|_| Error::<T>::UnbondingPeriodUpdateFailed)?;
             }
+
+            Ok(())
+        }
+
+        /// Set the allowed proxies
+        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(1))]
+        #[pallet::call_index(3)]
+        pub fn set_config(origin: OriginFor<T>, allowed: Vec<StateMachine>) -> DispatchResult {
+            T::AdminOrigin::ensure_origin(origin)?;
+
+            let host = Host::<T>::default();
+            host.store_allowed_proxies(allowed);
 
             Ok(())
         }

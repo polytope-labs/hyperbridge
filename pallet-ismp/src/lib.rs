@@ -20,6 +20,7 @@
 #![deny(missing_docs)]
 
 extern crate alloc;
+extern crate core;
 
 pub mod benchmarking;
 pub mod dispatcher;
@@ -28,7 +29,7 @@ pub mod events;
 pub mod handlers;
 pub mod host;
 mod mmr;
-#[cfg(any(feature = "runtime-benchmarks", test))]
+#[cfg(any(feature = "runtime-benchmarks", feature = "testing", test))]
 pub mod mocks;
 pub mod primitives;
 #[cfg(test)]
@@ -40,7 +41,12 @@ pub use mmr::utils::NodesUtils;
 use crate::host::Host;
 use codec::{Decode, Encode};
 use core::time::Duration;
-use frame_support::{dispatch::DispatchResult, log::debug, traits::Get, RuntimeDebug};
+use frame_support::{
+    dispatch::{DispatchResult, DispatchResultWithPostInfo, Pays, PostDispatchInfo},
+    log::debug,
+    traits::Get,
+    RuntimeDebug,
+};
 use ismp_rs::{
     consensus::{ConsensusClientId, StateMachineId},
     handlers::{handle_incoming_message, MessageResult},
@@ -53,6 +59,7 @@ use sp_core::{offchain::StorageKind, H256};
 use crate::{
     errors::{HandlingError, ModuleCallbackResult},
     mmr::mmr::Mmr,
+    weight_info::get_weight,
 };
 use ismp_primitives::{
     mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex},
@@ -72,7 +79,7 @@ pub mod pallet {
     use crate::{
         dispatcher::Receipt,
         errors::HandlingError,
-        primitives::ConsensusClientProvider,
+        primitives::{ConsensusClientProvider, WeightUsed},
         weight_info::{WeightInfo, WeightProvider},
     };
     use alloc::collections::BTreeSet;
@@ -93,7 +100,6 @@ pub mod pallet {
         router::IsmpRouter,
     };
     use sp_core::H256;
-    use weight_info::get_weight;
 
     #[pallet::config]
     pub trait Config: frame_system::Config {
@@ -261,6 +267,12 @@ pub mod pallet {
     #[pallet::getter(fn nonce)]
     pub type Nonce<T> = StorageValue<_, u64, ValueQuery>;
 
+    /// Contains a tuple of the weight consumed and weight limit in executing contract callbacks in
+    /// a transaction
+    #[pallet::storage]
+    #[pallet::getter(fn weight_consumed)]
+    pub type WeightConsumed<T: Config> = StorageValue<_, WeightUsed, ValueQuery>;
+
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
@@ -320,7 +332,7 @@ pub mod pallet {
         #[pallet::weight(get_weight::<T>(&messages))]
         #[pallet::call_index(0)]
         #[frame_support::transactional]
-        pub fn handle(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResult {
+        pub fn handle(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResultWithPostInfo {
             let _ = ensure_signed(origin)?;
 
             Self::handle_messages(messages)
@@ -463,11 +475,12 @@ where
     }
 
     /// Provides a way to handle messages.
-    pub fn handle_messages(messages: Vec<Message>) -> DispatchResult {
+    pub fn handle_messages(messages: Vec<Message>) -> DispatchResultWithPostInfo {
         // Define a host
+        WeightConsumed::<T>::kill();
         let host = Host::<T>::default();
         let mut errors: Vec<HandlingError> = vec![];
-
+        let total_weight = get_weight::<T>(&messages);
         for message in messages {
             match handle_incoming_message(&host, message) {
                 Ok(MessageResult::ConsensusMessage(res)) => {
@@ -529,7 +542,13 @@ where
             Self::deposit_event(Event::<T>::HandlingErrors { errors })
         }
 
-        Ok(())
+        Ok(PostDispatchInfo {
+            actual_weight: {
+                let acc_weight = WeightConsumed::<T>::get();
+                Some((total_weight - acc_weight.weight_limit) + acc_weight.weight_used)
+            },
+            pays_fee: Pays::Yes,
+        })
     }
 
     /// Return the on-chain MMR root hash.

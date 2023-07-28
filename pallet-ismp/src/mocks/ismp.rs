@@ -15,10 +15,11 @@ use ismp_rs::{
     router::{Post, Request, RequestResponse, Response},
 };
 
+/// Mock consensus state id
 pub const MOCK_CONSENSUS_STATE_ID: [u8; 4] = *b"mock";
 
 /// module id for the mock benchmarking module
-pub const MODULE_ID: ModuleId = ModuleId::Pallet(PalletId(*b"___mock_"));
+pub const MODULE_ID: ModuleId = ModuleId::Pallet(PalletId(*b"__mock__"));
 
 fn set_timestamp<T: pallet_timestamp::Config>(value: u64)
 where
@@ -27,6 +28,7 @@ where
     pallet_timestamp::Pallet::<T>::set_timestamp(value.into());
 }
 
+/// Mock module
 #[derive(Default)]
 pub struct MockModule;
 
@@ -103,6 +105,7 @@ impl StateMachineClient for MockStateMachine {
     }
 }
 
+/// Mock client setup
 pub fn setup_mock_client<H: IsmpHost, T: pallet_timestamp::Config>(host: &H) -> StateMachineHeight
 where
     <T as pallet_timestamp::Config>::Moment: From<u64>,

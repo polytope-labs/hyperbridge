@@ -53,8 +53,10 @@ std = [
     "mmr-lib/std",
     "sp-api/std",
     "serde",
-    "ismp-primitives/std",
+    "ismp-primitives/std"
 ]
+
+testing = ["pallet-timestamp/std"]
 
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",

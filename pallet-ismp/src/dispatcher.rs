@@ -14,16 +14,13 @@
 // limitations under the License.
 
 //! Implementation for the ISMP Router
-use crate::{host::Host, Config, Event, Pallet, RequestCommitments, ResponseCommitments};
-use alloc::string::ToString;
+use crate::{host::Host, Config, Pallet};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
-use ismp_primitives::{mmr::Leaf, LeafIndexQuery};
 use ismp_rs::{
     error::Error as IsmpError,
     host::IsmpHost,
     router::{DispatchRequest, Get, IsmpDispatcher, Post, PostResponse, Request, Response},
-    util::{hash_request, hash_response},
 };
 use sp_core::H256;
 
@@ -57,10 +54,10 @@ where
                     dest: dispatch_get.dest,
                     nonce: host.next_nonce(),
                     from: dispatch_get.from,
-                    gas_limit: 0,
                     keys: dispatch_get.keys,
                     height: dispatch_get.height,
                     timeout_timestamp: dispatch_get.timeout_timestamp,
+                    gas_limit: dispatch_get.gas_limit,
                 };
                 Request::Get(get)
             }
@@ -69,59 +66,26 @@ where
                     source: host.host_state_machine(),
                     dest: dispatch_post.dest,
                     nonce: host.next_nonce(),
-                    gas_limit: 0,
                     from: dispatch_post.from,
                     to: dispatch_post.to,
                     timeout_timestamp: dispatch_post.timeout_timestamp,
                     data: dispatch_post.data,
+                    gas_limit: dispatch_post.gas_limit,
                 };
                 Request::Post(post)
             }
         };
 
-        let commitment = hash_request::<Host<T>>(&request).0.to_vec();
+        Pallet::<T>::dispatch_request(request)?;
 
-        let (dest_chain, source_chain, nonce) =
-            (request.dest_chain(), request.source_chain(), request.nonce());
-        Pallet::<T>::mmr_push(Leaf::Request(request)).ok_or_else(|| {
-            IsmpError::ImplementationSpecific("Failed to push request into mmr".to_string())
-        })?;
-        // Deposit Event
-        Pallet::<T>::deposit_event(Event::Request {
-            request_nonce: nonce,
-            source_chain,
-            dest_chain,
-        });
-        // We need this step since it's not trivial to check the mmr for commitments on chain
-        RequestCommitments::<T>::insert(
-            commitment,
-            LeafIndexQuery { source_chain, dest_chain, nonce },
-        );
         Ok(())
     }
 
     fn dispatch_response(&self, response: PostResponse) -> Result<(), IsmpError> {
         let response = Response::Post(response);
 
-        let commitment = hash_response::<Host<T>>(&response).0.to_vec();
+        Pallet::<T>::dispatch_response(response)?;
 
-        if ResponseCommitments::<T>::contains_key(commitment.clone()) {
-            Err(IsmpError::ImplementationSpecific("Duplicate response".to_string()))?
-        }
-
-        let (dest_chain, source_chain, nonce) =
-            (response.dest_chain(), response.source_chain(), response.nonce());
-
-        Pallet::<T>::mmr_push(Leaf::Response(response)).ok_or_else(|| {
-            IsmpError::ImplementationSpecific("Failed to push response into mmr".to_string())
-        })?;
-
-        Pallet::<T>::deposit_event(Event::Response {
-            request_nonce: nonce,
-            dest_chain,
-            source_chain,
-        });
-        ResponseCommitments::<T>::insert(commitment, Receipt::Ok);
         Ok(())
     }
 }

@@ -141,6 +141,12 @@ pub trait WeightInfo {
     fn handle_response_message() -> Weight;
     /// Returns the weight consumed in handling a timeout
     fn handle_timeout_message() -> Weight;
+    /// Returns the weight consumed in dispatching a post request
+    fn dispatch_post_request() -> Weight;
+    /// Returns the weight consumed in dispatching a get request
+    fn dispatch_get_request() -> Weight;
+    /// Returns the weight consumed in dispatching a response
+    fn dispatch_response() -> Weight;
 }
 
 impl WeightInfo for () {
@@ -167,6 +173,18 @@ impl WeightInfo for () {
     fn handle_timeout_message() -> Weight {
         Weight::zero()
     }
+
+    fn dispatch_post_request() -> Weight {
+        Weight::zero()
+    }
+
+    fn dispatch_get_request() -> Weight {
+        Weight::zero()
+    }
+
+    fn dispatch_response() -> Weight {
+        Weight::zero()
+    }
 }
 
 /// Returns the weight that would be consumed when executing a batch of messages
@@ -181,7 +199,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
         Message::Request(msg) => {
             let state_machine = msg.proof.height.id;
             let cb_weight = msg.requests.iter().fold(Weight::zero(), |acc, req| {
-                let dest_module = codec::Decode::decode(&mut req.to.as_slice()).ok();
+                let dest_module = ModuleId::from_bytes(req.to.as_slice()).ok();
                 let handle = dest_module
                     .map(|id| <T as Config>::WeightProvider::module_callback(id))
                     .flatten()
@@ -207,7 +225,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 let cb_weight = responses.iter().fold(Weight::zero(), |acc, res| {
                     let dest_module = match res {
                         Response::Post(ref post) => {
-                            codec::Decode::decode(&mut post.post.from.as_slice()).ok()
+                            ModuleId::from_bytes(post.post.from.as_slice()).ok()
                         }
                         _ => return acc,
                     };
@@ -235,9 +253,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 let state_machine = proof.height.id;
                 let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
                     let dest_module = match req {
-                        Request::Get(ref get) => {
-                            codec::Decode::decode(&mut get.from.as_slice()).ok()
-                        }
+                        Request::Get(ref get) => ModuleId::from_bytes(get.from.as_slice()).ok(),
                         _ => return acc,
                     };
                     let handle = dest_module
@@ -245,7 +261,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                         .flatten()
                         .unwrap_or(Box::new(()));
                     acc + handle.on_response(&Response::Get(GetResponse {
-                        get: req.get_request().unwrap(),
+                        get: req.get_request().expect("Infallible"),
                         values: Default::default(),
                     }))
                 });
@@ -268,9 +284,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 let state_machine = timeout_proof.height.id;
                 let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
                     let dest_module = match req {
-                        Request::Post(ref post) => {
-                            codec::Decode::decode(&mut post.from.as_slice()).ok()
-                        }
+                        Request::Post(ref post) => ModuleId::from_bytes(post.from.as_slice()).ok(),
                         _ => return acc,
                     };
                     let handle = dest_module
@@ -298,9 +312,7 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
             TimeoutMessage::Get { requests } => {
                 let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {
                     let dest_module = match req {
-                        Request::Get(ref get) => {
-                            codec::Decode::decode(&mut get.from.as_slice()).ok()
-                        }
+                        Request::Get(ref get) => ModuleId::from_bytes(get.from.as_slice()).ok(),
                         _ => return acc,
                     };
                     let handle = dest_module

@@ -35,11 +35,11 @@ T: pallet_timestamp::Config,
 pub mod benchmarks {
     use super::*;
     use crate::{
+        dispatcher::Dispatcher,
         host::Host,
         mocks::ismp::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
         Config, Event, Pallet, RequestCommitments, RequestReceipts, ResponseReceipts,
     };
-    use codec::Encode;
     use frame_support::traits::{Get, Hooks};
     use frame_system::EventRecord;
     use ismp_primitives::{mmr::Leaf, LeafIndexQuery};
@@ -50,7 +50,10 @@ pub mod benchmarks {
             CreateConsensusState, Message, Proof, RequestMessage, ResponseMessage,
             StateCommitmentHeight, TimeoutMessage,
         },
-        router::{Post, PostResponse, Request, Response},
+        router::{
+            DispatchGet, DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse,
+            Request, Response,
+        },
         util::hash_request,
     };
 
@@ -104,12 +107,11 @@ pub mod benchmarks {
             source: StateMachine::Ethereum(Ethereum::ExecutionLayer),
             dest: <T as Config>::StateMachine::get(),
             nonce: 0,
-            gas_limit: 0,
-
-            from: MODULE_ID.encode(),
-            to: MODULE_ID.encode(),
+            from: MODULE_ID.to_bytes(),
+            to: MODULE_ID.to_bytes(),
             timeout_timestamp: 5000,
             data: "handle_request_message".as_bytes().to_vec(),
+            gas_limit: 0,
         };
 
         let msg =
@@ -132,12 +134,11 @@ pub mod benchmarks {
             source: <T as Config>::StateMachine::get(),
             dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
             nonce: 0,
-            from: MODULE_ID.encode(),
-            to: MODULE_ID.encode(),
+            from: MODULE_ID.to_bytes(),
+            to: MODULE_ID.to_bytes(),
             timeout_timestamp: 5000,
-            gas_limit: 0,
-
             data: "handle_response_message".as_bytes().to_vec(),
+            gas_limit: 0,
         };
         let request = Request::Post(post.clone());
 
@@ -171,11 +172,11 @@ pub mod benchmarks {
             source: <T as Config>::StateMachine::get(),
             dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
             nonce: 0,
-            gas_limit: 0,
-            from: MODULE_ID.encode(),
-            to: MODULE_ID.encode(),
+            from: MODULE_ID.to_bytes(),
+            to: MODULE_ID.to_bytes(),
             timeout_timestamp: 500,
             data: "handle_timeout_message".as_bytes().to_vec(),
+            gas_limit: 0,
         };
         let request = Request::Post(post.clone());
 
@@ -200,15 +201,15 @@ pub mod benchmarks {
     #[benchmark]
     fn on_finalize(x: Linear<1, 100>) {
         for nonce in 0..x {
-            let post = ismp_rs::router::Post {
+            let post = Post {
                 source: StateMachine::Kusama(2000),
                 dest: StateMachine::Kusama(2001),
                 nonce: nonce.into(),
                 from: vec![0u8; 32],
-                gas_limit: 0,
                 to: vec![1u8; 32],
                 timeout_timestamp: 100,
                 data: vec![2u8; 64],
+                gas_limit: 0,
             };
 
             let request = Request::Post(post);
@@ -220,6 +221,69 @@ pub mod benchmarks {
         #[block]
         {
             Pallet::<T>::on_finalize(2u32.into())
+        }
+    }
+
+    #[benchmark]
+    fn dispatch_post_request() {
+        let post = DispatchPost {
+            dest: StateMachine::Kusama(2000),
+            from: vec![0u8; 32],
+            to: vec![1u8; 32],
+            timeout_timestamp: 100,
+            data: vec![2u8; 64],
+            gas_limit: 0,
+        };
+
+        let dispatcher = Dispatcher::<T>::default();
+        #[block]
+        {
+            dispatcher.dispatch_request(DispatchRequest::Post(post)).unwrap()
+        }
+    }
+
+    #[benchmark]
+    fn dispatch_get_request() {
+        let get = DispatchGet {
+            dest: StateMachine::Kusama(2000),
+            from: vec![0u8; 32],
+            keys: vec![vec![1u8; 32]; 32],
+            height: 20,
+            timeout_timestamp: 100,
+            gas_limit: 0,
+        };
+
+        let dispatcher = Dispatcher::<T>::default();
+        #[block]
+        {
+            dispatcher.dispatch_request(DispatchRequest::Get(get)).unwrap()
+        }
+    }
+
+    #[benchmark]
+    fn dispatch_response() {
+        let post = Post {
+            source: StateMachine::Kusama(2000),
+            dest: StateMachine::Kusama(2001),
+            nonce: 0,
+            from: vec![0u8; 32],
+            to: vec![1u8; 32],
+            timeout_timestamp: 100,
+            data: vec![2u8; 64],
+            gas_limit: 0,
+        };
+        let request_commitment = hash_request::<Host<T>>(&Request::Post(post.clone()));
+        RequestCommitments::<T>::insert(
+            request_commitment.0.to_vec(),
+            LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
+        );
+
+        let response = PostResponse { post, response: vec![1u8; 64] };
+
+        let dispatcher = Dispatcher::<T>::default();
+        #[block]
+        {
+            dispatcher.dispatch_response(response).unwrap()
         }
     }
 

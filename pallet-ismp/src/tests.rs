@@ -29,7 +29,7 @@ use ismp_rs::{
     consensus::StateMachineHeight,
     host::Ethereum,
     messaging::{Proof, ResponseMessage, TimeoutMessage},
-    router::{DispatchGet, DispatchRequest, IsmpDispatcher},
+    router::{DispatchGet, DispatchRequest, IsmpDispatcher, Post},
     util::hash_request,
 };
 use ismp_testsuite::{
@@ -208,6 +208,22 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
         set_timestamp(None);
         let host = Host::<Test>::default();
         let dispatcher = Dispatcher::<Test>::default();
+        let post = Post {
+            source: StateMachine::Kusama(2000),
+            dest: host.host_state_machine(),
+            nonce: 0,
+            from: vec![0u8; 32],
+            to: vec![0u8; 32],
+            timeout_timestamp: 0,
+            data: vec![0u8; 64],
+            gas_limit: 0,
+        };
+
+        let request_commitment = hash_request::<Host<Test>>(&Request::Post(post.clone()));
+        RequestCommitments::<Test>::insert(
+            request_commitment.0.to_vec(),
+            LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
+        );
         write_outgoing_commitments(&host, &dispatcher).unwrap();
     })
 }

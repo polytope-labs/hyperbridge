@@ -22,7 +22,7 @@ extern crate alloc;
 
 use alloc::{collections::BTreeMap, format, vec, vec::Vec};
 use codec::Decode;
-use core::marker::PhantomData;
+use core::{fmt::Debug, marker::PhantomData};
 use ismp::{
     consensus::{StateCommitment, StateMachineClient},
     error::Error,
@@ -39,7 +39,7 @@ use merkle_mountain_range::MerkleProof;
 use pallet_ismp::host::Host;
 use primitive_types::H256;
 use sp_runtime::traits::{BlakeTwo256, Keccak256};
-use sp_trie::{LayoutV0, StorageProof, Trie, TrieDBBuilder};
+use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
 
 /// The parachain and grandpa consensus client implementation for ISMP.
 pub struct SubstrateStateMachine<T>(PhantomData<T>);
@@ -162,4 +162,36 @@ where
 
         Ok(data)
     }
+}
+
+/// Lifted directly from [`sp_state_machine::read_proof_check`](https://github.com/paritytech/substrate/blob/b27c470eaff379f512d1dec052aff5d551ed3b03/primitives/state-machine/src/lib.rs#L1075-L1094)
+pub fn read_proof_check<H, I>(
+    root: &H::Out,
+    proof: StorageProof,
+    keys: I,
+) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error>
+where
+    H: hash_db::Hasher,
+    H::Out: Debug,
+    I: IntoIterator,
+    I::Item: AsRef<[u8]>,
+{
+    let db = proof.into_memory_db();
+
+    if !db.contains(root, EMPTY_PREFIX) {
+        Err(Error::ImplementationSpecific("Invalid Proof".into()))?
+    }
+
+    let trie = TrieDBBuilder::<LayoutV0<H>>::new(&db, root).build();
+    let mut result = BTreeMap::new();
+
+    for key in keys.into_iter() {
+        let value = trie
+            .get(key.as_ref())
+            .map_err(|e| Error::ImplementationSpecific(format!("Error reading from trie: {e:?}")))?
+            .and_then(|val| Decode::decode(&mut &val[..]).ok());
+        result.insert(key.as_ref().to_vec(), value);
+    }
+
+    Ok(result)
 }

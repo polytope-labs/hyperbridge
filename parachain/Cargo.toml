@@ -13,9 +13,7 @@ serde = { version = "1.0.136", features = ["derive"], optional = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = ["derive"] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 hex-literal = "0.4.1"
-merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
 primitive-types = { version = "0.12.1", default-features = false }
-hash-db = { version = "0.16.0", default-features = false }
 
 # polytope labs
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main", default-features = false }
@@ -52,7 +50,6 @@ std = [
     "cumulus-primitives-core/std",
     "ismp/std",
     "sp-trie/std",
-    "merkle-mountain-range/std",
     "sp-consensus-aura/std",
     "sp-runtime/std",
     "sp-io/std",
@@ -60,7 +57,6 @@ std = [
     "primitive-types/std",
     "ismp-primitives/std",
     "pallet-ismp/std",
-    "hash-db/std",
     "serde",
     "substrate-state-machine/std"
 ]

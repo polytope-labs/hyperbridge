@@ -15,10 +15,10 @@
 
 //! Host implementation for ISMP
 use crate::{
-    dispatcher::Receipt, primitives::ConsensusClientProvider, ChallengePeriod, Config,
-    ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
-    FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts,
-    ResponseReceipts, StateCommitments, UnbondingPeriod,
+    dispatcher::Receipt, primitives::ConsensusClientProvider, AllowedProxies, ChallengePeriod,
+    Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
+    FrozenConsensusClients, FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments,
+    RequestReceipts, ResponseReceipts, StateCommitments, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use core::time::Duration;
@@ -249,5 +249,13 @@ where
     ) -> Result<(), Error> {
         ChallengePeriod::<T>::insert(consensus_state_id, period);
         Ok(())
+    }
+
+    fn allowed_proxies(&self) -> Vec<StateMachine> {
+        AllowedProxies::<T>::get()
+    }
+
+    fn store_allowed_proxies(&self, allowed: Vec<StateMachine>) {
+        AllowedProxies::<T>::set(allowed);
     }
 }

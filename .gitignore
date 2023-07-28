@@ -2,3 +2,5 @@
 .idea
 .cargo
 .DS_Store
+/pallet-ismp/evm/solidity/out
+/pallet-ismp/evm/solidity/cache

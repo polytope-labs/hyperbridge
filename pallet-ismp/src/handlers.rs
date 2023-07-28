@@ -16,8 +16,8 @@ impl<T: Config> Pallet<T>
 where
     <T as frame_system::Config>::Hash: From<H256>,
 {
-    /// Handle an incoming request
-    pub fn handle_request(request: Request) -> Result<(), IsmpError> {
+    /// Dispatch an outgoing request
+    pub fn dispatch_request(request: Request) -> Result<(), IsmpError> {
         let commitment = hash_request::<Host<T>>(&request).0.to_vec();
 
         if RequestCommitments::<T>::contains_key(commitment.clone()) {
@@ -43,8 +43,14 @@ where
         Ok(())
     }
 
-    /// Handle an incoming response
-    pub fn handle_response(response: Response) -> Result<(), IsmpError> {
+    /// Dispatch an outgoing response
+    pub fn dispatch_response(response: Response) -> Result<(), IsmpError> {
+        let commitment = hash_request::<Host<T>>(&response.request()).0.to_vec();
+
+        if !RequestCommitments::<T>::contains_key(commitment.clone()) {
+            Err(IsmpError::ImplementationSpecific("Unknown request for response".to_string()))?
+        }
+
         let commitment = hash_response::<Host<T>>(&response).0.to_vec();
 
         if ResponseCommitments::<T>::contains_key(commitment.clone()) {

@@ -10,7 +10,6 @@ targets = ["x86_64-unknown-linux-gnu"]
 codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false }
 anyhow = { version = "1.0.64", default-features = false }
 finality-grandpa = { version = "0.16.0", features = ["derive-codec"], default-features = false }
-hash-db = { version = "0.16.0", default-features = false }
 serde = { version = "1.0.144", default-features = false, features = ["derive"] }
 derive_more = { version = "0.99.17", default-features = false, features = ["from"] }
 
@@ -20,12 +19,12 @@ frame-support = { git = "https://github.com/paritytech/substrate", branch = "pol
 sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
 sp-std = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
 sp-trie = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
-sp-state-machine = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
 sp-io = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
 sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
 sp-storage = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
 
 primitives = { package = "ismp-grandpa-primitives", path = "../primitives", default-features = false }
+substrate-state-machine = { path = "../../pallet-ismp/primitives/state-machine", default-features = false }
 
 [dev-dependencies]
 polkadot-core-primitives = { git = "https://github.com/paritytech/polkadot", branch = "release-v0.9.42" }
@@ -48,15 +47,14 @@ std = [
     "codec/std",
     "anyhow/std",
     "finality-grandpa/std",
-    "hash-db/std",
     "frame-support/std",
     "sp-runtime/std",
     "sp-std/std",
     "sp-trie/std",
     "sp-consensus-grandpa/std",
-    "sp-state-machine/std",
     "sp-io/std",
     "primitives/std",
     "serde/std",
     "sp-storage/std",
+    "substrate-state-machine/std"
 ]

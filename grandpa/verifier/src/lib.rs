@@ -19,7 +19,6 @@
 #![allow(clippy::all)]
 #![deny(missing_docs)]
 
-mod state_machine;
 #[cfg(test)]
 mod tests;
 
@@ -37,6 +36,7 @@ use sp_core::H256;
 use sp_runtime::traits::{BlakeTwo256, Header};
 use sp_std::prelude::*;
 use sp_trie::StorageProof;
+use substrate_state_machine::read_proof_check;
 
 /// This function verifies the GRANDPA finality proof for both standalone chain and parachain
 /// headers.
@@ -146,7 +146,7 @@ where
         let proof = StorageProof::new(state_proof);
 
         // verify patricia-merkle state proofs
-        let mut result = state_machine::read_proof_check::<BlakeTwo256, _>(
+        let mut result = read_proof_check::<BlakeTwo256, _>(
             relay_chain_header.state_root(),
             proof,
             keys.keys().map(|key| key.as_slice()),

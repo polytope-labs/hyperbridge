@@ -14,11 +14,15 @@
 // limitations under the License.
 
 //! Pallet primitives
-use frame_support::{PalletId, RuntimeDebug};
+use codec::{Decode, Encode};
+use frame_support::{weights::Weight, PalletId, RuntimeDebug};
 use ismp_primitives::mmr::{LeafIndex, NodeIndex};
 use ismp_rs::consensus::{ConsensusClient, ConsensusClientId};
 use scale_info::TypeInfo;
-use sp_core::{crypto::AccountId32, H160};
+use sp_core::{
+    crypto::{AccountId32, ByteArray},
+    H160,
+};
 use sp_std::prelude::*;
 
 /// An MMR proof data for a group of leaves.
@@ -58,7 +62,7 @@ pub trait ConsensusClientProvider {
 }
 
 /// Module identification types supported by ismp
-#[derive(codec::Encode, codec::Decode, PartialEq, Eq, scale_info::TypeInfo)]
+#[derive(PartialEq, Eq, scale_info::TypeInfo)]
 pub enum ModuleId {
     /// Unique Pallet identification in runtime
     Pallet(PalletId),
@@ -66,4 +70,39 @@ pub enum ModuleId {
     Contract(AccountId32),
     /// Evm contract
     Evm(H160),
+}
+
+impl ModuleId {
+    /// Convert module id to raw bytes
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            ModuleId::Pallet(pallet_id) => pallet_id.0.to_vec(),
+            ModuleId::Contract(account_id) => account_id.as_slice().to_vec(),
+            ModuleId::Evm(account_id) => account_id.0.to_vec(),
+        }
+    }
+
+    /// Derive module id from raw bytes
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
+        if bytes.len() == 8 {
+            let mut inner = [0u8; 8];
+            inner.copy_from_slice(bytes);
+            Ok(Self::Pallet(PalletId(inner)))
+        } else if bytes.len() == 32 {
+            Ok(Self::Contract(AccountId32::from_slice(bytes).expect("Infallible")))
+        } else if bytes.len() == 20 {
+            Ok(Self::Evm(H160::from_slice(bytes)))
+        } else {
+            Err("Unknown Module ID format")
+        }
+    }
+}
+
+/// Accumulated Weight consumed by contract callbacks in a transaction
+#[derive(Default, scale_info::TypeInfo, Encode, Decode)]
+pub struct WeightUsed {
+    /// Total weight used in executing contract callbacks in a transaction
+    pub weight_used: Weight,
+    /// Total weight limit used in executing contract callbacks in a transaction
+    pub weight_limit: Weight,
 }

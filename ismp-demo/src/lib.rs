@@ -138,8 +138,8 @@ pub mod pallet {
             };
             let post = DispatchPost {
                 dest,
-                from: PALLET_ID.encode(),
-                to: PALLET_ID.encode(),
+                from: PALLET_ID.to_bytes(),
+                to: PALLET_ID.to_bytes(),
                 timeout_timestamp: params.timeout,
                 data: payload.encode(),
                 gas_limit: 0,
@@ -176,7 +176,7 @@ pub mod pallet {
 
             let get = DispatchGet {
                 dest,
-                from: PALLET_ID.encode(),
+                from: PALLET_ID.to_bytes(),
                 keys: params.keys,
                 height: params.height as u64,
                 timeout_timestamp: params.timeout,

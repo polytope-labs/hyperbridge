@@ -41,6 +41,7 @@ use subxt::{config::Header, Config, OnlineClient};
 pub struct HeadData(pub Vec<u8>);
 
 /// Contains methods useful for proving parachain and standalone-chain header finality using GRANDPA
+#[derive(Clone)]
 pub struct GrandpaProver<T: Config> {
     /// Subxt client for the chain
     pub client: OnlineClient<T>,

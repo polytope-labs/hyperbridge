@@ -122,7 +122,7 @@ pub mod benchmarks {
         handle(RawOrigin::Signed(caller), vec![Message::Request(msg)]);
 
         let commitment = hash_request::<Host<T>>(&Request::Post(post));
-        assert!(RequestReceipts::<T>::get(commitment.0.to_vec()).is_some());
+        assert!(RequestReceipts::<T>::get(commitment).is_some());
     }
 
     #[benchmark]
@@ -144,7 +144,7 @@ pub mod benchmarks {
 
         let commitment = hash_request::<Host<T>>(&request);
         RequestCommitments::<T>::insert(
-            commitment.0.to_vec(),
+            commitment,
             LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: post.nonce },
         );
 
@@ -160,7 +160,7 @@ pub mod benchmarks {
         #[extrinsic_call]
         handle(RawOrigin::Signed(caller), vec![Message::Response(msg)]);
 
-        assert!(ResponseReceipts::<T>::get(request_commitment.0.to_vec()).is_some());
+        assert!(ResponseReceipts::<T>::get(request_commitment).is_some());
     }
 
     #[benchmark]
@@ -182,7 +182,7 @@ pub mod benchmarks {
 
         let commitment = hash_request::<Host<T>>(&request);
         RequestCommitments::<T>::insert(
-            commitment.0.to_vec(),
+            commitment,
             LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: post.nonce },
         );
 
@@ -195,7 +195,7 @@ pub mod benchmarks {
         #[extrinsic_call]
         handle(RawOrigin::Signed(caller), vec![Message::Timeout(msg)]);
 
-        assert!(RequestCommitments::<T>::get(commitment.0.to_vec()).is_none());
+        assert!(RequestCommitments::<T>::get(commitment).is_none());
     }
 
     #[benchmark]
@@ -274,7 +274,7 @@ pub mod benchmarks {
         };
         let request_commitment = hash_request::<Host<T>>(&Request::Post(post.clone()));
         RequestCommitments::<T>::insert(
-            request_commitment.0.to_vec(),
+            request_commitment,
             LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
         );
 

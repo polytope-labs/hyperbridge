@@ -18,9 +18,9 @@ where
 {
     /// Dispatch an outgoing request
     pub fn dispatch_request(request: Request) -> Result<(), IsmpError> {
-        let commitment = hash_request::<Host<T>>(&request).0.to_vec();
+        let commitment = hash_request::<Host<T>>(&request);
 
-        if RequestCommitments::<T>::contains_key(commitment.clone()) {
+        if RequestCommitments::<T>::contains_key(commitment) {
             Err(IsmpError::ImplementationSpecific("Duplicate request".to_string()))?
         }
 
@@ -45,15 +45,15 @@ where
 
     /// Dispatch an outgoing response
     pub fn dispatch_response(response: Response) -> Result<(), IsmpError> {
-        let commitment = hash_request::<Host<T>>(&response.request()).0.to_vec();
+        let commitment = hash_request::<Host<T>>(&response.request());
 
-        if !RequestCommitments::<T>::contains_key(commitment.clone()) {
+        if !RequestCommitments::<T>::contains_key(commitment) {
             Err(IsmpError::ImplementationSpecific("Unknown request for response".to_string()))?
         }
 
-        let commitment = hash_response::<Host<T>>(&response).0.to_vec();
+        let commitment = hash_response::<Host<T>>(&response);
 
-        if ResponseCommitments::<T>::contains_key(commitment.clone()) {
+        if ResponseCommitments::<T>::contains_key(commitment) {
             Err(IsmpError::ImplementationSpecific("Duplicate response".to_string()))?
         }
 

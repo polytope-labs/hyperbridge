@@ -221,7 +221,7 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
 
         let request_commitment = hash_request::<Host<Test>>(&Request::Post(post.clone()));
         RequestCommitments::<Test>::insert(
-            request_commitment.0.to_vec(),
+            request_commitment,
             LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
         );
         write_outgoing_commitments(&host, &dispatcher).unwrap();

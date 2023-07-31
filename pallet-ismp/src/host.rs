@@ -84,7 +84,7 @@ where
     }
 
     fn request_commitment(&self, commitment: H256) -> Result<(), Error> {
-        let _ = RequestCommitments::<T>::get(commitment.0.to_vec()).ok_or_else(|| {
+        let _ = RequestCommitments::<T>::get(commitment).ok_or_else(|| {
             Error::ImplementationSpecific("Request commitment not found".to_string())
         })?;
 
@@ -94,7 +94,7 @@ where
     fn request_receipt(&self, req: &Request) -> Option<()> {
         let commitment = hash_request::<Self>(req);
 
-        let _ = RequestReceipts::<T>::get(commitment.0.to_vec())
+        let _ = RequestReceipts::<T>::get(commitment)
             .ok_or_else(|| Error::RequestCommitmentNotFound {
                 nonce: req.nonce(),
                 source: req.source_chain(),
@@ -141,13 +141,13 @@ where
     fn delete_request_commitment(&self, req: &Request) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
         // We can't delete actual leaves in the mmr so this serves as a replacement for that
-        RequestCommitments::<T>::remove(hash.0.to_vec());
+        RequestCommitments::<T>::remove(hash);
         Ok(())
     }
 
     fn store_request_receipt(&self, req: &Request) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
-        RequestReceipts::<T>::insert(hash.0.to_vec(), Receipt::Ok);
+        RequestReceipts::<T>::insert(hash, Receipt::Ok);
         Ok(())
     }
 
@@ -195,7 +195,7 @@ where
     fn response_receipt(&self, res: &Request) -> Option<()> {
         let commitment = hash_request::<Self>(res);
 
-        let _ = ResponseReceipts::<T>::get(commitment.0.to_vec())
+        let _ = ResponseReceipts::<T>::get(commitment)
             .ok_or_else(|| Error::ImplementationSpecific("Response receipt not found".to_string()))
             .ok()?;
 
@@ -209,7 +209,7 @@ where
 
     fn store_response_receipt(&self, req: &Request) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
-        ResponseReceipts::<T>::insert(hash.0.to_vec(), Receipt::Ok);
+        ResponseReceipts::<T>::insert(hash, Receipt::Ok);
         Ok(())
     }
 

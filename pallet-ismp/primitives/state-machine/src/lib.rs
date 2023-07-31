@@ -106,7 +106,7 @@ where
             match req {
                 Request::Post(post) => {
                     let request = Request::Post(post);
-                    let commitment = hash_request::<Host<T>>(&request).0.to_vec();
+                    let commitment = hash_request::<Host<T>>(&request);
                     keys.push(pallet_ismp::RequestReceipts::<T>::hashed_key_for(commitment));
                 }
                 Request::Get(_) => continue,

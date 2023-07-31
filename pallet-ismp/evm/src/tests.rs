@@ -290,7 +290,7 @@ fn on_accept_callback() {
 
         let request_commitment = hash_request::<Host<Test>>(&Request::Post(post.clone()));
         RequestCommitments::<Test>::insert(
-            request_commitment.0.to_vec(),
+            request_commitment,
             LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
         );
 

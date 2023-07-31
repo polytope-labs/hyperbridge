@@ -227,28 +227,25 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn request_commitments)]
     pub type RequestCommitments<T: Config> =
-        StorageMap<_, Blake2_128Concat, Vec<u8>, LeafIndexQuery, OptionQuery>;
+        StorageMap<_, Identity, H256, LeafIndexQuery, OptionQuery>;
 
     /// Commitments for outgoing responses
     /// The key is the response commitment
     #[pallet::storage]
     #[pallet::getter(fn response_commitments)]
-    pub type ResponseCommitments<T: Config> =
-        StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
+    pub type ResponseCommitments<T: Config> = StorageMap<_, Identity, H256, Receipt, OptionQuery>;
 
     /// Receipts for incoming requests
     /// The key is the request commitment
     #[pallet::storage]
     #[pallet::getter(fn request_receipts)]
-    pub type RequestReceipts<T: Config> =
-        StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
+    pub type RequestReceipts<T: Config> = StorageMap<_, Identity, H256, Receipt, OptionQuery>;
 
     /// Receipts for incoming responses
     /// The key is the request commitment
     #[pallet::storage]
     #[pallet::getter(fn response_receipts)]
-    pub type ResponseReceipts<T: Config> =
-        StorageMap<_, Blake2_128Concat, Vec<u8>, Receipt, OptionQuery>;
+    pub type ResponseReceipts<T: Config> = StorageMap<_, Identity, H256, Receipt, OptionQuery>;
 
     /// Consensus update results still in challenge period
     /// Set contains a tuple of previous height and latest height

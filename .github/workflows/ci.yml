@@ -31,11 +31,6 @@ jobs:
         with:
           version: '3.9.1'
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
       - name: Build
         run: |
           cargo +nightly-2022-10-28 check --workspace --all-targets --all-features --verbose --locked
@@ -67,11 +62,6 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
 
       - name: Check format
         run: cargo +nightly fmt --all --check

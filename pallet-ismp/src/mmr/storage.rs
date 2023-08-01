@@ -53,11 +53,11 @@ impl<StorageType, T> Default for Storage<StorageType, T> {
     }
 }
 
-impl<T> mmr_lib::MMRStore<DataOrHash<T>> for Storage<OffchainStorage, T>
+impl<T> mmr_lib::MMRStore<DataOrHash> for Storage<OffchainStorage, T>
 where
     T: Config,
 {
-    fn get_elem(&self, pos: NodeIndex) -> mmr_lib::Result<Option<DataOrHash<T>>> {
+    fn get_elem(&self, pos: NodeIndex) -> mmr_lib::Result<Option<DataOrHash>> {
         let key = Pallet::<T>::offchain_key(pos);
         debug!(
             target: "runtime::mmr::offchain", "offchain db get {}: key {:?}",
@@ -71,21 +71,21 @@ where
         Ok(None)
     }
 
-    fn append(&mut self, _: NodeIndex, _: Vec<DataOrHash<T>>) -> mmr_lib::Result<()> {
+    fn append(&mut self, _: NodeIndex, _: Vec<DataOrHash>) -> mmr_lib::Result<()> {
         panic!("MMR must not be altered in the off-chain context.")
     }
 }
 
-impl<T> mmr_lib::MMRStore<DataOrHash<T>> for Storage<RuntimeStorage, T>
+impl<T> mmr_lib::MMRStore<DataOrHash> for Storage<RuntimeStorage, T>
 where
     T: Config,
     <T as frame_system::Config>::Hash: From<H256>,
 {
-    fn get_elem(&self, pos: NodeIndex) -> mmr_lib::Result<Option<DataOrHash<T>>> {
+    fn get_elem(&self, pos: NodeIndex) -> mmr_lib::Result<Option<DataOrHash>> {
         Ok(Pallet::<T>::get_node(pos))
     }
 
-    fn append(&mut self, pos: NodeIndex, elems: Vec<DataOrHash<T>>) -> mmr_lib::Result<()> {
+    fn append(&mut self, pos: NodeIndex, elems: Vec<DataOrHash>) -> mmr_lib::Result<()> {
         if elems.is_empty() {
             return Ok(())
         }
@@ -144,7 +144,7 @@ where
     T: Config,
 {
     /// Store a node in the offchain db
-    fn store_to_offchain(pos: NodeIndex, node: &DataOrHash<T>) {
+    fn store_to_offchain(pos: NodeIndex, node: &DataOrHash) {
         let encoded_node = node.encode();
 
         let key = Pallet::<T>::offchain_key(pos);

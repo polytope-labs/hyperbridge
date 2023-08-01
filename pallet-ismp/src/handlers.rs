@@ -15,6 +15,7 @@ use sp_core::H256;
 impl<T: Config> Pallet<T>
 where
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
     /// Dispatch an outgoing request
     pub fn dispatch_request(request: Request) -> Result<(), IsmpError> {

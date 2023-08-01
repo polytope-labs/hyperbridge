@@ -44,6 +44,7 @@ impl<T> IsmpDispatcher for Dispatcher<T>
 where
     T: Config,
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
     fn dispatch_request(&self, request: DispatchRequest) -> Result<(), IsmpError> {
         let host = Host::<T>::default();

@@ -55,6 +55,7 @@ where
     T: pallet_ismp::Config,
     T::BlockNumber: Into<u32>,
     T::Hash: From<H256>,
+    H256: From<T::Hash>,
 {
     fn verify_membership(
         &self,
@@ -68,8 +69,8 @@ where
         })?;
         let nodes = membership.proof.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
         let proof =
-            MerkleProof::<DataOrHash<T>, MmrHasher<T, Host<T>>>::new(membership.mmr_size, nodes);
-        let leaves: Vec<(u64, DataOrHash<T>)> = match item {
+            MerkleProof::<DataOrHash, MmrHasher<T, Host<T>>>::new(membership.mmr_size, nodes);
+        let leaves: Vec<(u64, DataOrHash)> = match item {
             RequestResponse::Request(req) => membership
                 .leaf_indices
                 .into_iter()

@@ -19,9 +19,8 @@ use core::fmt::Formatter;
 
 use codec::{Decode, Encode};
 use ismp::{
-    host::IsmpHost,
     router::{Request, Response},
-    util::{hash_request, hash_response},
+    util::{hash_request, hash_response, Keccak256},
 };
 use primitive_types::H256;
 use sp_runtime::traits;
@@ -42,7 +41,7 @@ pub enum Leaf {
 
 impl Leaf {
     /// Returns the hash of a leaf
-    fn hash<H: IsmpHost>(&self) -> H256 {
+    fn hash<H: Keccak256>(&self) -> H256 {
         match self {
             Leaf::Request(req) => hash_request::<H>(req),
             Leaf::Response(res) => hash_response::<H>(res),
@@ -52,14 +51,14 @@ impl Leaf {
 
 /// An element representing either full data or its hash.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, scale_info::TypeInfo)]
-pub enum DataOrHash<T: frame_system::Config> {
+pub enum DataOrHash {
     /// Arbitrary data in its full form.
     Data(Leaf),
     /// A hash of some data.
-    Hash(<<T as frame_system::Config>::Hashing as traits::Hash>::Output),
+    Hash(H256),
 }
 
-impl<T: frame_system::Config> core::fmt::Debug for DataOrHash<T> {
+impl core::fmt::Debug for DataOrHash {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             DataOrHash::Data(leaf) => f.debug_struct("DataOrHash").field("Data", leaf).finish(),
@@ -68,26 +67,20 @@ impl<T: frame_system::Config> core::fmt::Debug for DataOrHash<T> {
     }
 }
 
-impl<T: frame_system::Config> From<Leaf> for DataOrHash<T> {
+impl From<Leaf> for DataOrHash {
     fn from(l: Leaf) -> Self {
         Self::Data(l)
     }
 }
 
-impl<T> DataOrHash<T>
-where
-    T: frame_system::Config,
-    T::Hash: From<H256>,
-{
+impl DataOrHash {
     /// Retrieve a hash of this item.
     ///
     /// Depending on the node type it's going to either be a contained value for [DataOrHash::Hash]
     /// node, or a hash of SCALE-encoded [DataOrHash::Data] data.
-    pub fn hash<H: IsmpHost>(
-        &self,
-    ) -> <<T as frame_system::Config>::Hashing as traits::Hash>::Output {
+    pub fn hash<H: Keccak256>(&self) -> H256 {
         match *self {
-            Self::Data(ref leaf) => <T::Hash>::from(leaf.hash::<H>()),
+            Self::Data(ref leaf) => leaf.hash::<H>(),
             Self::Hash(ref hash) => *hash,
         }
     }
@@ -100,14 +93,17 @@ impl<T, H> merkle_mountain_range::Merge for MmrHasher<T, H>
 where
     T: frame_system::Config,
     T::Hash: From<H256>,
-    H: IsmpHost,
+    H256: From<T::Hash>,
+    H: Keccak256,
 {
-    type Item = DataOrHash<T>;
+    type Item = DataOrHash;
 
     fn merge(left: &Self::Item, right: &Self::Item) -> merkle_mountain_range::Result<Self::Item> {
         let mut concat = left.hash::<H>().as_ref().to_vec();
         concat.extend_from_slice(right.hash::<H>().as_ref());
 
-        Ok(DataOrHash::Hash(<<T as frame_system::Config>::Hashing as traits::Hash>::hash(&concat)))
+        Ok(DataOrHash::Hash(
+            <<T as frame_system::Config>::Hashing as traits::Hash>::hash(&concat).into(),
+        ))
     }
 }

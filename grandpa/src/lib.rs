@@ -65,6 +65,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T>
     where
         <T as frame_system::Config>::Hash: From<H256>,
+        H256: From<<T as frame_system::Config>::Hash>,
     {
         /// Add some new parachains to the list of parachains in the relay chain consensus state
         #[pallet::call_index(0)]

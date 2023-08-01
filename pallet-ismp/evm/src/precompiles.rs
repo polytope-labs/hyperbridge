@@ -38,6 +38,7 @@ impl<T> Precompile for IsmpPostDispatcher<T>
 where
     T: pallet_ismp::Config + pallet_evm::Config,
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
     fn execute(handle: &mut impl PrecompileHandle) -> PrecompileResult {
         let input = handle.input();
@@ -82,6 +83,7 @@ impl<T> Precompile for IsmpGetDispatcher<T>
 where
     T: pallet_ismp::Config + pallet_evm::Config,
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
     fn execute(handle: &mut impl PrecompileHandle) -> PrecompileResult {
         let input = handle.input();
@@ -129,6 +131,7 @@ impl<T> Precompile for IsmpResponseDispatcher<T>
 where
     T: pallet_ismp::Config + pallet_evm::Config,
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
     fn execute(handle: &mut impl PrecompileHandle) -> PrecompileResult {
         let input = handle.input();

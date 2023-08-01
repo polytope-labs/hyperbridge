@@ -61,6 +61,7 @@ where
     T: pallet_ismp::Config + super::Config,
     T::BlockNumber: Into<u32>,
     T::Hash: From<H256>,
+    H256: From<T::Hash>,
 {
     fn verify_consensus(
         &self,

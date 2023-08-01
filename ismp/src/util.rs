@@ -1,14 +1,19 @@
 //! ISMP utilities
 
-use crate::{
-    host::IsmpHost,
-    router::{Request, Response},
-};
+use crate::router::{Request, Response};
 use alloc::{string::ToString, vec::Vec};
 use primitive_types::H256;
 
+/// A trait that returns a 256 bit keccak has of some bytes
+pub trait Keccak256 {
+    /// Returns a keccak256 hash of a byte slice
+    fn keccak256(bytes: &[u8]) -> H256
+    where
+        Self: Sized;
+}
+
 /// Return the keccak256 hash of a request
-pub fn hash_request<H: IsmpHost>(req: &Request) -> H256 {
+pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
     match req {
         Request::Post(post) => {
             let mut buf = Vec::new();
@@ -49,7 +54,7 @@ pub fn hash_request<H: IsmpHost>(req: &Request) -> H256 {
 }
 
 /// Return the keccak256 of a response
-pub fn hash_response<H: IsmpHost>(res: &Response) -> H256 {
+pub fn hash_response<H: Keccak256>(res: &Response) -> H256 {
     let (req, response) = match res {
         Response::Post(res) => (&res.post, &res.response),
         // Responses to get messages are never hashed

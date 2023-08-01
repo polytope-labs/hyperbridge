@@ -11,7 +11,7 @@ use ismp::{
         DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse, Request,
         RequestResponse, Response,
     },
-    util::{hash_request, hash_response},
+    util::{hash_request, hash_response, Keccak256},
 };
 use primitive_types::H256;
 use std::{
@@ -272,13 +272,6 @@ impl IsmpHost for Host {
         }
     }
 
-    fn keccak256(bytes: &[u8]) -> H256
-    where
-        Self: Sized,
-    {
-        sp_core::keccak_256(bytes).into()
-    }
-
     fn challenge_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {
         Some(Duration::from_secs(60 * 60))
     }
@@ -305,6 +298,15 @@ impl IsmpHost for Host {
 
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {
         Box::new(MockRouter(self.clone()))
+    }
+}
+
+impl Keccak256 for Host {
+    fn keccak256(bytes: &[u8]) -> H256
+    where
+        Self: Sized,
+    {
+        sp_core::keccak_256(bytes).into()
     }
 }
 

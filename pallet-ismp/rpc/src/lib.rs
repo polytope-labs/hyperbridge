@@ -117,6 +117,14 @@ where
     #[method(name = "ismp_queryConsensusUpdateTime")]
     fn query_consensus_update_time(&self, client_id: ConsensusClientId) -> Result<u64>;
 
+    /// Query the challenge period for client
+    #[method(name = "ismp_queryChallengePeriod")]
+    fn query_challenge_period(&self, client_id: ConsensusClientId) -> Result<u64>;
+
+    /// Query the latest timestamp for chain
+    #[method(name = "ismp_queryTimestamp")]
+    fn query_timestamp(&self) -> Result<u64>;
+
     /// Query the latest height for a state machine
     #[method(name = "ismp_queryStateMachineLatestHeight")]
     fn query_state_machine_latest_height(&self, id: StateMachineId) -> Result<u64>;
@@ -253,6 +261,24 @@ where
             .ok()
             .flatten()
             .ok_or_else(|| runtime_error_into_rpc_error("Error fetching Consensus update time"))
+    }
+
+    fn query_challenge_period(&self, client_id: ConsensusClientId) -> Result<u64> {
+        let api = self.client.runtime_api();
+        let at = self.client.info().best_hash;
+        api.challenge_period(at, client_id)
+            .ok()
+            .flatten()
+            .ok_or_else(|| runtime_error_into_rpc_error("Error fetching Challenge period"))
+    }
+
+    fn query_timestamp(&self) -> Result<u64> {
+        let api = self.client.runtime_api();
+        let at = self.client.info().best_hash;
+        api.timestamp(at)
+            .ok()
+            .flatten()
+            .ok_or_else(|| runtime_error_into_rpc_error("Error fetching latest timestamp"))
     }
 
     fn query_state_machine_latest_height(&self, id: StateMachineId) -> Result<u64> {

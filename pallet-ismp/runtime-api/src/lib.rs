@@ -54,6 +54,12 @@ sp_api::decl_runtime_apis! {
         /// Return the timestamp this client was last updated in seconds
         fn consensus_update_time(id: ConsensusClientId) -> Option<u64>;
 
+         /// Return the latest timestamp for the chain
+        fn timestamp() -> Option<u64>;
+
+        /// Return the challenge period timestamp
+        fn challenge_period(id: ConsensusClientId) -> Option<u64>;
+
         /// Return the latest height of the state machine
         fn latest_state_machine_height(id: StateMachineId) -> Option<u64>;
 

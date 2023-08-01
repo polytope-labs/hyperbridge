@@ -23,6 +23,7 @@ use crate::{
     error::Error,
     prelude::Vec,
     router::{IsmpRouter, Request},
+    util::Keccak256,
 };
 use alloc::{
     boxed::Box,
@@ -35,7 +36,7 @@ use primitive_types::H256;
 
 /// Defines the necessary interfaces that must be satisfied by a state machine for it be ISMP
 /// compatible.
-pub trait IsmpHost {
+pub trait IsmpHost: Keccak256 {
     /// Should return the state machine type for the host.
     fn host_state_machine(&self) -> StateMachine;
 
@@ -143,11 +144,6 @@ pub trait IsmpHost {
 
     /// Should return a handle to the consensus client based on the id
     fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error>;
-
-    /// Returns a keccak256 hash of a byte slice
-    fn keccak256(bytes: &[u8]) -> H256
-    where
-        Self: Sized;
 
     /// Should return the configured delay period for a consensus state
     fn challenge_period(&self, consensus_state_id: ConsensusStateId) -> Option<Duration>;

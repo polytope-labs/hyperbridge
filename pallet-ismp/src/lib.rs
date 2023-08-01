@@ -44,7 +44,7 @@ use core::time::Duration;
 use frame_support::{
     dispatch::{DispatchResult, DispatchResultWithPostInfo, Pays, PostDispatchInfo},
     log::debug,
-    traits::Get,
+    traits::{Get, UnixTime},
     RuntimeDebug,
 };
 use ismp_rs::{
@@ -665,6 +665,16 @@ where
     /// Return the timestamp this client was last updated in seconds
     pub fn get_consensus_update_time(id: ConsensusClientId) -> Option<u64> {
         ConsensusClientUpdateTime::<T>::get(id)
+    }
+
+    /// Return the challenge period
+    pub fn get_challenge_period(id: ConsensusClientId) -> Option<u64> {
+        ChallengePeriod::<T>::get(id)
+    }
+
+    /// Return latest timestamp on chain
+    pub fn get_timestamp() -> Option<u64> {
+        Some(<T::TimeProvider as UnixTime>::now().as_secs())
     }
 
     /// Return the latest height of the state machine

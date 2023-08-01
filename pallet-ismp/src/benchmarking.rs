@@ -28,8 +28,6 @@ use frame_system::RawOrigin;
 /// modules using the [`crate::ismp_mocks::ModuleId`] as it's module id
 #[benchmarks(
 where
-<T as frame_system::Config>::Hash: From<H256>,
-H256: From<<T as frame_system::Config>::Hash>,
 T: pallet_timestamp::Config,
 <T as pallet_timestamp::Config>::Moment: From<u64>
 )]

@@ -18,7 +18,7 @@ use codec::Encode;
 use frame_support::log::{debug, trace};
 use ismp_primitives::mmr::{DataOrHash, NodeIndex};
 use mmr_lib::helper;
-use sp_core::{offchain::StorageKind, H256};
+use sp_core::offchain::StorageKind;
 use sp_std::iter::Peekable;
 #[cfg(not(feature = "std"))]
 use sp_std::prelude::*;
@@ -79,7 +79,6 @@ where
 impl<T> mmr_lib::MMRStore<DataOrHash> for Storage<RuntimeStorage, T>
 where
     T: Config,
-    <T as frame_system::Config>::Hash: From<H256>,
 {
     fn get_elem(&self, pos: NodeIndex) -> mmr_lib::Result<Option<DataOrHash>> {
         Ok(Pallet::<T>::get_node(pos))

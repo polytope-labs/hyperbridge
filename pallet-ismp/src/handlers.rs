@@ -10,13 +10,8 @@ use ismp_rs::{
     router::{Request, Response},
     util::{hash_request, hash_response},
 };
-use sp_core::H256;
 
-impl<T: Config> Pallet<T>
-where
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
-{
+impl<T: Config> Pallet<T> {
     /// Dispatch an outgoing request
     pub fn dispatch_request(request: Request) -> Result<(), IsmpError> {
         let commitment = hash_request::<Host<T>>(&request);

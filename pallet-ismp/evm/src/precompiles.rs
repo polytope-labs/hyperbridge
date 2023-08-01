@@ -19,7 +19,7 @@ use ismp_rs::{
     router::{DispatchGet, DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse},
 };
 use pallet_evm::GasWeightMapping;
-use sp_core::{H160, H256};
+use sp_core::H160;
 use sp_std::prelude::*;
 
 /// Ismp Request Dispatcher precompile for evm contracts
@@ -37,8 +37,6 @@ pub const GET_REQUEST_DISPATCHER: H160 = H160(hex!("f2d8dc5239ddc053ba5151302483
 impl<T> Precompile for IsmpPostDispatcher<T>
 where
     T: pallet_ismp::Config + pallet_evm::Config,
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
 {
     fn execute(handle: &mut impl PrecompileHandle) -> PrecompileResult {
         let input = handle.input();
@@ -82,8 +80,6 @@ pub struct IsmpGetDispatcher<T> {
 impl<T> Precompile for IsmpGetDispatcher<T>
 where
     T: pallet_ismp::Config + pallet_evm::Config,
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
 {
     fn execute(handle: &mut impl PrecompileHandle) -> PrecompileResult {
         let input = handle.input();
@@ -130,8 +126,6 @@ pub struct IsmpResponseDispatcher<T> {
 impl<T> Precompile for IsmpResponseDispatcher<T>
 where
     T: pallet_ismp::Config + pallet_evm::Config,
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
 {
     fn execute(handle: &mut impl PrecompileHandle) -> PrecompileResult {
         let input = handle.input();

@@ -34,10 +34,8 @@ pub struct Mmr<StorageType, T>
 where
     T: Config,
     Storage<StorageType, T>: mmr_lib::MMRStore<DataOrHash>,
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
 {
-    mmr: mmr_lib::MMR<DataOrHash, MmrHasher<T, Host<T>>, Storage<StorageType, T>>,
+    mmr: mmr_lib::MMR<DataOrHash, MmrHasher<Host<T>>, Storage<StorageType, T>>,
     leaves: NodeIndex,
 }
 
@@ -45,8 +43,6 @@ impl<StorageType, T> Mmr<StorageType, T>
 where
     T: Config,
     Storage<StorageType, T>: mmr_lib::MMRStore<DataOrHash>,
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
 {
     /// Create a pointer to an existing MMR with given number of leaves.
     pub fn new(leaves: NodeIndex) -> Self {
@@ -59,8 +55,6 @@ where
 impl<T> Mmr<RuntimeStorage, T>
 where
     T: Config,
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
 {
     /// Push another item to the MMR and commit
     ///
@@ -84,8 +78,6 @@ where
 impl<T> Mmr<OffchainStorage, T>
 where
     T: Config,
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
 {
     /// Generate a proof for given leaf indices.
     ///

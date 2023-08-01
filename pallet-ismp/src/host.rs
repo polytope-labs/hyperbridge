@@ -47,11 +47,7 @@ impl<T: Config> Default for Host<T> {
     }
 }
 
-impl<T: Config> IsmpHost for Host<T>
-where
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
-{
+impl<T: Config> IsmpHost for Host<T> {
     fn host_state_machine(&self) -> StateMachine {
         T::StateMachine::get()
     }

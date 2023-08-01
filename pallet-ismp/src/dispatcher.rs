@@ -22,7 +22,6 @@ use ismp_rs::{
     host::IsmpHost,
     router::{DispatchRequest, Get, IsmpDispatcher, Post, PostResponse, Request, Response},
 };
-use sp_core::H256;
 
 /// A receipt or an outgoing or incoming request or response
 #[derive(Encode, Decode, scale_info::TypeInfo)]
@@ -43,8 +42,6 @@ impl<T> Default for Dispatcher<T> {
 impl<T> IsmpDispatcher for Dispatcher<T>
 where
     T: Config,
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
 {
     fn dispatch_request(&self, request: DispatchRequest) -> Result<(), IsmpError> {
         let host = Host::<T>::default();

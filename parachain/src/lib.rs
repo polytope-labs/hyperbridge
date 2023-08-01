@@ -29,7 +29,6 @@ use cumulus_primitives_core::relay_chain;
 use ismp::{handlers, messaging::CreateConsensusState};
 pub use pallet::*;
 use pallet_ismp::host::Host;
-use primitive_types::H256;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -75,11 +74,7 @@ pub mod pallet {
     pub enum Event<T: Config> {}
 
     #[pallet::call]
-    impl<T: Config> Pallet<T>
-    where
-        <T as frame_system::Config>::Hash: From<H256>,
-        H256: From<<T as frame_system::Config>::Hash>,
-    {
+    impl<T: Config> Pallet<T> {
         /// Rather than users manually submitting consensus updates for sibling parachains, we
         /// instead make it the responsibility of the block builder to insert the consensus
         /// updates as an inherent.
@@ -133,11 +128,7 @@ pub mod pallet {
 
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
-    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
-    where
-        <T as frame_system::Config>::Hash: From<H256>,
-        H256: From<<T as frame_system::Config>::Hash>,
-    {
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_finalize(_n: T::BlockNumber) {
             let state = RelaychainDataProvider::<T>::current_relay_chain_state();
             if !RelayChainState::<T>::contains_key(state.number) {
@@ -169,11 +160,7 @@ pub mod pallet {
     pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"paraismp";
 
     #[pallet::inherent]
-    impl<T: Config> ProvideInherent for Pallet<T>
-    where
-        <T as frame_system::Config>::Hash: From<H256>,
-        H256: From<<T as frame_system::Config>::Hash>,
-    {
+    impl<T: Config> ProvideInherent for Pallet<T> {
         type Call = Call<T>;
         type Error = sp_inherents::MakeFatalError<()>;
         const INHERENT_IDENTIFIER: InherentIdentifier = INHERENT_IDENTIFIER;
@@ -205,11 +192,7 @@ pub mod pallet {
     }
 
     #[pallet::genesis_build]
-    impl<T: Config> GenesisBuild<T> for GenesisConfig
-    where
-        <T as frame_system::Config>::Hash: From<H256>,
-        H256: From<<T as frame_system::Config>::Hash>,
-    {
+    impl<T: Config> GenesisBuild<T> for GenesisConfig {
         fn build(&self) {
             let host = Host::<T>::default();
             Pallet::<T>::initialize(host);
@@ -222,11 +205,7 @@ pub mod pallet {
     }
 }
 
-impl<T: Config> Pallet<T>
-where
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
-{
+impl<T: Config> Pallet<T> {
     /// Returns the list of parachains who's consensus updates will be inserted by the inherent
     /// data provider
     pub fn para_ids() -> Vec<u32> {

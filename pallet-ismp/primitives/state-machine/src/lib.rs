@@ -37,7 +37,6 @@ use ismp_primitives::{
 };
 use merkle_mountain_range::MerkleProof;
 use pallet_ismp::host::Host;
-use primitive_types::H256;
 use sp_runtime::traits::{BlakeTwo256, Keccak256};
 use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
 
@@ -54,8 +53,6 @@ impl<T> StateMachineClient for SubstrateStateMachine<T>
 where
     T: pallet_ismp::Config,
     T::BlockNumber: Into<u32>,
-    T::Hash: From<H256>,
-    H256: From<T::Hash>,
 {
     fn verify_membership(
         &self,
@@ -68,8 +65,7 @@ where
             Error::ImplementationSpecific(format!("Cannot decode membership proof: {e:?}"))
         })?;
         let nodes = membership.proof.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
-        let proof =
-            MerkleProof::<DataOrHash, MmrHasher<T, Host<T>>>::new(membership.mmr_size, nodes);
+        let proof = MerkleProof::<DataOrHash, MmrHasher<Host<T>>>::new(membership.mmr_size, nodes);
         let leaves: Vec<(u64, DataOrHash)> = match item {
             RequestResponse::Request(req) => membership
                 .leaf_indices

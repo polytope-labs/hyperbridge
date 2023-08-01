@@ -18,7 +18,7 @@ extern crate alloc;
 pub mod consensus;
 pub mod messages;
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 pub use pallet::*;
 use pallet_ismp::host::Host;
 
@@ -28,7 +28,6 @@ pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use ismp::host::IsmpHost;
-    use primitive_types::H256;
     use primitives::ConsensusState;
 
     #[pallet::pallet]
@@ -62,11 +61,7 @@ pub mod pallet {
     }
 
     #[pallet::call]
-    impl<T: Config> Pallet<T>
-    where
-        <T as frame_system::Config>::Hash: From<H256>,
-        H256: From<<T as frame_system::Config>::Hash>,
-    {
+    impl<T: Config> Pallet<T> {
         /// Add some new parachains to the list of parachains in the relay chain consensus state
         #[pallet::call_index(0)]
         #[pallet::weight((0, DispatchClass::Mandatory))]

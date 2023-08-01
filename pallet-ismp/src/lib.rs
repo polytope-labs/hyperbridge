@@ -271,11 +271,7 @@ pub mod pallet {
 
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
-    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
-    where
-        <T as frame_system::Config>::Hash: From<H256>,
-        H256: From<<T as frame_system::Config>::Hash>,
-    {
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(_n: T::BlockNumber) -> Weight {
             // return Mmr finalization weight here
             <T as Config>::WeightInfo::on_finalize(Self::number_of_leaves() as u32)
@@ -321,11 +317,7 @@ pub mod pallet {
     }
 
     #[pallet::call]
-    impl<T: Config> Pallet<T>
-    where
-        <T as frame_system::Config>::Hash: From<H256>,
-        H256: From<<T as frame_system::Config>::Hash>,
-    {
+    impl<T: Config> Pallet<T> {
         /// Handles ismp messages
         #[pallet::weight(get_weight::<T>(&messages))]
         #[pallet::call_index(0)]
@@ -454,11 +446,7 @@ pub mod pallet {
     }
 }
 
-impl<T: Config> Pallet<T>
-where
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
-{
+impl<T: Config> Pallet<T> {
     /// Generate an MMR proof for the given `leaf_indices`.
     /// Note this method can only be used from an off-chain context
     /// (Offchain Worker or Runtime API call), since it requires
@@ -567,11 +555,7 @@ pub struct RequestResponseLog<T: Config> {
     mmr_root_hash: <T as frame_system::Config>::Hash,
 }
 
-impl<T: Config> Pallet<T>
-where
-    <T as frame_system::Config>::Hash: From<H256>,
-    H256: From<<T as frame_system::Config>::Hash>,
-{
+impl<T: Config> Pallet<T> {
     /// Returns the offchain key for a request leaf index
     pub fn request_leaf_index_offchain_key(
         source_chain: StateMachine,

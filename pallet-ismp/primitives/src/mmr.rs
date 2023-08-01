@@ -18,12 +18,12 @@
 use core::fmt::Formatter;
 
 use codec::{Decode, Encode};
+use frame_support::sp_io;
 use ismp::{
     router::{Request, Response},
     util::{hash_request, hash_response, Keccak256},
 };
 use primitive_types::H256;
-use sp_runtime::traits;
 
 /// Index of a leaf in the MMR
 pub type LeafIndex = u64;
@@ -87,13 +87,10 @@ impl DataOrHash {
 }
 
 /// Default Merging & Hashing behavior for MMR.
-pub struct MmrHasher<T, H>(core::marker::PhantomData<(T, H)>);
+pub struct MmrHasher<H>(core::marker::PhantomData<H>);
 
-impl<T, H> merkle_mountain_range::Merge for MmrHasher<T, H>
+impl<H> merkle_mountain_range::Merge for MmrHasher<H>
 where
-    T: frame_system::Config,
-    T::Hash: From<H256>,
-    H256: From<T::Hash>,
     H: Keccak256,
 {
     type Item = DataOrHash;
@@ -102,8 +99,6 @@ where
         let mut concat = left.hash::<H>().as_ref().to_vec();
         concat.extend_from_slice(right.hash::<H>().as_ref());
 
-        Ok(DataOrHash::Hash(
-            <<T as frame_system::Config>::Hashing as traits::Hash>::hash(&concat).into(),
-        ))
+        Ok(DataOrHash::Hash(sp_io::hashing::keccak_256(&concat).into()))
     }
 }

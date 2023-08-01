@@ -107,7 +107,7 @@ fn should_generate_proofs_correctly_for_single_leaf_mmr() {
 
         let mmr_size = NodesUtils::new(proof.leaf_count).size();
         let nodes = proof.items.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
-        let proof = MerkleProof::<DataOrHash, MmrHasher<Test, Host<Test>>>::new(mmr_size, nodes);
+        let proof = MerkleProof::<DataOrHash, MmrHasher<Host<Test>>>::new(mmr_size, nodes);
         let calculated_root = proof
             .calculate_root(vec![(positions[0], DataOrHash::Data(leaves[0].clone()))])
             .unwrap();
@@ -138,7 +138,7 @@ fn should_generate_and_verify_batch_proof_correctly() {
 
         let mmr_size = NodesUtils::new(proof.leaf_count).size();
         let nodes = proof.items.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
-        let proof = MerkleProof::<DataOrHash, MmrHasher<Test, Host<Test>>>::new(mmr_size, nodes);
+        let proof = MerkleProof::<DataOrHash, MmrHasher<Host<Test>>>::new(mmr_size, nodes);
         let calculated_root = proof
             .calculate_root(
                 indices
@@ -177,7 +177,7 @@ fn should_generate_and_verify_batch_proof_for_leaves_inserted_across_multiple_bl
 
         let mmr_size = NodesUtils::new(proof.leaf_count).size();
         let nodes = proof.items.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
-        let proof = MerkleProof::<DataOrHash, MmrHasher<Test, Host<Test>>>::new(mmr_size, nodes);
+        let proof = MerkleProof::<DataOrHash, MmrHasher<Host<Test>>>::new(mmr_size, nodes);
         let calculated_root = proof
             .calculate_root(
                 indices

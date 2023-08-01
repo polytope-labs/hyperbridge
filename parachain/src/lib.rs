@@ -78,6 +78,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T>
     where
         <T as frame_system::Config>::Hash: From<H256>,
+        H256: From<<T as frame_system::Config>::Hash>,
     {
         /// Rather than users manually submitting consensus updates for sibling parachains, we
         /// instead make it the responsibility of the block builder to insert the consensus
@@ -135,6 +136,7 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
     where
         <T as frame_system::Config>::Hash: From<H256>,
+        H256: From<<T as frame_system::Config>::Hash>,
     {
         fn on_finalize(_n: T::BlockNumber) {
             let state = RelaychainDataProvider::<T>::current_relay_chain_state();
@@ -170,6 +172,7 @@ pub mod pallet {
     impl<T: Config> ProvideInherent for Pallet<T>
     where
         <T as frame_system::Config>::Hash: From<H256>,
+        H256: From<<T as frame_system::Config>::Hash>,
     {
         type Call = Call<T>;
         type Error = sp_inherents::MakeFatalError<()>;
@@ -205,6 +208,7 @@ pub mod pallet {
     impl<T: Config> GenesisBuild<T> for GenesisConfig
     where
         <T as frame_system::Config>::Hash: From<H256>,
+        H256: From<<T as frame_system::Config>::Hash>,
     {
         fn build(&self) {
             let host = Host::<T>::default();
@@ -221,6 +225,7 @@ pub mod pallet {
 impl<T: Config> Pallet<T>
 where
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
     /// Returns the list of parachains who's consensus updates will be inserted by the inherent
     /// data provider

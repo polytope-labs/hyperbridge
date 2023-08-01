@@ -50,6 +50,7 @@ impl<T: Config> Default for Host<T> {
 impl<T: Config> IsmpHost for Host<T>
 where
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
     fn host_state_machine(&self) -> StateMachine {
         T::StateMachine::get()
@@ -155,13 +156,6 @@ where
         <T as Config>::ConsensusClientProvider::consensus_client(id)
     }
 
-    fn keccak256(bytes: &[u8]) -> H256
-    where
-        Self: Sized,
-    {
-        sp_io::hashing::keccak_256(bytes).into()
-    }
-
     fn challenge_period(&self, id: ConsensusStateId) -> Option<Duration> {
         ChallengePeriod::<T>::get(&id).map(Duration::from_secs)
     }
@@ -257,5 +251,14 @@ where
 
     fn store_allowed_proxies(&self, allowed: Vec<StateMachine>) {
         AllowedProxies::<T>::set(allowed);
+    }
+}
+
+impl<T: Config> ismp_rs::util::Keccak256 for Host<T> {
+    fn keccak256(bytes: &[u8]) -> H256
+    where
+        Self: Sized,
+    {
+        sp_io::hashing::keccak_256(bytes).into()
     }
 }

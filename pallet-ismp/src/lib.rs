@@ -147,7 +147,7 @@ pub mod pallet {
     /// Latest MMR Root hash
     #[pallet::storage]
     #[pallet::getter(fn mmr_root_hash)]
-    pub type RootHash<T: Config> = StorageValue<_, <T as frame_system::Config>::Hash, ValueQuery>;
+    pub type RootHash<T: Config> = StorageValue<_, H256, ValueQuery>;
 
     /// Current size of the MMR (number of leaves) for requests.
     #[pallet::storage]
@@ -160,8 +160,7 @@ pub mod pallet {
     /// are pruned and only stored in the Offchain DB.
     #[pallet::storage]
     #[pallet::getter(fn request_peaks)]
-    pub type Nodes<T: Config> =
-        StorageMap<_, Identity, NodeIndex, <T as frame_system::Config>::Hash, OptionQuery>;
+    pub type Nodes<T: Config> = StorageMap<_, Identity, NodeIndex, H256, OptionQuery>;
 
     /// Holds a map of state machine heights to their verified state commitments
     #[pallet::storage]
@@ -275,6 +274,7 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
     where
         <T as frame_system::Config>::Hash: From<H256>,
+        H256: From<<T as frame_system::Config>::Hash>,
     {
         fn on_initialize(_n: T::BlockNumber) -> Weight {
             // return Mmr finalization weight here
@@ -299,7 +299,7 @@ pub mod pallet {
 
                 root
             } else {
-                H256::default().into()
+                H256::default()
             };
 
             let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, root.encode());
@@ -324,6 +324,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T>
     where
         <T as frame_system::Config>::Hash: From<H256>,
+        H256: From<<T as frame_system::Config>::Hash>,
     {
         /// Handles ismp messages
         #[pallet::weight(get_weight::<T>(&messages))]
@@ -456,6 +457,7 @@ pub mod pallet {
 impl<T: Config> Pallet<T>
 where
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
     /// Generate an MMR proof for the given `leaf_indices`.
     /// Note this method can only be used from an off-chain context
@@ -464,8 +466,7 @@ where
     /// It may return an error or panic if used incorrectly.
     pub fn generate_proof(
         leaf_indices: Vec<LeafIndex>,
-    ) -> Result<(Vec<Leaf>, primitives::Proof<<T as frame_system::Config>::Hash>), primitives::Error>
-    {
+    ) -> Result<(Vec<Leaf>, primitives::Proof<H256>), primitives::Error> {
         let leaves_count = NumberOfLeaves::<T>::get();
         let mmr = Mmr::<mmr::storage::OffchainStorage, T>::new(leaves_count);
         mmr.generate_proof(leaf_indices)
@@ -549,7 +550,7 @@ where
     }
 
     /// Return the on-chain MMR root hash.
-    pub fn mmr_root() -> <T as frame_system::Config>::Hash {
+    pub fn mmr_root() -> H256 {
         Self::mmr_root_hash()
     }
 
@@ -569,6 +570,7 @@ pub struct RequestResponseLog<T: Config> {
 impl<T: Config> Pallet<T>
 where
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
     /// Returns the offchain key for a request leaf index
     pub fn request_leaf_index_offchain_key(
@@ -597,7 +599,7 @@ where
     pub fn get_request(leaf_index: LeafIndex) -> Option<Request> {
         let key = Pallet::<T>::offchain_key(leaf_index);
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            let data_or_hash = DataOrHash::<T>::decode(&mut &*elem).ok()?;
+            let data_or_hash = DataOrHash::decode(&mut &*elem).ok()?;
             return match data_or_hash {
                 DataOrHash::Data(leaf) => match leaf {
                     Leaf::Request(req) => Some(req),
@@ -613,7 +615,7 @@ where
     pub fn get_response(leaf_index: LeafIndex) -> Option<Response> {
         let key = Pallet::<T>::offchain_key(leaf_index);
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            let data_or_hash = DataOrHash::<T>::decode(&mut &*elem).ok()?;
+            let data_or_hash = DataOrHash::decode(&mut &*elem).ok()?;
             return match data_or_hash {
                 DataOrHash::Data(leaf) => match leaf {
                     Leaf::Response(res) => Some(res),
@@ -736,7 +738,7 @@ where
 
 impl<T: Config> Pallet<T> {
     /// Get a node from runtime storage
-    fn get_node(pos: NodeIndex) -> Option<DataOrHash<T>> {
+    fn get_node(pos: NodeIndex) -> Option<DataOrHash> {
         Nodes::<T>::get(pos).map(DataOrHash::Hash)
     }
 
@@ -746,7 +748,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Insert a node into storage
-    fn insert_node(pos: NodeIndex, node: <T as frame_system::Config>::Hash) {
+    fn insert_node(pos: NodeIndex, node: H256) {
         Nodes::<T>::insert(pos, node)
     }
 

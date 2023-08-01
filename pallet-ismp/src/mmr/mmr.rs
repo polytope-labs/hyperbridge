@@ -33,18 +33,20 @@ use sp_std::prelude::*;
 pub struct Mmr<StorageType, T>
 where
     T: Config,
-    Storage<StorageType, T>: mmr_lib::MMRStore<DataOrHash<T>>,
+    Storage<StorageType, T>: mmr_lib::MMRStore<DataOrHash>,
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
-    mmr: mmr_lib::MMR<DataOrHash<T>, MmrHasher<T, Host<T>>, Storage<StorageType, T>>,
+    mmr: mmr_lib::MMR<DataOrHash, MmrHasher<T, Host<T>>, Storage<StorageType, T>>,
     leaves: NodeIndex,
 }
 
 impl<StorageType, T> Mmr<StorageType, T>
 where
     T: Config,
-    Storage<StorageType, T>: mmr_lib::MMRStore<DataOrHash<T>>,
+    Storage<StorageType, T>: mmr_lib::MMRStore<DataOrHash>,
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
     /// Create a pointer to an existing MMR with given number of leaves.
     pub fn new(leaves: NodeIndex) -> Self {
@@ -58,6 +60,7 @@ impl<T> Mmr<RuntimeStorage, T>
 where
     T: Config,
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
     /// Push another item to the MMR and commit
     ///
@@ -71,7 +74,7 @@ where
     }
 
     /// Calculate the new MMR's root hash.
-    pub fn finalize(self) -> Result<<T as frame_system::Config>::Hash, Error> {
+    pub fn finalize(self) -> Result<H256, Error> {
         let root = self.mmr.get_root().map_err(|_| Error::GetRoot)?;
         Ok(root.hash::<Host<T>>())
     }
@@ -82,6 +85,7 @@ impl<T> Mmr<OffchainStorage, T>
 where
     T: Config,
     <T as frame_system::Config>::Hash: From<H256>,
+    H256: From<<T as frame_system::Config>::Hash>,
 {
     /// Generate a proof for given leaf indices.
     ///
@@ -90,7 +94,7 @@ where
     pub fn generate_proof(
         &self,
         positions: Vec<NodeIndex>,
-    ) -> Result<(Vec<Leaf>, Proof<<T as frame_system::Config>::Hash>), Error> {
+    ) -> Result<(Vec<Leaf>, Proof<H256>), Error> {
         let store = <Storage<OffchainStorage, T>>::default();
         let leaves = positions
             .iter()

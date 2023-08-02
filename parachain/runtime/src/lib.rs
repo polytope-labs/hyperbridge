@@ -501,13 +501,6 @@ impl ConsensusClientProvider for ConsensusProvider {
 
         Ok(client)
     }
-
-    fn challenge_period(id: ConsensusClientId) -> Duration {
-        match id {
-            ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID => Duration::from_secs(0),
-            _ => Duration::MAX,
-        }
-    }
 }
 
 impl ismp_parachain::Config for Runtime {
@@ -770,6 +763,16 @@ impl_runtime_apis! {
         /// Return the timestamp this client was last updated in seconds
         fn consensus_update_time(id: ConsensusClientId) -> Option<u64> {
             Ismp::consensus_update_time(id)
+        }
+
+        /// Return the challenge period
+        fn challenge_period(id: ConsensusClientId) -> Option<u64> {
+            Ismp::get_challenge_period(id)
+        }
+
+        /// Return the current time stamp on chain
+        fn timestamp() -> Option<u64> {
+            Ismp::get_timestamp()
         }
 
         /// Return the latest height of the state machine

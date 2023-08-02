@@ -12,7 +12,7 @@ use pallet_ismp::primitives::ModuleId;
 use sp_std::prelude::*;
 
 fn to_module_id(bytes: &[u8]) -> Result<ModuleId, Error> {
-    codec::Decode::decode(&mut &bytes[..])
+    ModuleId::from_bytes(&mut &bytes[..])
         .map_err(|_| Error::ImplementationSpecific("Failed to decode module id".to_string()))
 }
 
@@ -21,8 +21,8 @@ pub struct ProxyModule;
 
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
-        if request.dest_chain != StateMachineProvider::get() {
-            return pallet_ismp::Pallet::<Runtime>::handle_request(Request::Post(request))
+        if request.dest != StateMachineProvider::get() {
+            return pallet_ismp::Pallet::<Runtime>::dispatch_request(Request::Post(request))
         }
 
         let to = &request.to;
@@ -37,7 +37,7 @@ impl IsmpModule for ProxyModule {
 
     fn on_response(&self, response: Response) -> Result<(), Error> {
         if response.dest_chain() != StateMachineProvider::get() {
-            return pallet_ismp::Pallet::<Runtime>::handle_response(response)
+            return pallet_ismp::Pallet::<Runtime>::dispatch_response(response)
         }
 
         let request = &response.request();

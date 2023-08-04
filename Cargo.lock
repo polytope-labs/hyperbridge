@@ -3694,6 +3694,7 @@ dependencies = [
  "hex-literal 0.3.4",
  "ismp",
  "ismp-demo",
+ "ismp-grandpa",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
  "ismp-primitives",
@@ -4000,6 +4001,73 @@ dependencies = [
  "scale-info",
  "sp-core",
  "sp-runtime",
+]
+
+[[package]]
+name = "ismp-grandpa"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#1ac85a6c1d7434cc9399da66e2a3c677338dc021"
+dependencies = [
+ "ckb-merkle-mountain-range",
+ "cumulus-primitives-core",
+ "finality-grandpa",
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "ismp-grandpa-primitives",
+ "ismp-grandpa-verifier",
+ "ismp-primitives",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
+ "sp-consensus-aura",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-trie",
+ "substrate-state-machine",
+]
+
+[[package]]
+name = "ismp-grandpa-primitives"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#1ac85a6c1d7434cc9399da66e2a3c677338dc021"
+dependencies = [
+ "anyhow",
+ "finality-grandpa",
+ "frame-support",
+ "ismp",
+ "parity-scale-codec",
+ "sp-consensus-grandpa",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+ "sp-storage",
+ "sp-trie",
+]
+
+[[package]]
+name = "ismp-grandpa-verifier"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#1ac85a6c1d7434cc9399da66e2a3c677338dc021"
+dependencies = [
+ "anyhow",
+ "derive_more",
+ "finality-grandpa",
+ "frame-support",
+ "ismp-grandpa-primitives",
+ "parity-scale-codec",
+ "serde",
+ "sp-consensus-grandpa",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+ "sp-storage",
+ "sp-trie",
+ "substrate-state-machine",
 ]
 
 [[package]]

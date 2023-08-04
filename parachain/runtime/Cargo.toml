@@ -76,6 +76,9 @@ ismp-parachain-runtime-api = { git = "https://github.com/polytope-labs/substrate
 ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 ismp = { git = "https://github.com/polytope-labs/ismp-rs.git", branch = "main", default-features = false }
 
+ismp-grandpa = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
+
+
 [features]
 default = [
 	"std",
@@ -113,6 +116,7 @@ std = [
 	"ismp-runtime-api/std",
 	"ismp-parachain-runtime-api/std",
 	"ismp-demo/std",
+	"ismp-grandpa/std",
 	"parachain-info/std",
 	"polkadot-parachain/std",
 	"polkadot-runtime-common/std",

@@ -52,6 +52,7 @@ use ismp::{
     host::StateMachine,
     router::{Request, Response},
 };
+use ismp_grandpa::consensus::GrandpaConsensusClient;
 use ismp_parachain::consensus::ParachainConsensusClient;
 use ismp_primitives::{
     mmr::{Leaf, LeafIndex},
@@ -493,9 +494,11 @@ pub struct ConsensusProvider;
 
 impl ConsensusClientProvider for ConsensusProvider {
     fn consensus_client(id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
-        let client = match id {
+        let client: Box<dyn ConsensusClient> = match id {
             ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID =>
                 Box::new(ParachainConsensusClient::<Runtime, IsmpParachain>::default()),
+            ismp_grandpa::consensus::GRANDPA_CONSENSUS_ID =>
+                Box::new(GrandpaConsensusClient::<Runtime>::default()),
             _ => Err(Error::ImplementationSpecific("Unknown consensus client".into()))?,
         };
 
@@ -504,6 +507,10 @@ impl ConsensusClientProvider for ConsensusProvider {
 }
 
 impl ismp_parachain::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+}
+
+impl ismp_grandpa::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
 }
 
@@ -563,6 +570,7 @@ construct_runtime!(
         Ismp: pallet_ismp = 40,
         IsmpParachain: ismp_parachain = 41,
         IsmpDemo: ismp_demo = 42,
+        IsmpGrandpa: ismp_grandpa = 43,
     }
 );
 

@@ -136,13 +136,16 @@ where
         },
     )
     .unwrap();
-
-    set_timestamp::<T>(1000_000_000);
-    StateMachineHeight {
+    let height = StateMachineHeight {
         id: StateMachineId {
             state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
             consensus_state_id: MOCK_CONSENSUS_STATE_ID,
         },
         height: 3,
-    }
+    };
+    host.store_state_machine_update_time(height, core::time::Duration::from_millis(1000_000))
+        .unwrap();
+
+    set_timestamp::<T>(1000_000_000);
+    height
 }

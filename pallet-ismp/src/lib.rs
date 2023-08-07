@@ -221,6 +221,13 @@ pub mod pallet {
     pub type ConsensusClientUpdateTime<T: Config> =
         StorageMap<_, Twox64Concat, ConsensusClientId, u64, OptionQuery>;
 
+    /// Holds the timestamp at which a state machine height was updated.
+    /// Used in ensuring that the configured challenge period elapses.
+    #[pallet::storage]
+    #[pallet::getter(fn state_machine_update_time)]
+    pub type StateMachineUpdateTime<T: Config> =
+        StorageMap<_, Twox64Concat, StateMachineHeight, u64, OptionQuery>;
+
     /// Commitments for outgoing requests
     /// The key is the request commitment
     #[pallet::storage]

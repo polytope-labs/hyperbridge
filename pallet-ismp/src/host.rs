@@ -18,7 +18,7 @@ use crate::{
     dispatcher::Receipt, primitives::ConsensusClientProvider, AllowedProxies, ChallengePeriod,
     Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
     FrozenConsensusClients, FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments,
-    RequestReceipts, ResponseReceipts, StateCommitments, UnbondingPeriod,
+    RequestReceipts, ResponseReceipts, StateCommitments, StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use core::time::Duration;
@@ -71,6 +71,20 @@ impl<T: Config> IsmpHost for Host<T> {
             })
     }
 
+    fn state_machine_update_time(
+        &self,
+        state_machine_height: StateMachineHeight,
+    ) -> Result<Duration, Error> {
+        StateMachineUpdateTime::<T>::get(state_machine_height)
+            .map(|timestamp| Duration::from_secs(timestamp))
+            .ok_or_else(|| {
+                Error::ImplementationSpecific(format!(
+                    "Update time not found for {:?}",
+                    state_machine_height
+                ))
+            })
+    }
+
     fn consensus_state(&self, id: ConsensusClientId) -> Result<Vec<u8>, Error> {
         ConsensusStates::<T>::get(id)
             .ok_or_else(|| Error::ConsensusStateNotFound { consensus_state_id: id })
@@ -113,6 +127,18 @@ impl<T: Config> IsmpHost for Host<T> {
         timestamp: Duration,
     ) -> Result<(), Error> {
         ConsensusClientUpdateTime::<T>::insert(id, timestamp.as_secs().saturated_into::<u64>());
+        Ok(())
+    }
+
+    fn store_state_machine_update_time(
+        &self,
+        state_machine_height: StateMachineHeight,
+        timestamp: Duration,
+    ) -> Result<(), Error> {
+        StateMachineUpdateTime::<T>::insert(
+            state_machine_height,
+            timestamp.as_secs().saturated_into::<u64>(),
+        );
         Ok(())
     }
 

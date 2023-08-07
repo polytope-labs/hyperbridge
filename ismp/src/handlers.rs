@@ -84,7 +84,7 @@ fn verify_delay_passed<H>(host: &H, proof_height: &StateMachineHeight) -> Result
 where
     H: IsmpHost,
 {
-    let update_time = host.consensus_update_time(proof_height.id.consensus_state_id)?;
+    let update_time = host.state_machine_update_time(*proof_height)?;
     let delay_period = host.challenge_period(proof_height.id.consensus_state_id).ok_or(
         Error::ChallengePeriodNotConfigured {
             consensus_state_id: proof_height.id.consensus_state_id,
@@ -123,7 +123,7 @@ where
         return Err(Error::ChallengePeriodNotElapsed {
             consensus_state_id: proof_height.id.consensus_state_id,
             current_time: host.timestamp(),
-            update_time: host.consensus_update_time(proof_height.id.consensus_state_id)?,
+            update_time: host.state_machine_update_time(proof_height)?,
         })
     }
 

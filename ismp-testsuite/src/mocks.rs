@@ -132,6 +132,17 @@ impl IsmpHost for Host {
             .ok_or_else(|| Error::ImplementationSpecific("Consensus update time not found".into()))
     }
 
+    fn state_machine_update_time(
+        &self,
+        state_machine_height: StateMachineHeight,
+    ) -> Result<Duration, Error> {
+        self.consensus_update_time
+            .borrow()
+            .get(&state_machine_height.id.consensus_state_id)
+            .copied()
+            .ok_or_else(|| Error::ImplementationSpecific("Consensus update time not found".into()))
+    }
+
     fn consensus_client_id(
         &self,
         consensus_state_id: ConsensusStateId,
@@ -221,6 +232,14 @@ impl IsmpHost for Host {
         timestamp: Duration,
     ) -> Result<(), Error> {
         self.consensus_update_time.borrow_mut().insert(id, timestamp);
+        Ok(())
+    }
+
+    fn store_state_machine_update_time(
+        &self,
+        _state_machine_height: StateMachineHeight,
+        _timestamp: Duration,
+    ) -> Result<(), Error> {
         Ok(())
     }
 

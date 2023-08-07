@@ -85,6 +85,7 @@ where
             }
 
             host.store_state_machine_commitment(state_height, commitment_height.commitment)?;
+            host.store_state_machine_update_time(state_height, host.timestamp())?;
         }
 
         if let Some(latest_height) = commitment_heights.last() {
@@ -125,10 +126,11 @@ where
     host.store_challenge_period(message.consensus_state_id, message.challenge_period)?;
     host.store_consensus_state_id(message.consensus_state_id, message.consensus_client_id)?;
 
-    // Store all intermedite state machine commitments
+    // Store all intermediate state machine commitments
     for (id, state_commitment) in message.state_machine_commitments {
         let height = StateMachineHeight { id, height: state_commitment.height };
         host.store_state_machine_commitment(height, state_commitment.commitment)?;
+        host.store_state_machine_update_time(height, host.timestamp())?;
         host.store_latest_commitment_height(height)?;
     }
 

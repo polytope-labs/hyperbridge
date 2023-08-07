@@ -55,6 +55,12 @@ pub trait IsmpHost: Keccak256 {
         consensus_state_id: ConsensusStateId,
     ) -> Result<Duration, Error>;
 
+    /// Should return the host timestamp when this state machine height was committed
+    fn state_machine_update_time(
+        &self,
+        state_machine_height: StateMachineHeight,
+    ) -> Result<Duration, Error>;
+
     /// Should return the registered consensus client id for this consensus state id
     fn consensus_client_id(
         &self,
@@ -113,6 +119,13 @@ pub trait IsmpHost: Keccak256 {
     fn store_consensus_update_time(
         &self,
         consensus_state_id: ConsensusStateId,
+        timestamp: Duration,
+    ) -> Result<(), Error>;
+
+    /// Store the timestamp when the state machine height was committed
+    fn store_state_machine_update_time(
+        &self,
+        state_machine_height: StateMachineHeight,
         timestamp: Duration,
     ) -> Result<(), Error>;
 

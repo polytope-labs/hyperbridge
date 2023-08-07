@@ -77,7 +77,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period / 2);
     host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time).unwrap();
-
+    host.store_state_machine_update_time(intermediate_state.height, previous_update_time).unwrap();
     let res = handle_incoming_message::<H>(host, consensus_message);
     assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
 
@@ -147,7 +147,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
     host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time).unwrap();
-
+    host.store_state_machine_update_time(intermediate_state.height, previous_update_time).unwrap();
     let frozen_height = StateMachineHeight {
         id: intermediate_state.height.id,
         height: intermediate_state.height.height - 1,
@@ -205,6 +205,7 @@ pub fn timeout_post_processing_check<H: IsmpHost>(
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
     host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time).unwrap();
+    host.store_state_machine_update_time(intermediate_state.height, previous_update_time).unwrap();
     let dispatch_post = DispatchPost {
         dest: StateMachine::Kusama(2000),
         from: vec![0u8; 32],

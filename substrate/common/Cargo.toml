@@ -13,6 +13,7 @@ hex-literal = { version ="0.4.1", optional = true }
 subxt = { version = "0.29.0", features = ["substrate-compat"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 sp-core = { version = "21.0.0", features = ["full_crypto"] }
+log = "0.4.19"
 
 primitives = { package = "tesseract-primitives", path = "../../primitives" }
 

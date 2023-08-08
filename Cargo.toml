@@ -6,6 +6,7 @@ members = [
     "messaging",
     "substrate/common",
     "substrate/parachain",
+    "substrate/grandpa",
     "relayer",
     "integration-tests",
 ]

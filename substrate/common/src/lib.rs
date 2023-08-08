@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ismp::{consensus::ConsensusClientId, host::StateMachine};
+use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use ismp_primitives::HashAlgorithm;
 use parking_lot::Mutex;
 use primitives::IsmpHost;
@@ -22,6 +22,7 @@ use sp_core::{bytes::from_hex, sr25519, Pair};
 use std::sync::Arc;
 use subxt::{config::Header, OnlineClient};
 
+mod calls;
 pub mod config;
 mod extrinsic;
 mod host;
@@ -33,10 +34,10 @@ mod testing;
 pub struct SubstrateConfig {
     /// State machine Identifier for this client.
     pub state_machine: StateMachine,
-    /// The hashing algorithm that parachain uses.
+    /// The hashing algorithm that substrate chain uses.
     pub hashing: HashAlgorithm,
-    /// Consensus client id
-    pub consensus_client: String,
+    /// Consensus state id
+    pub consensus_state_id: String,
     /// RPC url for the parachain
     pub ws_url: String,
     /// Relayer account seed
@@ -51,11 +52,11 @@ pub struct SubstrateClient<I, C: subxt::Config> {
     host: I,
     /// Subxt client for the substrate chain
     client: OnlineClient<C>,
-    /// Consensus client Id
-    consensus_client: ConsensusClientId,
+    /// Consensus state Id
+    consensus_state_id: ConsensusStateId,
     /// State machine Identifier for this client.
     state_machine: StateMachine,
-    /// The hashing algorithm that parachain uses.
+    /// The hashing algorithm that substrate chain uses.
     hashing: HashAlgorithm,
     /// Private key of the signing account
     signer: sr25519::Pair,
@@ -86,13 +87,13 @@ where
             };
         let bytes = from_hex(&config.signer)?;
         let signer = sr25519::Pair::from_seed_slice(&bytes)?;
-        let mut consensus_client: ConsensusClientId = Default::default();
-        consensus_client.copy_from_slice(config.consensus_client.as_bytes());
+        let mut consensus_state_id: ConsensusStateId = Default::default();
+        consensus_state_id.copy_from_slice(config.consensus_state_id.as_bytes());
 
         Ok(Self {
             host,
             client,
-            consensus_client,
+            consensus_state_id,
             state_machine: config.state_machine,
             hashing: config.hashing,
             signer,

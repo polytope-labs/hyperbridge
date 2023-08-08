@@ -22,9 +22,9 @@ use subxt::{
     utils::{AccountId32, MultiAddress, MultiSignature, H256},
 };
 
-/// Implements [`subxt::Config`] for parachains with keccak as their hashing algorithm
+/// Implements [`subxt::Config`] for substrate chains with keccak as their hashing algorithm
 #[derive(Clone)]
-pub struct KeccakParachain;
+pub struct KeccakSubstrateChain;
 
 /// A type that can hash values using the keccak_256 algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode)]
@@ -37,7 +37,7 @@ impl Hasher for KeccakHasher {
     }
 }
 
-impl subxt::Config for KeccakParachain {
+impl subxt::Config for KeccakSubstrateChain {
     type Index = u32;
     type Hash = H256;
     type AccountId = AccountId32;
@@ -48,9 +48,9 @@ impl subxt::Config for KeccakParachain {
     type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
 }
 
-/// Implements [`subxt::Config`] for parachains with blake2 as their hashing algorithm
+/// Implements [`subxt::Config`] for substrate chains with blake2 as their hashing algorithm
 #[derive(Clone)]
-pub struct Blake2Parachain;
+pub struct Blake2SubstrateChain;
 
 /// A type that can hash values using the keccak_256 algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode)]
@@ -63,7 +63,7 @@ impl Hasher for Blake2Hasher {
     }
 }
 
-impl subxt::Config for Blake2Parachain {
+impl subxt::Config for Blake2SubstrateChain {
     type Index = u32;
     type Hash = H256;
     type AccountId = AccountId32;

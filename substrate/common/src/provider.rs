@@ -22,7 +22,7 @@ use crate::{
 use codec::{Decode, Encode};
 use futures::stream::StreamExt;
 use ismp::{
-    consensus::{ConsensusClientId, StateMachineId},
+    consensus::{ConsensusClientId, ConsensusStateId, StateMachineId},
     router::{Get, Request, Response},
 };
 use ismp_primitives::{LeafIndexQuery, MembershipProof, SubstrateStateProof};
@@ -139,7 +139,6 @@ where
         event: StateMachineUpdated,
     ) -> Result<Vec<pallet_ismp::events::Event>, anyhow::Error> {
         let latest_state_machine_height = Arc::clone(&self.latest_state_machine_height);
-
         let block_numbers: Vec<BlockNumberOrHash<sp_core::H256>> =
             ((*latest_state_machine_height.lock() + 1)..=event.latest_height)
                 .into_iter()
@@ -150,7 +149,6 @@ where
         let params = rpc_params![block_numbers];
         let response: HashMap<String, Vec<pallet_ismp::events::Event>> =
             self.client.rpc().request("ismp_queryEvents", params).await?;
-
         Ok(response.values().into_iter().cloned().flatten().collect())
     }
 
@@ -181,7 +179,7 @@ where
     }
 
     fn state_machine_id(&self) -> StateMachineId {
-        StateMachineId { state_id: self.state_machine, consensus_state_id: self.consensus_client }
+        StateMachineId { state_id: self.state_machine, consensus_state_id: self.consensus_state_id }
     }
 
     fn block_max_gas(&self) -> u64 {
@@ -213,19 +211,17 @@ where
             async move {
                 let events = client.events().at(header.ok()?.hash()).await.ok()?;
 
-                let event = events
+                let mut events = events
                     .iter()
                     .filter_map(|ev| {
                         let ev = ev.ok()?;
-                        decode_state_machine_update_event(ev).transpose()
+                        decode_state_machine_update_event(ev, counterparty_state_id).ok().flatten()
                     })
-                    .find(|ev| match ev {
-                        Ok(StateMachineUpdated { state_machine_id, .. }) => {
-                            state_machine_id == &counterparty_state_id
-                        }
-                        _ => false,
-                    });
-                event
+                    .collect::<Vec<_>>();
+                // find event with the highest latest height
+                events.sort_unstable_by(|a, b| a.latest_height.cmp(&b.latest_height));
+                let ev = events.last().cloned();
+                ev.map(|ev| Ok(ev))
             }
         });
 
@@ -246,16 +242,38 @@ where
 
         Ok(())
     }
+
+    async fn query_challenge_period(
+        &self,
+        id: ConsensusStateId,
+    ) -> Result<Duration, anyhow::Error> {
+        let params = rpc_params![id];
+        let response: u64 = self.client.rpc().request("ismp_queryChallengePeriod", params).await?;
+
+        Ok(Duration::from_secs(response))
+    }
+
+    async fn query_timestamp(&self) -> Result<Duration, anyhow::Error> {
+        let params = rpc_params![];
+        let response: u64 = self.client.rpc().request("ismp_queryTimestamp", params).await?;
+
+        Ok(Duration::from_secs(response))
+    }
 }
 
 fn decode_state_machine_update_event<T: subxt::Config>(
     ev: EventDetails<T>,
+    state_machine_id: StateMachineId,
 ) -> Result<Option<StateMachineUpdated>, anyhow::Error> {
     let ev_metadata = ev.event_metadata();
     if ev_metadata.pallet.name() == "Ismp" && ev_metadata.variant.name == "StateMachineUpdated" {
         let bytes = ev.field_bytes();
         let event: StateMachineUpdated = codec::Decode::decode(&mut &*bytes)?;
-        Ok(Some(event))
+        if event.state_machine_id == state_machine_id {
+            Ok(Some(event))
+        } else {
+            Ok(None)
+        }
     } else {
         Ok(None)
     }

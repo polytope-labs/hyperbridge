@@ -15,20 +15,23 @@
 
 //! Tesseract config utilities
 
+use grandpa::{GrandpaConfig, GrandpaHost};
 use ismp_primitives::HashAlgorithm;
 use parachain::{ParachainConfig, ParachainHost};
 use primitives::config::RelayerConfig;
 use serde::{Deserialize, Serialize};
 use substrate_common::{
-    config::{Blake2Parachain, KeccakParachain},
+    config::{Blake2SubstrateChain, KeccakSubstrateChain},
     SubstrateClient,
 };
 
 type Parachain<T> = SubstrateClient<ParachainHost<T>, T>;
+type Grandpa<T> = SubstrateClient<GrandpaHost<T>, T>;
 
 crate::chain! {
-    KeccakParachain(ParachainConfig, Parachain<KeccakParachain>),
-    Parachain(ParachainConfig, Parachain<Blake2Parachain>),
+    KeccakParachain(ParachainConfig, Parachain<KeccakSubstrateChain>),
+    Parachain(ParachainConfig, Parachain<Blake2SubstrateChain>),
+    Grandpa(GrandpaConfig, Grandpa<Blake2SubstrateChain>),
 }
 
 /// Defines the format of the tesseract config.toml file.
@@ -57,6 +60,10 @@ impl AnyConfig {
                         AnyClient::Parachain(Parachain::new(host, config.substrate).await?)
                     }
                 }
+            }
+            AnyConfig::Grandpa(config) => {
+                let host = GrandpaHost::new(&config).await?;
+                AnyClient::Grandpa(Grandpa::new(host, config.substrate).await?)
             }
         };
 

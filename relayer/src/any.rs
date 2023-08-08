@@ -95,6 +95,29 @@ macro_rules! chain {
 				}
             }
 
+			async fn query_challenge_period(
+                &self,
+                id: ismp::consensus::ConsensusClientId,
+            ) -> Result<core::time::Duration, anyhow::Error> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.query_challenge_period(id).await,
+					)*
+				}
+            }
+
+			async fn query_timestamp(
+                &self,
+            ) -> Result<core::time::Duration, anyhow::Error> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.query_timestamp().await,
+					)*
+				}
+            }
+
             async fn query_requests_proof(
                 &self,
                 at: u64,

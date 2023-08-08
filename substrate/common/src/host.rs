@@ -54,7 +54,7 @@ where
     where
         I: IsmpHost + IsmpProvider + Clone + 'static,
     {
-        self.consensus_notification(counterparty).await
+        self.host.consensus_notification(counterparty).await
     }
 }
 
@@ -63,8 +63,8 @@ impl<T: IsmpHost + Clone, C: subxt::Config> Clone for SubstrateClient<T, C> {
         Self {
             host: self.host.clone(),
             client: self.client.clone(),
-            consensus_client: self.consensus_client.clone(),
-            state_machine: self.state_machine.clone(),
+            consensus_state_id: self.consensus_state_id,
+            state_machine: self.state_machine,
             hashing: self.hashing.clone(),
             signer: self.signer.clone(),
             latest_state_machine_height: Arc::clone(&self.latest_state_machine_height),

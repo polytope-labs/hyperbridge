@@ -18,7 +18,7 @@ pub mod config;
 
 use futures::Stream;
 use ismp::{
-    consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
+    consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
     host::StateMachine,
     messaging::{ConsensusMessage, Message},
     router::{Get, Request, Response},
@@ -60,7 +60,7 @@ pub trait IsmpProvider {
     async fn query_consensus_state(
         &self,
         at: Option<u64>,
-        id: ConsensusClientId,
+        id: ConsensusStateId,
     ) -> Result<Vec<u8>, anyhow::Error>;
 
     /// Query the latest height at which some state machine was last updated
@@ -72,8 +72,15 @@ pub trait IsmpProvider {
     /// Query the timestamp at which the client was last updated
     async fn query_consensus_update_time(
         &self,
-        id: ConsensusClientId,
+        id: ConsensusStateId,
     ) -> Result<Duration, anyhow::Error>;
+
+    /// Query the challenge period for client
+    async fn query_challenge_period(&self, id: ConsensusStateId)
+        -> Result<Duration, anyhow::Error>;
+
+    /// Query the latest timestamp for chain
+    async fn query_timestamp(&self) -> Result<Duration, anyhow::Error>;
 
     /// Query a requests proof
     /// Return the scale encoded proof

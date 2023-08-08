@@ -37,7 +37,7 @@ where
                     Some(Ok(consensus_message)) => {
                         log::info!(
                             target: "tesseract",
-                            "🛰️ Submitting consensus update message from {} to {}",
+                            "🛰️ Transmitting consensus update message from {} to {}",
                             chain_a.name(), chain_b.name()
                         );
                         chain_b.submit(vec![Message::Consensus(consensus_message)]).await?;
@@ -45,7 +45,7 @@ where
                     Some(Err(e)) => {
                         log::error!(
                             target: "tesseract",
-                            "{} encountered an error in the consenses stream: {e}", chain_a.name()
+                            "{} encountered an error in the consensus stream: {e}", chain_a.name()
                         )
                     }
                 }
@@ -65,7 +65,7 @@ where
                     Some(Err(e)) => {
                         log::error!(
                             target: "tesseract",
-                            "{} encountered an error in the consenses stream: {e}", chain_b.name()
+                            "{} encountered an error in the consensus stream: {e}", chain_b.name()
                         )
                     }
                 }

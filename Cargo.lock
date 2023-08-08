@@ -190,9 +190,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-primitives"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ffce219323b389e69f7448bc41a1913cc96dc584ca4bdae98bc46440fffdd3e"
+checksum = "66f73f11dcfbf8bb763d88fb1d082fe7cca0a00d3227d9921bdbd52ce5e013e2"
 dependencies = [
  "alloy-rlp",
  "bytes",
@@ -220,9 +220,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-macro"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eec1ae936329818ebb681464819d01d4d4381039505775baa476bec440b3a95c"
+checksum = "a74ceeffdacf9dd0910404d743d07273776fd17b85f9cb17b49a97e5c6055ce9"
 dependencies = [
  "dunce",
  "heck",
@@ -235,9 +235,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-sol-types"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6871798f0c7ae860604b1bbbefb27593eb397094b3536a167c02ff25cd6b788b"
+checksum = "d5f347cb6bb307b3802ec455ef43ce00f5e590e0ceca3d2f3b070f5ee367e235"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-macro",
@@ -6521,16 +6521,23 @@ dependencies = [
 
 [[package]]
 name = "ruint"
-version = "1.9.0"
-source = "git+https://github.com/recmo/uint.git?rev=e34200e114ac8fe93cf8e815e92601860ae4d7b8#e34200e114ac8fe93cf8e815e92601860ae4d7b8"
+version = "1.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95294d6e3a6192f3aabf91c38f56505a625aa495533442744185a36d75a790c4"
 dependencies = [
+ "proptest",
+ "rand 0.8.5",
  "ruint-macro",
+ "serde",
+ "valuable",
+ "zeroize",
 ]
 
 [[package]]
 name = "ruint-macro"
 version = "1.1.0"
-source = "git+https://github.com/recmo/uint.git?rev=e34200e114ac8fe93cf8e815e92601860ae4d7b8#e34200e114ac8fe93cf8e815e92601860ae4d7b8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e666a5496a0b2186dbcd0ff6106e29e093c15591bde62c20d3842007c6978a09"
 
 [[package]]
 name = "rustc-demangle"
@@ -10582,9 +10589,9 @@ dependencies = [
 
 [[package]]
 name = "syn-solidity"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "008a3d3dd194a54c0577395903600f51c5bcbf23d95b0243805caa7003dacfcf"
+checksum = "e5f995d2140b0f751dbe94365be2591edbf3d1b75dcfaeac14183abbd2ff07bd"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -58,6 +58,7 @@ pub type BeaconStateType = BeaconState<
 	MAX_TRANSACTIONS_PER_PAYLOAD,
 >;
 
+#[derive(Clone)]
 pub struct SyncCommitteeProver {
 	pub node_url: String,
 	pub client: Client,

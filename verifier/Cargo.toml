@@ -8,14 +8,12 @@ authors = ["Polytope Labs"]
 sync-committee-primitives = { path= "../primitives", default-features = false }
 ethereum-consensus = { git = "https://github.com/polytope-labs/ethereum-consensus", branch = "main", default-features = false }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main" , default-features = false }
-milagro_bls = { git = "https://github.com/sigp/milagro_bls", default-features = false }
 log = { version = "0.4.17", default-features = false }
 
 [features]
 default = ["std"]
 std = [
     "ssz-rs/std",
-    "milagro_bls/std",
     "log/std"
 ]
 testing = ["sync-committee-primitives/testing"]

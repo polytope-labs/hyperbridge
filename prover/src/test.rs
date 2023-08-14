@@ -15,7 +15,7 @@ use sync_committee_primitives::{
 	types::{AncestorBlock, FinalityProof, DOMAIN_SYNC_COMMITTEE, GENESIS_VALIDATORS_ROOT},
 	util::compute_fork_version,
 };
-use sync_committee_verifier::verify_sync_committee_attestation;
+use sync_committee_verifier::{verify_sync_committee_attestation, SignatureVerifier};
 use tokio::time;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
@@ -437,8 +437,11 @@ async fn test_prover() {
 			ancestor_blocks: vec![],
 		};
 
-		client_state =
-			verify_sync_committee_attestation(client_state.clone(), light_client_update).unwrap();
+		client_state = verify_sync_committee_attestation::<SignatureVerifier>(
+			client_state.clone(),
+			light_client_update,
+		)
+		.unwrap();
 		println!(
 			"Sucessfully verified Ethereum block at slot {:?}",
 			client_state.finalized_header.slot

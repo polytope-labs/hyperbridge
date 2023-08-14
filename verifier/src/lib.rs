@@ -9,6 +9,7 @@ use crate::error::Error;
 use alloc::vec::Vec;
 use ethereum_consensus::{
 	bellatrix::{compute_domain, mainnet::SYNC_COMMITTEE_SIZE, Checkpoint},
+	crypto::{PublicKey, Signature},
 	primitives::Root,
 	signing::compute_signing_root,
 	state_transition::Context,
@@ -33,8 +34,13 @@ pub type LightClientState = sync_committee_primitives::types::LightClientState<S
 pub type LightClientUpdate =
 	sync_committee_primitives::types::LightClientUpdate<SYNC_COMMITTEE_SIZE>;
 
+/// Verify sync committee signatures
+pub trait BlsVerify {
+	fn verify(public_keys: &[&PublicKey], msg: &[u8], signature: &Signature) -> Result<(), Error>;
+}
+
 /// This function simply verifies a sync committee's attestation & it's finalized counterpart.
-pub fn verify_sync_committee_attestation(
+pub fn verify_sync_committee_attestation<V: BlsVerify>(
 	trusted_state: LightClientState,
 	update: LightClientUpdate,
 ) -> Result<LightClientState, Error> {
@@ -107,8 +113,7 @@ pub fn verify_sync_committee_attestation(
 
 	let signing_root = compute_signing_root(&mut update.attested_header.clone(), domain);
 
-	// todo: should be generic
-	ethereum_consensus::crypto::fast_aggregate_verify(
+	V::verify(
 		&*participant_pubkeys,
 		signing_root.map_err(|_| Error::InvalidRoot)?.as_bytes(),
 		&update.sync_aggregate.sync_committee_signature,
@@ -398,4 +403,14 @@ pub fn verify_sync_committee_attestation(
 	};
 
 	Ok(new_light_client_state)
+}
+
+pub struct SignatureVerifier;
+
+impl BlsVerify for SignatureVerifier {
+	fn verify(public_keys: &[&PublicKey], msg: &[u8], signature: &Signature) -> Result<(), Error> {
+		ethereum_consensus::crypto::fast_aggregate_verify(public_keys, msg, signature)?;
+
+		Ok(())
+	}
 }

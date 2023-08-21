@@ -30,6 +30,7 @@ use ismp_primitives::{
 };
 use ismp_rs::{
     consensus::{ConsensusClientId, StateMachineId},
+    events::{ChallengePeriodStarted, Event, StateMachineUpdated},
     router::{Get, Request, Response},
 };
 use ismp_runtime_api::IsmpRuntimeApi;
@@ -135,7 +136,7 @@ where
     fn query_events(
         &self,
         block_numbers: Vec<BlockNumberOrHash<Hash>>,
-    ) -> Result<HashMap<String, Vec<pallet_ismp::events::Event>>>;
+    ) -> Result<HashMap<String, Vec<Event>>>;
 
     /// Query pending get requests that have a `state_machine_height` <=  `height`.
     #[method(name = "ismp_pendingGetRequests")]
@@ -301,7 +302,7 @@ where
     fn query_events(
         &self,
         block_numbers: Vec<BlockNumberOrHash<Block::Hash>>,
-    ) -> Result<HashMap<String, Vec<pallet_ismp::events::Event>>> {
+    ) -> Result<HashMap<String, Vec<Event>>> {
         let api = self.client.runtime_api();
         let mut events = HashMap::new();
         for block_number_or_hash in block_numbers {
@@ -314,10 +315,76 @@ where
                 }
             };
 
-            let temp = api
+            let mut request_indices = vec![];
+            let mut response_indices = vec![];
+            let mut temp: Vec<Event> = api
                 .block_events(at)
                 .ok()
-                .ok_or_else(|| runtime_error_into_rpc_error("failed to read block events"))?;
+                .ok_or_else(|| runtime_error_into_rpc_error("failed to read block events"))?
+                .into_iter()
+                .filter_map(|event| match event {
+                    pallet_ismp::events::Event::Request {
+                        source_chain,
+                        dest_chain,
+                        request_nonce,
+                    } => {
+                        let query =
+                            LeafIndexQuery { source_chain, dest_chain, nonce: request_nonce };
+                        let indices: Vec<LeafIndex> =
+                            api.get_request_leaf_indices(at, vec![query]).ok()?;
+                        request_indices.extend_from_slice(&indices);
+                        None
+                    }
+                    pallet_ismp::events::Event::Response {
+                        source_chain,
+                        dest_chain,
+                        request_nonce,
+                    } => {
+                        let query =
+                            LeafIndexQuery { source_chain, dest_chain, nonce: request_nonce };
+                        let indices: Vec<LeafIndex> =
+                            api.get_response_leaf_indices(at, vec![query]).ok()?;
+                        response_indices.extend_from_slice(&indices);
+                        None
+                    }
+                    pallet_ismp::events::Event::ChallengePeriodStarted {
+                        consensus_state_id,
+                        state_machines,
+                    } => Some(Event::ChallengePeriodStarted(ChallengePeriodStarted {
+                        consensus_state_id,
+                        state_machines,
+                    })),
+                    pallet_ismp::events::Event::StateMachineUpdated {
+                        state_machine_id,
+                        latest_height,
+                    } => Some(Event::StateMachineUpdated(StateMachineUpdated {
+                        state_machine_id,
+                        latest_height,
+                    })),
+                })
+                .collect();
+
+            let request_events = api
+                .get_requests(at, request_indices)
+                .map_err(|_| runtime_error_into_rpc_error("Error fetching requests"))?
+                .into_iter()
+                .map(|req| match req {
+                    Request::Post(post) => Event::PostRequest(post),
+                    Request::Get(get) => Event::GetRequest(get),
+                });
+
+            let response_events = api
+                .get_responses(at, response_indices)
+                .map_err(|_| runtime_error_into_rpc_error("Error fetching response"))?
+                .into_iter()
+                .filter_map(|res| match res {
+                    Response::Post(post) => Some(Event::PostResponse(post)),
+                    _ => None,
+                });
+
+            temp.extend(request_events);
+            temp.extend(response_events);
+
             events.insert(block_number_or_hash.to_string(), temp);
         }
         Ok(events)

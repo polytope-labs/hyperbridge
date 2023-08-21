@@ -17,7 +17,7 @@
 use crate::{Config, Event as PalletEvent};
 use alloc::collections::BTreeSet;
 use ismp_rs::{
-    consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
+    consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
     host::StateMachine,
 };
 
@@ -34,8 +34,8 @@ pub enum Event {
     },
     /// Emitted when a challenge period has begun for a consensus client
     ChallengePeriodStarted {
-        /// Consensus client id
-        consensus_client_id: ConsensusClientId,
+        /// Consensus state id
+        consensus_state_id: ConsensusStateId,
         /// Tuple of previous height and latest height
         state_machines: BTreeSet<(StateMachineHeight, StateMachineHeight)>,
     },
@@ -72,7 +72,10 @@ pub fn to_core_protocol_event<T: Config>(event: PalletEvent<T>) -> Option<Event>
             Some(Event::Request { dest_chain, source_chain, request_nonce })
         }
         PalletEvent::ChallengePeriodStarted { consensus_client_id, state_machines } => {
-            Some(Event::ChallengePeriodStarted { consensus_client_id, state_machines })
+            Some(Event::ChallengePeriodStarted {
+                consensus_state_id: consensus_client_id,
+                state_machines,
+            })
         }
         _ => None,
     }

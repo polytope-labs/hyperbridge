@@ -28,6 +28,7 @@ extern crate core;
 
 pub mod consensus;
 pub mod error;
+pub mod events;
 pub mod handlers;
 pub mod host;
 pub mod messaging;

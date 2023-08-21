@@ -64,6 +64,8 @@ pub struct Get {
     /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/double_map.rs#L34-L44
     /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/nmap.rs#L39-L48
     /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37
+    /// For fetching keys from EVM contracts each key should be 52 bytes
+    /// This should be a concatenation of contract address and slot hash
     pub keys: Vec<Vec<u8>>,
     /// Height at which to read the state machine.
     pub height: u64,
@@ -316,6 +318,7 @@ pub enum DispatchRequest {
 }
 
 /// The Ismp dispatcher allows [`IsmpModules`] to send out outgoing [`Request`] or [`Response`]
+/// [`Event`] should be emitted after successful dispatch
 pub trait IsmpDispatcher {
     /// Dispatches an outgoing request, the dispatcher should commit them to host state trie
     fn dispatch_request(&self, request: DispatchRequest) -> Result<(), Error>;

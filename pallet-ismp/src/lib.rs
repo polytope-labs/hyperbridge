@@ -107,14 +107,6 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// Prefix for elements stored in the Off-chain DB via Indexing API.
-        ///
-        /// Each node of the MMR is inserted both on-chain and off-chain via Indexing API.
-        /// The former does not store full leaf content, just its compact version (hash),
-        /// and some of the inner mmr nodes might be pruned from on-chain storage.
-        /// The latter will contain all the entries in their full form.
-        ///
-        /// Each node is stored in the Off-chain DB under key derived from the
-        /// [`Self::INDEXING_PREFIX`] and its in-tree index (MMR position).
         const INDEXING_PREFIX: &'static [u8];
 
         /// Admin origin for privileged actions

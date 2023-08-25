@@ -9,7 +9,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 hex = "0.4.3"
 anyhow = "1.0.64"
 serde = "1.0.144"
-subxt = "0.29.0"
+subxt = "0.30.1"
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 derive_more = "0.99.17"
 downcast-rs = "1.2.0"

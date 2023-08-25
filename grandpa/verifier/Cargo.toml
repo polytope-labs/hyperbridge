@@ -28,7 +28,7 @@ substrate-state-machine = { path = "../../pallet-ismp/primitives/state-machine",
 
 [dev-dependencies]
 polkadot-core-primitives = { git = "https://github.com/paritytech/polkadot", branch = "release-v0.9.42" }
-subxt = { version = "0.29.0", features = ["substrate-compat"] }
+subxt = { version = "0.30.1", features = ["substrate-compat"] }
 futures = "0.3.24"
 hex = "0.4.3"
 env_logger = "0.9.0"

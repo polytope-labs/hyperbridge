@@ -38,7 +38,6 @@ impl Hasher for KeccakHasher {
 }
 
 impl subxt::Config for KeccakSubstrateChain {
-    type Index = u32;
     type Hash = H256;
     type AccountId = AccountId32;
     type Address = MultiAddress<Self::AccountId, u32>;
@@ -64,7 +63,6 @@ impl Hasher for Blake2Hasher {
 }
 
 impl subxt::Config for Blake2SubstrateChain {
-    type Index = u32;
     type Hash = H256;
     type AccountId = AccountId32;
     type Address = MultiAddress<Self::AccountId, u32>;

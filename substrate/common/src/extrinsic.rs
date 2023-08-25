@@ -83,8 +83,8 @@ where
     T::AccountId: Into<T::Address> + Clone + 'static,
     T::Signature: From<MultiSignature> + Send + Sync,
 {
-    fn account_id(&self) -> &T::AccountId {
-        &self.account_id
+    fn account_id(&self) -> T::AccountId {
+        self.account_id.clone()
     }
 
     fn address(&self) -> T::Address {
@@ -103,7 +103,7 @@ pub async fn send_extrinsic<T: subxt::Config, Tx: TxPayload>(
     payload: Tx,
 ) -> Result<TxProgress<T, OnlineClient<T>>, anyhow::Error>
 where
-    <T::ExtrinsicParams as ExtrinsicParams<T::Index, T::Hash>>::OtherParams:
+    <T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
         Default + Send + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
     T::Signature: From<MultiSignature> + Send + Sync,
 {

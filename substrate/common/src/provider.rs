@@ -45,7 +45,7 @@ impl<T, C> IsmpProvider for SubstrateClient<T, C>
 where
     C: subxt::Config + Send + Sync,
     C::Header: Send + Sync,
-    <C::ExtrinsicParams as ExtrinsicParams<C::Index, C::Hash>>::OtherParams:
+    <C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
         Default + Send + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
     C::AccountId:
         From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,

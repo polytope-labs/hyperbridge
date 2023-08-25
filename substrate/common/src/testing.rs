@@ -38,7 +38,7 @@ where
     T: Send + Sync + Clone,
     C: subxt::Config + Send + Sync + Clone,
     C::Header: Send + Sync,
-    <C::ExtrinsicParams as ExtrinsicParams<C::Index, C::Hash>>::OtherParams:
+    <C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
         Default + Send + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
     C::AccountId: From<sp_core::crypto::AccountId32>
         + Into<C::Address>

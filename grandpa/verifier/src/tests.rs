@@ -18,7 +18,6 @@ use subxt::{
 pub struct DefaultConfig;
 
 impl subxt::config::Config for DefaultConfig {
-    type Index = u32;
     type Hash = H256;
     type AccountId = AccountId32;
     type Address = sp_runtime::MultiAddress<Self::AccountId, u32>;

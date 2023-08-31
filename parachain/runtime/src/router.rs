@@ -11,23 +11,17 @@ use ismp::{
 use pallet_ismp::primitives::ModuleId;
 use sp_std::prelude::*;
 
-fn to_module_id(bytes: &[u8]) -> Result<ModuleId, Error> {
-    codec::Decode::decode(&mut &bytes[..])
-        .map_err(|_| Error::ImplementationSpecific("Failed to decode module id".to_string()))
-}
-
 #[derive(Default)]
 pub struct ProxyModule;
 
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
-        if request.dest_chain != StateMachineProvider::get() {
-            return pallet_ismp::Pallet::<Runtime>::handle_request(Request::Post(request))
+        if request.dest != StateMachineProvider::get() {
+            return pallet_ismp::Pallet::<Runtime>::dispatch_request(Request::Post(request))
         }
 
-        let to = &request.to;
-
-        let pallet_id = to_module_id(to)?;
+        let pallet_id = ModuleId::from_bytes(&request.to)
+            .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
         match pallet_id {
             ismp_demo::PALLET_ID =>
                 ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
@@ -37,7 +31,7 @@ impl IsmpModule for ProxyModule {
 
     fn on_response(&self, response: Response) -> Result<(), Error> {
         if response.dest_chain() != StateMachineProvider::get() {
-            return pallet_ismp::Pallet::<Runtime>::handle_response(response)
+            return pallet_ismp::Pallet::<Runtime>::dispatch_response(response)
         }
 
         let request = &response.request();
@@ -46,7 +40,8 @@ impl IsmpModule for ProxyModule {
             Request::Get(get) => &get.from,
         };
 
-        let pallet_id = to_module_id(from)?;
+        let pallet_id = ModuleId::from_bytes(from)
+            .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
         match pallet_id {
             ismp_demo::PALLET_ID =>
                 ismp_demo::IsmpModuleCallback::<Runtime>::default().on_response(response),
@@ -60,7 +55,8 @@ impl IsmpModule for ProxyModule {
             Request::Get(get) => &get.from,
         };
 
-        let pallet_id = to_module_id(from)?;
+        let pallet_id = ModuleId::from_bytes(from)
+            .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
         match pallet_id {
             ismp_demo::PALLET_ID =>
                 ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(request),

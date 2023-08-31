@@ -13,7 +13,6 @@ mod weights;
 pub mod xcm_config;
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use core::time::Duration;
 use cumulus_pallet_parachain_system::RelayNumberStrictlyIncreases;
 use scale_info::TypeInfo;
 use smallvec::smallvec;
@@ -57,6 +56,7 @@ use ismp_primitives::{
     mmr::{Leaf, LeafIndex},
     LeafIndexQuery,
 };
+use pallet_ismp::host::Host;
 use pallet_ismp::primitives::{ConsensusClientProvider, Proof};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
@@ -74,6 +74,7 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 use crate::router::Router;
 use xcm::latest::prelude::BodyId;
 use xcm_executor::XcmExecutor;
+
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -496,17 +497,15 @@ impl ConsensusClientProvider for ConsensusProvider {
         let client = match id {
             ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID =>
                 Box::new(ParachainConsensusClient::<Runtime, IsmpParachain>::default()),
+            // ismp_sync_committee::BEACON_CONSENSUS_ID => {
+            //     Box::new(
+            //         ismp_sync_committee::BeaconConsensusClient::<Host<Runtime>, ismp_sync_committee::SignatureVerifier>::default()
+            //     )
+            // },
             _ => Err(Error::ImplementationSpecific("Unknown consensus client".into()))?,
         };
 
         Ok(client)
-    }
-
-    fn challenge_period(id: ConsensusClientId) -> Duration {
-        match id {
-            ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID => Duration::from_secs(0),
-            _ => Duration::MAX,
-        }
     }
 }
 
@@ -738,6 +737,12 @@ impl_runtime_apis! {
         /// Return the on-chain MMR root hash.
         fn mmr_root() -> Result<<Block as BlockT>::Hash, pallet_ismp::primitives::Error> {
             Ok(Ismp::mmr_root())
+        }
+
+        fn timestamp() -> Option<u64> { Some(Timestamp::now()) }
+
+        fn challenge_period(consensus_state_id: [u8; 4]) -> Option<u64> {
+            Ismp::get_challenge_period(consensus_state_id)
         }
 
         /// Generate a proof for the provided leaf indices

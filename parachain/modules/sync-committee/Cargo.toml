@@ -2,6 +2,7 @@
 name = "ismp-sync-committee"
 version = "0.1.0"
 edition = "2021"
+description = "Ismp consensus client for the Beacon chain's sync-committee"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]

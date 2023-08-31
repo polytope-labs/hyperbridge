@@ -1,11 +1,11 @@
 use crate::{arbitrum::ArbitrumPayloadProof, optimism::OptimismPayloadProof, prelude::*};
 use alloc::collections::BTreeMap;
+use alloy_rlp_derive::RlpDecodable;
 use codec::{Decode, Encode};
-use ethabi::ethereum_types::{H160, H256, U256};
+use ethabi::ethereum_types::{H160, H256};
 use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
 use ismp::host::{IsmpHost, StateMachine};
-use rlp_derive::RlpDecodable;
 use sync_committee_primitives::derived_types::{LightClientState, LightClientUpdate};
 
 pub struct KeccakHasher<H: IsmpHost>(core::marker::PhantomData<H>);
@@ -48,7 +48,7 @@ pub struct EvmStateProof {
 #[derive(RlpDecodable)]
 pub struct Account {
     _nonce: u64,
-    _balance: U256,
-    pub storage_root: H256,
-    _code_hash: H256,
+    _balance: alloy_primitives::U256,
+    pub storage_root: alloy_primitives::B256,
+    _code_hash: alloy_primitives::B256,
 }

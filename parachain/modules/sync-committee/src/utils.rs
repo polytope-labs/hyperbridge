@@ -4,11 +4,9 @@ use crate::{
     types::{Account, EvmStateProof, KeccakHasher},
 };
 use alloc::{collections::BTreeMap, format, string::ToString};
+use alloy_rlp::Decodable;
 use codec::Decode;
-use ethabi::{
-    ethereum_types::{H160, H256, U256},
-    Token,
-};
+use ethabi::ethereum_types::{H160, H256, U256};
 use ismp::{
     consensus::{
         ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
@@ -20,7 +18,6 @@ use ismp::{
     util::{hash_request, hash_response},
 };
 use patricia_merkle_trie::{EIP1186Layout, StorageProof};
-use rlp::Rlp;
 use trie_db::{DBValue, Trie, TrieDBBuilder};
 
 pub fn construct_intermediate_state(
@@ -61,18 +58,14 @@ pub fn req_res_to_key<H: IsmpHost>(item: RequestResponse) -> Vec<Vec<u8>> {
         RequestResponse::Request(requests) =>
             for req in requests {
                 let commitment = hash_request::<H>(&req);
-                let unhashed =
-                    derive_unhashed_map_key(commitment.0.to_vec(), REQUEST_COMMITMENTS_SLOT);
-                let key = H::keccak256(&unhashed).0.to_vec();
-                keys.push(key)
+                let key = derive_map_key::<H>(commitment.0.to_vec(), REQUEST_COMMITMENTS_SLOT);
+                keys.push(key.0.to_vec())
             },
         RequestResponse::Response(responses) =>
             for res in responses {
                 let commitment = hash_response::<H>(&res);
-                let unhashed =
-                    derive_unhashed_map_key(commitment.0.to_vec(), RESPONSE_COMMITMENTS_SLOT);
-                let key = H::keccak256(&unhashed).0.to_vec();
-                keys.push(key)
+                let key = derive_map_key::<H>(commitment.0.to_vec(), RESPONSE_COMMITMENTS_SLOT);
+                keys.push(key.0.to_vec())
             },
     }
 
@@ -99,7 +92,6 @@ pub fn get_contract_storage_root<H: IsmpHost + Send + Sync>(
     contract_address: H160,
     root: H256,
 ) -> Result<H256, Error> {
-    use rlp::Decodable;
     let db = StorageProof::new(contract_account_proof).into_memory_db::<KeccakHasher<H>>();
     let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&db, &root).build();
     let key = H::keccak256(contract_address.as_bytes()).0;
@@ -110,18 +102,21 @@ pub fn get_contract_storage_root<H: IsmpHost + Send + Sync>(
             Error::ImplementationSpecific("Contract account is not present in proof".to_string())
         })?;
 
-    let contract_account = <Account as Decodable>::decode(&Rlp::new(&result)).map_err(|_| {
+    let contract_account = <Account as Decodable>::decode(&mut &*result).map_err(|_| {
         Error::ImplementationSpecific(format!(
             "Error decoding contract account from key {:?}",
             &result
         ))
     })?;
 
-    Ok(contract_account.storage_root)
+    Ok(contract_account.storage_root.0.into())
 }
 
-pub(super) fn derive_unhashed_map_key(key: Vec<u8>, slot: u8) -> Vec<u8> {
-    ethabi::encode(&[Token::FixedBytes(key), Token::Int(U256::from(slot))])
+pub(super) fn derive_map_key<H: IsmpHost>(mut key: Vec<u8>, slot: u8) -> H256 {
+    let mut bytes = [0u8; 32];
+    U256::from(slot as u64).to_big_endian(&mut bytes);
+    key.extend_from_slice(&bytes);
+    H::keccak256(H::keccak256(&key).0.as_slice())
 }
 
 pub(super) fn derive_array_item_key<H: IsmpHost>(slot: u8, index: u64, offset: u64) -> Vec<u8> {

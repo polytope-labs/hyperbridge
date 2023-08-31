@@ -28,8 +28,6 @@ use crate::{
 };
 use sync_committee_verifier::BlsVerify;
 
-pub use sync_committee_verifier::SignatureVerifier;
-
 pub const BEACON_CONSENSUS_ID: ConsensusClientId = *b"BEAC";
 
 #[derive(Default, Clone)]

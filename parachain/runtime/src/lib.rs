@@ -56,8 +56,10 @@ use ismp_primitives::{
     mmr::{Leaf, LeafIndex},
     LeafIndexQuery,
 };
-use pallet_ismp::host::Host;
-use pallet_ismp::primitives::{ConsensusClientProvider, Proof};
+use pallet_ismp::{
+    host::Host,
+    primitives::{ConsensusClientProvider, Proof},
+};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 use xcm_config::{XcmConfig, XcmOriginToTransactDispatchOrigin};
@@ -74,7 +76,6 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 use crate::router::Router;
 use xcm::latest::prelude::BodyId;
 use xcm_executor::XcmExecutor;
-
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -499,8 +500,8 @@ impl ConsensusClientProvider for ConsensusProvider {
                 Box::new(ParachainConsensusClient::<Runtime, IsmpParachain>::default()),
             // ismp_sync_committee::BEACON_CONSENSUS_ID => {
             //     Box::new(
-            //         ismp_sync_committee::BeaconConsensusClient::<Host<Runtime>, ismp_sync_committee::SignatureVerifier>::default()
-            //     )
+            //         ismp_sync_committee::BeaconConsensusClient::<Host<Runtime>,
+            // ismp_sync_committee::SignatureVerifier>::default()     )
             // },
             _ => Err(Error::ImplementationSpecific("Unknown consensus client".into()))?,
         };

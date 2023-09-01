@@ -23,8 +23,6 @@ pub mod prelude {
     pub use alloc::{boxed::Box, vec, vec::Vec};
 }
 
-pub use beacon_client::*;
-
 pub mod arbitrum;
 pub mod beacon_client;
 pub mod optimism;

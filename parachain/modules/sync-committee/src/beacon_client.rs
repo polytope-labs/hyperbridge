@@ -33,10 +33,10 @@ pub use sync_committee_verifier::SignatureVerifier;
 pub const BEACON_CONSENSUS_ID: ConsensusClientId = *b"BEAC";
 
 #[derive(Default, Clone)]
-pub struct BeaconConsensusClient<H: IsmpHost, V: BlsVerify>(core::marker::PhantomData<H>, V);
+pub struct SyncCommitteeConsensusClient<H: IsmpHost, V: BlsVerify>(core::marker::PhantomData<H>, V);
 
 impl<H: IsmpHost + Send + Sync + Default + 'static, V: BlsVerify> ConsensusClient
-    for BeaconConsensusClient<H, V>
+    for SyncCommitteeConsensusClient<H, V>
 {
     fn verify_consensus(
         &self,

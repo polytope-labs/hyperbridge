@@ -4883,7 +4883,7 @@ dependencies = [
  "hash-db 0.15.2",
  "hash256-std-hasher",
  "hex",
- "hex-literal 0.3.4",
+ "hex-literal 0.4.1",
  "ismp",
  "parity-scale-codec",
  "rlp",

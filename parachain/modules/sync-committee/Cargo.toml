@@ -11,7 +11,7 @@ trie-db = { version= "0.24.0", default-features = false }
 hash-db = { version = "0.15.2", default-features = false }
 rlp = { version = "0.5.1", default-features = false }
 hex = { version = "0.4.3", default-features = false }
-hex-literal = "0.3.4"
+hex-literal = "0.4.1"
 rlp-derive = "0.1.0"
 ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
 hash256-std-hasher = { version = "0.15.2", default-features = false }

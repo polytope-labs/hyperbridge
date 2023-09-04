@@ -4,5 +4,8 @@ members = [
     # Parachain
      "parachain/runtime",
      "parachain/node",
-     "parachain/modules/sync-committee",
+     # modules
+     "parachain/modules/consensus/sync-committee",
+     "parachain/modules/consensus/parachain",
+     "parachain/modules/state-machine",
 ]

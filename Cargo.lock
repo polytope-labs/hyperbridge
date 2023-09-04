@@ -4811,7 +4811,6 @@ dependencies = [
 [[package]]
 name = "ismp-parachain"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#ed1127dd02548ee45d30ddc0e82e4adbd9834bb8"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "cumulus-primitives-core",
@@ -4836,7 +4835,6 @@ dependencies = [
 [[package]]
 name = "ismp-parachain-inherent"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#ed1127dd02548ee45d30ddc0e82e4adbd9834bb8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4855,7 +4853,6 @@ dependencies = [
 [[package]]
 name = "ismp-parachain-runtime-api"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#ed1127dd02548ee45d30ddc0e82e4adbd9834bb8"
 dependencies = [
  "sp-api",
 ]
@@ -13438,7 +13435,6 @@ dependencies = [
 [[package]]
 name = "substrate-state-machine"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#ed1127dd02548ee45d30ddc0e82e4adbd9834bb8"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-support",

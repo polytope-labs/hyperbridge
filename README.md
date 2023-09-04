@@ -6,22 +6,11 @@ Implementation of the Interoperable State Machine Protocol for substrate runtime
 
 ## Overview
 
-This repo holds all the required components substrate runtimes need to interoperate together using [ISMP](https://github.com/polytope-labs/ismp)
+This repo holds the foundational components substrate runtimes need to interoperate together using [ISMP](https://github.com/polytope-labs/ismp)
 
 - [pallet-ismp](./)
 - [ismp-runtime-api](./pallet-ismp/runtime-api)
 - [ismp-rpc](./pallet-ismp/rpc)
-
-### Parachain Support
-
-- [ismp-parachain](./parachain)
-- [ismp-parachain-inherent](./parachain/inherent)
-- [ismp-parachain-runtime-api](./parachain/runtime-api)
-
-### Solochain Support
-
-- [ismp-grandpa](./grandpa)
-- [ismp-grandpa-prover](./grandpa/prover)
 
 ## Documentation
 

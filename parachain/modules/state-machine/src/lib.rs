@@ -105,7 +105,7 @@ where
                     let request = Request::Post(post);
                     let commitment = hash_request::<Host<T>>(&request);
                     keys.push(pallet_ismp::RequestReceipts::<T>::hashed_key_for(commitment));
-                }
+                },
                 Request::Get(_) => continue,
             }
         }
@@ -137,7 +137,7 @@ where
                         Ok((key, value))
                     })
                     .collect::<Result<BTreeMap<_, _>, _>>()?
-            }
+            },
             HashAlgorithm::Blake2 => {
                 let db =
                     StorageProof::new(state_proof.storage_proof).into_memory_db::<BlakeTwo256>();
@@ -154,7 +154,7 @@ where
                         Ok((key, value))
                     })
                     .collect::<Result<BTreeMap<_, _>, _>>()?
-            }
+            },
         };
 
         Ok(data)

@@ -16,6 +16,7 @@
 // Implementation of the ethereum beacon consensus client for ISMP
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(unused_variables)]
 
 extern crate alloc;
 

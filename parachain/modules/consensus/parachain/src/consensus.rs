@@ -126,6 +126,11 @@ where
             let id = codec::Decode::decode(&mut &key[(key.len() - 4)..]).map_err(|e| {
                 Error::ImplementationSpecific(format!("Error decoding parachain header: {e}"))
             })?;
+
+            if matches!(super::Parachains::<T>::get(id), None) {
+                Err(Error::ImplementationSpecific(format!("Unknown parachain with Id({id})")))?
+            }
+
             let header = header.ok_or_else(|| {
                 Error::ImplementationSpecific(format!(
                     "Cannot find parachain header for ParaId({id})",
@@ -146,7 +151,7 @@ where
                             Error::ImplementationSpecific(format!("Cannot slot: {e:?}"))
                         })?;
                         timestamp = Duration::from_millis(*slot * SLOT_DURATION).as_secs();
-                    }
+                    },
                     DigestItem::Consensus(consensus_engine_id, value)
                         if *consensus_engine_id == ISMP_ID =>
                     {
@@ -157,9 +162,9 @@ where
                         }
 
                         overlay_root = H256::from_slice(&value);
-                    }
+                    },
                     // don't really care about the rest
-                    _ => {}
+                    _ => {},
                 };
             }
 

@@ -205,6 +205,8 @@ pub mod pallet {
     }
 }
 
+pub use pallet::*;
+
 impl<T: Config> Pallet<T> {
     /// Returns the list of parachains who's consensus updates will be inserted by the inherent
     /// data provider

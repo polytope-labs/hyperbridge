@@ -4,17 +4,8 @@ members = [
     "pallet-ismp/rpc",
     "pallet-ismp/runtime-api",
     "pallet-ismp/primitives",
-    "pallet-ismp/primitives/state-machine",
-    "pallet-ismp/evm",
     "pallet-ismp",
-    "parachain/inherent",
-    "parachain/runtime-api",
-    "parachain",
     "ismp-demo",
-    "grandpa",
-    "grandpa/primitives",
-    "grandpa/verifier",
-    "grandpa/prover"
 ]
 
 [workspace.dependencies]

@@ -1,3 +1,0 @@
-openzeppelin/=lib/ismp-solidity/lib/openzeppelin-contracts/contracts/
-solidity-merkle-trees/=lib/ismp-solidity/lib/solidity-merkle-trees/src/
-ismp-solidity/=lib/ismp-solidity/src

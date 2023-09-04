@@ -29,6 +29,7 @@ use ismp::{
 };
 pub use pallet::*;
 use pallet_ismp::primitives::ModuleId;
+use sp_core::H160;
 
 /// Constant Pallet ID
 pub const PALLET_ID: ModuleId = ModuleId::Pallet(PalletId(*b"ismp-ast"));
@@ -189,6 +190,30 @@ pub mod pallet {
                 .map_err(|_| Error::<T>::GetDispatchFailed)?;
             Ok(())
         }
+
+        /// Dispatch request to a connected EVM chain.
+        #[pallet::weight(Weight::from_parts(1_000_000, 0))]
+        #[pallet::call_index(2)]
+        pub fn disptach_to_evm(origin: OriginFor<T>, params: EvmParams) -> DispatchResult {
+            ensure_signed(origin)?;
+
+            let post = DispatchPost {
+                dest: params.destination,
+                from: PALLET_ID.to_bytes(),
+                to: params.module.0.to_vec(),
+                timeout_timestamp: params.timeout,
+                data: b"Hello from polkadot".to_vec(),
+                gas_limit: 10_000_000,
+            };
+
+            // dispatch the request
+            let dispatcher = T::IsmpDispatcher::default();
+            dispatcher
+                .dispatch_request(DispatchRequest::Post(post))
+                .map_err(|_| Error::<T>::TransferFailed)?;
+
+            Ok(())
+        }
     }
 
     /// Transfer payload
@@ -233,6 +258,21 @@ pub mod pallet {
 
         /// Destination parachain Id
         pub para_id: u32,
+
+        /// Timeout timestamp on destination chain in seconds
+        pub timeout: u64,
+    }
+
+    /// Extrisnic params for evm dispatch
+    #[derive(
+        Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+    )]
+    pub struct EvmParams {
+        /// Destination module
+        pub module: H160,
+
+        /// Destination parachain
+        pub destination: StateMachine,
 
         /// Timeout timestamp on destination chain in seconds
         pub timeout: u64,

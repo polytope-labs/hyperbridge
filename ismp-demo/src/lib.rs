@@ -20,10 +20,14 @@
 
 extern crate alloc;
 
-use alloc::string::ToString;
+use alloc::{
+    format,
+    string::{String, ToString},
+};
 use frame_support::{traits::fungible::Mutate, PalletId};
 use ismp::{
     error::Error as IsmpError,
+    host::StateMachine,
     module::IsmpModule,
     router::{Post, Request, Response},
 };
@@ -47,7 +51,7 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::*;
     use ismp::{
-        host::StateMachine,
+        host::{Ethereum, StateMachine},
         router::{DispatchGet, DispatchPost, DispatchRequest, IsmpDispatcher},
     };
 
@@ -92,6 +96,14 @@ pub mod pallet {
             amount: <T as Config>::Balance,
             /// Source chain's Id
             source_chain: StateMachine,
+        },
+
+        /// Request data receieved
+        Request {
+            /// Source of the request
+            source: StateMachine,
+            /// utf-8 decoded data
+            data: String,
         },
 
         /// Get response recieved
@@ -198,7 +210,7 @@ pub mod pallet {
             ensure_signed(origin)?;
 
             let post = DispatchPost {
-                dest: params.destination,
+                dest: StateMachine::Ethereum(params.destination),
                 from: PALLET_ID.to_bytes(),
                 to: params.module.0.to_vec(),
                 timeout_timestamp: params.timeout,
@@ -271,8 +283,8 @@ pub mod pallet {
         /// Destination module
         pub module: H160,
 
-        /// Destination parachain
-        pub destination: StateMachine,
+        /// Destination EVM host
+        pub destination: Ethereum,
 
         /// Timeout timestamp on destination chain in seconds
         pub timeout: u64,
@@ -292,20 +304,40 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
     fn on_accept(&self, request: Post) -> Result<(), IsmpError> {
         let source_chain = request.source;
 
-        let payload = <Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(
-            &mut &*request.data,
-        )
-        .map_err(|_| {
-            IsmpError::ImplementationSpecific("Failed to decode request data".to_string())
-        })?;
-        <T::NativeCurrency as Mutate<T::AccountId>>::mint_into(&payload.to, payload.amount.into())
-            .map_err(|_| IsmpError::ImplementationSpecific("Failed to mint funds".to_string()))?;
-        Pallet::<T>::deposit_event(Event::<T>::BalanceReceived {
-            from: payload.from,
-            to: payload.to,
-            amount: payload.amount,
-            source_chain,
-        });
+        match source_chain {
+            StateMachine::Ethereum(_) => Pallet::<T>::deposit_event(Event::Request {
+                source: source_chain,
+                data: unsafe { String::from_utf8_unchecked(request.data) },
+            }),
+            StateMachine::Polkadot(_) | StateMachine::Kusama(_) => {
+                let payload =
+                    <Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(
+                        &mut &*request.data,
+                    )
+                    .map_err(|_| {
+                        IsmpError::ImplementationSpecific(
+                            "Failed to decode request data".to_string(),
+                        )
+                    })?;
+                <T::NativeCurrency as Mutate<T::AccountId>>::mint_into(
+                    &payload.to,
+                    payload.amount.into(),
+                )
+                .map_err(|_| {
+                    IsmpError::ImplementationSpecific("Failed to mint funds".to_string())
+                })?;
+                Pallet::<T>::deposit_event(Event::<T>::BalanceReceived {
+                    from: payload.from,
+                    to: payload.to,
+                    amount: payload.amount,
+                    source_chain,
+                });
+            }
+            source => {
+                Err(IsmpError::ImplementationSpecific(format!("Unsupported source {source:?}")))?
+            }
+        }
+
         Ok(())
     }
 

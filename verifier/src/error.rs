@@ -5,16 +5,10 @@ pub enum Error {
 	SyncCommitteeParticipantsTooLow,
 	InvalidUpdate,
 	DomainError,
-	FastAggregateError(ethereum_consensus::crypto::Error),
 	InvalidMerkleBranch,
 	InvalidRoot,
 	MerkleizationError,
-}
-
-impl From<ethereum_consensus::crypto::Error> for Error {
-	fn from(error: ethereum_consensus::crypto::Error) -> Self {
-		Error::FastAggregateError(error)
-	}
+	SignatureVerification,
 }
 
 impl Display for Error {
@@ -25,10 +19,10 @@ impl Display for Error {
 			},
 			Error::InvalidUpdate => write!(f, "Invalid update"),
 			Error::DomainError => write!(f, "Couldn't get domain"),
-			Error::FastAggregateError(err) => write!(f, "Fast aggregate error {:?}", err),
 			Error::InvalidMerkleBranch => write!(f, "Invalid merkle branch"),
 			Error::InvalidRoot => write!(f, "Invalid root"),
 			Error::MerkleizationError => write!(f, "Merkleization error"),
+			Error::SignatureVerification => write!(f, "Signature verification failed"),
 		}
 	}
 }

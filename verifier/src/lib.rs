@@ -4,43 +4,34 @@
 extern crate alloc;
 
 pub mod error;
+pub mod signature_verification;
 
-use crate::error::Error;
+use crate::{error::Error, signature_verification::verify_aggregate_signature};
 use alloc::vec::Vec;
-use ethereum_consensus::{
-	bellatrix::{compute_domain, mainnet::SYNC_COMMITTEE_SIZE, Checkpoint},
-	crypto::{PublicKey, Signature},
-	primitives::Root,
-	signing::compute_signing_root,
-	state_transition::Context,
-};
 use ssz_rs::{
-	calculate_merkle_root, calculate_multi_merkle_root, prelude::is_valid_merkle_branch,
-	GeneralizedIndex, Merkleized, Node,
+	calculate_multi_merkle_root, prelude::is_valid_merkle_branch, GeneralizedIndex, Merkleized,
+	Node,
 };
 use sync_committee_primitives::{
-	types::{
-		AncestryProof, BLOCK_ROOTS_INDEX, BLOCK_ROOTS_INDEX_LOG2, DOMAIN_SYNC_COMMITTEE,
-		EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
+	consensus_types::Checkpoint,
+	constants::{
+		Root, DOMAIN_SYNC_COMMITTEE, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
 		EXECUTION_PAYLOAD_INDEX_LOG2, EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
 		EXECUTION_PAYLOAD_TIMESTAMP_INDEX, FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_LOG2,
-		GENESIS_VALIDATORS_ROOT, HISTORICAL_BATCH_BLOCK_ROOTS_INDEX, HISTORICAL_ROOTS_INDEX,
-		HISTORICAL_ROOTS_INDEX_LOG2, NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_LOG2,
+		GENESIS_FORK_VERSION, GENESIS_VALIDATORS_ROOT, NEXT_SYNC_COMMITTEE_INDEX,
+		NEXT_SYNC_COMMITTEE_INDEX_LOG2,
 	},
-	util::{compute_epoch_at_slot, compute_fork_version, compute_sync_committee_period_at_slot},
+	util::{
+		compute_domain, compute_epoch_at_slot, compute_fork_version, compute_signing_root,
+		compute_sync_committee_period_at_slot,
+	},
 };
 
-pub type LightClientState = sync_committee_primitives::types::LightClientState<SYNC_COMMITTEE_SIZE>;
-pub type LightClientUpdate =
-	sync_committee_primitives::types::LightClientUpdate<SYNC_COMMITTEE_SIZE>;
-
-/// Verify sync committee signatures
-pub trait BlsVerify {
-	fn verify(public_keys: &[&PublicKey], msg: &[u8], signature: &Signature) -> Result<(), Error>;
-}
+pub type LightClientState = sync_committee_primitives::types::LightClientState;
+pub type LightClientUpdate = sync_committee_primitives::types::LightClientUpdate;
 
 /// This function simply verifies a sync committee's attestation & it's finalized counterpart.
-pub fn verify_sync_committee_attestation<V: BlsVerify>(
+pub fn verify_sync_committee_attestation(
 	trusted_state: LightClientState,
 	update: LightClientUpdate,
 ) -> Result<LightClientState, Error> {
@@ -94,30 +85,32 @@ pub fn verify_sync_committee_attestation<V: BlsVerify>(
 
 	let sync_committee_pubkeys = sync_committee.public_keys;
 
-	let participant_pubkeys = sync_committee_bits
+	let non_participant_pubkeys = sync_committee_bits
 		.iter()
 		.zip(sync_committee_pubkeys.iter())
-		.filter_map(|(bit, key)| if *bit { Some(key) } else { None })
+		.filter_map(|(bit, key)| if !(*bit) { Some(key.clone()) } else { None })
 		.collect::<Vec<_>>();
 
 	let fork_version = compute_fork_version(compute_epoch_at_slot(update.signature_slot));
 
-	let context = Context::for_mainnet();
 	let domain = compute_domain(
 		DOMAIN_SYNC_COMMITTEE,
 		Some(fork_version),
 		Some(Root::from_bytes(GENESIS_VALIDATORS_ROOT.try_into().map_err(|_| Error::InvalidRoot)?)),
-		&context,
+		GENESIS_FORK_VERSION,
 	)
 	.map_err(|_| Error::InvalidUpdate)?;
 
-	let signing_root = compute_signing_root(&mut update.attested_header.clone(), domain);
+	let signing_root = compute_signing_root(&mut update.attested_header.clone(), domain)
+		.map_err(|_| Error::InvalidRoot)?;
 
-	V::verify(
-		&*participant_pubkeys,
-		signing_root.map_err(|_| Error::InvalidRoot)?.as_bytes(),
+	verify_aggregate_signature(
+		&trusted_state.current_sync_committee.aggregate_public_key,
+		&non_participant_pubkeys,
+		signing_root.as_bytes().to_vec(),
 		&update.sync_aggregate.sync_committee_signature,
-	)?;
+	)
+	.map_err(|_| Error::SignatureVerification)?;
 
 	// Verify that the `finality_branch` confirms `finalized_header`
 	// to match the finalized checkpoint root saved in the state of `attested_header`.
@@ -131,16 +124,9 @@ pub fn verify_sync_committee_attestation<V: BlsVerify>(
 			.map_err(|_| Error::InvalidRoot)?,
 	};
 
-	let branch = update
-		.finality_proof
-		.finality_branch
-		.iter()
-		.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-		.collect::<Vec<_>>();
-
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&finalized_checkpoint.hash_tree_root().map_err(|_| Error::InvalidRoot)?,
-		branch.iter(),
+		update.finality_proof.finality_branch.iter(),
 		FINALIZED_ROOT_INDEX_LOG2 as usize,
 		FINALIZED_ROOT_INDEX as usize,
 		&update.attested_header.state_root,
@@ -152,11 +138,6 @@ pub fn verify_sync_committee_attestation<V: BlsVerify>(
 
 	// verify the associated execution header of the finalized beacon header.
 	let mut execution_payload = update.execution_payload;
-	let multi_proof_vec = execution_payload.multi_proof;
-	let multi_proof_nodes = multi_proof_vec
-		.iter()
-		.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-		.collect::<Vec<_>>();
 	let execution_payload_root = calculate_multi_merkle_root(
 		&[
 			Node::from_bytes(
@@ -172,7 +153,7 @@ pub fn verify_sync_committee_attestation<V: BlsVerify>(
 				.map_err(|_| Error::InvalidRoot)?,
 			execution_payload.timestamp.hash_tree_root().map_err(|_| Error::InvalidRoot)?,
 		],
-		&multi_proof_nodes,
+		&execution_payload.multi_proof,
 		&[
 			GeneralizedIndex(EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
 			GeneralizedIndex(EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
@@ -180,15 +161,9 @@ pub fn verify_sync_committee_attestation<V: BlsVerify>(
 		],
 	);
 
-	let execution_payload_branch = execution_payload
-		.execution_payload_branch
-		.iter()
-		.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-		.collect::<Vec<_>>();
-
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&execution_payload_root,
-		execution_payload_branch.iter(),
+		execution_payload.execution_payload_branch.iter(),
 		EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
 		EXECUTION_PAYLOAD_INDEX as usize,
 		&update.finalized_header.state_root,
@@ -206,184 +181,15 @@ pub fn verify_sync_committee_attestation<V: BlsVerify>(
 			Err(Error::InvalidUpdate)?
 		}
 
-		let next_sync_committee_branch = sync_committee_update
-			.next_sync_committee_branch
-			.iter()
-			.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-			.collect::<Vec<_>>();
 		let is_merkle_branch_valid = is_valid_merkle_branch(
 			&sync_committee_update
 				.next_sync_committee
 				.hash_tree_root()
 				.map_err(|_| Error::MerkleizationError)?,
-			next_sync_committee_branch.iter(),
+			sync_committee_update.next_sync_committee_branch.iter(),
 			NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
 			NEXT_SYNC_COMMITTEE_INDEX as usize,
 			&update.attested_header.state_root,
-		);
-
-		if !is_merkle_branch_valid {
-			Err(Error::InvalidMerkleBranch)?;
-		}
-	}
-
-	// verify the ancestry proofs
-	for mut ancestor in update.ancestor_blocks {
-		match ancestor.ancestry_proof {
-			AncestryProof::BlockRoots { block_roots_proof, block_roots_branch } => {
-				let block_header_branch = block_roots_proof
-					.block_header_branch
-					.iter()
-					.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-					.collect::<Vec<_>>();
-
-				let block_roots_root = calculate_merkle_root(
-					&ancestor.header.hash_tree_root().map_err(|_| Error::MerkleizationError)?,
-					&*block_header_branch,
-					&GeneralizedIndex(block_roots_proof.block_header_index as usize),
-				);
-
-				let block_roots_branch_node = block_roots_branch
-					.iter()
-					.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-					.collect::<Vec<_>>();
-
-				let is_merkle_branch_valid = is_valid_merkle_branch(
-					&block_roots_root,
-					block_roots_branch_node.iter(),
-					BLOCK_ROOTS_INDEX_LOG2 as usize,
-					BLOCK_ROOTS_INDEX as usize,
-					&update.finalized_header.state_root,
-				);
-				if !is_merkle_branch_valid {
-					Err(Error::InvalidMerkleBranch)?;
-				}
-			},
-			AncestryProof::HistoricalRoots {
-				block_roots_proof,
-				historical_batch_proof,
-				historical_roots_proof,
-				historical_roots_index,
-				historical_roots_branch,
-			} => {
-				let block_header_branch = block_roots_proof
-					.block_header_branch
-					.iter()
-					.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-					.collect::<Vec<_>>();
-				let block_roots_root = calculate_merkle_root(
-					&ancestor
-						.header
-						.clone()
-						.hash_tree_root()
-						.map_err(|_| Error::MerkleizationError)?,
-					&block_header_branch,
-					&GeneralizedIndex(block_roots_proof.block_header_index as usize),
-				);
-
-				let historical_batch_proof_nodes = historical_batch_proof
-					.iter()
-					.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-					.collect::<Vec<_>>();
-				let historical_batch_root = calculate_merkle_root(
-					&block_roots_root,
-					&historical_batch_proof_nodes,
-					&GeneralizedIndex(HISTORICAL_BATCH_BLOCK_ROOTS_INDEX as usize),
-				);
-
-				let historical_roots_proof_nodes = historical_roots_proof
-					.iter()
-					.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-					.collect::<Vec<_>>();
-				let historical_roots_root = calculate_merkle_root(
-					&historical_batch_root,
-					&historical_roots_proof_nodes,
-					&GeneralizedIndex(historical_roots_index as usize),
-				);
-
-				let historical_roots_branch_nodes = historical_roots_branch
-					.iter()
-					.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-					.collect::<Vec<_>>();
-				let is_merkle_branch_valid = is_valid_merkle_branch(
-					&historical_roots_root,
-					historical_roots_branch_nodes.iter(),
-					HISTORICAL_ROOTS_INDEX_LOG2 as usize,
-					HISTORICAL_ROOTS_INDEX as usize,
-					&Node::from_bytes(
-						update
-							.finalized_header
-							.state_root
-							.as_ref()
-							.try_into()
-							.map_err(|_| Error::InvalidRoot)?,
-					),
-				);
-
-				if !is_merkle_branch_valid {
-					Err(Error::InvalidMerkleBranch)?;
-				}
-			},
-		};
-
-		// verify the associated execution paylaod header.
-		let execution_payload = ancestor.execution_payload;
-		let multi_proof = execution_payload
-			.multi_proof
-			.iter()
-			.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-			.collect::<Vec<_>>();
-		let execution_payload_root = calculate_multi_merkle_root(
-			&[
-				Node::from_bytes(
-					execution_payload
-						.state_root
-						.as_ref()
-						.try_into()
-						.map_err(|_| Error::InvalidRoot)?,
-				),
-				Node::from_bytes(
-					execution_payload
-						.block_number
-						.clone()
-						.hash_tree_root()
-						.map_err(|_| Error::MerkleizationError)?
-						.as_ref()
-						.try_into()
-						.map_err(|_| Error::InvalidRoot)?,
-				),
-				Node::from_bytes(
-					execution_payload
-						.timestamp
-						.clone()
-						.hash_tree_root()
-						.map_err(|_| Error::MerkleizationError)?
-						.as_ref()
-						.try_into()
-						.map_err(|_| Error::InvalidRoot)?,
-				),
-			],
-			&multi_proof,
-			&[
-				GeneralizedIndex(EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
-				GeneralizedIndex(EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
-				GeneralizedIndex(EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
-			],
-		);
-
-		let execution_payload_branch = execution_payload
-			.execution_payload_branch
-			.iter()
-			.map(|node| Node::from_bytes(node.as_ref().try_into().unwrap()))
-			.collect::<Vec<_>>();
-		let is_merkle_branch_valid = is_valid_merkle_branch(
-			&execution_payload_root,
-			execution_payload_branch.iter(),
-			EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
-			EXECUTION_PAYLOAD_INDEX as usize,
-			&Node::from_bytes(
-				ancestor.header.state_root.as_ref().try_into().map_err(|_| Error::InvalidRoot)?,
-			),
 		);
 
 		if !is_merkle_branch_valid {
@@ -403,14 +209,4 @@ pub fn verify_sync_committee_attestation<V: BlsVerify>(
 	};
 
 	Ok(new_light_client_state)
-}
-
-pub struct SignatureVerifier;
-
-impl BlsVerify for SignatureVerifier {
-	fn verify(public_keys: &[&PublicKey], msg: &[u8], signature: &Signature) -> Result<(), Error> {
-		ethereum_consensus::crypto::fast_aggregate_verify(public_keys, msg, signature)?;
-
-		Ok(())
-	}
 }

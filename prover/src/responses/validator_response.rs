@@ -1,4 +1,4 @@
-use ethereum_consensus::bellatrix::Validator;
+use sync_committee_primitives::consensus_types::Validator;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Response {

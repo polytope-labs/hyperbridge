@@ -8,12 +8,10 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 extern crate alloc;
 
-
-mod router;
+mod ismp;
 mod weights;
-pub mod xcm_config;
+pub mod xcm;
 
-use alloc::format;
 use codec::{Decode, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::RelayNumberStrictlyIncreases;
 use scale_info::TypeInfo;
@@ -32,11 +30,15 @@ use sp_std::prelude::*;
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
+use ::ismp::{
+    consensus::{ConsensusClientId, StateMachineId},
+    router::{Request, Response},
+};
 use frame_support::{
     construct_runtime,
     dispatch::DispatchClass,
     parameter_types,
-    traits::{ConstU32, ConstU64, ConstU8, Everything, Get},
+    traits::{ConstU32, ConstU64, ConstU8, Everything},
     weights::{
         constants::WEIGHT_REF_TIME_PER_SECOND, ConstantMultiplier, Weight, WeightToFeeCoefficient,
         WeightToFeeCoefficients, WeightToFeePolynomial,
@@ -47,23 +49,14 @@ use frame_system::{
     limits::{BlockLength, BlockWeights},
     EnsureRoot,
 };
-use ismp::{
-    consensus::{ConsensusClient, ConsensusClientId, StateMachineId},
-    error::Error,
-    host::StateMachine,
-    router::{Request, Response},
-};
 use ismp_primitives::{
     mmr::{Leaf, LeafIndex},
     LeafIndexQuery,
 };
-use pallet_ismp::{
-    host::Host,
-    primitives::{ConsensusClientProvider, Proof},
-};
+use pallet_ismp::primitives::Proof;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
-use xcm_config::{XcmConfig, XcmOriginToTransactDispatchOrigin};
+use xcm::{XcmConfig, XcmOriginToTransactDispatchOrigin};
 
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
@@ -74,8 +67,7 @@ use polkadot_runtime_common::{BlockHashCount, SlowAdjustingFeeUpdate};
 use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
-use crate::router::Router;
-use xcm::latest::prelude::BodyId;
+use ::xcm::latest::prelude::BodyId;
 use xcm_executor::XcmExecutor;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
@@ -484,57 +476,6 @@ impl pallet_sudo::Config for Runtime {
     type RuntimeCall = RuntimeCall;
 }
 
-pub struct StateMachineProvider;
-
-impl Get<StateMachine> for StateMachineProvider {
-    fn get() -> StateMachine {
-        StateMachine::Kusama(ParachainInfo::get().into())
-    }
-}
-
-pub struct ConsensusProvider;
-
-impl ConsensusClientProvider for ConsensusProvider {
-    fn consensus_client(id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
-        match id {
-            ismp_parachain::PARACHAIN_CONSENSUS_ID => {
-                let parachain =
-                    ismp_parachain::ParachainConsensusClient::<Runtime, IsmpParachain>::default();
-                Ok(Box::new(parachain))
-            },
-            ismp_sync_committee::BEACON_CONSENSUS_ID => {
-                let sync_committee =
-                    ismp_sync_committee::SyncCommitteeConsensusClient::<Host<Runtime>>::default();
-                Ok(Box::new(sync_committee))
-            },
-            id => Err(Error::ImplementationSpecific(format!("Unknown consensus client: {id:?}")))?,
-        }
-    }
-}
-
-impl ismp_parachain::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-}
-
-impl pallet_ismp::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    const INDEXING_PREFIX: &'static [u8] = b"ISMP";
-    type AdminOrigin = EnsureRoot<AccountId>;
-    type StateMachine = StateMachineProvider;
-    type TimeProvider = Timestamp;
-    type IsmpRouter = Router;
-    type ConsensusClientProvider = ConsensusProvider;
-    type WeightInfo = ();
-    type WeightProvider = ();
-}
-
-impl ismp_demo::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type Balance = Balance;
-    type NativeCurrency = Balances;
-    type IsmpDispatcher = pallet_ismp::dispatcher::Dispatcher<Runtime>;
-}
-
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime where
@@ -805,7 +746,7 @@ impl_runtime_apis! {
             Ismp::get_responses(leaf_indices)
         }
 
-        fn pending_get_requests() -> Vec<ismp::router::Get> {
+        fn pending_get_requests() -> Vec<::ismp::router::Get> {
             Ismp::pending_get_requests()
         }
     }

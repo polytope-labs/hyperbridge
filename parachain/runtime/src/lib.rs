@@ -8,10 +8,12 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 extern crate alloc;
 
+
 mod router;
 mod weights;
 pub mod xcm_config;
 
+use alloc::format;
 use codec::{Decode, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::RelayNumberStrictlyIncreases;
 use scale_info::TypeInfo;
@@ -51,7 +53,6 @@ use ismp::{
     host::StateMachine,
     router::{Request, Response},
 };
-use ismp_parachain::consensus::ParachainConsensusClient;
 use ismp_primitives::{
     mmr::{Leaf, LeafIndex},
     LeafIndexQuery,
@@ -496,8 +497,9 @@ pub struct ConsensusProvider;
 impl ConsensusClientProvider for ConsensusProvider {
     fn consensus_client(id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
         match id {
-            ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID => {
-                let parachain = ParachainConsensusClient::<Runtime, IsmpParachain>::default();
+            ismp_parachain::PARACHAIN_CONSENSUS_ID => {
+                let parachain =
+                    ismp_parachain::ParachainConsensusClient::<Runtime, IsmpParachain>::default();
                 Ok(Box::new(parachain))
             },
             ismp_sync_committee::BEACON_CONSENSUS_ID => {
@@ -505,7 +507,7 @@ impl ConsensusClientProvider for ConsensusProvider {
                     ismp_sync_committee::SyncCommitteeConsensusClient::<Host<Runtime>>::default();
                 Ok(Box::new(sync_committee))
             },
-            _ => Err(Error::ImplementationSpecific("Unknown consensus client".into()))?,
+            id => Err(Error::ImplementationSpecific(format!("Unknown consensus client: {id:?}")))?,
         }
     }
 }

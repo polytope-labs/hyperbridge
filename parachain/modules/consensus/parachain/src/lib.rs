@@ -8,6 +8,7 @@ extern crate alloc;
 extern crate core;
 
 pub mod consensus;
+pub use consensus::*;
 
 use alloc::{vec, vec::Vec};
 use cumulus_primitives_core::relay_chain;

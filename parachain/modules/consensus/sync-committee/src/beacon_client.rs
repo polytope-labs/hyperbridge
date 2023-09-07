@@ -26,15 +26,14 @@ use crate::{
     prelude::*,
     utils::{get_value_from_proof, get_values_from_proof},
 };
-use sync_committee_verifier::BlsVerify;
 
 pub const BEACON_CONSENSUS_ID: ConsensusClientId = *b"BEAC";
 
 #[derive(Default, Clone)]
-pub struct SyncCommitteeConsensusClient<H: IsmpHost, V: BlsVerify>(core::marker::PhantomData<H>, V);
+pub struct SyncCommitteeConsensusClient<H: IsmpHost>(core::marker::PhantomData<H>);
 
-impl<H: IsmpHost + Send + Sync + Default + 'static, V: BlsVerify> ConsensusClient
-    for SyncCommitteeConsensusClient<H, V>
+impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
+    for SyncCommitteeConsensusClient<H>
 {
     fn verify_consensus(
         &self,
@@ -66,12 +65,11 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, V: BlsVerify> ConsensusClien
             ))
         })?;
 
-        let new_light_client_state =
-            sync_committee_verifier::verify_sync_committee_attestation::<V>(
-                no_codec_light_client_state,
-                no_codec_light_client_update,
-            )
-            .map_err(|_| Error::ConsensusProofVerificationFailed { id: BEACON_CONSENSUS_ID })?;
+        let new_light_client_state = sync_committee_verifier::verify_sync_committee_attestation(
+            no_codec_light_client_state,
+            no_codec_light_client_update,
+        )
+        .map_err(|_| Error::ConsensusProofVerificationFailed { id: BEACON_CONSENSUS_ID })?;
 
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
             BTreeMap::new();
@@ -82,7 +80,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, V: BlsVerify> ConsensusClien
             BEACON_CONSENSUS_ID,
             consensus_update.execution_payload.block_number,
             consensus_update.execution_payload.timestamp,
-            &state_root,
+            &state_root[..],
         )?;
 
         let ethereum_state_commitment_height = StateCommitmentHeight {
@@ -98,7 +96,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, V: BlsVerify> ConsensusClien
         if let Some(optimism_payload) = optimism_payload {
             let state = verify_optimism_payload::<H>(
                 optimism_payload,
-                &state_root,
+                &state_root[..],
                 consensus_state.l2_oracle_address,
             )?;
 
@@ -114,7 +112,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, V: BlsVerify> ConsensusClien
         if let Some(arbitrum_payload) = arbitrum_payload {
             let state = verify_arbitrum_payload::<H>(
                 arbitrum_payload,
-                &state_root,
+                &state_root[..],
                 consensus_state.rollup_core_address,
             )?;
 

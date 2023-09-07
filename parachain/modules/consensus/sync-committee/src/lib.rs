@@ -17,3 +17,5 @@ pub mod presets;
 mod tests;
 pub mod types;
 pub mod utils;
+
+pub use beacon_client::*;

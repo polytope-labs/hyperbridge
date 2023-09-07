@@ -6,7 +6,7 @@ use ethabi::ethereum_types::{H160, H256};
 use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
 use ismp::host::{IsmpHost, StateMachine};
-use sync_committee_primitives::derived_types::{LightClientState, LightClientUpdate};
+use sync_committee_primitives::types::{LightClientState, LightClientUpdate};
 
 pub struct KeccakHasher<H: IsmpHost>(core::marker::PhantomData<H>);
 

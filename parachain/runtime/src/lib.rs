@@ -495,21 +495,18 @@ pub struct ConsensusProvider;
 
 impl ConsensusClientProvider for ConsensusProvider {
     fn consensus_client(id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
-        let client = match id {
+        match id {
             ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID => {
                 let parachain = ParachainConsensusClient::<Runtime, IsmpParachain>::default();
-                Box::new(parachain)
+                Ok(Box::new(parachain))
             },
-            // ismp_sync_committee::BEACON_CONSENSUS_ID => {
-            //     use ismp_sync_committee::{SignatureVerifier, SyncCommitteeConsensusClient};
-            //     let sync_committee =
-            //         SyncCommitteeConsensusClient::<Host<Runtime>, SignatureVerifier>::default();
-            //     Box::new(sync_committee)
-            // },
+            ismp_sync_committee::BEACON_CONSENSUS_ID => {
+                let sync_committee =
+                    ismp_sync_committee::SyncCommitteeConsensusClient::<Host<Runtime>>::default();
+                Ok(Box::new(sync_committee))
+            },
             _ => Err(Error::ImplementationSpecific("Unknown consensus client".into()))?,
-        };
-
-        Ok(client)
+        }
     }
 }
 

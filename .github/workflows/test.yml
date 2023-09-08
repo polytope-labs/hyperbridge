@@ -20,11 +20,10 @@ jobs:
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
-      - uses: actions-rs/toolchain@v1
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          profile: minimal
-          toolchain: nightly-2022-10-28
-          override: true
+          toolchain: nightly
       - uses: Swatinem/rust-cache@v1
       - run: rustup target add wasm32-unknown-unknown
       - name: Install Protoc
@@ -37,10 +36,8 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all --benches --locked
+      - name: check workspace
+        run: cargo +nightly check --all --benches --locked
 
   check-runtime-wasm:
     name: Check Runtime Wasm
@@ -50,10 +47,10 @@ jobs:
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
-      - uses: actions-rs/toolchain@v1
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2022-10-28
-          override: true
+          toolchain: nightly
       - uses: Swatinem/rust-cache@v1
       - run: rustup target add wasm32-unknown-unknown
 
@@ -61,10 +58,9 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: -p hyperbridge-runtime --no-default-features --target=wasm32-unknown-unknown --locked
+      - name: check runtime no-std
+        run: cargo +nightly -p hyperbridge-runtime --no-default-features --target=wasm32-unknown-unknown --locked
+
   fmt:
     name: Cargo fmt
     runs-on: ubuntu-latest

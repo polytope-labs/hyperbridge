@@ -52,22 +52,9 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
             })?;
 
-        let no_codec_light_client_state =
-            consensus_state.light_client_state.try_into().map_err(|_| {
-                Error::ImplementationSpecific(format!(
-                    "Cannot convert light client state to no codec type",
-                ))
-            })?;
-
-        let no_codec_light_client_update = consensus_update.clone().try_into().map_err(|_| {
-            Error::ImplementationSpecific(format!(
-                "Cannot convert light client update to no codec type"
-            ))
-        })?;
-
         let new_light_client_state = sync_committee_verifier::verify_sync_committee_attestation(
-            no_codec_light_client_state,
-            no_codec_light_client_update,
+            consensus_state.light_client_state,
+            consensus_update.clone(),
         )
         .map_err(|_| Error::ConsensusProofVerificationFailed { id: BEACON_CONSENSUS_ID })?;
 

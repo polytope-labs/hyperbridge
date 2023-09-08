@@ -21,13 +21,13 @@ use pallet_ismp::host::Host;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use ethabi::ethereum_types::H160;
     use super::*;
+    use ethabi::ethereum_types::H160;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use ismp::host::{IsmpHost, StateMachine};
-    use primitive_types::H256;
     use ismp_sync_committee::types::ConsensusState;
+    use primitive_types::H256;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -63,8 +63,8 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T>
-        where
-            <T as frame_system::Config>::Hash: From<H256>,
+    where
+        <T as frame_system::Config>::Hash: From<H256>,
     {
         /// Add contract address
         #[pallet::call_index(0)]
@@ -127,7 +127,6 @@ pub mod pallet {
             let mut stored_contract_addresses = consensus_state.ismp_contract_addresses;
             stored_contract_addresses.remove(&state_machine);
             consensus_state.ismp_contract_addresses = stored_contract_addresses;
-
 
             let encoded_consensus_state = consensus_state.encode();
             ismp_host

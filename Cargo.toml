@@ -8,4 +8,5 @@ members = [
      "parachain/modules/consensus/sync-committee",
      "parachain/modules/consensus/parachain",
      "parachain/modules/state-machine",
+     "parachain/modules/consensus/beacon-consensus-pallet"
 ]

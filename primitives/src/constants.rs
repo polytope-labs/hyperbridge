@@ -33,6 +33,9 @@ pub const BLS_SIGNATURE_BYTES_LEN: usize = 96;
 
 pub const SYNC_COMMITTEE_SIZE: usize = 512;
 pub const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
+pub const MAX_WITHDRAWALS_PER_PAYLOAD: usize = 16;
+pub const MAX_BLS_TO_EXECUTION_CHANGES: usize = 16;
+pub const MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP: usize = 16384;
 
 pub const MAX_VALIDATORS_PER_COMMITTEE: usize = 2048;
 pub const EPOCHS_PER_ETH1_VOTING_PERIOD: Epoch = 64;
@@ -95,9 +98,6 @@ pub mod testnet {
 	pub const BELLATRIX_FORK_EPOCH: Epoch = 112260;
 	pub const CAPELLA_FORK_EPOCH: Epoch = u64::MAX;
 	pub const CAPELLA_FORK_VERSION: Version = [3, 0, 16, 32];
-	pub const MAX_WITHDRAWALS_PER_PAYLOAD: usize = 16;
-	pub const MAX_BLS_TO_EXECUTION_CHANGES: usize = 16;
-	pub const MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP: usize = 16384;
 }
 
 #[cfg(feature = "mainnet")]
@@ -113,9 +113,6 @@ pub mod mainnet {
 	pub const BELLATRIX_FORK_EPOCH: Epoch = 144896;
 	pub const CAPELLA_FORK_EPOCH: Epoch = u64::MAX;
 	pub const CAPELLA_FORK_VERSION: Version = [3, 0, 0, 0];
-	pub const MAX_WITHDRAWALS_PER_PAYLOAD: usize = 16;
-	pub const MAX_BLS_TO_EXECUTION_CHANGES: usize = 16;
-	pub const MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP: usize = 16384;
 }
 
 #[cfg(all(not(feature = "mainnet"), not(feature = "testnet")))]
@@ -132,7 +129,4 @@ pub mod devnet {
 	pub const BELLATRIX_FORK_EPOCH: Epoch = 0;
 	pub const CAPELLA_FORK_EPOCH: Epoch = 2;
 	pub const CAPELLA_FORK_VERSION: Version = hex!("52525503");
-	pub const MAX_WITHDRAWALS_PER_PAYLOAD: usize = 16;
-	pub const MAX_BLS_TO_EXECUTION_CHANGES: usize = 16;
-	pub const MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP: usize = 16384;
 }

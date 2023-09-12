@@ -74,12 +74,12 @@ pub struct AncestorBlock {
 }
 
 /// Holds the latest sync committee as well as an ssz proof for it's existence
-/// in a finalized header.
+/// in an attested header.
 #[derive(Debug, Clone, PartialEq, Eq, Default, codec::Encode, codec::Decode)]
 pub struct SyncCommitteeUpdate {
-	// actual sync committee
+	/// actual sync committee
 	pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
-	// sync committee, ssz merkle proof.
+	/// next sync committee, ssz merkle proof.
 	pub next_sync_committee_branch: Vec<Node>,
 }
 
@@ -90,7 +90,7 @@ pub struct LightClientState {
 	pub finalized_header: BeaconBlockHeader,
 	/// Latest finalized epoch
 	pub latest_finalized_epoch: u64,
-	// Sync committees corresponding to the finalized header
+	/// Sync committees corresponding to the finalized header
 	pub current_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
 	pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
 }

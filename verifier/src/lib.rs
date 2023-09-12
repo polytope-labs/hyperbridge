@@ -23,7 +23,7 @@ use sync_committee_primitives::{
 	},
 	util::{
 		compute_domain, compute_epoch_at_slot, compute_fork_version, compute_signing_root,
-		compute_sync_committee_period_at_slot,
+		compute_sync_committee_period_at_slot, should_get_sync_committee_update,
 	},
 };
 
@@ -33,14 +33,14 @@ pub type LightClientUpdate = sync_committee_primitives::types::LightClientUpdate
 /// This function simply verifies a sync committee's attestation & it's finalized counterpart.
 pub fn verify_sync_committee_attestation(
 	trusted_state: LightClientState,
-	update: LightClientUpdate,
+	mut update: LightClientUpdate,
 ) -> Result<LightClientState, Error> {
 	if update.finality_proof.finality_branch.len() != FINALIZED_ROOT_INDEX_LOG2 as usize &&
 		update.sync_committee_update.is_some() &&
 		update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len() !=
 			NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize
 	{
-		Err(Error::InvalidUpdate)?
+		Err(Error::InvalidUpdate("Finality branch is incorrect".into()))?
 	}
 
 	// Verify sync committee has super majority participants
@@ -52,28 +52,23 @@ pub fn verify_sync_committee_attestation(
 		Err(Error::SyncCommitteeParticipantsTooLow)?
 	}
 
-	// Verify update does not skip a sync committee period
+	// Verify update is valid
 	let is_valid_update = update.signature_slot > update.attested_header.slot &&
-		update.attested_header.slot >= update.finalized_header.slot;
+		update.attested_header.slot > update.finalized_header.slot;
 	if !is_valid_update {
-		Err(Error::InvalidUpdate)?
+		Err(Error::InvalidUpdate(
+			"relationship between slots does not meet the requirements".into(),
+		))?
 	}
 
 	let state_period = compute_sync_committee_period_at_slot(trusted_state.finalized_header.slot);
 	let update_signature_period = compute_sync_committee_period_at_slot(update.signature_slot);
 	if !(state_period..=state_period + 1).contains(&update_signature_period) {
-		Err(Error::InvalidUpdate)?
+		Err(Error::InvalidUpdate("State period does not contain signature period".into()))?
 	}
 
-	// Verify update is relevant
-	let update_attested_period = compute_sync_committee_period_at_slot(update.attested_header.slot);
-	let update_has_next_sync_committee =
-		update.sync_committee_update.is_some() && update_attested_period == state_period;
-
-	if !(update.attested_header.slot > trusted_state.finalized_header.slot ||
-		update_has_next_sync_committee)
-	{
-		Err(Error::InvalidUpdate)?
+	if update.attested_header.slot <= trusted_state.finalized_header.slot {
+		Err(Error::InvalidUpdate("Update is expired".into()))?
 	}
 
 	// Verify sync committee aggregate signature
@@ -96,16 +91,16 @@ pub fn verify_sync_committee_attestation(
 	let domain = compute_domain(
 		DOMAIN_SYNC_COMMITTEE,
 		Some(fork_version),
-		Some(Root::from_bytes(GENESIS_VALIDATORS_ROOT.try_into().map_err(|_| Error::InvalidRoot)?)),
+		Some(Root::from_bytes(GENESIS_VALIDATORS_ROOT.try_into().expect("Infallible"))),
 		GENESIS_FORK_VERSION,
 	)
-	.map_err(|_| Error::InvalidUpdate)?;
+	.map_err(|_| Error::InvalidUpdate("Failed to compute domain".into()))?;
 
-	let signing_root = compute_signing_root(&mut update.attested_header.clone(), domain)
-		.map_err(|_| Error::InvalidRoot)?;
+	let signing_root = compute_signing_root(&mut update.attested_header, domain)
+		.map_err(|_| Error::InvalidRoot("Failed to compute signing root".into()))?;
 
 	verify_aggregate_signature(
-		&trusted_state.current_sync_committee.aggregate_public_key,
+		&sync_committee.aggregate_public_key,
 		&non_participant_pubkeys,
 		signing_root.as_bytes().to_vec(),
 		&update.sync_aggregate.sync_committee_signature,
@@ -119,13 +114,14 @@ pub fn verify_sync_committee_attestation(
 		epoch: update.finality_proof.epoch,
 		root: update
 			.finalized_header
-			.clone()
 			.hash_tree_root()
-			.map_err(|_| Error::InvalidRoot)?,
+			.map_err(|_| Error::MerkleizationError("Error hashing finalized header".into()))?,
 	};
 
 	let is_merkle_branch_valid = is_valid_merkle_branch(
-		&finalized_checkpoint.hash_tree_root().map_err(|_| Error::InvalidRoot)?,
+		&finalized_checkpoint
+			.hash_tree_root()
+			.map_err(|_| Error::MerkleizationError("Failed to hash finality checkpoint".into()))?,
 		update.finality_proof.finality_branch.iter(),
 		FINALIZED_ROOT_INDEX_LOG2 as usize,
 		FINALIZED_ROOT_INDEX as usize,
@@ -133,25 +129,21 @@ pub fn verify_sync_committee_attestation(
 	);
 
 	if !is_merkle_branch_valid {
-		Err(Error::InvalidMerkleBranch)?;
+		Err(Error::InvalidMerkleBranch("Finality branch".into()))?;
 	}
 
 	// verify the associated execution header of the finalized beacon header.
 	let mut execution_payload = update.execution_payload;
 	let execution_payload_root = calculate_multi_merkle_root(
 		&[
-			Node::from_bytes(
-				execution_payload
-					.state_root
-					.as_ref()
-					.try_into()
-					.map_err(|_| Error::InvalidRoot)?,
-			),
+			Node::from_bytes(execution_payload.state_root.as_ref().try_into().expect("Infallible")),
+			execution_payload.block_number.hash_tree_root().map_err(|_| {
+				Error::MerkleizationError("Failed to hash execution payload".into())
+			})?,
 			execution_payload
-				.block_number
+				.timestamp
 				.hash_tree_root()
-				.map_err(|_| Error::InvalidRoot)?,
-			execution_payload.timestamp.hash_tree_root().map_err(|_| Error::InvalidRoot)?,
+				.map_err(|_| Error::MerkleizationError("Failed to hash timestamp".into()))?,
 		],
 		&execution_payload.multi_proof,
 		&[
@@ -170,22 +162,21 @@ pub fn verify_sync_committee_attestation(
 	);
 
 	if !is_merkle_branch_valid {
-		Err(Error::InvalidMerkleBranch)?;
+		Err(Error::InvalidMerkleBranch("Execution payload branch".into()))?;
 	}
 
 	if let Some(mut sync_committee_update) = update.sync_committee_update.clone() {
-		if update_attested_period == state_period &&
-			sync_committee_update.next_sync_committee !=
-				trusted_state.next_sync_committee.clone()
-		{
-			Err(Error::InvalidUpdate)?
+		if !should_get_sync_committee_update(update.attested_header.slot) {
+			Err(Error::InvalidUpdate("Current sync committee period has not elapsed".into()))?
 		}
 
+		let sync_root = sync_committee_update
+			.next_sync_committee
+			.hash_tree_root()
+			.map_err(|_| Error::MerkleizationError("Failed to hash next sync committee".into()))?;
+
 		let is_merkle_branch_valid = is_valid_merkle_branch(
-			&sync_committee_update
-				.next_sync_committee
-				.hash_tree_root()
-				.map_err(|_| Error::MerkleizationError)?,
+			&sync_root,
 			sync_committee_update.next_sync_committee_branch.iter(),
 			NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
 			NEXT_SYNC_COMMITTEE_INDEX as usize,
@@ -193,7 +184,7 @@ pub fn verify_sync_committee_attestation(
 		);
 
 		if !is_merkle_branch_valid {
-			Err(Error::InvalidMerkleBranch)?;
+			Err(Error::InvalidMerkleBranch("Next sync committee branch".into()))?;
 		}
 	}
 
@@ -205,7 +196,11 @@ pub fn verify_sync_committee_attestation(
 			next_sync_committee: sync_committee_update.next_sync_committee,
 		}
 	} else {
-		LightClientState { finalized_header: update.finalized_header, ..trusted_state }
+		LightClientState {
+			finalized_header: update.finalized_header,
+			latest_finalized_epoch: update.finality_proof.epoch,
+			..trusted_state
+		}
 	};
 
 	Ok(new_light_client_state)

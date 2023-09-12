@@ -25,13 +25,15 @@ primitive-types = { version = "0.12.1", features = ["serde_no_std", "impl-codec"
 log = "0.4.20"
 hex = "0.4.3"
 
+
 [dev-dependencies]
 env_logger = "0.10.0"
 sync-committee-primitives = { path= "../primitives" }
 sync-committee-verifier = { path= "../verifier" }
 ethers = { version = "2.0.8", features = ["ws"] }
 tokio = { version =  "1.32.0", features = ["macros", "rt-multi-thread"]}
-
+parity-scale-codec = "3.2.2"
+reqwest-eventsource = "0.4.0"
 
 [features]
 default = ["std"]

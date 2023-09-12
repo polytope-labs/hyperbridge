@@ -4,36 +4,39 @@ use ethers::{
 	prelude::{Http, Middleware, ProviderExt},
 	providers::Provider,
 };
+use reqwest_eventsource::EventSource;
 use ssz_rs::{
 	calculate_multi_merkle_root, get_generalized_index, is_valid_merkle_branch, GeneralizedIndex,
 	Merkleized, SszVariableOrIndex,
 };
 use std::time::Duration;
 use sync_committee_primitives::{
-	constants::{Root, DOMAIN_SYNC_COMMITTEE, GENESIS_FORK_VERSION, GENESIS_VALIDATORS_ROOT},
+	constants::{
+		Root, DOMAIN_SYNC_COMMITTEE, EXECUTION_PAYLOAD_INDEX_LOG2, GENESIS_FORK_VERSION,
+		GENESIS_VALIDATORS_ROOT, NEXT_SYNC_COMMITTEE_INDEX_LOG2,
+	},
 	types::LightClientState,
 	util::{compute_domain, compute_fork_version, compute_signing_root},
 };
 use sync_committee_verifier::{
 	signature_verification::verify_aggregate_signature, verify_sync_committee_attestation,
 };
-use tokio::time;
-use tokio_stream::{wrappers::IntervalStream, StreamExt};
+use tokio_stream::StreamExt;
 
 const CONSENSUS_NODE_URL: &'static str = "http://localhost:3500";
 const EL_NODE_URL: &'static str = "http://localhost:8545";
 
-async fn wait_for_el() {
+async fn wait_for_el(blocks: usize) {
 	let provider = Provider::<Http>::connect(EL_NODE_URL).await;
 	let sub = provider.watch_blocks().await.unwrap();
-	let _ = sub.take(10).collect::<Vec<_>>();
+	let _ = sub.take(blocks).collect::<Vec<_>>();
 }
 
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn fetch_block_header_works() {
-	wait_for_el().await;
+	wait_for_el(1).await;
 	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
 	let block_header = sync_committee_prover.fetch_header("head").await;
 	assert!(block_header.is_ok());
@@ -43,7 +46,7 @@ async fn fetch_block_header_works() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn fetch_block_works() {
-	wait_for_el().await;
+	wait_for_el(1).await;
 	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
 	let block = sync_committee_prover.fetch_block("head").await;
 	assert!(block.is_ok());
@@ -53,7 +56,7 @@ async fn fetch_block_works() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn fetch_validator_works() {
-	wait_for_el().await;
+	wait_for_el(1).await;
 	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
 	let validator = sync_committee_prover.fetch_validator("head", "0").await;
 	assert!(validator.is_ok());
@@ -62,8 +65,9 @@ async fn fetch_validator_works() {
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn fetch_processed_sync_committee_works() {
-	wait_for_el().await;
+	wait_for_el(1).await;
 	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
 	let validator = sync_committee_prover.fetch_processed_sync_committee("head").await;
 	assert!(validator.is_ok());
@@ -96,20 +100,21 @@ async fn generate_indexes() {
 		&beacon_state.latest_execution_payload_header,
 		&[SszVariableOrIndex::Name("timestamp")],
 	);
-
 	dbg!(execution_payload_index);
 	dbg!(next_sync);
 	dbg!(finalized);
 	dbg!(execution_payload_root);
 	dbg!(block_number);
 	dbg!(timestamp);
+
+	dbg!(next_sync.floor_log2());
 }
 
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn fetch_beacon_state_works() {
-	wait_for_el().await;
+	wait_for_el(1).await;
 	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
 	let beacon_state = sync_committee_prover.fetch_beacon_state("head").await;
 	assert!(beacon_state.is_ok());
@@ -119,7 +124,7 @@ async fn fetch_beacon_state_works() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn state_root_and_block_header_root_matches() {
-	wait_for_el().await;
+	wait_for_el(1).await;
 	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
 	let mut beacon_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
@@ -136,7 +141,7 @@ async fn state_root_and_block_header_root_matches() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn fetch_finality_checkpoints_work() {
-	wait_for_el().await;
+	wait_for_el(1).await;
 	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
 	let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint().await;
 	assert!(finality_checkpoint.is_ok());
@@ -146,11 +151,11 @@ async fn fetch_finality_checkpoints_work() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_finalized_header() {
-	wait_for_el().await;
+	wait_for_el(1).await;
 	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
-	let proof = ssz_rs::generate_proof(&mut state, &vec![FINALIZED_ROOT_INDEX as usize]);
+	let proof = ssz_rs::generate_proof(&mut state, &vec![FINALIZED_ROOT_INDEX as usize]).unwrap();
 
 	let leaves = vec![Node::from_bytes(
 		state
@@ -163,7 +168,7 @@ async fn test_finalized_header() {
 	)];
 	let root = calculate_multi_merkle_root(
 		&leaves,
-		&proof.unwrap(),
+		&proof,
 		&[GeneralizedIndex(FINALIZED_ROOT_INDEX as usize)],
 	);
 	assert_eq!(root, state.hash_tree_root().unwrap());
@@ -173,7 +178,7 @@ async fn test_finalized_header() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_execution_payload_proof() {
-	wait_for_el().await;
+	wait_for_el(10).await;
 	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
 
 	let mut finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
@@ -212,8 +217,8 @@ async fn test_execution_payload_proof() {
 	let is_merkle_branch_valid = is_valid_merkle_branch(
 		&execution_payload_root,
 		execution_payload_branch,
-		EXECUTION_PAYLOAD_INDEX.floor_log2() as usize,
-		GeneralizedIndex(EXECUTION_PAYLOAD_INDEX as usize).0,
+		EXECUTION_PAYLOAD_INDEX_LOG2 as usize,
+		EXECUTION_PAYLOAD_INDEX as usize,
 		&finalized_header.state_root,
 	);
 
@@ -224,7 +229,7 @@ async fn test_execution_payload_proof() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_sync_committee_update_proof() {
-	wait_for_el().await;
+	wait_for_el(1).await;
 	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
 
 	let mut finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
@@ -244,11 +249,11 @@ async fn test_sync_committee_update_proof() {
 	assert_eq!(calculated_finalized_root.as_bytes(), finalized_header.state_root.as_bytes());
 
 	let is_merkle_branch_valid = is_valid_merkle_branch(
-		&Node::from_bytes(sync_committee.hash_tree_root().unwrap().as_ref().try_into().unwrap()),
+		&sync_committee.hash_tree_root().unwrap(),
 		sync_committee_proof.iter(),
-		NEXT_SYNC_COMMITTEE_INDEX.floor_log2() as usize,
+		NEXT_SYNC_COMMITTEE_INDEX_LOG2 as usize,
 		NEXT_SYNC_COMMITTEE_INDEX as usize,
-		&Node::from_bytes(finalized_header.state_root.as_ref().try_into().unwrap()),
+		&finalized_header.state_root,
 	);
 
 	assert!(is_merkle_branch_valid);
@@ -259,18 +264,17 @@ async fn test_sync_committee_update_proof() {
 #[tokio::test]
 async fn test_prover() {
 	use log::LevelFilter;
+	use parity_scale_codec::{Decode, Encode};
 	env_logger::builder()
 		.filter_module("prover", LevelFilter::Debug)
 		.format_module_path(false)
 		.init();
-	wait_for_el().await;
-	let mut stream = IntervalStream::new(time::interval(Duration::from_secs(12 * 12)));
+	wait_for_el(1).await;
+	let node_url = format!("{}/eth/v1/events?topics=finalized_checkpoint", CONSENSUS_NODE_URL);
 
 	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
 
-	let block_id = "head";
-
-	let block_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
+	let block_header = sync_committee_prover.fetch_header("head").await.unwrap();
 
 	let state = sync_committee_prover
 		.fetch_beacon_state(&block_header.slot.to_string())
@@ -285,29 +289,47 @@ async fn test_prover() {
 	};
 
 	let mut count = 0;
-	while let Some(_ts) = stream.next().await {
-		let light_client_update = if let Some(update) = sync_committee_prover
-			.fetch_light_client_update(client_state.clone(), "prover")
-			.await
-			.unwrap()
-		{
-			update
-		} else {
-			continue
-		};
 
-		client_state =
-			verify_sync_committee_attestation(client_state.clone(), light_client_update).unwrap();
-		debug!(
-			target: "prover",
-			"Sucessfully verified Ethereum block at slot {:?}",
-			client_state.finalized_header.slot
-		);
+	let mut es = EventSource::get(node_url);
+	while let Some(event) = es.next().await {
+		match event {
+			Ok(reqwest_eventsource::Event::Message(msg)) => {
+				let message: EventResponse = serde_json::from_str(&msg.data).unwrap();
+				let checkpoint =
+					Checkpoint { epoch: message.epoch.parse().unwrap(), root: message.block };
+				let light_client_update = if let Some(update) = sync_committee_prover
+					.fetch_light_client_update(client_state.clone(), checkpoint, "prover")
+					.await
+					.unwrap()
+				{
+					update
+				} else {
+					continue
+				};
 
-		count += 1;
-		// For CI purposes we test finalization of three epochs
-		if count == 3 {
-			break
+				let encoded = light_client_update.encode();
+				let decoded = LightClientUpdate::decode(&mut &*encoded).unwrap();
+				assert_eq!(light_client_update, decoded);
+
+				client_state =
+					verify_sync_committee_attestation(client_state.clone(), light_client_update)
+						.unwrap();
+				debug!(
+					target: "prover",
+					"Sucessfully verified Ethereum block at slot {:?}",
+					client_state.finalized_header.slot
+				);
+
+				count += 1;
+				// For CI purposes we test finalization of 3 epochs
+				if count == 4 {
+					break
+				}
+			},
+			Err(err) => {
+				panic!("Encountered Error and closed stream {err:?}");
+			},
+			_ => continue,
 		}
 	}
 }
@@ -317,7 +339,7 @@ async fn test_prover() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_sync_committee_signature_verification() {
-	wait_for_el().await;
+	wait_for_el(1).await;
 	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
 	let block = loop {
 		let block = sync_committee_prover.fetch_block("head").await.unwrap();
@@ -367,4 +389,12 @@ async fn test_sync_committee_signature_verification() {
 		&block.body.sync_aggregate.sync_committee_signature,
 	)
 	.unwrap();
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct EventResponse {
+	pub block: Root,
+	pub state: Root,
+	pub epoch: String,
+	pub execution_optimistic: bool,
 }

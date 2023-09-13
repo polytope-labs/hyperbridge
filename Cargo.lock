@@ -13032,7 +13032,7 @@ dependencies = [
 [[package]]
 name = "ssz-rs"
 version = "0.8.0"
-source = "git+https://github.com/polytope-labs/ssz-rs?branch=main#81e9f63c93ca33f5f484ac301553f04912f2de23"
+source = "git+https://github.com/polytope-labs/ssz-rs?branch=main#6f5d37b7f92875b5cbb6ef60e8c498ca013943cb"
 dependencies = [
  "as-any",
  "bitvec",
@@ -13048,7 +13048,7 @@ dependencies = [
 [[package]]
 name = "ssz-rs-derive"
 version = "0.8.0"
-source = "git+https://github.com/polytope-labs/ssz-rs?branch=main#81e9f63c93ca33f5f484ac301553f04912f2de23"
+source = "git+https://github.com/polytope-labs/ssz-rs?branch=main#6f5d37b7f92875b5cbb6ef60e8c498ca013943cb"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -13383,7 +13383,7 @@ dependencies = [
 [[package]]
 name = "sync-committee-primitives"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/sync-committee-rs?branch=main#13f2034529aa2be5e6bc59d11c1586b0ce3d2fe1"
+source = "git+https://github.com/polytope-labs/sync-committee-rs?branch=main#106f53e045cc85c4a8d984c8e295800cebaa2475"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -13400,7 +13400,7 @@ dependencies = [
 [[package]]
 name = "sync-committee-verifier"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/sync-committee-rs?branch=main#13f2034529aa2be5e6bc59d11c1586b0ce3d2fe1"
+source = "git+https://github.com/polytope-labs/sync-committee-rs?branch=main#106f53e045cc85c4a8d984c8e295800cebaa2475"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -14131,7 +14131,7 @@ checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
  "digest 0.10.7",
- "rand 0.8.5",
+ "rand 0.7.3",
  "static_assertions",
 ]
 

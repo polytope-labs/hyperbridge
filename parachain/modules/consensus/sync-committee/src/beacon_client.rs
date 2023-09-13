@@ -56,7 +56,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
             consensus_state.light_client_state,
             consensus_update.clone(),
         )
-        .map_err(|_| Error::ConsensusProofVerificationFailed { id: BEACON_CONSENSUS_ID })?;
+        .map_err(|e| Error::ImplementationSpecific(format!("{:?}", e)))?;
 
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
             BTreeMap::new();

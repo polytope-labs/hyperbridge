@@ -4889,7 +4889,7 @@ dependencies = [
 [[package]]
 name = "ismp"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/ismp-rs.git?branch=main#3a85db0d968eab5a88427a19a2a612332caec23f"
+source = "git+https://github.com/polytope-labs/ismp-rs.git?branch=main#5c4e0f412de788b5d86de8146b49f6db6795ca12"
 dependencies = [
  "derive_more",
  "parity-scale-codec",
@@ -4902,7 +4902,7 @@ dependencies = [
 [[package]]
 name = "ismp-demo"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm#cb76d72cc1172fd433c8e465f7f51c11815fa938"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm#773cc12bfc4c6b965328bfe7a73f5f5f4c346739"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -4967,7 +4967,7 @@ dependencies = [
 [[package]]
 name = "ismp-primitives"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm#cb76d72cc1172fd433c8e465f7f51c11815fa938"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm#773cc12bfc4c6b965328bfe7a73f5f5f4c346739"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-support",
@@ -4985,7 +4985,7 @@ dependencies = [
 [[package]]
 name = "ismp-rpc"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm#cb76d72cc1172fd433c8e465f7f51c11815fa938"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm#773cc12bfc4c6b965328bfe7a73f5f5f4c346739"
 dependencies = [
  "frame-system",
  "hex-literal 0.3.4",
@@ -5007,7 +5007,7 @@ dependencies = [
 [[package]]
 name = "ismp-runtime-api"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm#cb76d72cc1172fd433c8e465f7f51c11815fa938"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm#773cc12bfc4c6b965328bfe7a73f5f5f4c346739"
 dependencies = [
  "ismp",
  "ismp-primitives",
@@ -7306,7 +7306,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm#cb76d72cc1172fd433c8e465f7f51c11815fa938"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm#773cc12bfc4c6b965328bfe7a73f5f5f4c346739"
 dependencies = [
  "ckb-merkle-mountain-range",
  "derive_more",

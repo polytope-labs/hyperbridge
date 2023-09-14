@@ -69,18 +69,6 @@
           "port": 31200,
           "basePath": "/tmp/polkadot-launch/parachains/alice",
           "flags": ["--alice", "--rpc-cors=all", "--execution=wasm", "--wasmtime-instantiation-strategy=recreate-instance-copy-on-write", "--log=runtime::mmr=trace,runtime::mmr::offchain=debug,runtime=trace",  "--enable-offchain-indexing=true", "--pruning=archive", "--", "--base-path=/tmp/polkadot-launch/relaychains/alice-1"]
-        },
-        {
-          "wsPort": 9989,
-          "port": 31201,
-          "basePath": "/tmp/polkadot-launch/parachains/bob",
-          "flags": ["--bob", "--rpc-cors=all", "--execution=wasm", "--wasmtime-instantiation-strategy=recreate-instance-copy-on-write", "--enable-offchain-indexing=true", "--", "--base-path=/tmp/polkadot-launch/relaychains/bob-1"]
-        },
-        {
-          "wsPort": 9990,
-          "port": 31202,
-          "basePath": "/tmp/polkadot-launch/parachains/charlie",
-          "flags": ["--charlie", "--rpc-cors=all", "--execution=wasm", "--wasmtime-instantiation-strategy=recreate-instance-copy-on-write", "--enable-offchain-indexing=true", "--", "--base-path=/tmp/polkadot-launch/relaychains/charlie-1"]
         }
       ]
     },
@@ -93,18 +81,6 @@
           "port": 32200,
           "basePath": "/tmp/polkadot-launch/parachains/prime-alice",
           "flags": ["--alice", "--rpc-cors=all", "--execution=wasm", "--wasmtime-instantiation-strategy=recreate-instance-copy-on-write", "--log=runtime::mmr=trace,runtime::mmr::offchain=debug,runtime=trace", "--enable-offchain-indexing=true", "--pruning=archive", "--", "--base-path=/tmp/polkadot-launch/relaychains/prime-alice-1"]
-        },
-        {
-          "wsPort": 9189,
-          "port": 32201,
-          "basePath": "/tmp/polkadot-launch/parachains/prime-bob",
-          "flags": ["--bob", "--rpc-cors=all", "--execution=wasm", "--wasmtime-instantiation-strategy=recreate-instance-copy-on-write", "--enable-offchain-indexing=true", "--", "--base-path=/tmp/polkadot-launch/relaychains/prime-bob-1"]
-        },
-        {
-          "wsPort": 9190,
-          "port": 32202,
-          "basePath": "/tmp/polkadot-launch/parachains/prime-charlie",
-          "flags": ["--charlie", "--rpc-cors=all", "--execution=wasm", "--wasmtime-instantiation-strategy=recreate-instance-copy-on-write", "--enable-offchain-indexing=true", "--", "--base-path=/tmp/polkadot-launch/relaychains/prime-charlie-1"]
         }
       ]
     }

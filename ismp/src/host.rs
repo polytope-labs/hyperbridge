@@ -244,9 +244,9 @@ impl ToString for StateMachine {
     fn to_string(&self) -> String {
         match self {
             StateMachine::Ethereum(ethereum) => match ethereum {
-                Ethereum::ExecutionLayer => "ETH".to_string(),
-                Ethereum::Arbitrum => "ARB".to_string(),
-                Ethereum::Optimism => "OP".to_string(),
+                Ethereum::ExecutionLayer => "ETHE".to_string(),
+                Ethereum::Arbitrum => "ARBI".to_string(),
+                Ethereum::Optimism => "OPTI".to_string(),
                 Ethereum::Base => "BASE".to_string(),
             },
             StateMachine::Polkadot(id) => format!("POLKADOT-{id}"),
@@ -307,7 +307,7 @@ impl FromStr for StateMachine {
 
 #[cfg(test)]
 mod tests {
-    use crate::host::StateMachine;
+    use crate::host::{Ethereum, StateMachine};
     use alloc::string::ToString;
     use core::str::FromStr;
 
@@ -315,14 +315,26 @@ mod tests {
     fn state_machine_conversions() {
         let grandpa = StateMachine::Grandpa(*b"hybr");
         let beefy = StateMachine::Beefy(*b"hybr");
+        let eth = StateMachine::Ethereum(Ethereum::ExecutionLayer);
+        let arb = StateMachine::Ethereum(Ethereum::Arbitrum);
+        let op = StateMachine::Ethereum(Ethereum::Optimism);
+        let base = StateMachine::Ethereum(Ethereum::Base);
 
         let grandpa_string = grandpa.to_string();
         let beefy_string = beefy.to_string();
+        let eth_str = eth.to_string();
+        let arb_str = arb.to_string();
+        let op_str = op.to_string();
+        let base_str = base.to_string();
 
         dbg!(&grandpa_string);
         dbg!(&beefy_string);
 
         assert_eq!(grandpa, StateMachine::from_str(&grandpa_string).unwrap());
         assert_eq!(beefy, StateMachine::from_str(&beefy_string).unwrap());
+        assert_eq!(eth, StateMachine::from_str(&eth_str).unwrap());
+        assert_eq!(arb, StateMachine::from_str(&arb_str).unwrap());
+        assert_eq!(op, StateMachine::from_str(&op_str).unwrap());
+        assert_eq!(base, StateMachine::from_str(&base_str).unwrap());
     }
 }

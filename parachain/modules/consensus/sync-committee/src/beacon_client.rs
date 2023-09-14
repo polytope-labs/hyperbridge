@@ -193,7 +193,7 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
             // key
             let contract_address =
                 if key.len() == 52 { H160::from_slice(&key[..20]) } else { ismp_address };
-            let slot_hash = if key.len() == 52 { key[20..].to_vec() } else { key.clone() };
+            let slot_hash = if key.len() == 52 { H::keccak256(&key[20..]).0.to_vec() } else { key.clone() };
 
             let contract_root = get_contract_storage_root::<H>(
                 evm_state_proof.contract_proof.clone(),

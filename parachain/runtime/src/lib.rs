@@ -683,8 +683,6 @@ impl_runtime_apis! {
             Ok(Ismp::mmr_root())
         }
 
-        fn timestamp() -> Option<u64> { Some(Timestamp::now()) }
-
         fn challenge_period(consensus_state_id: [u8; 4]) -> Option<u64> {
             Ismp::get_challenge_period(consensus_state_id)
         }

@@ -69,8 +69,8 @@ cumulus-primitives-parachain-inherent = { git = "https://github.com/paritytech/c
 cumulus-relay-chain-interface = { git = "https://github.com/paritytech/cumulus.git", branch = "release-v0.9.420" }
 
 # polytope-labs
-ismp-rpc = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main" }
-ismp-runtime-api = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main" }
+ismp-rpc = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "dispatch-to-evm" }
+ismp-runtime-api = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "dispatch-to-evm" }
 
 # local
 ismp-parachain-inherent = { path = "../modules/consensus/parachain/inherent" }

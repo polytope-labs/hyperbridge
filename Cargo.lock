@@ -4524,7 +4524,7 @@ dependencies = [
  "hyperbridge-runtime",
  "ismp-parachain-inherent",
  "ismp-rpc",
- "ismp-runtime-api 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=main)",
+ "ismp-runtime-api",
  "jsonrpsee",
  "log",
  "pallet-transaction-payment-rpc",
@@ -4593,15 +4593,15 @@ dependencies = [
  "ismp-demo",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
- "ismp-primitives 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm)",
- "ismp-runtime-api 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm)",
+ "ismp-primitives",
+ "ismp-runtime-api",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",
  "pallet-collator-selection",
- "pallet-ismp 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm)",
+ "pallet-ismp",
  "pallet-session",
  "pallet-sudo",
  "pallet-timestamp",
@@ -4908,7 +4908,7 @@ dependencies = [
  "frame-system",
  "ismp",
  "pallet-balances",
- "pallet-ismp 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm)",
+ "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
  "sp-core 7.0.0",
@@ -4925,8 +4925,8 @@ dependencies = [
  "frame-system",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-primitives 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm)",
- "pallet-ismp 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm)",
+ "ismp-primitives",
+ "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",
@@ -4983,35 +4983,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "ismp-primitives"
-version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#5fd88d277cffa50f0ca21dc71ad09ccb09a3467e"
-dependencies = [
- "ckb-merkle-mountain-range",
- "frame-support",
- "frame-system",
- "ismp",
- "parity-scale-codec",
- "primitive-types",
- "scale-info",
- "serde",
- "sp-consensus-aura",
- "sp-core 7.0.0",
- "sp-runtime",
-]
-
-[[package]]
 name = "ismp-rpc"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#5fd88d277cffa50f0ca21dc71ad09ccb09a3467e"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm#cb76d72cc1172fd433c8e465f7f51c11815fa938"
 dependencies = [
  "frame-system",
  "hex-literal 0.3.4",
  "ismp",
- "ismp-primitives 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=main)",
- "ismp-runtime-api 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=main)",
+ "ismp-primitives",
+ "ismp-runtime-api",
  "jsonrpsee",
- "pallet-ismp 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=main)",
+ "pallet-ismp",
  "parity-scale-codec",
  "sc-client-api",
  "serde",
@@ -5028,22 +5010,8 @@ version = "0.1.0"
 source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm#cb76d72cc1172fd433c8e465f7f51c11815fa938"
 dependencies = [
  "ismp",
- "ismp-primitives 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm)",
- "pallet-ismp 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm)",
- "parity-scale-codec",
- "serde",
- "sp-api",
- "sp-std 5.0.0",
-]
-
-[[package]]
-name = "ismp-runtime-api"
-version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#5fd88d277cffa50f0ca21dc71ad09ccb09a3467e"
-dependencies = [
- "ismp",
- "ismp-primitives 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=main)",
- "pallet-ismp 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=main)",
+ "ismp-primitives",
+ "pallet-ismp",
  "parity-scale-codec",
  "serde",
  "sp-api",
@@ -7347,31 +7315,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "ismp",
- "ismp-primitives 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm)",
- "log",
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-api",
- "sp-core 7.0.0",
- "sp-io",
- "sp-runtime",
- "sp-std 5.0.0",
-]
-
-[[package]]
-name = "pallet-ismp"
-version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#5fd88d277cffa50f0ca21dc71ad09ccb09a3467e"
-dependencies = [
- "ckb-merkle-mountain-range",
- "derive_more",
- "enum-as-inner",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "ismp",
- "ismp-primitives 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=main)",
+ "ismp-primitives",
  "log",
  "parity-scale-codec",
  "scale-info",
@@ -13597,8 +13541,8 @@ dependencies = [
  "frame-system",
  "hash-db 0.16.0",
  "ismp",
- "ismp-primitives 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm)",
- "pallet-ismp 0.1.0 (git+https://github.com/polytope-labs/substrate-ismp.git?branch=dispatch-to-evm)",
+ "ismp-primitives",
+ "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",

@@ -511,7 +511,7 @@ construct_runtime!(
 
         // ISMP stuff
         Ismp: pallet_ismp = 40,
-        IsmpParachain: ismp_parachain = 41,
+        // IsmpParachain: ismp_parachain = 41,
         IsmpDemo: ismp_demo = 42,
     }
 );
@@ -749,11 +749,11 @@ impl_runtime_apis! {
         }
     }
 
-    impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {
-        fn para_ids() -> Vec<u32> {
-            IsmpParachain::para_ids()
-        }
-    }
+    // impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {
+    //     fn para_ids() -> Vec<u32> {
+    //         IsmpParachain::para_ids()
+    //     }
+    // }
 
     impl cumulus_primitives_core::CollectCollationInfo<Block> for Runtime {
         fn collect_collation_info(header: &<Block as BlockT>::Header) -> cumulus_primitives_core::CollationInfo {

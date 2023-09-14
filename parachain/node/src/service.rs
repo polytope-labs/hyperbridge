@@ -371,7 +371,7 @@ fn build_consensus(
         proposer_factory,
         create_inherent_data_providers: move |_, (relay_parent, validation_data)| {
             let relay_chain_interface = relay_chain_interface.clone();
-            let client = client_clone.clone();
+            // let client = client_clone.clone();
             async move {
                 let parachain_inherent =
                     cumulus_primitives_parachain_inherent::ParachainInherentData::create_at(
@@ -380,7 +380,11 @@ fn build_consensus(
                         &validation_data,
                         para_id,
                     )
-                    .await;
+                    .await.ok_or_else(|| {
+                        Box::<dyn std::error::Error + Send + Sync>::from(
+                            "Failed to create parachain inherent",
+                        )
+                    })?;
                 let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
 
                 let slot =
@@ -389,22 +393,18 @@ fn build_consensus(
 							slot_duration,
 						);
 
-                let parachain_inherent = parachain_inherent.ok_or_else(|| {
-                    Box::<dyn std::error::Error + Send + Sync>::from(
-                        "Failed to create parachain inherent",
-                    )
-                })?;
 
-                let consensus_inherent =
-                    ismp_parachain_inherent::ConsensusInherentProvider::create(
-                        client.clone(),
-                        relay_parent,
-                        &relay_chain_interface,
-                        validation_data,
-                    )
-                    .await?;
+                // let consensus_inherent =
+                //     ismp_parachain_inherent::ConsensusInherentProvider::create(
+                //         client.clone(),
+                //         relay_parent,
+                //         &relay_chain_interface,
+                //         validation_data,
+                //     )
+                //     .await?;
 
-                Ok((slot, timestamp, parachain_inherent, consensus_inherent))
+                // Ok((slot, timestamp, parachain_inherent, consensus_inherent))
+                Ok((slot, timestamp, parachain_inherent))
             }
         },
         block_import,

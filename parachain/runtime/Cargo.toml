@@ -12,6 +12,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 substrate-wasm-builder = { git = "https://github.com/paritytech/substrate", "branch" = "polkadot-v0.9.42" }
 
 [dependencies]
+# crates.io
 codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
 hex-literal = { version = "0.3.4", optional = true }
 log = { version = "0.4.17", default-features = false }
@@ -70,11 +71,12 @@ parachain-info = { git = "https://github.com/paritytech/cumulus.git", branch = "
 # polytope-labs
 pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 ismp-demo = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
-ismp-parachain = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 ismp-runtime-api = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
-ismp-parachain-runtime-api = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 ismp = { git = "https://github.com/polytope-labs/ismp-rs.git", branch = "main", default-features = false }
+
+# local modules
+ismp-sync-committee = { path = "../modules/consensus/sync-committee", default-features = false }
 
 [features]
 default = [
@@ -108,10 +110,8 @@ std = [
 	"pallet-transaction-payment/std",
 	"pallet-xcm/std",
 	"pallet-ismp/std",
-	"ismp-parachain/std",
 	"ismp-primitives/std",
 	"ismp-runtime-api/std",
-	"ismp-parachain-runtime-api/std",
 	"ismp-demo/std",
 	"parachain-info/std",
 	"polkadot-parachain/std",
@@ -130,6 +130,7 @@ std = [
 	"xcm-builder/std",
 	"xcm-executor/std",
 	"xcm/std",
+	"ismp-sync-committee/std",
 ]
 
 runtime-benchmarks = [

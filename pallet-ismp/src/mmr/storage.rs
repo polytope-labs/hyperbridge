@@ -15,8 +15,8 @@
 
 //! An MMR storage implementation.
 use codec::Encode;
-use frame_support::log::{debug, trace};
 use ismp_primitives::mmr::{DataOrHash, NodeIndex};
+use log::{debug, trace};
 use mmr_lib::helper;
 use sp_core::offchain::StorageKind;
 use sp_std::iter::Peekable;

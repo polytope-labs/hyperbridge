@@ -43,9 +43,7 @@ use codec::{Decode, Encode};
 use core::time::Duration;
 use frame_support::{
     dispatch::{DispatchResult, DispatchResultWithPostInfo, Pays, PostDispatchInfo},
-    log::debug,
     traits::{Get, UnixTime},
-    RuntimeDebug,
 };
 use ismp_rs::{
     consensus::{ConsensusClientId, StateMachineId},
@@ -54,6 +52,7 @@ use ismp_rs::{
     messaging::CreateConsensusState,
     router::{Request, Response},
 };
+use log::debug;
 use sp_core::{offchain::StorageKind, H256};
 // Re-export pallet items so that they can be accessed from the crate namespace.
 use crate::{
@@ -61,12 +60,14 @@ use crate::{
     mmr::mmr::Mmr,
     weight_info::get_weight,
 };
+use frame_system::pallet_prelude::BlockNumberFor;
 use ismp_primitives::{
     mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex},
     LeafIndexQuery,
 };
 use ismp_rs::{host::IsmpHost, messaging::Message};
 pub use pallet::*;
+use sp_runtime::RuntimeDebug;
 use sp_std::prelude::*;
 
 // Definition of the pallet logic, to be aggregated at runtime definition through
@@ -271,12 +272,12 @@ pub mod pallet {
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        fn on_initialize(_n: T::BlockNumber) -> Weight {
+        fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
             // return Mmr finalization weight here
             <T as Config>::WeightInfo::on_finalize(Self::number_of_leaves() as u32)
         }
 
-        fn on_finalize(_n: T::BlockNumber) {
+        fn on_finalize(_n: BlockNumberFor<T>) {
             // Only finalize if mmr was modified
             let leaves = Self::number_of_leaves();
             let root = if leaves != 0 {
@@ -301,7 +302,7 @@ pub mod pallet {
             <frame_system::Pallet<T>>::deposit_log(digest);
         }
 
-        fn offchain_worker(_n: T::BlockNumber) {}
+        fn offchain_worker(_n: BlockNumberFor<T>) {}
     }
 
     /// Params to update the unbonding period for a consensus state

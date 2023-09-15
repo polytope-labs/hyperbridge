@@ -41,9 +41,10 @@ use sp_core::{
     offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
     H256,
 };
+use sp_runtime::BuildStorage;
 
 pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
-    frame_system::GenesisConfig::default().build_storage::<Test>().unwrap().into()
+    frame_system::GenesisConfig::<Test>::default().build_storage().unwrap().into()
 }
 
 fn register_offchain_ext(ext: &mut sp_io::TestExternalities) {

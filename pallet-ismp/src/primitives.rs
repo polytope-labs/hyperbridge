@@ -15,7 +15,7 @@
 
 //! Pallet primitives
 use codec::{Decode, Encode};
-use frame_support::{weights::Weight, PalletId, RuntimeDebug};
+use frame_support::{weights::Weight, PalletId};
 use ismp_primitives::mmr::{LeafIndex, NodeIndex};
 use ismp_rs::consensus::{ConsensusClient, ConsensusClientId};
 use scale_info::TypeInfo;
@@ -23,6 +23,7 @@ use sp_core::{
     crypto::{AccountId32, ByteArray},
     H160,
 };
+use sp_runtime::RuntimeDebug;
 use sp_std::prelude::*;
 
 /// An MMR proof data for a group of leaves.

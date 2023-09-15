@@ -41,7 +41,7 @@ pub enum Test where
         NodeBlock = Block,
         UncheckedExtrinsic = UncheckedExtrinsic,
         {
-            System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
+            System: frame_system::{Pallet, Call, Config<T>, Storage, Event<T>},
             Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
             Ismp: pallet_ismp::{Pallet, Storage, Call, Event<T>},
         }
@@ -69,19 +69,18 @@ impl frame_system::Config for Test {
     type BaseCallFilter = frame_support::traits::Everything;
     type RuntimeOrigin = RuntimeOrigin;
     type RuntimeCall = RuntimeCall;
-    type Index = u64;
-    type BlockNumber = u64;
     type Hash = H256;
     type Hashing = Keccak256;
     type AccountId = sp_core::sr25519::Public;
     type Lookup = IdentityLookup<Self::AccountId>;
-    type Header = Header;
     type RuntimeEvent = RuntimeEvent;
     type BlockHashCount = ConstU64<250>;
     type DbWeight = ();
     type BlockWeights = ();
     type BlockLength = ();
     type Version = ();
+    type Nonce = u64;
+    type Block = Block;
     type PalletInfo = PalletInfo;
     type AccountData = ();
     type OnNewAccount = ();

@@ -20,7 +20,7 @@
 use core::fmt::Formatter;
 
 use codec::{Decode, Encode};
-use frame_support::sp_io;
+//use frame_support::sp_io;
 use ismp::{
     router::{Request, Response},
     util::{hash_request, hash_response, Keccak256},

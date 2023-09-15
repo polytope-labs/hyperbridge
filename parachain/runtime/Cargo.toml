@@ -77,8 +77,6 @@ ismp = { git = "https://github.com/polytope-labs/ismp-rs.git", branch = "main", 
 
 # local modules
 ismp-sync-committee = { path = "../modules/consensus/sync-committee", default-features = false }
-ismp-parachain = { path = "../modules/consensus/parachain", default-features = false }
-ismp-parachain-runtime-api = { path = "../modules/consensus/parachain/runtime-api", default-features = false }
 
 [features]
 default = [
@@ -112,10 +110,8 @@ std = [
 	"pallet-transaction-payment/std",
 	"pallet-xcm/std",
 	"pallet-ismp/std",
-	"ismp-parachain/std",
 	"ismp-primitives/std",
 	"ismp-runtime-api/std",
-	"ismp-parachain-runtime-api/std",
 	"ismp-demo/std",
 	"parachain-info/std",
 	"polkadot-parachain/std",

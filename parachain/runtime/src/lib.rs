@@ -511,7 +511,7 @@ construct_runtime!(
 
         // ISMP stuff
         Ismp: pallet_ismp = 40,
-        // IsmpParachain: ismp_parachain = 41,
+        IsmpSyncCommittee: ismp_sync_committee::pallet::{Pallet, Call} = 41,
         IsmpDemo: ismp_demo = 42,
     }
 );

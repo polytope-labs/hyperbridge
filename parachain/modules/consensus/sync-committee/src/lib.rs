@@ -12,6 +12,7 @@ pub mod prelude {
 pub mod arbitrum;
 pub mod beacon_client;
 pub mod optimism;
+pub mod pallet;
 pub mod presets;
 #[cfg(test)]
 mod tests;

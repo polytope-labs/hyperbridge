@@ -1,7 +1,6 @@
 use crate::{
     alloc::{boxed::Box, string::ToString},
-    AccountId, Balance, Balances, Ismp, ParachainInfo, Runtime, RuntimeEvent,
-    Timestamp,
+    AccountId, Balance, Balances, Ismp, ParachainInfo, Runtime, RuntimeEvent, Timestamp,
 };
 use alloc::format;
 use frame_support::pallet_prelude::Get;
@@ -36,11 +35,6 @@ pub struct ConsensusProvider;
 impl ConsensusClientProvider for ConsensusProvider {
     fn consensus_client(id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
         match id {
-            // ismp_parachain::PARACHAIN_CONSENSUS_ID => {
-            //     let parachain =
-            //         ismp_parachain::ParachainConsensusClient::<Runtime, IsmpParachain>::default();
-            //     Ok(Box::new(parachain))
-            // },
             ismp_sync_committee::BEACON_CONSENSUS_ID => {
                 let sync_committee =
                     ismp_sync_committee::SyncCommitteeConsensusClient::<Host<Runtime>>::default();
@@ -51,9 +45,9 @@ impl ConsensusClientProvider for ConsensusProvider {
     }
 }
 
-// impl ismp_parachain::Config for Runtime {
-//     type RuntimeEvent = RuntimeEvent;
-// }
+impl ismp_sync_committee::pallet::Config for Runtime {
+    type AdminOrigin = EnsureRoot<AccountId>;
+}
 
 impl pallet_ismp::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;

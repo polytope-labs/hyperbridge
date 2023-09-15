@@ -59,7 +59,7 @@ jobs:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
       - name: check runtime no-std
-        run: cargo +nightly -p hyperbridge-runtime --no-default-features --target=wasm32-unknown-unknown --locked
+        run: cargo +nightly check -p hyperbridge-runtime --no-default-features --target=wasm32-unknown-unknown --locked
 
   fmt:
     name: Cargo fmt

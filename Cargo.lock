@@ -7005,6 +7005,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-beacon-consensus"
+version = "0.1.0"
+dependencies = [
+ "ethabi",
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "ismp-sync-committee",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
+ "sp-core 7.0.0",
+ "sp-io",
+ "sp-runtime",
+ "sp-trie",
+]
+
+[[package]]
 name = "pallet-beefy"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate?branch=polkadot-v0.9.42#ff24c60ac7d9f87727ecdd0ded9a80c56e4f4b65"

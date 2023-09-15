@@ -1,0 +1,47 @@
+[package]
+name = "pallet-beacon-consensus"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = [
+    "derive"
+] }
+primitive-types = { version = "0.12.1", default-features = false }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
+
+
+# polytope labs
+ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main", default-features = false }
+ismp-sync-committee = { path="../sync-committee/"}
+pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
+
+
+# substrate
+frame-support = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
+frame-system = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
+sp-trie = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
+sp-io = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
+sp-runtime = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.42" }
+sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.42", default-features = false }
+
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-support/std",
+    "frame-system/std",
+    "scale-info/std",
+    "ismp/std",
+    "sp-trie/std",
+    "sp-runtime/std",
+    "sp-io/std",
+    "primitive-types/std",
+    "sp-core/std",
+    "ethabi/std",
+    "pallet-ismp/std",
+]

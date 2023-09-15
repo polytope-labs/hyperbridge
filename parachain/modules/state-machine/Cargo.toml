@@ -11,8 +11,8 @@ sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "polkad
 
 # polytope labs
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main", default-features = false }
-ismp-primitives = {git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "dispatch-to-evm", default-features = false }
-pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "dispatch-to-evm", default-features = false }
+ismp-primitives = {git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
+pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 
 # crates.io
 merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }

@@ -25,11 +25,10 @@ extern crate alloc;
 use alloc::{format, vec::Vec};
 use codec::{Decode, Encode};
 use core::{fmt::Debug, time::Duration};
-use frame_support::sp_runtime::Digest;
 use ismp::{error::Error, host::StateMachine};
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_core::H256;
-use sp_runtime::DigestItem;
+use sp_runtime::{Digest, DigestItem};
 
 pub mod mmr;
 

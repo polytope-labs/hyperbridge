@@ -13,6 +13,8 @@ concurrency:
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-C link-args=-Wl,--allow-multiple-definition"
     steps:
       - name: Checkout sources
         uses: actions/checkout@v3
@@ -23,7 +25,7 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2022-10-28
+          toolchain: nightly-2023-08-23
           targets: wasm32-unknown-unknown
 
       - name: Install Protoc
@@ -34,16 +36,16 @@ jobs:
 
       - name: Build
         run: |
-          cargo +nightly-2022-10-28 check --workspace --all-targets --all-features --verbose --locked
+          cargo +nightly-2023-08-23 check --workspace --all-targets --all-features --verbose --locked
 
       - name: Build `no-std`
         run: |
-          cargo +nightly-2022-10-28 check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --verbose --locked
-          cargo +nightly-2022-10-28 check -p ismp-demo --no-default-features --target=wasm32-unknown-unknown --verbose --locked
+          cargo +nightly-2023-08-23 check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --verbose --locked
+          cargo +nightly-2023-08-23 check -p ismp-demo --no-default-features --target=wasm32-unknown-unknown --verbose --locked
 
       - name: Test
         run: |
-          cargo +nightly-2022-10-28 test -p pallet-ismp --all-targets --all-features --verbose --locked
+          cargo +nightly-2023-08-23 test -p pallet-ismp --all-targets --all-features --verbose --locked
 
   lint:
     runs-on: ubuntu-latest

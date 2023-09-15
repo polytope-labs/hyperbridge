@@ -1,3 +1,0 @@
-[submodule "ismp-solidity"]
-	path = pallet-ismp/evm/solidity/lib/ismp-solidity
-	url = https://github.com/polytope-labs/ismp-solidity.git

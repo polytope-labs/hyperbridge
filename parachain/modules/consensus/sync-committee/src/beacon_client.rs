@@ -85,7 +85,14 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
             let state = verify_optimism_payload::<H>(
                 optimism_payload,
                 &state_root[..],
-                consensus_state.l2_oracle_address,
+                *consensus_state
+                    .l2_oracle_address
+                    .get(&StateMachine::Ethereum(Ethereum::Optimism))
+                    .ok_or_else(|| {
+                        Error::ImplementationSpecific(
+                            "Optimism l2 oracle address was not set".into(),
+                        )
+                    })?,
             )?;
 
             let optimism_state_commitment_height =

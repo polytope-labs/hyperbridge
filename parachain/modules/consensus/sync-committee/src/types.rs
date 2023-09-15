@@ -25,7 +25,7 @@ pub struct ConsensusState {
     pub frozen_height: Option<u64>,
     pub light_client_state: LightClientState,
     pub ismp_contract_addresses: BTreeMap<StateMachine, H160>,
-    pub l2_oracle_address: H160,
+    pub l2_oracle_address: BTreeMap<StateMachine, H160>,
     pub rollup_core_address: H160,
 }
 

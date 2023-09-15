@@ -5,3 +5,4 @@
 **/node_modules/*
 rococo*.json
 .cargo/
+.DS_Store

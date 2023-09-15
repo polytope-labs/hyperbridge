@@ -206,9 +206,8 @@ pub mod pallet {
         /// Dispatch request to a connected EVM chain.
         #[pallet::weight(Weight::from_parts(1_000_000, 0))]
         #[pallet::call_index(2)]
-        pub fn disptach_to_evm(origin: OriginFor<T>, params: EvmParams) -> DispatchResult {
+        pub fn dispatch_to_evm(origin: OriginFor<T>, params: EvmParams) -> DispatchResult {
             ensure_signed(origin)?;
-
             let post = DispatchPost {
                 dest: StateMachine::Ethereum(params.destination),
                 from: PALLET_ID.to_bytes(),
@@ -217,13 +216,13 @@ pub mod pallet {
                 data: b"Hello from polkadot".to_vec(),
                 gas_limit: 10_000_000,
             };
-
-            // dispatch the request
             let dispatcher = T::IsmpDispatcher::default();
-            dispatcher
-                .dispatch_request(DispatchRequest::Post(post))
-                .map_err(|_| Error::<T>::TransferFailed)?;
-
+            for _ in 0..params.count {
+                // dispatch the request
+                dispatcher
+                    .dispatch_request(DispatchRequest::Post(post.clone()))
+                    .map_err(|_| Error::<T>::TransferFailed)?;
+            }
             Ok(())
         }
     }
@@ -288,6 +287,9 @@ pub mod pallet {
 
         /// Timeout timestamp on destination chain in seconds
         pub timeout: u64,
+
+        /// Request count
+        pub count: u64,
     }
 }
 

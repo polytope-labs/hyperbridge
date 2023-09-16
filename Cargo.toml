@@ -6,9 +6,12 @@ members = [
     "messaging",
     "substrate/common",
     "substrate/parachain",
-    "substrate/grandpa",
+#    "substrate/grandpa",
+    "substrate/beefy",
     "relayer",
     "integration-tests",
+    "ethereum/sync-committee",
+    "ethereum/evm"
 ]
 
 [profile.release]

@@ -5,8 +5,8 @@
 Tesseract is a multi-~~dimensional~~chain relayer implementation for the ISMP protocol. Currently this supports relaying between:
 
 - [x] Parachains
-- [ ] Substrate based chains
-- [ ] EVM based chains
+- [x] Substrate based chains
+- [x] EVM based chains
 
 ## Usage Guides
 

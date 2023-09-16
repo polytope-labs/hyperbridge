@@ -160,29 +160,11 @@ macro_rules! chain {
             async fn query_ismp_events(
                 &self,
                 event: primitives::StateMachineUpdated,
-            ) -> Result<Vec<pallet_ismp::events::Event>, anyhow::Error> {
+            ) -> Result<Vec<ismp::events::Event>, anyhow::Error> {
                 match self {
 					$(
 						$(#[$($meta)*])*
 						Self::$name(chain) => chain.query_ismp_events(event).await,
-					)*
-				}
-            }
-
-            async fn query_requests(&self, keys: Vec<primitives::Query>) -> Result<Vec<ismp::router::Request>, anyhow::Error> {
-                match self {
-					$(
-						$(#[$($meta)*])*
-						Self::$name(chain) => chain.query_requests(keys).await,
-					)*
-				}
-            }
-
-            async fn query_responses(&self, keys: Vec<primitives::Query>) -> Result<Vec<ismp::router::Response>, anyhow::Error> {
-                match self {
-					$(
-						$(#[$($meta)*])*
-						Self::$name(chain) => chain.query_responses(keys).await,
 					)*
 				}
             }

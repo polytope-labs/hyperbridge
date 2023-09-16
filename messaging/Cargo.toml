@@ -6,11 +6,12 @@ description = "Chain agnostic ISMP request/response relay"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
-anyhow = "1.0.70"
+anyhow = "1.0.75"
 log = "0.4.17"
 futures = "0.3.28"
 tokio = { version = "1.27.0", features = ["full"] }
 pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
 tesseract-primitives = { path = "../primitives" }
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
+sp-core = { version = "21.0.0", features = ["full_crypto"] }
 

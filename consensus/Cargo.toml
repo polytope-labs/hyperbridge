@@ -6,7 +6,7 @@ description = "Chain agnostic ISMP consensus relay"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
-anyhow = "1.0.70"
+anyhow = "1.0.75"
 log = "0.4.17"
 futures = "0.3.28"
 tokio = { version = "1.27.0", features = ["full"] }

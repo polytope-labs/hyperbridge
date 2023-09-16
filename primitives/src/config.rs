@@ -16,7 +16,6 @@
 //! Relayer configuration options
 
 use serde::{Deserialize, Serialize};
-use sp_core::Bytes;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MessageKind {
@@ -36,5 +35,5 @@ pub struct RelayerConfig {
     /// Types of messages to be relayed.
     pub messages: Vec<MessageKind>,
     /// Modules we're interested in relaying
-    pub module_filter: Vec<Bytes>,
+    pub module_filter: Vec<Vec<u8>>,
 }

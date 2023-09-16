@@ -6,8 +6,16 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build_and_test:
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -15,6 +23,10 @@ jobs:
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
+
+      - uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: "${{ secrets.SSH_KEY }}"
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
@@ -33,6 +45,7 @@ jobs:
 #        run: cargo +nightly test --all-features --verbose
 
   lint:
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources

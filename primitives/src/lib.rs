@@ -17,14 +17,15 @@
 pub mod config;
 
 use futures::Stream;
+pub use ismp::events::StateMachineUpdated;
 use ismp::{
     consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
+    events::Event,
     host::StateMachine,
     messaging::{ConsensusMessage, Message},
-    router::{Get, Request, Response},
+    router::Get,
 };
-use pallet_ismp::events::Event;
-use parity_scale_codec::{Decode, Encode};
+use primitive_types::H256;
 use std::{pin::Pin, time::Duration};
 
 /// Provides an interface for accessing new events and ISMP data on the chain which must be
@@ -35,12 +36,7 @@ pub struct Query {
     pub source_chain: StateMachine,
     pub dest_chain: StateMachine,
     pub nonce: u64,
-}
-
-#[derive(Copy, Clone, Debug, Encode, Decode)]
-pub struct StateMachineUpdated {
-    pub state_machine_id: StateMachineId,
-    pub latest_height: u64,
+    pub commitment: H256,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -113,12 +109,6 @@ pub trait IsmpProvider {
     ) -> Result<Vec<Event>, anyhow::Error>;
 
     /// Query requests
-    async fn query_requests(&self, keys: Vec<Query>) -> Result<Vec<Request>, anyhow::Error>;
-
-    /// Query responses
-    async fn query_responses(&self, keys: Vec<Query>) -> Result<Vec<Response>, anyhow::Error>;
-
-    /// Query requests
     async fn query_pending_get_requests(&self, height: u64) -> Result<Vec<Get>, anyhow::Error>;
 
     /// Name of this chain, used in logs.
@@ -170,8 +160,8 @@ pub trait ByzantineHandler {
 /// Provides an interface for the chain to the relayer core for submitting Ismp messages as well as
 #[async_trait::async_trait]
 pub trait IsmpHost: ByzantineHandler + Clone + Send + Sync {
-    /// Return a stream that yields [`ConsensusMessage`] when a new consensus update can be sent to
-    /// the counterparty
+    /// Return a stream that yields [`ConsensusMessage`] when a new consensus update
+    /// can be sent to the counterparty
     async fn consensus_notification<C>(
         &self,
         counterparty: C,

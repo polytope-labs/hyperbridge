@@ -15,23 +15,23 @@
 
 //! Tesseract config utilities
 
-use grandpa::{GrandpaConfig, GrandpaHost};
+// use grandpa::{GrandpaConfig, GrandpaHost};
 use ismp_primitives::HashAlgorithm;
-use parachain::{ParachainConfig, ParachainHost};
+use parachain::ParachainHost;
 use primitives::config::RelayerConfig;
 use serde::{Deserialize, Serialize};
-use substrate_common::{
+use tesseract_substrate::{
     config::{Blake2SubstrateChain, KeccakSubstrateChain},
-    SubstrateClient,
+    SubstrateClient, SubstrateConfig,
 };
 
-type Parachain<T> = SubstrateClient<ParachainHost<T>, T>;
-type Grandpa<T> = SubstrateClient<GrandpaHost<T>, T>;
+type Parachain<T> = SubstrateClient<ParachainHost, T>;
+// type Grandpa<T> = SubstrateClient<GrandpaHost<T>, T>;
 
 crate::chain! {
-    KeccakParachain(ParachainConfig, Parachain<KeccakSubstrateChain>),
-    Parachain(ParachainConfig, Parachain<Blake2SubstrateChain>),
-    Grandpa(GrandpaConfig, Grandpa<Blake2SubstrateChain>),
+    KeccakParachain(SubstrateConfig, Parachain<KeccakSubstrateChain>),
+    Parachain(SubstrateConfig, Parachain<Blake2SubstrateChain>),
+    // Grandpa(GrandpaConfig, Grandpa<Blake2SubstrateChain>),
 }
 
 /// Defines the format of the tesseract config.toml file.
@@ -50,21 +50,20 @@ impl AnyConfig {
     pub async fn into_client(self) -> Result<AnyClient, anyhow::Error> {
         let client = match self {
             AnyConfig::KeccakParachain(config) | AnyConfig::Parachain(config) => {
-                match config.substrate.hashing {
+                match config.hashing {
                     HashAlgorithm::Keccak => {
-                        let host = ParachainHost::new(&config).await?;
-                        AnyClient::KeccakParachain(Parachain::new(host, config.substrate).await?)
+                        let host = ParachainHost::default();
+                        AnyClient::KeccakParachain(Parachain::new(host, config).await?)
                     }
                     HashAlgorithm::Blake2 => {
-                        let host = ParachainHost::new(&config).await?;
-                        AnyClient::Parachain(Parachain::new(host, config.substrate).await?)
+                        let host = ParachainHost::default();
+                        AnyClient::Parachain(Parachain::new(host, config).await?)
                     }
                 }
-            }
-            AnyConfig::Grandpa(config) => {
-                let host = GrandpaHost::new(&config).await?;
-                AnyClient::Grandpa(Grandpa::new(host, config.substrate).await?)
-            }
+            } /* AnyConfig::Grandpa(config) => {
+               *     let host = GrandpaHost::new(&config).await?;
+               *     AnyClient::Grandpa(Grandpa::new(host, config.substrate).await?)
+               * } */
         };
 
         Ok(client)

@@ -13,18 +13,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ParachainHost;
-use anyhow::anyhow;
+use crate::SyncCommitteeHost;
 use ismp::messaging::ConsensusMessage;
 use tesseract_primitives::{ByzantineHandler, ChallengePeriodStarted, IsmpHost};
 
 #[async_trait::async_trait]
-impl ByzantineHandler for ParachainHost {
+impl ByzantineHandler for SyncCommitteeHost {
     async fn query_consensus_message(
         &self,
         _challenge_event: ChallengePeriodStarted,
     ) -> Result<ConsensusMessage, anyhow::Error> {
-        Err(anyhow!("Parachains consensus can't misbehave"))?
+        unimplemented!()
     }
 
     async fn check_for_byzantine_attack<C: IsmpHost>(
@@ -32,6 +31,6 @@ impl ByzantineHandler for ParachainHost {
         _counterparty: &C,
         _consensus_message: ConsensusMessage,
     ) -> Result<(), anyhow::Error> {
-        Err(anyhow!("Parachains consensus can't misbehave"))?
+        unimplemented!()
     }
 }

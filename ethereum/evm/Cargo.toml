@@ -1,0 +1,51 @@
+[package]
+name = "tesseract-evm"
+version = "0.1.0"
+edition = "2021"
+description = "EVM primitives for ISMP messaging relay"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[build-dependencies]
+anyhow = "1.0.75"
+ethers-contract-abigen = { version = "2.0.9" }
+
+
+[dependencies]
+serde = { version = "1.0.164", features = ["derive"] }
+anyhow = "1.0.75"
+primitive-types = "0.12.1"
+futures = "0.3.28"
+async-trait = "0.1.71"
+parking_lot = "0.12.1"
+serde_json = "1.0.105"
+hex-literal = { version ="0.4.1"}
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+sp-core = { version = "21.0.0", features = ["full_crypto"] }
+log = "0.4.19"
+ethers = { version = "2.0.9", features = ["ws"] }
+ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
+tokio = { version = "1.27.0", features = ["macros", "sync"] }
+tokio-stream = "0.1.14"
+
+pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
+ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+beefy-verifier-primitives = { git = "ssh://git@github.com/polytope-labs/beefy-rs", branch = "seun/polkadot-v0.9.42" }
+consensus-client = { package = "ismp-sync-committee", git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+
+tesseract-primitives = { path = "../../primitives" }
+patricia-merkle-trie = { package = "ethereum-trie", git ="https://github.com/polytope-labs/ethereum-trie", branch = "main", default-features = false }
+
+trie-db = { version= "0.24.0", default-features = false }
+hash-db = { version = "0.15.2", default-features = false }
+
+merkle-mountain-range-labs = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr" }
+
+[dev-dependencies]
+alloy-rlp = "0.3.2"
+alloy-rlp-derive = "0.3.2"
+alloy-primitives = { version = "0.3.1", features = ["rlp"] }
+hex = "0.4.3"
+
+[features]
+testing = []

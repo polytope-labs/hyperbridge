@@ -49,9 +49,9 @@ pub struct SubstrateConfig {
 /// Core substrate client.
 pub struct SubstrateClient<I, C: subxt::Config> {
     /// Ismp host implementation
-    host: I,
+    pub host: I,
     /// Subxt client for the substrate chain
-    client: OnlineClient<C>,
+    pub client: OnlineClient<C>,
     /// Consensus state Id
     consensus_state_id: ConsensusStateId,
     /// State machine Identifier for this client.

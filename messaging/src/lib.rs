@@ -46,7 +46,7 @@ where
                         // Chain B's state machine has been updated to a new height on chain A
                         // We query all the events that have been emitted on chain B that can be submitted to chain A
                         // filter events list to contain only Request and Response events
-                        let events = chain_b.query_ismp_events(state_machine_update).await?.into_iter()
+                        let events = chain_b.query_ismp_events(state_machine_update.clone()).await?.into_iter()
                             .filter(|ev| filter_events(chain_a.state_machine_id().state_id, ev)).collect::<Vec<_>>();
 
                         if events.is_empty() {
@@ -69,7 +69,7 @@ where
                                 "🛰️Submitting ismp messages from {} to {}",
                                 chain_b.name(), chain_a.name()
                             );
-                            chain_a.submit(messages).await?;
+                            let _ = chain_a.submit(messages).await;
                         }
 
                         if !get_responses.is_empty() {
@@ -78,7 +78,7 @@ where
                                 "🛰️Submitting GET response messages to {}",
                                 chain_b.name()
                             );
-                            chain_b.submit(get_responses).await?;
+                            let _ = chain_b.submit(get_responses).await;
                         }
                     },
                     Some(Err(e)) => {
@@ -98,7 +98,7 @@ where
                         // We query all the events that have been emitted on chain A that can be submitted to chain B
 
                         // filter events list to contain only Request and Response events
-                        let events = chain_a.query_ismp_events(state_machine_update).await?.into_iter()
+                        let events = chain_a.query_ismp_events(state_machine_update.clone()).await?.into_iter()
                             .filter(|ev| filter_events(chain_b.state_machine_id().state_id, ev)).collect::<Vec<_>>();
                         if events.is_empty() {
                             continue
@@ -119,7 +119,7 @@ where
                                 "🛰️Submitting ismp messages from {} to {}",
                                 chain_a.name(), chain_b.name()
                             );
-                            chain_b.submit(messages).await?;
+                            let _ = chain_b.submit(messages).await;
                         }
 
                         if !get_responses.is_empty() {
@@ -128,7 +128,7 @@ where
                                 "🛰️Submitting GET response messages to {}",
                                 chain_a.name()
                             );
-                            chain_a.submit(get_responses).await?;
+                            let _ = chain_a.submit(get_responses).await;
                         }
                     },
                     Some(Err(e)) => {

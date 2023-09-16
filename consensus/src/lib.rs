@@ -33,14 +33,17 @@ where
         tokio::select! {
             result = consensus_a.next() =>  {
                 match result {
-                    None => break,
+                    None => {
+                        println!("A Returned None");
+                        break
+                    }
                     Some(Ok(consensus_message)) => {
                         log::info!(
                             target: "tesseract",
                             "🛰️ Transmitting consensus update message from {} to {}",
                             chain_a.name(), chain_b.name()
                         );
-                        chain_b.submit(vec![Message::Consensus(consensus_message)]).await?;
+                        let _ = chain_b.submit(vec![Message::Consensus(consensus_message)]).await;
                     },
                     Some(Err(e)) => {
                         log::error!(
@@ -53,14 +56,17 @@ where
 
             result = consensus_b.next() =>  {
                  match result {
-                    None => break,
+                    None => {
+                        println!("B Returned None");
+                        break
+                    },
                     Some(Ok(consensus_message)) => {
                          log::info!(
                             target: "tesseract",
                             "🛰️ Transmitting consensus update message from {} to {}",
                             chain_b.name(), chain_a.name()
                          );
-                         chain_a.submit(vec![Message::Consensus(consensus_message)]).await?;
+                         let _ = chain_a.submit(vec![Message::Consensus(consensus_message)]).await;
                     },
                     Some(Err(e)) => {
                         log::error!(

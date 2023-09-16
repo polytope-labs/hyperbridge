@@ -22,7 +22,7 @@ use crate::{
 use codec::Encode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
-use ismp_demo::GetRequest;
+use ismp_demo::{EvmParams, GetRequest, TransferParams};
 use sp_core::Pair;
 use std::time::Duration;
 use subxt::{
@@ -63,7 +63,7 @@ where
 
     pub async fn transfer(
         &self,
-        params: ismp_demo::TransferParams<C::AccountId, u128>,
+        params: TransferParams<C::AccountId, u128>,
     ) -> Result<(), anyhow::Error> {
         let signer = InMemorySigner {
             account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
@@ -72,6 +72,23 @@ where
 
         let call = params.encode();
         let tx = Extrinsic::new("IsmpDemo", "transfer", call);
+
+        let progress = send_extrinsic(&self.client, signer, tx).await?;
+        let tx = progress.wait_for_in_block().await?;
+
+        tx.wait_for_success().await?;
+
+        Ok(())
+    }
+
+    pub async fn dispatch_to_evm(&self, params: EvmParams) -> Result<(), anyhow::Error> {
+        let signer = InMemorySigner {
+            account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
+            signer: self.signer.clone(),
+        };
+
+        let call = params.encode();
+        let tx = Extrinsic::new("IsmpDemo", "dispatch_to_evm", call);
 
         let progress = send_extrinsic(&self.client, signer, tx).await?;
         let tx = progress.wait_for_in_block().await?;

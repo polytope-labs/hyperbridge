@@ -19,15 +19,19 @@ use crate::{
     extrinsic::{send_extrinsic, Extrinsic, InMemorySigner},
     SubstrateClient,
 };
+
+use anyhow::anyhow;
 use codec::{Decode, Encode};
-use futures::stream::StreamExt;
+use futures::stream;
+use hex_literal::hex;
 use ismp::{
     consensus::{ConsensusClientId, ConsensusStateId, StateMachineId},
-    router::{Get, Request, Response},
+    events::Event,
+    router::Get,
 };
 use ismp_primitives::{LeafIndexQuery, MembershipProof, SubstrateStateProof};
 use ismp_rpc::BlockNumberOrHash;
-use pallet_ismp::{primitives::Proof as MmrProof, NodesUtils};
+use pallet_ismp::primitives::Proof as MmrProof;
 use primitives::{BoxStream, IsmpProvider, Query, StateMachineUpdated};
 use sp_core::{sp_std::sync::Arc, Pair, H256};
 use std::{collections::HashMap, time::Duration};
@@ -95,7 +99,7 @@ where
             self.client.rpc().request("ismp_queryRequestsMmrProof", params).await?;
         let mmr_proof: MmrProof<H256> = Decode::decode(&mut &*response.proof)?;
         let proof = MembershipProof {
-            mmr_size: NodesUtils::new(mmr_proof.leaf_count).size(),
+            mmr_size: mmr_proof.leaf_count,
             leaf_indices: mmr_proof.leaf_indices,
             proof: mmr_proof.items,
         };
@@ -112,7 +116,7 @@ where
             self.client.rpc().request("ismp_queryResponsesMmrProof", params).await?;
         let mmr_proof: MmrProof<H256> = Decode::decode(&mut &*response.proof)?;
         let proof = MembershipProof {
-            mmr_size: NodesUtils::new(mmr_proof.leaf_count).size(),
+            mmr_size: mmr_proof.leaf_count,
             leaf_indices: mmr_proof.leaf_indices,
             proof: mmr_proof.items,
         };
@@ -130,14 +134,13 @@ where
 
         let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
         let proof = SubstrateStateProof { hasher: self.hashing.clone(), storage_proof };
-
         Ok(proof.encode())
     }
 
     async fn query_ismp_events(
         &self,
         event: StateMachineUpdated,
-    ) -> Result<Vec<pallet_ismp::events::Event>, anyhow::Error> {
+    ) -> Result<Vec<Event>, anyhow::Error> {
         let latest_state_machine_height = Arc::clone(&self.latest_state_machine_height);
         let block_numbers: Vec<BlockNumberOrHash<sp_core::H256>> =
             ((*latest_state_machine_height.lock() + 1)..=event.latest_height)
@@ -147,25 +150,11 @@ where
         *latest_state_machine_height.lock() = event.latest_height;
 
         let params = rpc_params![block_numbers];
-        let response: HashMap<String, Vec<pallet_ismp::events::Event>> =
+        let response: HashMap<String, Vec<Event>> =
             self.client.rpc().request("ismp_queryEvents", params).await?;
-        Ok(response.values().into_iter().cloned().flatten().collect())
-    }
+        let events = response.values().into_iter().cloned().flatten().collect();
 
-    async fn query_requests(&self, keys: Vec<Query>) -> Result<Vec<Request>, anyhow::Error> {
-        let queries = convert_queries(keys);
-        let params = rpc_params![queries];
-        let response = self.client.rpc().request("ismp_queryRequests", params).await?;
-
-        Ok(response)
-    }
-
-    async fn query_responses(&self, keys: Vec<Query>) -> Result<Vec<Response>, anyhow::Error> {
-        let queries = convert_queries(keys);
-        let params = rpc_params![queries];
-        let response = self.client.rpc().request("ismp_queryResponses", params).await?;
-
-        Ok(response)
+        Ok(events)
     }
 
     async fn query_pending_get_requests(&self, height: u64) -> Result<Vec<Get>, anyhow::Error> {
@@ -205,26 +194,60 @@ where
             .subscribe_best_block_headers()
             .await
             .expect("Failed to get best block stream");
+        let latest_height: u64 = self
+            .client
+            .rpc()
+            .header(None)
+            .await
+            .ok()
+            .flatten()
+            .expect(
+                "latest header not
+        available",
+            )
+            .number()
+            .into();
+        let stream = stream::try_unfold(
+            (subscription, latest_height),
+            move |(mut subscription, previous_height)| {
+                let client = client.clone();
+                async move {
+                    while let Some(Ok(header)) = subscription.next().await {
+                        let latest_height: u64 = header.number().into();
+                        let mut events = vec![];
+                        for height in (previous_height + 1)..=latest_height {
+                            let block_hash = client
+                                .rpc()
+                                .block_hash(Some(height.into()))
+                                .await?
+                                .ok_or_else(|| anyhow!("Block not found"))?;
+                            let block_events = client.events().at(block_hash).await?;
 
-        let stream = subscription.filter_map(move |header| {
-            let client = client.clone();
-            async move {
-                let events = client.events().at(header.ok()?.hash()).await.ok()?;
+                            let block_events = block_events
+                                .iter()
+                                .filter_map(|ev| {
+                                    let ev = ev.ok()?;
+                                    decode_state_machine_update_event(ev, counterparty_state_id)
+                                        .ok()
+                                        .flatten()
+                                })
+                                .collect::<Vec<_>>();
+                            events.extend(block_events)
+                        }
 
-                let mut events = events
-                    .iter()
-                    .filter_map(|ev| {
-                        let ev = ev.ok()?;
-                        decode_state_machine_update_event(ev, counterparty_state_id).ok().flatten()
-                    })
-                    .collect::<Vec<_>>();
-                // find event with the highest latest height
-                events.sort_unstable_by(|a, b| a.latest_height.cmp(&b.latest_height));
-                let ev = events.last().cloned();
-                ev.map(|ev| Ok(ev))
-            }
-        });
+                        if events.is_empty() {
+                            continue
+                        }
 
+                        // find event with the highest latest height
+                        events.sort_unstable_by(|a, b| a.latest_height.cmp(&b.latest_height));
+                        let ev = events.last().cloned();
+                        return Ok(ev.map(|ev| (ev, (subscription, latest_height))))
+                    }
+                    return Ok(None)
+                }
+            },
+        );
         Box::pin(stream)
     }
 
@@ -254,10 +277,17 @@ where
     }
 
     async fn query_timestamp(&self) -> Result<Duration, anyhow::Error> {
-        let params = rpc_params![];
-        let response: u64 = self.client.rpc().request("ismp_queryTimestamp", params).await?;
+        let timestamp_key =
+            hex!("f0c365c3cf59d671eb72da0e7a4113c49f1f0515f462cdcf84e0f1d6045dfcbb").to_vec();
+        let response = self
+            .client
+            .rpc()
+            .storage(&timestamp_key, None)
+            .await?
+            .ok_or_else(|| anyhow!("Failed to fetch timestamp"))?;
+        let timestamp: u64 = codec::Decode::decode(&mut response.0.as_slice())?;
 
-        Ok(Duration::from_secs(response))
+        Ok(Duration::from_millis(timestamp))
     }
 }
 

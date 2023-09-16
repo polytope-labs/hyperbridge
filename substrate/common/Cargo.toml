@@ -1,11 +1,11 @@
 [package]
-name = "substrate-common"
+name = "tesseract-substrate"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 serde = { version = "1.0.164", features = ["derive"] }
-anyhow = "1.0.70"
+anyhow = "1.0.75"
 futures = "0.3.28"
 async-trait = "0.1.71"
 parking_lot = "0.12.1"
@@ -18,7 +18,6 @@ log = "0.4.19"
 primitives = { package = "tesseract-primitives", path = "../../primitives" }
 
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
-ismp-parachain = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
 pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
 ismp-demo = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
 ismp-rpc = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }

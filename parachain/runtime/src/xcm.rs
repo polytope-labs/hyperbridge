@@ -6,10 +6,9 @@ use crate::AllPalletsWithSystem;
 use core::marker::PhantomData;
 use frame_support::{
     match_types, parameter_types,
-    traits::{Everything, Nothing, ProcessMessageError},
+    traits::{ConstU32, Everything, Nothing, ProcessMessageError},
     weights::Weight,
 };
-use frame_support::traits::ConstU32;
 use frame_system::EnsureRoot;
 use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::Sibling;
@@ -22,7 +21,10 @@ use staging_xcm_builder::{
     SignedAccountId32AsNative, SignedToAccountId32, SovereignSignedViaLocation, TakeWeightCredit,
     UsingComponents,
 };
-use staging_xcm_executor::{traits::{ShouldExecute, Properties}, XcmExecutor};
+use staging_xcm_executor::{
+    traits::{Properties, ShouldExecute},
+    XcmExecutor,
+};
 
 parameter_types! {
     pub const RelayLocation: MultiLocation = MultiLocation::parent();

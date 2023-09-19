@@ -10,7 +10,7 @@ use sp_runtime::traits::{IdentifyAccount, Verify};
 pub type ChainSpec = sc_service::GenericChainSpec<hyperbridge_runtime::GenesisConfig, Extensions>;
 
 /// The default XCM version to set in genesis config.
-const SAFE_XCM_VERSION: u32 = xcm::prelude::XCM_VERSION;
+const SAFE_XCM_VERSION: u32 = staging_xcm::prelude::XCM_VERSION;
 
 /// Helper function to generate a crypto pair from seed
 pub fn get_from_seed<TPublic: Public>(seed: &str) -> <TPublic::Pair as Pair>::Public {
@@ -194,11 +194,15 @@ fn testnet_genesis(
             code: hyperbridge_runtime::WASM_BINARY
                 .expect("WASM binary was not build, please build it!")
                 .to_vec(),
+            ..Default::default()
         },
         balances: hyperbridge_runtime::BalancesConfig {
             balances: endowed_accounts.iter().cloned().map(|k| (k, 1 << 60)).collect(),
         },
-        parachain_info: hyperbridge_runtime::ParachainInfoConfig { parachain_id: id },
+        parachain_info: hyperbridge_runtime::ParachainInfoConfig {
+            parachain_id: id,
+            ..Default::default()
+        },
         collator_selection: hyperbridge_runtime::CollatorSelectionConfig {
             invulnerables: invulnerables.iter().cloned().map(|(acc, _)| acc).collect(),
             candidacy_bond: EXISTENTIAL_DEPOSIT * 16,
@@ -225,6 +229,7 @@ fn testnet_genesis(
         sudo: hyperbridge_runtime::SudoConfig { key: Some(sudo) },
         polkadot_xcm: hyperbridge_runtime::PolkadotXcmConfig {
             safe_xcm_version: Some(SAFE_XCM_VERSION),
+            ..Default::default()
         },
     }
 }

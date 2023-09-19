@@ -30,8 +30,8 @@ sp-runtime = { default-features = false, git = "https://github.com/paritytech/po
 sp-consensus-aura = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
 
 # cumulus
-parachain-system = { package = "cumulus-pallet-parachain-system", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-cumulus-v1.1.0",  default-features = false }
-cumulus-primitives-core = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-cumulus-v1.1.0", default-features = false }
+parachain-system = { package = "cumulus-pallet-parachain-system", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0",  default-features = false }
+cumulus-primitives-core = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
 
 # local
 substrate-state-machine = { path = "../../state-machine", default-features = false }

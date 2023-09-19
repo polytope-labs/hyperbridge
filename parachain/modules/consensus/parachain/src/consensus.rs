@@ -60,7 +60,6 @@ impl<T, R> ConsensusClient for ParachainConsensusClient<T, R>
 where
     R: RelayChainOracle,
     T: pallet_ismp::Config + super::Config,
-    T::BlockNumber: Into<u32>,
 {
     fn verify_consensus(
         &self,

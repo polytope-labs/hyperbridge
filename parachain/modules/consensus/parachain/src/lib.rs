@@ -115,7 +115,7 @@ pub mod pallet {
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        fn on_finalize(_n: T::BlockNumber) {
+        fn on_finalize(_n: BlockNumberFor<T>) {
             let state = RelaychainDataProvider::<T>::current_relay_chain_state();
             if !RelayChainState::<T>::contains_key(state.number) {
                 RelayChainState::<T>::insert(state.number, state.state_root);
@@ -129,7 +129,7 @@ pub mod pallet {
             }
         }
 
-        fn on_initialize(_n: T::BlockNumber) -> Weight {
+        fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
             // kill the storage, since this is the beginning of a new block.
             ConsensusUpdated::<T>::kill();
 
@@ -165,20 +165,17 @@ pub mod pallet {
 
     /// The genesis config
     #[pallet::genesis_config]
-    pub struct GenesisConfig {
+    #[derive(frame_support::DefaultNoBound)]
+    pub struct GenesisConfig<T> {
         /// List of parachains to track at genesis
         pub parachains: Vec<u32>,
-    }
-
-    #[cfg(feature = "std")]
-    impl Default for GenesisConfig {
-        fn default() -> Self {
-            GenesisConfig { parachains: vec![] }
-        }
+        /// phantom data
+        #[serde(skip)]
+        pub _marker: PhantomData<T>,
     }
 
     #[pallet::genesis_build]
-    impl<T: Config> GenesisBuild<T> for GenesisConfig {
+    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
             let host = Host::<T>::default();
             Pallet::<T>::initialize(host);

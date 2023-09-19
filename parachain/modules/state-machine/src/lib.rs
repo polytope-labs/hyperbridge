@@ -37,7 +37,6 @@ impl<T> Default for SubstrateStateMachine<T> {
 impl<T> StateMachineClient for SubstrateStateMachine<T>
 where
     T: pallet_ismp::Config,
-    T::BlockNumber: Into<u32>,
 {
     fn verify_membership(
         &self,

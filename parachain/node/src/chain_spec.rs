@@ -7,7 +7,8 @@ use sp_core::{sr25519, Pair, Public};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 
 /// Specialized `ChainSpec` for the normal parachain runtime.
-pub type ChainSpec = sc_service::GenericChainSpec<hyperbridge_runtime::GenesisConfig, Extensions>;
+pub type ChainSpec =
+    sc_service::GenericChainSpec<hyperbridge_runtime::RuntimeGenesisConfig, Extensions>;
 
 /// The default XCM version to set in genesis config.
 const SAFE_XCM_VERSION: u32 = staging_xcm::prelude::XCM_VERSION;
@@ -183,13 +184,13 @@ fn testnet_genesis(
     endowed_accounts: Vec<AccountId>,
     id: ParaId,
     sudo: AccountId,
-) -> hyperbridge_runtime::GenesisConfig {
+) -> hyperbridge_runtime::RuntimeGenesisConfig {
     // let sibling = match id.into() {
     //     2000u32 => 2001,
     //     2001u32 => 2000,
     //     _ => unimplemented!(),
     // };
-    hyperbridge_runtime::GenesisConfig {
+    hyperbridge_runtime::RuntimeGenesisConfig {
         system: hyperbridge_runtime::SystemConfig {
             code: hyperbridge_runtime::WASM_BINARY
                 .expect("WASM binary was not build, please build it!")

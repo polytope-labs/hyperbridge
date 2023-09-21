@@ -166,7 +166,10 @@ impl WeightToFeePolynomial for WeightToFee {
 /// to even the core data structures.
 pub mod opaque {
     use super::*;
-    use sp_runtime::{generic, traits::Keccak256};
+    use sp_runtime::{
+        generic,
+        traits::{Hash as HashT, Keccak256},
+    };
 
     pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
     /// Opaque block header type.
@@ -175,6 +178,8 @@ pub mod opaque {
     pub type Block = generic::Block<Header, UncheckedExtrinsic>;
     /// Opaque block identifier type.
     pub type BlockId = generic::BlockId<Block>;
+    /// Opaque block hash type.
+    pub type Hash = <Keccak256 as HashT>::Output;
 }
 
 impl_opaque_keys! {
@@ -479,10 +484,7 @@ impl pallet_sudo::Config for Runtime {
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
-    pub enum Runtime where
-        Block = Block,
-        NodeBlock = opaque::Block,
-        UncheckedExtrinsic = UncheckedExtrinsic,
+    pub enum Runtime
     {
         // System support stuff.
         System: frame_system = 0,

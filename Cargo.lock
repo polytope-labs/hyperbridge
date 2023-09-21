@@ -4845,8 +4845,10 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "cumulus-client-cli",
+ "cumulus-client-collator",
  "cumulus-client-consensus-aura",
  "cumulus-client-consensus-common",
+ "cumulus-client-consensus-proposer",
  "cumulus-client-network",
  "cumulus-client-service",
  "cumulus-primitives-core",

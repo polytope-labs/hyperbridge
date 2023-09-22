@@ -1,0 +1,96 @@
+# Relaychain Configuration
+relaychain:
+  image: parity/polkadot:v1.1.0 # the docker image to use
+  chain: rococo-local # the chain to use
+  runtimeGenesisConfig: # additonal genesis override
+    configuration:
+      config:
+        validation_upgrade_cooldown: 10
+        validation_upgrade_delay: 10
+  env: # environment variables for all relaychain nodes
+    RUST_LOG: parachain::candidate-backing=trace
+  flags: # additional CLI flags for all relaychain nodes
+    - --rpc-methods=unsafe
+    - --enable-offchain-indexing=true
+    - --pruning=archive
+  nodes: # nodes config
+    - name: alice # the node name and session key, this imply `--alice`
+      wsPort: 9944 # default ws port number is `9944 + global_node_index`
+      rpcPort: 9933 # default rpc port number is `9933 + global_node_index`
+      port: 30333 # default libp2p port number is `30333 + global_node_index`
+      flags: # additional CLI flags for this node
+        - --force-authoring
+      env:
+        RUST_LOG: babe=debug # environment varitables for this node
+    - name: bob
+      wsPort: 9945 # default ws port number is `9944 + global_node_index`
+      rpcPort: 9935 # default rpc port number is `9933 + global_node_index`
+      port: 30334 # default libp2p port number is `30333 + global_node_index`
+      flags: # additional CLI flags for this node
+        - --force-authoring
+    - name: charlie
+      wsPort: 9946 # default ws port number is `9944 + global_node_index`
+      rpcPort: 9936 # default rpc port number is `9933 + global_node_index`
+      port: 30335 # default libp2p port number is `30333 + global_node_index`
+      flags: # additional CLI flags for this node
+        - --force-authoring
+    - name: ferdie
+      wsPort: 9948 # default ws port number is `9944 + global_node_index`
+      rpcPort: 9937 # default rpc port number is `9933 + global_node_index`
+      port: 30336 # default libp2p port number is `30333 + global_node_index`
+      flags: # additional CLI flags for this node
+        - --force-authoring
+    - name: eve
+      wsPort: 9949 # default ws port number is `9944 + global_node_index`
+      rpcPort: 9938 # default rpc port number is `9933 + global_node_index`
+      port: 30337 # default libp2p port number is `30333 + global_node_index`
+      flags: # additional CLI flags for this node
+        - --force-authoring
+
+# Parachain Configuration
+parachains:
+# Config for first parachain
+- image: polytopelabs/hyperbridge
+  chain: # this could be a string like `dev` or a config object
+    base: dev-2000 # the chain to use
+    collators: # override collators
+      - alice # this imply //Alice
+      - bob
+      - charlie
+    sudo: alice # override sudo key to //Alice
+    runtimeGenesisConfig: # additonal genesis override
+      balances:
+        balances:
+          - [5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty, 10000000000000000]
+  id: 2000 # override parachain id
+  parachain: true # this is parachain, not parathread
+  flags: # CLI flags for this parachain nodes
+    - --rpc-methods=unsafe
+    - --force-authoring
+    - --enable-offchain-indexing=true
+    - --pruning=archive
+  env: # environment variables for this parachain nodes
+    RUST_LOG: sc_basic_authorship=trace
+  volumePath: /hyperbridge/data # The path to mount volume and base path, default to /data
+  nodes: # nodes config
+  - wsPort: 9988
+    rpcPort: 9951
+    port: 31200
+    flags: # additional CLI flags for this node
+      - --alice
+    relaychainFlags: # additional CLI flags for relaychain part
+      - --name=relaychain-alice
+  - wsPort: 9989
+    rpcPort: 9952
+    port: 31201
+    flags: # additional CLI flags for this node
+      - --bob
+    relaychainFlags: # additional CLI flags for relaychain part
+      - --name=relaychain-bob
+  - wsPort: 9990
+    rpcPort: 9953
+    port: 31202
+    flags: # additional CLI flags for this node
+      - --charlie
+    relaychainFlags: # additional CLI flags for relaychain part
+      - --name=relaychain-charlie

@@ -1,0 +1,15 @@
+{
+  "name": "parachain-launch",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "parachain-launch generate --config=./local_config.yml  --yes --output=./"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@open-web3/parachain-launch": "^1.4.2"
+  }
+}

@@ -1,0 +1,237 @@
+version: "3.7"
+services:
+  relaychain-alice:
+    ports:
+      - 9944:9944
+      - 9933:9933
+      - 30333:30333
+    volumes:
+      - relaychain-alice:/data
+    build:
+      context: .
+      dockerfile: relaychain.Dockerfile
+    command:
+      - --base-path=/data
+      - --chain=/app/rococo-local.json
+      - --validator
+
+      - --rpc-external
+      - --rpc-cors=all
+      - --name=alice
+      - --alice
+      - --rpc-methods=unsafe
+      - --enable-offchain-indexing=true
+      - --pruning=archive
+      - --force-authoring
+    environment:
+      RUST_LOG: babe=debug
+    ulimits: &a1
+      nofile:
+        soft: 65536
+        hard: 65536
+  relaychain-bob:
+    ports:
+      - 9945:9945
+      - 9935:9935
+      - 30334:30334
+    volumes:
+      - relaychain-bob:/data
+    build:
+      context: .
+      dockerfile: relaychain.Dockerfile
+    command:
+      - --base-path=/data
+      - --chain=/app/rococo-local.json
+      - --validator
+
+      - --rpc-external
+      - --rpc-cors=all
+      - --name=bob
+      - --bob
+      - --rpc-methods=unsafe
+      - --enable-offchain-indexing=true
+      - --pruning=archive
+      - --force-authoring
+    environment:
+      RUST_LOG: parachain::candidate-backing=trace
+    ulimits: *a1
+  relaychain-charlie:
+    ports:
+      - 9946:9946
+      - 9936:9936
+      - 30335:30335
+    volumes:
+      - relaychain-charlie:/data
+    build:
+      context: .
+      dockerfile: relaychain.Dockerfile
+    command:
+      - --base-path=/data
+      - --chain=/app/rococo-local.json
+      - --validator
+
+      - --rpc-external
+      - --rpc-cors=all
+      - --name=charlie
+      - --charlie
+      - --rpc-methods=unsafe
+      - --enable-offchain-indexing=true
+      - --pruning=archive
+      - --force-authoring
+    environment:
+      RUST_LOG: parachain::candidate-backing=trace
+    ulimits: *a1
+  relaychain-ferdie:
+    ports:
+      - 9948:9948
+      - 9937:9937
+      - 30336:30336
+    volumes:
+      - relaychain-ferdie:/data
+    build:
+      context: .
+      dockerfile: relaychain.Dockerfile
+    command:
+      - --base-path=/data
+      - --chain=/app/rococo-local.json
+      - --validator
+
+      - --rpc-external
+      - --rpc-cors=all
+      - --name=ferdie
+      - --ferdie
+      - --rpc-methods=unsafe
+      - --enable-offchain-indexing=true
+      - --pruning=archive
+      - --force-authoring
+    environment:
+      RUST_LOG: parachain::candidate-backing=trace
+    ulimits: *a1
+  relaychain-eve:
+    ports:
+      - 9949:9949
+      - 9938:9938
+      - 30337:30337
+    volumes:
+      - relaychain-eve:/data
+    build:
+      context: .
+      dockerfile: relaychain.Dockerfile
+    command:
+      - --base-path=/data
+      - --chain=/app/rococo-local.json
+      - --validator
+
+      - --rpc-external
+      - --rpc-cors=all
+      - --name=eve
+      - --eve
+      - --rpc-methods=unsafe
+      - --enable-offchain-indexing=true
+      - --pruning=archive
+      - --force-authoring
+    environment:
+      RUST_LOG: parachain::candidate-backing=trace
+    ulimits: *a1
+  parachain-2000-0:
+    ports:
+      - 9988:9988
+      - 9951:9951
+      - 31200:31200
+    volumes:
+      - parachain-2000-0:/hyperbridge/data
+    build:
+      context: .
+      dockerfile: parachain-2000.Dockerfile
+    command:
+      - --base-path=/hyperbridge/data
+      - --chain=/app/dev-2000-2000.json
+
+      - --rpc-external
+      - --rpc-cors=all
+      - --name=parachain-2000-0
+      - --collator
+      - --rpc-methods=unsafe
+      - --force-authoring
+      - --enable-offchain-indexing=true
+      - --pruning=archive
+      - --alice
+      - --node-key=34346b565d57aa11cf437e3a6498781c62c152a47b3b485d8cdeaa691c75b71c
+      - --listen-addr=/ip4/0.0.0.0/tcp/30333
+      - --
+      - --chain=/app/rococo-local.json
+      - --name=relaychain-alice
+    environment:
+      RUST_LOG: sc_basic_authorship=trace
+    ulimits: *a1
+  parachain-2000-1:
+    ports:
+      - 9989:9989
+      - 9952:9952
+      - 31201:31201
+    volumes:
+      - parachain-2000-1:/hyperbridge/data
+    build:
+      context: .
+      dockerfile: parachain-2000.Dockerfile
+    command:
+      - --base-path=/hyperbridge/data
+      - --chain=/app/dev-2000-2000.json
+
+      - --rpc-external
+      - --rpc-cors=all
+      - --name=parachain-2000-1
+      - --collator
+      - --rpc-methods=unsafe
+      - --force-authoring
+      - --enable-offchain-indexing=true
+      - --pruning=archive
+      - --bob
+      - --bootnodes=/dns/parachain-2000-0/tcp/30333/p2p/12D3KooWAUFa6koFfKLzCHS6gCjYmgkquYhPNxN9pw2sTzAJzn9z
+      - --listen-addr=/ip4/0.0.0.0/tcp/30333
+      - --
+      - --chain=/app/rococo-local.json
+      - --name=relaychain-bob
+    environment:
+      RUST_LOG: sc_basic_authorship=trace
+    ulimits: *a1
+  parachain-2000-2:
+    ports:
+      - 9990:9990
+      - 9953:9953
+      - 31202:31202
+    volumes:
+      - parachain-2000-2:/hyperbridge/data
+    build:
+      context: .
+      dockerfile: parachain-2000.Dockerfile
+    command:
+      - --base-path=/hyperbridge/data
+      - --chain=/app/dev-2000-2000.json
+
+      - --rpc-external
+      - --rpc-cors=all
+      - --name=parachain-2000-2
+      - --collator
+      - --rpc-methods=unsafe
+      - --force-authoring
+      - --enable-offchain-indexing=true
+      - --pruning=archive
+      - --charlie
+      - --bootnodes=/dns/parachain-2000-0/tcp/30333/p2p/12D3KooWAUFa6koFfKLzCHS6gCjYmgkquYhPNxN9pw2sTzAJzn9z
+      - --listen-addr=/ip4/0.0.0.0/tcp/30333
+      - --
+      - --chain=/app/rococo-local.json
+      - --name=relaychain-charlie
+    environment:
+      RUST_LOG: sc_basic_authorship=trace
+    ulimits: *a1
+volumes:
+  relaychain-alice: null
+  relaychain-bob: null
+  relaychain-charlie: null
+  relaychain-ferdie: null
+  relaychain-eve: null
+  parachain-2000-0: null
+  parachain-2000-1: null
+  parachain-2000-2: null

@@ -17,7 +17,7 @@ pub mod pallet {
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_ismp::Config {
         /// Origin allowed to add or remove parachains in Consensus State
-        type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+        type AdminOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
     }
 
     #[pallet::error]

@@ -5,23 +5,26 @@ use super::{
 use crate::AllPalletsWithSystem;
 use core::marker::PhantomData;
 use frame_support::{
-    log, match_types, parameter_types,
-    traits::{Everything, Nothing, ProcessMessageError},
+    match_types, parameter_types,
+    traits::{ConstU32, Everything, Nothing, ProcessMessageError},
     weights::Weight,
 };
 use frame_system::EnsureRoot;
 use pallet_xcm::XcmPassthrough;
-use polkadot_parachain::primitives::Sibling;
+use polkadot_parachain_primitives::primitives::Sibling;
 use polkadot_runtime_common::impls::ToAuthor;
-use xcm::latest::prelude::*;
-use xcm_builder::{
+use staging_xcm::latest::prelude::*;
+use staging_xcm_builder::{
     AccountId32Aliases, AllowTopLevelPaidExecutionFrom, AllowUnpaidExecutionFrom, CurrencyAdapter,
     EnsureXcmOrigin, FixedWeightBounds, IsConcrete, NativeAsset, ParentIsPreset,
     RelayChainAsNative, SiblingParachainAsNative, SiblingParachainConvertsVia,
     SignedAccountId32AsNative, SignedToAccountId32, SovereignSignedViaLocation, TakeWeightCredit,
     UsingComponents,
 };
-use xcm_executor::{traits::ShouldExecute, XcmExecutor};
+use staging_xcm_executor::{
+    traits::{Properties, ShouldExecute},
+    XcmExecutor,
+};
 
 parameter_types! {
     pub const RelayLocation: MultiLocation = MultiLocation::parent();
@@ -109,10 +112,10 @@ where
         origin: &MultiLocation,
         message: &mut [Instruction<RuntimeCall>],
         max_weight: Weight,
-        weight_credit: &mut Weight,
+        properties: &mut Properties,
     ) -> Result<(), ProcessMessageError> {
-        Deny::should_execute(origin, message, max_weight, weight_credit)?;
-        Allow::should_execute(origin, message, max_weight, weight_credit)
+        Deny::should_execute(origin, message, max_weight, properties)?;
+        Allow::should_execute(origin, message, max_weight, properties)
     }
 }
 
@@ -124,7 +127,7 @@ impl ShouldExecute for DenyReserveTransferToRelayChain {
         origin: &MultiLocation,
         message: &mut [Instruction<RuntimeCall>],
         _max_weight: Weight,
-        _weight_credit: &mut Weight,
+        _properties: &mut Properties,
     ) -> Result<(), ProcessMessageError> {
         if message.iter().any(|inst| {
             matches!(
@@ -168,14 +171,16 @@ pub type Barrier = DenyThenTry<
 >;
 
 pub struct XcmConfig;
-impl xcm_executor::Config for XcmConfig {
+impl staging_xcm_executor::Config for XcmConfig {
     type RuntimeCall = RuntimeCall;
     type XcmSender = XcmRouter;
     // How to withdraw and deposit an asset.
     type AssetTransactor = LocalAssetTransactor;
     type OriginConverter = XcmOriginToTransactDispatchOrigin;
     type IsReserve = NativeAsset;
-    type IsTeleporter = (); // Teleporting is disabled.
+    type IsTeleporter = ();
+    type Aliasers = Nothing;
+    // Teleporting is disabled.
     type UniversalLocation = UniversalLocation;
     type Barrier = Barrier;
     type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
@@ -238,6 +243,8 @@ impl pallet_xcm::Config for Runtime {
     type TrustedLockers = ();
     type SovereignAccountOf = ();
     type MaxLockers = ();
+    type MaxRemoteLockConsumers = ConstU32<0>;
+    type RemoteLockConsumerIdentifier = ();
     type WeightInfo = pallet_xcm::TestWeightInfo;
     #[cfg(feature = "runtime-benchmarks")]
     type ReachableDest = ReachableDest;

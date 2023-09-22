@@ -1,0 +1,76 @@
+[relaychain]
+default_command = "../../../polkadot-sdk/target/release/polkadot"
+default_args = [ "-lparachain=debug" ]
+chain = "rococo-local"
+
+[[relaychain.nodes]]
+name = "alice"
+validator = true
+rpc_port = 9932
+ws_port = 9944
+args = [
+	"--enable-offchain-indexing=true", "--pruning=archive",
+]
+
+[[relaychain.nodes]]
+name = "bob"
+validator = true
+rpc_port = 9933
+ws_port = 9945
+args = []
+
+[[relaychain.nodes]]
+name = "charlie"
+validator = true
+rpc_port = 9934
+ws_port = 9946
+args = []
+
+[[relaychain.nodes]]
+name = "dave"
+validator = true
+rpc_port = 9935
+ws_port = 9947
+args = []
+
+[[parachains]]
+id = 2000
+chain = "dev-2000"
+cumulus_based = true
+
+# run alice as parachain collator
+[[parachains.collators]]
+name = "alice"
+validator = true
+rpc_port = 9955
+ws_port = 9988
+port = 30337
+command = "../../target/release/hyperbridge"
+args = [
+	"-lparachain=debug", "--enable-offchain-indexing=true", "--pruning=archive"
+]
+
+# run bob as parachain collator
+[[parachains.collators]]
+name = "bob"
+validator = true
+rpc_port = 9956
+ws_port = 9989
+command = "../../target/release/hyperbridge"
+args = [
+	"-lparachain=debug", "--enable-offchain-indexing=true", "--pruning=archive"
+]
+
+# run charlie as parachain collator
+[[parachains.collators]]
+name = "charlie"
+validator = true
+rpc_port = 9957
+ws_port = 9988
+command = "../../target/release/hyperbridge"
+args = [
+	"-lparachain=debug", "--enable-offchain-indexing=true", "--pruning=archive"
+]
+
+
+

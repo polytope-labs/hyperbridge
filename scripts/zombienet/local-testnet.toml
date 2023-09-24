@@ -66,7 +66,7 @@ args = [
 name = "charlie"
 validator = true
 rpc_port = 9957
-ws_port = 9988
+ws_port = 9889
 command = "../../target/release/hyperbridge"
 args = [
 	"-lparachain=debug", "--enable-offchain-indexing=true", "--pruning=archive"

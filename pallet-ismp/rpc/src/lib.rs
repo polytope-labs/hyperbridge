@@ -36,8 +36,9 @@ use ismp_rs::{
 use ismp_runtime_api::IsmpRuntimeApi;
 use sc_client_api::{BlockBackend, ProofProvider};
 use serde::{Deserialize, Serialize};
-use sp_api::ProvideRuntimeApi;
+use sp_api::{ApiExt, ProvideRuntimeApi};
 use sp_blockchain::HeaderBackend;
+use sp_core::offchain::{storage::OffchainDb, OffchainDbExt, OffchainStorage};
 use sp_runtime::traits::Block as BlockT;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
@@ -140,21 +141,23 @@ where
 }
 
 /// An implementation of ISMP specific RPC methods.
-pub struct IsmpRpcHandler<C, B> {
+pub struct IsmpRpcHandler<C, B, S> {
     client: Arc<C>,
+    offchain_db: OffchainDb<S>,
     _marker: std::marker::PhantomData<B>,
 }
 
-impl<C, B> IsmpRpcHandler<C, B> {
+impl<C, B, S> IsmpRpcHandler<C, B, S> {
     /// Create new `IsmpRpcHandler` with the given reference to the client.
-    pub fn new(client: Arc<C>) -> Self {
-        Self { client, _marker: Default::default() }
+    pub fn new(client: Arc<C>, offchain_storage: S) -> Self {
+        Self { client, offchain_db: OffchainDb::new(offchain_storage), _marker: Default::default() }
     }
 }
 
-impl<C, Block> IsmpApiServer<Block::Hash> for IsmpRpcHandler<C, Block>
+impl<C, Block, S> IsmpApiServer<Block::Hash> for IsmpRpcHandler<C, Block, S>
 where
     Block: BlockT,
+    S: OffchainStorage + Clone + Send + Sync + 'static,
     C: Send
         + Sync
         + 'static
@@ -165,18 +168,24 @@ where
     C::Api: IsmpRuntimeApi<Block, Block::Hash>,
 {
     fn query_requests(&self, query: Vec<LeafIndexQuery>) -> Result<Vec<Request>> {
-        let api = self.client.runtime_api();
+        let mut api = self.client.runtime_api();
+        api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
         let at = self.client.info().best_hash;
-        let request_indices: Vec<LeafIndex> = api
-            .get_request_leaf_indices(at, query)
-            .map_err(|_| runtime_error_into_rpc_error("Error fetching request leaf indices"))?;
+        let request_indices: Vec<LeafIndex> =
+            api.get_request_leaf_indices(at, query).map_err(|e| {
+                runtime_error_into_rpc_error(format!(
+                    "Error fetching request leaf indices, {:?}",
+                    e
+                ))
+            })?;
 
         api.get_requests(at, request_indices)
             .map_err(|_| runtime_error_into_rpc_error("Error fetching requests"))
     }
 
     fn query_responses(&self, query: Vec<LeafIndexQuery>) -> Result<Vec<Response>> {
-        let api = self.client.runtime_api();
+        let mut api = self.client.runtime_api();
+        api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
         let at = self.client.info().best_hash;
         let response_indices: Vec<LeafIndex> = api
             .get_response_leaf_indices(at, query)
@@ -187,7 +196,8 @@ where
     }
 
     fn query_requests_mmr_proof(&self, height: u32, query: Vec<LeafIndexQuery>) -> Result<Proof> {
-        let api = self.client.runtime_api();
+        let mut api = self.client.runtime_api();
+        api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
         let at = self
             .client
             .block_hash(height.into())
@@ -206,7 +216,8 @@ where
     }
 
     fn query_responses_mmr_proof(&self, height: u32, query: Vec<LeafIndexQuery>) -> Result<Proof> {
-        let api = self.client.runtime_api();
+        let mut api = self.client.runtime_api();
+        api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
         let at = self
             .client
             .block_hash(height.into())
@@ -278,7 +289,8 @@ where
     }
 
     fn pending_get_requests(&self, height: u64) -> Result<Vec<Get>> {
-        let api = self.client.runtime_api();
+        let mut api = self.client.runtime_api();
+        api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
         let at = self.client.info().best_hash;
 
         api.pending_get_requests(at)
@@ -290,9 +302,10 @@ where
         &self,
         block_numbers: Vec<BlockNumberOrHash<Block::Hash>>,
     ) -> Result<HashMap<String, Vec<Event>>> {
-        let api = self.client.runtime_api();
         let mut events = HashMap::new();
         for block_number_or_hash in block_numbers {
+            let mut api = self.client.runtime_api();
+            api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
             let at = match block_number_or_hash {
                 BlockNumberOrHash::Hash(block_hash) => block_hash,
                 BlockNumberOrHash::Number(block_number) => {
@@ -306,8 +319,9 @@ where
             let mut response_indices = vec![];
             let mut temp: Vec<Event> = api
                 .block_events(at)
-                .ok()
-                .ok_or_else(|| runtime_error_into_rpc_error("failed to read block events"))?
+                .map_err(|e| {
+                    runtime_error_into_rpc_error(format!("failed to read block events {:?}", e))
+                })?
                 .into_iter()
                 .filter_map(|event| match event {
                     pallet_ismp::events::Event::Request {

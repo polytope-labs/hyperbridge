@@ -24,7 +24,9 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
             let id = u32::from_str(id).expect("can't parse Id into u32");
             Box::new(chain_spec::development_config(id))
         },
-        "template-rococo" => Box::new(chain_spec::local_testnet_config()),
+        "gargantuan" => Box::new(chain_spec::ChainSpec::from_json_bytes(
+            include_bytes!("../../chainspec/gargantuan-raw.json").to_vec(),
+        )?),
         "" | "local" => Box::new(chain_spec::local_testnet_config()),
         path => Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?),
     })
@@ -41,7 +43,7 @@ impl SubstrateCli for Cli {
 
     fn description() -> String {
         format!(
-            "Hyperbridge\n\nThe command-line arguments provided first will be \
+            "Hyperbridge by Polytope Labs\n\nThe command-line arguments provided first will be \
 		passed to the parachain node, while the arguments provided after -- will be passed \
 		to the relay chain node.\n\n\
 		{} <parachain-args> -- <relay-chain-args>",
@@ -58,7 +60,7 @@ impl SubstrateCli for Cli {
     }
 
     fn copyright_start_year() -> i32 {
-        2020
+        2023
     }
 
     fn load_spec(&self, id: &str) -> std::result::Result<Box<dyn sc_service::ChainSpec>, String> {
@@ -77,7 +79,7 @@ impl SubstrateCli for RelayChainCli {
 
     fn description() -> String {
         format!(
-            "Hyperpridge\n\nThe command-line arguments provided first will be \
+            "Hyperbridge by Polytope Labs\n\nThe command-line arguments provided first will be \
 		passed to the parachain node, while the arguments provided after -- will be passed \
 		to the relay chain node.\n\n\
 		{} <parachain-args> -- <relay-chain-args>",

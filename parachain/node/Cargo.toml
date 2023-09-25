@@ -77,7 +77,7 @@ ismp-rpc = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch
 ismp-runtime-api = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main" }
 
 # local
-ismp-parachain-inherent = { path = "../modules/consensus/parachain/inherent" }
+#ismp-parachain-inherent = { path = "../modules/consensus/parachain/inherent" }
 
 
 [build-dependencies]

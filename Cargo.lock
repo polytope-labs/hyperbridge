@@ -5271,7 +5271,7 @@ dependencies = [
 [[package]]
 name = "ismp-demo"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#043dae1f4b373b241a2c7bdc63db5db49f62297a"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#66f4a78edbe91eee2879dc74048bf1278452ee87"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -5336,7 +5336,7 @@ dependencies = [
 [[package]]
 name = "ismp-primitives"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#043dae1f4b373b241a2c7bdc63db5db49f62297a"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#66f4a78edbe91eee2879dc74048bf1278452ee87"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-support",
@@ -5355,7 +5355,7 @@ dependencies = [
 [[package]]
 name = "ismp-rpc"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#043dae1f4b373b241a2c7bdc63db5db49f62297a"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#66f4a78edbe91eee2879dc74048bf1278452ee87"
 dependencies = [
  "frame-system",
  "hex-literal 0.3.4",
@@ -5377,7 +5377,7 @@ dependencies = [
 [[package]]
 name = "ismp-runtime-api"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#043dae1f4b373b241a2c7bdc63db5db49f62297a"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#66f4a78edbe91eee2879dc74048bf1278452ee87"
 dependencies = [
  "ismp",
  "ismp-primitives",
@@ -7592,7 +7592,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#043dae1f4b373b241a2c7bdc63db5db49f62297a"
+source = "git+https://github.com/polytope-labs/substrate-ismp.git?branch=main#66f4a78edbe91eee2879dc74048bf1278452ee87"
 dependencies = [
  "ckb-merkle-mountain-range",
  "derive_more",

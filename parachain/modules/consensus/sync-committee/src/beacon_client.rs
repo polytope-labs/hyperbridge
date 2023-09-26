@@ -43,7 +43,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         trusted_consensus_state: Vec<u8>,
         consensus_proof: Vec<u8>,
     ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-        let BeaconClientUpdate { optimism_payload, consensus_update, arbitrum_payload } =
+        let BeaconClientUpdate { mut op_stack_payload, consensus_update, arbitrum_payload } =
             BeaconClientUpdate::decode(&mut &consensus_proof[..]).map_err(|_| {
                 Error::ImplementationSpecific("Cannot decode beacon client update".to_string())
             })?;
@@ -81,27 +81,29 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
 
         state_machine_map
             .insert(StateMachine::Ethereum(Ethereum::ExecutionLayer), state_commitment_vec);
-        if let Some(optimism_payload) = optimism_payload {
-            let state = verify_optimism_payload::<H>(
-                optimism_payload,
-                &state_root[..],
-                *consensus_state
-                    .l2_oracle_address
-                    .get(&StateMachine::Ethereum(Ethereum::Optimism))
-                    .ok_or_else(|| {
-                        Error::ImplementationSpecific(
-                            "Optimism l2 oracle address was not set".into(),
-                        )
+
+        let op_stack =
+            [StateMachine::Ethereum(Ethereum::Base), StateMachine::Ethereum(Ethereum::Optimism)];
+
+        for state_machine_id in op_stack {
+            if let Some(payload) = op_stack_payload.remove(&state_machine_id) {
+                let state = verify_optimism_payload::<H>(
+                    payload,
+                    &state_root[..],
+                    *consensus_state.l2_oracle_address.get(&state_machine_id).ok_or_else(|| {
+                        Error::ImplementationSpecific("l2 oracle address was not set".into())
                     })?,
-            )?;
+                )?;
 
-            let optimism_state_commitment_height =
-                StateCommitmentHeight { commitment: state.commitment, height: state.height.height };
+                let state_commitment_height = StateCommitmentHeight {
+                    commitment: state.commitment,
+                    height: state.height.height,
+                };
 
-            let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
-            state_commitment_vec.push(optimism_state_commitment_height);
-            state_machine_map
-                .insert(StateMachine::Ethereum(Ethereum::Optimism), state_commitment_vec);
+                let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
+                state_commitment_vec.push(state_commitment_height);
+                state_machine_map.insert(state_machine_id, state_commitment_vec);
+            }
         }
 
         if let Some(arbitrum_payload) = arbitrum_payload {

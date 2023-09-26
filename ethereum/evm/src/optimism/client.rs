@@ -25,7 +25,7 @@ pub struct OpConfig {
     /// Withdrawals Message Passer contract address on L2
     pub message_parser: H160,
     /// General Evm client config
-    pub evm_config: Option<EvmConfig>,
+    pub evm_config: EvmConfig,
 }
 
 #[derive(Clone)]
@@ -56,9 +56,9 @@ pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
 }
 
 impl OpHost {
-    pub async fn new(config: OpConfig) -> Result<Self, anyhow::Error> {
-        let provider = Provider::<Ws>::connect(config.op_execution).await?;
-        let beacon_client = Provider::<Ws>::connect(config.beacon_execution_client).await?;
+    pub async fn new(config: &OpConfig) -> Result<Self, anyhow::Error> {
+        let provider = Provider::<Ws>::connect(&config.op_execution).await?;
+        let beacon_client = Provider::<Ws>::connect(&config.beacon_execution_client).await?;
         Ok(Self {
             op_execution_client: Arc::new(provider),
             beacon_execution_client: Arc::new(beacon_client),

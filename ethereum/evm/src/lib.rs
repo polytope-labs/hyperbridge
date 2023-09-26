@@ -9,7 +9,11 @@ use ethers::{
     providers::{Provider, Ws},
     signers::Signer,
 };
-use ismp::{consensus::ConsensusStateId, events::Event, host::StateMachine};
+use ismp::{
+    consensus::ConsensusStateId,
+    events::Event,
+    host::{Ethereum, StateMachine},
+};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
@@ -43,6 +47,21 @@ pub struct EvmConfig {
     pub latest_state_machine_height: u64,
     /// Block gas limit
     pub gas_limit: u64,
+}
+
+impl Default for EvmConfig {
+    fn default() -> Self {
+        Self {
+            execution: Default::default(),
+            state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+            consensus_state_id: Default::default(),
+            ismp_host_address: Default::default(),
+            handler_address: Default::default(),
+            signer: Default::default(),
+            latest_state_machine_height: Default::default(),
+            gas_limit: Default::default(),
+        }
+    }
 }
 
 /// Core EVM client.
@@ -134,9 +153,13 @@ where
     }
 
     /// Dispatch a test request to the parachain.
-    pub async fn dispatch_to_parachain(&self, address: H160) -> Result<(), anyhow::Error> {
+    pub async fn dispatch_to_parachain(
+        &self,
+        address: H160,
+        para_id: u32,
+    ) -> Result<(), anyhow::Error> {
         let contract = MockModule::new(address, self.signer.clone());
-        let call = contract.dispatch_to_parachain();
+        let call = contract.dispatch_to_parachain(para_id.into());
 
         // let gas = call.estimate_gas().await?; // todo: fix estimate gas
         // dbg!(gas);

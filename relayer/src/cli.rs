@@ -15,9 +15,12 @@
 
 //! Tesseract CLI utilities
 
-use crate::{config::Config, logging};
+use crate::{
+    config::{AnyClient, HyperbridgeConfig},
+    logging,
+};
 use clap::Parser;
-use primitives::config::MessageKind;
+use tokio::join;
 
 /// Tesseract, the multi-chain ISMP relayer
 #[derive(Parser, Debug)]
@@ -34,16 +37,37 @@ impl Cli {
 
         let config = tokio::fs::read_to_string(&self.config).await?;
 
-        let Config { chain_a, chain_b, relayer } = toml::from_str::<Config>(&config)?;
+        let HyperbridgeConfig { hyperbridge, ethereum, arbitrum, optimism, relayer } =
+            toml::from_str::<HyperbridgeConfig>(&config)?;
 
-        let chain_a = chain_a.into_client().await?;
-        let chain_b = chain_b.into_client().await?;
+        let hyperbridge = hyperbridge.into_client().await?;
+        let mut ethereum = ethereum.into_client().await?;
+        let arbitrum = arbitrum.into_client().await?;
+        let optimism = optimism.into_client().await?;
+        // let base = base.into_client().await?;
 
-        if relayer.messages.iter().any(|msg| matches!(msg, MessageKind::Consensus)) {
-            tokio::spawn(consensus::relay(chain_a.clone(), chain_b.clone()));
+        if let AnyClient::Ethereum(ref mut ethereum) = ethereum {
+            if let AnyClient::Arbitrum(ref client) = arbitrum {
+                ethereum.host.set_arb_host(client.host.clone());
+            }
+            if let AnyClient::Optimism(ref client) = optimism {
+                ethereum.host.set_op_host(client.host.clone());
+            }
         }
 
-        messaging::relay(chain_a, chain_b, Some(relayer)).await?;
+        let a = tokio::spawn(consensus::relay(hyperbridge.clone(), ethereum.clone()));
+        let b = tokio::spawn(consensus::relay(hyperbridge.clone(), arbitrum.clone()));
+        let c = tokio::spawn(consensus::relay(hyperbridge.clone(), optimism.clone()));
+        // let d = tokio::spawn(consensus::relay(hyperbridge.clone(), base.clone()));
+        let e =
+            tokio::spawn(messaging::relay(hyperbridge.clone(), ethereum, Some(relayer.clone())));
+        let f =
+            tokio::spawn(messaging::relay(hyperbridge.clone(), arbitrum, Some(relayer.clone())));
+        let g =
+            tokio::spawn(messaging::relay(hyperbridge.clone(), optimism, Some(relayer.clone())));
+        // let h = tokio::spawn(messaging::relay(hyperbridge.clone(), base, Some(relayer.clone())));
+
+        let _ = join!(a, b, c, e, f, g);
 
         Ok(())
     }

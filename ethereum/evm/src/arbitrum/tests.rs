@@ -17,10 +17,10 @@ async fn test_payload_proof_verification() {
         beacon_execution_client: "wss://rpc.ankr.com/eth/ws/6875dedefed4afb05996bc795f89f9cd6f245f5117302f2c9214376ec1d96513".to_string(),
         arb_execution: "wss://rpc.ankr.com/arbitrum/ws/6875dedefed4afb05996bc795f89f9cd6f245f5117302f2c9214376ec1d96513".to_string(),
         rollup_core: H160::from_slice(&ROLLUP_CORE),
-        evm_config: None
+        evm_config: Default::default()
     };
 
-    let arb_client = ArbHost::new(config).await.expect("Host creation failed");
+    let arb_client = ArbHost::new(&config).await.expect("Host creation failed");
 
     let event = arb_client
         .latest_event(18026004, 18026004)

@@ -56,15 +56,20 @@ where
         let consensus_state = ConsensusState {
             latest_beefy_height: beefy_consensus_state.latest_height.as_u32(),
             mmr_root_hash: Default::default(),
+            beefy_activation_block: beefy_consensus_state.beefy_activation_block.as_u32(),
             current_authorities: BeefyNextAuthoritySet {
                 id: beefy_consensus_state.current_authority_set.id.as_u64(),
                 len: beefy_consensus_state.current_authority_set.len.as_u32(),
-                root: H256::from_slice(beefy_consensus_state.current_authority_set.root.as_slice()),
+                keyset_commitment: H256::from_slice(
+                    beefy_consensus_state.current_authority_set.root.as_slice(),
+                ),
             },
             next_authorities: BeefyNextAuthoritySet {
                 id: beefy_consensus_state.next_authority_set.id.as_u64(),
                 len: beefy_consensus_state.next_authority_set.len.as_u32(),
-                root: H256::from_slice(beefy_consensus_state.next_authority_set.root.as_slice()),
+                keyset_commitment: H256::from_slice(
+                    beefy_consensus_state.next_authority_set.root.as_slice(),
+                ),
             },
         };
         Ok(consensus_state.encode())

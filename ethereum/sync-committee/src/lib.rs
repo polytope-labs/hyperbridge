@@ -20,11 +20,7 @@ use primitives::{types::LightClientState, util::compute_epoch_at_slot};
 use prover::SyncCommitteeProver;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use tesseract_evm::{
-    arbitrum::client::{ArbConfig, ArbHost},
-    optimism::client::{OpConfig, OpHost},
-    EvmConfig,
-};
+use tesseract_evm::{arbitrum::client::ArbHost, optimism::client::OpHost, EvmConfig};
 
 mod byzantine;
 mod host;
@@ -34,16 +30,11 @@ mod notification;
 pub struct SyncCommitteeConfig {
     /// Http url for a beacon client
     pub beacon_node_url: String,
-    /// State machine Identifier for this client on it's counterparties.
-    pub state_machine: StateMachine,
-    /// Arbitrum host config
-    pub arbitrum_execution_client: Option<ArbConfig>,
-    /// Optimism host config
-    pub optimism_execution_client: Option<OpConfig>,
     /// Consensus state id on counterparty chain
     pub consensus_state_id: String,
     /// General ethereum config
-    pub evm_config: Option<EvmConfig>,
+    #[serde[flatten]]
+    pub evm_config: EvmConfig,
 }
 
 #[derive(Clone)]
@@ -63,7 +54,7 @@ pub struct SyncCommitteeHost {
 }
 
 impl SyncCommitteeHost {
-    pub async fn new(config: SyncCommitteeConfig) -> Result<Self, anyhow::Error> {
+    pub async fn new(config: &SyncCommitteeConfig) -> Result<Self, anyhow::Error> {
         let prover = SyncCommitteeProver::new(config.beacon_node_url.clone());
         Ok(Self {
             consensus_state_id: {
@@ -71,20 +62,20 @@ impl SyncCommitteeHost {
                 consensus_state_id.copy_from_slice(config.consensus_state_id.as_bytes());
                 consensus_state_id
             },
-            state_machine: config.state_machine,
-            arbitrum_client: if let Some(config) = config.arbitrum_execution_client.as_ref() {
-                Some(ArbHost::new(config.clone()).await?)
-            } else {
-                None
-            },
-            optimism_client: if let Some(config) = config.optimism_execution_client.as_ref() {
-                Some(OpHost::new(config.clone()).await?)
-            } else {
-                None
-            },
+            state_machine: config.evm_config.state_machine,
+            arbitrum_client: None,
+            optimism_client: None,
             prover,
             beacon_node_rpc: config.beacon_node_url.clone(),
         })
+    }
+
+    pub fn set_arb_host(&mut self, host: ArbHost) {
+        self.arbitrum_client = Some(host)
+    }
+
+    pub fn set_op_host(&mut self, host: OpHost) {
+        self.optimism_client = Some(host)
     }
 
     pub async fn get_initial_consensus_state(

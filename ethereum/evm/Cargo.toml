@@ -30,7 +30,7 @@ tokio-stream = "0.1.14"
 pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
 ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
-beefy-verifier-primitives = { git = "ssh://git@github.com/polytope-labs/beefy-rs", branch = "seun/polkadot-v0.9.42" }
+beefy-verifier-primitives = { path = "../../substrate/beefy/primitives" }
 consensus-client = { package = "ismp-sync-committee", git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 
 tesseract-primitives = { path = "../../primitives" }

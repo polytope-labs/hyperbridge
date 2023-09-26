@@ -15,22 +15,13 @@ pub mod mock_module {
     fn __abi() -> ::ethers::core::abi::Abi {
         ::ethers::core::abi::ethabi::Contract {
             constructor: ::core::option::Option::Some(::ethers::core::abi::ethabi::Constructor {
-                inputs: ::std::vec![
-                    ::ethers::core::abi::ethabi::Param {
-                        name: ::std::borrow::ToOwned::to_owned("host"),
-                        kind: ::ethers::core::abi::ethabi::ParamType::Address,
-                        internal_type: ::core::option::Option::Some(
-                            ::std::borrow::ToOwned::to_owned("address"),
-                        ),
-                    },
-                    ::ethers::core::abi::ethabi::Param {
-                        name: ::std::borrow::ToOwned::to_owned("paraId"),
-                        kind: ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
-                        internal_type: ::core::option::Option::Some(
-                            ::std::borrow::ToOwned::to_owned("uint256"),
-                        ),
-                    },
-                ],
+                inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                    name: ::std::borrow::ToOwned::to_owned("host"),
+                    kind: ::ethers::core::abi::ethabi::ParamType::Address,
+                    internal_type: ::core::option::Option::Some(::std::borrow::ToOwned::to_owned(
+                        "address"
+                    ),),
+                },],
             }),
             functions: ::core::convert::From::from([
                 (
@@ -104,7 +95,13 @@ pub mod mock_module {
                     ::std::borrow::ToOwned::to_owned("dispatchToParachain"),
                     ::std::vec![::ethers::core::abi::ethabi::Function {
                         name: ::std::borrow::ToOwned::to_owned("dispatchToParachain",),
-                        inputs: ::std::vec![],
+                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::borrow::ToOwned::to_owned("_paraId"),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Uint(256usize,),
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("uint256"),
+                            ),
+                        },],
                         outputs: ::std::vec![],
                         constant: ::core::option::Option::None,
                         state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
@@ -256,6 +253,22 @@ pub mod mock_module {
                         state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
                     },],
                 ),
+                (
+                    ::std::borrow::ToOwned::to_owned("ping"),
+                    ::std::vec![::ethers::core::abi::ethabi::Function {
+                        name: ::std::borrow::ToOwned::to_owned("ping"),
+                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::borrow::ToOwned::to_owned("dest"),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("bytes"),
+                            ),
+                        },],
+                        outputs: ::std::vec![],
+                        constant: ::core::option::Option::None,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                    },],
+                ),
             ]),
             events: ::core::convert::From::from([
                 (
@@ -383,10 +396,13 @@ pub mod mock_module {
                 .method_hash([209, 171, 70, 207], (request,))
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `dispatchToParachain` (0x667f320a) function
-        pub fn dispatch_to_parachain(&self) -> ::ethers::contract::builders::ContractCall<M, ()> {
+        ///Calls the contract's `dispatchToParachain` (0x72354e9b) function
+        pub fn dispatch_to_parachain(
+            &self,
+            para_id: ::ethers::core::types::U256,
+        ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([102, 127, 50, 10], ())
+                .method_hash([114, 53, 78, 155], para_id)
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `onAccept` (0x4e87ba19) function
@@ -432,6 +448,15 @@ pub mod mock_module {
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
                 .method_hash([199, 21, 245, 43], (request,))
+                .expect("method not found (this should never happen)")
+        }
+        ///Calls the contract's `ping` (0x1f40dc8b) function
+        pub fn ping(
+            &self,
+            dest: ::ethers::core::types::Bytes,
+        ) -> ::ethers::contract::builders::ContractCall<M, ()> {
+            self.0
+                .method_hash([31, 64, 220, 139], dest)
                 .expect("method not found (this should never happen)")
         }
         ///Gets the contract's `GetResponseReceived` event
@@ -779,7 +804,7 @@ pub mod mock_module {
         pub request: GetRequest,
     }
     ///Container type for all input parameters for the `dispatchToParachain` function with
-    /// signature `dispatchToParachain()` and selector `0x667f320a`
+    /// signature `dispatchToParachain(uint256)` and selector `0x72354e9b`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -790,8 +815,10 @@ pub mod mock_module {
         Eq,
         Hash,
     )]
-    #[ethcall(name = "dispatchToParachain", abi = "dispatchToParachain()")]
-    pub struct DispatchToParachainCall;
+    #[ethcall(name = "dispatchToParachain", abi = "dispatchToParachain(uint256)")]
+    pub struct DispatchToParachainCall {
+        pub para_id: ::ethers::core::types::U256,
+    }
     ///Container type for all input parameters for the `onAccept` function with signature
     /// `onAccept((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector `0x4e87ba19`
     #[derive(
@@ -891,6 +918,22 @@ pub mod mock_module {
     pub struct OnPostTimeoutCall {
         pub request: PostRequest,
     }
+    ///Container type for all input parameters for the `ping` function with signature `ping(bytes)`
+    /// and selector `0x1f40dc8b`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(name = "ping", abi = "ping(bytes)")]
+    pub struct PingCall {
+        pub dest: ::ethers::core::types::Bytes,
+    }
     ///Container type for all of the contract's call
     #[derive(Clone, ::ethers::contract::EthAbiType, Debug, PartialEq, Eq, Hash)]
     pub enum MockModuleCalls {
@@ -902,6 +945,7 @@ pub mod mock_module {
         OnGetTimeout(OnGetTimeoutCall),
         OnPostResponse(OnPostResponseCall),
         OnPostTimeout(OnPostTimeoutCall),
+        Ping(PingCall),
     }
     impl ::ethers::core::abi::AbiDecode for MockModuleCalls {
         fn decode(
@@ -941,6 +985,9 @@ pub mod mock_module {
             {
                 return Ok(Self::OnPostTimeout(decoded))
             }
+            if let Ok(decoded) = <PingCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+                return Ok(Self::Ping(decoded))
+            }
             Err(::ethers::core::abi::Error::InvalidData.into())
         }
     }
@@ -959,6 +1006,7 @@ pub mod mock_module {
                 Self::OnGetTimeout(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::OnPostResponse(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::OnPostTimeout(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::Ping(element) => ::ethers::core::abi::AbiEncode::encode(element),
             }
         }
     }
@@ -973,6 +1021,7 @@ pub mod mock_module {
                 Self::OnGetTimeout(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnPostResponse(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnPostTimeout(element) => ::core::fmt::Display::fmt(element, f),
+                Self::Ping(element) => ::core::fmt::Display::fmt(element, f),
             }
         }
     }
@@ -1014,6 +1063,11 @@ pub mod mock_module {
     impl ::core::convert::From<OnPostTimeoutCall> for MockModuleCalls {
         fn from(value: OnPostTimeoutCall) -> Self {
             Self::OnPostTimeout(value)
+        }
+    }
+    impl ::core::convert::From<PingCall> for MockModuleCalls {
+        fn from(value: PingCall) -> Self {
+            Self::Ping(value)
         }
     }
     ///Container type for all return fields from the `dispatch` function with signature

@@ -17,10 +17,10 @@ async fn test_payload_proof_verification() {
         op_execution: "wss://rpc.ankr.com/optimism/ws/6875dedefed4afb05996bc795f89f9cd6f245f5117302f2c9214376ec1d96513".to_string(),
         l2_oracle: H160::from(L2_ORACLE),
         message_parser: H160::from(MESSAGE_PARSER),
-        evm_config: None
+        evm_config: Default::default()
     };
 
-    let op_client = OpHost::new(config).await.expect("Host creation failed");
+    let op_client = OpHost::new(&config).await.expect("Host creation failed");
 
     let event = op_client
         .latest_event(18022470, 18022470)

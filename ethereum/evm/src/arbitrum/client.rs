@@ -25,7 +25,8 @@ pub struct ArbConfig {
     /// RollupCore contract address on L1
     pub rollup_core: H160,
     /// General evm config
-    pub evm_config: Option<EvmConfig>,
+    #[serde[flatten]]
+    pub evm_config: EvmConfig,
 }
 
 #[derive(Clone)]
@@ -39,9 +40,9 @@ pub struct ArbHost {
 }
 
 impl ArbHost {
-    pub async fn new(config: ArbConfig) -> Result<Self, anyhow::Error> {
-        let provider = Provider::<Ws>::connect(config.arb_execution).await?;
-        let beacon_client = Provider::<Ws>::connect(config.beacon_execution_client).await?;
+    pub async fn new(config: &ArbConfig) -> Result<Self, anyhow::Error> {
+        let provider = Provider::<Ws>::connect(&config.arb_execution).await?;
+        let beacon_client = Provider::<Ws>::connect(&config.beacon_execution_client).await?;
         Ok(Self {
             arb_execution_client: Arc::new(provider),
             beacon_execution_client: Arc::new(beacon_client),

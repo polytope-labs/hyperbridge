@@ -34,7 +34,6 @@ where
             result = consensus_a.next() =>  {
                 match result {
                     None => {
-                        println!("A Returned None");
                         break
                     }
                     Some(Ok(consensus_message)) => {
@@ -57,7 +56,6 @@ where
             result = consensus_b.next() =>  {
                  match result {
                     None => {
-                        println!("B Returned None");
                         break
                     },
                     Some(Ok(consensus_message)) => {

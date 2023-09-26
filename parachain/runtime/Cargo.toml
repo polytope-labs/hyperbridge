@@ -170,5 +170,5 @@ try-runtime = [
 	"parachain-info/try-runtime",
 ]
 
-testnet = ["ismp-sync-committee/testnet"]
+goerli = ["ismp-sync-committee/goerli"]
 mainnet = ["ismp-sync-committee/mainnet"]

@@ -94,3 +94,5 @@ try-runtime = [
 	"try-runtime-cli/try-runtime",
 	"hyperbridge-runtime/try-runtime"
 ]
+testnet = ["hyperbridge-runtime/testnet"]
+mainnet = ["hyperbridge-runtime/mainnet"]

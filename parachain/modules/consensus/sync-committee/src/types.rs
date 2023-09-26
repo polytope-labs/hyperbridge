@@ -32,7 +32,7 @@ pub struct ConsensusState {
 #[derive(Encode, Decode)]
 pub struct BeaconClientUpdate {
     pub consensus_update: LightClientUpdate,
-    pub optimism_payload: Option<OptimismPayloadProof>,
+    pub op_stack_payload: BTreeMap<StateMachine, OptimismPayloadProof>,
     pub arbitrum_payload: Option<ArbitrumPayloadProof>,
 }
 

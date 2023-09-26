@@ -60,4 +60,5 @@ std = [
     "pallet-ismp/std",
 ]
 
-testnet = []
+goerli = ["sync-committee-verifier/testnet", "sync-committee-primitives/testnet"]
+mainnet = ["sync-committee-verifier/mainnet", "sync-committee-primitives/mainnet"]

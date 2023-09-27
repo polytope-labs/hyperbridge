@@ -37,14 +37,14 @@ impl Cli {
 
         let config = tokio::fs::read_to_string(&self.config).await?;
 
-        let HyperbridgeConfig { hyperbridge, ethereum, arbitrum, optimism, relayer } =
+        let HyperbridgeConfig { hyperbridge, ethereum, arbitrum, optimism, base, relayer } =
             toml::from_str::<HyperbridgeConfig>(&config)?;
 
         let hyperbridge = hyperbridge.into_client().await?;
         let mut ethereum = ethereum.into_client().await?;
         let arbitrum = arbitrum.into_client().await?;
         let optimism = optimism.into_client().await?;
-        // let base = base.into_client().await?;
+        let base = base.into_client().await?;
 
         if let AnyClient::Ethereum(ref mut ethereum) = ethereum {
             if let AnyClient::Arbitrum(ref client) = arbitrum {
@@ -53,21 +53,25 @@ impl Cli {
             if let AnyClient::Optimism(ref client) = optimism {
                 ethereum.host.set_op_host(client.host.clone());
             }
+
+            if let AnyClient::Base(ref client) = base {
+                ethereum.host.set_base_host(client.host.clone());
+            }
         }
 
         let a = tokio::spawn(consensus::relay(hyperbridge.clone(), ethereum.clone()));
         let b = tokio::spawn(consensus::relay(hyperbridge.clone(), arbitrum.clone()));
         let c = tokio::spawn(consensus::relay(hyperbridge.clone(), optimism.clone()));
-        // let d = tokio::spawn(consensus::relay(hyperbridge.clone(), base.clone()));
+        let d = tokio::spawn(consensus::relay(hyperbridge.clone(), base.clone()));
         let e =
             tokio::spawn(messaging::relay(hyperbridge.clone(), ethereum, Some(relayer.clone())));
         let f =
             tokio::spawn(messaging::relay(hyperbridge.clone(), arbitrum, Some(relayer.clone())));
         let g =
             tokio::spawn(messaging::relay(hyperbridge.clone(), optimism, Some(relayer.clone())));
-        // let h = tokio::spawn(messaging::relay(hyperbridge.clone(), base, Some(relayer.clone())));
+        let h = tokio::spawn(messaging::relay(hyperbridge.clone(), base, Some(relayer.clone())));
 
-        let _ = join!(a, b, c, e, f, g);
+        let _ = join!(a, b, c, d, e, f, g, h);
 
         Ok(())
     }

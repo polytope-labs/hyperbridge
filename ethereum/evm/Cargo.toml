@@ -49,3 +49,5 @@ hex = "0.4.3"
 
 [features]
 testing = []
+goerli = ["consensus-client/goerli"]
+mainnet = ["consensus-client/mainnet"]

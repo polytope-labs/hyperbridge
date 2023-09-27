@@ -30,3 +30,8 @@ toml = "0.7.4"
 async-trait = "0.1.68"
 clap = { version = "4.3.5", features = ["derive"] }
 tokio = { version = "1.28.2", features = ["macros", "rt-multi-thread", "fs"] }
+
+
+[features]
+goerli = ["tesseract-sync-committee/goerli", "tesseract-evm/goerli"]
+mainnet = ["tesseract-sync-committee/mainnet", "tesseract-evm/mainnet"]

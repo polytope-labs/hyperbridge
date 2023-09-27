@@ -3678,7 +3678,7 @@ dependencies = [
 [[package]]
 name = "ismp-primitives"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp?branch=main#043dae1f4b373b241a2c7bdc63db5db49f62297a"
+source = "git+https://github.com/polytope-labs/substrate-ismp?branch=main#66f4a78edbe91eee2879dc74048bf1278452ee87"
 dependencies = [
  "ckb-merkle-mountain-range 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "frame-support",
@@ -3733,7 +3733,7 @@ dependencies = [
 [[package]]
 name = "ismp-sync-committee"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#fe18dc0366a824cd4456247cad93ea6b668dc383"
+source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#b27f648d1d857009c6fe0ffc315a48806ba3d420"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -4734,7 +4734,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/substrate-ismp?branch=main#043dae1f4b373b241a2c7bdc63db5db49f62297a"
+source = "git+https://github.com/polytope-labs/substrate-ismp?branch=main#66f4a78edbe91eee2879dc74048bf1278452ee87"
 dependencies = [
  "ckb-merkle-mountain-range 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "derive_more",

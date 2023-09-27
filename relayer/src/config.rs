@@ -56,8 +56,8 @@ pub struct HyperbridgeConfig {
     pub arbitrum: AnyConfig,
     /// Configuration options for Optimism.
     pub optimism: AnyConfig,
-    // /// Configuration options for Base.
-    // pub base: AnyConfig,
+    /// Configuration options for Base.
+    pub base: AnyConfig,
     /// Configuration options for the relayer.
     pub relayer: RelayerConfig,
 }

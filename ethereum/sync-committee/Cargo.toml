@@ -28,3 +28,7 @@ reqwest-eventsource = "0.4.0"
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
 tesseract-primitives = { path = "../../primitives" }
 tesseract-evm = { path = "../evm"}
+
+[features]
+goerli = ["consensus-client/goerli"]
+mainnet = ["consensus-client/mainnet"]

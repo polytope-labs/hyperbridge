@@ -88,7 +88,7 @@ impl OpHost {
         Ok(events.last().cloned())
     }
 
-    pub async fn fetch_optimism_payload(
+    pub async fn fetch_op_payload(
         &self,
         at: u64,
         event: OutputProposedFilter,

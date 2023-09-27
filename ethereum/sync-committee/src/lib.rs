@@ -47,6 +47,8 @@ pub struct SyncCommitteeHost {
     pub arbitrum_client: Option<ArbHost>,
     /// Optimism  client
     pub optimism_client: Option<OpHost>,
+    /// Base  client
+    pub base_client: Option<OpHost>,
     /// Consensus prover
     pub prover: SyncCommitteeProver,
     /// Http URl beacon chain, required for subscribing to events SSE
@@ -65,6 +67,7 @@ impl SyncCommitteeHost {
             state_machine: config.evm_config.state_machine,
             arbitrum_client: None,
             optimism_client: None,
+            base_client: None,
             prover,
             beacon_node_rpc: config.beacon_node_url.clone(),
         })
@@ -76,6 +79,10 @@ impl SyncCommitteeHost {
 
     pub fn set_op_host(&mut self, host: OpHost) {
         self.optimism_client = Some(host)
+    }
+
+    pub fn set_base_host(&mut self, host: OpHost) {
+        self.base_client = Some(host)
     }
 
     pub async fn get_initial_consensus_state(

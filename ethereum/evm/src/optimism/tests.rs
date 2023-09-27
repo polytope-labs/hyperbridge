@@ -28,10 +28,8 @@ async fn test_payload_proof_verification() {
         .expect("Failed to fetch latest event")
         .expect("There should be an event");
 
-    let payload_proof = op_client
-        .fetch_optimism_payload(18022470, event)
-        .await
-        .expect("Error fetching payload proof");
+    let payload_proof =
+        op_client.fetch_op_payload(18022470, event).await.expect("Error fetching payload proof");
 
     let l1_header = op_client
         .beacon_execution_client

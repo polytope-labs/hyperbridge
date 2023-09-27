@@ -1,7 +1,9 @@
 use crate::SyncCommitteeHost;
 use codec::Decode;
 use consensus_client::types::{BeaconClientUpdate, ConsensusState};
+use ismp::host::{Ethereum, StateMachine};
 use primitives::{consensus_types::Checkpoint, constants::Root};
+use std::collections::BTreeMap;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -53,7 +55,9 @@ where
     } else {
         None
     };
-    let optimism_payload = if let Some(op_client) = client.optimism_client.as_ref() {
+
+    let mut op_stack_payload = BTreeMap::new();
+    if let Some(op_client) = client.optimism_client.as_ref() {
         let latest_event = op_client
             .latest_event(
                 light_client_state.finalized_header.slot,
@@ -61,18 +65,27 @@ where
             )
             .await?;
         if let Some(event) = latest_event {
-            op_client
-                .fetch_optimism_payload(consensus_update.finalized_header.slot, event)
-                .await
-                .ok()
-        } else {
-            None
+            let payload =
+                op_client.fetch_op_payload(consensus_update.finalized_header.slot, event).await?;
+            op_stack_payload.insert(StateMachine::Ethereum(Ethereum::Optimism), payload);
         }
-    } else {
-        None
-    };
+    }
 
-    let message = BeaconClientUpdate { consensus_update, optimism_payload, arbitrum_payload };
+    if let Some(base_client) = client.base_client.as_ref() {
+        let latest_event = base_client
+            .latest_event(
+                light_client_state.finalized_header.slot,
+                consensus_update.finalized_header.slot,
+            )
+            .await?;
+        if let Some(event) = latest_event {
+            let payload =
+                base_client.fetch_op_payload(consensus_update.finalized_header.slot, event).await?;
+            op_stack_payload.insert(StateMachine::Ethereum(Ethereum::Base), payload);
+        }
+    }
+
+    let message = BeaconClientUpdate { consensus_update, op_stack_payload, arbitrum_payload };
 
     Ok(Some(message))
 }

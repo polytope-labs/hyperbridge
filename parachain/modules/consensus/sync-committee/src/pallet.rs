@@ -4,10 +4,11 @@ use pallet_ismp::host::Host;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use crate::{beacon_client::BEACON_CONSENSUS_STATE_ID, types::ConsensusState};
+    use crate::types::ConsensusState;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
-    use ismp::host::{IsmpHost, StateMachine};
+    use ismp::{consensus::StateMachineId, host::IsmpHost};
+
     use sp_core::{H160, H256};
 
     #[pallet::pallet]
@@ -24,14 +25,10 @@ pub mod pallet {
     pub enum Error<T> {
         /// Contract Address Already Exists
         ContractAddressAlreadyExists,
-        /// Contract Address Consensus Does not Exist
-        ContractAddressDontExists,
         /// Error fetching consensus state
         ErrorFetchingConsensusState,
         /// Error decoding consensus state
         ErrorDecodingConsensusState,
-        /// Incorrect consensus state id length
-        IncorrectConsensusStateIdLength,
         /// Error storing consensus state
         ErrorStoringConsensusState,
     }
@@ -41,80 +38,65 @@ pub mod pallet {
     where
         <T as frame_system::Config>::Hash: From<H256>,
     {
-        /// Add or update an ismp contract address
+        /// Add an ismp host contract address for a new chain
         #[pallet::call_index(0)]
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-        pub fn update_ismp_address(
+        pub fn add_ismp_address(
             origin: OriginFor<T>,
             contract_address: H160,
-            state_machine: StateMachine,
+            state_machine_id: StateMachineId,
         ) -> DispatchResult {
             <T as Config>::AdminOrigin::ensure_origin(origin)?;
 
             let ismp_host = Host::<T>::default();
-
+            let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
             let encoded_consensus_state = ismp_host
-                .consensus_state(BEACON_CONSENSUS_STATE_ID)
+                .consensus_state(consensus_state_id)
                 .map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
             let mut consensus_state: ConsensusState =
                 codec::Decode::decode(&mut &encoded_consensus_state[..])
                     .map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
-
+            ensure!(
+                !consensus_state.ismp_contract_addresses.contains_key(&state_machine),
+                Error::<T>::ContractAddressAlreadyExists
+            );
             consensus_state.ismp_contract_addresses.insert(state_machine, contract_address);
 
             let encoded_consensus_state = consensus_state.encode();
             ismp_host
-                .store_consensus_state(BEACON_CONSENSUS_STATE_ID, encoded_consensus_state)
+                .store_consensus_state(consensus_state_id, encoded_consensus_state)
                 .map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
             Ok(())
         }
 
-        /// Update rollup core address
+        /// Add an l2 oracle address for a new chain using Op stack
         #[pallet::call_index(1)]
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-        pub fn update_rollup_core(origin: OriginFor<T>, rollup_core: H160) -> DispatchResult {
-            <T as Config>::AdminOrigin::ensure_origin(origin)?;
-
-            let ismp_host = Host::<T>::default();
-
-            let encoded_consensus_state = ismp_host
-                .consensus_state(BEACON_CONSENSUS_STATE_ID)
-                .map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
-            let mut consensus_state: ConsensusState =
-                codec::Decode::decode(&mut &encoded_consensus_state[..])
-                    .map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
-            consensus_state.rollup_core_address = rollup_core;
-
-            let encoded_consensus_state = consensus_state.encode();
-            ismp_host
-                .store_consensus_state(BEACON_CONSENSUS_STATE_ID, encoded_consensus_state)
-                .map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
-            Ok(())
-        }
-
-        /// Update an l2 oracle address for chains using Op stack
-        #[pallet::call_index(3)]
-        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-        pub fn update_l2_oracle(
+        pub fn add_l2_oracle(
             origin: OriginFor<T>,
-            state_machine: StateMachine,
+            state_machine_id: StateMachineId,
             l2_oracle: H160,
         ) -> DispatchResult {
             <T as Config>::AdminOrigin::ensure_origin(origin)?;
 
             let ismp_host = Host::<T>::default();
+            let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
 
             let encoded_consensus_state = ismp_host
-                .consensus_state(BEACON_CONSENSUS_STATE_ID)
+                .consensus_state(consensus_state_id)
                 .map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
             let mut consensus_state: ConsensusState =
                 codec::Decode::decode(&mut &encoded_consensus_state[..])
                     .map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
+            ensure!(
+                !consensus_state.l2_oracle_address.contains_key(&state_machine),
+                Error::<T>::ContractAddressAlreadyExists
+            );
             consensus_state.l2_oracle_address.insert(state_machine, l2_oracle);
 
             let encoded_consensus_state = consensus_state.encode();
             ismp_host
-                .store_consensus_state(BEACON_CONSENSUS_STATE_ID, encoded_consensus_state)
+                .store_consensus_state(consensus_state_id, encoded_consensus_state)
                 .map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
             Ok(())
         }

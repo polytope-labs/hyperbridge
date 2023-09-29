@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
+#![allow(dead_code)]
 //! Tesseract config utilities
 
 // use grandpa::{GrandpaConfig, GrandpaHost};
@@ -20,6 +20,7 @@ use ismp_primitives::HashAlgorithm;
 use parachain::ParachainHost;
 use primitives::config::RelayerConfig;
 use serde::{Deserialize, Serialize};
+use tesseract_beefy::BeefyConfig;
 use tesseract_evm::{
     arbitrum::client::{ArbConfig, ArbHost},
     optimism::client::{OpConfig, OpHost},
@@ -49,15 +50,15 @@ crate::chain! {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HyperbridgeConfig {
     /// Configuration options for hyperbridge.
-    pub hyperbridge: AnyConfig,
+    pub hyperbridge: BeefyConfig,
     /// Configuration options for Ethereum.
-    pub ethereum: AnyConfig,
+    pub ethereum: SyncCommitteeConfig,
     /// Configuration options for Arbitrum.
-    pub arbitrum: AnyConfig,
+    pub arbitrum: ArbConfig,
     /// Configuration options for Optimism.
-    pub optimism: AnyConfig,
+    pub optimism: OpConfig,
     /// Configuration options for Base.
-    pub base: AnyConfig,
+    pub base: OpConfig,
     /// Configuration options for the relayer.
     pub relayer: RelayerConfig,
 }

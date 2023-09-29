@@ -41,7 +41,7 @@ where
         at: Option<u64>,
         _: ConsensusStateId,
     ) -> Result<Vec<u8>, Error> {
-        let contract = IIsmpHost::new(self.ismp_host_address, self.client.clone());
+        let contract = IIsmpHost::new(self.ismp_host, self.client.clone());
         let value = {
             let call = if let Some(block) = at {
                 contract.consensus_state().block(block)
@@ -75,27 +75,27 @@ where
         Ok(consensus_state.encode())
     }
 
-    async fn query_latest_state_machine_height(&self, _id: StateMachineId) -> Result<u32, Error> {
-        let contract = IIsmpHost::new(self.ismp_host_address, self.client.clone());
+    async fn query_latest_height(&self, _id: StateMachineId) -> Result<u32, Error> {
+        let contract = IIsmpHost::new(self.ismp_host, self.client.clone());
         let value = contract.latest_state_machine_height().call().await?;
         Ok(value.low_u64() as u32)
     }
 
     async fn query_consensus_update_time(&self, _id: ConsensusStateId) -> Result<Duration, Error> {
-        let contract = IIsmpHost::new(self.ismp_host_address, self.client.clone());
+        let contract = IIsmpHost::new(self.ismp_host, self.client.clone());
         let value = contract.consensus_update_time().call().await?;
         Ok(Duration::from_secs(value.low_u64()))
     }
 
     async fn query_challenge_period(&self, _id: ConsensusStateId) -> Result<Duration, Error> {
-        let contract = IIsmpHost::new(self.ismp_host_address, self.client.clone());
+        let contract = IIsmpHost::new(self.ismp_host, self.client.clone());
         let value = contract.challenge_period().call().await?;
         Ok(Duration::from_secs(value.low_u64()))
     }
 
     async fn query_timestamp(&self) -> Result<Duration, Error> {
         let client = Arc::new(self.client.clone());
-        let contract = IIsmpHost::new(self.ismp_host_address, client);
+        let contract = IIsmpHost::new(self.ismp_host, client);
         let value = contract.timestamp().call().await?;
         Ok(Duration::from_secs(value.low_u64()))
     }
@@ -104,7 +104,7 @@ where
         let keys =
             keys.into_iter().map(|query| self.request_commitment_key(query.commitment)).collect();
 
-        let proof = self.client.get_proof(self.ismp_host_address, keys, Some(at.into())).await?;
+        let proof = self.client.get_proof(self.ismp_host, keys, Some(at.into())).await?;
         let proof = EvmStateProof {
             contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
             storage_proof: proof
@@ -124,7 +124,7 @@ where
     async fn query_responses_proof(&self, at: u64, keys: Vec<Query>) -> Result<Vec<u8>, Error> {
         let keys =
             keys.into_iter().map(|query| self.response_commitment_key(query.commitment)).collect();
-        let proof = self.client.get_proof(self.ismp_host_address, keys, Some(at.into())).await?;
+        let proof = self.client.get_proof(self.ismp_host, keys, Some(at.into())).await?;
         let proof = EvmStateProof {
             contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
             storage_proof: proof
@@ -181,10 +181,10 @@ where
     }
 
     async fn query_ismp_events(&self, event: StateMachineUpdated) -> Result<Vec<Event>, Error> {
-        let latest_state_machine_height = Arc::clone(&self.latest_state_machine_height);
-        let previous_height = *latest_state_machine_height.lock() + 1;
+        let latest_height = Arc::clone(&self.latest_height);
+        let previous_height = *latest_height.lock() + 1;
         let events = self.events(previous_height, event.latest_height).await?;
-        *latest_state_machine_height.lock() = event.latest_height;
+        *latest_height.lock() = event.latest_height;
         Ok(events)
     }
 
@@ -234,13 +234,13 @@ where
 
     async fn submit(&self, messages: Vec<Message>) -> Result<(), Error> {
         use codec::Decode;
-        let contract = IsmpHandler::new(self.handler_address, self.signer.clone());
+        let contract = IsmpHandler::new(self.handler, self.signer.clone());
 
         for msg in messages {
             match msg {
                 Message::Consensus(msg) => {
                     contract
-                        .handle_consensus(self.ismp_host_address, msg.consensus_proof.into())
+                        .handle_consensus(self.ismp_host, msg.consensus_proof.into())
                         .gas(10_000_000)
                         .send()
                         .await?
@@ -300,7 +300,7 @@ where
                     };
 
                     contract
-                        .handle_post_requests(self.ismp_host_address, post_message)
+                        .handle_post_requests(self.ismp_host, post_message)
                         .gas(10_000_000)
                         .send()
                         .await?
@@ -369,7 +369,7 @@ where
                         responses: leaves,
                     };
                     contract
-                        .handle_post_responses(self.ismp_host_address, message)
+                        .handle_post_responses(self.ismp_host, message)
                         .gas(10_000_000)
                         .send()
                         .await?
@@ -418,7 +418,7 @@ where
                     };
 
                     contract
-                        .handle_get_responses(self.ismp_host_address, message)
+                        .handle_get_responses(self.ismp_host, message)
                         .gas(10_000_000)
                         .send()
                         .await?
@@ -467,7 +467,7 @@ where
                     };
 
                     contract
-                        .handle_post_timeouts(self.ismp_host_address, message)
+                        .handle_post_timeouts(self.ismp_host, message)
                         .gas(10_000_000)
                         .send()
                         .await?
@@ -494,7 +494,7 @@ where
                     let message = GetTimeoutMessage { timeouts: get_requests };
 
                     contract
-                        .handle_get_timeouts(self.ismp_host_address, message)
+                        .handle_get_timeouts(self.ismp_host, message)
                         .gas(10_000_000)
                         .send()
                         .await?

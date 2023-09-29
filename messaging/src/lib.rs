@@ -31,7 +31,7 @@ where
     A: IsmpHost + IsmpProvider,
     B: IsmpHost + IsmpProvider,
 {
-    log::info!(target: "tesseract", "🛰️ Starting messaging relay");
+    log::info!(target: "tesseract", "🛰️ Starting messaging relay between {}/{}", chain_a.name(), chain_b.name());
     let mut state_machine_update_stream_a =
         chain_a.state_machine_update_notification(chain_b.state_machine_id()).await;
     let mut state_machine_update_stream_b =

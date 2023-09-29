@@ -25,7 +25,7 @@ where
     A: IsmpHost + IsmpProvider + 'static,
     B: IsmpHost + IsmpProvider + 'static,
 {
-    log::info!(target: "tesseract", "🛰️ Starting consensus relay");
+    log::info!(target: "tesseract", "🛰️ Starting consensus relay between {}/{}", chain_a.name(), chain_b.name());
     let mut consensus_a = chain_a.consensus_notification(chain_b.clone()).await?;
     let mut consensus_b = chain_b.consensus_notification(chain_a.clone()).await?;
 

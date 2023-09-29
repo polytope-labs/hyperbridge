@@ -77,7 +77,7 @@ where
 
     // Let's handle get requests
     let sink_latest_height_on_source =
-        source.query_latest_state_machine_height(sink.state_machine_id()).await? as u64;
+        source.query_latest_height(sink.state_machine_id()).await? as u64;
     let get_requests = source.query_pending_get_requests(sink_latest_height_on_source).await?;
     for get_request in get_requests {
         if get_request.timeout_timestamp != 0 &&

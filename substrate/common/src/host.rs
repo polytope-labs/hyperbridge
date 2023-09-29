@@ -67,7 +67,7 @@ impl<T: IsmpHost + Clone, C: subxt::Config> Clone for SubstrateClient<T, C> {
             state_machine: self.state_machine,
             hashing: self.hashing.clone(),
             signer: self.signer.clone(),
-            latest_state_machine_height: Arc::clone(&self.latest_state_machine_height),
+            latest_height: Arc::clone(&self.latest_height),
         }
     }
 }

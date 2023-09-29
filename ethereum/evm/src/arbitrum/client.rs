@@ -1,10 +1,9 @@
+use crate::{derive_map_key, EvmClient, EvmConfig};
 use anyhow::anyhow;
-use consensus_client::arbitrum::{
-    ArbitrumPayloadProof, CodecHeader, GlobalState as RustGlobalState,
+use consensus_client::{
+    arbitrum::{ArbitrumPayloadProof, CodecHeader, GlobalState as RustGlobalState},
+    presets::NODES_SLOT,
 };
-
-use crate::{derive_map_key, EvmConfig};
-use consensus_client::presets::NODES_SLOT;
 use ethabi::ethereum_types::U256;
 use ethers::{
     contract::abigen,
@@ -18,15 +17,23 @@ abigen!(IRollup, "./ethereum/evm/abis/IRollupCore.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbConfig {
-    /// Ws URL Beacon execution client
-    pub beacon_execution_client: String,
-    /// WS URL url for arbitrum execution client
-    pub arb_execution: String,
+    /// WS URL url for beacon execution client
+    pub beacon_execution_ws: String,
     /// RollupCore contract address on L1
     pub rollup_core: H160,
     /// General evm config
     #[serde[flatten]]
     pub evm_config: EvmConfig,
+}
+
+impl ArbConfig {
+    /// Convert the config into a client.
+    pub async fn into_client(self) -> anyhow::Result<EvmClient<ArbHost>> {
+        let host = ArbHost::new(&self).await?;
+        let client = EvmClient::new(host, self.evm_config).await?;
+
+        Ok(client)
+    }
 }
 
 #[derive(Clone)]
@@ -41,8 +48,8 @@ pub struct ArbHost {
 
 impl ArbHost {
     pub async fn new(config: &ArbConfig) -> Result<Self, anyhow::Error> {
-        let provider = Provider::<Ws>::connect(&config.arb_execution).await?;
-        let beacon_client = Provider::<Ws>::connect(&config.beacon_execution_client).await?;
+        let provider = Provider::<Ws>::connect(&config.evm_config.execution_ws).await?;
+        let beacon_client = Provider::<Ws>::connect(&config.beacon_execution_ws).await?;
         Ok(Self {
             arb_execution_client: Arc::new(provider),
             beacon_execution_client: Arc::new(beacon_client),

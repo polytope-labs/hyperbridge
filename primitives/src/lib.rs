@@ -60,10 +60,7 @@ pub trait IsmpProvider {
     ) -> Result<Vec<u8>, anyhow::Error>;
 
     /// Query the latest height at which some state machine was last updated
-    async fn query_latest_state_machine_height(
-        &self,
-        id: StateMachineId,
-    ) -> Result<u32, anyhow::Error>;
+    async fn query_latest_height(&self, id: StateMachineId) -> Result<u32, anyhow::Error>;
 
     /// Query the timestamp at which the client was last updated
     async fn query_consensus_update_time(

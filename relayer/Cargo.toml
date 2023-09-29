@@ -14,11 +14,13 @@ primitives = { package = "tesseract-primitives", path = "../primitives" }
 messaging = { package = "tesseract-messaging", path = "../messaging" }
 tesseract-evm = { path = "../ethereum/evm" }
 tesseract-sync-committee = { path = "../ethereum/sync-committee" }
+tesseract-beefy = { path = "../substrate/beefy/host" }
 
 # polytope labs
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
 pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
 ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+ismp-sync-committee = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 
 # crates.io
 log = "0.4.19"
@@ -30,6 +32,8 @@ toml = "0.7.4"
 async-trait = "0.1.68"
 clap = { version = "4.3.5", features = ["derive"] }
 tokio = { version = "1.28.2", features = ["macros", "rt-multi-thread", "fs"] }
+ethers = { version = "2.0.9" }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 
 
 [features]

@@ -71,14 +71,14 @@ macro_rules! chain {
 				}
             }
 
-            async fn query_latest_state_machine_height(
+            async fn query_latest_height(
                 &self,
                 id: ismp::consensus::StateMachineId,
             ) -> Result<u32, anyhow::Error> {
                 match self {
 					$(
 						$(#[$($meta)*])*
-						Self::$name(chain) => chain.query_latest_state_machine_height(id).await,
+						Self::$name(chain) => chain.query_latest_height(id).await,
 					)*
 				}
             }

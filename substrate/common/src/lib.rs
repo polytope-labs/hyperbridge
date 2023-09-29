@@ -38,12 +38,12 @@ pub struct SubstrateConfig {
     pub hashing: HashAlgorithm,
     /// Consensus state id
     pub consensus_state_id: String,
-    /// RPC url for the parachain
-    pub ws_url: String,
+    /// RPC url for the chain
+    pub chain_rpc_ws: String,
     /// Relayer account seed
     pub signer: String,
     /// Latest state machine height
-    pub latest_state_machine_height: Option<u64>,
+    pub latest_height: Option<u64>,
 }
 
 /// Core substrate client.
@@ -61,7 +61,7 @@ pub struct SubstrateClient<I, C: subxt::Config> {
     /// Private key of the signing account
     signer: sr25519::Pair,
     /// Latest state machine height.
-    latest_state_machine_height: Arc<Mutex<u64>>,
+    latest_height: Arc<Mutex<u64>>,
 }
 
 impl<T, C> SubstrateClient<T, C>
@@ -70,21 +70,20 @@ where
     C: subxt::Config,
 {
     pub async fn new(host: T, config: SubstrateConfig) -> Result<Self, anyhow::Error> {
-        let client = OnlineClient::<C>::from_url(&config.ws_url).await?;
+        let client = OnlineClient::<C>::from_url(&config.chain_rpc_ws).await?;
         // If latest height of the state machine on the counterparty is not provided in config
         // Set it to the latest parachain height
-        let latest_state_machine_height =
-            if let Some(latest_state_machine_height) = config.latest_state_machine_height {
-                latest_state_machine_height
-            } else {
-                client
-                    .rpc()
-                    .header(None)
-                    .await?
-                    .expect("block header should be available")
-                    .number()
-                    .into()
-            };
+        let latest_height = if let Some(latest_height) = config.latest_height {
+            latest_height
+        } else {
+            client
+                .rpc()
+                .header(None)
+                .await?
+                .expect("block header should be available")
+                .number()
+                .into()
+        };
         let bytes = from_hex(&config.signer)?;
         let signer = sr25519::Pair::from_seed_slice(&bytes)?;
         let mut consensus_state_id: ConsensusStateId = Default::default();
@@ -97,7 +96,7 @@ where
             state_machine: config.state_machine,
             hashing: config.hashing,
             signer,
-            latest_state_machine_height: Arc::new(Mutex::new(latest_state_machine_height)),
+            latest_height: Arc::new(Mutex::new(latest_height)),
         })
     }
 }

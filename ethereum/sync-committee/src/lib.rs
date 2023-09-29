@@ -20,7 +20,7 @@ use primitives::{types::LightClientState, util::compute_epoch_at_slot};
 use prover::SyncCommitteeProver;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use tesseract_evm::{arbitrum::client::ArbHost, optimism::client::OpHost, EvmConfig};
+use tesseract_evm::{arbitrum::client::ArbHost, optimism::client::OpHost, EvmClient, EvmConfig};
 
 mod byzantine;
 mod host;
@@ -29,12 +29,20 @@ mod notification;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncCommitteeConfig {
     /// Http url for a beacon client
-    pub beacon_node_url: String,
-    /// Consensus state id on counterparty chain
-    pub consensus_state_id: String,
+    pub beacon_http_url: String,
     /// General ethereum config
     #[serde[flatten]]
     pub evm_config: EvmConfig,
+}
+
+impl SyncCommitteeConfig {
+    /// Convert the config into a client.
+    pub async fn into_client(self) -> anyhow::Result<EvmClient<SyncCommitteeHost>> {
+        let host = SyncCommitteeHost::new(&self).await?;
+        let client = EvmClient::new(host, self.evm_config).await?;
+
+        Ok(client)
+    }
 }
 
 #[derive(Clone)]
@@ -57,11 +65,11 @@ pub struct SyncCommitteeHost {
 
 impl SyncCommitteeHost {
     pub async fn new(config: &SyncCommitteeConfig) -> Result<Self, anyhow::Error> {
-        let prover = SyncCommitteeProver::new(config.beacon_node_url.clone());
+        let prover = SyncCommitteeProver::new(config.beacon_http_url.clone());
         Ok(Self {
             consensus_state_id: {
                 let mut consensus_state_id: ConsensusStateId = Default::default();
-                consensus_state_id.copy_from_slice(config.consensus_state_id.as_bytes());
+                consensus_state_id.copy_from_slice(config.evm_config.consensus_state_id.as_bytes());
                 consensus_state_id
             },
             state_machine: config.evm_config.state_machine,
@@ -69,7 +77,7 @@ impl SyncCommitteeHost {
             optimism_client: None,
             base_client: None,
             prover,
-            beacon_node_rpc: config.beacon_node_url.clone(),
+            beacon_node_rpc: config.beacon_http_url.clone(),
         })
     }
 

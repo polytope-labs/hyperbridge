@@ -1,4 +1,4 @@
-use crate::mock::Host;
+use crate::{mock::Host, EvmConfig};
 use alloy_primitives::{Address, Bytes, U256};
 use alloy_rlp::Decodable;
 use consensus_client::arbitrum::{verify_arbitrum_payload, Header};
@@ -9,33 +9,35 @@ use ethabi::ethereum_types::{H160, H256};
 use ethers::{providers::Middleware, utils::keccak256};
 use hex_literal::hex;
 
-const ROLLUP_CORE: [u8; 20] = hex!("5eF0D09d1E6204141B4d37530808eD19f60FBa35");
+const ROLLUP_CORE: [u8; 20] = hex!("45e5cAea8768F42B385A366D3551Ad1e0cbFAb17");
 
 #[tokio::test]
 async fn test_payload_proof_verification() {
+    dotenv::dotenv().ok();
+    let arb_url = std::env::var("ARB_URL").expect("ARB_URL must be set.");
+    let geth_url = std::env::var("GETH_URL").expect("GETH_URL must be set.");
     let config = ArbConfig {
-        beacon_execution_client: "wss://rpc.ankr.com/eth/ws/6875dedefed4afb05996bc795f89f9cd6f245f5117302f2c9214376ec1d96513".to_string(),
-        arb_execution: "wss://rpc.ankr.com/arbitrum/ws/6875dedefed4afb05996bc795f89f9cd6f245f5117302f2c9214376ec1d96513".to_string(),
+        beacon_execution_ws: geth_url,
         rollup_core: H160::from_slice(&ROLLUP_CORE),
-        evm_config: Default::default()
+        evm_config: EvmConfig { execution_ws: arb_url, ..Default::default() },
     };
 
     let arb_client = ArbHost::new(&config).await.expect("Host creation failed");
 
     let event = arb_client
-        .latest_event(18026004, 18026004)
+        .latest_event(9779597, 9779597)
         .await
         .expect("Failed to fetch latest event")
         .expect("There should be an event");
 
     let payload_proof = arb_client
-        .fetch_arbitrum_payload(18026004, event)
+        .fetch_arbitrum_payload(9779597, event)
         .await
         .expect("Error fetching payload proof");
 
     let l1_header = arb_client
         .beacon_execution_client
-        .get_block(18026004)
+        .get_block(9779597)
         .await
         .unwrap()
         .expect("Block should exist");

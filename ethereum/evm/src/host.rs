@@ -50,9 +50,9 @@ impl<T: IsmpHost + Clone> Clone for EvmClient<T> {
             events: self.events.clone(),
             consensus_state_id: self.consensus_state_id,
             state_machine: self.state_machine,
-            latest_state_machine_height: Arc::clone(&self.latest_state_machine_height),
-            ismp_host_address: self.ismp_host_address,
-            handler_address: self.handler_address,
+            latest_height: Arc::clone(&self.latest_height),
+            ismp_host: self.ismp_host,
+            handler: self.handler,
             gas_limit: self.gas_limit,
         }
     }

@@ -8,6 +8,9 @@ on:
 
 env:
   CARGO_NET_GIT_FETCH_WITH_CLI: true
+  GETH_URL: ${{ secrets.GETH_URL }}
+  ARB_URL: ${{ secrets.ARB_URL }}
+  OP_URL: ${{ secrets.OP_URL }}
 
 concurrency:
   group: ${{ github.ref }}
@@ -41,8 +44,8 @@ jobs:
       - name: Build
         run:  cargo +nightly check --all --benches
 
-#      - name: Run tests
-#        run: cargo +nightly test --all-features --verbose
+      - name: Run tests
+        run: cargo +nightly test -p tesseract-evm --verbose
 
   lint:
     if: github.event.pull_request.draft == false

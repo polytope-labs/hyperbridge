@@ -1,4 +1,4 @@
-use crate::EvmConfig;
+use crate::{EvmClient, EvmConfig};
 use anyhow::anyhow;
 use consensus_client::{optimism::OptimismPayloadProof, presets::L2_OUTPUTS_SLOT};
 use ethabi::ethereum_types::{H256, U256};
@@ -16,16 +16,25 @@ abigen!(L2OutputOracle, "ethereum/evm/abis/L2OutputOracle.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpConfig {
-    /// WS URL Beacon execution client
-    pub beacon_execution_client: String,
-    /// WS url for optimism execution client
-    pub op_execution: String,
+    /// WS url for the beacon execution client
+    pub beacon_execution_ws: String,
     /// L2Oracle contract address on L1
     pub l2_oracle: H160,
     /// Withdrawals Message Passer contract address on L2
     pub message_parser: H160,
     /// General Evm client config
+    #[serde[flatten]]
     pub evm_config: EvmConfig,
+}
+
+impl OpConfig {
+    /// Convert the config into a client.
+    pub async fn into_client(self) -> anyhow::Result<EvmClient<OpHost>> {
+        let host = OpHost::new(&self).await?;
+        let client = EvmClient::new(host, self.evm_config).await?;
+
+        Ok(client)
+    }
 }
 
 #[derive(Clone)]
@@ -57,8 +66,8 @@ pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
 
 impl OpHost {
     pub async fn new(config: &OpConfig) -> Result<Self, anyhow::Error> {
-        let provider = Provider::<Ws>::connect(&config.op_execution).await?;
-        let beacon_client = Provider::<Ws>::connect(&config.beacon_execution_client).await?;
+        let provider = Provider::<Ws>::connect(&config.evm_config.execution_ws).await?;
+        let beacon_client = Provider::<Ws>::connect(&config.beacon_execution_ws).await?;
         Ok(Self {
             op_execution_client: Arc::new(provider),
             beacon_execution_client: Arc::new(beacon_client),

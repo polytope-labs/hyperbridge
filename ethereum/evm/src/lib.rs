@@ -32,19 +32,19 @@ pub mod provider;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvmConfig {
     /// WS url for execution client
-    pub execution: String,
+    pub execution_ws: String,
     /// State machine Identifier for this client on it's counterparties.
     pub state_machine: StateMachine,
     /// Consensus state id for the consensus client on counterparty chain
     pub consensus_state_id: String,
     /// Ismp Host contract address
-    pub ismp_host_address: H160,
+    pub ismp_host: H160,
     /// Ismp Handler contract address
-    pub handler_address: H160,
-    /// Relayer account seed
+    pub handler: H160,
+    /// Relayer account private key
     pub signer: String,
     /// Latest state machine height
-    pub latest_state_machine_height: u64,
+    pub latest_height: u64,
     /// Block gas limit
     pub gas_limit: u64,
 }
@@ -52,13 +52,13 @@ pub struct EvmConfig {
 impl Default for EvmConfig {
     fn default() -> Self {
         Self {
-            execution: Default::default(),
+            execution_ws: Default::default(),
             state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
             consensus_state_id: Default::default(),
-            ismp_host_address: Default::default(),
-            handler_address: Default::default(),
+            ismp_host: Default::default(),
+            handler: Default::default(),
             signer: Default::default(),
-            latest_state_machine_height: Default::default(),
+            latest_height: Default::default(),
             gas_limit: Default::default(),
         }
     }
@@ -69,10 +69,7 @@ pub struct EvmClient<I> {
     /// Ismp host implementation
     pub host: I,
     /// Execution Rpc client
-    #[cfg(feature = "testing")]
     pub client: Arc<Provider<Ws>>,
-    #[cfg(not(feature = "testing"))]
-    client: Arc<Provider<Ws>>,
     /// Transaction signer
     signer: Arc<SignerMiddleware<Provider<Ws>, Wallet<SigningKey>>>,
     /// State Update Event Object
@@ -83,11 +80,11 @@ pub struct EvmClient<I> {
     /// State machine Identifier for this client.
     state_machine: StateMachine,
     /// Latest state machine height.
-    latest_state_machine_height: Arc<Mutex<u64>>,
+    latest_height: Arc<Mutex<u64>>,
     /// Ismp Host contract address
-    ismp_host_address: H160,
+    ismp_host: H160,
     /// Ismp Handler contract address
-    handler_address: H160,
+    handler: H160,
     /// Block gas limit
     gas_limit: u64,
 }
@@ -101,9 +98,9 @@ where
         let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
         let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
             .with_chain_id(32382u64);
-        let provider = Provider::<Ws>::connect(config.execution).await?;
+        let provider = Provider::<Ws>::connect(config.execution_ws).await?;
         let client = Arc::new(provider.clone());
-        let contract = IsmpHandler::new(config.handler_address, client.clone());
+        let contract = IsmpHandler::new(config.handler, client.clone());
         let events = Arc::new(contract.events());
         let signer = provider.with_signer(signer);
         let signer = Arc::new(signer);
@@ -118,16 +115,16 @@ where
                 consensus_state_id
             },
             state_machine: config.state_machine,
-            latest_state_machine_height: Arc::new(Mutex::new(config.latest_state_machine_height)),
-            ismp_host_address: config.ismp_host_address,
-            handler_address: config.handler_address,
+            latest_height: Arc::new(Mutex::new(config.latest_height)),
+            ismp_host: config.ismp_host,
+            handler: config.handler,
             gas_limit: config.gas_limit,
         })
     }
 
     pub async fn events(&self, from: u64, to: u64) -> Result<Vec<Event>, anyhow::Error> {
         let client = Arc::new(self.client.clone());
-        let contract = IIsmpHost::new(self.ismp_host_address, client);
+        let contract = IIsmpHost::new(self.ismp_host, client);
         let events = contract
             .events()
             .from_block(from)
@@ -142,7 +139,7 @@ where
 
     /// Set the consensus state on the IsmpHost
     pub async fn set_consensus_state(&self, consensus_state: Vec<u8>) -> Result<(), anyhow::Error> {
-        let contract = IIsmpHost::new(self.ismp_host_address, self.signer.clone());
+        let contract = IIsmpHost::new(self.ismp_host, self.signer.clone());
         let call = contract.set_consensus_state(consensus_state.clone().into());
 
         // let gas = call.estimate_gas().await?; // todo: fix estimate gas

@@ -2012,6 +2012,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotenv"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3733,7 +3739,7 @@ dependencies = [
 [[package]]
 name = "ismp-sync-committee"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#b27f648d1d857009c6fe0ffc315a48806ba3d420"
+source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#8f865fb8f4748a1e8bf2ebc0a2b8d98e3953135e"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -8627,12 +8633,16 @@ dependencies = [
  "async-trait",
  "clap",
  "env_logger",
+ "ethers",
  "futures",
  "ismp",
  "ismp-primitives",
+ "ismp-sync-committee",
  "log",
  "pallet-ismp",
+ "parity-scale-codec",
  "serde",
+ "tesseract-beefy",
  "tesseract-consensus",
  "tesseract-evm",
  "tesseract-messaging",
@@ -8696,6 +8706,7 @@ dependencies = [
  "async-trait",
  "beefy-verifier-primitives",
  "ckb-merkle-mountain-range 0.5.2 (git+https://github.com/polytope-labs/merkle-mountain-range?branch=seun/simplified-mmr)",
+ "dotenv",
  "ethabi",
  "ethereum-trie",
  "ethers",

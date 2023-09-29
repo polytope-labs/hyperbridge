@@ -67,10 +67,7 @@ where
         Ok(response)
     }
 
-    async fn query_latest_state_machine_height(
-        &self,
-        id: StateMachineId,
-    ) -> Result<u32, anyhow::Error> {
+    async fn query_latest_height(&self, id: StateMachineId) -> Result<u32, anyhow::Error> {
         let params = rpc_params![id];
         let response =
             self.client.rpc().request("ismp_queryStateMachineLatestHeight", params).await?;
@@ -141,13 +138,13 @@ where
         &self,
         event: StateMachineUpdated,
     ) -> Result<Vec<Event>, anyhow::Error> {
-        let latest_state_machine_height = Arc::clone(&self.latest_state_machine_height);
-        let block_numbers: Vec<BlockNumberOrHash<sp_core::H256>> =
-            ((*latest_state_machine_height.lock() + 1)..=event.latest_height)
-                .into_iter()
-                .map(|block_height| BlockNumberOrHash::Number(block_height as u32))
-                .collect();
-        *latest_state_machine_height.lock() = event.latest_height;
+        let latest_height = Arc::clone(&self.latest_height);
+        let block_numbers: Vec<BlockNumberOrHash<sp_core::H256>> = ((*latest_height.lock() + 1)..=
+            event.latest_height)
+            .into_iter()
+            .map(|block_height| BlockNumberOrHash::Number(block_height as u32))
+            .collect();
+        *latest_height.lock() = event.latest_height;
 
         let params = rpc_params![block_numbers];
         let response: HashMap<String, Vec<Event>> =
@@ -201,10 +198,7 @@ where
             .await
             .ok()
             .flatten()
-            .expect(
-                "latest header not
-        available",
-            )
+            .expect("latest header not available")
             .number()
             .into();
         let stream = stream::try_unfold(

@@ -57,8 +57,8 @@ where
         Ok(Duration::from_millis(timestamp))
     }
 
-    pub fn latest_state_machine_height(&self) -> u64 {
-        self.latest_state_machine_height.lock().clone()
+    pub fn latest_height(&self) -> u64 {
+        self.latest_height.lock().clone()
     }
 
     pub async fn transfer(
@@ -121,7 +121,7 @@ where
         pallet_name: &'static str,
         variant_name: &'static str,
     ) -> Result<Vec<EventDetails<C>>, anyhow::Error> {
-        let subscription = self.client.rpc().subscribe_best_block_headers().await?;
+        let subscription = self.client.rpc().subscribe_all_block_headers().await?;
         let client = self.client.clone();
         let stream = subscription.filter_map(move |header| {
             let client = client.clone();

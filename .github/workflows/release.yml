@@ -31,6 +31,9 @@ jobs:
         with:
           toolchain: nightly
 
+      - uses: Swatinem/rust-cache@v1
+      - run: rustup target add wasm32-unknown-unknown
+
       - name: Build
         run:  |
           cargo +nightly build --release -p hyperbridge

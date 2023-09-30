@@ -25,7 +25,7 @@ jobs:
         with:
           toolchain: nightly
       - uses: Swatinem/rust-cache@v1
-      - run: rustup target add wasm32-unknown-unknown
+      - run: rustup target add wasm32-unknown-unknown --toolchain nightly
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
         with:

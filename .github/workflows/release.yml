@@ -49,9 +49,9 @@ jobs:
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
       - name: Build the Docker image
-        run: docker build -t polytopelabs/hyperbridge:$(cargo get package.version --entry ./parachain/node) -t polytopelabs/hyperbridge:latest -f ./scripts/docker/slim.Dockerfile .
+        run: docker build -t polytopelabs/hyperbridge:v$(cargo get package.version --entry ./parachain/node) -t polytopelabs/hyperbridge:latest -f ./scripts/docker/slim.Dockerfile .
 
       - name: Docker Push
         run: |
-          docker push polytopelabs/hyperbridge:$(cargo get package.version --entry ./parachain/node)
+          docker push polytopelabs/hyperbridge:v$(cargo get package.version --entry ./parachain/node)
           docker push polytopelabs/hyperbridge:latest

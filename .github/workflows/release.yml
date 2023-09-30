@@ -34,7 +34,6 @@ jobs:
       - name: Build
         run:  |
           cargo +nightly build --release -p hyperbridge
-          mv ./target/release/hyperbridge ./
 
       - name: Install Cargo get
         run: cargo install cargo-get

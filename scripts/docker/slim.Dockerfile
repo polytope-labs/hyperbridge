@@ -2,7 +2,7 @@ FROM docker.io/library/debian:bullseye-slim
 
 WORKDIR /
 
-COPY ./hyperbridge ./
+COPY ./target/release/hyperbridge ./
 
 
 ENTRYPOINT ["./hyperbridge"]

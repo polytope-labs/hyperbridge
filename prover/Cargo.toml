@@ -34,6 +34,7 @@ ethers = { version = "2.0.8", features = ["ws"] }
 tokio = { version =  "1.32.0", features = ["macros", "rt-multi-thread"]}
 parity-scale-codec = "3.2.2"
 reqwest-eventsource = "0.4.0"
+dotenv = "0.15.0"
 
 [features]
 default = ["std"]
@@ -45,6 +46,6 @@ std = [
     "bls_on_arkworks/std",
     "ark-bls12-381/std"
 ]
-testnet = ["sync-committee-primitives/testnet", "sync-committee-verifier/testnet"]
+goerli = ["sync-committee-primitives/goerli", "sync-committee-verifier/goerli"]
 mainnet = ["sync-committee-primitives/mainnet", "sync-committee-verifier/mainnet"]
 

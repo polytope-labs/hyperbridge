@@ -76,7 +76,7 @@ pub const BLOCK_ROOTS_INDEX_LOG2: u64 = 5;
 pub const HISTORICAL_ROOTS_INDEX_LOG2: u64 = 5;
 
 #[cfg(feature = "testnet")]
-pub use testnet::*;
+pub use goerli::*;
 
 #[cfg(feature = "mainnet")]
 pub use mainnet::*;
@@ -85,19 +85,19 @@ use crate::ssz::ByteVector;
 #[cfg(all(not(feature = "mainnet"), not(feature = "testnet")))]
 pub use devnet::*;
 
-#[cfg(feature = "testnet")]
-pub mod testnet {
+#[cfg(feature = "goerli")]
+pub mod goerli {
 	use super::*;
 	pub const SLOTS_PER_EPOCH: Slot = 32;
 	pub const GENESIS_VALIDATORS_ROOT: [u8; 32] =
-		hex_literal::hex!("4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95");
-	pub const BELLATRIX_FORK_VERSION: Version = [3, 0, 16, 32];
-	pub const ALTAIR_FORK_VERSION: Version = [1, 0, 16, 32];
-	pub const GENESIS_FORK_VERSION: Version = [0; 4];
+		hex_literal::hex!("043db0d9a83813551ee2f33450d23797757d430911a9320530ad8a0eabc43efb");
+	pub const BELLATRIX_FORK_VERSION: Version = hex_literal::hex!("02001020");
+	pub const ALTAIR_FORK_VERSION: Version = hex_literal::hex!("01001020");
+	pub const GENESIS_FORK_VERSION: Version = hex_literal::hex!("00001020");
 	pub const ALTAIR_FORK_EPOCH: Epoch = 36660;
 	pub const BELLATRIX_FORK_EPOCH: Epoch = 112260;
-	pub const CAPELLA_FORK_EPOCH: Epoch = u64::MAX;
-	pub const CAPELLA_FORK_VERSION: Version = [3, 0, 16, 32];
+	pub const CAPELLA_FORK_EPOCH: Epoch = 162304;
+	pub const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("03001020");
 }
 
 #[cfg(feature = "mainnet")]
@@ -106,13 +106,13 @@ pub mod mainnet {
 	pub const SLOTS_PER_EPOCH: Slot = 32;
 	pub const GENESIS_VALIDATORS_ROOT: [u8; 32] =
 		hex_literal::hex!("4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95");
-	pub const BELLATRIX_FORK_VERSION: Version = [2, 0, 0, 0];
-	pub const ALTAIR_FORK_VERSION: Version = [1, 0, 0, 0];
-	pub const GENESIS_FORK_VERSION: Version = [0, 0, 0, 0];
+	pub const BELLATRIX_FORK_VERSION: Version = hex_literal::hex!("02000000");
+	pub const ALTAIR_FORK_VERSION: Version = hex_literal::hex!("01000000");
+	pub const GENESIS_FORK_VERSION: Version = hex_literal::hex!("00000000");
 	pub const ALTAIR_FORK_EPOCH: Epoch = 74240;
 	pub const BELLATRIX_FORK_EPOCH: Epoch = 144896;
-	pub const CAPELLA_FORK_EPOCH: Epoch = u64::MAX;
-	pub const CAPELLA_FORK_VERSION: Version = [3, 0, 0, 0];
+	pub const CAPELLA_FORK_EPOCH: Epoch = 194048;
+	pub const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("03000000");
 }
 
 #[cfg(all(not(feature = "mainnet"), not(feature = "testnet")))]

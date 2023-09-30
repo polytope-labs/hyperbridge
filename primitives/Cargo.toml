@@ -33,4 +33,4 @@ std = [
     "serde"
 ]
 mainnet = []
-testnet = []
+goerli = []

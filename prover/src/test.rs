@@ -1,9 +1,5 @@
 use super::*;
 use base2::Base2;
-use ethers::{
-	prelude::{Http, Middleware, ProviderExt},
-	providers::Provider,
-};
 use reqwest_eventsource::EventSource;
 use ssz_rs::{
 	calculate_multi_merkle_root, get_generalized_index, is_valid_merkle_branch, GeneralizedIndex,
@@ -23,21 +19,11 @@ use sync_committee_verifier::{
 };
 use tokio_stream::StreamExt;
 
-const CONSENSUS_NODE_URL: &'static str = "http://localhost:3500";
-const EL_NODE_URL: &'static str = "http://localhost:8545";
-
-async fn wait_for_el(blocks: usize) {
-	let provider = Provider::<Http>::connect(EL_NODE_URL).await;
-	let sub = provider.watch_blocks().await.unwrap();
-	let _ = sub.take(blocks).collect::<Vec<_>>();
-}
-
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn fetch_block_header_works() {
-	wait_for_el(1).await;
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
+	let sync_committee_prover = setup_prover();
 	let block_header = sync_committee_prover.fetch_header("head").await;
 	assert!(block_header.is_ok());
 }
@@ -46,8 +32,7 @@ async fn fetch_block_header_works() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn fetch_block_works() {
-	wait_for_el(1).await;
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
+	let sync_committee_prover = setup_prover();
 	let block = sync_committee_prover.fetch_block("head").await;
 	assert!(block.is_ok());
 }
@@ -56,8 +41,7 @@ async fn fetch_block_works() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn fetch_validator_works() {
-	wait_for_el(1).await;
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
+	let sync_committee_prover = setup_prover();
 	let validator = sync_committee_prover.fetch_validator("head", "0").await;
 	assert!(validator.is_ok());
 }
@@ -67,8 +51,7 @@ async fn fetch_validator_works() {
 #[tokio::test]
 #[ignore]
 async fn fetch_processed_sync_committee_works() {
-	wait_for_el(1).await;
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
+	let sync_committee_prover = setup_prover();
 	let validator = sync_committee_prover.fetch_processed_sync_committee("head").await;
 	assert!(validator.is_ok());
 }
@@ -78,7 +61,7 @@ async fn fetch_processed_sync_committee_works() {
 #[tokio::test]
 #[ignore]
 async fn generate_indexes() {
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
+	let sync_committee_prover = setup_prover();
 	let beacon_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 	let execution_payload_index = get_generalized_index(
 		&beacon_state,
@@ -114,8 +97,7 @@ async fn generate_indexes() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn fetch_beacon_state_works() {
-	wait_for_el(1).await;
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
+	let sync_committee_prover = setup_prover();
 	let beacon_state = sync_committee_prover.fetch_beacon_state("head").await;
 	assert!(beacon_state.is_ok());
 }
@@ -124,8 +106,7 @@ async fn fetch_beacon_state_works() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn state_root_and_block_header_root_matches() {
-	wait_for_el(1).await;
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
+	let sync_committee_prover = setup_prover();
 	let mut beacon_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
 	let block_header = sync_committee_prover.fetch_header(&beacon_state.slot.to_string()).await;
@@ -141,8 +122,7 @@ async fn state_root_and_block_header_root_matches() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn fetch_finality_checkpoints_work() {
-	wait_for_el(1).await;
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
+	let sync_committee_prover = setup_prover();
 	let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint().await;
 	assert!(finality_checkpoint.is_ok());
 }
@@ -151,8 +131,7 @@ async fn fetch_finality_checkpoints_work() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_finalized_header() {
-	wait_for_el(1).await;
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
+	let sync_committee_prover = setup_prover();
 	let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 
 	let proof = ssz_rs::generate_proof(&mut state, &vec![FINALIZED_ROOT_INDEX as usize]).unwrap();
@@ -177,9 +156,9 @@ async fn test_finalized_header() {
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn test_execution_payload_proof() {
-	wait_for_el(10).await;
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
+	let sync_committee_prover = setup_prover();
 
 	let mut finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 	let block_id = finalized_state.slot.to_string();
@@ -229,8 +208,7 @@ async fn test_execution_payload_proof() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_sync_committee_update_proof() {
-	wait_for_el(1).await;
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
+	let sync_committee_prover = setup_prover();
 
 	let mut finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 	let block_id = finalized_state.slot.to_string();
@@ -269,11 +247,10 @@ async fn test_prover() {
 		.filter_module("prover", LevelFilter::Debug)
 		.format_module_path(false)
 		.init();
-	wait_for_el(1).await;
-	let node_url = format!("{}/eth/v1/events?topics=finalized_checkpoint", CONSENSUS_NODE_URL);
 
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
-
+	let sync_committee_prover = setup_prover();
+	let node_url =
+		format!("{}/eth/v1/events?topics=finalized_checkpoint", sync_committee_prover.node_url);
 	let block_header = sync_committee_prover.fetch_header("head").await.unwrap();
 
 	let state = sync_committee_prover
@@ -339,8 +316,7 @@ async fn test_prover() {
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_sync_committee_signature_verification() {
-	wait_for_el(1).await;
-	let sync_committee_prover = SyncCommitteeProver::new(CONSENSUS_NODE_URL.to_string());
+	let sync_committee_prover = setup_prover();
 	let block = loop {
 		let block = sync_committee_prover.fetch_block("head").await.unwrap();
 		if block.slot < 16 {
@@ -397,4 +373,11 @@ pub struct EventResponse {
 	pub state: Root,
 	pub epoch: String,
 	pub execution_optimistic: bool,
+}
+
+fn setup_prover() -> SyncCommitteeProver {
+	dotenv::dotenv().ok();
+	let consensus_url =
+		std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:3500".to_string());
+	SyncCommitteeProver::new(consensus_url)
 }

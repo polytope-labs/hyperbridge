@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_and_publish:
+    runs-on: release-runner
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          submodules: recursive
+
+      - uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: "${{ secrets.SSH_KEY }}"
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          version: '3.9.1'
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
+
+      - name: Add wasm toolchain
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Build
+        run:  |
+          cargo +nightly build --release -p hyperbridge --features goerli
+          mv ./target/release/hyperbridge ./
+
+      - name: Install Cargo get
+        run: cargo install cargo-get
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+
+      - name: Build the Docker image
+        run: docker build -t polytopelabs/hyperbridge:v$(cargo get package.version --entry ./parachain/node) -t polytopelabs/hyperbridge:latest -f ./scripts/docker/slim.Dockerfile .
+
+      - name: Docker Push
+        run: |
+          docker push polytopelabs/hyperbridge:v$(cargo get package.version --entry ./parachain/node)
+          docker push polytopelabs/hyperbridge:latest

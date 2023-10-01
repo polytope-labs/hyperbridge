@@ -12,6 +12,7 @@ use hex_literal::hex;
 const ROLLUP_CORE: [u8; 20] = hex!("45e5cAea8768F42B385A366D3551Ad1e0cbFAb17");
 
 #[tokio::test]
+#[ignore]
 async fn test_payload_proof_verification() {
     dotenv::dotenv().ok();
     let arb_url = std::env::var("ARB_URL").expect("ARB_URL must be set.");

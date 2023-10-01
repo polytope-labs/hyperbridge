@@ -12,6 +12,7 @@ const L2_ORACLE: [u8; 20] = hex!("E6Dfba0953616Bacab0c9A8ecb3a9BBa77FC15c0");
 const MESSAGE_PARSER: [u8; 20] = hex!("4200000000000000000000000000000000000016");
 
 #[tokio::test]
+#[ignore]
 async fn test_payload_proof_verification() {
     dotenv::dotenv().ok();
     let op_orl = std::env::var("OP_URL").expect("OP_URL must be set.");

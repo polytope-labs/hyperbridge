@@ -14080,7 +14080,7 @@ dependencies = [
 [[package]]
 name = "sync-committee-primitives"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/sync-committee-rs?branch=main#c22405cb664292db72053f3245b80850b3075d4f"
+source = "git+https://github.com/polytope-labs/sync-committee-rs?branch=main#9438b0530d7c741bc72875b722c1d9c13c1a7dea"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -14097,7 +14097,7 @@ dependencies = [
 [[package]]
 name = "sync-committee-verifier"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/sync-committee-rs?branch=main#c22405cb664292db72053f3245b80850b3075d4f"
+source = "git+https://github.com/polytope-labs/sync-committee-rs?branch=main#9438b0530d7c741bc72875b722c1d9c13c1a7dea"
 dependencies = [
  "anyhow",
  "ark-bls12-381",

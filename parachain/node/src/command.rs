@@ -10,6 +10,7 @@ use sc_cli::{
 };
 use sc_service::config::{BasePath, PrometheusConfig};
 use sp_runtime::traits::AccountIdConversion;
+use std::net::SocketAddr;
 
 use crate::{
     chain_spec,
@@ -336,6 +337,10 @@ impl CliConfiguration<Self> for RelayChainCli {
             .or_else(|| self.base_path.clone().map(Into::into)))
     }
 
+    fn rpc_addr(&self, default_listen_port: u16) -> Result<Option<SocketAddr>> {
+        self.base.base.rpc_addr(default_listen_port)
+    }
+
     fn prometheus_config(
         &self,
         default_listen_port: u16,
@@ -377,6 +382,10 @@ impl CliConfiguration<Self> for RelayChainCli {
 
     fn rpc_methods(&self) -> Result<sc_service::config::RpcMethods> {
         self.base.base.rpc_methods()
+    }
+
+    fn rpc_max_connections(&self) -> Result<u32> {
+        self.base.base.rpc_max_connections()
     }
 
     fn rpc_cors(&self, is_dev: bool) -> Result<Option<Vec<String>>> {

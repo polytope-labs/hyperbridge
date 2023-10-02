@@ -75,14 +75,14 @@ pub const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 5;
 pub const BLOCK_ROOTS_INDEX_LOG2: u64 = 5;
 pub const HISTORICAL_ROOTS_INDEX_LOG2: u64 = 5;
 
-#[cfg(feature = "testnet")]
+#[cfg(feature = "goerli")]
 pub use goerli::*;
 
 #[cfg(feature = "mainnet")]
 pub use mainnet::*;
 
 use crate::ssz::ByteVector;
-#[cfg(all(not(feature = "mainnet"), not(feature = "testnet")))]
+#[cfg(all(not(feature = "mainnet"), not(feature = "goerli")))]
 pub use devnet::*;
 
 #[cfg(feature = "goerli")]
@@ -115,7 +115,7 @@ pub mod mainnet {
 	pub const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("03000000");
 }
 
-#[cfg(all(not(feature = "mainnet"), not(feature = "testnet")))]
+#[cfg(all(not(feature = "mainnet"), not(feature = "goerli")))]
 pub mod devnet {
 	use super::*;
 	use hex_literal::hex;

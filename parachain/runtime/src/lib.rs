@@ -193,7 +193,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("hyperbridge"),
     impl_name: create_runtime_str!("hyperbridge"),
     authoring_version: 1,
-    spec_version: 102,
+    spec_version: 103,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -723,6 +723,11 @@ impl_runtime_apis! {
         /// Return the latest height of the state machine
         fn latest_state_machine_height(id: StateMachineId) -> Option<u64> {
             Ismp::get_latest_state_machine_height(id)
+        }
+
+        /// Return the latest height of the state machine at which we've processed requests
+        fn latest_messaging_height(id: StateMachineId) -> Option<u64> {
+            Ismp::latest_messaging_heights(id)
         }
 
         /// Get Request Leaf Indices

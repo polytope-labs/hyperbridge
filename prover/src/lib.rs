@@ -243,9 +243,9 @@ impl SyncCommitteeProver {
 		let state_period =
 			compute_sync_committee_period_at_slot(client_state.finalized_header.slot);
 		loop {
-			// If we get to an epoch that is less than the attested epoch for the last known
-			// finalized header we exit
-			if compute_epoch_at_slot(block.slot) < client_state.latest_finalized_epoch + 2 {
+			// If we get to an epoch that is less than the finalized epoch for the notification
+			if compute_epoch_at_slot(block.slot) <= finality_checkpoint.epoch {
+				debug!(target: "prover", "Signature block search has reached epoch  <= finalized epoch {} block_epoch {}", finality_checkpoint.epoch, compute_epoch_at_slot(block.slot));
 				return Ok(None)
 			}
 
@@ -267,7 +267,6 @@ impl SyncCommitteeProver {
 		let attested_header = self.fetch_header(&attested_block_id).await?;
 		let mut attested_state =
 			self.fetch_beacon_state(&get_block_id(attested_header.state_root)).await?;
-
 		if attested_state.finalized_checkpoint.root == Node::default() {
 			return Ok(None)
 		}

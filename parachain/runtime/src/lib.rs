@@ -725,6 +725,11 @@ impl_runtime_apis! {
             Ismp::get_latest_state_machine_height(id)
         }
 
+        /// Return the latest height of the state machine at which we've processed requests
+        fn latest_messaging_height(id: StateMachineId) -> Option<u64> {
+            Ismp::latest_messaging_heights(id)
+        }
+
         /// Get Request Leaf Indices
         fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex> {
             Ismp::get_request_leaf_indices(leaf_queries)

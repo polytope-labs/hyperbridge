@@ -65,7 +65,7 @@ use ismp_primitives::{
     mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex},
     LeafIndexQuery,
 };
-use ismp_rs::{host::IsmpHost, messaging::Message};
+use ismp_rs::{consensus::StateMachineHeight, host::IsmpHost, messaging::Message};
 pub use pallet::*;
 use sp_runtime::RuntimeDebug;
 use sp_std::prelude::*;
@@ -170,9 +170,15 @@ pub mod pallet {
     /// Holds a map of state machines to the height at which they've been frozen due to byzantine
     /// behaviour
     #[pallet::storage]
-    #[pallet::getter(fn frozen_heights)]
+    #[pallet::getter(fn latest_messaging_heights)]
     pub type FrozenHeights<T: Config> =
         StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
+
+    /// Holds a map of state machines to the latest height we've processed requests for
+    #[pallet::storage]
+    #[pallet::getter(fn frozen_heights)]
+    pub type LatestMessagingHeight<T: Config> =
+        StorageMap<_, Blake2_128Concat, StateMachineId, u64, ValueQuery>;
 
     /// A mapping of ConsensusStateId to ConsensusClientId
     #[pallet::storage]
@@ -468,7 +474,7 @@ impl<T: Config> Pallet<T> {
         let mut errors: Vec<HandlingError> = vec![];
         let total_weight = get_weight::<T>(&messages);
         for message in messages {
-            match handle_incoming_message(&host, message) {
+            match handle_incoming_message(&host, message.clone()) {
                 Ok(MessageResult::ConsensusMessage(res)) => {
                     // check if this is a trusted state machine
                     let is_trusted_state_machine = host
@@ -508,9 +514,25 @@ impl<T: Config> Pallet<T> {
                     }
                 }
                 Ok(MessageResult::Response(res)) => {
+                    let StateMachineHeight { id, height } = match message {
+                        Message::Response(ref response) => response.proof().height.clone(),
+                        _ => unreachable!(),
+                    };
+                    // update the messaging heights
+                    if LatestMessagingHeight::<T>::get(&id) < height {
+                        LatestMessagingHeight::<T>::insert(id, height);
+                    }
                     debug!(target: "ismp-modules", "Module Callback Results {:?}", ModuleCallbackResult::Response(res));
                 }
                 Ok(MessageResult::Request(res)) => {
+                    let StateMachineHeight { id, height } = match message {
+                        Message::Request(ref request) => request.proof.height.clone(),
+                        _ => unreachable!(),
+                    };
+                    // update the messaging heights
+                    if LatestMessagingHeight::<T>::get(&id) < height {
+                        LatestMessagingHeight::<T>::insert(id, height);
+                    }
                     debug!(target: "ismp-modules", "Module Callback Results {:?}", ModuleCallbackResult::Request(res));
                 }
                 Ok(MessageResult::Timeout(res)) => {

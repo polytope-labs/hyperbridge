@@ -14,7 +14,7 @@
 // limitations under the License.
 
 //! Mock implementations for tests & benchmarks
-#![allow(missing_docs)]
+#![allow(missing_docs, dead_code, unused_imports)]
 pub mod ismp;
 
 use crate as pallet_ismp;
@@ -36,15 +36,11 @@ type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
 
 frame_support::construct_runtime!(
-pub enum Test where
-        Block = Block,
-        NodeBlock = Block,
-        UncheckedExtrinsic = UncheckedExtrinsic,
-        {
-            System: frame_system::{Pallet, Call, Config<T>, Storage, Event<T>},
-            Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
-            Ismp: pallet_ismp::{Pallet, Storage, Call, Event<T>},
-        }
+    pub enum Test {
+        System: frame_system::{Pallet, Call, Config<T>, Storage, Event<T>},
+        Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
+        Ismp: pallet_ismp::{Pallet, Storage, Call, Event<T>},
+    }
 );
 
 pub struct StateMachineProvider;

@@ -127,6 +127,10 @@ where
     #[method(name = "ismp_queryStateMachineLatestHeight")]
     fn query_state_machine_latest_height(&self, id: StateMachineId) -> Result<u64>;
 
+    /// Query the most recent height at which we've processed requests for a state machine
+    #[method(name = "ismp_queryLatestMessagingHeight")]
+    fn query_latest_messaging_height(&self, id: StateMachineId) -> Result<u64>;
+
     /// Query ISMP Events that were deposited in a series of blocks
     /// Using String keys because HashMap fails to deserialize when key is not a String
     #[method(name = "ismp_queryEvents")]
@@ -389,5 +393,13 @@ where
             events.insert(block_number_or_hash.to_string(), temp);
         }
         Ok(events)
+    }
+
+    fn query_latest_messaging_height(&self, id: StateMachineId) -> Result<u64> {
+        let api = self.client.runtime_api();
+        let at = self.client.info().best_hash;
+        api.latest_messaging_height(at, id).ok().flatten().ok_or_else(|| {
+            runtime_error_into_rpc_error("Error fetching latest state machine height")
+        })
     }
 }

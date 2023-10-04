@@ -60,6 +60,9 @@ sp_api::decl_runtime_apis! {
         /// Return the latest height of the state machine
         fn latest_state_machine_height(id: StateMachineId) -> Option<u64>;
 
+        /// Return the most recent height we've processed requests for a state machine
+        fn latest_messaging_height(id: StateMachineId) -> Option<u64>;
+
         /// Get Request Leaf Indices
         fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex>;
 

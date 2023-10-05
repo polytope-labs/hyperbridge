@@ -3,10 +3,10 @@
 #[warn(unused_variables)]
 extern crate alloc;
 
+pub mod crypto;
 pub mod error;
-pub mod signature_verification;
 
-use crate::{error::Error, signature_verification::verify_aggregate_signature};
+use crate::{crypto::verify_aggregate_signature, error::Error};
 use alloc::vec::Vec;
 use ssz_rs::{
 	calculate_multi_merkle_root, prelude::is_valid_merkle_branch, GeneralizedIndex, Merkleized,
@@ -21,20 +21,18 @@ use sync_committee_primitives::{
 		GENESIS_FORK_VERSION, GENESIS_VALIDATORS_ROOT, NEXT_SYNC_COMMITTEE_INDEX,
 		NEXT_SYNC_COMMITTEE_INDEX_LOG2,
 	},
+	types::{VerifierState, VerifierStateUpdate},
 	util::{
 		compute_domain, compute_epoch_at_slot, compute_fork_version, compute_signing_root,
 		compute_sync_committee_period_at_slot, should_get_sync_committee_update,
 	},
 };
 
-pub type LightClientState = sync_committee_primitives::types::LightClientState;
-pub type LightClientUpdate = sync_committee_primitives::types::LightClientUpdate;
-
 /// This function simply verifies a sync committee's attestation & it's finalized counterpart.
 pub fn verify_sync_committee_attestation(
-	trusted_state: LightClientState,
-	mut update: LightClientUpdate,
-) -> Result<LightClientState, Error> {
+	trusted_state: VerifierState,
+	mut update: VerifierStateUpdate,
+) -> Result<VerifierState, Error> {
 	if update.finality_proof.finality_branch.len() != FINALIZED_ROOT_INDEX_LOG2 as usize &&
 		update.sync_committee_update.is_some() &&
 		update.sync_committee_update.as_ref().unwrap().next_sync_committee_branch.len() !=
@@ -188,20 +186,20 @@ pub fn verify_sync_committee_attestation(
 		}
 	}
 
-	let new_light_client_state = if let Some(sync_committee_update) = update.sync_committee_update {
-		LightClientState {
+	let verifier_state = if let Some(sync_committee_update) = update.sync_committee_update {
+		VerifierState {
 			finalized_header: update.finalized_header,
 			latest_finalized_epoch: update.finality_proof.epoch,
 			current_sync_committee: trusted_state.next_sync_committee,
 			next_sync_committee: sync_committee_update.next_sync_committee,
 		}
 	} else {
-		LightClientState {
+		VerifierState {
 			finalized_header: update.finalized_header,
 			latest_finalized_epoch: update.finality_proof.epoch,
 			..trusted_state
 		}
 	};
 
-	Ok(new_light_client_state)
+	Ok(verifier_state)
 }

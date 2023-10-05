@@ -11,11 +11,11 @@ use sync_committee_primitives::{
 		Root, DOMAIN_SYNC_COMMITTEE, EXECUTION_PAYLOAD_INDEX_LOG2, GENESIS_FORK_VERSION,
 		GENESIS_VALIDATORS_ROOT, NEXT_SYNC_COMMITTEE_INDEX_LOG2,
 	},
-	types::LightClientState,
+	types::VerifierState,
 	util::{compute_domain, compute_fork_version, compute_signing_root},
 };
 use sync_committee_verifier::{
-	signature_verification::verify_aggregate_signature, verify_sync_committee_attestation,
+	crypto::verify_aggregate_signature, verify_sync_committee_attestation,
 };
 use tokio_stream::StreamExt;
 
@@ -258,7 +258,7 @@ async fn test_prover() {
 		.await
 		.unwrap();
 
-	let mut client_state = LightClientState {
+	let mut client_state = VerifierState {
 		finalized_header: block_header.clone(),
 		latest_finalized_epoch: 0,
 		current_sync_committee: state.current_sync_committee,
@@ -285,7 +285,7 @@ async fn test_prover() {
 				};
 
 				let encoded = light_client_update.encode();
-				let decoded = LightClientUpdate::decode(&mut &*encoded).unwrap();
+				let decoded = VerifierStateUpdate::decode(&mut &*encoded).unwrap();
 				assert_eq!(light_client_update, decoded);
 
 				client_state =

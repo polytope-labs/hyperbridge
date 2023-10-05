@@ -2,15 +2,15 @@ use alloc::vec::Vec;
 use anyhow::anyhow;
 use ark_bls12_381::Bls12_381;
 use ark_ec::{pairing::Pairing, AffineRepr};
-use bls_on_arkworks::{
-	hash_to_point, pubkey_to_point, signature_to_point,
+use bls::{
 	types::{BLS12381Pairing, G1AffinePoint, G1ProjectivePoint, G2AffinePoint, Signature},
 	DST_ETHEREUM,
 };
 use sync_committee_primitives::constants::BlsPublicKey;
 
 pub fn pubkey_to_projective(compressed_key: &BlsPublicKey) -> anyhow::Result<G1ProjectivePoint> {
-	let affine_point = pubkey_to_point(&compressed_key.to_vec()).map_err(|e| anyhow!("{:?}", e))?;
+	let affine_point =
+		bls::pubkey_to_point(&compressed_key.to_vec()).map_err(|e| anyhow!("{:?}", e))?;
 	Ok(affine_point.into())
 }
 
@@ -42,10 +42,10 @@ pub fn verify_aggregate_signature(
 ) -> anyhow::Result<()> {
 	let subset_aggregate = subtract_points_from_aggregate(aggregate, non_participants)?;
 	let aggregate_key_point: G1AffinePoint = subset_aggregate.into();
-	let signature = signature_to_point(signature).map_err(|e| anyhow!("{:?}", e))?;
+	let signature = bls::signature_to_point(signature).map_err(|e| anyhow!("{:?}", e))?;
 	let dst = DST_ETHEREUM.as_bytes().to_vec();
 
-	let q = hash_to_point(&msg, &dst);
+	let q = bls::hash_to_point(&msg, &dst);
 
 	let c1 = pairing(q, aggregate_key_point);
 
@@ -66,7 +66,7 @@ pub fn verify_aggregate_signature(
 
 #[cfg(test)]
 mod tests {
-	use crate::signature_verification::verify_aggregate_signature;
+	use crate::crypto::verify_aggregate_signature;
 
 	#[test]
 	fn test_signature_verification() {

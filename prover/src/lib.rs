@@ -9,8 +9,11 @@ use anyhow::anyhow;
 use bls_on_arkworks::{point_to_pubkey, types::G1ProjectivePoint};
 use log::debug;
 use reqwest::Client;
-use sync_committee_primitives::consensus_types::{
-	BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, SyncCommittee, Validator,
+use sync_committee_primitives::{
+	consensus_types::{
+		BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, SyncCommittee, Validator,
+	},
+	types::VerifierState,
 };
 
 use crate::{
@@ -36,8 +39,8 @@ use sync_committee_primitives::{
 		VALIDATOR_REGISTRY_LIMIT,
 	},
 	types::{
-		AncestryProof, BlockRootsProof, ExecutionPayloadProof, FinalityProof, LightClientUpdate,
-		SyncCommitteeUpdate,
+		AncestryProof, BlockRootsProof, ExecutionPayloadProof, FinalityProof, SyncCommitteeUpdate,
+		VerifierStateUpdate,
 	},
 	util::{
 		compute_epoch_at_slot, compute_sync_committee_period_at_slot,
@@ -45,7 +48,7 @@ use sync_committee_primitives::{
 	},
 };
 
-use sync_committee_verifier::{signature_verification::pubkey_to_projective, LightClientState};
+use sync_committee_verifier::{crypto::pubkey_to_projective, VerifierState};
 
 pub type BeaconStateType = BeaconState<
 	SLOTS_PER_HISTORICAL_ROOT,
@@ -219,12 +222,12 @@ impl SyncCommitteeProver {
 
 	pub async fn fetch_light_client_update(
 		&self,
-		client_state: LightClientState,
+		client_state: VerifierState,
 		finality_checkpoint: Checkpoint,
 		debug_target: &str,
-	) -> Result<Option<LightClientUpdate>, anyhow::Error> {
+	) -> Result<Option<VerifierStateUpdate>, anyhow::Error> {
 		if finality_checkpoint.root == Node::default() ||
-			finality_checkpoint.epoch <= client_state.latest_finalized_epoch
+			client_state.latest_finalized_epoch >= finality_checkpoint.epoch
 		{
 			return Ok(None)
 		}
@@ -244,8 +247,11 @@ impl SyncCommitteeProver {
 			compute_sync_committee_period_at_slot(client_state.finalized_header.slot);
 		loop {
 			// If we get to an epoch that is less than the finalized epoch for the notification
-			if compute_epoch_at_slot(block.slot) <= finality_checkpoint.epoch {
-				debug!(target: "prover", "Signature block search has reached epoch  <= finalized epoch {} block_epoch {}", finality_checkpoint.epoch, compute_epoch_at_slot(block.slot));
+			let current_epoch = compute_epoch_at_slot(block.slot);
+			if current_epoch <= finality_checkpoint.epoch ||
+				current_epoch == client_state.latest_finalized_epoch
+			{
+				debug!(target: "prover", "Signature block search has reached an invalid epoch {} finalized_block_epoch {}", compute_epoch_at_slot(block.slot), finality_checkpoint.epoch);
 				return Ok(None)
 			}
 
@@ -292,7 +298,7 @@ impl SyncCommitteeProver {
 		};
 
 		// construct light client
-		let light_client_update = LightClientUpdate {
+		let light_client_update = VerifierStateUpdate {
 			attested_header,
 			sync_committee_update,
 			finalized_header,

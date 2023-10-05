@@ -1,0 +1,27 @@
+[package]
+name = "ismp-rpc"
+description = "RPC apis for pallet-ismp"
+edition = "2021"
+version = "0.1.0"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { package = "parity-scale-codec", version = "3.0.0", features = ["derive"] }
+hex-literal = { version = "0.3.3" }
+jsonrpsee = { version = "0.16.2", features = ["client-core", "server", "macros"] }
+serde = { version = "1.0.136", features = ["derive"] }
+serde_json = "1.0.45"
+ismp-rs = { package = "ismp", git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
+pallet-ismp = { path = "../core" }
+ismp-runtime-api = { path = "../runtime-api" }
+ismp-primitives = { path = "../primitives" }
+
+frame-system = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
+sc-client-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
+sp-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
+sp-blockchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
+sp-core = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
+sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }

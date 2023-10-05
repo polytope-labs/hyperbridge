@@ -85,7 +85,7 @@ pub struct SyncCommitteeUpdate {
 
 /// Minimum state required by the light client to validate new sync committee attestations
 #[derive(Debug, Clone, PartialEq, Eq, Default, codec::Encode, codec::Decode)]
-pub struct LightClientState {
+pub struct VerifierState {
 	/// The latest recorded finalized header
 	pub finalized_header: BeaconBlockHeader,
 	/// Latest finalized epoch
@@ -106,7 +106,7 @@ pub struct FinalityProof {
 
 /// Data required to advance the state of the light client.
 #[derive(Debug, Clone, PartialEq, Eq, Default, codec::Encode, codec::Decode)]
-pub struct LightClientUpdate {
+pub struct VerifierStateUpdate {
 	/// the header that the sync committee signed
 	pub attested_header: BeaconBlockHeader,
 	/// the sync committee has potentially changed, here's an ssz proof for that.

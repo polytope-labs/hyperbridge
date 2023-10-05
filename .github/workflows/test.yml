@@ -8,15 +8,18 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-C link-args=-Wl,--allow-multiple-definition"
 
 jobs:
   check:
     name: Check Workspace
     runs-on: ubuntu-latest
-    env:
-      RUSTFLAGS: "-C link-args=-Wl,--allow-multiple-definition"
     steps:
       - uses: actions/checkout@v2
         with:
@@ -121,3 +124,4 @@ jobs:
       - name: Run all tests
         run: |
           cargo +nightly test -p sync-committee-prover -- --nocapture
+

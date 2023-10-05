@@ -69,14 +69,14 @@ pallet-collator-selection = { git = "https://github.com/paritytech/polkadot-sdk"
 parachain-info = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
 
 # polytope-labs
-pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
-ismp-demo = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
-ismp-runtime-api = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
-ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main", default-features = false }
 ismp = { git = "https://github.com/polytope-labs/ismp-rs.git", branch = "main", default-features = false }
 
-# local modules
-ismp-sync-committee = { path = "../modules/consensus/sync-committee", default-features = false }
+# ismp modules
+pallet-ismp = { path = "../modules/ismp/core", default-features = false }
+ismp-demo = { path = "../modules/ismp/demo", default-features = false }
+ismp-runtime-api = { path = "../modules/ismp/runtime-api", default-features = false }
+ismp-primitives = { path = "../modules/ismp/primitives", default-features = false }
+ismp-sync-committee = { path = "../modules/ismp/sync-committee", default-features = false }
 
 [features]
 default = [

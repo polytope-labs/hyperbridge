@@ -1,16 +1,32 @@
-use crate::{
-    beacon_client::BEACON_CONSENSUS_ID,
-    utils::{derive_map_key, get_contract_storage_root, to_bytes_32},
-};
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
 
-use crate::{prelude::*, presets::NODES_SLOT, utils::get_value_from_proof};
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::{
+    prelude::*,
+    presets::NODES_SLOT,
+    utils::{derive_map_key, get_contract_storage_root, get_value_from_proof, to_bytes_32},
+};
 use alloc::{format, string::ToString};
 use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp::Decodable;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
 use ismp::{
-    consensus::{IntermediateState, StateCommitment, StateMachineHeight, StateMachineId},
+    consensus::{
+        ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
+    },
     error::Error,
     host::{Ethereum, IsmpHost, StateMachine},
 };
@@ -192,6 +208,7 @@ pub fn verify_arbitrum_payload<H: IsmpHost + Send + Sync>(
     payload: ArbitrumPayloadProof,
     root: &[u8],
     rollup_core_address: H160,
+    consensus_state_id: ConsensusStateId,
 ) -> Result<IntermediateState, Error> {
     let root = to_bytes_32(root)?;
     let root = H256::from_slice(&root[..]);
@@ -246,7 +263,7 @@ pub fn verify_arbitrum_payload<H: IsmpHost + Send + Sync>(
         height: StateMachineHeight {
             id: StateMachineId {
                 state_id: StateMachine::Ethereum(Ethereum::Arbitrum),
-                consensus_state_id: BEACON_CONSENSUS_ID,
+                consensus_state_id,
             },
             height: block_number,
         },

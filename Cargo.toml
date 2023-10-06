@@ -14,7 +14,7 @@ members = [
      "parachain/modules/ismp/sync-committee",
 
      # modules
-     "parachain/modules/state-machine",
+     "parachain/modules/ismp/state-machine",
      "parachain/modules/consensus/sync-committee/prover",
      "parachain/modules/consensus/sync-committee/verifier",
      "parachain/modules/consensus/sync-committee/primitives",

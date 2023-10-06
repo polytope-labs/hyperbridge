@@ -47,7 +47,9 @@ use sp_version::RuntimeVersion;
 
 use ::ismp::{
     consensus::{ConsensusClientId, StateMachineId},
+    mmr::{Leaf, LeafIndex},
     router::{Request, Response},
+    LeafIndexQuery,
 };
 use frame_support::{
     construct_runtime,
@@ -63,10 +65,6 @@ use frame_support::{
 use frame_system::{
     limits::{BlockLength, BlockWeights},
     EnsureRoot,
-};
-use ismp_primitives::{
-    mmr::{Leaf, LeafIndex},
-    LeafIndexQuery,
 };
 use pallet_ismp::primitives::Proof;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;

@@ -1,4 +1,4 @@
-// Copyright (C) Polytope Labs Ltd.
+// Copyright (C) 2023 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,25 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! ISMP Consensus Client for the Beacon Chain's Sync Committee Consensus Protocol.
+// This module contains code adapted from https://github.com/paritytech/substrate/blob/master/frame/merkle-mountain-range/src/mmr/mod.rs
 
-#![cfg_attr(not(feature = "std"), no_std)]
-#![allow(unused_variables)]
-
-extern crate alloc;
-
-pub mod prelude {
-    pub use alloc::{boxed::Box, vec, vec::Vec};
-}
-
-pub mod arbitrum;
-pub mod beacon_client;
-pub mod optimism;
-pub mod pallet;
-pub mod presets;
-#[cfg(test)]
-mod tests;
-pub mod types;
+pub mod mmr;
+pub mod storage;
 pub mod utils;
-
-pub use beacon_client::*;

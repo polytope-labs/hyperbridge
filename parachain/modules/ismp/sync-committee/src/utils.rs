@@ -32,7 +32,7 @@ use ismp::{
     router::RequestResponse,
     util::{hash_request, hash_response},
 };
-use patricia_merkle_trie::{EIP1186Layout, StorageProof};
+use ethereum_trie::{EIP1186Layout, StorageProof};
 use trie_db::{DBValue, Trie, TrieDBBuilder};
 
 pub fn construct_intermediate_state(

@@ -3457,14 +3457,16 @@ dependencies = [
 [[package]]
 name = "ethereum-trie"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/ethereum-trie?branch=main#824e16bc3f6666f12010acc5dd26a273ef622068"
 dependencies = [
  "hash-db 0.15.2",
  "hash256-std-hasher",
+ "hex",
+ "hex-literal 0.3.4",
  "memory-db 0.30.0",
  "parity-scale-codec",
  "primitive-types",
  "rlp",
+ "rlp-derive",
  "tiny-keccak",
  "trie-db 0.24.0",
 ]

@@ -42,12 +42,14 @@ jobs:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
       - name: check workspace
-        run: | 
+        run: |
           cargo +nightly check --all --benches --locked
-          cargo +nightly check -p sync-committee-verifier --no-default-features --target=wasm32-unknown-unknown --locked
+          cargo +nightly check -p ismp --no-default-features --target=wasm32-unknown-unknown --locked
           cargo +nightly check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --locked
           cargo +nightly check -p ismp-demo --no-default-features --target=wasm32-unknown-unknown --locked
-          cargo +nightly check -p ismp --no-default-features --target=wasm32-unknown-unknown --locked
+          cargo +nightly check -p ethereum-trie --no-default-features --target=wasm32-unknown-unknown --locked
+          cargo +nightly check -p ismp-sync-committee --no-default-features --target=wasm32-unknown-unknown --locked
+
 
   check-runtime-wasm:
     name: Check Runtime Wasm
@@ -110,23 +112,20 @@ jobs:
           sudo apt update
           sudo apt install protobuf-compiler
 
-      - name: Run pallet-ismp unit tests
+      - name: Run unit tests
         run: |
-          cargo +nightly test -p pallet-ismp --all-targets --all-features --verbose --locked
-
-      - name: Run ismp-testsuite unit tests
-        run: |
-          cargo +nightly test -p ismp-testsuite --all-targets --all-features --verbose --locked
+          cargo +nightly test -p pallet-ismp --all-targets --all-features --locked
+          cargo +nightly test -p ismp-testsuite --all-targets --all-features --locked
+          cargo +nightly test -p ethereum-trie --all-features --locked
 
       - name: Clone eth-pos-devnet repository
         run: |
           git clone https://github.com/polytope-labs/eth-pos-devnet.git
           cd eth-pos-devnet
           docker compose up -d
-          ../scripts/wait_for_tcp_port_opening.sh localhost 3500 
-          ../scripts/wait_for_tcp_port_opening.sh localhost 8545 
+          ../scripts/wait_for_tcp_port_opening.sh localhost 3500
+          ../scripts/wait_for_tcp_port_opening.sh localhost 8545
 
       - name: Run all tests
         run: |
           cargo +nightly test -p sync-committee-prover -- --nocapture
-

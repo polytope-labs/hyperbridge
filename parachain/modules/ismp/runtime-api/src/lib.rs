@@ -18,13 +18,13 @@
 #![allow(clippy::too_many_arguments)]
 #![deny(missing_docs)]
 
-use ismp_rs::{
+use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     router::{Get, Request, Response},
 };
 use pallet_ismp::primitives::{Error, Proof};
 
-use ismp_primitives::{
+use ismp::{
     mmr::{Leaf, LeafIndex},
     LeafIndexQuery,
 };

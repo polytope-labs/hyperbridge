@@ -24,14 +24,12 @@ use jsonrpsee::{
 };
 
 use codec::Encode;
-use ismp_primitives::{
-    mmr::{Leaf, LeafIndex},
-    LeafIndexQuery,
-};
-use ismp_rs::{
+use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     events::{ChallengePeriodStarted, Event, StateMachineUpdated},
+    mmr::{Leaf, LeafIndex},
     router::{Get, Request, Response},
+    LeafIndexQuery,
 };
 use ismp_runtime_api::IsmpRuntimeApi;
 use sc_client_api::{BlockBackend, ProofProvider};

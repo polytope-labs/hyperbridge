@@ -1,12 +1,13 @@
 [package]
 name = "hyperbridge"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Polytope Labs <hello@polytope.technology>"]
-description = "The Hyperbridge parachain node"
+description = "The hyperbridge coprocessor node"
 edition = "2021"
 build = "build.rs"
 
 [dependencies]
+# crates.io
 clap = { version = "4.0.32", features = ["derive"] }
 log = "0.4.17"
 codec = { package = "parity-scale-codec", version = "3.0.0" }
@@ -14,8 +15,10 @@ serde = { version = "1.0.152", features = ["derive"] }
 jsonrpsee = { version = "0.16.2", features = ["server"] }
 futures = "0.3.28"
 
-# Local
+# local
 hyperbridge-runtime = { path = "../runtime" }
+ismp-rpc = { path = "../modules/ismp/rpc" }
+ismp-runtime-api = { path = "../modules/ismp/runtime-api" }
 
 # Substrate
 frame-benchmarking = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
@@ -71,14 +74,6 @@ cumulus-primitives-parachain-inherent = { git = "https://github.com/paritytech/p
 cumulus-relay-chain-interface = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
 cumulus-client-consensus-proposer = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
 cumulus-client-collator = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
-
-# polytope-labs
-ismp-rpc = { path = "../modules/ismp/rpc" }
-ismp-runtime-api = { path = "../modules/ismp/runtime-api" }
-
-# local
-#ismp-parachain-inherent = { path = "../modules/consensus/parachain/inherent" }
-
 
 [build-dependencies]
 substrate-build-script-utils = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }

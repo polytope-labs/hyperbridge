@@ -6,7 +6,7 @@ use ethabi::ethereum_types::{H160, H256};
 use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
 use ismp::host::{IsmpHost, StateMachine};
-use sync_committee_primitives::types::{LightClientState, LightClientUpdate};
+use sync_committee_primitives::types::{VerifierState, VerifierStateUpdate};
 
 pub struct KeccakHasher<H: IsmpHost>(core::marker::PhantomData<H>);
 
@@ -23,7 +23,7 @@ impl<H: IsmpHost + Send + Sync> Hasher for KeccakHasher<H> {
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct ConsensusState {
     pub frozen_height: Option<u64>,
-    pub light_client_state: LightClientState,
+    pub light_client_state: VerifierState,
     pub ismp_contract_addresses: BTreeMap<StateMachine, H160>,
     pub l2_oracle_address: BTreeMap<StateMachine, H160>,
     pub rollup_core_address: H160,
@@ -31,7 +31,7 @@ pub struct ConsensusState {
 
 #[derive(Encode, Decode)]
 pub struct BeaconClientUpdate {
-    pub consensus_update: LightClientUpdate,
+    pub consensus_update: VerifierStateUpdate,
     pub op_stack_payload: BTreeMap<StateMachine, OptimismPayloadProof>,
     pub arbitrum_payload: Option<ArbitrumPayloadProof>,
 }

@@ -73,8 +73,8 @@ cumulus-client-consensus-proposer = { git = "https://github.com/paritytech/polka
 cumulus-client-collator = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
 
 # polytope-labs
-ismp-rpc = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main" }
-ismp-runtime-api = { git = "https://github.com/polytope-labs/substrate-ismp.git", branch = "main" }
+ismp-rpc = { path = "../modules/ismp/rpc" }
+ismp-runtime-api = { path = "../modules/ismp/runtime-api" }
 
 # local
 #ismp-parachain-inherent = { path = "../modules/consensus/parachain/inherent" }

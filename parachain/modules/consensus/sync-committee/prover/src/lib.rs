@@ -256,7 +256,6 @@ impl SyncCommitteeProver {
             let parent_state_id = get_block_id(parent_block.state_root);
             let parent_block_finality_checkpoint =
                 self.fetch_finalized_checkpoint(Some(&parent_state_id)).await?.finalized;
-            dbg!(parent_block_finality_checkpoint.epoch);
             if parent_block_finality_checkpoint.epoch <= client_state.latest_finalized_epoch {
                 debug!(target: "prover", "Signature block search has reached an invalid epoch {} finalized_block_epoch {}", compute_epoch_at_slot(block.slot), finality_checkpoint.epoch);
                 return Ok(None)

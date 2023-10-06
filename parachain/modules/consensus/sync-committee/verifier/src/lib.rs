@@ -65,7 +65,9 @@ pub fn verify_sync_committee_attestation(
         Err(Error::InvalidUpdate("State period does not contain signature period".into()))?
     }
 
-    if update.attested_header.slot <= trusted_state.finalized_header.slot {
+    if update.attested_header.slot <= trusted_state.finalized_header.slot ||
+        update.finality_proof.epoch <= trusted_state.latest_finalized_epoch
+    {
         Err(Error::InvalidUpdate("Update is expired".into()))?
     }
 

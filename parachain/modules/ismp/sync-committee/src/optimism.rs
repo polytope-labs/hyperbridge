@@ -1,5 +1,19 @@
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::{
-    beacon_client::BEACON_CONSENSUS_ID,
     prelude::*,
     presets::L2_OUTPUTS_SLOT,
     utils::{derive_array_item_key, get_contract_storage_root, get_value_from_proof, to_bytes_32},
@@ -9,7 +23,9 @@ use alloy_primitives::{Bytes, B256};
 use alloy_rlp::Decodable;
 use ethabi::ethereum_types::{H160, H256, U128, U256};
 use ismp::{
-    consensus::{IntermediateState, StateCommitment, StateMachineHeight, StateMachineId},
+    consensus::{
+        ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
+    },
     error::Error,
     host::{Ethereum, IsmpHost, StateMachine},
 };
@@ -42,6 +58,7 @@ pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
     payload: OptimismPayloadProof,
     root: &[u8],
     l2_oracle_address: H160,
+    consensus_state_id: ConsensusStateId,
 ) -> Result<IntermediateState, Error> {
     let root = to_bytes_32(root)?;
     let root = H256::from_slice(&root[..]);
@@ -121,7 +138,7 @@ pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
         height: StateMachineHeight {
             id: StateMachineId {
                 state_id: StateMachine::Ethereum(Ethereum::Optimism),
-                consensus_state_id: BEACON_CONSENSUS_ID,
+                consensus_state_id,
             },
             height: payload.block_number,
         },

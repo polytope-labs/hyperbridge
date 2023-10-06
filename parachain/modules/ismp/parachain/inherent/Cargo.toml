@@ -20,7 +20,7 @@ cumulus-primitives-core = {  git = "https://github.com/paritytech/polkadot-sdk",
 cumulus-relay-chain-interface = {  git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
 
 # polytope-labs
-ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
+ismp = { path = "../../primitives/ismp-rs" }
 
 # local
 ismp-parachain = { path = "../" }

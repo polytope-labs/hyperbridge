@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 # polytope labs
-ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch="main", default-features = false }
+ismp = { path = "../primitives/ismp-rs", default-features = false }
 sync-committee-primitives = { path = "../../consensus/sync-committee/primitives", default-features = false }
 sync-committee-verifier = { path = "../../consensus/sync-committee/verifier", default-features = false }
 patricia-merkle-trie = { package = "ethereum-trie", git ="https://github.com/polytope-labs/ethereum-trie", branch = "main", default-features = false }

@@ -5386,6 +5386,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-casper-ffg"
+version = "0.1.0"
+
+[[package]]
 name = "ismp-demo"
 version = "0.1.0"
 dependencies = [

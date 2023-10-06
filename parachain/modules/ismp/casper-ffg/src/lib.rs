@@ -13,25 +13,4 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! ISMP Consensus Client for the Beacon Chain's Sync Committee Consensus Protocol.
-
-#![cfg_attr(not(feature = "std"), no_std)]
-#![allow(unused_variables)]
-
-extern crate alloc;
-
-pub mod prelude {
-    pub use alloc::{boxed::Box, vec, vec::Vec};
-}
-
-pub mod arbitrum;
-pub mod beacon_client;
-pub mod optimism;
-pub mod pallet;
-pub mod presets;
-#[cfg(test)]
-mod tests;
-pub mod types;
-pub mod utils;
-
-pub use beacon_client::*;
+//! ISMP Consensus Client for the Beacon Chain's Casper-FFG Consensus Protocol

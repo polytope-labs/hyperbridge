@@ -123,7 +123,7 @@ async fn state_root_and_block_header_root_matches() {
 #[tokio::test]
 async fn fetch_finality_checkpoints_work() {
     let sync_committee_prover = setup_prover();
-    let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint().await;
+    let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint(None).await;
     assert!(finality_checkpoint.is_ok());
 }
 
@@ -260,7 +260,7 @@ async fn test_prover() {
 
     let mut client_state = VerifierState {
         finalized_header: block_header.clone(),
-        latest_finalized_epoch: 0,
+        latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
         current_sync_committee: state.current_sync_committee,
         next_sync_committee: state.next_sync_committee,
     };

@@ -78,8 +78,11 @@ impl SyncCommitteeProver {
         SyncCommitteeProver { node_url, client }
     }
 
-    pub async fn fetch_finalized_checkpoint(&self) -> Result<FinalityCheckpoint, anyhow::Error> {
-        let full_url = self.generate_route(&finality_checkpoints("head"));
+    pub async fn fetch_finalized_checkpoint(
+        &self,
+        state_id: Option<&str>,
+    ) -> Result<FinalityCheckpoint, anyhow::Error> {
+        let full_url = self.generate_route(&finality_checkpoints(state_id.unwrap_or("head")));
         let response = self.client.get(full_url).send().await?;
 
         let response_data =
@@ -246,27 +249,30 @@ impl SyncCommitteeProver {
         let state_period =
             compute_sync_committee_period_at_slot(client_state.finalized_header.slot);
         loop {
-            // If we get to an epoch that is less than the finalized epoch for the notification
-            let current_epoch = compute_epoch_at_slot(block.slot);
-            if current_epoch <= finality_checkpoint.epoch ||
-                current_epoch == client_state.latest_finalized_epoch
-            {
+            // Some checks on the epoch finalized by the signature block
+            let parent_root = block.parent_root;
+            let parent_block_id = get_block_id(parent_root);
+            let parent_block = self.fetch_block(&parent_block_id).await?;
+            let parent_state_id = get_block_id(parent_block.state_root);
+            let parent_block_finality_checkpoint =
+                self.fetch_finalized_checkpoint(Some(&parent_state_id)).await?.finalized;
+            dbg!(parent_block_finality_checkpoint.epoch);
+            if parent_block_finality_checkpoint.epoch <= client_state.latest_finalized_epoch {
                 debug!(target: "prover", "Signature block search has reached an invalid epoch {} finalized_block_epoch {}", compute_epoch_at_slot(block.slot), finality_checkpoint.epoch);
                 return Ok(None)
             }
 
-            let parent_root = block.parent_root;
-            let block_id = get_block_id(parent_root);
-            block = self.fetch_block(&block_id).await?;
-
             let num_signatures = block.body.sync_aggregate.sync_committee_bits.count_ones();
 
             let signature_period = compute_sync_committee_period_at_slot(block.slot);
+
             if num_signatures >= min_signatures &&
-                (state_period..=state_period + 1).contains(&signature_period)
+                (state_period..=state_period + 1).contains(&signature_period) &&
+                parent_block_finality_checkpoint.epoch > client_state.latest_finalized_epoch
             {
                 break
             }
+            block = parent_block;
         }
 
         let attested_block_id = get_block_id(block.parent_root);

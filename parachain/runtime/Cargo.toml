@@ -69,7 +69,7 @@ pallet-collator-selection = { git = "https://github.com/paritytech/polkadot-sdk"
 parachain-info = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
 
 # polytope-labs
-ismp = { git = "https://github.com/polytope-labs/ismp-rs.git", branch = "main", default-features = false }
+ismp = { path = "../modules/ismp/primitives/ismp-rs", default-features = false }
 
 # ismp modules
 pallet-ismp = { path = "../modules/ismp/core", default-features = false }

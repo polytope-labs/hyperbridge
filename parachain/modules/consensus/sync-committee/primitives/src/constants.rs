@@ -32,7 +32,6 @@ pub const BLS_SECRET_KEY_BYTES_LEN: usize = 32;
 pub const BLS_SIGNATURE_BYTES_LEN: usize = 96;
 
 pub const SYNC_COMMITTEE_SIZE: usize = 512;
-pub const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
 pub const MAX_WITHDRAWALS_PER_PAYLOAD: usize = 16;
 pub const MAX_BLS_TO_EXECUTION_CHANGES: usize = 16;
 pub const MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP: usize = 16384;
@@ -98,6 +97,7 @@ pub mod goerli {
     pub const BELLATRIX_FORK_EPOCH: Epoch = 112260;
     pub const CAPELLA_FORK_EPOCH: Epoch = 162304;
     pub const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("03001020");
+    pub const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
 }
 
 #[cfg(feature = "mainnet")]
@@ -113,6 +113,7 @@ pub mod mainnet {
     pub const BELLATRIX_FORK_EPOCH: Epoch = 144896;
     pub const CAPELLA_FORK_EPOCH: Epoch = 194048;
     pub const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("03000000");
+    pub const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
 }
 
 #[cfg(all(not(feature = "mainnet"), not(feature = "goerli")))]
@@ -129,4 +130,5 @@ pub mod devnet {
     pub const BELLATRIX_FORK_EPOCH: Epoch = 0;
     pub const CAPELLA_FORK_EPOCH: Epoch = 2;
     pub const CAPELLA_FORK_VERSION: Version = hex!("52525503");
+    pub const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 4;
 }

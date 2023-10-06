@@ -45,10 +45,10 @@ pub fn verify_aggregate_signature(
     let signature = bls::signature_to_point(signature).map_err(|e| anyhow!("{:?}", e))?;
 
     if !bls::signature_subgroup_check(signature) {
-        Err(anyhow!("Signature not in subgroup"))
+        Err(anyhow!("Signature not in subgroup"))?
     }
 
-    let q = bls::hash_to_point(&msg, DST_ETHEREUM.as_bytes().to_vec());
+    let q = bls::hash_to_point(&msg, &DST_ETHEREUM.as_bytes().to_vec());
     let c1 = pairing(q, aggregate_key_point);
 
     // From the spec:

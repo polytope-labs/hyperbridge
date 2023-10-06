@@ -12,8 +12,8 @@ members = [
      "parachain/modules/ismp/runtime-api",
      "parachain/modules/ismp/demo",
      "parachain/modules/ismp/sync-committee",
-     "parachain/modules/ismp/ismp-rs",
-     "parachain/modules/ismp/ismp-rs/ismp-testsuite",
+     "parachain/modules/ismp/primitives/ismp-rs",
+     "parachain/modules/ismp/primitives/ismp-rs/ismp-testsuite",
 
      # modules
      "parachain/modules/state-machine",

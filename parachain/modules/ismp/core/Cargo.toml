@@ -17,7 +17,7 @@ sp-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release
 pallet-timestamp = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false, optional = true }
 
  # polytope labs
-ismp-rs = { package = "ismp", path = "../ismp-rs", default-features = false }
+ismp-rs = { package = "ismp", path = "../primitives/ismp-rs", default-features = false }
 
 # crates.io
 codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
@@ -34,7 +34,7 @@ ismp-primitives = { path = "../primitives", default-features = false }
 [dev-dependencies]
 env_logger = "0.10.0"
 pallet-timestamp = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
-ismp-testsuite = { path = "../ismp-rs/ismp-testsuite" }
+ismp-testsuite = { path = "../primitives/ismp-rs/ismp-testsuite" }
 
 [features]
 default = ["std"]

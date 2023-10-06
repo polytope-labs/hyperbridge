@@ -26,7 +26,7 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
             Box::new(chain_spec::development_config(id))
         },
         "gargantuan" => Box::new(chain_spec::ChainSpec::from_json_bytes(
-            include_bytes!("../../chainspec/gargantuan-raw.json").to_vec(),
+            include_bytes!("../../chainspec/gargantuan.json").to_vec(),
         )?),
         "" | "local" => Box::new(chain_spec::local_testnet_config()),
         path => Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?),

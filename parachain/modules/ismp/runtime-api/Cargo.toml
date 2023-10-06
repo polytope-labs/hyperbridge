@@ -10,8 +10,8 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 sp-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
 sp-std = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
-pallet-ismp = { path = "../core", default-features = false }
-ismp = { package = "ismp", path = "../primitives", default-features = false }
+pallet-ismp = { path = "../pallet", default-features = false }
+ismp = { package = "ismp", path = "../core", default-features = false }
 serde = { version = "1.0.136", features = ["derive"], optional = true }
 
 [dependencies.codec]

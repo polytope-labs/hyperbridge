@@ -1,3 +1,18 @@
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use alloc::{collections::BTreeMap, format, string::ToString};
 use codec::{Decode, Encode};
 use ethabi::ethereum_types::{H160, H256};
@@ -28,7 +43,6 @@ use crate::{
 };
 
 pub const BEACON_CONSENSUS_ID: ConsensusClientId = *b"BEAC";
-pub const BEACON_CONSENSUS_STATE_ID: ConsensusStateId = *b"BEAC";
 
 #[derive(Default, Clone)]
 pub struct SyncCommitteeConsensusClient<H: IsmpHost>(core::marker::PhantomData<H>);
@@ -39,7 +53,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
     fn verify_consensus(
         &self,
         _host: &dyn IsmpHost,
-        _consensus_state_id: ConsensusStateId,
+        consensus_state_id: ConsensusStateId,
         trusted_consensus_state: Vec<u8>,
         consensus_proof: Vec<u8>,
     ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
@@ -65,7 +79,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         let state_root = consensus_update.execution_payload.state_root;
         let intermediate_state = construct_intermediate_state(
             StateMachine::Ethereum(Ethereum::ExecutionLayer),
-            BEACON_CONSENSUS_ID,
+            consensus_state_id.clone(),
             consensus_update.execution_payload.block_number,
             consensus_update.execution_payload.timestamp,
             &state_root[..],
@@ -93,6 +107,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                     *consensus_state.l2_oracle_address.get(&state_machine_id).ok_or_else(|| {
                         Error::ImplementationSpecific("l2 oracle address was not set".into())
                     })?,
+                    consensus_state_id.clone(),
                 )?;
 
                 let state_commitment_height = StateCommitmentHeight {
@@ -111,6 +126,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 arbitrum_payload,
                 &state_root[..],
                 consensus_state.rollup_core_address,
+                consensus_state_id.clone(),
             )?;
 
             let arbitrum_state_commitment_height =

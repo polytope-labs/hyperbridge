@@ -2,7 +2,7 @@
 name = "hyperbridge"
 version = "0.1.5"
 authors = ["Polytope Labs <hello@polytope.technology>"]
-description = "The Hyperbridge parachain node"
+description = "The hyperbridge coprocessor node"
 edition = "2021"
 build = "build.rs"
 

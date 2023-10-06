@@ -43,10 +43,12 @@ pub fn verify_aggregate_signature(
     let subset_aggregate = subtract_points_from_aggregate(aggregate, non_participants)?;
     let aggregate_key_point: G1AffinePoint = subset_aggregate.into();
     let signature = bls::signature_to_point(signature).map_err(|e| anyhow!("{:?}", e))?;
-    let dst = DST_ETHEREUM.as_bytes().to_vec();
 
-    let q = bls::hash_to_point(&msg, &dst);
+    if !bls::signature_subgroup_check(signature) {
+        Err(anyhow!("Signature not in subgroup"))?
+    }
 
+    let q = bls::hash_to_point(&msg, &DST_ETHEREUM.as_bytes().to_vec());
     let c1 = pairing(q, aggregate_key_point);
 
     // From the spec:

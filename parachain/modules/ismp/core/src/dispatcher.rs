@@ -17,7 +17,7 @@
 use crate::{host::Host, Config, Pallet};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
-use ismp_rs::{
+use ismp::{
     error::Error as IsmpError,
     host::IsmpHost,
     router::{DispatchRequest, Get, IsmpDispatcher, Post, PostResponse, Request, Response},

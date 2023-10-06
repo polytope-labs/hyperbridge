@@ -28,11 +28,9 @@ use ismp::{
     error::Error,
     host::IsmpHost,
     messaging::Proof,
+    mmr::{DataOrHash, Leaf, MmrHasher},
     router::{Request, RequestResponse},
     util::hash_request,
-};
-use ismp_primitives::{
-    mmr::{DataOrHash, Leaf, MmrHasher},
     HashAlgorithm, MembershipProof, SubstrateStateProof,
 };
 use merkle_mountain_range::MerkleProof;

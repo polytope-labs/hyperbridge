@@ -45,7 +45,7 @@ use frame_support::{
     dispatch::{DispatchResult, DispatchResultWithPostInfo, Pays, PostDispatchInfo},
     traits::{Get, UnixTime},
 };
-use ismp_rs::{
+use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     handlers::{handle_incoming_message, MessageResult},
     host::StateMachine,
@@ -61,11 +61,13 @@ use crate::{
     weight_info::get_weight,
 };
 use frame_system::pallet_prelude::BlockNumberFor;
-use ismp_primitives::{
+use ismp::{
+    consensus::StateMachineHeight,
+    host::IsmpHost,
+    messaging::Message,
     mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex},
     LeafIndexQuery,
 };
-use ismp_rs::{consensus::StateMachineHeight, host::IsmpHost, messaging::Message};
 pub use pallet::*;
 use sp_runtime::RuntimeDebug;
 use sp_std::prelude::*;
@@ -86,11 +88,7 @@ pub mod pallet {
     use alloc::collections::BTreeSet;
     use frame_support::{pallet_prelude::*, traits::UnixTime};
     use frame_system::pallet_prelude::*;
-    use ismp_primitives::{
-        mmr::{LeafIndex, NodeIndex},
-        ISMP_ID,
-    };
-    use ismp_rs::{
+    use ismp::{
         consensus::{
             ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
             StateMachineId,
@@ -98,7 +96,9 @@ pub mod pallet {
         handlers::{self},
         host::StateMachine,
         messaging::Message,
+        mmr::{LeafIndex, NodeIndex},
         router::IsmpRouter,
+        ISMP_ID,
     };
     use sp_core::H256;
 
@@ -652,7 +652,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Get unfulfilled Get requests
-    pub fn pending_get_requests() -> Vec<ismp_rs::router::Get> {
+    pub fn pending_get_requests() -> Vec<ismp::router::Get> {
         RequestCommitments::<T>::iter()
             .filter_map(|(key, query)| {
                 let leaf_index =

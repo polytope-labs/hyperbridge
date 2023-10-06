@@ -16,8 +16,10 @@
 //! Pallet primitives
 use codec::{Decode, Encode};
 use frame_support::{weights::Weight, PalletId};
-use ismp_primitives::mmr::{LeafIndex, NodeIndex};
-use ismp_rs::consensus::{ConsensusClient, ConsensusClientId};
+use ismp::{
+    consensus::{ConsensusClient, ConsensusClientId},
+    mmr::{LeafIndex, NodeIndex},
+};
 use scale_info::TypeInfo;
 use sp_core::{
     crypto::{AccountId32, ByteArray},
@@ -59,7 +61,7 @@ pub trait ConsensusClientProvider {
     /// Returns a reference to a consensus client
     fn consensus_client(
         id: ConsensusClientId,
-    ) -> Result<Box<dyn ConsensusClient>, ismp_rs::error::Error>;
+    ) -> Result<Box<dyn ConsensusClient>, ismp::error::Error>;
 }
 
 /// Module identification types supported by ismp

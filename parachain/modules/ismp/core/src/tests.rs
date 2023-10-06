@@ -21,14 +21,14 @@ use std::{
 
 use crate::{
     dispatcher::Dispatcher,
-    mocks::ismp::{setup_mock_client, MOCK_CONSENSUS_STATE_ID},
+    mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID},
 };
 use frame_support::traits::OnFinalize;
-use ismp_primitives::mmr::MmrHasher;
-use ismp_rs::{
+use ismp::{
     consensus::StateMachineHeight,
     host::Ethereum,
     messaging::{Proof, ResponseMessage, TimeoutMessage},
+    mmr::MmrHasher,
     router::{DispatchGet, DispatchRequest, IsmpDispatcher, Post},
     util::hash_request,
 };
@@ -66,7 +66,7 @@ fn push_leaves(range: Range<u64>) -> Vec<NodeIndex> {
     // given
     let mut positions = vec![];
     for nonce in range {
-        let post = ismp_rs::router::Post {
+        let post = ismp::router::Post {
             source: StateMachine::Kusama(2000),
             dest: StateMachine::Kusama(2001),
             nonce,
@@ -297,7 +297,7 @@ fn should_handle_get_request_timeouts_correctly() {
 
                 let dispatcher = Dispatcher::<Test>::default();
                 dispatcher.dispatch_request(DispatchRequest::Get(msg)).unwrap();
-                let get = ismp_rs::router::Get {
+                let get = ismp::router::Get {
                     source: host.host_state_machine(),
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     nonce: i,
@@ -307,7 +307,7 @@ fn should_handle_get_request_timeouts_correctly() {
                     timeout_timestamp: 1000,
                     gas_limit: 0,
                 };
-                ismp_rs::router::Request::Get(get)
+                ismp::router::Request::Get(get)
             })
             .collect::<Vec<_>>();
 
@@ -345,7 +345,7 @@ fn should_handle_get_request_responses_correctly() {
 
                 let dispatcher = Dispatcher::<Test>::default();
                 dispatcher.dispatch_request(DispatchRequest::Get(msg)).unwrap();
-                let get = ismp_rs::router::Get {
+                let get = ismp::router::Get {
                     source: host.host_state_machine(),
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     nonce: i,
@@ -355,7 +355,7 @@ fn should_handle_get_request_responses_correctly() {
                     height: 3,
                     timeout_timestamp: 1000,
                 };
-                ismp_rs::router::Request::Get(get)
+                ismp::router::Request::Get(get)
             })
             .collect::<Vec<_>>();
 

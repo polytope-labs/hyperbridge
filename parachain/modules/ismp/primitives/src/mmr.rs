@@ -21,7 +21,7 @@ use core::fmt::Formatter;
 
 use codec::{Decode, Encode};
 //use frame_support::sp_io;
-use ismp::{
+use crate::{
     router::{Request, Response},
     util::{hash_request, hash_response, Keccak256},
 };

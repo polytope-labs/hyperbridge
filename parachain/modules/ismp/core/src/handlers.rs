@@ -4,11 +4,12 @@ use crate::{
     dispatcher::Receipt, host::Host, Config, Event, Pallet, RequestCommitments, ResponseCommitments,
 };
 use alloc::string::ToString;
-use ismp_primitives::{mmr::Leaf, LeafIndexQuery};
-use ismp_rs::{
+use ismp::{
     error::Error as IsmpError,
+    mmr::Leaf,
     router::{Request, Response},
     util::{hash_request, hash_response},
+    LeafIndexQuery,
 };
 
 impl<T: Config> Pallet<T> {

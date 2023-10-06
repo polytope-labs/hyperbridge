@@ -15,7 +15,7 @@
 
 //! Mock implementations for tests & benchmarks
 #![allow(missing_docs, dead_code, unused_imports)]
-pub mod ismp;
+pub mod mocks;
 
 use crate as pallet_ismp;
 use crate::*;
@@ -23,9 +23,9 @@ use crate::*;
 use crate::primitives::ConsensusClientProvider;
 use frame_support::traits::{ConstU32, ConstU64, Get};
 use frame_system::EnsureRoot;
-use ismp_rs::{consensus::ConsensusClient, module::IsmpModule, router::IsmpRouter};
+use ismp::{consensus::ConsensusClient, module::IsmpModule, router::IsmpRouter};
 
-use ismp::{MockConsensusClient, MockModule};
+use mocks::{MockConsensusClient, MockModule};
 use sp_core::H256;
 use sp_runtime::{
     testing::Header,
@@ -56,7 +56,7 @@ pub struct ConsensusProvider;
 impl ConsensusClientProvider for ConsensusProvider {
     fn consensus_client(
         _id: ConsensusClientId,
-    ) -> Result<Box<dyn ConsensusClient>, ismp_rs::error::Error> {
+    ) -> Result<Box<dyn ConsensusClient>, ismp::error::Error> {
         Ok(Box::new(MockConsensusClient))
     }
 }
@@ -110,7 +110,7 @@ impl Config for Test {
 pub struct ModuleRouter;
 
 impl IsmpRouter for ModuleRouter {
-    fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, ismp_rs::error::Error> {
+    fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, ismp::error::Error> {
         Ok(Box::new(MockModule))
     }
 }

@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ismp_primitives::mmr::{LeafIndex, NodeIndex};
+use ismp::mmr::{LeafIndex, NodeIndex};
 
 /// MMR nodes & size -related utilities.
 pub struct NodesUtils {

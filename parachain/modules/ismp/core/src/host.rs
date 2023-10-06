@@ -23,7 +23,7 @@ use crate::{
 use alloc::{format, string::ToString};
 use core::time::Duration;
 use frame_support::traits::{Get, UnixTime};
-use ismp_rs::{
+use ismp::{
     consensus::{
         ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
         StateMachineId,
@@ -276,7 +276,7 @@ impl<T: Config> IsmpHost for Host<T> {
     }
 }
 
-impl<T: Config> ismp_rs::util::Keccak256 for Host<T> {
+impl<T: Config> ismp::util::Keccak256 for Host<T> {
     fn keccak256(bytes: &[u8]) -> H256
     where
         Self: Sized,

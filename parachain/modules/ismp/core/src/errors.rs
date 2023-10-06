@@ -15,7 +15,7 @@
 
 //! Ismp Errors conversions
 use codec::{Decode, Encode};
-use ismp_rs::{
+use ismp::{
     consensus::{ConsensusClientId, StateMachineHeight},
     error::Error as IsmpError,
     host::StateMachine,
@@ -104,8 +104,8 @@ pub enum ModuleCallbackResult {
     Timeout(Vec<DispatchResult>),
 }
 
-impl From<ismp_rs::error::Error> for HandlingError {
-    fn from(value: ismp_rs::error::Error) -> Self {
+impl From<ismp::error::Error> for HandlingError {
+    fn from(value: ismp::error::Error) -> Self {
         match value {
             IsmpError::ChallengePeriodNotElapsed {
                 consensus_state_id,

@@ -16,7 +16,7 @@
 
 use crate::{Config, Event as PalletEvent};
 use alloc::collections::BTreeSet;
-use ismp_rs::{
+use ismp::{
     consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
     host::StateMachine,
 };

@@ -16,8 +16,7 @@ hex-literal = "0.4.1"
 primitive-types = { version = "0.12.1", default-features = false }
 
 # polytope labs
-ismp = { path = "../primitives/ismp-rs", default-features = false }
-ismp-primitives = { path = "../primitives", default-features = false }
+ismp = { path = "../primitives", default-features = false }
 pallet-ismp = { path = "../core", default-features = false }
 
 # substrate
@@ -52,7 +51,6 @@ std = [
     "sp-io/std",
     "sp-inherents/std",
     "primitive-types/std",
-    "ismp-primitives/std",
     "pallet-ismp/std",
     "serde",
     "substrate-state-machine/std"

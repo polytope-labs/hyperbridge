@@ -20,7 +20,7 @@
 use crate::{primitives::ModuleId, Config};
 use alloc::boxed::Box;
 use frame_support::weights::Weight;
-use ismp_rs::{
+use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     messaging::{
         ConsensusMessage, FraudProofMessage, Message, Proof, ResponseMessage, TimeoutMessage,

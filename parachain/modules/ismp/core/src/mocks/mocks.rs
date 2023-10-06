@@ -2,7 +2,7 @@
 use crate::primitives::ModuleId;
 use alloc::collections::BTreeMap;
 use frame_support::PalletId;
-use ismp_rs::{
+use ismp::{
     consensus::{
         ConsensusClient, StateCommitment, StateMachineClient, StateMachineHeight, StateMachineId,
         VerifiedCommitments,
@@ -33,15 +33,15 @@ where
 pub struct MockModule;
 
 impl IsmpModule for MockModule {
-    fn on_accept(&self, _request: Post) -> Result<(), ismp_rs::error::Error> {
+    fn on_accept(&self, _request: Post) -> Result<(), ismp::error::Error> {
         Ok(())
     }
 
-    fn on_response(&self, _response: Response) -> Result<(), ismp_rs::error::Error> {
+    fn on_response(&self, _response: Response) -> Result<(), ismp::error::Error> {
         Ok(())
     }
 
-    fn on_timeout(&self, _request: Request) -> Result<(), ismp_rs::error::Error> {
+    fn on_timeout(&self, _request: Request) -> Result<(), ismp::error::Error> {
         Ok(())
     }
 }
@@ -54,7 +54,7 @@ impl ConsensusClient for MockConsensusClient {
     fn verify_consensus(
         &self,
         _host: &dyn IsmpHost,
-        _cs_id: ismp_rs::consensus::ConsensusStateId,
+        _cs_id: ismp::consensus::ConsensusStateId,
         _trusted_consensus_state: Vec<u8>,
         _proof: Vec<u8>,
     ) -> Result<(Vec<u8>, VerifiedCommitments), IsmpError> {

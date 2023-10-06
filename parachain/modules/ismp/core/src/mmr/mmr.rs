@@ -22,7 +22,7 @@ use crate::{
     primitives::{Error, Proof},
     Config,
 };
-use ismp_primitives::mmr::{DataOrHash, Leaf, MmrHasher, NodeIndex};
+use ismp::mmr::{DataOrHash, Leaf, MmrHasher, NodeIndex};
 use sp_core::H256;
 use sp_std::prelude::*;
 

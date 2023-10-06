@@ -1,7 +1,8 @@
 [package]
-name = "ismp-primitives"
+name = "ismp"
 version = "0.1.0"
 edition = "2021"
+description = "Rust implementation of the ISMP protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
@@ -10,7 +11,6 @@ frame-system = { git = "https://github.com/paritytech/polkadot-sdk", branch = "r
 sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
 
 # polytope labs
-ismp = { path = "../primitives/ismp-rs", default-features = false }
 
 # crates.io
 merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
@@ -23,11 +23,14 @@ sp-core = { default-features = false, git = "https://github.com/paritytech/polka
 sp-consensus-aura = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
 sp-io = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
 
+derive_more = { version = "0.99.17", default-features = false, features = ["from", "into", "display"] }
+serde_json = { version = "1.0.99", default-features = false, features = ["alloc"] }
+
+
 [features]
 default = ["std"]
 std = [
     "frame-system/std",
-    "ismp/std",
     "merkle-mountain-range/std",
     "codec/std",
     "sp-runtime/std",

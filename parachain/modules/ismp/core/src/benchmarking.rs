@@ -36,24 +36,25 @@ pub mod benchmarks {
     use crate::{
         dispatcher::Dispatcher,
         host::Host,
-        mocks::ismp::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
+        mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
         Config, Event, Pallet, RequestCommitments, RequestReceipts, ResponseReceipts,
     };
     use frame_support::traits::{Get, Hooks};
     use frame_system::EventRecord;
-    use ismp_primitives::{mmr::Leaf, LeafIndexQuery};
-    use ismp_rs::{
+    use ismp::{
         consensus::{StateCommitment, StateMachineId},
         host::{Ethereum, StateMachine},
         messaging::{
             CreateConsensusState, Message, Proof, RequestMessage, ResponseMessage,
             StateCommitmentHeight, TimeoutMessage,
         },
+        mmr::Leaf,
         router::{
             DispatchGet, DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse,
             Request, Response,
         },
         util::hash_request,
+        LeafIndexQuery,
     };
 
     /// Verify the the last event emitted

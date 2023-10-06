@@ -47,6 +47,7 @@ jobs:
           cargo +nightly check -p sync-committee-verifier --no-default-features --target=wasm32-unknown-unknown --locked
           cargo +nightly check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --locked
           cargo +nightly check -p ismp-demo --no-default-features --target=wasm32-unknown-unknown --locked
+          cargo +nightly check -p ismp --no-default-features --target=wasm32-unknown-unknown --locked
 
   check-runtime-wasm:
     name: Check Runtime Wasm
@@ -112,6 +113,10 @@ jobs:
       - name: Run pallet-ismp unit tests
         run: |
           cargo +nightly test -p pallet-ismp --all-targets --all-features --verbose --locked
+
+      - name: Run ismp-testsuite unit tests
+        run: |
+          cargo +nightly test -p ismp-testsuite --all-targets --all-features --verbose --locked
 
       - name: Clone eth-pos-devnet repository
         run: |

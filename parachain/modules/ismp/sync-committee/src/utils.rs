@@ -22,6 +22,7 @@ use alloc::{collections::BTreeMap, format, string::ToString};
 use alloy_rlp::Decodable;
 use codec::Decode;
 use ethabi::ethereum_types::{H160, H256, U256};
+use ethereum_trie::{EIP1186Layout, StorageProof};
 use ismp::{
     consensus::{
         ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
@@ -32,7 +33,6 @@ use ismp::{
     router::RequestResponse,
     util::{hash_request, hash_response},
 };
-use ethereum_trie::{EIP1186Layout, StorageProof};
 use trie_db::{DBValue, Trie, TrieDBBuilder};
 
 pub fn construct_intermediate_state(

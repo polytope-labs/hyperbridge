@@ -9,3 +9,4 @@
 **/zombienet/zombienet
 /pallet-ismp/evm/solidity/out
 /pallet-ismp/evm/solidity/cache
+.env

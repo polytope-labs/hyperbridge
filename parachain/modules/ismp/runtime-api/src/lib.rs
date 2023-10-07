@@ -42,7 +42,7 @@ sp_api::decl_runtime_apis! {
 
         /// Generate a proof for the provided leaf indices
         fn generate_proof(
-            leaf_indices: Vec<LeafIndex>
+            leaf_positions: Vec<LeafIndex>
         ) -> Result<(Vec<Leaf>, Proof<Hash>), Error>;
 
         /// Fetch all ISMP events
@@ -64,18 +64,18 @@ sp_api::decl_runtime_apis! {
         fn latest_messaging_height(id: StateMachineId) -> Option<u64>;
 
         /// Get Request Leaf Indices
-        fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex>;
+        fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)>;
 
         /// Get Response Leaf Indices
-        fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex>;
+        fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)>;
 
         /// Get actual requests
-        fn get_requests(leaf_indices: Vec<LeafIndex>) -> Vec<Request>;
+        fn get_requests(leaf_positions: Vec<LeafIndex>) -> Vec<Request>;
 
         /// Fetch all Get requests that have received no response
         fn pending_get_requests() -> Vec<Get>;
 
-        /// Get actual requests
-        fn get_responses(leaf_indices: Vec<LeafIndex>) -> Vec<Response>;
+        /// Get actual responses
+        fn get_responses(leaf_positions: Vec<LeafIndex>) -> Vec<Response>;
     }
 }

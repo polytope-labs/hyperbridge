@@ -58,13 +58,13 @@ where
 {
     /// Push another item to the MMR and commit
     ///
-    /// Returns number of leaves and the element position (index) in the MMR.
-    pub fn push(mut self, leaf: Leaf) -> Option<NodeIndex> {
+    /// Returns the element position (index) and number of leaves in the MMR.
+    pub fn push(mut self, leaf: Leaf) -> Option<(NodeIndex, NodeIndex)> {
         let position = self.mmr.push(DataOrHash::Data(leaf)).map_err(|_| Error::Push).ok()?;
         let num_leaves = self.leaves + 1;
         self.leaves = num_leaves;
         self.mmr.commit().ok()?;
-        Some(position)
+        Some((position, num_leaves))
     }
 
     /// Calculate the new MMR's root hash.
@@ -101,7 +101,7 @@ where
             .gen_proof(positions.clone())
             .map_err(|_| Error::GenerateProof)
             .map(|p| Proof {
-                leaf_indices: positions,
+                leaf_positions: positions,
                 leaf_count,
                 items: p.proof_items().iter().map(|x| x.hash::<Host<T>>()).collect(),
             })

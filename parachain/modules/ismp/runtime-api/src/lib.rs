@@ -75,7 +75,7 @@ sp_api::decl_runtime_apis! {
         /// Fetch all Get requests that have received no response
         fn pending_get_requests() -> Vec<Get>;
 
-        /// Get actual requests
+        /// Get actual responses
         fn get_responses(leaf_positions: Vec<LeafIndex>) -> Vec<Response>;
     }
 }

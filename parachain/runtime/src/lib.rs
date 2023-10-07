@@ -703,9 +703,9 @@ impl_runtime_apis! {
 
         /// Generate a proof for the provided leaf indices
         fn generate_proof(
-            leaf_indices: Vec<LeafIndex>
+            leaf_positions: Vec<LeafIndex>
         ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), pallet_ismp::primitives::Error> {
-            Ismp::generate_proof(leaf_indices)
+            Ismp::generate_proof(leaf_positions)
         }
 
         /// Fetch all ISMP events
@@ -744,23 +744,23 @@ impl_runtime_apis! {
         }
 
         /// Get Request Leaf Indices
-        fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex> {
+        fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)> {
             Ismp::get_request_leaf_indices(leaf_queries)
         }
 
         /// Get Response Leaf Indices
-        fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex> {
+        fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)> {
             Ismp::get_response_leaf_indices(leaf_queries)
         }
 
         /// Get actual requests
-        fn get_requests(leaf_indices: Vec<LeafIndex>) -> Vec<Request> {
-            Ismp::get_requests(leaf_indices)
+        fn get_requests(leaf_positions: Vec<LeafIndex>) -> Vec<Request> {
+            Ismp::get_requests(leaf_positions)
         }
 
         /// Get actual requests
-        fn get_responses(leaf_indices: Vec<LeafIndex>) -> Vec<Response> {
-            Ismp::get_responses(leaf_indices)
+        fn get_responses(leaf_positions: Vec<LeafIndex>) -> Vec<Response> {
+            Ismp::get_responses(leaf_positions)
         }
 
         fn pending_get_requests() -> Vec<::ismp::router::Get> {

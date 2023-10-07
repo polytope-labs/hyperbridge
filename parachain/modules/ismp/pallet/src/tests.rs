@@ -81,7 +81,7 @@ fn push_leaves(range: Range<u64>) -> Vec<NodeIndex> {
         let leaf = Leaf::Request(request);
 
         let pos = Pallet::<Test>::mmr_push(leaf.clone()).unwrap();
-        positions.push(pos)
+        positions.push(pos.0)
     }
 
     positions

@@ -459,11 +459,11 @@ impl<T: Config> Pallet<T> {
     /// all the leaves to be present.
     /// It may return an error or panic if used incorrectly.
     pub fn generate_proof(
-        leaf_indices: Vec<LeafIndex>,
+        leaf_positions: Vec<LeafIndex>,
     ) -> Result<(Vec<Leaf>, primitives::Proof<H256>), primitives::Error> {
         let leaves_count = NumberOfLeaves::<T>::get();
         let mmr = Mmr::<mmr::storage::OffchainStorage, T>::new(leaves_count);
-        mmr.generate_proof(leaf_indices)
+        mmr.generate_proof(leaf_positions)
     }
 
     /// Provides a way to handle messages.
@@ -579,7 +579,7 @@ pub struct RequestResponseLog<T: Config> {
 
 impl<T: Config> Pallet<T> {
     /// Returns the offchain key for a request leaf index
-    pub fn request_leaf_index_offchain_key(
+    pub fn request_leaf_pos_and_index_offchain_key(
         source_chain: StateMachine,
         dest_chain: StateMachine,
         nonce: u64,
@@ -588,7 +588,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Returns the offchain key for a response leaf index
-    pub fn response_leaf_index_offchain_key(
+    pub fn response_leaf_pos_and_index_offchain_key(
         source_chain: StateMachine,
         dest_chain: StateMachine,
         nonce: u64,
@@ -596,14 +596,17 @@ impl<T: Config> Pallet<T> {
         (T::INDEXING_PREFIX, "responses_leaf_indices", source_chain, dest_chain, nonce).encode()
     }
 
-    /// Stores the leaf index  or the given key
-    pub fn store_leaf_index_offchain(key: Vec<u8>, leaf_index: LeafIndex) {
-        sp_io::offchain_index::set(&key, &leaf_index.encode());
+    /// Stores the position and leaf index  or the given key
+    pub fn store_leaf_position_and_index_offchain(
+        key: Vec<u8>,
+        leaf_pos_and_index: (LeafIndex, LeafIndex),
+    ) {
+        sp_io::offchain_index::set(&key, &leaf_pos_and_index.encode());
     }
 
     /// Gets the request from the offchain storage
-    pub fn get_request(leaf_index: LeafIndex) -> Option<Request> {
-        let key = Pallet::<T>::offchain_key(leaf_index);
+    pub fn get_request(leaf_position: LeafIndex) -> Option<Request> {
+        let key = Pallet::<T>::offchain_key(leaf_position);
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
             let data_or_hash = DataOrHash::decode(&mut &*elem).ok()?;
             return match data_or_hash {
@@ -618,8 +621,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Gets the response from the offchain storage
-    pub fn get_response(leaf_index: LeafIndex) -> Option<Response> {
-        let key = Pallet::<T>::offchain_key(leaf_index);
+    pub fn get_response(leaf_position: LeafIndex) -> Option<Response> {
+        let key = Pallet::<T>::offchain_key(leaf_position);
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
             let data_or_hash = DataOrHash::decode(&mut &*elem).ok()?;
             return match data_or_hash {
@@ -633,20 +636,20 @@ impl<T: Config> Pallet<T> {
         None
     }
 
-    /// Gets the leaf index for a request or response from the offchain storage
-    pub fn get_leaf_index(
+    /// Gets the positon and leaf index for a request or response from the offchain storage
+    pub fn get_position_and_leaf_index(
         source_chain: StateMachine,
         dest_chain: StateMachine,
         nonce: u64,
         is_req: bool,
-    ) -> Option<LeafIndex> {
+    ) -> Option<(LeafIndex, LeafIndex)> {
         let key = if is_req {
-            Self::request_leaf_index_offchain_key(source_chain, dest_chain, nonce)
+            Self::request_leaf_pos_and_index_offchain_key(source_chain, dest_chain, nonce)
         } else {
-            Self::response_leaf_index_offchain_key(source_chain, dest_chain, nonce)
+            Self::response_leaf_pos_and_index_offchain_key(source_chain, dest_chain, nonce)
         };
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            return LeafIndex::decode(&mut &*elem).ok()
+            return <(LeafIndex, LeafIndex)>::decode(&mut &*elem).ok()
         }
         None
     }
@@ -655,9 +658,13 @@ impl<T: Config> Pallet<T> {
     pub fn pending_get_requests() -> Vec<ismp::router::Get> {
         RequestCommitments::<T>::iter()
             .filter_map(|(key, query)| {
-                let leaf_index =
-                    Self::get_leaf_index(query.source_chain, query.dest_chain, query.nonce, true)?;
-                let req = Self::get_request(leaf_index)?;
+                let (position, _) = Self::get_position_and_leaf_index(
+                    query.source_chain,
+                    query.dest_chain,
+                    query.nonce,
+                    true,
+                )?;
+                let req = Self::get_request(position)?;
                 (req.is_type_get() && !ResponseReceipts::<T>::contains_key(key))
                     .then(|| req.get_request().ok())
                     .flatten()
@@ -690,61 +697,75 @@ impl<T: Config> Pallet<T> {
         Some(LatestStateMachineHeight::<T>::get(id))
     }
 
-    /// Get Request Leaf Indices
-    pub fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex> {
+    /// Get Request Leaf positions and Indices
+    pub fn get_request_leaf_indices(
+        leaf_queries: Vec<LeafIndexQuery>,
+    ) -> Vec<(LeafIndex, LeafIndex)> {
         leaf_queries
             .into_iter()
             .filter_map(|query| {
-                Self::get_leaf_index(query.source_chain, query.dest_chain, query.nonce, true)
+                Self::get_position_and_leaf_index(
+                    query.source_chain,
+                    query.dest_chain,
+                    query.nonce,
+                    true,
+                )
             })
             .collect()
     }
 
-    /// Get Response Leaf Indices
-    pub fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndex> {
+    /// Get Response Leaf positions and Indices
+    pub fn get_response_leaf_indices(
+        leaf_queries: Vec<LeafIndexQuery>,
+    ) -> Vec<(LeafIndex, LeafIndex)> {
         leaf_queries
             .into_iter()
             .filter_map(|query| {
-                Self::get_leaf_index(query.source_chain, query.dest_chain, query.nonce, false)
+                Self::get_position_and_leaf_index(
+                    query.source_chain,
+                    query.dest_chain,
+                    query.nonce,
+                    false,
+                )
             })
             .collect()
     }
 
     /// Get actual requests
-    pub fn get_requests(leaf_indices: Vec<LeafIndex>) -> Vec<Request> {
-        leaf_indices
+    pub fn get_requests(leaf_positions: Vec<LeafIndex>) -> Vec<Request> {
+        leaf_positions
             .into_iter()
-            .filter_map(|leaf_index| Self::get_request(leaf_index))
+            .filter_map(|leaf_pos| Self::get_request(leaf_pos))
             .collect()
     }
 
     /// Get actual requests
-    pub fn get_responses(leaf_indices: Vec<LeafIndex>) -> Vec<Response> {
-        leaf_indices
+    pub fn get_responses(leaf_positions: Vec<LeafIndex>) -> Vec<Response> {
+        leaf_positions
             .into_iter()
-            .filter_map(|leaf_index| Self::get_response(leaf_index))
+            .filter_map(|leaf_pos| Self::get_response(leaf_pos))
             .collect()
     }
 
-    /// Insert a leaf into the mmr
-    pub(crate) fn mmr_push(leaf: Leaf) -> Option<NodeIndex> {
+    /// Insert a leaf into the mmr and return the position and leaf index
+    pub(crate) fn mmr_push(leaf: Leaf) -> Option<(NodeIndex, NodeIndex)> {
         let offchain_key = match &leaf {
-            Leaf::Request(req) => Pallet::<T>::request_leaf_index_offchain_key(
+            Leaf::Request(req) => Pallet::<T>::request_leaf_pos_and_index_offchain_key(
                 req.source_chain(),
                 req.dest_chain(),
                 req.nonce(),
             ),
-            Leaf::Response(res) => Pallet::<T>::response_leaf_index_offchain_key(
-                res.dest_chain(),
+            Leaf::Response(res) => Pallet::<T>::response_leaf_pos_and_index_offchain_key(
                 res.source_chain(),
+                res.dest_chain(),
                 res.nonce(),
             ),
         };
         let leaves = Self::number_of_leaves();
         let mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
-        let pos = mmr.push(leaf)?;
-        Pallet::<T>::store_leaf_index_offchain(offchain_key, pos);
-        Some(pos)
+        let (pos, leaf_index) = mmr.push(leaf)?;
+        Pallet::<T>::store_leaf_position_and_index_offchain(offchain_key, (pos, leaf_index));
+        Some((pos, leaf_index))
     }
 }
 
@@ -774,7 +795,7 @@ impl<T: Config> Pallet<T> {
         NumberOfLeaves::<T>::put(num_leaves)
     }
 
-    /// Returns the offchain key for an index
+    /// Returns the offchain key for a position in the mmr
     fn offchain_key(pos: NodeIndex) -> Vec<u8> {
         (T::INDEXING_PREFIX, "leaves", pos).encode()
     }

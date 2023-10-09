@@ -4947,7 +4947,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "clap",
  "cumulus-client-cli",

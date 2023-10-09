@@ -3,7 +3,7 @@
   "id": "gargantuan",
   "chainType": "Live",
   "bootNodes": [
-    " /ip4/34.78.130.110/tcp/30333/p2p/12D3KooWMRRsnAgJ1hjxCj3uJXPkauHqhP2BbbP4M5XF8xVJpeLX"
+    "/ip4/34.78.130.110/tcp/30333/p2p/12D3KooWMRRsnAgJ1hjxCj3uJXPkauHqhP2BbbP4M5XF8xVJpeLX"
   ],
   "telemetryEndpoints": null,
   "protocolId": "gargantuan",

@@ -5,6 +5,7 @@ import "forge-std/Script.sol";
 import "multi-chain-tokens/tokens/ERC20.sol";
 
 import "../src/modules/TokenGateway.sol";
+import "../src/modules/TokenFaucet.sol";
 
 contract DeployScript is Script {
     bytes32 public salt = keccak256(bytes("gargantuan_v0"));
@@ -43,12 +44,15 @@ contract DeployScript is Script {
     }
 
     function deployGateway(address host, address admin) public {
-        TokenGateway gateway = new TokenGateway{ salt: salt }(admin);
-        gateway.setIsmpHost(host);
-
         MultiChainNativeERC20 t = new MultiChainNativeERC20{ salt: salt }(admin, "Hyperbridge Test Token", "CORE");
 
+        TokenGateway gateway = new TokenGateway{ salt: salt }(admin);
+        gateway.setIsmpHost(host);
         t.grantRole(MINTER_ROLE, address(gateway));
         t.grantRole(BURNER_ROLE, address(gateway));
+
+        TokenFaucet faucet = new TokenFaucet{salt: salt}(address(t));
+        t.grantRole(MINTER_ROLE, address(faucet));
+        t.grantRole(BURNER_ROLE, address(faucet));
     }
 }

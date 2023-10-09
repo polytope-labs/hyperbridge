@@ -504,6 +504,7 @@ pub struct EventResponse {
 
 fn setup_prover() -> SyncCommitteeProver {
     dotenv::dotenv().ok();
-    let consensus_url = std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:3500".to_string());
+    let consensus_url =
+        std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:3500".to_string());
     SyncCommitteeProver::new(consensus_url)
 }

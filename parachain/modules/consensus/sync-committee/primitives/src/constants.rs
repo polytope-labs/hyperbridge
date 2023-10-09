@@ -120,7 +120,7 @@ pub mod mainnet {
 pub mod devnet {
     use super::*;
     use hex_literal::hex;
-    pub const SLOTS_PER_EPOCH: Slot = 12;
+    pub const SLOTS_PER_EPOCH: Slot = 6;
     pub const GENESIS_VALIDATORS_ROOT: [u8; 32] =
         hex_literal::hex!("83431ec7fcf92cfc44947fc0418e831c25e1d0806590231c439830db7ad54fda");
     pub const BELLATRIX_FORK_VERSION: Version = hex!("52525502");
@@ -130,5 +130,5 @@ pub mod devnet {
     pub const BELLATRIX_FORK_EPOCH: Epoch = 0;
     pub const CAPELLA_FORK_EPOCH: Epoch = 2;
     pub const CAPELLA_FORK_VERSION: Version = hex!("52525503");
-    pub const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 3;
+    pub const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 4;
 }

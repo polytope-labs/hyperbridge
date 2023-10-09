@@ -54,7 +54,6 @@ jobs:
 
 
 
-
   check-runtime-wasm:
     name: Check Runtime Wasm
     runs-on: ubuntu-latest
@@ -116,6 +115,11 @@ jobs:
           sudo apt update
           sudo apt install protobuf-compiler
 
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+
       - name: Run unit tests
         run: |
           cargo +nightly test -p pallet-ismp --all-targets --all-features --locked
@@ -162,4 +166,3 @@ jobs:
         run: |
           forge test -vvv
         id: test
-

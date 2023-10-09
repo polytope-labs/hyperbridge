@@ -9,42 +9,39 @@ error ZeroAddress();
 
 contract TokenGateway is IIsmpModule {
     address private host;
-
-    mapping(uint256 => address) public chains;
-    mapping(uint256 => address) public tokenIds;
+    address private admin;
 
     // restricts call to `dispatcher`
     modifier onlyIsmpHost() {
-        if (msg.sender != host) {
+        if (msg.sender != host || msg.sender != admin) {
             revert("Unauthorized call");
         }
         _;
     }
 
-    constructor(address _host) {
+    constructor(address _admin) {
+        admin = _admin;
+    }
+
+    // set the ismp host address
+    function setIsmpHost(address _host) public {
         host = _host;
+        admin = address(0);
     }
 
     // The Gateway contract has to have the roles `MINTER` and `BURNER`.
-    function send(
-        uint256 amount,
-        address to,
-        bytes memory dest,
-        address tokenContract,
-        address gateway,
-        uint64 gasLimit
-    ) public {
+    function send(uint256 amount, address to, bytes memory dest, address tokenContract) public {
         address from = msg.sender;
         IERC6160Ext20(tokenContract).burn(from, amount, "");
         bytes memory data = abi.encodePacked(from, to, amount, tokenContract);
-        DispatchPost memory postRequest = DispatchPost({
+        DispatchPost memory request = DispatchPost({
             dest: dest,
-            to: abi.encodePacked(gateway),
+            to: abi.encodePacked(address(this)), // should the same address across evm hosts
             body: data,
             timeout: 60 * 60, // seconds
-            gaslimit: gasLimit
+            gaslimit: 0 // unused
         });
-        IIsmp(host).dispatch(postRequest);
+        IIsmp(host).dispatch(request);
     }
 
     function onAccept(PostRequest memory request) public onlyIsmpHost {

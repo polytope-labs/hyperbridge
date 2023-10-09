@@ -1,10 +1,12 @@
 {
   "name": "Hyperbridge (Gargantua)",
-  "id": "gargantua",
+  "id": "gargantuan",
   "chainType": "Live",
-  "bootNodes": [],
+  "bootNodes": [
+    " /ip4/34.78.130.110/tcp/30333/p2p/12D3KooWMRRsnAgJ1hjxCj3uJXPkauHqhP2BbbP4M5XF8xVJpeLX"
+  ],
   "telemetryEndpoints": null,
-  "protocolId": "gargantua",
+  "protocolId": "gargantuan",
   "properties": {
     "ss58Format": 42,
     "tokenDecimals": 12,

@@ -20,7 +20,7 @@ use crate::{
         utils::NodesUtils,
     },
     primitives::{Error, Proof},
-    Config,
+    Config, Pallet,
 };
 use ismp::mmr::{DataOrHash, Leaf, MmrHasher, NodeIndex};
 use sp_core::H256;
@@ -36,7 +36,6 @@ where
     Storage<StorageType, T>: mmr_lib::MMRStore<DataOrHash>,
 {
     mmr: mmr_lib::MMR<DataOrHash, MmrHasher<Host<T>>, Storage<StorageType, T>>,
-    leaves: NodeIndex,
 }
 
 impl<StorageType, T> Mmr<StorageType, T>
@@ -47,7 +46,7 @@ where
     /// Create a pointer to an existing MMR with given number of leaves.
     pub fn new(leaves: NodeIndex) -> Self {
         let size = NodesUtils::new(leaves).size();
-        Self { mmr: mmr_lib::MMR::new(size, Default::default()), leaves }
+        Self { mmr: mmr_lib::MMR::new(size, Default::default()) }
     }
 }
 
@@ -61,10 +60,10 @@ where
     /// Returns the element position (index) and number of leaves in the MMR.
     pub fn push(mut self, leaf: Leaf) -> Option<(NodeIndex, NodeIndex)> {
         let position = self.mmr.push(DataOrHash::Data(leaf)).map_err(|_| Error::Push).ok()?;
-        let num_leaves = self.leaves + 1;
-        self.leaves = num_leaves;
+        // Leaf index for the new leaf is the previous number of leaves
+        let leaf_index = Pallet::<T>::number_of_leaves();
         self.mmr.commit().ok()?;
-        Some((position, num_leaves))
+        Some((position, leaf_index))
     }
 
     /// Calculate the new MMR's root hash.
@@ -96,7 +95,7 @@ where
             })
             .collect::<Result<Vec<_>, Error>>()?;
         log::trace!(target: "runtime::mmr", "Positions {:?}", positions);
-        let leaf_count = self.leaves;
+        let leaf_count = Pallet::<T>::number_of_leaves();
         self.mmr
             .gen_proof(positions.clone())
             .map_err(|_| Error::GenerateProof)

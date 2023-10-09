@@ -279,7 +279,7 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
-            // return Mmr finalization weight here
+            // todo: return correct Mmr finalization weight here
             <T as Config>::WeightInfo::on_finalize(Self::number_of_leaves() as u32)
         }
 
@@ -783,11 +783,6 @@ impl<T: Config> Pallet<T> {
     /// Insert a node into storage
     fn insert_node(pos: NodeIndex, node: H256) {
         Nodes::<T>::insert(pos, node)
-    }
-
-    /// Returns the number of leaves in the mmr
-    fn get_num_leaves() -> LeafIndex {
-        NumberOfLeaves::<T>::get()
     }
 
     /// Set the number of leaves in the mmr

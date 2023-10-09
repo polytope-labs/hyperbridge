@@ -1,0 +1,3 @@
+[submodule "evm/hyperbridge/lib/forge-std"]
+	path = evm/hyperbridge/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std

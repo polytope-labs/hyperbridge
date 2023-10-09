@@ -374,7 +374,9 @@ abstract contract EvmHost is IIsmpHost, Context {
      * @param request - post dispatch request
      */
     function dispatch(DispatchPost memory request) external {
-        uint64 timeout = request.timeout == 0 ? 0 : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, request.timeout));
+        uint64 timeout = request.timeout == 0
+            ? 0
+            : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, request.timeout));
         PostRequest memory _request = PostRequest({
             source: host(),
             dest: request.dest,

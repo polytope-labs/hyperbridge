@@ -76,7 +76,10 @@ contract HandlerV1 is IHandler, Context {
             PostRequestLeaf memory leaf = request.requests[i];
 
             require(leaf.request.dest.equals(host.host()), "IHandler: Invalid request destination");
-            require(leaf.request.timeoutTimestamp == 0 || leaf.request.timeoutTimestamp > host.timestamp(), "IHandler: Request timed out");
+            require(
+                leaf.request.timeoutTimestamp == 0 || leaf.request.timeoutTimestamp > host.timestamp(),
+                "IHandler: Request timed out"
+            );
 
             bytes32 commitment = Message.hash(leaf.request);
             require(!host.requestReceipts(commitment), "IHandler: Duplicate request");
@@ -149,7 +152,9 @@ contract HandlerV1 is IHandler, Context {
 
         for (uint256 i = 0; i < timeoutsLength; i++) {
             PostRequest memory request = message.timeouts[i];
-            require(request.timeoutTimestamp != 0 && state.timestamp > request.timeoutTimestamp, "Request not timed out");
+            require(
+                request.timeoutTimestamp != 0 && state.timestamp > request.timeoutTimestamp, "Request not timed out"
+            );
 
             bytes32 requestCommitment = Message.hash(request);
             require(host.requestCommitments(requestCommitment), "IHandler: Unknown request");
@@ -186,7 +191,10 @@ contract HandlerV1 is IHandler, Context {
 
             bytes32 requestCommitment = Message.hash(request);
             require(host.requestCommitments(requestCommitment), "IHandler: Unknown GET request");
-            require(request.timeoutTimestamp == 0 || request.timeoutTimestamp > host.timestamp(), "IHandler: GET request timed out");
+            require(
+                request.timeoutTimestamp == 0 || request.timeoutTimestamp > host.timestamp(),
+                "IHandler: GET request timed out"
+            );
 
             StorageValue[] memory values =
                 MerklePatricia.ReadChildProofCheck(root, proof, request.keys, bytes.concat(requestCommitment));
@@ -209,7 +217,10 @@ contract HandlerV1 is IHandler, Context {
             bytes32 requestCommitment = Message.hash(request);
             require(host.requestCommitments(requestCommitment), "IHandler: Unknown request");
 
-            require(request.timeoutTimestamp != 0 && host.timestamp() > request.timeoutTimestamp, "IHandler: GET request not timed out");
+            require(
+                request.timeoutTimestamp != 0 && host.timestamp() > request.timeoutTimestamp,
+                "IHandler: GET request not timed out"
+            );
             host.dispatchIncoming(request);
         }
     }

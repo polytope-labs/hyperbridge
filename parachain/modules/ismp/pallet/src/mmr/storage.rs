@@ -94,7 +94,7 @@ where
             elems.iter().map(|elem| elem.hash::<Host<T>>()).collect::<Vec<_>>()
         );
 
-        let leaves = Pallet::<T>::get_num_leaves();
+        let leaves = Pallet::<T>::number_of_leaves();
         let size = NodesUtils::new(leaves).size();
 
         if pos != size {

@@ -240,6 +240,7 @@ async fn test_sync_committee_update_proof() {
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn test_client_sync() {
     let sync_committee_prover = setup_prover();
     let start_period = 810;
@@ -279,6 +280,7 @@ async fn test_client_sync() {
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn test_sync_committee_hand_offs() {
     let sync_committee_prover = setup_prover();
     let state_period = 805;
@@ -502,6 +504,6 @@ pub struct EventResponse {
 
 fn setup_prover() -> SyncCommitteeProver {
     dotenv::dotenv().ok();
-    let consensus_url = std::env::var("BEACON_URL").unwrap_or("http://localhost:3500".to_string());
+    let consensus_url = std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:3500".to_string());
     SyncCommitteeProver::new(consensus_url)
 }

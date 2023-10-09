@@ -1,3 +1,12 @@
 [submodule "evm/hyperbridge/lib/forge-std"]
 	path = evm/hyperbridge/lib/forge-std
 	url = https://github.com/foundry-rs/forge-std
+[submodule "evm/lib/ismp-solidity"]
+	path = evm/lib/ismp-solidity
+	url = https://github.com/polytope-labs/ismp-solidity
+[submodule "evm/lib/solidity-merkle-trees"]
+	path = evm/lib/solidity-merkle-trees
+	url = https://github.com/polytope-labs/solidity-merkle-trees
+[submodule "evm/lib/openzeppelin-contracts"]
+	path = evm/lib/openzeppelin-contracts
+	url = https://github.com/openzeppelin/openzeppelin-contracts

@@ -92,6 +92,7 @@ pub struct VerifierState {
     pub latest_finalized_epoch: u64,
     /// Sync committees corresponding to the finalized header
     pub current_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
+    /// Committee for the next sync period
     pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
 }
 

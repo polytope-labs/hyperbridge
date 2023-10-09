@@ -1,7 +1,7 @@
 use crate::{
     consensus_types::ForkData,
     constants::{
-        Domain, Root, Slot, Version, ALTAIR_FORK_EPOCH, ALTAIR_FORK_VERSION, BELLATRIX_FORK_EPOCH,
+        Domain, Root, Version, ALTAIR_FORK_EPOCH, ALTAIR_FORK_VERSION, BELLATRIX_FORK_EPOCH,
         BELLATRIX_FORK_VERSION, CAPELLA_FORK_EPOCH, CAPELLA_FORK_VERSION,
         EPOCHS_PER_SYNC_COMMITTEE_PERIOD, GENESIS_FORK_VERSION, SLOTS_PER_EPOCH,
     },
@@ -11,10 +11,9 @@ use alloc::{vec, vec::Vec};
 use anyhow::anyhow;
 use ssz_rs::prelude::*;
 
-/// Returns true if the next epoch is the start of a new sync committee period
-pub fn should_get_sync_committee_update(slot: Slot) -> bool {
-    let next_epoch = compute_epoch_at_slot(slot) + 1;
-    next_epoch % EPOCHS_PER_SYNC_COMMITTEE_PERIOD == 0
+/// Returns true if sync committee update is required
+pub fn should_have_sync_committee_update(state_period: u64, signature_period: u64) -> bool {
+    state_period != signature_period
 }
 
 /// Return the sync committee period at the given ``epoch``

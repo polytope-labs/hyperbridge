@@ -240,6 +240,125 @@ async fn test_sync_committee_update_proof() {
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+async fn test_client_sync() {
+    let sync_committee_prover = setup_prover();
+    let start_period = 810;
+    let end_period = 815;
+    let starting_slot = ((start_period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) * SLOTS_PER_EPOCH) +
+        (EPOCHS_PER_SYNC_COMMITTEE_PERIOD * SLOTS_PER_EPOCH) -
+        1;
+    let block_header =
+        sync_committee_prover.fetch_header(&starting_slot.to_string()).await.unwrap();
+
+    let state = sync_committee_prover
+        .fetch_beacon_state(&block_header.slot.to_string())
+        .await
+        .unwrap();
+
+    let mut client_state = VerifierState {
+        finalized_header: block_header.clone(),
+        latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
+        current_sync_committee: state.current_sync_committee,
+        next_sync_committee: state.next_sync_committee,
+    };
+
+    let mut next_period = start_period + 1;
+    loop {
+        if next_period > end_period {
+            break
+        }
+        let update = sync_committee_prover.latest_update_for_period(next_period).await.unwrap();
+        dbg!(&update);
+        client_state = verify_sync_committee_attestation(client_state, update).unwrap();
+        next_period += 1;
+    }
+
+    println!("Sync completed");
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[tokio::test]
+async fn test_sync_committee_hand_offs() {
+    let sync_committee_prover = setup_prover();
+    let state_period = 805;
+    let signature_period = 806;
+    let starting_slot = ((state_period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) * SLOTS_PER_EPOCH) + 1;
+    let block_header =
+        sync_committee_prover.fetch_header(&starting_slot.to_string()).await.unwrap();
+
+    let state = sync_committee_prover
+        .fetch_beacon_state(&block_header.slot.to_string())
+        .await
+        .unwrap();
+
+    let mut client_state = VerifierState {
+        finalized_header: block_header.clone(),
+        latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
+        current_sync_committee: state.current_sync_committee,
+        next_sync_committee: state.next_sync_committee,
+    };
+
+    // Verify an update from state_period + 1
+    let latest_block_id = {
+        let slot = ((signature_period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) * SLOTS_PER_EPOCH) +
+            ((EPOCHS_PER_SYNC_COMMITTEE_PERIOD * SLOTS_PER_EPOCH) / 2);
+        slot.to_string()
+    };
+
+    let finalized_checkpoint = sync_committee_prover
+        .fetch_finalized_checkpoint(Some("head"))
+        .await
+        .unwrap()
+        .finalized;
+
+    let update = sync_committee_prover
+        .fetch_light_client_update(
+            client_state.clone(),
+            finalized_checkpoint.clone(),
+            Some(&latest_block_id),
+            "prover",
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(update.sync_committee_update.is_some());
+    client_state = verify_sync_committee_attestation(client_state, update).unwrap();
+
+    // Verify block in the current state_period
+    let latest_block_id = {
+        let slot = ((signature_period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) * SLOTS_PER_EPOCH) +
+            (EPOCHS_PER_SYNC_COMMITTEE_PERIOD * SLOTS_PER_EPOCH) -
+            1;
+        slot.to_string()
+    };
+
+    let update = sync_committee_prover
+        .fetch_light_client_update(
+            client_state.clone(),
+            finalized_checkpoint,
+            Some(&latest_block_id),
+            "prover",
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(update.sync_committee_update.is_none());
+    client_state = verify_sync_committee_attestation(client_state, update).unwrap();
+
+    let next_period = signature_period + 1;
+    let next_period_slot = ((next_period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) * SLOTS_PER_EPOCH) + 1;
+    let beacon_state = sync_committee_prover
+        .fetch_beacon_state(&next_period_slot.to_string())
+        .await
+        .unwrap();
+
+    assert_eq!(client_state.next_sync_committee, beacon_state.current_sync_committee);
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[tokio::test]
 async fn test_prover() {
     use log::LevelFilter;
     use parity_scale_codec::{Decode, Encode};
@@ -251,7 +370,7 @@ async fn test_prover() {
     let sync_committee_prover = setup_prover();
     let node_url =
         format!("{}/eth/v1/events?topics=finalized_checkpoint", sync_committee_prover.node_url);
-    let block_header = sync_committee_prover.fetch_header("head").await.unwrap();
+    let block_header = sync_committee_prover.fetch_header("finalized").await.unwrap();
 
     let state = sync_committee_prover
         .fetch_beacon_state(&block_header.slot.to_string())
@@ -275,7 +394,7 @@ async fn test_prover() {
                 let checkpoint =
                     Checkpoint { epoch: message.epoch.parse().unwrap(), root: message.block };
                 let light_client_update = if let Some(update) = sync_committee_prover
-                    .fetch_light_client_update(client_state.clone(), checkpoint, "prover")
+                    .fetch_light_client_update(client_state.clone(), checkpoint, None, "prover")
                     .await
                     .unwrap()
                 {
@@ -284,6 +403,12 @@ async fn test_prover() {
                     continue
                 };
 
+                if light_client_update.sync_committee_update.is_some() {
+                    println!("Sync committee update present");
+                    dbg!(light_client_update.attested_header.slot);
+                    dbg!(light_client_update.finalized_header.slot);
+                    dbg!(client_state.finalized_header.slot);
+                }
                 let encoded = light_client_update.encode();
                 let decoded = VerifierStateUpdate::decode(&mut &*encoded).unwrap();
                 assert_eq!(light_client_update, decoded);
@@ -377,7 +502,6 @@ pub struct EventResponse {
 
 fn setup_prover() -> SyncCommitteeProver {
     dotenv::dotenv().ok();
-    let consensus_url =
-        std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:3500".to_string());
+    let consensus_url = std::env::var("BEACON_URL").unwrap_or("http://localhost:3500".to_string());
     SyncCommitteeProver::new(consensus_url)
 }

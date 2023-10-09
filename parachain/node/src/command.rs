@@ -40,7 +40,7 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
             let id = u32::from_str(id).expect("can't parse Id into u32");
             Box::new(chain_spec::development_config(id))
         },
-        "gargantua" => Box::new(chain_spec::ChainSpec::from_json_bytes(
+        "gargantua" | "gargantuan" => Box::new(chain_spec::ChainSpec::from_json_bytes(
             include_bytes!("../../chainspec/gargantua.json").to_vec(),
         )?),
         "" | "local" => Box::new(chain_spec::local_testnet_config()),

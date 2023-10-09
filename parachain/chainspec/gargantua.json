@@ -1,10 +1,10 @@
 {
   "name": "Hyperbridge (Gargantua)",
-  "id": "gargantua",
+  "id": "gargantuan",
   "chainType": "Live",
   "bootNodes": [],
   "telemetryEndpoints": null,
-  "protocolId": "gargantua",
+  "protocolId": "gargantuan",
   "properties": {
     "ss58Format": 42,
     "tokenDecimals": 12,

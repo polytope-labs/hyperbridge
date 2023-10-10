@@ -372,7 +372,7 @@ async fn test_prover() {
     let sync_committee_prover = setup_prover();
     let node_url =
         format!("{}/eth/v1/events?topics=finalized_checkpoint", sync_committee_prover.node_url);
-    let block_header = sync_committee_prover.fetch_header("finalized").await.unwrap();
+    let block_header = sync_committee_prover.fetch_header("head").await.unwrap();
 
     let state = sync_committee_prover
         .fetch_beacon_state(&block_header.slot.to_string())

@@ -103,7 +103,11 @@ jobs:
           echo "TUID=$UID" >> $GITHUB_ENV
 
       - name: Checkout sources
-        uses: actions/checkout@master
+        uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          submodules: recursive
+
 
       - name: Install rust stable toolchain
         uses: actions-rs/toolchain@v1

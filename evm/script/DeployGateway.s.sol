@@ -53,6 +53,5 @@ contract DeployScript is Script {
 
         TokenFaucet faucet = new TokenFaucet{salt: salt}(address(t));
         t.grantRole(MINTER_ROLE, address(faucet));
-        t.grantRole(BURNER_ROLE, address(faucet));
     }
 }

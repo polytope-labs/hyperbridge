@@ -24,7 +24,7 @@ use sync_committee_primitives::{
     types::{VerifierState, VerifierStateUpdate},
     util::{
         compute_domain, compute_epoch_at_slot, compute_fork_version, compute_signing_root,
-        compute_sync_committee_period_at_slot, should_get_sync_committee_update,
+        compute_sync_committee_period_at_slot, should_have_sync_committee_update,
     },
 };
 
@@ -166,10 +166,6 @@ pub fn verify_sync_committee_attestation(
     }
 
     if let Some(mut sync_committee_update) = update.sync_committee_update.clone() {
-        if !should_get_sync_committee_update(update.attested_header.slot) {
-            Err(Error::InvalidUpdate("Current sync committee period has not elapsed".into()))?
-        }
-
         let sync_root = sync_committee_update
             .next_sync_committee
             .hash_tree_root()
@@ -188,12 +184,17 @@ pub fn verify_sync_committee_attestation(
         }
     }
 
-    let verifier_state = if let Some(sync_committee_update) = update.sync_committee_update {
-        VerifierState {
-            finalized_header: update.finalized_header,
-            latest_finalized_epoch: update.finality_proof.epoch,
-            current_sync_committee: trusted_state.next_sync_committee,
-            next_sync_committee: sync_committee_update.next_sync_committee,
+    let verifier_state = if should_have_sync_committee_update(state_period, update_signature_period)
+    {
+        if let Some(sync_committee_update) = update.sync_committee_update {
+            VerifierState {
+                finalized_header: update.finalized_header,
+                latest_finalized_epoch: update.finality_proof.epoch,
+                current_sync_committee: trusted_state.next_sync_committee,
+                next_sync_committee: sync_committee_update.next_sync_committee,
+            }
+        } else {
+            Err(Error::InvalidUpdate("Expected sync committee update to be present".into()))?
         }
     } else {
         VerifierState {

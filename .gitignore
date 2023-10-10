@@ -14,5 +14,4 @@
 evm/out/
 evm/cache/
 evm/broadcast/
-evm/lib/
 evm/forge/target/

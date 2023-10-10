@@ -7,6 +7,17 @@ import "multi-chain-tokens/interfaces/IERC6160Ext20.sol";
 
 error ZeroAddress();
 
+struct SendParams {
+    // amount to be sent
+    uint256 amount;
+    // recipient address
+    address to;
+    // recipient state machine
+    bytes dest;
+    // IERC6160Ext20 token contract, should be the same on both chains
+    address tokenContract;
+}
+
 contract TokenGateway is IIsmpModule {
     address private host;
     address private admin;
@@ -30,12 +41,12 @@ contract TokenGateway is IIsmpModule {
     }
 
     // The Gateway contract has to have the roles `MINTER` and `BURNER`.
-    function send(uint256 amount, address to, bytes memory dest, address tokenContract) public {
+    function send(SendParams memory params) public {
         address from = msg.sender;
-        IERC6160Ext20(tokenContract).burn(from, amount, "");
-        bytes memory data = abi.encodePacked(from, to, amount, tokenContract);
+        IERC6160Ext20(params.tokenContract).burn(from, params.amount, "");
+        bytes memory data = abi.encode(from, params.to, params.amount, params.tokenContract);
         DispatchPost memory request = DispatchPost({
-            dest: dest,
+            dest: params.dest,
             to: abi.encodePacked(address(this)), // should the same address across evm hosts
             body: data,
             timeout: 60 * 60, // seconds
@@ -45,13 +56,13 @@ contract TokenGateway is IIsmpModule {
     }
 
     function onAccept(PostRequest memory request) public onlyIsmpHost {
-        (address _from, address to, uint256 amount, address tokenContract) = _decodePackedData(request.body);
+        (address _from, address to, uint256 amount, address tokenContract) = abi.decode(request.body, (address, address, uint256, address));
 
         IERC6160Ext20(tokenContract).mint(to, amount, "");
     }
 
     function onPostTimeout(PostRequest memory request) public onlyIsmpHost {
-        (address from, address _to, uint256 amount, address tokenContract) = _decodePackedData(request.body);
+        (address from, address _to, uint256 amount, address tokenContract) = abi.decode(request.body, (address, address, uint256, address));
 
         IERC6160Ext20(tokenContract).mint(from, amount, "");
     }
@@ -66,19 +77,5 @@ contract TokenGateway is IIsmpModule {
 
     function onGetTimeout(GetRequest memory request) public view onlyIsmpHost {
         revert("Token gateway doesn't emit Get Requests");
-    }
-
-    function _decodePackedData(bytes memory data)
-        internal
-        pure
-        returns (address from_, address to_, uint256 amount_, address tokenContract_)
-    {
-        // todo:
-        assembly {
-            from_ := div(mload(add(data, 32)), 0x1000000000000000000000000) // hex slicing to get first 20-bytes.
-            to_ := div(mload(add(data, 32)), 0x1000000000000000000000000) // hex slicing to get first 20-bytes.
-            amount_ := mload(add(data, 52))
-            tokenContract_ := mload(add(data, 84))
-        }
     }
 }

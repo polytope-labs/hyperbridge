@@ -47,6 +47,18 @@ static PROJECT: Lazy<Project> = Lazy::new(|| {
             path: path.to_str().unwrap().to_string(),
         });
     }
+    {
+        paths.remappings.retain(|mapping| &*mapping.name != "multi-chain-tokens/");
+        // manually insert openzeppelin to remmapings. forge isn't autodetecting.
+        let mut path = root.clone();
+        path.push("lib/multi-chain-tokens/src");
+        paths.remappings.push(Remapping {
+            context: None,
+            name: "multi-chain-tokens/".to_string(),
+            path: path.to_str().unwrap().to_string(),
+        });
+    }
+
     Project::builder().paths(paths).ephemeral().no_artifacts().build().unwrap()
 });
 

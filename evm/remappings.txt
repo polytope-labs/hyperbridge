@@ -1,0 +1,4 @@
+ismp/=lib/ismp-solidity/src/
+openzeppelin/=lib/openzeppelin-contracts/contracts/
+solidity-merkle-trees/=lib/solidity-merkle-trees/src/
+multi-chain-tokens/=lib/multi-chain-tokens/src/

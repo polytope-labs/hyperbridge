@@ -15,10 +15,8 @@
 
 //! Testing utilities
 
-use crate::{
-    extrinsic::{send_extrinsic, Extrinsic, InMemorySigner},
-    SubstrateClient,
-};
+use crate::{extrinsic::Extrinsic, SubstrateClient};
+use anyhow::anyhow;
 use codec::Encode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
@@ -26,138 +24,139 @@ use ismp_demo::{EvmParams, GetRequest, TransferParams};
 use sp_core::Pair;
 use std::time::Duration;
 use subxt::{
-    config::{
-        extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
-    },
-    events::EventDetails,
-    ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+	config::{
+		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
+	},
+	events::EventDetails,
+	ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+	tx::TxPayload,
 };
 
 impl<T, C> SubstrateClient<T, C>
 where
-    T: Send + Sync + Clone,
-    C: subxt::Config + Send + Sync + Clone,
-    C::Header: Send + Sync,
-    <C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-        Default + Send + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
-    C::AccountId: From<sp_core::crypto::AccountId32>
-        + Into<C::Address>
-        + Encode
-        + Clone
-        + 'static
-        + Send
-        + Sync,
-    C::Signature: From<MultiSignature> + Send + Sync,
+	T: Send + Sync + Clone,
+	C: subxt::Config + Send + Sync + Clone,
+	C::Header: Send + Sync,
+	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
+		Default + Send + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+	C::AccountId: From<sp_core::crypto::AccountId32>
+		+ Into<C::Address>
+		+ Encode
+		+ Clone
+		+ 'static
+		+ Send
+		+ Sync,
+	C::Signature: From<MultiSignature> + Send + Sync,
 {
-    pub async fn timestamp(&self) -> Result<Duration, anyhow::Error> {
-        let addr: [u8; 32] =
-            hex!("f0c365c3cf59d671eb72da0e7a4113c49f1f0515f462cdcf84e0f1d6045dfcbb");
-        let timestamp = self.client.rpc().storage(&addr, None).await.unwrap().unwrap();
-        let timestamp: u64 = codec::Decode::decode(&mut &*timestamp.0).unwrap();
-        Ok(Duration::from_millis(timestamp))
-    }
+	pub async fn timestamp(&self) -> Result<Duration, anyhow::Error> {
+		let addr: [u8; 32] =
+			hex!("f0c365c3cf59d671eb72da0e7a4113c49f1f0515f462cdcf84e0f1d6045dfcbb");
+		let timestamp = self.client.rpc().storage(&addr, None).await.unwrap().unwrap();
+		let timestamp: u64 = codec::Decode::decode(&mut &*timestamp.0).unwrap();
+		Ok(Duration::from_millis(timestamp))
+	}
 
-    pub fn latest_height(&self) -> u64 {
-        self.latest_height.lock().clone()
-    }
+	pub fn latest_height(&self) -> u64 {
+		self.latest_height.lock().clone()
+	}
 
-    pub async fn transfer(
-        &self,
-        params: TransferParams<C::AccountId, u128>,
-    ) -> Result<(), anyhow::Error> {
-        let signer = InMemorySigner {
-            account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
-            signer: self.signer.clone(),
-        };
+	pub async fn transfer(
+		&self,
+		params: TransferParams<C::AccountId, u128>,
+	) -> Result<(), anyhow::Error> {
+		let call = params.encode();
+		let tx = Extrinsic::new("IsmpDemo", "transfer", call);
 
-        let call = params.encode();
-        let tx = Extrinsic::new("IsmpDemo", "transfer", call);
+		let queue = self.queue.clone().ok_or_else(|| anyhow!("ext_queue: not set"))?;
+		queue.send(tx).await?;
 
-        let progress = send_extrinsic(&self.client, signer, tx).await?;
-        let tx = progress.wait_for_in_block().await?;
+		Ok(())
+	}
 
-        tx.wait_for_success().await?;
+	pub async fn dispatch_to_evm(&self, params: EvmParams) -> Result<(), anyhow::Error> {
+		let call = params.encode();
+		let tx = Extrinsic::new("IsmpDemo", "dispatch_to_evm", call);
+		let queue = self.queue.clone().ok_or_else(|| anyhow!("ext_queue: not set"))?;
+		queue.send(tx).await?;
 
-        Ok(())
-    }
+		Ok(())
+	}
 
-    pub async fn dispatch_to_evm(&self, params: EvmParams) -> Result<(), anyhow::Error> {
-        let signer = InMemorySigner {
-            account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
-            signer: self.signer.clone(),
-        };
+	pub async fn get_request(&self, get_req: GetRequest) -> Result<(), anyhow::Error> {
+		let call = get_req.encode();
+		let tx = Extrinsic::new("IsmpDemo", "get_request", call);
+		let queue = self.queue.clone().ok_or_else(|| anyhow!("ext_queue: not set"))?;
+		queue.send(tx).await?;
 
-        let call = params.encode();
-        let tx = Extrinsic::new("IsmpDemo", "dispatch_to_evm", call);
+		Ok(())
+	}
 
-        let progress = send_extrinsic(&self.client, signer, tx).await?;
-        let tx = progress.wait_for_in_block().await?;
+	pub async fn ismp_demo_events_stream(
+		&self,
+		count: usize,
+		pallet_name: &'static str,
+		variant_name: &'static str,
+	) -> Result<Vec<EventDetails<C>>, anyhow::Error> {
+		let subscription = self.client.rpc().subscribe_all_block_headers().await?;
+		let client = self.client.clone();
+		let stream = subscription.filter_map(move |header| {
+			let client = client.clone();
+			async move {
+				let events = client.events().at(header.ok()?.hash()).await.ok()?;
 
-        tx.wait_for_success().await?;
+				let events = events
+					.iter()
+					.filter_map(|ev| {
+						let ev = ev.ok()?;
+						let ev_metadata = ev.event_metadata();
+						(ev_metadata.pallet.name() == pallet_name &&
+							ev_metadata.variant.name == variant_name)
+							.then(|| ev)
+					})
+					.collect();
 
-        Ok(())
-    }
+				Some(events)
+			}
+		});
 
-    pub async fn get_request(&self, get_req: GetRequest) -> Result<(), anyhow::Error> {
-        let signer = InMemorySigner {
-            account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
-            signer: self.signer.clone(),
-        };
+		let mut stream = Box::pin(stream);
 
-        let call = get_req.encode();
-        let tx = Extrinsic::new("IsmpDemo", "get_request", call);
+		let mut total = 0;
+		let mut values = vec![];
+		while let Some(mut val) = stream.next().await {
+			values.append(&mut val);
+			total += values.len();
+			if total >= count {
+				return Ok(values)
+			}
+		}
+		Err(anyhow::Error::msg("Stream ended"))
+	}
 
-        let progress = send_extrinsic(&self.client, signer, tx).await?;
-        let tx = progress.wait_for_in_block().await?;
+	pub fn account(&self) -> C::AccountId {
+		MultiSigner::Sr25519(self.signer.public()).into_account().into()
+	}
 
-        tx.wait_for_success().await?;
+	pub async fn runtime_upgrade(&self, code_blob: Vec<u8>) -> anyhow::Result<()> {
+		// Set code
 
-        Ok(())
-    }
+		let encoded_call = Extrinsic::new("System", "set_code", code_blob.encode())
+			.encode_call_data(&self.client.metadata())?;
+		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
+		let queue = self.queue.clone().ok_or_else(|| anyhow!("ext_queue: not set"))?;
+		queue.send(tx).await?;
 
-    pub async fn ismp_demo_events_stream(
-        &self,
-        count: usize,
-        pallet_name: &'static str,
-        variant_name: &'static str,
-    ) -> Result<Vec<EventDetails<C>>, anyhow::Error> {
-        let subscription = self.client.rpc().subscribe_all_block_headers().await?;
-        let client = self.client.clone();
-        let stream = subscription.filter_map(move |header| {
-            let client = client.clone();
-            async move {
-                let events = client.events().at(header.ok()?.hash()).await.ok()?;
+		Ok(())
+	}
 
-                let events = events
-                    .iter()
-                    .filter_map(|ev| {
-                        let ev = ev.ok()?;
-                        let ev_metadata = ev.event_metadata();
-                        (ev_metadata.pallet.name() == pallet_name &&
-                            ev_metadata.variant.name == variant_name)
-                            .then(|| ev)
-                    })
-                    .collect();
+	pub async fn set_invulnerables(&self, accounts: Vec<C::AccountId>) -> anyhow::Result<()> {
+		let encoded_call =
+			Extrinsic::new("CollatorSelection", "set_invulnerables", accounts.encode())
+				.encode_call_data(&self.client.metadata())?;
+		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
+		let queue = self.queue.clone().ok_or_else(|| anyhow!("ext_queue: not set"))?;
+		queue.send(tx).await?;
 
-                Some(events)
-            }
-        });
-
-        let mut stream = Box::pin(stream);
-
-        let mut total = 0;
-        let mut values = vec![];
-        while let Some(mut val) = stream.next().await {
-            values.append(&mut val);
-            total += values.len();
-            if total >= count {
-                return Ok(values)
-            }
-        }
-        Err(anyhow::Error::msg("Stream ended"))
-    }
-
-    pub fn account(&self) -> C::AccountId {
-        MultiSigner::Sr25519(self.signer.public()).into_account().into()
-    }
+		Ok(())
+	}
 }

@@ -20,14 +20,14 @@ use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
 impl IsmpHost for ParachainHost {
-    async fn consensus_notification<C>(
-        &self,
-        _counterparty: C,
-    ) -> Result<BoxStream<ConsensusMessage>, anyhow::Error>
-    where
-        C: IsmpHost + IsmpProvider + 'static,
-    {
-        // use the inherent provider
-        Ok(Box::pin(stream::pending()))
-    }
+	async fn consensus_notification<C>(
+		&self,
+		_counterparty: C,
+	) -> Result<BoxStream<ConsensusMessage>, anyhow::Error>
+	where
+		C: IsmpHost + IsmpProvider + 'static,
+	{
+		// use the inherent provider
+		Ok(Box::pin(stream::pending()))
+	}
 }

@@ -18,8 +18,8 @@
 use codec::Encode;
 use sp_core::{blake2_256, keccak_256};
 use subxt::{
-    config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
-    utils::{AccountId32, MultiAddress, MultiSignature, H256},
+	config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
+	utils::{AccountId32, MultiAddress, MultiSignature, H256},
 };
 
 /// Implements [`subxt::Config`] for substrate chains with keccak as their hashing algorithm
@@ -31,20 +31,20 @@ pub struct KeccakSubstrateChain;
 pub struct KeccakHasher;
 
 impl Hasher for KeccakHasher {
-    type Output = H256;
-    fn hash(s: &[u8]) -> Self::Output {
-        keccak_256(s).into()
-    }
+	type Output = H256;
+	fn hash(s: &[u8]) -> Self::Output {
+		keccak_256(s).into()
+	}
 }
 
 impl subxt::Config for KeccakSubstrateChain {
-    type Hash = H256;
-    type AccountId = AccountId32;
-    type Address = MultiAddress<Self::AccountId, u32>;
-    type Signature = MultiSignature;
-    type Hasher = KeccakHasher;
-    type Header = SubstrateHeader<u32, KeccakHasher>;
-    type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
+	type Hash = H256;
+	type AccountId = AccountId32;
+	type Address = MultiAddress<Self::AccountId, u32>;
+	type Signature = MultiSignature;
+	type Hasher = KeccakHasher;
+	type Header = SubstrateHeader<u32, KeccakHasher>;
+	type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
 }
 
 /// Implements [`subxt::Config`] for substrate chains with blake2 as their hashing algorithm
@@ -56,18 +56,18 @@ pub struct Blake2SubstrateChain;
 pub struct Blake2Hasher;
 
 impl Hasher for Blake2Hasher {
-    type Output = H256;
-    fn hash(s: &[u8]) -> Self::Output {
-        blake2_256(s).into()
-    }
+	type Output = H256;
+	fn hash(s: &[u8]) -> Self::Output {
+		blake2_256(s).into()
+	}
 }
 
 impl subxt::Config for Blake2SubstrateChain {
-    type Hash = H256;
-    type AccountId = AccountId32;
-    type Address = MultiAddress<Self::AccountId, u32>;
-    type Signature = MultiSignature;
-    type Hasher = Blake2Hasher;
-    type Header = SubstrateHeader<u32, Blake2Hasher>;
-    type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
+	type Hash = H256;
+	type AccountId = AccountId32;
+	type Address = MultiAddress<Self::AccountId, u32>;
+	type Signature = MultiSignature;
+	type Hasher = Blake2Hasher;
+	type Header = SubstrateHeader<u32, Blake2Hasher>;
+	type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
 }

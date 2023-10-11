@@ -22,60 +22,59 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 /// Relays [`ConsensusMessage`] updates.
 pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
 where
-    A: IsmpHost + IsmpProvider + 'static,
-    B: IsmpHost + IsmpProvider + 'static,
+	A: IsmpHost + IsmpProvider + 'static,
+	B: IsmpHost + IsmpProvider + 'static,
 {
-    log::info!(target: "tesseract", "🛰️ Starting consensus relay between {}/{}", chain_a.name(), chain_b.name());
-    let mut consensus_a = chain_a.consensus_notification(chain_b.clone()).await?;
-    let mut consensus_b = chain_b.consensus_notification(chain_a.clone()).await?;
+	let mut consensus_a = chain_a.consensus_notification(chain_b.clone()).await?;
+	let mut consensus_b = chain_b.consensus_notification(chain_a.clone()).await?;
 
-    loop {
-        tokio::select! {
-            result = consensus_a.next() =>  {
-                match result {
-                    None => {
-                        break
-                    }
-                    Some(Ok(consensus_message)) => {
-                        log::info!(
-                            target: "tesseract",
-                            "🛰️ Transmitting consensus update message from {} to {}",
-                            chain_a.name(), chain_b.name()
-                        );
-                        let _ = chain_b.submit(vec![Message::Consensus(consensus_message)]).await;
-                    },
-                    Some(Err(e)) => {
-                        log::error!(
-                            target: "tesseract",
-                            "{} encountered an error in the consensus stream: {e}", chain_a.name()
-                        )
-                    }
-                }
-            }
+	loop {
+		tokio::select! {
+			result = consensus_a.next() =>  {
+				match result {
+					None => {
+						consensus_a = chain_a.consensus_notification(chain_b.clone()).await?;
+						continue
+					}
+					Some(Ok(consensus_message)) => {
+						log::info!(
+							target: "tesseract",
+							"🛰️ Transmitting consensus update message from {} to {}",
+							chain_a.name(), chain_b.name()
+						);
+						let _ = chain_b.submit(vec![Message::Consensus(consensus_message)]).await;
+					},
+					Some(Err(e)) => {
+						log::error!(
+							target: "tesseract",
+							"{} encountered an error in the consensus stream: {e}", chain_a.name()
+						)
+					}
+				}
+			}
 
-            result = consensus_b.next() =>  {
-                 match result {
-                    None => {
-                        break
-                    },
-                    Some(Ok(consensus_message)) => {
-                         log::info!(
-                            target: "tesseract",
-                            "🛰️ Transmitting consensus update message from {} to {}",
-                            chain_b.name(), chain_a.name()
-                         );
-                         let _ = chain_a.submit(vec![Message::Consensus(consensus_message)]).await;
-                    },
-                    Some(Err(e)) => {
-                        log::error!(
-                            target: "tesseract",
-                            "{} encountered an error in the consensus stream: {e}", chain_b.name()
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
+			result = consensus_b.next() =>  {
+				 match result {
+					None => {
+						consensus_b = chain_b.consensus_notification(chain_a.clone()).await?;
+						continue
+					},
+					Some(Ok(consensus_message)) => {
+						 log::info!(
+							target: "tesseract",
+							"🛰️ Transmitting consensus update message from {} to {}",
+							chain_b.name(), chain_a.name()
+						 );
+						 let _ = chain_a.submit(vec![Message::Consensus(consensus_message)]).await;
+					},
+					Some(Err(e)) => {
+						log::error!(
+							target: "tesseract",
+							"{} encountered an error in the consensus stream: {e}", chain_b.name()
+						)
+					}
+				}
+			}
+		}
+	}
 }

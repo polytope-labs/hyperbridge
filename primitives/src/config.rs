@@ -15,25 +15,18 @@
 
 //! Relayer configuration options
 
+use ismp::host::StateMachine;
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MessageKind {
-    /// Relays only responses to GET requests
-    GetResponse,
-    /// Relays POST requests to destination
-    PostRequest,
-    /// Relays POST responses to destination
-    PostResponse,
-    /// Relays consensus updates
-    Consensus,
-}
 
 /// Configuration options for the relayer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelayerConfig {
-    /// Types of messages to be relayed.
-    pub messages: Vec<MessageKind>,
-    /// Modules we're interested in relaying
-    pub module_filter: Vec<Vec<u8>>,
+	/// Modules we're interested in relaying
+	pub module_filter: Vec<Vec<u8>>,
+	/// Relay consensus messages
+	pub consensus: bool,
+	/// Relay messages
+	pub messaging: bool,
+	/// Routing state machine id
+	pub router: Option<StateMachine>,
 }

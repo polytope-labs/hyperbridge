@@ -22,52 +22,53 @@ use std::sync::Arc;
 #[async_trait::async_trait]
 impl<I, C> ByzantineHandler for SubstrateClient<I, C>
 where
-    I: IsmpHost,
-    C: subxt::Config,
+	I: IsmpHost,
+	C: subxt::Config,
 {
-    async fn query_consensus_message(
-        &self,
-        challenge_event: ChallengePeriodStarted,
-    ) -> Result<ismp::messaging::ConsensusMessage, anyhow::Error> {
-        self.host.query_consensus_message(challenge_event).await
-    }
+	async fn query_consensus_message(
+		&self,
+		challenge_event: ChallengePeriodStarted,
+	) -> Result<ismp::messaging::ConsensusMessage, anyhow::Error> {
+		self.host.query_consensus_message(challenge_event).await
+	}
 
-    async fn check_for_byzantine_attack<T: IsmpHost>(
-        &self,
-        counterparty: &T,
-        consensus_message: ismp::messaging::ConsensusMessage,
-    ) -> Result<(), anyhow::Error> {
-        self.host.check_for_byzantine_attack(counterparty, consensus_message).await
-    }
+	async fn check_for_byzantine_attack<T: IsmpHost>(
+		&self,
+		counterparty: &T,
+		consensus_message: ismp::messaging::ConsensusMessage,
+	) -> Result<(), anyhow::Error> {
+		self.host.check_for_byzantine_attack(counterparty, consensus_message).await
+	}
 }
 
 #[async_trait::async_trait]
 impl<T, C> IsmpHost for SubstrateClient<T, C>
 where
-    T: IsmpHost + Clone,
-    C: subxt::Config,
+	T: IsmpHost + Clone,
+	C: subxt::Config,
 {
-    async fn consensus_notification<I>(
-        &self,
-        counterparty: I,
-    ) -> Result<BoxStream<ismp::messaging::ConsensusMessage>, anyhow::Error>
-    where
-        I: IsmpHost + IsmpProvider + Clone + 'static,
-    {
-        self.host.consensus_notification(counterparty).await
-    }
+	async fn consensus_notification<I>(
+		&self,
+		counterparty: I,
+	) -> Result<BoxStream<ismp::messaging::ConsensusMessage>, anyhow::Error>
+	where
+		I: IsmpHost + IsmpProvider + Clone + 'static,
+	{
+		self.host.consensus_notification(counterparty).await
+	}
 }
 
 impl<T: IsmpHost + Clone, C: subxt::Config> Clone for SubstrateClient<T, C> {
-    fn clone(&self) -> Self {
-        Self {
-            host: self.host.clone(),
-            client: self.client.clone(),
-            consensus_state_id: self.consensus_state_id,
-            state_machine: self.state_machine,
-            hashing: self.hashing.clone(),
-            signer: self.signer.clone(),
-            latest_height: Arc::clone(&self.latest_height),
-        }
-    }
+	fn clone(&self) -> Self {
+		Self {
+			queue: self.queue.clone(),
+			host: self.host.clone(),
+			client: self.client.clone(),
+			consensus_state_id: self.consensus_state_id,
+			state_machine: self.state_machine,
+			hashing: self.hashing.clone(),
+			signer: self.signer.clone(),
+			latest_height: Arc::clone(&self.latest_height),
+		}
+	}
 }

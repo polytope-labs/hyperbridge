@@ -24,17 +24,17 @@ sp-core = { version = "21.0.0", features = ["full_crypto"] }
 log = "0.4.19"
 ethers = { version = "2.0.9", features = ["ws"] }
 ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
-tokio = { version = "1.27.0", features = ["macros", "sync"] }
+tokio = { version = "1.32.0", features = ["macros", "sync"] }
 tokio-stream = "0.1.14"
 
-pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
-ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
-ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+pallet-ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge.git", branch = "main" }
+ismp-rpc = { git = "ssh://git@github.com/polytope-labs/hyperbridge.git", branch = "main" }
 beefy-verifier-primitives = { path = "../../substrate/beefy/primitives" }
 consensus-client = { package = "ismp-sync-committee", git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 
 tesseract-primitives = { path = "../../primitives" }
-patricia-merkle-trie = { package = "ethereum-trie", git ="https://github.com/polytope-labs/ethereum-trie", branch = "main", default-features = false }
+ethereum-trie = { git ="ssh://git@github.com/polytope-labs/hyperbridge.git", branch = "main", default-features = false }
 
 trie-db = { version= "0.24.0", default-features = false }
 hash-db = { version = "0.15.2", default-features = false }
@@ -51,3 +51,4 @@ dotenv = "0.15.0"
 [features]
 goerli = ["consensus-client/goerli"]
 mainnet = ["consensus-client/mainnet"]
+testing = []

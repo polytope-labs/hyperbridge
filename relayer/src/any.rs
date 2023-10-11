@@ -83,6 +83,18 @@ macro_rules! chain {
 				}
             }
 
+            async fn query_latest_messaging_height(
+                &self,
+                id: ismp::consensus::StateMachineId,
+            ) -> Result<u64, anyhow::Error> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.query_latest_messaging_height(id).await,
+					)*
+				}
+            }
+
             async fn query_consensus_update_time(
                 &self,
                 id: ismp::consensus::ConsensusClientId,

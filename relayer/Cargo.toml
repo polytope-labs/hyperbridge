@@ -7,7 +7,6 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 parachain = { package = "tesseract-parachain", path = "../substrate/parachain" }
-#grandpa = { package = "tesseract-grandpa", path = "../substrate/grandpa" }
 tesseract-substrate = { path = "../substrate/common" }
 consensus = { package = "tesseract-consensus", path = "../consensus" }
 primitives = { package = "tesseract-primitives", path = "../primitives" }
@@ -17,9 +16,8 @@ tesseract-sync-committee = { path = "../ethereum/sync-committee" }
 tesseract-beefy = { path = "../substrate/beefy/host" }
 
 # polytope labs
-ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
-pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
-ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
+ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge.git", branch = "main" }
+pallet-ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 ismp-sync-committee = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 
 # crates.io
@@ -31,7 +29,7 @@ serde = { version = "1.0.164", features = ["derive"] }
 toml = "0.7.4"
 async-trait = "0.1.68"
 clap = { version = "4.3.5", features = ["derive"] }
-tokio = { version = "1.28.2", features = ["macros", "rt-multi-thread", "fs"] }
+tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
 ethers = { version = "2.0.9" }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 

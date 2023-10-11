@@ -6,9 +6,9 @@ description = "Sync-committee primitives for ISMP messaging relay"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
-prover = { package = "sync-committee-prover", git = "https://github.com/polytope-labs/sync-committee-rs", branch = "main" }
-verifier = { package = "sync-committee-verifier", git = "https://github.com/polytope-labs/sync-committee-rs", branch = "main" }
-primitives = { package = "sync-committee-primitives", git = "https://github.com/polytope-labs/sync-committee-rs", branch = "main" }
+prover = { package = "sync-committee-prover", git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+verifier = { package = "sync-committee-verifier", git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+primitives = { package = "sync-committee-primitives", git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 consensus-client = { package = "ismp-sync-committee", git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 serde = { version = "1.0.164", features = ["derive"] }
 serde_json = "1.0.105"
@@ -18,17 +18,28 @@ anyhow = "1.0.75"
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 futures = "0.3.28"
 async-trait = "0.1.71"
-tokio = { version = "1.27.0", features = ["full"] }
+tokio = { version = "1.32.0", features = ["full"] }
 tokio-stream = "0.1.14"
 hex-literal = "0.4.1"
 base2 = "0.3.1"
 primitive-types = { version = "0.12.1", features = ["impl-codec"] }
-reqwest-eventsource = "0.4.0"
+eventsource-client = "0.11.0"
 
-ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
+ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+
 tesseract-primitives = { path = "../../primitives" }
 tesseract-evm = { path = "../evm"}
 
+[dev-dependencies]
+tesseract-evm = { path = "../evm", features = ["testing"] }
+sp-core = "22.0.0"
+ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+dotenv = "0.15.0"
+anyhow = "1.0.75"
+
 [features]
-goerli = ["consensus-client/goerli"]
+goerli = ["consensus-client/goerli", "prover/goerli"]
 mainnet = ["consensus-client/mainnet"]
+finality-events = []
+testing = []

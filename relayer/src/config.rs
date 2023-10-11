@@ -16,19 +16,19 @@
 //! Tesseract config utilities
 
 // use grandpa::{GrandpaConfig, GrandpaHost};
-use ismp_primitives::HashAlgorithm;
+use ismp::HashAlgorithm;
 use parachain::ParachainHost;
-use primitives::config::RelayerConfig;
+use primitives::{config::RelayerConfig, IsmpProvider};
 use serde::{Deserialize, Serialize};
 use tesseract_beefy::BeefyConfig;
 use tesseract_evm::{
-    arbitrum::client::{ArbConfig, ArbHost},
-    optimism::client::{OpConfig, OpHost},
-    EvmClient,
+	arbitrum::client::{ArbConfig, ArbHost},
+	optimism::client::{OpConfig, OpHost},
+	EvmClient,
 };
 use tesseract_substrate::{
-    config::{Blake2SubstrateChain, KeccakSubstrateChain},
-    SubstrateClient, SubstrateConfig,
+	config::{Blake2SubstrateChain, KeccakSubstrateChain},
+	SubstrateClient, SubstrateConfig,
 };
 use tesseract_sync_committee::{SyncCommitteeConfig, SyncCommitteeHost};
 
@@ -36,74 +36,77 @@ type Parachain<T> = SubstrateClient<ParachainHost, T>;
 // type Grandpa<T> = SubstrateClient<GrandpaHost<T>, T>;
 
 crate::chain! {
-    KeccakParachain(SubstrateConfig, Parachain<KeccakSubstrateChain>),
-    Parachain(SubstrateConfig, Parachain<Blake2SubstrateChain>),
-    Ethereum(SyncCommitteeConfig, EvmClient<SyncCommitteeHost>),
-    Arbitrum(ArbConfig, EvmClient<ArbHost>),
-    Optimism(OpConfig, EvmClient<OpHost>),
-    Base(OpConfig, EvmClient<OpHost>),
-    // Polkadot(GrandpaConfig, Grandpa<Blake2SubstrateChain>),
-    // Kusama(GrandpaConfig, Grandpa<Blake2SubstrateChain>),
+	KeccakParachain(SubstrateConfig, Parachain<KeccakSubstrateChain>),
+	Parachain(SubstrateConfig, Parachain<Blake2SubstrateChain>),
+	Ethereum(SyncCommitteeConfig, EvmClient<SyncCommitteeHost>),
+	Arbitrum(ArbConfig, EvmClient<ArbHost>),
+	Optimism(OpConfig, EvmClient<OpHost>),
+	Base(OpConfig, EvmClient<OpHost>),
+	// Polkadot(GrandpaConfig, Grandpa<Blake2SubstrateChain>),
+	// Kusama(GrandpaConfig, Grandpa<Blake2SubstrateChain>),
 }
 
 /// Defines the format of the tesseract config.toml file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HyperbridgeConfig {
-    /// Configuration options for hyperbridge.
-    pub hyperbridge: BeefyConfig,
-    /// Configuration options for Ethereum.
-    pub ethereum: SyncCommitteeConfig,
-    /// Configuration options for Arbitrum.
-    pub arbitrum: ArbConfig,
-    /// Configuration options for Optimism.
-    pub optimism: OpConfig,
-    /// Configuration options for Base.
-    pub base: OpConfig,
-    /// Configuration options for the relayer.
-    pub relayer: RelayerConfig,
+	/// Configuration options for hyperbridge.
+	pub hyperbridge: BeefyConfig,
+	/// Configuration options for Ethereum.
+	pub ethereum: SyncCommitteeConfig,
+	/// Configuration options for Arbitrum.
+	pub arbitrum: ArbConfig,
+	/// Configuration options for Optimism.
+	pub optimism: OpConfig,
+	/// Configuration options for Base.
+	pub base: OpConfig,
+	/// Configuration options for the relayer.
+	pub relayer: RelayerConfig,
 }
 
 impl AnyConfig {
-    /// Convert the [`HyperbridgeConfig`] into an implementation of an [`IsmpHost`]
-    pub async fn into_client(self) -> Result<AnyClient, anyhow::Error> {
-        let client = match self {
-            AnyConfig::KeccakParachain(config) | AnyConfig::Parachain(config) => {
-                match config.hashing {
-                    HashAlgorithm::Keccak => {
-                        let host = ParachainHost::default();
-                        AnyClient::KeccakParachain(Parachain::new(host, config).await?)
-                    }
-                    HashAlgorithm::Blake2 => {
-                        let host = ParachainHost::default();
-                        AnyClient::Parachain(Parachain::new(host, config).await?)
-                    }
-                }
-            }
-            AnyConfig::Ethereum(config) => {
-                let host = SyncCommitteeHost::new(&config).await?;
-                let client = EvmClient::new(host, config.evm_config).await?;
-                AnyClient::Ethereum(client)
-            }
-            AnyConfig::Arbitrum(config) => {
-                let host = ArbHost::new(&config).await?;
-                let client = EvmClient::new(host, config.evm_config).await?;
-                AnyClient::Arbitrum(client)
-            }
-            AnyConfig::Optimism(config) => {
-                let host = OpHost::new(&config).await?;
-                let client = EvmClient::new(host, config.evm_config).await?;
-                AnyClient::Optimism(client)
-            }
-            AnyConfig::Base(config) => {
-                let host = OpHost::new(&config).await?;
-                let client = EvmClient::new(host, config.evm_config).await?;
-                AnyClient::Base(client)
-            } /* AnyConfig::Polkadot(config) => {
-               *     let host = GrandpaHost::new(&config).await?;
-               *     AnyClient::Grandpa(Grandpa::new(host, config.substrate).await?)
-               * } */
-        };
+	/// Convert the [`HyperbridgeConfig`] into an implementation of an [`IsmpHost`]
+	pub async fn into_client<C: IsmpProvider>(
+		self,
+		counterparty: &C,
+	) -> Result<AnyClient, anyhow::Error> {
+		let client = match self {
+			AnyConfig::KeccakParachain(config) | AnyConfig::Parachain(config) => {
+				match config.hashing {
+					HashAlgorithm::Keccak => {
+						let host = ParachainHost::default();
+						AnyClient::KeccakParachain(Parachain::new(host, config).await?)
+					},
+					HashAlgorithm::Blake2 => {
+						let host = ParachainHost::default();
+						AnyClient::Parachain(Parachain::new(host, config).await?)
+					},
+				}
+			},
+			AnyConfig::Ethereum(config) => {
+				let host = SyncCommitteeHost::new(&config).await?;
+				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
+				AnyClient::Ethereum(client)
+			},
+			AnyConfig::Arbitrum(config) => {
+				let host = ArbHost::new(&config).await?;
+				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
+				AnyClient::Arbitrum(client)
+			},
+			AnyConfig::Optimism(config) => {
+				let host = OpHost::new(&config).await?;
+				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
+				AnyClient::Optimism(client)
+			},
+			AnyConfig::Base(config) => {
+				let host = OpHost::new(&config).await?;
+				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
+				AnyClient::Base(client)
+			}, /* AnyConfig::Polkadot(config) => {
+			    *     let host = GrandpaHost::new(&config).await?;
+			    *     AnyClient::Grandpa(Grandpa::new(host, config.substrate).await?)
+			    * } */
+		};
 
-        Ok(client)
-    }
+		Ok(client)
+	}
 }

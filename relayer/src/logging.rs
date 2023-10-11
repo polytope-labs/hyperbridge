@@ -15,8 +15,8 @@
 use log::LevelFilter;
 
 pub fn setup() {
-    env_logger::builder()
-        .filter_module("tesseract", LevelFilter::Info)
-        .format_module_path(false)
-        .init();
+	env_logger::builder()
+		.filter_module("tesseract", LevelFilter::Info)
+		.format_module_path(false)
+		.init();
 }

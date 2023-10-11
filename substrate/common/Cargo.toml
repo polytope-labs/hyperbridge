@@ -17,11 +17,10 @@ log = "0.4.19"
 
 primitives = { package = "tesseract-primitives", path = "../../primitives" }
 
-ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
-pallet-ismp = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
-ismp-demo = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
-ismp-rpc = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
-ismp-primitives = { git = "https://github.com/polytope-labs/substrate-ismp", branch = "main" }
-
+pallet-ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp-demo = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp-rpc = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+tokio = { version = "1.32.0" }
 [features]
 testing = []

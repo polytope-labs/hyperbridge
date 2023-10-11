@@ -18,7 +18,7 @@ use tesseract::Cli;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let cli = Cli::parse();
+	let cli = Cli::parse();
 
-    cli.run().await
+	cli.run().await
 }

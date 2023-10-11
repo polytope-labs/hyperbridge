@@ -20,18 +20,18 @@ use tesseract_primitives::{ByzantineHandler, ChallengePeriodStarted, IsmpHost};
 
 #[async_trait::async_trait]
 impl ByzantineHandler for ParachainHost {
-    async fn query_consensus_message(
-        &self,
-        _challenge_event: ChallengePeriodStarted,
-    ) -> Result<ConsensusMessage, anyhow::Error> {
-        Err(anyhow!("Parachains consensus can't misbehave"))?
-    }
+	async fn query_consensus_message(
+		&self,
+		_challenge_event: ChallengePeriodStarted,
+	) -> Result<ConsensusMessage, anyhow::Error> {
+		Err(anyhow!("Parachains consensus can't misbehave"))?
+	}
 
-    async fn check_for_byzantine_attack<C: IsmpHost>(
-        &self,
-        _counterparty: &C,
-        _consensus_message: ConsensusMessage,
-    ) -> Result<(), anyhow::Error> {
-        Err(anyhow!("Parachains consensus can't misbehave"))?
-    }
+	async fn check_for_byzantine_attack<C: IsmpHost>(
+		&self,
+		_counterparty: &C,
+		_consensus_message: ConsensusMessage,
+	) -> Result<(), anyhow::Error> {
+		Err(anyhow!("Parachains consensus can't misbehave"))?
+	}
 }

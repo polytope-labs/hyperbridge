@@ -249,11 +249,13 @@ pub fn verify_arbitrum_payload<H: IsmpHost + Send + Sync>(
         _ => Err(Error::MembershipProofVerificationFailed("Value not found in proof".to_string()))?,
     };
 
-    let proof_value = <B256 as Decodable>::decode(&mut &*proof_value).map_err(|_| {
-        Error::ImplementationSpecific(format!("Error decoding state hash {:?}", &proof_value))
-    })?;
+    let proof_value = <alloy_primitives::U256 as Decodable>::decode(&mut &*proof_value)
+        .map_err(|_| {
+            Error::ImplementationSpecific(format!("Error decoding state hash {:?}", &proof_value))
+        })?
+        .to_be_bytes::<32>();
 
-    if proof_value.0 != state_hash.0 {
+    if proof_value != state_hash.0 {
         Err(Error::MembershipProofVerificationFailed(
             "State hash from proof does not match calculated state hash".to_string(),
         ))?

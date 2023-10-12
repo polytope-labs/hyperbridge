@@ -22,6 +22,9 @@ contract TokenGateway is IIsmpModule {
     address private host;
     address private admin;
 
+    // User has received some assets, source chain & nonce
+    event AssetReceived(bytes source, uint256 nonce);
+
     // restricts call to `dispatcher`
     modifier onlyIsmpHost() {
         if (msg.sender != host || msg.sender != admin) {
@@ -59,6 +62,8 @@ contract TokenGateway is IIsmpModule {
         (address _from, address to, uint256 amount, address tokenContract) = abi.decode(request.body, (address, address, uint256, address));
 
         IERC6160Ext20(tokenContract).mint(to, amount, "");
+
+        emit AssetReceived(request.source, request.nonce);
     }
 
     function onPostTimeout(PostRequest memory request) public onlyIsmpHost {

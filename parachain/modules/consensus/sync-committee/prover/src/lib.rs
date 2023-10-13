@@ -229,7 +229,7 @@ impl SyncCommitteeProver {
     /// we use `head`
     pub async fn fetch_light_client_update(
         &self,
-        client_state: VerifierState,
+        mut client_state: VerifierState,
         finality_checkpoint: Checkpoint,
         latest_block_id: Option<&str>,
         debug_target: &str,
@@ -251,8 +251,7 @@ impl SyncCommitteeProver {
         };
         let mut block = self.fetch_block(&get_block_id(latest_root)).await?;
         let min_signatures = (2 * SYNC_COMMITTEE_SIZE) / 3;
-        let state_period =
-            compute_sync_committee_period_at_slot(client_state.finalized_header.slot);
+        let state_period = client_state.state_period;
         loop {
             // Some checks on the epoch finalized by the signature block
             let parent_root = block.parent_root;
@@ -298,8 +297,13 @@ impl SyncCommitteeProver {
         let execution_payload_proof = prove_execution_payload(&mut finalized_state)?;
 
         let signature_period = compute_sync_committee_period_at_slot(block.slot);
+        let client_state_next_sync_committee_root =
+            client_state.next_sync_committee.hash_tree_root()?;
+        let attested_state_current_sync_committee_root =
+            attested_state.current_sync_committee.hash_tree_root()?;
         let sync_committee_update =
-            if should_have_sync_committee_update(state_period, signature_period) {
+            // We must make sure we switch the sync comittee only when the finalized header has changed sync committees
+            if should_have_sync_committee_update(state_period, signature_period) && client_state_next_sync_committee_root == attested_state_current_sync_committee_root {
                 let sync_committee_proof = prove_sync_committee_update(&mut attested_state)?;
                 Some(SyncCommitteeUpdate {
                     next_sync_committee: attested_state.next_sync_committee,

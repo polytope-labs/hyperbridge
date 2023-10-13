@@ -94,6 +94,8 @@ pub struct VerifierState {
     pub current_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
     /// Committee for the next sync period
     pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
+    /// state_period
+    pub state_period: u64,
 }
 
 /// Finalized header proof

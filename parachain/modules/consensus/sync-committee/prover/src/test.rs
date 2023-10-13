@@ -261,6 +261,7 @@ async fn test_client_sync() {
         latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
         current_sync_committee: state.current_sync_committee,
         next_sync_committee: state.next_sync_committee,
+        state_period: 810,
     };
 
     let mut next_period = start_period + 1;
@@ -280,7 +281,6 @@ async fn test_client_sync() {
 #[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
-#[ignore]
 async fn test_sync_committee_hand_offs() {
     let sync_committee_prover = setup_prover();
     let state_period = 805;
@@ -299,6 +299,7 @@ async fn test_sync_committee_hand_offs() {
         latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
         current_sync_committee: state.current_sync_committee,
         next_sync_committee: state.next_sync_committee,
+        state_period: 805,
     };
 
     // Verify an update from state_period + 1
@@ -326,7 +327,7 @@ async fn test_sync_committee_hand_offs() {
         .unwrap();
     assert!(update.sync_committee_update.is_some());
     client_state = verify_sync_committee_attestation(client_state, update).unwrap();
-
+    assert_eq!(client_state.state_period, state_period + 1);
     // Verify block in the current state_period
     let latest_block_id = {
         let slot = ((signature_period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) * SLOTS_PER_EPOCH) +
@@ -384,6 +385,7 @@ async fn test_prover() {
         latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
         current_sync_committee: state.current_sync_committee,
         next_sync_committee: state.next_sync_committee,
+        state_period: compute_sync_committee_period_at_slot(block_header.slot),
     };
 
     let mut count = 0;
@@ -504,7 +506,6 @@ pub struct EventResponse {
 
 fn setup_prover() -> SyncCommitteeProver {
     dotenv::dotenv().ok();
-    let consensus_url =
-        std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:3500".to_string());
+    let consensus_url = std::env::var("BEACON_URL").unwrap_or("http://localhost:3500".to_string());
     SyncCommitteeProver::new(consensus_url)
 }

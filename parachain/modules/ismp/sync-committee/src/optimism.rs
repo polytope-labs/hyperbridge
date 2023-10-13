@@ -19,7 +19,6 @@ use crate::{
     utils::{derive_array_item_key, get_contract_storage_root, get_value_from_proof, to_bytes_32},
 };
 use alloc::{format, string::ToString};
-use alloy_primitives::{Bytes, B256};
 use alloy_rlp::Decodable;
 use ethabi::ethereum_types::{H160, H256, U128, U256};
 use ismp::{

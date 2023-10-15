@@ -429,7 +429,7 @@ async fn test_prover() {
 
                 count += 1;
                 // For CI purposes we test finalization of 3 epochs
-                if count == 4 {
+                if count == 3 {
                     break
                 }
             },

@@ -19,7 +19,6 @@ use crate::{
     utils::{derive_array_item_key, get_contract_storage_root, get_value_from_proof, to_bytes_32},
 };
 use alloc::{format, string::ToString};
-use alloy_primitives::{Bytes, B256};
 use alloy_rlp::Decodable;
 use ethabi::ethereum_types::{H160, H256, U128, U256};
 use ismp::{
@@ -84,14 +83,16 @@ pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
         _ => Err(Error::MembershipProofVerificationFailed("Value not found in proof".to_string()))?,
     };
 
-    let proof_value = <B256 as Decodable>::decode(&mut &*proof_value).map_err(|_| {
-        Error::ImplementationSpecific(format!(
-            "Error decoding contract account from key {:?}",
-            &proof_value
-        ))
-    })?;
+    let proof_value = <alloy_primitives::U256 as Decodable>::decode(&mut &*proof_value)
+        .map_err(|_| {
+            Error::ImplementationSpecific(format!(
+                "Error decoding output root from {:?}",
+                &proof_value
+            ))
+        })?
+        .to_be_bytes::<32>();
 
-    if proof_value.0 != output_root.0 {
+    if proof_value != output_root.0 {
         return Err(Error::MembershipProofVerificationFailed(
             "Invalid optimism output root proof".to_string(),
         ))
@@ -109,15 +110,15 @@ pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
         _ => Err(Error::MembershipProofVerificationFailed("Value not found in proof".to_string()))?,
     };
 
-    let block_and_timestamp = <Bytes as Decodable>::decode(&mut &*block_and_timestamp)
-        .map_err(|_| {
-            Error::ImplementationSpecific(format!(
-                "Error decoding block and timestamp from{:?}",
-                &block_and_timestamp
-            ))
-        })?
-        .0
-        .to_vec();
+    let block_and_timestamp =
+        <alloy_primitives::U256 as Decodable>::decode(&mut &*block_and_timestamp)
+            .map_err(|_| {
+                Error::ImplementationSpecific(format!(
+                    "Error decoding block and timestamp from{:?}",
+                    &block_and_timestamp
+                ))
+            })?
+            .to_be_bytes::<32>();
 
     let block_and_timestamp = U256::from_big_endian(&block_and_timestamp);
     // Timestamp is contained in the first two u64 values

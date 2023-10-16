@@ -46,6 +46,8 @@ pub struct ArbHost {
 	pub(crate) beacon_execution_client: Arc<Provider<Ws>>,
 	/// Rollup core contract address
 	pub(crate) rollup_core: H160,
+	/// Config
+	pub config: ArbConfig,
 }
 
 impl ArbHost {
@@ -58,6 +60,7 @@ impl ArbHost {
 			arb_execution_client: Arc::new(provider),
 			beacon_execution_client: Arc::new(beacon_client),
 			rollup_core: config.rollup_core,
+			config: config.clone(),
 		})
 	}
 

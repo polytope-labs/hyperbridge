@@ -2,7 +2,7 @@ use crate::arbitrum::client::ArbHost;
 use anyhow::anyhow;
 use futures::stream;
 use tesseract_primitives::{
-	BoxStream, ByzantineHandler, ChallengePeriodStarted, IsmpHost, IsmpProvider,
+	BoxStream, ByzantineHandler, ChallengePeriodStarted, IsmpHost, IsmpProvider, Reconnect,
 };
 
 #[async_trait::async_trait]
@@ -33,5 +33,14 @@ impl IsmpHost for ArbHost {
 		I: IsmpHost + IsmpProvider + Clone + 'static,
 	{
 		Ok(Box::pin(stream::pending()))
+	}
+}
+
+#[async_trait::async_trait]
+impl Reconnect for ArbHost {
+	async fn reconnect<C: IsmpProvider>(&mut self, _counterparty: &C) -> Result<(), anyhow::Error> {
+		let new_host = ArbHost::new(&self.config).await?;
+		*self = new_host;
+		Ok(())
 	}
 }

@@ -17,10 +17,9 @@
 
 use futures::StreamExt;
 use ismp::messaging::Message;
-use tesseract_primitives::{IsmpHost, IsmpProvider};
-
+use tesseract_primitives::{reconnect_with_exponential_back_off, IsmpHost, IsmpProvider};
 /// Relays [`ConsensusMessage`] updates.
-pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
+pub async fn relay<A, B>(mut chain_a: A, mut chain_b: B) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
 	B: IsmpHost + IsmpProvider + 'static,
@@ -33,7 +32,12 @@ where
 			result = consensus_a.next() =>  {
 				match result {
 					None => {
+						log::info!("RESTARTING {}-{} consensus task", chain_a.name(), chain_b.name());
+						reconnect_with_exponential_back_off(&mut chain_a, &chain_b, 1000).await?;
+						reconnect_with_exponential_back_off(&mut chain_b, &chain_a, 1000).await?;
 						consensus_a = chain_a.consensus_notification(chain_b.clone()).await?;
+						consensus_b = chain_b.consensus_notification(chain_a.clone()).await?;
+						log::info!("RESTARTING completed");
 						continue
 					}
 					Some(Ok(consensus_message)) => {
@@ -56,7 +60,12 @@ where
 			result = consensus_b.next() =>  {
 				 match result {
 					None => {
+						log::info!("RESTARTING {}-{} consensus task", chain_a.name(), chain_b.name());
+						reconnect_with_exponential_back_off(&mut chain_b, &chain_a, 1000).await?;
+						reconnect_with_exponential_back_off(&mut chain_a, &chain_b, 1000).await?;
 						consensus_b = chain_b.consensus_notification(chain_a.clone()).await?;
+						consensus_a = chain_a.consensus_notification(chain_b.clone()).await?;
+						log::info!("RESTARTING completed");
 						continue
 					},
 					Some(Ok(consensus_message)) => {

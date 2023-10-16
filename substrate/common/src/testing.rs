@@ -15,30 +15,32 @@
 
 //! Testing utilities
 
-use crate::{extrinsic::Extrinsic, SubstrateClient};
-use anyhow::anyhow;
+use crate::{
+	extrinsic::{send_extrinsic, Extrinsic, InMemorySigner},
+	SubstrateClient,
+};
 use codec::Encode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
 use ismp_demo::{EvmParams, GetRequest, TransferParams};
-use sp_core::Pair;
+use primitives::IsmpHost;
 use std::time::Duration;
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
 	},
 	events::EventDetails,
-	ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+	ext::sp_runtime::MultiSignature,
 	tx::TxPayload,
 };
 
 impl<T, C> SubstrateClient<T, C>
 where
-	T: Send + Sync + Clone,
+	T: IsmpHost + Send + Sync + Clone,
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-		Default + Send + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
 	C::AccountId: From<sp_core::crypto::AccountId32>
 		+ Into<C::Address>
 		+ Encode
@@ -67,8 +69,9 @@ where
 		let call = params.encode();
 		let tx = Extrinsic::new("IsmpDemo", "transfer", call);
 
-		let queue = self.queue.clone().ok_or_else(|| anyhow!("ext_queue: not set"))?;
-		queue.send(tx).await?;
+		let nonce = self.get_nonce().await?;
+		let signer = InMemorySigner::new(self.signer());
+		send_extrinsic(&self.client, signer, tx, nonce).await?;
 
 		Ok(())
 	}
@@ -76,8 +79,9 @@ where
 	pub async fn dispatch_to_evm(&self, params: EvmParams) -> Result<(), anyhow::Error> {
 		let call = params.encode();
 		let tx = Extrinsic::new("IsmpDemo", "dispatch_to_evm", call);
-		let queue = self.queue.clone().ok_or_else(|| anyhow!("ext_queue: not set"))?;
-		queue.send(tx).await?;
+		let nonce = self.get_nonce().await?;
+		let signer = InMemorySigner::new(self.signer());
+		send_extrinsic(&self.client, signer, tx, nonce).await?;
 
 		Ok(())
 	}
@@ -85,8 +89,9 @@ where
 	pub async fn get_request(&self, get_req: GetRequest) -> Result<(), anyhow::Error> {
 		let call = get_req.encode();
 		let tx = Extrinsic::new("IsmpDemo", "get_request", call);
-		let queue = self.queue.clone().ok_or_else(|| anyhow!("ext_queue: not set"))?;
-		queue.send(tx).await?;
+		let nonce = self.get_nonce().await?;
+		let signer = InMemorySigner::new(self.signer());
+		send_extrinsic(&self.client, signer, tx, nonce).await?;
 
 		Ok(())
 	}
@@ -133,18 +138,15 @@ where
 		Err(anyhow::Error::msg("Stream ended"))
 	}
 
-	pub fn account(&self) -> C::AccountId {
-		MultiSigner::Sr25519(self.signer.public()).into_account().into()
-	}
-
 	pub async fn runtime_upgrade(&self, code_blob: Vec<u8>) -> anyhow::Result<()> {
 		// Set code
 
 		let encoded_call = Extrinsic::new("System", "set_code", code_blob.encode())
 			.encode_call_data(&self.client.metadata())?;
 		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
-		let queue = self.queue.clone().ok_or_else(|| anyhow!("ext_queue: not set"))?;
-		queue.send(tx).await?;
+		let nonce = self.get_nonce().await?;
+		let signer = InMemorySigner::new(self.signer());
+		send_extrinsic(&self.client, signer, tx, nonce).await?;
 
 		Ok(())
 	}
@@ -154,8 +156,9 @@ where
 			Extrinsic::new("CollatorSelection", "set_invulnerables", accounts.encode())
 				.encode_call_data(&self.client.metadata())?;
 		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
-		let queue = self.queue.clone().ok_or_else(|| anyhow!("ext_queue: not set"))?;
-		queue.send(tx).await?;
+		let nonce = self.get_nonce().await?;
+		let signer = InMemorySigner::new(self.signer());
+		send_extrinsic(&self.client, signer, tx, nonce).await?;
 
 		Ok(())
 	}

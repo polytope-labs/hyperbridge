@@ -17,7 +17,7 @@ use codec::Encode;
 use ismp::messaging::ConsensusMessage;
 
 use crate::notification::consensus_notification;
-use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider};
+use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider, Reconnect};
 
 // todo: Figure out the issue with the stream
 #[cfg(feature = "finality-events")]
@@ -159,5 +159,22 @@ impl IsmpHost for SyncCommitteeHost {
 		});
 
 		Ok(Box::pin(interval_stream))
+	}
+}
+
+#[async_trait::async_trait]
+impl Reconnect for SyncCommitteeHost {
+	async fn reconnect<C: IsmpProvider>(&mut self, counterparty: &C) -> Result<(), anyhow::Error> {
+		if let Some(arb_client) = self.arbitrum_client.as_mut() {
+			arb_client.reconnect(counterparty).await?;
+		}
+		if let Some(base_client) = self.base_client.as_mut() {
+			base_client.reconnect(counterparty).await?;
+		}
+
+		if let Some(op_client) = self.optimism_client.as_mut() {
+			op_client.reconnect(counterparty).await?;
+		}
+		Ok(())
 	}
 }

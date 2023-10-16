@@ -13,10 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::extrinsic::Extrinsic;
 use ismp::{consensus::ConsensusStateId, host::StateMachine, HashAlgorithm};
 use parking_lot::Mutex;
-use primitives::{queue::PipelineQueue, IsmpHost};
+use primitives::{IsmpHost, NonceProvider};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, sr25519, Pair};
 use std::sync::Arc;
@@ -24,13 +23,12 @@ use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
 	},
-	ext::sp_runtime::MultiSignature,
+	ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
 	OnlineClient,
 };
 
 mod calls;
 pub mod config;
-pub mod ext_queue;
 pub mod extrinsic;
 mod host;
 mod provider;
@@ -68,10 +66,12 @@ pub struct SubstrateClient<I, C: subxt::Config> {
 	hashing: HashAlgorithm,
 	/// Private key of the signing account
 	pub signer: sr25519::Pair,
-	/// Sender for extrinsic
-	queue: Option<PipelineQueue<Extrinsic>>,
 	/// Latest state machine height.
 	latest_height: Arc<Mutex<u64>>,
+	/// Config
+	config: SubstrateConfig,
+	/// Nonce Provider
+	nonce_provider: Option<NonceProvider>,
 }
 
 impl<T, C> SubstrateClient<T, C>
@@ -85,6 +85,7 @@ where
 		From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 {
 	pub async fn new(host: T, config: SubstrateConfig) -> Result<Self, anyhow::Error> {
+		let config_clone = config.clone();
 		let client = OnlineClient::<C>::from_url(&config.chain_rpc_ws).await?;
 		// If latest height of the state machine on the counterparty is not provided in config
 		// Set it to the latest parachain height
@@ -107,20 +108,41 @@ where
 		Ok(Self {
 			host,
 			client,
-			queue: None,
 			consensus_state_id,
 			state_machine: config.state_machine,
 			hashing: config.hashing,
 			signer,
 			latest_height: Arc::new(Mutex::new(latest_height)),
+			config: config_clone,
+			nonce_provider: None,
 		})
+	}
+
+	pub fn set_latest_height(&mut self, height: u64) {
+		self.latest_height = Arc::new(Mutex::new(height))
 	}
 
 	pub fn signer(&self) -> sr25519::Pair {
 		self.signer.clone()
 	}
 
-	pub fn set_queue(&mut self, queue: PipelineQueue<Extrinsic>) {
-		self.queue = Some(queue);
+	pub fn set_nonce_provider(&mut self, nonce_provider: NonceProvider) {
+		self.nonce_provider = Some(nonce_provider);
+	}
+
+	pub fn account(&self) -> C::AccountId {
+		MultiSigner::Sr25519(self.signer.public()).into_account().into()
+	}
+
+	pub async fn initialize_nonce(&self) -> Result<NonceProvider, anyhow::Error> {
+		let nonce = self.client.tx().account_nonce(&self.account()).await?;
+		Ok(NonceProvider::new(nonce))
+	}
+
+	pub async fn get_nonce(&self) -> Result<u64, anyhow::Error> {
+		if let Some(nonce_provider) = self.nonce_provider.as_ref() {
+			return Ok(nonce_provider.get_nonce().await)
+		}
+		Err(anyhow::anyhow!("Nonce provider not set on client"))
 	}
 }

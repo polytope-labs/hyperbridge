@@ -16,7 +16,7 @@ tesseract-sync-committee = { path = "../ethereum/sync-committee" }
 tesseract-beefy = { path = "../substrate/beefy/host" }
 
 # polytope labs
-ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge.git", branch = "main" }
+ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 pallet-ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 ismp-sync-committee = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 

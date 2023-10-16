@@ -1,5 +1,6 @@
 use crate::{
-	abi::{beefy::BeefyConsensusState, IIsmpHost},
+	abi::{beefy::BeefyConsensusState, IIsmpHost, StateMachineUpdatedFilter},
+	tx::submit_messages,
 	EvmClient,
 };
 use anyhow::{anyhow, Error};
@@ -7,12 +8,16 @@ use beefy_verifier_primitives::{BeefyNextAuthoritySet, ConsensusState};
 use codec::Encode;
 use consensus_client::types::EvmStateProof;
 use ethers::{abi::AbiDecode, providers::Middleware};
-use futures::stream::{self, StreamExt};
+use futures::stream::StreamExt;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::Event,
 	messaging::Message,
 	router::Get,
+};
+use jsonrpsee::{
+	core::{client::SubscriptionClientT, params::ObjectParams, traits::ToRpcParams},
+	rpc_params,
 };
 
 use ethereum_trie::StorageProof;
@@ -215,47 +220,28 @@ where
 		&self,
 		_counterparty_state_id: StateMachineId,
 	) -> BoxStream<StateMachineUpdated> {
-		let events = self.events.clone();
-		let name = self.name();
-
-		let stream = stream::unfold((events, None), move |(events, previous_yield)| {
-			let name = name.clone();
-			async move {
-				let mut stream = events.stream().await.expect("Stream creation failed");
-				let item = loop {
-					if let Some(result) = stream.next().await {
-						match result {
-							Ok(item) =>
-								if Some(item.clone()) != previous_yield {
-									break item
-								} else {
-									continue
-								},
-							Err(e) => {
-								log::error!(
-                                    "{name}: StateMachineUpdate Event stream encountered error: {e:?}"
-                                );
-								continue
-							},
-						}
-					};
-				};
-
-				drop(stream);
-
-				return Some((Ok(item.clone().into()), (events, Some(item))))
-			}
+		use ethers::{contract::parse_log, core::types::Log};
+		let mut obj = ObjectParams::new();
+		let address = format!("{:?}", self.handler);
+		obj.insert("address", address.as_str())
+			.expect("handler address should be valid");
+		let param = obj.to_rpc_params().ok().flatten().expect("Failed to serialize rpc params");
+		let sub = self
+			.rpc_client
+			.subscribe::<Log, _>("eth_subscribe", rpc_params!("logs", param), "eth_unsubscribe")
+			.await
+			.expect("Failed to susbcribe");
+		let stream = sub.filter_map(|log| async move {
+			log.ok().and_then(|log| {
+				parse_log::<StateMachineUpdatedFilter>(log).ok().map(|ev| Ok(ev.into()))
+			})
 		});
 
 		Box::pin(stream)
 	}
 
 	async fn submit(&self, messages: Vec<Message>) -> Result<(), Error> {
-		if let Some(tx_queue) = self.tx_queue.as_ref() {
-			tx_queue.clone().send(messages).await?;
-		} else {
-			log::error!("Transaction submission pipeline not set for {:?}", self.name());
-		}
+		submit_messages(&self, messages).await?;
 		Ok(())
 	}
 }

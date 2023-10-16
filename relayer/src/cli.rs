@@ -30,7 +30,7 @@ use tesseract_evm::{
 };
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
-	ext_queue, SubstrateClient,
+	SubstrateClient,
 };
 use tesseract_sync_committee::SyncCommitteeHost;
 
@@ -75,41 +75,25 @@ impl Cli {
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
 		// extrinsic submission pipeline
-		let queue = ext_queue::init_queue(hyperbridge.client.clone(), hyperbridge.signer.clone())?;
-		hyperbridge.set_queue(queue.clone());
+		let hyperbridge_nonce_provider = hyperbridge.initialize_nonce().await?;
+		hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
 
 		let mut ethereum = eth_config.clone().into_client(&hyperbridge).await?;
 		let mut arbitrum = arb_config.clone().into_client(&hyperbridge).await?;
 		let mut optimism = op_config.clone().into_client(&hyperbridge).await?;
 		let mut base = base_config.clone().into_client(&hyperbridge).await?;
 
-		let eth_tx_queue = tesseract_evm::tx_queue::init_queue(
-			ethereum.signer.clone(),
-			eth_config.evm_config.handler,
-			eth_config.evm_config.ismp_host,
-		)?;
-		let arb_tx_queue = tesseract_evm::tx_queue::init_queue(
-			arbitrum.signer.clone(),
-			arb_config.evm_config.handler,
-			arb_config.evm_config.ismp_host,
-		)?;
-		let op_tx_queue = tesseract_evm::tx_queue::init_queue(
-			optimism.signer.clone(),
-			op_config.evm_config.handler,
-			op_config.evm_config.ismp_host,
-		)?;
-		let base_tx_queue = tesseract_evm::tx_queue::init_queue(
-			base.signer.clone(),
-			base_config.evm_config.handler,
-			base_config.evm_config.ismp_host,
-		)?;
+		let eth_tx_nonce = ethereum.initialize_nonce().await?;
+		let arb_tx_nonce = arbitrum.initialize_nonce().await?;
+		let op_tx_nonce = optimism.initialize_nonce().await?;
+		let base_tx_nonce = base.initialize_nonce().await?;
 		ethereum.host.set_arb_host(arbitrum.host.clone());
 		ethereum.host.set_op_host(optimism.host.clone());
 		ethereum.host.set_base_host(base.host.clone());
-		ethereum.set_queue(eth_tx_queue.clone());
-		arbitrum.set_queue(arb_tx_queue.clone());
-		optimism.set_queue(op_tx_queue.clone());
-		base.set_queue(base_tx_queue.clone());
+		ethereum.set_nonce_provider(eth_tx_nonce.clone());
+		arbitrum.set_nonce_provider(arb_tx_nonce.clone());
+		optimism.set_nonce_provider(op_tx_nonce.clone());
+		base.set_nonce_provider(base_tx_nonce.clone());
 
 		// set up initial consensus states
 		if self.setup_eth || self.setup_para {
@@ -142,10 +126,10 @@ impl Cli {
 			let mut arbitrum = arb_config.into_client(&hyperbridge).await?;
 			let mut optimism = op_config.into_client(&hyperbridge).await?;
 			let mut base = base_config.into_client(&hyperbridge).await?;
-			ethereum.set_queue(eth_tx_queue);
-			arbitrum.set_queue(arb_tx_queue);
-			optimism.set_queue(op_tx_queue);
-			base.set_queue(base_tx_queue);
+			ethereum.set_nonce_provider(eth_tx_nonce);
+			arbitrum.set_nonce_provider(arb_tx_nonce);
+			optimism.set_nonce_provider(op_tx_nonce);
+			base.set_nonce_provider(base_tx_nonce);
 			// messaging streams
 			processes.push(tokio::spawn(messaging::relay(
 				hyperbridge,
@@ -156,7 +140,7 @@ impl Cli {
 				.clone()
 				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 				.await?;
-			hyperbridge.set_queue(queue.clone());
+			hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
 
 			processes.push(tokio::spawn(messaging::relay(
 				hyperbridge,
@@ -167,7 +151,7 @@ impl Cli {
 				.clone()
 				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 				.await?;
-			hyperbridge.set_queue(queue.clone());
+			hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
 
 			processes.push(tokio::spawn(messaging::relay(
 				hyperbridge,
@@ -179,7 +163,7 @@ impl Cli {
 				.clone()
 				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 				.await?;
-			hyperbridge.set_queue(queue.clone());
+			hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
 
 			processes.push(tokio::spawn(messaging::relay(
 				hyperbridge,

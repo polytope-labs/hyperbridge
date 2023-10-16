@@ -16,7 +16,7 @@
 use crate::ParachainHost;
 use futures::stream;
 use ismp::messaging::ConsensusMessage;
-use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider};
+use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider, Reconnect};
 
 #[async_trait::async_trait]
 impl IsmpHost for ParachainHost {
@@ -29,5 +29,12 @@ impl IsmpHost for ParachainHost {
 	{
 		// use the inherent provider
 		Ok(Box::pin(stream::pending()))
+	}
+}
+
+#[async_trait::async_trait]
+impl Reconnect for ParachainHost {
+	async fn reconnect<C: IsmpProvider>(&mut self, _counterparty: &C) -> Result<(), anyhow::Error> {
+		Ok(())
 	}
 }

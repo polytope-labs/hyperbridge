@@ -16,8 +16,14 @@
 //! [`IsmpHost`] implementation
 
 use crate::SubstrateClient;
-use primitives::{BoxStream, ByzantineHandler, ChallengePeriodStarted, IsmpHost, IsmpProvider};
+use primitives::{
+	BoxStream, ByzantineHandler, ChallengePeriodStarted, IsmpHost, IsmpProvider, Reconnect,
+};
 use std::sync::Arc;
+use subxt::{
+	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
+	ext::sp_runtime::MultiSignature,
+};
 
 #[async_trait::async_trait]
 impl<I, C> ByzantineHandler for SubstrateClient<I, C>
@@ -45,7 +51,12 @@ where
 impl<T, C> IsmpHost for SubstrateClient<T, C>
 where
 	T: IsmpHost + Clone,
-	C: subxt::Config,
+	C: subxt::Config + Send + Sync + Clone,
+	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+	C::Signature: From<MultiSignature> + Send + Sync,
+	C::AccountId:
+		From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 {
 	async fn consensus_notification<I>(
 		&self,
@@ -58,10 +69,35 @@ where
 	}
 }
 
+#[async_trait::async_trait]
+impl<T, C> Reconnect for SubstrateClient<T, C>
+where
+	T: IsmpHost + Clone,
+	C: subxt::Config + Send + Sync + Clone,
+	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+	C::Signature: From<MultiSignature> + Send + Sync,
+	C::AccountId:
+		From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
+{
+	async fn reconnect<S: IsmpProvider>(&mut self, counterparty: &S) -> Result<(), anyhow::Error> {
+		let nonce_provider = self.nonce_provider.clone();
+		self.host.reconnect(counterparty).await?;
+		let host = self.host.clone();
+		let latest_height = *self.latest_height.lock();
+		let mut new_client = SubstrateClient::<T, C>::new(host, self.config.clone()).await?;
+		if let Some(nonce_provider) = nonce_provider {
+			new_client.set_nonce_provider(nonce_provider);
+		}
+		new_client.set_latest_height(latest_height);
+		*self = new_client;
+		Ok(())
+	}
+}
+
 impl<T: IsmpHost + Clone, C: subxt::Config> Clone for SubstrateClient<T, C> {
 	fn clone(&self) -> Self {
 		Self {
-			queue: self.queue.clone(),
 			host: self.host.clone(),
 			client: self.client.clone(),
 			consensus_state_id: self.consensus_state_id,
@@ -69,6 +105,8 @@ impl<T: IsmpHost + Clone, C: subxt::Config> Clone for SubstrateClient<T, C> {
 			hashing: self.hashing.clone(),
 			signer: self.signer.clone(),
 			latest_height: Arc::clone(&self.latest_height),
+			config: self.config.clone(),
+			nonce_provider: self.nonce_provider.clone(),
 		}
 	}
 }

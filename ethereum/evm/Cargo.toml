@@ -28,19 +28,19 @@ tokio = { version = "1.32.0", features = ["macros", "sync"] }
 tokio-stream = "0.1.14"
 
 pallet-ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge.git", branch = "main" }
-ismp-rpc = { git = "ssh://git@github.com/polytope-labs/hyperbridge.git", branch = "main" }
+ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp-rpc = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 beefy-verifier-primitives = { path = "../../substrate/beefy/primitives" }
 consensus-client = { package = "ismp-sync-committee", git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 
 tesseract-primitives = { path = "../../primitives" }
-ethereum-trie = { git ="ssh://git@github.com/polytope-labs/hyperbridge.git", branch = "main", default-features = false }
+ethereum-trie = { git ="ssh://git@github.com/polytope-labs/hyperbridge", branch = "main", default-features = false }
 
 trie-db = { version= "0.24.0", default-features = false }
 hash-db = { version = "0.15.2", default-features = false }
 
 merkle-mountain-range-labs = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr" }
-
+jsonrpsee = { version = "0.20.2", features = ["ws-client"]}
 [dev-dependencies]
 alloy-rlp = "0.3.2"
 alloy-rlp-derive = "0.3.2"

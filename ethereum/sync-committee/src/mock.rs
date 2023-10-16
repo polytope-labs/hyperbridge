@@ -13,7 +13,7 @@ use std::{
 	time::Duration,
 };
 use tesseract_primitives::{
-	BoxStream, ByzantineHandler, ChallengePeriodStarted, IsmpHost, IsmpProvider, Query,
+	BoxStream, ByzantineHandler, ChallengePeriodStarted, IsmpHost, IsmpProvider, Query, Reconnect,
 	StateMachineUpdated,
 };
 
@@ -81,7 +81,7 @@ impl IsmpProvider for MockHost {
 		&self,
 		_id: StateMachineId,
 	) -> Result<u64, anyhow::Error> {
-		todo!()
+		Ok(*self.latest_height.lock().unwrap() as u64)
 	}
 
 	async fn query_consensus_update_time(
@@ -162,5 +162,12 @@ impl IsmpProvider for MockHost {
 
 	async fn submit(&self, _messages: Vec<Message>) -> Result<(), anyhow::Error> {
 		todo!()
+	}
+}
+
+#[async_trait::async_trait]
+impl Reconnect for MockHost {
+	async fn reconnect<C: IsmpProvider>(&mut self, _counterparty: &C) -> Result<(), anyhow::Error> {
+		Ok(())
 	}
 }

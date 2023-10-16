@@ -1,5 +1,5 @@
 use crate::{
-	abi::{IIsmpHost, IsmpHandler, PingModule, StateMachineUpdatedFilter},
+	abi::{IIsmpHost, PingModule},
 	consts::{REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT},
 };
 use ethabi::ethereum_types::{H256, U256};
@@ -13,13 +13,13 @@ use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::Event,
 	host::{Ethereum, StateMachine},
-	messaging::Message,
 };
+use jsonrpsee::ws_client::WsClientBuilder;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::sync::Arc;
-use tesseract_primitives::{queue::PipelineQueue, IsmpHost, IsmpProvider};
+use tesseract_primitives::{IsmpHost, IsmpProvider, NonceProvider};
 
 pub mod abi;
 pub mod arbitrum;
@@ -29,7 +29,7 @@ mod host;
 pub mod mock;
 pub mod optimism;
 pub mod provider;
-pub mod tx_queue;
+pub mod tx;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LatestHeight {
@@ -84,9 +84,6 @@ pub struct EvmClient<I> {
 	pub client: Arc<Provider<Ws>>,
 	/// Transaction signer
 	pub signer: Arc<SignerMiddleware<Provider<Ws>, Wallet<SigningKey>>>,
-	/// State Update Event Object
-	events:
-		Arc<ethers::contract::Event<Arc<Provider<Ws>>, Provider<Ws>, StateMachineUpdatedFilter>>,
 	/// Consensus state Id
 	consensus_state_id: ConsensusStateId,
 	/// State machine Identifier for this client.
@@ -99,8 +96,13 @@ pub struct EvmClient<I> {
 	handler: H160,
 	/// Block gas limit
 	gas_limit: u64,
-	/// Transaction submission pipleline
-	tx_queue: Option<PipelineQueue<Vec<Message>>>,
+	/// Config
+	config: EvmConfig,
+	/// Nonce Provider
+	nonce_provider: Option<NonceProvider>,
+	/// Jsonrpsee client for event susbscription, ethers does not expose a Send and Sync stream for
+	/// susbcribing to contract logs
+	pub rpc_client: Arc<jsonrpsee::ws_client::WsClient>,
 }
 
 impl<I> EvmClient<I>
@@ -112,26 +114,33 @@ where
 		config: EvmConfig,
 		counterparty: &C,
 	) -> Result<Self, anyhow::Error> {
+		let config_clone = config.clone();
 		let bytes = from_hex(config.signer.as_str())?;
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
 		let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
 			.with_chain_id(config.chain_id);
-		let provider = Provider::<Ws>::connect_with_reconnects(config.execution_ws, 1000).await?;
+		let provider =
+			Provider::<Ws>::connect_with_reconnects(config.execution_ws.clone(), 1000).await?;
 		let client = Arc::new(provider.clone());
-		let contract = IsmpHandler::new(config.handler, client.clone());
-		let events = Arc::new(contract.events().address(config.handler.into()));
 		let signer = Arc::new(provider.with_signer(signer));
 		let consensus_state_id = {
 			let mut consensus_state_id: ConsensusStateId = Default::default();
 			consensus_state_id.copy_from_slice(config.consensus_state_id.as_bytes());
 			consensus_state_id
 		};
+		let rpc_client = WsClientBuilder::default().build(&config.execution_ws).await?;
 
 		let latest_height = match config.latest_height {
 			Some(LatestHeight::LastMessaging) | None => {
 				let state_machine_id =
 					StateMachineId { state_id: config.state_machine, consensus_state_id };
-				counterparty.query_latest_messaging_height(state_machine_id).await?
+				if let Ok(height) =
+					counterparty.query_latest_messaging_height(state_machine_id).await
+				{
+					height
+				} else {
+					client.get_block_number().await?.as_u64()
+				}
 			},
 			Some(LatestHeight::LatestHeight) => client.get_block_number().await?.as_u64(),
 			Some(LatestHeight::Const(height)) => height,
@@ -140,14 +149,15 @@ where
 			host,
 			client,
 			signer,
-			events,
 			consensus_state_id,
 			state_machine: config.state_machine,
 			latest_height: Arc::new(Mutex::new(latest_height)),
 			ismp_host: config.ismp_host,
 			handler: config.handler,
-			tx_queue: None,
 			gas_limit: config.gas_limit,
+			config: config_clone,
+			nonce_provider: None,
+			rpc_client: Arc::new(rpc_client),
 		})
 	}
 
@@ -210,8 +220,30 @@ where
 		derive_map_key(key.0.to_vec(), REQUEST_RECEIPTS_SLOT)
 	}
 
-	pub fn set_queue(&mut self, tx_queue: PipelineQueue<Vec<Message>>) {
-		self.tx_queue = Some(tx_queue);
+	pub fn set_latest_height(&mut self, height: u64) {
+		self.latest_height = Arc::new(Mutex::new(height))
+	}
+
+	pub fn set_nonce_provider(&mut self, nonce_provider: NonceProvider) {
+		self.nonce_provider = Some(nonce_provider);
+	}
+
+	pub async fn get_nonce(&self) -> Result<u64, anyhow::Error> {
+		if let Some(nonce_provider) = self.nonce_provider.as_ref() {
+			return Ok(nonce_provider.get_nonce().await)
+		}
+		Err(anyhow::anyhow!("Nonce provider not set on client"))
+	}
+
+	pub async fn initialize_nonce(&self) -> Result<NonceProvider, anyhow::Error> {
+		let nonce = self
+			.client
+			.clone()
+			.nonce_manager(self.signer.address())
+			.initialize_nonce(None)
+			.await?
+			.as_u64();
+		Ok(NonceProvider::new(nonce))
 	}
 }
 

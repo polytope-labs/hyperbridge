@@ -13,15 +13,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use consensus_client::types::ConsensusState;
+pub use consensus_client::types::{BeaconClientUpdate, ConsensusState};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use primitive_types::H160;
-use primitives::{types::VerifierState, util::compute_epoch_at_slot};
+use primitives::{
+	types::VerifierState,
+	util::{compute_epoch_at_slot, compute_sync_committee_period_at_slot},
+};
 use prover::SyncCommitteeProver;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, time::Duration};
 use tesseract_evm::{arbitrum::client::ArbHost, optimism::client::OpHost, EvmClient, EvmConfig};
 use tesseract_primitives::IsmpProvider;
+pub use verifier::verify_sync_committee_attestation;
 
 mod byzantine;
 mod host;
@@ -73,6 +77,8 @@ pub struct SyncCommitteeHost {
 	pub beacon_node_rpc: String,
 	/// Interval in seconds at which consensus updates should happen
 	pub consensus_update_frequency: Duration,
+	/// Config
+	pub config: SyncCommitteeConfig,
 }
 
 impl SyncCommitteeHost {
@@ -91,6 +97,7 @@ impl SyncCommitteeHost {
 			prover,
 			beacon_node_rpc: config.beacon_http_url.clone(),
 			consensus_update_frequency: Duration::from_secs(config.consensus_update_frequency),
+			config: config.clone(),
 		})
 	}
 
@@ -122,6 +129,7 @@ impl SyncCommitteeHost {
 			latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
 			current_sync_committee: state.current_sync_committee,
 			next_sync_committee: state.next_sync_committee,
+			state_period: compute_sync_committee_period_at_slot(block_header.slot),
 		};
 
 		let consensus_state = ConsensusState {

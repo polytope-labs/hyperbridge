@@ -16,7 +16,7 @@
 //! [`IsmpProvider`] implementation
 
 use crate::{
-	extrinsic::Extrinsic,
+	extrinsic::{send_extrinsic, Extrinsic, InMemorySigner},
 	runtime::api::{
 		ismp::Event as Ev,
 		runtime_types::{frame_system::EventRecord, hyperbridge_runtime::RuntimeEvent},
@@ -35,7 +35,7 @@ use ismp::{
 	LeafIndexQuery, SubstrateStateProof,
 };
 use ismp_rpc::{BlockNumberOrHash, MmrProof};
-use primitives::{BoxStream, IsmpProvider, Query, StateMachineUpdated};
+use primitives::{BoxStream, IsmpHost, IsmpProvider, Query, StateMachineUpdated};
 use sp_core::{
 	sp_std::sync::Arc,
 	storage::{StorageChangeSet, StorageKey},
@@ -51,14 +51,14 @@ use subxt::{
 #[async_trait::async_trait]
 impl<T, C> IsmpProvider for SubstrateClient<T, C>
 where
-	C: subxt::Config + Send + Sync,
+	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-		Default + Send + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
 	C::AccountId:
 		From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	T: Send + Sync,
+	T: IsmpHost + Send + Sync,
 {
 	async fn query_consensus_state(
 		&self,
@@ -253,10 +253,9 @@ where
 	async fn submit(&self, messages: Vec<ismp::messaging::Message>) -> Result<(), anyhow::Error> {
 		let call = messages.encode();
 		let extrinsic = Extrinsic::new("Ismp", "handle", call);
-
-		if let Some(queue) = self.queue.clone() {
-			queue.send(extrinsic).await?
-		}
+		let nonce = self.get_nonce().await?;
+		let signer = InMemorySigner::new(self.signer());
+		send_extrinsic(&self.client, signer, extrinsic, nonce).await?;
 
 		Ok(())
 	}

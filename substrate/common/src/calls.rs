@@ -6,6 +6,7 @@ use crate::{
 };
 use codec::Encode;
 use ismp::messaging::CreateConsensusState;
+use primitives::IsmpHost;
 use sp_core::Pair;
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
@@ -15,7 +16,7 @@ use subxt::{
 
 impl<T, C> SubstrateClient<T, C>
 where
-	T: Send + Sync + Clone,
+	T: IsmpHost + Send + Sync + Clone,
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
@@ -42,11 +43,8 @@ where
 		let call = Extrinsic::new("Ismp", "create_consensus_client", call)
 			.encode_call_data(&self.client.metadata())?;
 		let tx = Extrinsic::new("Sudo", "sudo", call);
-
-		let progress = send_extrinsic(&self.client, signer, tx).await?;
-		let tx = progress.wait_for_in_block().await?;
-
-		tx.wait_for_success().await?;
+		let nonce = self.get_nonce().await?;
+		send_extrinsic(&self.client, signer, tx, nonce).await?;
 
 		Ok(())
 	}

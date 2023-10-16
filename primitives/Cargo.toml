@@ -15,5 +15,5 @@ tokio = { version = "1.32.0", features = ["full"] }
 serde = { version = "1.0.164", features = ["derive"] }
 primitive-types = "0.12.1"
 
-ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge.git", branch = "main" }
+ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 parity-scale-codec = "3.2.2"

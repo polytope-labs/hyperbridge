@@ -15,12 +15,13 @@
 
 //! Extrinsic utilities
 
+use anyhow::anyhow;
 use codec::Encode;
 use sp_core::{sr25519, Pair};
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
 	ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
-	tx::{Signer, TxPayload, TxProgress},
+	tx::{Signer, TxPayload},
 	Error, Metadata, OnlineClient,
 };
 
@@ -116,16 +117,41 @@ pub async fn send_extrinsic<T: subxt::Config, Tx: TxPayload>(
 	client: &OnlineClient<T>,
 	signer: InMemorySigner<T>,
 	payload: Tx,
-) -> Result<TxProgress<T, OnlineClient<T>>, anyhow::Error>
+	nonce: u64,
+) -> Result<(), anyhow::Error>
 where
 	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
 	T::Signature: From<MultiSignature> + Send + Sync,
 {
 	let other_params = BaseExtrinsicParamsBuilder::new();
-	let progress = client
-		.tx()
-		.sign_and_submit_then_watch(&payload, &signer, other_params.into())
-		.await?;
-	Ok(progress)
+	let ext =
+		client
+			.tx()
+			.create_signed_with_nonce(&payload, &signer, nonce, other_params.into())?;
+	let progress = ext.submit_and_watch().await?;
+
+	let extrinsic = match progress.wait_for_in_block().await {
+		Ok(p) => p,
+		Err(err) => {
+			// If web socket has been disconnected we
+			if let subxt::Error::Io(e) = &err {
+				Err(anyhow!("{:?}", e))?
+			}
+			log::error!("Error waiting for extrinsic in_block {err:?}");
+			return Ok(())
+		},
+	};
+
+	match extrinsic.wait_for_success().await {
+		Ok(p) => p,
+		Err(err) => {
+			if let subxt::Error::Io(e) = &err {
+				Err(anyhow!("{:?}", e))?
+			}
+			log::error!("Error executing extrinsic: {err:?}");
+			return Ok(())
+		},
+	};
+	Ok(())
 }

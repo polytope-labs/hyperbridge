@@ -50,6 +50,8 @@ pub struct OpHost {
 	pub(crate) l2_oracle: H160,
 	/// Withdrawals Message Passer contract address on L2
 	pub(crate) message_parser: H160,
+	/// Config
+	pub config: OpConfig,
 }
 
 pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
@@ -78,6 +80,7 @@ impl OpHost {
 			beacon_execution_client: Arc::new(beacon_client),
 			l2_oracle: config.l2_oracle,
 			message_parser: config.message_parser,
+			config: config.clone(),
 		})
 	}
 

@@ -20,11 +20,13 @@ mod event_parser;
 use crate::event_parser::{filter_events, parse_ismp_events, Event};
 use futures::StreamExt;
 use ismp::consensus::StateMachineHeight;
-use tesseract_primitives::{config::RelayerConfig, IsmpHost, IsmpProvider};
+use tesseract_primitives::{
+	config::RelayerConfig, reconnect_with_exponential_back_off, IsmpHost, IsmpProvider,
+};
 
 pub async fn relay<A, B>(
-	chain_a: A,
-	chain_b: B,
+	mut chain_a: A,
+	mut chain_b: B,
 	config: Option<RelayerConfig>,
 ) -> Result<(), anyhow::Error>
 where
@@ -42,9 +44,12 @@ where
 			result = state_machine_update_stream_a.next() =>  {
 				match result {
 					None => {
-					log::info!("restarting {} messaging task", chain_b.name());
-
-					state_machine_update_stream_a = chain_a.state_machine_update_notification(chain_b.state_machine_id()).await;
+						log::info!("RESTARTING {}-{} messaging task", chain_a.name(), chain_b.name());
+						reconnect_with_exponential_back_off(&mut chain_a, &chain_b, 1000).await?;
+						reconnect_with_exponential_back_off(&mut chain_b, &chain_a, 1000).await?;
+						state_machine_update_stream_a = chain_a.state_machine_update_notification(chain_b.state_machine_id()).await;
+						state_machine_update_stream_b = chain_b.state_machine_update_notification(chain_a.state_machine_id()).await;
+						log::info!("RESTARTING completed");
 						continue
 					},
 					Some(Ok(state_machine_update)) => {
@@ -103,9 +108,12 @@ where
 			result = state_machine_update_stream_b.next() =>  {
 				 match result {
 					None => {
-					log::info!("restarting {} messaging task", chain_b.name());
-
+						log::info!("RESTARTING {}-{} messaging task", chain_a.name(), chain_b.name());
+						reconnect_with_exponential_back_off(&mut chain_b, &chain_a, 1000).await?;
+						reconnect_with_exponential_back_off(&mut chain_a, &chain_b, 1000).await?;
 						state_machine_update_stream_b = chain_b.state_machine_update_notification(chain_a.state_machine_id()).await;
+						state_machine_update_stream_a = chain_a.state_machine_update_notification(chain_b.state_machine_id()).await;
+						log::info!("RESTARTING completed");
 						continue;
 					},
 					Some(Ok(state_machine_update)) => {

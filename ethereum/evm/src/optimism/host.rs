@@ -2,7 +2,7 @@ use crate::optimism::client::OpHost;
 use anyhow::anyhow;
 use futures::stream;
 use tesseract_primitives::{
-	BoxStream, ByzantineHandler, ChallengePeriodStarted, IsmpHost, IsmpProvider,
+	BoxStream, ByzantineHandler, ChallengePeriodStarted, IsmpHost, IsmpProvider, Reconnect,
 };
 
 #[async_trait::async_trait]
@@ -33,5 +33,14 @@ impl IsmpHost for OpHost {
 		I: IsmpHost + IsmpProvider + Clone + 'static,
 	{
 		Ok(Box::pin(stream::pending()))
+	}
+}
+
+#[async_trait::async_trait]
+impl Reconnect for OpHost {
+	async fn reconnect<C: IsmpProvider>(&mut self, _counterparty: &C) -> Result<(), anyhow::Error> {
+		let new_host = OpHost::new(&self.config).await?;
+		*self = new_host;
+		Ok(())
 	}
 }

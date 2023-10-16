@@ -17,6 +17,7 @@
 pub mod config;
 pub mod queue;
 
+use anyhow::anyhow;
 use futures::Stream;
 pub use ismp::events::StateMachineUpdated;
 use ismp::{
@@ -27,7 +28,7 @@ use ismp::{
 	router::Get,
 };
 use primitive_types::H256;
-use std::{pin::Pin, time::Duration};
+use std::{pin::Pin, sync::Arc, time::Duration};
 
 /// Provides an interface for accessing new events and ISMP data on the chain which must be
 /// relayed to the counterparty chain.
@@ -52,7 +53,7 @@ pub struct ChallengePeriodStarted {
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>> + Send>>;
 
 #[async_trait::async_trait]
-pub trait IsmpProvider {
+pub trait IsmpProvider: Reconnect {
 	/// Query the latest consensus state of a client
 	async fn query_consensus_state(
 		&self,
@@ -161,7 +162,7 @@ pub trait ByzantineHandler {
 
 /// Provides an interface for the chain to the relayer core for submitting Ismp messages as well as
 #[async_trait::async_trait]
-pub trait IsmpHost: ByzantineHandler + Clone + Send + Sync {
+pub trait IsmpHost: ByzantineHandler + Reconnect + Clone + Send + Sync {
 	/// Return a stream that yields [`ConsensusMessage`] when a new consensus update
 	/// can be sent to the counterparty
 	async fn consensus_notification<C>(
@@ -170,4 +171,48 @@ pub trait IsmpHost: ByzantineHandler + Clone + Send + Sync {
 	) -> Result<BoxStream<ConsensusMessage>, anyhow::Error>
 	where
 		C: IsmpHost + IsmpProvider + Clone + 'static;
+}
+
+#[async_trait::async_trait]
+pub trait Reconnect: Clone + Send + Sync {
+	/// Recreate all underline network connections
+	async fn reconnect<C: IsmpProvider>(&mut self, counterparty: &C) -> Result<(), anyhow::Error>;
+}
+
+#[derive(Clone, Debug)]
+pub struct NonceProvider {
+	nonce: Arc<tokio::sync::Mutex<u64>>,
+}
+
+impl NonceProvider {
+	pub fn new(nonce: u64) -> Self {
+		Self { nonce: Arc::new(tokio::sync::Mutex::new(nonce)) }
+	}
+
+	pub async fn get_nonce(&self) -> u64 {
+		let mut guard = self.nonce.lock().await;
+		let nonce = *guard;
+		*guard = nonce + 1;
+		nonce
+	}
+}
+
+pub async fn reconnect_with_exponential_back_off<A: IsmpProvider, B: IsmpProvider>(
+	chain: &mut A,
+	counterparty: &B,
+	reconnects: u32,
+) -> Result<(), anyhow::Error> {
+	let mut initial_backoff = 1;
+	for _ in 0..reconnects {
+		// If backoff is more than 512 seconds reset backoff
+		if let Ok(()) = chain.reconnect(counterparty).await {
+			return Ok(())
+		}
+		if initial_backoff == 512 {
+			initial_backoff = 1;
+		}
+		initial_backoff = initial_backoff * 2;
+		tokio::time::sleep(Duration::from_secs(initial_backoff)).await;
+	}
+	return Err(anyhow!("Failed to reconnect after {} tries", reconnects))
 }

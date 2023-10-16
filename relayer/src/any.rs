@@ -57,6 +57,22 @@ macro_rules! chain {
         }
 
         #[async_trait::async_trait]
+        impl primitives::Reconnect for AnyClient {
+            async fn reconnect<C: IsmpProvider>(
+                &mut self,
+                counterparty: &C,
+            ) -> Result<(), anyhow::Error>
+            {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.reconnect(counterparty).await,
+					)*
+				}
+            }
+        }
+
+        #[async_trait::async_trait]
         impl primitives::IsmpProvider for AnyClient {
             async fn query_consensus_state(
                 &self,

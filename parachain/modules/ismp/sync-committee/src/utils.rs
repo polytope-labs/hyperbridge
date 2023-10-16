@@ -119,7 +119,7 @@ pub fn get_contract_storage_root<H: IsmpHost + Send + Sync>(
 
     let contract_account = <Account as Decodable>::decode(&mut &*result).map_err(|_| {
         Error::ImplementationSpecific(format!(
-            "Error decoding contract account from key {:?}",
+            "Error decoding contract account from value {:?}",
             &result
         ))
     })?;
@@ -172,7 +172,7 @@ pub(super) fn get_values_from_proof<H: IsmpHost + Send + Sync>(
     Ok(values)
 }
 
-pub(super) fn get_value_from_proof<H: IsmpHost + Send + Sync>(
+pub fn get_value_from_proof<H: IsmpHost + Send + Sync>(
     key: Vec<u8>,
     root: H256,
     proof: Vec<Vec<u8>>,

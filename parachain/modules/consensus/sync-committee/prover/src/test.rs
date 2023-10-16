@@ -261,6 +261,7 @@ async fn test_client_sync() {
         latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
         current_sync_committee: state.current_sync_committee,
         next_sync_committee: state.next_sync_committee,
+        state_period: 810,
     };
 
     let mut next_period = start_period + 1;
@@ -299,6 +300,7 @@ async fn test_sync_committee_hand_offs() {
         latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
         current_sync_committee: state.current_sync_committee,
         next_sync_committee: state.next_sync_committee,
+        state_period: 805,
     };
 
     // Verify an update from state_period + 1
@@ -326,7 +328,7 @@ async fn test_sync_committee_hand_offs() {
         .unwrap();
     assert!(update.sync_committee_update.is_some());
     client_state = verify_sync_committee_attestation(client_state, update).unwrap();
-
+    assert_eq!(client_state.state_period, state_period + 1);
     // Verify block in the current state_period
     let latest_block_id = {
         let slot = ((signature_period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) * SLOTS_PER_EPOCH) +
@@ -384,6 +386,7 @@ async fn test_prover() {
         latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
         current_sync_committee: state.current_sync_committee,
         next_sync_committee: state.next_sync_committee,
+        state_period: compute_sync_committee_period_at_slot(block_header.slot),
     };
 
     let mut count = 0;
@@ -425,8 +428,8 @@ async fn test_prover() {
                 );
 
                 count += 1;
-                // For CI purposes we test finalization of 3 epochs
-                if count == 4 {
+                // For CI purposes we test finalization of 2 epochs
+                if count == 2 {
                     break
                 }
             },

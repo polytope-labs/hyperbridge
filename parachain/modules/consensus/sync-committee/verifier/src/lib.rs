@@ -59,7 +59,7 @@ pub fn verify_sync_committee_attestation(
         ))?
     }
 
-    let state_period = compute_sync_committee_period_at_slot(trusted_state.finalized_header.slot);
+    let state_period = trusted_state.state_period;
     let update_signature_period = compute_sync_committee_period_at_slot(update.signature_slot);
     if !(state_period..=state_period + 1).contains(&update_signature_period) {
         Err(Error::InvalidUpdate("State period does not contain signature period".into()))?
@@ -192,6 +192,7 @@ pub fn verify_sync_committee_attestation(
                 latest_finalized_epoch: update.finality_proof.epoch,
                 current_sync_committee: trusted_state.next_sync_committee,
                 next_sync_committee: sync_committee_update.next_sync_committee,
+                state_period: state_period + 1,
             }
         } else {
             Err(Error::InvalidUpdate("Expected sync committee update to be present".into()))?

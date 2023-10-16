@@ -13,7 +13,7 @@ use ssz_rs::prelude::*;
 
 /// Returns true if sync committee update is required
 pub fn should_have_sync_committee_update(state_period: u64, signature_period: u64) -> bool {
-    state_period != signature_period
+    signature_period == state_period + 1
 }
 
 /// Return the sync committee period at the given ``epoch``

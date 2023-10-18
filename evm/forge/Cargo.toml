@@ -43,4 +43,4 @@ beefy-prover = { git = "ssh://git@github.com/polytope-labs/tesseract.git", branc
 beefy-verifier-primitives = { git = "ssh://git@github.com/polytope-labs/tesseract.git", branch = "main" }
 
 ## substrate
-beefy-primitives = { package = "sp-consensus-beefy", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
+beefy-primitives = { package = "sp-consensus-beefy", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }

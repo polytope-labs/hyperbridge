@@ -7,8 +7,8 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 # substrate
-frame-system = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
-sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
+frame-system = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0", default-features = false }
+sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0", default-features = false }
 
 # polytope labs
 
@@ -18,10 +18,10 @@ codec = { package = "parity-scale-codec", version = "3.1.3", default-features = 
 primitive-types = { version = "0.12.1", default-features = false }
 serde = { version = "1.0.136", features = ["derive"], optional = true }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
-frame-support = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
-sp-core = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
-sp-consensus-aura = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }
-sp-io = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0", default-features = false }
+frame-support = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0", default-features = false }
+sp-core = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
+sp-consensus-aura = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
+sp-io = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0", default-features = false }
 
 derive_more = { version = "0.99.17", default-features = false, features = ["from", "into", "display"] }
 serde_json = { version = "1.0.99", default-features = false, features = ["alloc"] }

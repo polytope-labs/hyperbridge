@@ -69,7 +69,6 @@ impl Cli {
 			base: base_config,
 			relayer,
 		} = config.clone();
-
 		let mut hyperbridge = hyperbridge_config
 			.clone()
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()

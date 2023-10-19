@@ -7,9 +7,7 @@ use ismp::{
 	messaging::{ConsensusMessage, Message},
 };
 use primitives::{
-	consensus_types::Checkpoint,
-	constants::Root,
-	util::{compute_sync_committee_period, compute_sync_committee_period_at_slot},
+	consensus_types::Checkpoint, constants::Root, util::compute_sync_committee_period,
 };
 use std::collections::BTreeMap;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
@@ -39,8 +37,7 @@ where
 		consensus_state_id: client.consensus_state_id,
 	};
 	// Do a sync check before returning any updates
-	let state_period =
-		compute_sync_committee_period_at_slot(light_client_state.finalized_header.slot);
+	let state_period = light_client_state.state_period;
 
 	let checkpoint_period = compute_sync_committee_period(checkpoint.epoch);
 	if !(state_period..=(state_period + 1)).contains(&checkpoint_period) {

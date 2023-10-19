@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub use crate::provider::{filter_map_system_events, system_events_key};
 use ismp::{consensus::ConsensusStateId, host::StateMachine, HashAlgorithm};
 use parking_lot::Mutex;
 use primitives::{IsmpHost, NonceProvider};

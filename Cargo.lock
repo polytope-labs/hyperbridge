@@ -1833,6 +1833,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2e66c9d817f1720209181c316d28635c050fa304f9c79e47a520882661b7308"
 
 [[package]]
+name = "debounced"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/debounced?branch=main#95e517b815121aea201858b56f452e2c8850d13a"
+dependencies = [
+ "futures-util",
+ "tokio",
+]
+
+[[package]]
 name = "der"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8785,6 +8794,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "debounced",
  "futures",
  "hex-literal 0.4.1",
  "ismp",

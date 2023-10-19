@@ -26,6 +26,7 @@ use crate::{
 
 use anyhow::anyhow;
 use codec::{Decode, Encode};
+use debounced::Debounced;
 use futures::StreamExt;
 use hex_literal::hex;
 use ismp::{
@@ -45,6 +46,7 @@ use std::{collections::HashMap, time::Duration};
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
 	ext::sp_runtime::MultiSignature,
+	rpc::Subscription,
 	rpc_params,
 };
 
@@ -144,19 +146,21 @@ where
 	) -> Result<Vec<Event>, anyhow::Error> {
 		let latest_height = Arc::clone(&self.latest_height);
 		let range = (*latest_height.lock() + 1)..=event.latest_height;
+		if range.is_empty() {
+			return Ok(Default::default())
+		}
 		let block_numbers: Vec<BlockNumberOrHash<sp_core::H256>> = range
 			.clone()
 			.into_iter()
 			.map(|block_height| BlockNumberOrHash::Number(block_height as u32))
 			.collect();
 		log::info!("querying: {range:?}");
-		*latest_height.lock() = event.latest_height;
 
 		let params = rpc_params![block_numbers];
 		let response: HashMap<String, Vec<Event>> =
 			self.client.rpc().request("ismp_queryEvents", params).await?;
 		let events = response.values().into_iter().cloned().flatten().collect();
-
+		*latest_height.lock() = event.latest_height;
 		Ok(events)
 	}
 
@@ -204,50 +208,7 @@ where
 			.await
 			.expect("Storage subscription failed");
 
-		let stream = subscription.filter_map(move |change_set| {
-			if let Ok(change_set) = change_set {
-				let records = change_set
-					.changes
-					.into_iter()
-					.filter_map(|(_, change)| {
-						change.and_then(|data| {
-							<Vec<EventRecord<RuntimeEvent, H256>> as codec::Decode>::decode(
-								&mut data.0.as_slice(),
-							)
-							.ok()
-							.map(|records| {
-								records
-									.into_iter()
-									.filter_map(|record| match record.event {
-										RuntimeEvent::Ismp(Ev::StateMachineUpdated {
-											state_machine_id,
-											latest_height,
-										}) => {
-											if counterparty_state_id.encode() ==
-												state_machine_id.encode()
-											{
-												Some(StateMachineUpdated {
-													state_machine_id: counterparty_state_id,
-													latest_height,
-												})
-											} else {
-												None
-											}
-										},
-										_ => None,
-									})
-									.collect::<Vec<_>>()
-							})
-						})
-					})
-					.flatten()
-					.collect::<Vec<_>>();
-				return futures::future::ready(records.last().cloned().map(|ev| Ok(ev)))
-			}
-
-			futures::future::ready(None)
-		});
-		Box::pin(stream)
+		filter_map_system_events(subscription, counterparty_state_id)
 	}
 
 	async fn submit(&self, messages: Vec<ismp::messaging::Message>) -> Result<(), anyhow::Error> {
@@ -301,4 +262,56 @@ pub fn system_events_key() -> StorageKey {
 	let mut storage_key = sp_core::twox_128(b"System").to_vec();
 	storage_key.extend(sp_core::twox_128(b"Events").to_vec());
 	StorageKey(storage_key)
+}
+
+pub fn filter_map_system_events(
+	subscription: Subscription<StorageChangeSet<H256>>,
+	counterparty_state_id: StateMachineId,
+) -> BoxStream<StateMachineUpdated> {
+	let debounced_sub = Debounced::new(subscription, Duration::from_secs(4));
+	let stream = debounced_sub.filter_map(move |change_set| {
+		if let Ok(change_set) = change_set {
+			let records = change_set
+				.changes
+				.into_iter()
+				.filter_map(|(_, change)| {
+					change.and_then(|data| {
+						<Vec<EventRecord<RuntimeEvent, H256>> as codec::Decode>::decode(
+							&mut data.0.as_slice(),
+						)
+						.ok()
+						.map(|records| {
+							records
+								.into_iter()
+								.filter_map(|record| match record.event {
+									RuntimeEvent::Ismp(Ev::StateMachineUpdated {
+										state_machine_id,
+										latest_height,
+									}) => {
+										if counterparty_state_id.encode() ==
+											state_machine_id.encode()
+										{
+											Some(StateMachineUpdated {
+												state_machine_id: counterparty_state_id,
+												latest_height,
+											})
+										} else {
+											None
+										}
+									},
+									_ => None,
+								})
+								.collect::<Vec<_>>()
+						})
+					})
+				})
+				.flatten()
+				.collect::<Vec<_>>();
+			return futures::future::ready(records.last().cloned().map(|ev| Ok(ev)))
+		}
+
+		futures::future::ready(None)
+	});
+
+	Box::pin(stream)
 }

@@ -22,5 +22,6 @@ ismp-demo = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "
 ismp-rpc = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
 tokio = { version = "1.32.0" }
+debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
 [features]
 testing = []

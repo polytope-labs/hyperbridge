@@ -1,6 +1,8 @@
 // Copyright (C) 2023 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::time::Duration;
+
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -139,7 +141,7 @@ impl IsmpHost for SyncCommitteeHost {
 					let delay = counterparty_timestamp - last_consensus_update;
 					// If onchain timestamp has not progressed sleep
 					if delay < challenge_period {
-						tokio::time::sleep(delay).await;
+						tokio::time::sleep(delay + Duration::from_secs(12 * 10)).await;
 					}
 
 					let update = consensus_notification(&client, counterparty.clone(), checkpoint)

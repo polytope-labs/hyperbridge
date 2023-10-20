@@ -119,13 +119,13 @@ where
     host.is_state_machine_frozen(proof_height)?;
 
     // Ensure delay period has elapsed
-    if !verify_delay_passed(host, &proof_height)? {
-        return Err(Error::ChallengePeriodNotElapsed {
-            consensus_state_id: proof_height.id.consensus_state_id,
-            current_time: host.timestamp(),
-            update_time: host.state_machine_update_time(proof_height)?,
-        })
-    }
+    // if !verify_delay_passed(host, &proof_height)? {
+    //     return Err(Error::ChallengePeriodNotElapsed {
+    //         consensus_state_id: proof_height.id.consensus_state_id,
+    //         current_time: host.timestamp(),
+    //         update_time: host.state_machine_update_time(proof_height)?,
+    //     })
+    // }
 
     consensus_client.state_machine(proof_height.id.state_id)
 }

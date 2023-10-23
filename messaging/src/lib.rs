@@ -21,7 +21,7 @@ use crate::event_parser::{filter_events, parse_ismp_events, Event};
 use futures::StreamExt;
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
 use tesseract_primitives::{
-	config::RelayerConfig, reconnect_with_exponential_back_off, IsmpHost, IsmpProvider,
+	config::RelayerConfig, reconnect_with_exponential_back_off, BoxStream, IsmpHost, IsmpProvider,
 	StateMachineUpdated,
 };
 pub async fn relay<A, B>(
@@ -42,34 +42,14 @@ where
 		async move {
 			let mut state_machine_update_stream =
 				chain_a.state_machine_update_notification(chain_b.state_machine_id()).await;
-			loop {
-				let item = state_machine_update_stream.next().await;
-				let res = handle_notification(
-					&mut chain_a,
-					&mut chain_b,
-					item,
-					router_id,
-					&mut previous_height,
-				)
-				.await;
-
-				if let Err(_) = res {
-					log::info!("RESTARTING {} messaging task", chain_a.name());
-					if let Err(_) =
-						reconnect_with_exponential_back_off(&mut chain_a, &mut chain_b, 1000).await
-					{
-						panic!("Fatal Error, failed to reconnect")
-					}
-					if let Err(_) =
-						reconnect_with_exponential_back_off(&mut chain_b, &mut chain_a, 1000).await
-					{
-						panic!("Fatal Error, failed to reconnect")
-					}
-					state_machine_update_stream =
-						chain_a.state_machine_update_notification(chain_b.state_machine_id()).await;
-					log::info!("RESTARTING completed");
-				}
-			}
+			handle_notification(
+				&mut chain_a,
+				&mut chain_b,
+				&mut state_machine_update_stream,
+				router_id,
+				&mut previous_height,
+			)
+			.await
 		}
 	});
 
@@ -81,33 +61,14 @@ where
 		async move {
 			let mut state_machine_update_stream =
 				chain_b.state_machine_update_notification(chain_a.state_machine_id()).await;
-			loop {
-				let item = state_machine_update_stream.next().await;
-				let res = handle_notification(
-					&mut chain_b,
-					&mut chain_a,
-					item,
-					router_id,
-					&mut previous_height,
-				)
-				.await;
-				if let Err(_) = res {
-					log::info!("RESTARTING {} messaging task", chain_b.name());
-					if let Err(_) =
-						reconnect_with_exponential_back_off(&mut chain_a, &mut chain_b, 1000).await
-					{
-						panic!("Fatal Error, failed to reconnect")
-					}
-					if let Err(_) =
-						reconnect_with_exponential_back_off(&mut chain_b, &mut chain_a, 1000).await
-					{
-						panic!("Fatal Error, failed to reconnect")
-					}
-					state_machine_update_stream =
-						chain_b.state_machine_update_notification(chain_a.state_machine_id()).await;
-					log::info!("RESTARTING completed");
-				}
-			}
+			handle_notification(
+				&mut chain_b,
+				&mut chain_a,
+				&mut state_machine_update_stream,
+				router_id,
+				&mut previous_height,
+			)
+			.await
 		}
 	});
 	let _ = futures::future::join_all(vec![task_a, task_b]).await;
@@ -115,77 +76,103 @@ where
 }
 
 async fn handle_notification<A, B>(
-	chain_a: &A,
-	chain_b: &B,
-	state_machine_update: Option<Result<StateMachineUpdated, anyhow::Error>>,
+	chain_a: &mut A,
+	chain_b: &mut B,
+	state_machine_update_stream: &mut BoxStream<StateMachineUpdated>,
 	router_id: Option<StateMachine>,
 	previous_height: &mut u64,
+) where
+	A: IsmpHost + IsmpProvider,
+	B: IsmpHost + IsmpProvider,
+{
+	loop {
+		let item = state_machine_update_stream.next().await;
+		let res = match item {
+			None => Err(anyhow::anyhow!("Stream returned None")),
+			Some(Ok(state_machine_update)) =>
+				handle_update(chain_a, chain_b, state_machine_update, previous_height, router_id)
+					.await,
+			Some(Err(e)) => {
+				log::error!(
+					target: "tesseract",
+					"{} encountered an error in the state machine update notification stream: {e}", chain_a.name()
+				);
+				Err(e)
+			},
+		};
+		if let Err(_) = res {
+			log::info!("RESTARTING {}-{} messaging task", chain_a.name(), chain_b.name());
+			if let Err(_) = reconnect_with_exponential_back_off(chain_a, chain_b, 1000).await {
+				panic!("Fatal Error, failed to reconnect")
+			}
+			if let Err(_) = reconnect_with_exponential_back_off(chain_b, chain_a, 1000).await {
+				panic!("Fatal Error, failed to reconnect")
+			}
+			*state_machine_update_stream =
+				chain_a.state_machine_update_notification(chain_b.state_machine_id()).await;
+			log::info!("RESTARTING completed");
+		}
+	}
+}
+
+async fn handle_update<A, B>(
+	chain_a: &A,
+	chain_b: &B,
+	state_machine_update: StateMachineUpdated,
+	previous_height: &mut u64,
+	router_id: Option<StateMachine>,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider,
 	B: IsmpHost + IsmpProvider,
 {
-	let res = match state_machine_update {
-		None => Err(anyhow::anyhow!("Stream returned None")),
-		Some(Ok(state_machine_update)) => {
-			// Chain B's state machine has been updated to a new height on chain A
-			// We query all the events that have been emitted on chain B that can be submitted to
-			// chain A filter events list to contain only Request and Response events
-			let events = chain_b
-				.query_ismp_events(*previous_height, state_machine_update.clone())
-				.await?
-				.into_iter()
-				.filter(|ev| filter_events(router_id, chain_a.state_machine_id().state_id, ev))
-				.collect::<Vec<_>>();
+	// Chain B's state machine has been updated to a new height on chain A
+	// We query all the events that have been emitted on chain B that can be submitted to
+	// chain A filter events list to contain only Request and Response events
+	let events = chain_b
+		.query_ismp_events(*previous_height, state_machine_update.clone())
+		.await?
+		.into_iter()
+		.filter(|ev| filter_events(router_id, chain_a.state_machine_id().state_id, ev))
+		.collect::<Vec<_>>();
 
-			if events.is_empty() {
-				*previous_height = state_machine_update.latest_height;
-				return Ok(())
-			}
+	if events.is_empty() {
+		*previous_height = state_machine_update.latest_height;
+		return Ok(())
+	}
 
-			let log_events = events.clone().into_iter().map(Into::into).collect::<Vec<Event>>();
-			log::info!(
-			   target: "tesseract",
-			   "Events from {} {:#?}", chain_b.name(),
-			   log_events // event names
-			);
-			let state_machine_height = StateMachineHeight {
-				id: state_machine_update.state_machine_id,
-				height: state_machine_update.latest_height,
-			};
-			let (messages, get_responses) =
-				parse_ismp_events(chain_b, chain_a, events, state_machine_height).await?;
-
-			if !messages.is_empty() {
-				log::info!(
-					target: "tesseract",
-					"🛰️Submitting ismp messages from {} to {}",
-					chain_b.name(), chain_a.name()
-				);
-				if let Err(err) = chain_a.submit(messages).await {
-					log::error!("Failed to submit transaction to {}: {err:?}", chain_a.name())
-				}
-			}
-
-			if !get_responses.is_empty() {
-				log::info!(
-					target: "tesseract",
-					"🛰️Submitting GET response messages to {}",
-					chain_b.name()
-				);
-				let _ = chain_b.submit(get_responses).await;
-			}
-			*previous_height = state_machine_update.latest_height;
-			Ok(())
-		},
-		Some(Err(e)) => {
-			log::error!(
-				target: "tesseract",
-				"{} encountered an error in the state machine update notification stream: {e}", chain_a.name()
-			);
-			Err(e)
-		},
+	let log_events = events.clone().into_iter().map(Into::into).collect::<Vec<Event>>();
+	log::info!(
+	   target: "tesseract",
+	   "Events from {} {:#?}", chain_b.name(),
+	   log_events // event names
+	);
+	let state_machine_height = StateMachineHeight {
+		id: state_machine_update.state_machine_id,
+		height: state_machine_update.latest_height,
 	};
+	let (messages, get_responses) =
+		parse_ismp_events(chain_b, chain_a, events, state_machine_height).await?;
 
-	res
+	if !messages.is_empty() {
+		log::info!(
+			target: "tesseract",
+			"🛰️Submitting ismp messages from {} to {}",
+			chain_b.name(), chain_a.name()
+		);
+		if let Err(err) = chain_a.submit(messages).await {
+			log::error!("Failed to submit transaction to {}: {err:?}", chain_a.name())
+		}
+	}
+
+	if !get_responses.is_empty() {
+		log::info!(
+			target: "tesseract",
+			"🛰️Submitting GET response messages to {}",
+			chain_b.name()
+		);
+		let _ = chain_b.submit(get_responses).await;
+	}
+	*previous_height = state_machine_update.latest_height;
+	Ok(())
 }

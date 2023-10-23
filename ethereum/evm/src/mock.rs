@@ -215,6 +215,7 @@ mod tests {
 	use std::sync::Arc;
 
 	#[tokio::test]
+	#[ignore]
 	async fn test_ping() -> anyhow::Result<()> {
 		dotenv::dotenv().ok();
 		let op_url = std::env::var("OP_URL").expect("OP_URL must be set.");

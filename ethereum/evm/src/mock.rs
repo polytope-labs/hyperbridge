@@ -215,35 +215,35 @@ mod tests {
 	use std::sync::Arc;
 
 	#[tokio::test]
-	#[ignore]
 	async fn test_ping() -> anyhow::Result<()> {
 		dotenv::dotenv().ok();
 		let op_url = std::env::var("OP_URL").expect("OP_URL must be set.");
 		let base_url = std::env::var("BASE_URL").expect("OP_URL must be set.");
 		let arb_url = std::env::var("ARB_URL").expect("OP_URL must be set.");
 		let geth_url = std::env::var("GETH_URL").expect("OP_URL must be set.");
+
 		let chains = vec![
 			(
 				StateMachine::Ethereum(Ethereum::ExecutionLayer),
-				H160(hex!("53920d815e1518eebDa3c09D614A6ce59d9fb4B0")),
+				H160(hex!("be094ba30775301FDc5ABE6095e1457073825b40")),
 				geth_url,
 				5u64,
 			),
 			(
 				StateMachine::Ethereum(Ethereum::Arbitrum),
-				H160(hex!("4E97A39f8Be6b568Df76dc7e9B141e53c1e519EF")),
+				H160(hex!("2Fc23c39Bd341ba467349725e6ab61B2DA9D49c1")),
 				arb_url,
 				421613,
 			),
 			(
 				StateMachine::Ethereum(Ethereum::Optimism),
-				H160(hex!("617Ba1259FDFAc28c2B192B50057f3D62FeCB33b")),
+				H160(hex!("aA505C51C975ee19c5A2BB080245c20CCE6D3E51")),
 				op_url,
 				420,
 			),
 			(
 				StateMachine::Ethereum(Ethereum::Base),
-				H160(hex!("F1a722eC517e5F4dCb78ef09908efb52dB6D6180")),
+				H160(hex!("02b20A2db3c97203Da489a53ed3316D37389a779")),
 				base_url,
 				84531,
 			),
@@ -266,6 +266,7 @@ mod tests {
 					.ping(PingMessage {
 						dest: chain.to_string().as_bytes().to_vec().into(),
 						module: address.clone().into(),
+						timeout: 10 * 60 * 60,
 					})
 					.gas(10_000_000)
 					.send()

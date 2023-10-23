@@ -38,7 +38,6 @@ use ismp::{
 use ismp_rpc::{BlockNumberOrHash, MmrProof};
 use primitives::{BoxStream, IsmpHost, IsmpProvider, Query, StateMachineUpdated};
 use sp_core::{
-	sp_std::sync::Arc,
 	storage::{StorageChangeSet, StorageKey},
 	H256,
 };
@@ -142,10 +141,10 @@ where
 
 	async fn query_ismp_events(
 		&self,
+		previous_height: u64,
 		event: StateMachineUpdated,
 	) -> Result<Vec<Event>, anyhow::Error> {
-		let latest_height = Arc::clone(&self.latest_height);
-		let range = (*latest_height.lock() + 1)..=event.latest_height;
+		let range = (previous_height + 1)..=event.latest_height;
 		if range.is_empty() {
 			return Ok(Default::default())
 		}
@@ -160,7 +159,6 @@ where
 		let response: HashMap<String, Vec<Event>> =
 			self.client.rpc().request("ismp_queryEvents", params).await?;
 		let events = response.values().into_iter().cloned().flatten().collect();
-		*latest_height.lock() = event.latest_height;
 		Ok(events)
 	}
 
@@ -183,6 +181,10 @@ where
 
 	fn block_max_gas(&self) -> u64 {
 		todo!()
+	}
+
+	fn initial_height(&self) -> u64 {
+		self.initial_height
 	}
 
 	async fn estimate_gas(
@@ -212,12 +214,15 @@ where
 	}
 
 	async fn submit(&self, messages: Vec<ismp::messaging::Message>) -> Result<(), anyhow::Error> {
-		let call = messages.encode();
-		let extrinsic = Extrinsic::new("Ismp", "handle", call);
-		let nonce = self.get_nonce().await?;
-		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, extrinsic, nonce).await?;
-
+		let mut futs = vec![];
+		for msg in messages {
+			let call = vec![msg].encode();
+			let extrinsic = Extrinsic::new("Ismp", "handle", call);
+			let nonce = self.get_nonce().await?;
+			let signer = InMemorySigner::new(self.signer());
+			futs.push(send_extrinsic(&self.client, signer, extrinsic, nonce))
+		}
+		let _ = futures::future::join_all(futs).await;
 		Ok(())
 	}
 

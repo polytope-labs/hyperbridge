@@ -108,6 +108,7 @@ pub trait IsmpProvider: Reconnect {
 	/// event on the counterparty
 	async fn query_ismp_events(
 		&self,
+		previous_height: u64,
 		event: StateMachineUpdated,
 	) -> Result<Vec<Event>, anyhow::Error>;
 
@@ -123,6 +124,9 @@ pub trait IsmpProvider: Reconnect {
 
 	/// Should return a numerical value for the max gas allowed for transactions in a block.
 	fn block_max_gas(&self) -> u64;
+
+	/// Should return the initial height at which events should be queried
+	fn initial_height(&self) -> u64;
 
 	/// Should return a numerical estimate of the gas to be consumed for a batch of messages.
 	async fn estimate_gas(&self, msg: Vec<Message>) -> Result<u64, anyhow::Error>;

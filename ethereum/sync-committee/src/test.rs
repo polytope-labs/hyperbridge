@@ -166,7 +166,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				for (state_machine_id, l2_oracle) in op_stack {
 					println!("Verifying {state_machine_id:?} payload proof");
 					if let Some(payload) = op_stack_payload.remove(&state_machine_id) {
-						let state = verify_optimism_payload::<Host>(
+						let _state = verify_optimism_payload::<Host>(
 							payload,
 							&state_root[..],
 							l2_oracle.into(),
@@ -178,7 +178,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 
 				if let Some(arbitrum_payload) = arbitrum_payload {
 					println!("Verifying arbitrum payload proof");
-					let state = verify_arbitrum_payload::<Host>(
+					let _state = verify_arbitrum_payload::<Host>(
 						arbitrum_payload,
 						&state_root[..],
 						hex_literal::hex!("45e5cAea8768F42B385A366D3551Ad1e0cbFAb17").into(),

@@ -187,12 +187,13 @@ macro_rules! chain {
 
             async fn query_ismp_events(
                 &self,
+                previous_height: u64,
                 event: primitives::StateMachineUpdated,
             ) -> Result<Vec<ismp::events::Event>, anyhow::Error> {
                 match self {
 					$(
 						$(#[$($meta)*])*
-						Self::$name(chain) => chain.query_ismp_events(event).await,
+						Self::$name(chain) => chain.query_ismp_events(previous_height, event).await,
 					)*
 				}
             }
@@ -230,6 +231,15 @@ macro_rules! chain {
 					$(
 						$(#[$($meta)*])*
 						Self::$name(chain) => chain.block_max_gas(),
+					)*
+				}
+            }
+
+            fn initial_height(&self) -> u64 {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.initial_height(),
 					)*
 				}
             }

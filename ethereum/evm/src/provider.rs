@@ -188,11 +188,17 @@ where
 		Ok(state_proof.encode())
 	}
 
-	async fn query_ismp_events(&self, event: StateMachineUpdated) -> Result<Vec<Event>, Error> {
-		let latest_height = Arc::clone(&self.latest_height);
-		let previous_height = *latest_height.lock() + 1;
-		let events = self.events(previous_height, event.latest_height).await?;
-		*latest_height.lock() = event.latest_height;
+	async fn query_ismp_events(
+		&self,
+		previous_height: u64,
+		event: StateMachineUpdated,
+	) -> Result<Vec<Event>, Error> {
+		let range = (previous_height + 1)..=event.latest_height;
+		if range.is_empty() {
+			return Ok(Default::default())
+		}
+		let events = self.events(previous_height + 1, event.latest_height).await?;
+		log::info!("querying: {range:?}");
 		Ok(events)
 	}
 
@@ -210,6 +216,10 @@ where
 
 	fn block_max_gas(&self) -> u64 {
 		self.gas_limit
+	}
+
+	fn initial_height(&self) -> u64 {
+		self.initial_height
 	}
 
 	async fn estimate_gas(&self, _msg: Vec<Message>) -> Result<u64, Error> {

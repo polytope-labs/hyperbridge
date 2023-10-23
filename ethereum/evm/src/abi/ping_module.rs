@@ -262,6 +262,7 @@ pub mod ping_module {
 							kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
 								::ethers::core::abi::ethabi::ParamType::Bytes,
 								::ethers::core::abi::ethabi::ParamType::Address,
+								::ethers::core::abi::ethabi::ParamType::Uint(64usize),
 							],),
 							internal_type: ::core::option::Option::Some(
 								::std::borrow::ToOwned::to_owned("struct PingMessage"),
@@ -453,10 +454,10 @@ pub mod ping_module {
 				.method_hash([199, 21, 245, 43], (request,))
 				.expect("method not found (this should never happen)")
 		}
-		///Calls the contract's `ping` (0xe23c69b1) function
+		///Calls the contract's `ping` (0x40ffb7bc) function
 		pub fn ping(&self, msg: PingMessage) -> ::ethers::contract::builders::ContractCall<M, ()> {
 			self.0
-				.method_hash([226, 60, 105, 177], (msg,))
+				.method_hash([64, 255, 183, 188], (msg,))
 				.expect("method not found (this should never happen)")
 		}
 		///Gets the contract's `GetResponseReceived` event
@@ -915,7 +916,7 @@ pub mod ping_module {
 		pub request: PostRequest,
 	}
 	///Container type for all input parameters for the `ping` function with signature
-	/// `ping((bytes,address))` and selector `0xe23c69b1`
+	/// `ping((bytes,address,uint64))` and selector `0x40ffb7bc`
 	#[derive(
 		Clone,
 		::ethers::contract::EthCall,
@@ -926,7 +927,7 @@ pub mod ping_module {
 		Eq,
 		Hash,
 	)]
-	#[ethcall(name = "ping", abi = "ping((bytes,address))")]
+	#[ethcall(name = "ping", abi = "ping((bytes,address,uint64))")]
 	pub struct PingCall {
 		pub msg: PingMessage,
 	}
@@ -1091,7 +1092,7 @@ pub mod ping_module {
 		Hash,
 	)]
 	pub struct DispatchWithRequestReturn(pub [u8; 32]);
-	///`PingMessage(bytes,address)`
+	///`PingMessage(bytes,address,uint64)`
 	#[derive(
 		Clone,
 		::ethers::contract::EthAbiType,
@@ -1105,5 +1106,6 @@ pub mod ping_module {
 	pub struct PingMessage {
 		pub dest: ::ethers::core::types::Bytes,
 		pub module: ::ethers::core::types::Address,
+		pub timeout: u64,
 	}
 }

@@ -134,7 +134,7 @@ where
 	let extrinsic = match progress.wait_for_in_block().await {
 		Ok(p) => p,
 		Err(err) => {
-			// If web socket has been disconnected we
+			// If web socket has been disconnected return an error
 			if let subxt::Error::Io(e) = &err {
 				Err(anyhow!("{:?}", e))?
 			}

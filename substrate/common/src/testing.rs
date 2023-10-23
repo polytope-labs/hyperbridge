@@ -59,7 +59,7 @@ where
 	}
 
 	pub fn latest_height(&self) -> u64 {
-		self.latest_height.lock().clone()
+		self.initial_height
 	}
 
 	pub async fn transfer(

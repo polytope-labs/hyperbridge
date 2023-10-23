@@ -15,11 +15,9 @@
 
 pub use crate::provider::{filter_map_system_events, system_events_key};
 use ismp::{consensus::ConsensusStateId, host::StateMachine, HashAlgorithm};
-use parking_lot::Mutex;
 use primitives::{IsmpHost, NonceProvider};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, sr25519, Pair};
-use std::sync::Arc;
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
@@ -68,7 +66,7 @@ pub struct SubstrateClient<I, C: subxt::Config> {
 	/// Private key of the signing account
 	pub signer: sr25519::Pair,
 	/// Latest state machine height.
-	latest_height: Arc<Mutex<u64>>,
+	initial_height: u64,
 	/// Config
 	config: SubstrateConfig,
 	/// Nonce Provider
@@ -113,14 +111,10 @@ where
 			state_machine: config.state_machine,
 			hashing: config.hashing,
 			signer,
-			latest_height: Arc::new(Mutex::new(latest_height)),
+			initial_height: latest_height,
 			config: config_clone,
 			nonce_provider: None,
 		})
-	}
-
-	pub fn set_latest_height(&mut self, height: u64) {
-		self.latest_height = Arc::new(Mutex::new(height))
 	}
 
 	pub fn signer(&self) -> sr25519::Pair {

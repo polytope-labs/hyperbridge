@@ -15,7 +15,6 @@ use ismp::{
 	host::{Ethereum, StateMachine},
 };
 use jsonrpsee::ws_client::WsClientBuilder;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::sync::Arc;
@@ -89,7 +88,7 @@ pub struct EvmClient<I> {
 	/// State machine Identifier for this client.
 	state_machine: StateMachine,
 	/// Latest state machine height.
-	latest_height: Arc<Mutex<u64>>,
+	initial_height: u64,
 	/// Ismp Host contract address
 	ismp_host: H160,
 	/// Ismp Handler contract address
@@ -151,7 +150,7 @@ where
 			signer,
 			consensus_state_id,
 			state_machine: config.state_machine,
-			latest_height: Arc::new(Mutex::new(latest_height)),
+			initial_height: latest_height,
 			ismp_host: config.ismp_host,
 			handler: config.handler,
 			gas_limit: config.gas_limit,
@@ -184,7 +183,7 @@ where
 
 		// let gas = call.estimate_gas().await?; // todo: fix estimate gas
 		// dbg!(gas);
-		call.gas(10_000_000).send().await?.await?;
+		call.nonce(self.get_nonce().await?).gas(10_000_000).send().await?.await?;
 
 		Ok(())
 	}
@@ -200,7 +199,7 @@ where
 
 		// let gas = call.estimate_gas().await?; // todo: fix estimate gas
 		// dbg!(gas);
-		call.gas(10_000_000).send().await?.await?;
+		call.nonce(self.get_nonce().await?).gas(10_000_000).send().await?.await?;
 
 		Ok(())
 	}
@@ -218,10 +217,6 @@ where
 	pub fn request_receipt_key(&self, key: H256) -> H256 {
 		// commitment is mapped to a  bool
 		derive_map_key(key.0.to_vec(), REQUEST_RECEIPTS_SLOT)
-	}
-
-	pub fn set_latest_height(&mut self, height: u64) {
-		self.latest_height = Arc::new(Mutex::new(height))
 	}
 
 	pub fn set_nonce_provider(&mut self, nonce_provider: NonceProvider) {

@@ -1,6 +1,7 @@
 #[allow(dead_code, unused_imports, non_camel_case_types)]
 #[allow(clippy::all)]
 #[allow(rustdoc::broken_intra_doc_links)]
+#[allow(missing_docs)]
 pub mod api {
 	#[allow(unused_imports)]
 	mod root_mod {
@@ -897,10 +898,9 @@ pub mod api {
 						"query_call_info",
 						types::QueryCallInfo { call, len },
 						[
-							230u8, 62u8, 137u8, 2u8, 192u8, 241u8, 142u8, 39u8, 127u8, 175u8,
-							142u8, 33u8, 68u8, 223u8, 226u8, 43u8, 133u8, 53u8, 232u8, 193u8,
-							136u8, 169u8, 37u8, 6u8, 248u8, 0u8, 199u8, 73u8, 42u8, 162u8, 3u8,
-							0u8,
+							35u8, 175u8, 111u8, 221u8, 96u8, 67u8, 23u8, 24u8, 184u8, 202u8, 34u8,
+							182u8, 143u8, 186u8, 0u8, 245u8, 238u8, 173u8, 37u8, 32u8, 85u8, 95u8,
+							197u8, 34u8, 183u8, 156u8, 252u8, 168u8, 79u8, 164u8, 143u8, 52u8,
 						],
 					)
 				}
@@ -920,10 +920,10 @@ pub mod api {
 						"query_call_fee_details",
 						types::QueryCallFeeDetails { call, len },
 						[
-							118u8, 100u8, 9u8, 9u8, 181u8, 240u8, 10u8, 40u8, 41u8, 80u8, 12u8,
-							194u8, 36u8, 122u8, 115u8, 75u8, 211u8, 207u8, 247u8, 88u8, 112u8,
-							75u8, 217u8, 241u8, 14u8, 91u8, 245u8, 120u8, 82u8, 148u8, 243u8,
-							116u8,
+							117u8, 69u8, 119u8, 253u8, 145u8, 12u8, 132u8, 125u8, 238u8, 49u8,
+							122u8, 86u8, 152u8, 232u8, 10u8, 10u8, 85u8, 119u8, 113u8, 106u8, 75u8,
+							136u8, 136u8, 197u8, 67u8, 254u8, 104u8, 43u8, 218u8, 238u8, 179u8,
+							105u8,
 						],
 					)
 				}
@@ -1071,12 +1071,12 @@ pub mod api {
 				#[doc = " Generate a proof for the provided leaf indices"]
 				pub fn generate_proof(
 					&self,
-					leaf_indices: ::std::vec::Vec<::core::primitive::u64>,
+					leaf_positions: ::std::vec::Vec<::core::primitive::u64>,
 				) -> ::subxt::runtime_api::Payload<
 					types::GenerateProof,
 					::core::result::Result<
 						(
-							::std::vec::Vec<runtime_types::ismp_primitives::mmr::Leaf>,
+							::std::vec::Vec<runtime_types::ismp::mmr::Leaf>,
 							runtime_types::pallet_ismp::primitives::Proof<::subxt::utils::H256>,
 						),
 						runtime_types::pallet_ismp::primitives::Error,
@@ -1085,11 +1085,12 @@ pub mod api {
 					::subxt::runtime_api::Payload::new_static(
 						"IsmpRuntimeApi",
 						"generate_proof",
-						types::GenerateProof { leaf_indices },
+						types::GenerateProof { leaf_positions },
 						[
-							139u8, 181u8, 86u8, 129u8, 249u8, 149u8, 2u8, 211u8, 196u8, 157u8,
-							146u8, 95u8, 193u8, 51u8, 97u8, 106u8, 174u8, 101u8, 64u8, 208u8, 47u8,
-							76u8, 30u8, 81u8, 69u8, 222u8, 178u8, 155u8, 17u8, 50u8, 148u8, 92u8,
+							57u8, 110u8, 181u8, 46u8, 36u8, 232u8, 159u8, 173u8, 146u8, 39u8,
+							153u8, 155u8, 61u8, 162u8, 67u8, 45u8, 92u8, 129u8, 213u8, 226u8, 99u8,
+							176u8, 147u8, 175u8, 25u8, 235u8, 1u8, 158u8, 11u8, 241u8, 199u8,
+							128u8,
 						],
 					)
 				}
@@ -1188,50 +1189,68 @@ pub mod api {
 						],
 					)
 				}
+				#[doc = " Return the most recent height we've processed requests for a state machine"]
+				pub fn latest_messaging_height(
+					&self,
+					id: runtime_types::ismp::consensus::StateMachineId,
+				) -> ::subxt::runtime_api::Payload<
+					types::LatestMessagingHeight,
+					::core::option::Option<::core::primitive::u64>,
+				> {
+					::subxt::runtime_api::Payload::new_static(
+						"IsmpRuntimeApi",
+						"latest_messaging_height",
+						types::LatestMessagingHeight { id },
+						[
+							54u8, 187u8, 151u8, 168u8, 7u8, 170u8, 16u8, 167u8, 182u8, 80u8, 77u8,
+							72u8, 170u8, 179u8, 114u8, 191u8, 229u8, 194u8, 186u8, 156u8, 82u8,
+							106u8, 113u8, 210u8, 225u8, 29u8, 243u8, 185u8, 109u8, 244u8, 226u8,
+							4u8,
+						],
+					)
+				}
 				#[doc = " Get Request Leaf Indices"]
 				pub fn get_request_leaf_indices(
 					&self,
-					leaf_queries: ::std::vec::Vec<runtime_types::ismp_primitives::LeafIndexQuery>,
+					leaf_queries: ::std::vec::Vec<runtime_types::ismp::LeafIndexQuery>,
 				) -> ::subxt::runtime_api::Payload<
 					types::GetRequestLeafIndices,
-					::std::vec::Vec<::core::primitive::u64>,
+					::std::vec::Vec<(::core::primitive::u64, ::core::primitive::u64)>,
 				> {
 					::subxt::runtime_api::Payload::new_static(
 						"IsmpRuntimeApi",
 						"get_request_leaf_indices",
 						types::GetRequestLeafIndices { leaf_queries },
 						[
-							250u8, 93u8, 139u8, 122u8, 14u8, 203u8, 33u8, 82u8, 164u8, 181u8,
-							194u8, 104u8, 165u8, 72u8, 207u8, 92u8, 234u8, 12u8, 5u8, 121u8, 125u8,
-							156u8, 166u8, 89u8, 198u8, 116u8, 98u8, 8u8, 225u8, 114u8, 109u8,
-							169u8,
+							159u8, 211u8, 188u8, 51u8, 129u8, 36u8, 117u8, 192u8, 248u8, 163u8,
+							147u8, 42u8, 80u8, 52u8, 45u8, 187u8, 94u8, 253u8, 194u8, 151u8, 75u8,
+							3u8, 192u8, 209u8, 167u8, 110u8, 168u8, 254u8, 132u8, 20u8, 83u8, 18u8,
 						],
 					)
 				}
 				#[doc = " Get Response Leaf Indices"]
 				pub fn get_response_leaf_indices(
 					&self,
-					leaf_queries: ::std::vec::Vec<runtime_types::ismp_primitives::LeafIndexQuery>,
+					leaf_queries: ::std::vec::Vec<runtime_types::ismp::LeafIndexQuery>,
 				) -> ::subxt::runtime_api::Payload<
 					types::GetResponseLeafIndices,
-					::std::vec::Vec<::core::primitive::u64>,
+					::std::vec::Vec<(::core::primitive::u64, ::core::primitive::u64)>,
 				> {
 					::subxt::runtime_api::Payload::new_static(
 						"IsmpRuntimeApi",
 						"get_response_leaf_indices",
 						types::GetResponseLeafIndices { leaf_queries },
 						[
-							40u8, 249u8, 222u8, 145u8, 168u8, 135u8, 246u8, 173u8, 101u8, 54u8,
-							61u8, 222u8, 186u8, 35u8, 144u8, 150u8, 195u8, 93u8, 185u8, 230u8,
-							182u8, 207u8, 3u8, 158u8, 243u8, 117u8, 182u8, 121u8, 184u8, 128u8,
-							128u8, 222u8,
+							54u8, 240u8, 51u8, 199u8, 138u8, 96u8, 65u8, 200u8, 92u8, 199u8, 48u8,
+							148u8, 73u8, 202u8, 164u8, 7u8, 114u8, 179u8, 129u8, 153u8, 20u8, 10u8,
+							114u8, 73u8, 206u8, 90u8, 247u8, 19u8, 137u8, 47u8, 114u8, 65u8,
 						],
 					)
 				}
 				#[doc = " Get actual requests"]
 				pub fn get_requests(
 					&self,
-					leaf_indices: ::std::vec::Vec<::core::primitive::u64>,
+					leaf_positions: ::std::vec::Vec<::core::primitive::u64>,
 				) -> ::subxt::runtime_api::Payload<
 					types::GetRequests,
 					::std::vec::Vec<runtime_types::ismp::router::Request>,
@@ -1239,12 +1258,11 @@ pub mod api {
 					::subxt::runtime_api::Payload::new_static(
 						"IsmpRuntimeApi",
 						"get_requests",
-						types::GetRequests { leaf_indices },
+						types::GetRequests { leaf_positions },
 						[
-							53u8, 234u8, 118u8, 34u8, 111u8, 73u8, 212u8, 43u8, 99u8, 225u8, 105u8,
-							156u8, 62u8, 255u8, 130u8, 80u8, 224u8, 95u8, 181u8, 116u8, 101u8,
-							226u8, 83u8, 120u8, 99u8, 162u8, 238u8, 132u8, 240u8, 106u8, 114u8,
-							245u8,
+							111u8, 233u8, 200u8, 20u8, 236u8, 160u8, 84u8, 105u8, 96u8, 166u8,
+							33u8, 6u8, 165u8, 181u8, 34u8, 154u8, 246u8, 83u8, 23u8, 186u8, 41u8,
+							225u8, 253u8, 8u8, 17u8, 28u8, 177u8, 57u8, 176u8, 184u8, 208u8, 197u8,
 						],
 					)
 				}
@@ -1266,10 +1284,10 @@ pub mod api {
 						],
 					)
 				}
-				#[doc = " Get actual requests"]
+				#[doc = " Get actual responses"]
 				pub fn get_responses(
 					&self,
-					leaf_indices: ::std::vec::Vec<::core::primitive::u64>,
+					leaf_positions: ::std::vec::Vec<::core::primitive::u64>,
 				) -> ::subxt::runtime_api::Payload<
 					types::GetResponses,
 					::std::vec::Vec<runtime_types::ismp::router::Response>,
@@ -1277,11 +1295,11 @@ pub mod api {
 					::subxt::runtime_api::Payload::new_static(
 						"IsmpRuntimeApi",
 						"get_responses",
-						types::GetResponses { leaf_indices },
+						types::GetResponses { leaf_positions },
 						[
-							103u8, 109u8, 109u8, 238u8, 159u8, 162u8, 4u8, 190u8, 237u8, 208u8,
-							146u8, 34u8, 104u8, 95u8, 155u8, 100u8, 74u8, 86u8, 255u8, 213u8, 4u8,
-							102u8, 235u8, 54u8, 149u8, 63u8, 5u8, 61u8, 73u8, 183u8, 240u8, 225u8,
+							207u8, 10u8, 27u8, 16u8, 193u8, 86u8, 67u8, 80u8, 88u8, 163u8, 151u8,
+							106u8, 55u8, 101u8, 98u8, 176u8, 167u8, 172u8, 4u8, 245u8, 50u8, 135u8,
+							27u8, 137u8, 137u8, 252u8, 231u8, 16u8, 220u8, 38u8, 108u8, 2u8,
 						],
 					)
 				}
@@ -1321,7 +1339,7 @@ pub mod api {
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct GenerateProof {
-					pub leaf_indices: ::std::vec::Vec<::core::primitive::u64>,
+					pub leaf_positions: ::std::vec::Vec<::core::primitive::u64>,
 				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
@@ -1396,9 +1414,21 @@ pub mod api {
 				# [codec (crate = :: subxt :: ext :: codec)]
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+				pub struct LatestMessagingHeight {
+					pub id: runtime_types::ismp::consensus::StateMachineId,
+				}
+				#[derive(
+					:: subxt :: ext :: codec :: Decode,
+					:: subxt :: ext :: codec :: Encode,
+					:: subxt :: ext :: scale_decode :: DecodeAsType,
+					:: subxt :: ext :: scale_encode :: EncodeAsType,
+					Debug,
+				)]
+				# [codec (crate = :: subxt :: ext :: codec)]
+				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct GetRequestLeafIndices {
-					pub leaf_queries:
-						::std::vec::Vec<runtime_types::ismp_primitives::LeafIndexQuery>,
+					pub leaf_queries: ::std::vec::Vec<runtime_types::ismp::LeafIndexQuery>,
 				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
@@ -1411,8 +1441,7 @@ pub mod api {
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct GetResponseLeafIndices {
-					pub leaf_queries:
-						::std::vec::Vec<runtime_types::ismp_primitives::LeafIndexQuery>,
+					pub leaf_queries: ::std::vec::Vec<runtime_types::ismp::LeafIndexQuery>,
 				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
@@ -1425,7 +1454,7 @@ pub mod api {
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct GetRequests {
-					pub leaf_indices: ::std::vec::Vec<::core::primitive::u64>,
+					pub leaf_positions: ::std::vec::Vec<::core::primitive::u64>,
 				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
@@ -1449,7 +1478,7 @@ pub mod api {
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct GetResponses {
-					pub leaf_indices: ::std::vec::Vec<::core::primitive::u64>,
+					pub leaf_positions: ::std::vec::Vec<::core::primitive::u64>,
 				}
 			}
 		}
@@ -1627,9 +1656,9 @@ pub mod api {
 			.hash();
 		runtime_metadata_hash ==
 			[
-				116u8, 196u8, 173u8, 237u8, 130u8, 138u8, 3u8, 170u8, 254u8, 181u8, 30u8, 50u8,
-				197u8, 59u8, 45u8, 230u8, 86u8, 114u8, 120u8, 180u8, 180u8, 136u8, 243u8, 110u8,
-				222u8, 236u8, 217u8, 208u8, 146u8, 209u8, 116u8, 240u8,
+				174u8, 174u8, 183u8, 60u8, 98u8, 155u8, 206u8, 208u8, 197u8, 207u8, 18u8, 79u8,
+				110u8, 10u8, 175u8, 18u8, 74u8, 18u8, 218u8, 158u8, 13u8, 13u8, 240u8, 153u8,
+				224u8, 100u8, 246u8, 51u8, 8u8, 59u8, 187u8, 3u8,
 			]
 	}
 	pub mod system {
@@ -2661,7 +2690,7 @@ pub mod api {
 			use super::runtime_types;
 			pub struct StorageApi;
 			impl StorageApi {
-				#[doc = " Current time for the current block."]
+				#[doc = " The current time for the current block."]
 				pub fn now(
 					&self,
 				) -> ::subxt::storage::address::Address<
@@ -2682,7 +2711,10 @@ pub mod api {
 						],
 					)
 				}
-				#[doc = " Did the timestamp get updated in this block?"]
+				#[doc = " Whether the timestamp has been updated in this block."]
+				#[doc = ""]
+				#[doc = " This value is updated to `true` upon successful submission of a timestamp by a node."]
+				#[doc = " It is then checked at the end of each block execution in the `on_finalize` hook."]
 				pub fn did_update(
 					&self,
 				) -> ::subxt::storage::address::Address<
@@ -2710,10 +2742,12 @@ pub mod api {
 			use super::runtime_types;
 			pub struct ConstantsApi;
 			impl ConstantsApi {
-				#[doc = " The minimum period between blocks. Beware that this is different to the *expected*"]
-				#[doc = " period that the block production apparatus provides. Your chosen consensus system will"]
-				#[doc = " generally work with this to determine a sensible block time. e.g. For Aura, it will be"]
-				#[doc = " double this period on default settings."]
+				#[doc = " The minimum period between blocks."]
+				#[doc = ""]
+				#[doc = " Be aware that this is different to the *expected* period that the block production"]
+				#[doc = " apparatus provides. Your chosen consensus system will generally work with this to"]
+				#[doc = " determine a sensible block time. For example, in the Aura pallet it will be double this"]
+				#[doc = " period on default settings."]
 				pub fn minimum_period(
 					&self,
 				) -> ::subxt::constants::Address<::core::primitive::u64> {
@@ -3109,7 +3143,7 @@ pub mod api {
 					&self,
 				) -> ::subxt::storage::address::Address<
 					::subxt::storage::address::StaticStorageMapKey,
-					runtime_types::polkadot_primitives::v5::PersistedValidationData<
+					runtime_types::polkadot_primitives::v6::PersistedValidationData<
 						::subxt::utils::H256,
 						::core::primitive::u32,
 					>,
@@ -3183,7 +3217,7 @@ pub mod api {
 				) -> ::subxt::storage::address::Address<
 					::subxt::storage::address::StaticStorageMapKey,
 					::core::option::Option<
-						runtime_types::polkadot_primitives::v5::UpgradeRestriction,
+						runtime_types::polkadot_primitives::v6::UpgradeRestriction,
 					>,
 					::subxt::storage::address::Yes,
 					::subxt::storage::address::Yes,
@@ -3209,7 +3243,7 @@ pub mod api {
 					&self,
 				) -> ::subxt::storage::address::Address<
 					::subxt::storage::address::StaticStorageMapKey,
-					::core::option::Option<runtime_types::polkadot_primitives::v5::UpgradeGoAhead>,
+					::core::option::Option<runtime_types::polkadot_primitives::v6::UpgradeGoAhead>,
 					::subxt::storage::address::Yes,
 					::subxt::storage::address::Yes,
 					(),
@@ -3281,7 +3315,7 @@ pub mod api {
 					&self,
 				) -> ::subxt::storage::address::Address<
 					::subxt::storage::address::StaticStorageMapKey,
-					runtime_types::polkadot_primitives::v5::AbridgedHostConfiguration,
+					runtime_types::polkadot_primitives::v6::AbridgedHostConfiguration,
 					::subxt::storage::address::Yes,
 					(),
 					(),
@@ -3662,27 +3696,6 @@ pub mod api {
 				# [codec (crate = :: subxt :: ext :: codec)]
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-				pub struct SetBalanceDeprecated {
-					pub who: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
-					#[codec(compact)]
-					pub new_free: ::core::primitive::u128,
-					#[codec(compact)]
-					pub old_reserved: ::core::primitive::u128,
-				}
-				impl ::subxt::blocks::StaticExtrinsic for SetBalanceDeprecated {
-					const PALLET: &'static str = "Balances";
-					const CALL: &'static str = "set_balance_deprecated";
-				}
-				#[derive(
-					:: subxt :: ext :: codec :: Decode,
-					:: subxt :: ext :: codec :: Encode,
-					:: subxt :: ext :: scale_decode :: DecodeAsType,
-					:: subxt :: ext :: scale_encode :: EncodeAsType,
-					Debug,
-				)]
-				# [codec (crate = :: subxt :: ext :: codec)]
-				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
-				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct ForceTransfer {
 					pub source: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
 					pub dest: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
@@ -3775,25 +3788,6 @@ pub mod api {
 				# [codec (crate = :: subxt :: ext :: codec)]
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-				pub struct Transfer {
-					pub dest: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
-					#[codec(compact)]
-					pub value: ::core::primitive::u128,
-				}
-				impl ::subxt::blocks::StaticExtrinsic for Transfer {
-					const PALLET: &'static str = "Balances";
-					const CALL: &'static str = "transfer";
-				}
-				#[derive(
-					:: subxt :: ext :: codec :: Decode,
-					:: subxt :: ext :: codec :: Encode,
-					:: subxt :: ext :: scale_decode :: DecodeAsType,
-					:: subxt :: ext :: scale_encode :: EncodeAsType,
-					Debug,
-				)]
-				# [codec (crate = :: subxt :: ext :: codec)]
-				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
-				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct ForceSetBalance {
 					pub who: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
 					#[codec(compact)]
@@ -3821,24 +3815,6 @@ pub mod api {
 							140u8, 27u8, 205u8, 214u8, 222u8, 102u8, 43u8, 143u8, 145u8, 86u8,
 							219u8, 210u8, 147u8, 13u8, 39u8, 51u8, 21u8, 237u8, 179u8, 132u8,
 							130u8,
-						],
-					)
-				}
-				#[doc = "See [`Pallet::set_balance_deprecated`]."]
-				pub fn set_balance_deprecated(
-					&self,
-					who: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
-					new_free: ::core::primitive::u128,
-					old_reserved: ::core::primitive::u128,
-				) -> ::subxt::tx::Payload<types::SetBalanceDeprecated> {
-					::subxt::tx::Payload::new_static(
-						"Balances",
-						"set_balance_deprecated",
-						types::SetBalanceDeprecated { who, new_free, old_reserved },
-						[
-							125u8, 171u8, 21u8, 186u8, 108u8, 185u8, 241u8, 145u8, 125u8, 8u8,
-							12u8, 42u8, 96u8, 114u8, 80u8, 80u8, 227u8, 76u8, 20u8, 208u8, 93u8,
-							219u8, 36u8, 50u8, 209u8, 155u8, 70u8, 45u8, 6u8, 57u8, 156u8, 77u8,
 						],
 					)
 				}
@@ -3925,24 +3901,6 @@ pub mod api {
 							66u8, 200u8, 179u8, 104u8, 65u8, 2u8, 101u8, 56u8, 130u8, 161u8, 224u8,
 							233u8, 255u8, 124u8, 70u8, 122u8, 8u8, 49u8, 103u8, 178u8, 68u8, 47u8,
 							214u8, 166u8, 217u8, 116u8, 178u8, 50u8, 212u8, 164u8, 98u8, 226u8,
-						],
-					)
-				}
-				#[doc = "See [`Pallet::transfer`]."]
-				pub fn transfer(
-					&self,
-					dest: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
-					value: ::core::primitive::u128,
-				) -> ::subxt::tx::Payload<types::Transfer> {
-					::subxt::tx::Payload::new_static(
-						"Balances",
-						"transfer",
-						types::Transfer { dest, value },
-						[
-							154u8, 145u8, 140u8, 54u8, 50u8, 123u8, 225u8, 249u8, 200u8, 217u8,
-							172u8, 110u8, 233u8, 198u8, 77u8, 198u8, 211u8, 89u8, 8u8, 13u8, 240u8,
-							94u8, 28u8, 13u8, 242u8, 217u8, 168u8, 23u8, 106u8, 254u8, 249u8,
-							120u8,
 						],
 					)
 				}
@@ -6053,10 +6011,9 @@ pub mod api {
 						"sudo",
 						types::Sudo { call: ::std::boxed::Box::new(call) },
 						[
-							249u8, 157u8, 221u8, 61u8, 207u8, 223u8, 156u8, 17u8, 194u8, 45u8,
-							53u8, 75u8, 112u8, 119u8, 105u8, 132u8, 220u8, 242u8, 247u8, 172u8,
-							244u8, 64u8, 9u8, 185u8, 190u8, 141u8, 48u8, 29u8, 37u8, 185u8, 211u8,
-							247u8,
+							224u8, 22u8, 232u8, 6u8, 32u8, 102u8, 120u8, 60u8, 126u8, 95u8, 238u8,
+							106u8, 38u8, 20u8, 10u8, 224u8, 57u8, 17u8, 125u8, 8u8, 102u8, 116u8,
+							121u8, 236u8, 75u8, 79u8, 21u8, 30u8, 64u8, 174u8, 63u8, 56u8,
 						],
 					)
 				}
@@ -6071,10 +6028,10 @@ pub mod api {
 						"sudo_unchecked_weight",
 						types::SudoUncheckedWeight { call: ::std::boxed::Box::new(call), weight },
 						[
-							178u8, 194u8, 5u8, 66u8, 140u8, 201u8, 85u8, 251u8, 136u8, 119u8,
-							208u8, 174u8, 131u8, 109u8, 177u8, 55u8, 134u8, 127u8, 247u8, 47u8,
-							28u8, 61u8, 42u8, 221u8, 106u8, 216u8, 178u8, 72u8, 157u8, 254u8,
-							107u8, 108u8,
+							248u8, 199u8, 2u8, 113u8, 231u8, 44u8, 30u8, 192u8, 224u8, 224u8,
+							228u8, 87u8, 76u8, 89u8, 124u8, 107u8, 211u8, 165u8, 159u8, 132u8,
+							73u8, 198u8, 229u8, 164u8, 155u8, 50u8, 227u8, 170u8, 192u8, 172u8,
+							241u8, 10u8,
 						],
 					)
 				}
@@ -6105,9 +6062,9 @@ pub mod api {
 						"sudo_as",
 						types::SudoAs { who, call: ::std::boxed::Box::new(call) },
 						[
-							243u8, 87u8, 241u8, 215u8, 243u8, 187u8, 243u8, 185u8, 20u8, 60u8,
-							48u8, 81u8, 153u8, 247u8, 192u8, 72u8, 67u8, 93u8, 185u8, 47u8, 215u8,
-							69u8, 183u8, 194u8, 121u8, 52u8, 224u8, 61u8, 62u8, 87u8, 12u8, 105u8,
+							96u8, 2u8, 80u8, 51u8, 124u8, 22u8, 53u8, 130u8, 117u8, 15u8, 49u8,
+							6u8, 241u8, 145u8, 207u8, 70u8, 11u8, 228u8, 114u8, 106u8, 38u8, 88u8,
+							224u8, 154u8, 217u8, 28u8, 168u8, 216u8, 198u8, 64u8, 127u8, 40u8,
 						],
 					)
 				}
@@ -6127,7 +6084,7 @@ pub mod api {
 			# [codec (crate = :: subxt :: ext :: codec)]
 			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-			#[doc = "A sudo just took place. \\[result\\]"]
+			#[doc = "A sudo call just took place."]
 			pub struct Sudid {
 				pub sudo_result:
 					::core::result::Result<(), runtime_types::sp_runtime::DispatchError>,
@@ -6146,7 +6103,7 @@ pub mod api {
 			# [codec (crate = :: subxt :: ext :: codec)]
 			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-			#[doc = "The \\[sudoer\\] just switched identity; the old key is supplied if one existed."]
+			#[doc = "The sudo key has been updated."]
 			pub struct KeyChanged {
 				pub old_sudoer: ::core::option::Option<::subxt::utils::AccountId32>,
 			}
@@ -6164,7 +6121,7 @@ pub mod api {
 			# [codec (crate = :: subxt :: ext :: codec)]
 			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-			#[doc = "A sudo just took place. \\[result\\]"]
+			#[doc = "A [sudo_as](Pallet::sudo_as) call just took place."]
 			pub struct SudoAsDone {
 				pub sudo_result:
 					::core::result::Result<(), runtime_types::sp_runtime::DispatchError>,
@@ -9510,6 +9467,49 @@ pub mod api {
 						],
 					)
 				}
+				#[doc = " Holds a map of state machines to the latest height we've processed requests for"]
+				pub fn latest_messaging_height_iter(
+					&self,
+				) -> ::subxt::storage::address::Address<
+					::subxt::storage::address::StaticStorageMapKey,
+					::core::primitive::u64,
+					(),
+					(),
+					::subxt::storage::address::Yes,
+				> {
+					::subxt::storage::address::Address::new_static(
+						"Ismp",
+						"LatestMessagingHeight",
+						vec![],
+						[
+							46u8, 137u8, 194u8, 74u8, 119u8, 51u8, 125u8, 151u8, 92u8, 186u8, 61u8,
+							232u8, 57u8, 146u8, 140u8, 40u8, 239u8, 49u8, 47u8, 151u8, 107u8, 50u8,
+							117u8, 119u8, 35u8, 94u8, 240u8, 199u8, 238u8, 190u8, 172u8, 167u8,
+						],
+					)
+				}
+				#[doc = " Holds a map of state machines to the latest height we've processed requests for"]
+				pub fn latest_messaging_height(
+					&self,
+					_0: impl ::std::borrow::Borrow<runtime_types::ismp::consensus::StateMachineId>,
+				) -> ::subxt::storage::address::Address<
+					::subxt::storage::address::StaticStorageMapKey,
+					::core::primitive::u64,
+					::subxt::storage::address::Yes,
+					(),
+					(),
+				> {
+					::subxt::storage::address::Address::new_static(
+						"Ismp",
+						"LatestMessagingHeight",
+						vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
+						[
+							46u8, 137u8, 194u8, 74u8, 119u8, 51u8, 125u8, 151u8, 92u8, 186u8, 61u8,
+							232u8, 57u8, 146u8, 140u8, 40u8, 239u8, 49u8, 47u8, 151u8, 107u8, 50u8,
+							117u8, 119u8, 35u8, 94u8, 240u8, 199u8, 238u8, 190u8, 172u8, 167u8,
+						],
+					)
+				}
 				#[doc = " A mapping of ConsensusStateId to ConsensusClientId"]
 				pub fn consensus_state_client_iter(
 					&self,
@@ -9852,7 +9852,7 @@ pub mod api {
 					&self,
 				) -> ::subxt::storage::address::Address<
 					::subxt::storage::address::StaticStorageMapKey,
-					runtime_types::ismp_primitives::LeafIndexQuery,
+					runtime_types::ismp::LeafIndexQuery,
 					(),
 					(),
 					::subxt::storage::address::Yes,
@@ -9876,7 +9876,7 @@ pub mod api {
 					_0: impl ::std::borrow::Borrow<::subxt::utils::H256>,
 				) -> ::subxt::storage::address::Address<
 					::subxt::storage::address::StaticStorageMapKey,
-					runtime_types::ismp_primitives::LeafIndexQuery,
+					runtime_types::ismp::LeafIndexQuery,
 					::subxt::storage::address::Yes,
 					(),
 					(),
@@ -10688,7 +10688,7 @@ pub mod api {
 				# [codec (crate = :: subxt :: ext :: codec)]
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-				pub struct MessagingStateSnapshot { pub dmq_mqc_head : :: subxt :: utils :: H256 , pub relay_dispatch_queue_remaining_capacity : runtime_types :: cumulus_pallet_parachain_system :: relay_state_snapshot :: RelayDispatchQueueRemainingCapacity , pub ingress_channels : :: std :: vec :: Vec < (runtime_types :: polkadot_parachain_primitives :: primitives :: Id , runtime_types :: polkadot_primitives :: v5 :: AbridgedHrmpChannel ,) > , pub egress_channels : :: std :: vec :: Vec < (runtime_types :: polkadot_parachain_primitives :: primitives :: Id , runtime_types :: polkadot_primitives :: v5 :: AbridgedHrmpChannel ,) > , }
+				pub struct MessagingStateSnapshot { pub dmq_mqc_head : :: subxt :: utils :: H256 , pub relay_dispatch_queue_remaining_capacity : runtime_types :: cumulus_pallet_parachain_system :: relay_state_snapshot :: RelayDispatchQueueRemainingCapacity , pub ingress_channels : :: std :: vec :: Vec < (runtime_types :: polkadot_parachain_primitives :: primitives :: Id , runtime_types :: polkadot_primitives :: v6 :: AbridgedHrmpChannel ,) > , pub egress_channels : :: std :: vec :: Vec < (runtime_types :: polkadot_parachain_primitives :: primitives :: Id , runtime_types :: polkadot_primitives :: v6 :: AbridgedHrmpChannel ,) > , }
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
 					:: subxt :: ext :: codec :: Encode,
@@ -10716,7 +10716,7 @@ pub mod api {
 				# [codec (crate = :: subxt :: ext :: codec)]
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-				pub struct Ancestor < _0 > { pub used_bandwidth : runtime_types :: cumulus_pallet_parachain_system :: unincluded_segment :: UsedBandwidth , pub para_head_hash : :: core :: option :: Option < _0 > , pub consumed_go_ahead_signal : :: core :: option :: Option < runtime_types :: polkadot_primitives :: v5 :: UpgradeGoAhead > , }
+				pub struct Ancestor < _0 > { pub used_bandwidth : runtime_types :: cumulus_pallet_parachain_system :: unincluded_segment :: UsedBandwidth , pub para_head_hash : :: core :: option :: Option < _0 > , pub consumed_go_ahead_signal : :: core :: option :: Option < runtime_types :: polkadot_primitives :: v6 :: UpgradeGoAhead > , }
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
 					:: subxt :: ext :: codec :: Encode,
@@ -10741,7 +10741,7 @@ pub mod api {
 				# [codec (crate = :: subxt :: ext :: codec)]
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-				pub struct SegmentTracker < _0 > { pub used_bandwidth : runtime_types :: cumulus_pallet_parachain_system :: unincluded_segment :: UsedBandwidth , pub hrmp_watermark : :: core :: option :: Option < :: core :: primitive :: u32 > , pub consumed_go_ahead_signal : :: core :: option :: Option < runtime_types :: polkadot_primitives :: v5 :: UpgradeGoAhead > , # [codec (skip)] pub __subxt_unused_type_params : :: core :: marker :: PhantomData < _0 > }
+				pub struct SegmentTracker < _0 > { pub used_bandwidth : runtime_types :: cumulus_pallet_parachain_system :: unincluded_segment :: UsedBandwidth , pub hrmp_watermark : :: core :: option :: Option < :: core :: primitive :: u32 > , pub consumed_go_ahead_signal : :: core :: option :: Option < runtime_types :: polkadot_primitives :: v6 :: UpgradeGoAhead > , # [codec (skip)] pub __subxt_unused_type_params : :: core :: marker :: PhantomData < _0 > }
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
 					:: subxt :: ext :: codec :: Encode,
@@ -11084,7 +11084,7 @@ pub mod api {
 			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 			pub struct ParachainInherentData {
 				pub validation_data:
-					runtime_types::polkadot_primitives::v5::PersistedValidationData<
+					runtime_types::polkadot_primitives::v6::PersistedValidationData<
 						::subxt::utils::H256,
 						::core::primitive::u32,
 					>,
@@ -11949,6 +11949,25 @@ pub mod api {
 					Get { requests: ::std::vec::Vec<runtime_types::ismp::router::Request> },
 				}
 			}
+			pub mod mmr {
+				use super::runtime_types;
+				#[derive(
+					:: subxt :: ext :: codec :: Decode,
+					:: subxt :: ext :: codec :: Encode,
+					:: subxt :: ext :: scale_decode :: DecodeAsType,
+					:: subxt :: ext :: scale_encode :: EncodeAsType,
+					Debug,
+				)]
+				# [codec (crate = :: subxt :: ext :: codec)]
+				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+				pub enum Leaf {
+					#[codec(index = 0)]
+					Request(runtime_types::ismp::router::Request),
+					#[codec(index = 1)]
+					Response(runtime_types::ismp::router::Response),
+				}
+			}
 			pub mod router {
 				use super::runtime_types;
 				#[derive(
@@ -12054,6 +12073,21 @@ pub mod api {
 					#[codec(index = 1)]
 					Get(runtime_types::ismp::router::GetResponse),
 				}
+			}
+			#[derive(
+				:: subxt :: ext :: codec :: Decode,
+				:: subxt :: ext :: codec :: Encode,
+				:: subxt :: ext :: scale_decode :: DecodeAsType,
+				:: subxt :: ext :: scale_encode :: EncodeAsType,
+				Debug,
+			)]
+			# [codec (crate = :: subxt :: ext :: codec)]
+			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+			pub struct LeafIndexQuery {
+				pub source_chain: runtime_types::ismp::host::StateMachine,
+				pub dest_chain: runtime_types::ismp::host::StateMachine,
+				pub nonce: ::core::primitive::u64,
 			}
 		}
 		pub mod ismp_demo {
@@ -12198,43 +12232,6 @@ pub mod api {
 				}
 			}
 		}
-		pub mod ismp_primitives {
-			use super::runtime_types;
-			pub mod mmr {
-				use super::runtime_types;
-				#[derive(
-					:: subxt :: ext :: codec :: Decode,
-					:: subxt :: ext :: codec :: Encode,
-					:: subxt :: ext :: scale_decode :: DecodeAsType,
-					:: subxt :: ext :: scale_encode :: EncodeAsType,
-					Debug,
-				)]
-				# [codec (crate = :: subxt :: ext :: codec)]
-				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
-				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-				pub enum Leaf {
-					#[codec(index = 0)]
-					Request(runtime_types::ismp::router::Request),
-					#[codec(index = 1)]
-					Response(runtime_types::ismp::router::Response),
-				}
-			}
-			#[derive(
-				:: subxt :: ext :: codec :: Decode,
-				:: subxt :: ext :: codec :: Encode,
-				:: subxt :: ext :: scale_decode :: DecodeAsType,
-				:: subxt :: ext :: scale_encode :: EncodeAsType,
-				Debug,
-			)]
-			# [codec (crate = :: subxt :: ext :: codec)]
-			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
-			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-			pub struct LeafIndexQuery {
-				pub source_chain: runtime_types::ismp::host::StateMachine,
-				pub dest_chain: runtime_types::ismp::host::StateMachine,
-				pub nonce: ::core::primitive::u64,
-			}
-		}
 		pub mod ismp_sync_committee {
 			use super::runtime_types;
 			pub mod pallet {
@@ -12317,15 +12314,6 @@ pub mod api {
 						#[codec(compact)]
 						value: ::core::primitive::u128,
 					},
-					#[codec(index = 1)]
-					#[doc = "See [`Pallet::set_balance_deprecated`]."]
-					set_balance_deprecated {
-						who: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
-						#[codec(compact)]
-						new_free: ::core::primitive::u128,
-						#[codec(compact)]
-						old_reserved: ::core::primitive::u128,
-					},
 					#[codec(index = 2)]
 					#[doc = "See [`Pallet::force_transfer`]."]
 					force_transfer {
@@ -12356,13 +12344,6 @@ pub mod api {
 					#[codec(index = 6)]
 					#[doc = "See [`Pallet::upgrade_accounts`]."]
 					upgrade_accounts { who: ::std::vec::Vec<::subxt::utils::AccountId32> },
-					#[codec(index = 7)]
-					#[doc = "See [`Pallet::transfer`]."]
-					transfer {
-						dest: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
-						#[codec(compact)]
-						value: ::core::primitive::u128,
-					},
 					#[codec(index = 8)]
 					#[doc = "See [`Pallet::force_set_balance`]."]
 					force_set_balance {
@@ -13056,7 +13037,7 @@ pub mod api {
 				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
 				pub struct Proof<_0> {
-					pub leaf_indices: ::std::vec::Vec<::core::primitive::u64>,
+					pub leaf_positions: ::std::vec::Vec<::core::primitive::u64>,
 					pub leaf_count: ::core::primitive::u64,
 					pub items: ::std::vec::Vec<_0>,
 				}
@@ -13215,16 +13196,16 @@ pub mod api {
 				#[doc = "The `Event` enum of this pallet"]
 				pub enum Event {
 					#[codec(index = 0)]
-					#[doc = "A sudo just took place. \\[result\\]"]
+					#[doc = "A sudo call just took place."]
 					Sudid {
 						sudo_result:
 							::core::result::Result<(), runtime_types::sp_runtime::DispatchError>,
 					},
 					#[codec(index = 1)]
-					#[doc = "The \\[sudoer\\] just switched identity; the old key is supplied if one existed."]
+					#[doc = "The sudo key has been updated."]
 					KeyChanged { old_sudoer: ::core::option::Option<::subxt::utils::AccountId32> },
 					#[codec(index = 2)]
-					#[doc = "A sudo just took place. \\[result\\]"]
+					#[doc = "A [sudo_as](Pallet::sudo_as) call just took place."]
 					SudoAsDone {
 						sudo_result:
 							::core::result::Result<(), runtime_types::sp_runtime::DispatchError>,
@@ -13927,8 +13908,25 @@ pub mod api {
 		}
 		pub mod polkadot_primitives {
 			use super::runtime_types;
-			pub mod v5 {
+			pub mod v6 {
 				use super::runtime_types;
+				pub mod async_backing {
+					use super::runtime_types;
+					#[derive(
+						:: subxt :: ext :: codec :: Decode,
+						:: subxt :: ext :: codec :: Encode,
+						:: subxt :: ext :: scale_decode :: DecodeAsType,
+						:: subxt :: ext :: scale_encode :: EncodeAsType,
+						Debug,
+					)]
+					# [codec (crate = :: subxt :: ext :: codec)]
+					#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+					#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+					pub struct AsyncBackingParams {
+						pub max_candidate_depth: ::core::primitive::u32,
+						pub allowed_ancestry_len: ::core::primitive::u32,
+					}
+				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
 					:: subxt :: ext :: codec :: Encode,
@@ -13950,7 +13948,7 @@ pub mod api {
 					pub validation_upgrade_cooldown: ::core::primitive::u32,
 					pub validation_upgrade_delay: ::core::primitive::u32,
 					pub async_backing_params:
-						runtime_types::polkadot_primitives::vstaging::AsyncBackingParams,
+						runtime_types::polkadot_primitives::v6::async_backing::AsyncBackingParams,
 				}
 				#[derive(
 					:: subxt :: ext :: codec :: Decode,
@@ -14016,23 +14014,6 @@ pub mod api {
 				pub enum UpgradeRestriction {
 					#[codec(index = 0)]
 					Present,
-				}
-			}
-			pub mod vstaging {
-				use super::runtime_types;
-				#[derive(
-					:: subxt :: ext :: codec :: Decode,
-					:: subxt :: ext :: codec :: Encode,
-					:: subxt :: ext :: scale_decode :: DecodeAsType,
-					:: subxt :: ext :: scale_encode :: EncodeAsType,
-					Debug,
-				)]
-				# [codec (crate = :: subxt :: ext :: codec)]
-				#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
-				#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-				pub struct AsyncBackingParams {
-					pub max_candidate_depth: ::core::primitive::u32,
-					pub allowed_ancestry_len: ::core::primitive::u32,
 				}
 			}
 		}

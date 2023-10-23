@@ -38,12 +38,20 @@ where
 		let mut chain_a = chain_a.clone();
 		let mut chain_b = chain_b.clone();
 		let router_id = router_id.clone();
+		let mut previous_height = chain_b.initial_height();
 		async move {
 			let mut state_machine_update_stream =
 				chain_a.state_machine_update_notification(chain_b.state_machine_id()).await;
 			loop {
 				let item = state_machine_update_stream.next().await;
-				let res = handle_notification(&mut chain_a, &mut chain_b, item, router_id).await;
+				let res = handle_notification(
+					&mut chain_a,
+					&mut chain_b,
+					item,
+					router_id,
+					&mut previous_height,
+				)
+				.await;
 
 				if let Err(_) = res {
 					log::info!("RESTARTING {} messaging task", chain_a.name());
@@ -69,12 +77,20 @@ where
 		let mut chain_a = chain_a.clone();
 		let mut chain_b = chain_b.clone();
 		let router_id = router_id.clone();
+		let mut previous_height = chain_a.initial_height();
 		async move {
 			let mut state_machine_update_stream =
 				chain_b.state_machine_update_notification(chain_a.state_machine_id()).await;
 			loop {
 				let item = state_machine_update_stream.next().await;
-				let res = handle_notification(&mut chain_b, &mut chain_a, item, router_id).await;
+				let res = handle_notification(
+					&mut chain_b,
+					&mut chain_a,
+					item,
+					router_id,
+					&mut previous_height,
+				)
+				.await;
 				if let Err(_) = res {
 					log::info!("RESTARTING {} messaging task", chain_b.name());
 					if let Err(_) =
@@ -103,6 +119,7 @@ async fn handle_notification<A, B>(
 	chain_b: &B,
 	state_machine_update: Option<Result<StateMachineUpdated, anyhow::Error>>,
 	router_id: Option<StateMachine>,
+	previous_height: &mut u64,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider,
@@ -115,13 +132,14 @@ where
 			// We query all the events that have been emitted on chain B that can be submitted to
 			// chain A filter events list to contain only Request and Response events
 			let events = chain_b
-				.query_ismp_events(state_machine_update.clone())
+				.query_ismp_events(*previous_height, state_machine_update.clone())
 				.await?
 				.into_iter()
 				.filter(|ev| filter_events(router_id, chain_a.state_machine_id().state_id, ev))
 				.collect::<Vec<_>>();
 
 			if events.is_empty() {
+				*previous_height = state_machine_update.latest_height;
 				return Ok(())
 			}
 
@@ -157,6 +175,7 @@ where
 				);
 				let _ = chain_b.submit(get_responses).await;
 			}
+			*previous_height = state_machine_update.latest_height;
 			Ok(())
 		},
 		Some(Err(e)) => {

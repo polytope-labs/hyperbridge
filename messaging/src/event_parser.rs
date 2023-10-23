@@ -110,14 +110,19 @@ where
 	let mut get_responses = vec![];
 
 	if !post_request_queries.is_empty() {
-		let requests_proof = source
-			.query_requests_proof(state_machine_height.height, post_request_queries)
-			.await?;
-		let msg = RequestMessage {
-			requests: post_requests,
-			proof: Proof { height: state_machine_height, proof: requests_proof },
-		};
-		messages.push(Message::Request(msg));
+		let chunks = chunk_size(sink.state_machine_id().state_id);
+		let query_chunks = post_request_queries.chunks(chunks);
+		let post_request_chunks = post_requests.chunks(chunks);
+		for (queries, post_requests) in query_chunks.into_iter().zip(post_request_chunks) {
+			let requests_proof = source
+				.query_requests_proof(state_machine_height.height, queries.to_vec())
+				.await?;
+			let msg = RequestMessage {
+				requests: post_requests.to_vec(),
+				proof: Proof { height: state_machine_height, proof: requests_proof },
+			};
+			messages.push(Message::Request(msg));
+		}
 	}
 
 	// Let's handle get requests
@@ -143,14 +148,19 @@ where
 	}
 
 	if !response_queries.is_empty() {
-		let responses_proof = source
-			.query_responses_proof(state_machine_height.height, response_queries)
-			.await?;
-		let msg = ResponseMessage::Post {
-			responses: post_responses,
-			proof: Proof { height: state_machine_height, proof: responses_proof },
-		};
-		messages.push(Message::Response(msg));
+		let chunks = chunk_size(sink.state_machine_id().state_id);
+		let query_chunks = response_queries.chunks(chunks);
+		let post_request_chunks = post_responses.chunks(chunks);
+		for (queries, post_responses) in query_chunks.into_iter().zip(post_request_chunks) {
+			let responses_proof = source
+				.query_responses_proof(state_machine_height.height, queries.to_vec())
+				.await?;
+			let msg = ResponseMessage::Post {
+				responses: post_responses.to_vec(),
+				proof: Proof { height: state_machine_height, proof: responses_proof },
+			};
+			messages.push(Message::Response(msg));
+		}
 	}
 
 	Ok((messages, get_responses))
@@ -169,6 +179,13 @@ pub fn filter_events(
 		IsmpEvent::PostRequest(post) => (post.dest == counterparty) || is_router,
 		IsmpEvent::PostResponse(resp) => (resp.post.source == counterparty) || is_router,
 		_ => false,
+	}
+}
+
+fn chunk_size(state_machine: StateMachine) -> usize {
+	match state_machine {
+		StateMachine::Ethereum(_) => 100,
+		_ => 200,
 	}
 }
 

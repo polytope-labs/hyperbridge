@@ -128,6 +128,7 @@ impl IsmpProvider for MockHost {
 
 	async fn query_ismp_events(
 		&self,
+		_previous_height: u64,
 		_event: StateMachineUpdated,
 	) -> Result<Vec<Event>, anyhow::Error> {
 		todo!()
@@ -147,6 +148,10 @@ impl IsmpProvider for MockHost {
 
 	fn block_max_gas(&self) -> u64 {
 		todo!()
+	}
+
+	fn initial_height(&self) -> u64 {
+		0
 	}
 
 	async fn estimate_gas(&self, _msg: Vec<Message>) -> Result<u64, anyhow::Error> {

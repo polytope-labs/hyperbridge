@@ -17,6 +17,8 @@
 
 mod event_parser;
 
+use std::time::Duration;
+
 use crate::event_parser::{filter_events, parse_ismp_events, Event};
 use futures::StreamExt;
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
@@ -155,6 +157,8 @@ where
 		parse_ismp_events(chain_b, chain_a, events, state_machine_height).await?;
 
 	if !messages.is_empty() {
+		// Sleep for 30 seconds before submitting messages
+		tokio::time::sleep(Duration::from_secs(30)).await;
 		log::info!(
 			target: "tesseract",
 			"🛰️Submitting ismp messages from {} to {}",

@@ -5,9 +5,9 @@ import "solidity-merkle-trees/MerkleMountainRange.sol";
 import "solidity-merkle-trees/MerklePatricia.sol";
 import "openzeppelin/utils/Context.sol";
 
-import "ismp/interfaces/IConsensusClient.sol";
-import "ismp/interfaces/IHandler.sol";
-import "ismp/interfaces/IIsmpHost.sol";
+import "ismp/IConsensusClient.sol";
+import "ismp/IHandler.sol";
+import "ismp/IIsmpHost.sol";
 
 contract HandlerV1 is IHandler, Context {
     using Bytes for bytes;

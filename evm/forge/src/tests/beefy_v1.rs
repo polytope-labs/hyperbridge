@@ -75,7 +75,6 @@ struct Config {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore]
 async fn beefy_consensus_client_test() {
     let mut runner = runner();
     let config = envy::from_env::<Config>().unwrap();
@@ -126,6 +125,7 @@ async fn beefy_consensus_client_test() {
         let VersionedFinalityProof::V1(signed_commitment) =
             VersionedFinalityProof::<u32, Signature>::decode(&mut &*commitment).unwrap();
 
+
         match signed_commitment.commitment.validator_set_id {
             id if id < consensus_state.current_authority_set.id.as_u64() => {
                 // If validator set id of signed commitment is less than current validator set id we
@@ -140,7 +140,7 @@ async fn beefy_consensus_client_test() {
         };
 
         let consensus_proof: abi::BeefyConsensusProof =
-            prover.consensus_proof(signed_commitment).await.unwrap().into();
+            prover.consensus_proof(signed_commitment.clone()).await.unwrap().into();
 
         if consensus_proof.relay.signed_commitment.commitment.block_number ==
             consensus_state.latest_height
@@ -148,7 +148,8 @@ async fn beefy_consensus_client_test() {
             continue
         }
 
-        dbg!(&consensus_proof.relay.signed_commitment.commitment);
+        dbg!(&signed_commitment.commitment);
+
 
         let (new_state, intermediates) = execute::<_, (bytes::Bytes, abi::IntermediateState)>(
             &mut runner,
@@ -167,8 +168,6 @@ async fn beefy_consensus_client_test() {
         {
             let debug_consensus_state: ConsensusState = consensus_state.clone().into();
             dbg!(&debug_consensus_state);
-            let intermediate: local::IntermediateState = intermediates.into();
-            dbg!(&intermediate);
         }
     }
 }

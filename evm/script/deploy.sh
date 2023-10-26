@@ -3,7 +3,7 @@ if [ "$1" = "local" ]; then
     # load local .env
     source .env
     # deploy
-    HOST="ethereum" forge script script/DeployIsmp.s.sol:DeployScript --rpc-url "$GOERLI_RPC_URL" --broadcast -vvvv --sender="$ADMIN"
+    HOST="ethereum" forge script script/DeployIsmp.s.sol:DeployScript --rpc-url "$GOERLI_RPC_URL" --broadcast --verify -vvvv --sender="$ADMIN"
 else
     echo "Deploying to $1"
     # load prod .env

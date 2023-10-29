@@ -23,6 +23,9 @@ members = [
      "parachain/modules/consensus/sync-committee/verifier",
      "parachain/modules/consensus/sync-committee/primitives",
 
+     # demo-application
+     "messenger",
+
      # evm tests
 #     "evm/forge"
 ]

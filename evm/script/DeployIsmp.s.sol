@@ -4,9 +4,9 @@ pragma solidity ^0.8.13;
 import "forge-std/Script.sol";
 import "openzeppelin/utils/Strings.sol";
 
-import "ismp/HandlerV1.sol";
-import "ismp/EvmHost.sol";
-import "ismp/modules/CrossChainGovernor.sol";
+import "../src/HandlerV1.sol";
+import "../src/EvmHost.sol";
+import "../src/modules/CrossChainGovernor.sol";
 
 import "../src/beefy/BeefyV1.sol";
 import "../src/hosts/Ethereum.sol";
@@ -29,8 +29,14 @@ contract DeployScript is Script {
         // handler
         HandlerV1 handler = new HandlerV1{salt: salt}();
         // cross-chain governor
-        GovernorParams memory gParams = GovernorParams({admin: admin, host: address(0), paraId: paraId});
-        CrossChainGovernor governor = new CrossChainGovernor{salt: salt}(gParams);
+        GovernorParams memory gParams = GovernorParams({
+            admin: admin,
+            host: address(0),
+            paraId: paraId
+        });
+        CrossChainGovernor governor = new CrossChainGovernor{salt: salt}(
+            gParams
+        );
         // EvmHost
         HostParams memory params = HostParams({
             admin: admin,
@@ -54,7 +60,10 @@ contract DeployScript is Script {
         vm.stopBroadcast();
     }
 
-    function initHost(string memory host, HostParams memory params) public returns (address) {
+    function initHost(
+        string memory host,
+        HostParams memory params
+    ) public returns (address) {
         if (Strings.equal(host, "goerli") || Strings.equal(host, "ethereum")) {
             EthereumHost host = new EthereumHost{salt: salt}(params);
             return address(host);

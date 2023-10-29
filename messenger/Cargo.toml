@@ -1,0 +1,24 @@
+[package]
+name = "messenger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+indicatif = "0.17.7"
+console = "0.15.7"
+dialoguer = "0.11.0"
+clap = { version = "4.3.5", features = ["derive"] }
+ethers = { version = "2.0.9", features = ["ws"] }
+tokio = { version = "1.32.0", features = ["macros", "sync", "rt-multi-thread"] }
+anyhow = "1.0.75"
+sp-core = { version = "21.0.0", features = ["full_crypto"] }
+hex = "0.4.3"
+futures = "0.3.28"
+jsonrpsee = { version = "0.20.2", features = ["ws-client"]}
+
+hex-literal = "0.4.1"
+ismp = { path = "../parachain/modules/ismp/core" }
+
+subxt = { version = "0.30.1", features = ["substrate-compat"] }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}

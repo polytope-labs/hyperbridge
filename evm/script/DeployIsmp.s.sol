@@ -13,9 +13,10 @@ import "../src/hosts/Ethereum.sol";
 import "../src/hosts/Arbitrum.sol";
 import "../src/hosts/Optimism.sol";
 import "../src/hosts/Base.sol";
+import "../test/PingModule.sol";
 
 contract DeployScript is Script {
-    bytes32 public salt = keccak256(bytes("gargantuan_v0"));
+    bytes32 public salt = keccak256(bytes("gargantua-v0.0.1"));
 
     function run() external {
         address admin = vm.envAddress("ADMIN");
@@ -56,7 +57,7 @@ contract DeployScript is Script {
         // set the ismphost on the cross-chain governor
         governor.setIsmpHost(hostAddress);
         // deploy the ping module as well
-        //        PingModule m = new PingModule{salt: salt}(hostAddress);
+        PingModule m = new PingModule{salt: salt}(hostAddress);
         vm.stopBroadcast();
     }
 

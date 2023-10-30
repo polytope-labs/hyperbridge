@@ -3709,20 +3709,14 @@ dependencies = [
 [[package]]
 name = "ismp"
 version = "0.1.0"
+source = "git+https://github.com/polytope-labs/ismp-rs?branch=main#5c4e0f412de788b5d86de8146b49f6db6795ca12"
 dependencies = [
- "ckb-merkle-mountain-range 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "derive_more",
- "frame-support",
- "frame-system",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",
  "serde",
  "serde_json",
- "sp-consensus-aura",
- "sp-core 21.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0)",
- "sp-io 23.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0)",
- "sp-runtime 24.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0)",
 ]
 
 [[package]]
@@ -6758,23 +6752,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sp-consensus-aura"
-version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#f60318f68687e601c47de5ad5ca88e2c3f8139a7"
-dependencies = [
- "async-trait",
- "parity-scale-codec",
- "scale-info",
- "sp-api",
- "sp-application-crypto 23.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0)",
- "sp-consensus-slots",
- "sp-inherents",
- "sp-runtime 24.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0)",
- "sp-std 8.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0)",
- "sp-timestamp",
-]
-
-[[package]]
 name = "sp-consensus-beefy"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#f60318f68687e601c47de5ad5ca88e2c3f8139a7"
@@ -6791,18 +6768,6 @@ dependencies = [
  "sp-runtime 24.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0)",
  "sp-std 8.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0)",
  "strum 0.24.1",
-]
-
-[[package]]
-name = "sp-consensus-slots"
-version = "0.10.0-dev"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0#f60318f68687e601c47de5ad5ca88e2c3f8139a7"
-dependencies = [
- "parity-scale-codec",
- "scale-info",
- "serde",
- "sp-std 8.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.1.0)",
- "sp-timestamp",
 ]
 
 [[package]]

@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.17;
 
-import "ismp/interfaces/IIsmpModule.sol";
-import "ismp/interfaces/IIsmp.sol";
+import "ismp/IIsmpModule.sol";
+import "ismp/IIsmp.sol";
 import "multi-chain-tokens/interfaces/IERC6160Ext20.sol";
-
-error ZeroAddress();
 
 struct SendParams {
     // amount to be sent
@@ -16,6 +14,8 @@ struct SendParams {
     bytes dest;
     // IERC6160Ext20 token contract, should be the same on both chains
     address tokenContract;
+    // timeout in seconds
+    uint64 timeout;
 }
 
 contract TokenGateway is IIsmpModule {
@@ -25,9 +25,17 @@ contract TokenGateway is IIsmpModule {
     // User has received some assets, source chain & nonce
     event AssetReceived(bytes source, uint256 nonce);
 
-    // restricts call to `dispatcher`
+    // restricts call to `IIsmpHost`
     modifier onlyIsmpHost() {
-        if (msg.sender != host || msg.sender != admin) {
+        if (msg.sender != host) {
+            revert("Unauthorized call");
+        }
+        _;
+    }
+
+    // restricts call to `admin`
+    modifier onlyAdmin() {
+        if (msg.sender != admin) {
             revert("Unauthorized call");
         }
         _;
@@ -38,7 +46,7 @@ contract TokenGateway is IIsmpModule {
     }
 
     // set the ismp host address
-    function setIsmpHost(address _host) public {
+    function setIsmpHost(address _host) public onlyAdmin {
         host = _host;
         admin = address(0);
     }
@@ -52,7 +60,7 @@ contract TokenGateway is IIsmpModule {
             dest: params.dest,
             to: abi.encodePacked(address(this)), // should the same address across evm hosts
             body: data,
-            timeout: 60 * 60, // seconds
+            timeout: params.timeout, // seconds
             gaslimit: 0 // unused
         });
         IIsmp(host).dispatch(request);

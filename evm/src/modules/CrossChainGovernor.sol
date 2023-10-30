@@ -3,9 +3,9 @@ pragma solidity 0.8.17;
 
 import "solidity-merkle-trees/trie/Bytes.sol";
 
-import "ismp/interfaces/IIsmpModule.sol";
-import "ismp/interfaces/IIsmpHost.sol";
-import "ismp/interfaces/StateMachine.sol";
+import "ismp/IIsmpModule.sol";
+import "ismp/IIsmpHost.sol";
+import "ismp/StateMachine.sol";
 
 struct GovernorParams {
     address admin;

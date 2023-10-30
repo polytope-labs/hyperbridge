@@ -3,13 +3,12 @@
 
 pragma solidity 0.8.17;
 
-import "ismp/interfaces/IIsmpModule.sol";
-import "ismp/interfaces/IIsmpHost.sol";
+import "ismp/IIsmpModule.sol";
+import "ismp/IIsmpHost.sol";
 
-struct Message {
+struct CrossChainMessage {
     bytes dest;
     bytes message;
-    address module;
     uint64 timeout;
 }
 
@@ -46,17 +45,17 @@ contract CrossChainMessenger is IIsmpModule {
         admin = address(0);
     }
 
-    function teleport(Message memory params) public {
+    function teleport(CrossChainMessage memory params) public {
         DispatchPost memory post = DispatchPost({
             body: params.message,
             dest: params.dest,
             timeout: params.timeout,
             // instance of this pallet on another chain.
-            to: abi.encodePacked(address(params.module)),
+            to: abi.encodePacked(address(this)),
             // unused for now
             gaslimit: 0
         });
-        IIsmp(_host).dispatch(post);
+        IIsmp(host).dispatch(post);
     }
 
     function onAccept(PostRequest memory request) external onlyIsmpHost {

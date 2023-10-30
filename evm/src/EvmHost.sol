@@ -4,9 +4,9 @@ pragma solidity 0.8.17;
 import "openzeppelin/utils/Context.sol";
 import "openzeppelin/utils/math/Math.sol";
 
-import "ismp/interfaces/IIsmpModule.sol";
-import "ismp/interfaces/IIsmpHost.sol";
-import "ismp/interfaces/IHandler.sol";
+import "ismp/IIsmpModule.sol";
+import "ismp/IIsmpHost.sol";
+import "ismp/IHandler.sol";
 
 struct HostParams {
     // default timeout in seconds for requests.
@@ -312,8 +312,12 @@ abstract contract EvmHost is IIsmpHost, Context {
      */
     function dispatchIncoming(PostRequest memory request) external onlyHandler {
         address destination = _bytesToAddress(request.to);
-        IIsmpModule(destination).onAccept(request);
 
+        // Ideally this would prevent failing requests from poisoning the batch,
+        // doesn't work, sigh solidity
+        try IIsmpModule(destination).onAccept(request) {} catch {}
+
+        // doesn't matter if it failed, if it failed once, it'll fail again
         bytes32 commitment = Message.hash(request);
         _requestReceipts[commitment] = true;
     }

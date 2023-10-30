@@ -2,8 +2,8 @@
 pragma solidity 0.8.17;
 
 import "./Codec.sol";
-import "ismp/interfaces/StateMachine.sol";
-import "ismp/interfaces/IConsensusClient.sol";
+import "ismp/StateMachine.sol";
+import "ismp/IConsensusClient.sol";
 
 import "solidity-merkle-trees/MerkleMultiProof.sol";
 import "solidity-merkle-trees/MerkleMountainRange.sol";

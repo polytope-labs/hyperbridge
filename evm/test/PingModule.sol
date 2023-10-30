@@ -3,13 +3,14 @@
 
 pragma solidity 0.8.17;
 
-import "ismp/interfaces/IIsmpModule.sol";
-import "ismp/interfaces/IIsmpHost.sol";
-import "ismp/interfaces/StateMachine.sol";
+import "ismp/IIsmpModule.sol";
+import "ismp/IIsmpHost.sol";
+import "ismp/StateMachine.sol";
 
 struct PingMessage {
     bytes dest;
     address module;
+    uint64 timeout;
 }
 
 contract PingModule is IIsmpModule {
@@ -68,7 +69,7 @@ contract PingModule is IIsmpModule {
             body: bytes.concat("hello from ", IIsmpHost(_host).host()),
             dest: msg.dest,
             // one hour
-            timeout: 60 * 60,
+            timeout: msg.timeout,
             // instance of this pallet on another chain.
             to: abi.encodePacked(address(msg.module)),
             // unused for now

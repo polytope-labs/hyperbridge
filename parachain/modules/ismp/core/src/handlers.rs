@@ -80,7 +80,7 @@ where
 
 /// This function checks to see that the delay period configured on the host chain
 /// for the state machine has elasped.
-fn verify_delay_passed<H>(host: &H, proof_height: &StateMachineHeight) -> Result<bool, Error>
+pub fn verify_delay_passed<H>(host: &H, proof_height: &StateMachineHeight) -> Result<bool, Error>
 where
     H: IsmpHost,
 {

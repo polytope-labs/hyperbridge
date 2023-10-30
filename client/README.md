@@ -7,7 +7,7 @@ Hyperclient is a simple CLI tool for sending cross-chain requests through Hyperb
 We provide a prebuilt binary for linux, you can download it like so:
 
 ```
-wget "https://github.com/polytope-labs/hyperbridge/releases/download/v0/hyperclient-linux" -o=hyperclient;
+wget "https://github.com/polytope-labs/hyperbridge/releases/download/v0/hyperclient-linux" -o=hyperclient
 ./hyperclient --help
 ```
 

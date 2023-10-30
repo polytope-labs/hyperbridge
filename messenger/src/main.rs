@@ -491,7 +491,7 @@ async fn subscribe_storage(
 ) -> subxt::rpc::Subscription<StorageChangeSet<H256>> {
     let reconnects = 10;
     for _ in 0..reconnects {
-        let err = substrate
+        let res = substrate
             .rpc()
             .subscribe::<StorageChangeSet<H256>>(
                 "state_subscribeStorage",
@@ -499,7 +499,7 @@ async fn subscribe_storage(
                 "state_unsubscribeStorage",
             )
             .await;
-        match err {
+        match res {
             Ok(sub) => return sub,
             Err(_) => {
                 tokio::time::sleep(Duration::from_secs(5)).await;

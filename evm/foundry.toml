@@ -10,7 +10,7 @@ arbitrum-goerli = "${ARBITRUM_GOERLI_RPC_URL}"
 base-goerli = "${BASE_GOERLI_RPC_URL}"
 
 [etherscan]
-goerli = { key = "${GOERLI_ETHERSCAN_API_KEY}" }
+goerli = { key = "${GOERLI_ETHERSCAN_API_KEY}", chain = 5, url = " https://api-goerli.etherscan.io/api" }
 optimism-goerli = { key = "${OPTIMISM_ETHERSCAN_API_KEY}", chain = 420, url = "https://api-goerli-optimistic.etherscan.io/api" }
 arbitrum-goerli = { key = "${ARBITRUM_ETHERSCAN_API_KEY}", chain = 421613, url = "https://api-goerli.arbiscan.io/api" }
 base-goerli = { key = "${BASE_ETHERSCAN_API_KEY}", chain = 84531, url = "https://api-goerli.basescan.org/api" }

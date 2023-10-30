@@ -7,7 +7,7 @@ mod tests;
 
 pub use crate::forge::{execute, runner};
 pub use ethers::{abi::Token, types::U256, utils::keccak256};
-use ismp::mmr::{DataOrHash, MmrHasher};
+// use ismp::mmr::{DataOrHash, MmrHasher};
 use merkle_mountain_range::{util::MemMMR, Error, Merge};
 use rs_merkle::Hasher;
 
@@ -54,13 +54,13 @@ impl From<u32> for NumberHash {
     }
 }
 
-pub fn unwrap_hash(item: &DataOrHash) -> [u8; 32] {
-    match item {
-        DataOrHash::Hash(h) => (*h).into(),
-        _ => panic!("not a hash"),
-    }
-}
+// pub fn unwrap_hash(item: &DataOrHash) -> [u8; 32] {
+//     match item {
+//         DataOrHash::Hash(h) => (*h).into(),
+//         _ => panic!("not a hash"),
+//     }
+// }
 
 use primitive_types::H256;
 
-pub type Mmr = MemMMR<DataOrHash, MmrHasher<Keccak256>>;
+// pub type Mmr = MemMMR<DataOrHash, MmrHasher<Keccak256>>;

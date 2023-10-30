@@ -115,18 +115,23 @@ async fn main() -> Result<(), anyhow::Error> {
         },
         Action::Drip => {
             let faucet = TokenFaucet::new(FAUCET_ADDRESS, signer.clone());
-            let receipt = faucet
-                .drip()
-                .gas(100_000)
-                .send()
-                .await?
-                .await?
-                .ok_or_else(|| anyhow!("Transaction submission failed"))?;
-            pb.finish_with_message(format!(
-                "Drip completed: {}, took: {}",
-                source.etherscan(receipt.transaction_hash),
-                HumanDuration(now.elapsed())
-            ));
+            let receipt = faucet.drip().gas(100_000).send().await?.await?.ok_or_else(|| {
+                anyhow!("Transaction submission failed, try again")
+            })?;
+
+            if receipt.status == Some(0u64.into()) {
+                pb.finish_with_message(format!(
+                    "You can only use the token faucet once every 24 hours: {}, took: {}",
+                    source.etherscan(receipt.transaction_hash),
+                    HumanDuration(now.elapsed())
+                ));
+            } else {
+                pb.finish_with_message(format!(
+                    "Drip completed: {}, took: {}",
+                    source.etherscan(receipt.transaction_hash),
+                    HumanDuration(now.elapsed())
+                ));
+            }
             return Ok(())
         },
         Action::Ping { destination, message } => {

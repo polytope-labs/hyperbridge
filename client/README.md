@@ -4,10 +4,10 @@ Hyperclient is a simple CLI tool for sending cross-chain requests through Hyperb
 
 ### Installation
 
-We provide a prebuilt binary for both linux & macos, you can download them like so:
+We provide a prebuilt binary for linux, you can download it like so:
 
 ```
-wget "https://github.com/polytope-labs/hyperbridge/releases/download/v0/hyperclient-{linux/mac}" -o=hyperclient;
+wget "https://github.com/polytope-labs/hyperbridge/releases/download/v0/hyperclient-linux" -o=hyperclient;
 ./hyperclient --help
 ```
 

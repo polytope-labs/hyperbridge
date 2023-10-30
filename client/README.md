@@ -1,6 +1,6 @@
 # Hyperclient
 
-Hyperclient is a simple CLI tool for sending cross-chain requests through Hyperbridge. You'll need testnet tokens and a hex-encoded account private to use this CLI. We don't reccomend sharing your mainnet & testnet account for obvious reasons.
+Hyperclient is a simple CLI tool for sending cross-chain requests through Hyperbridge. You'll need testnet tokens and a hex-encoded private key to use this CLI. We don't reccomend sharing your mainnet & testnet account for obvious reasons.
 
 ### Installation
 

@@ -1,8 +1,8 @@
 [package]
-name = "messenger"
+name = "hyperclient"
 version = "0.1.0"
 edition = "2021"
-description = "A simple CLI application for sending arbitrary messages through Hyperbridge"
+description = "A simple CLI application for sending cross-chain requests through Hyperbridge"
 
 [dependencies]
 indicatif = "0.17.7"

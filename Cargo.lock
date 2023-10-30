@@ -5122,6 +5122,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyperclient"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "debounced",
+ "env_logger 0.10.0",
+ "ethers",
+ "futures",
+ "hex",
+ "hex-literal 0.4.1",
+ "indicatif",
+ "ismp",
+ "jsonrpsee 0.20.3",
+ "log",
+ "parity-scale-codec",
+ "sp-core 21.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "subxt",
+ "tokio",
+]
+
+[[package]]
 name = "iana-time-zone"
 version = "0.1.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6771,28 +6793,6 @@ dependencies = [
  "keccak",
  "rand_core 0.6.4",
  "zeroize",
-]
-
-[[package]]
-name = "messenger"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "debounced",
- "env_logger 0.10.0",
- "ethers",
- "futures",
- "hex",
- "hex-literal 0.4.1",
- "indicatif",
- "ismp",
- "jsonrpsee 0.20.3",
- "log",
- "parity-scale-codec",
- "sp-core 21.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "subxt",
- "tokio",
 ]
 
 [[package]]

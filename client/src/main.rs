@@ -115,9 +115,13 @@ async fn main() -> Result<(), anyhow::Error> {
         },
         Action::Drip => {
             let faucet = TokenFaucet::new(FAUCET_ADDRESS, signer.clone());
-            let receipt = faucet.drip().gas(100_000).send().await?.await?.ok_or_else(|| {
-                anyhow!("Transaction submission failed, try again")
-            })?;
+            let receipt = faucet
+                .drip()
+                .gas(100_000)
+                .send()
+                .await?
+                .await?
+                .ok_or_else(|| anyhow!("Transaction submission failed, try again"))?;
 
             if receipt.status == Some(0u64.into()) {
                 pb.finish_with_message(format!(
@@ -134,7 +138,7 @@ async fn main() -> Result<(), anyhow::Error> {
             }
             return Ok(())
         },
-        Action::Ping { destination, message } => {
+        Action::Post { destination, body } => {
             let destination: Ethereum = destination.into();
             let messenger = CrossChainMessenger::new(CROSS_CHAIN_MESSENGER_ADDRESS, signer.clone());
             let receipt = messenger
@@ -144,14 +148,14 @@ async fn main() -> Result<(), anyhow::Error> {
                         .as_bytes()
                         .to_vec()
                         .into(),
-                    message: message.as_bytes().to_vec().into(),
+                    message: body.as_bytes().to_vec().into(),
                     timeout: 3 * 60 * 60,
                 })
                 .gas(100_000)
                 .send()
                 .await?
                 .await?
-                .ok_or_else(|| anyhow!("transaction failed i guess"))?;
+                .ok_or_else(|| anyhow!("Transaction failed i guess"))?;
             (receipt, destination)
         },
     };
@@ -386,7 +390,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 }
             }
         },
-        Action::Ping { message, .. } => {
+        Action::Post { body, .. } => {
             let mut stream = {
                 let stream = subscribe_logs(
                     &mut rpc_client,
@@ -412,7 +416,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     },
                 };
 
-                if message == event.message &&
+                if body == event.message &&
                     event.nonce == request.nonce &&
                     request.source == event.source
                 {
@@ -557,7 +561,7 @@ impl ChainInfo for Ethereum {
         match self {
             Ethereum::ExecutionLayer => H160(hex!("1df0f722a40aaFB36B10edc6641201eD6ce37d91")),
             Ethereum::Arbitrum => H160(hex!("11f6d0323B4b8154b0b8874FB4183970bdd64C23")),
-            Ethereum::Optimism => H160(hex!("394e341299A928bC72b01A56f22125921707D7F7	")),
+            Ethereum::Optimism => H160(hex!("394e341299A928bC72b01A56f22125921707D7F7")),
             Ethereum::Base => H160(hex!("A3002B1a247Fd8E2a2A5A4abFe76ca49A03B4063")),
         }
     }
@@ -606,11 +610,11 @@ pub struct Cli {
     #[command(subcommand)]
     action: Action,
 
-    /// Raw account secret key
+    /// Raw, hex-encoded account secret key
     #[arg(short, long)]
     signer: String,
 
-    /// The source chain for the transaction
+    /// The source network for the transaction
     #[arg(value_enum, short, long)]
     source: Network,
 }
@@ -626,19 +630,19 @@ pub enum Action {
         /// Amount to be transferred
         #[arg(short, long)]
         amount: u128,
-        /// The destination chain for the token transfer
+        /// The destination network for the token transfer
         #[arg(value_enum, short, long)]
         destination: Network,
     },
-    /// Send an arbitrary cross chain message
-    Ping {
+    /// Send a POST request with a custom body
+    Post {
         /// The destination chain for the cross-chain message
         #[arg(value_enum, short, long)]
         destination: Network,
 
-        /// Cross-chain message to be sent.
+        /// Request body to be sent.
         #[arg(short, long)]
-        message: String,
+        body: String,
     },
     /// Get daily drip from the token faucet
     Drip,
@@ -646,13 +650,13 @@ pub enum Action {
 
 #[derive(clap::ValueEnum, Debug, Clone, Copy)]
 pub enum Network {
-    /// Ethereum Execution layer
+    /// Goerli
     Goerli,
-    /// The optimism state machine
+    /// Optimism Goerli
     OpGoerli,
-    /// The Arbitrum state machine
+    /// Arbitrum Goerli
     ArbGoerli,
-    /// The Base state machine
+    /// Base Goerli
     BaseGoerli,
 }
 

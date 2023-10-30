@@ -23,8 +23,8 @@ members = [
      "parachain/modules/consensus/sync-committee/verifier",
      "parachain/modules/consensus/sync-committee/primitives",
 
-     # demo-application
-     "messenger",
+     # cli-application
+     "client",
 
      # evm tests
 #     "evm/forge"
@@ -32,4 +32,3 @@ members = [
 exclude = [
 "evm/forge"
 ]
-

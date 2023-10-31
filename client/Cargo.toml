@@ -1,8 +1,16 @@
 [package]
 name = "hyperclient"
-version = "0.1.0"
+version = "0.1.8"
 edition = "2021"
 description = "A simple CLI application for sending cross-chain requests through Hyperbridge"
+repository = "https://github.com/polytope-labs/hyperbridge"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+tap = "polytope-labs/hyperclient"
+publish-jobs = ["homebrew"]
+
+[package.metadata.wix]
+upgrade-guid = "3007F247-E2C4-4178-BD25-15526289376B"
+path-guid = "6B08DE61-C026-4903-B3BF-9DAE0AB5CFF3"
 
 [dependencies]
 indicatif = "0.17.7"

@@ -55,7 +55,7 @@ npm-scope = "@polytope-labs"
 publish-jobs = ["homebrew"]
 # Publish jobs to run in CI
 pr-run-mode = "skip"
-
+allow-dirty = ["ci", "msi"]
 # The profile that 'cargo dist' will build with
 [profile.dist]
 inherits = "release"

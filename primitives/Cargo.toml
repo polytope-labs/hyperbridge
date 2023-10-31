@@ -10,7 +10,7 @@ anyhow = "1.0.75"
 async-trait = "0.1.53"
 futures = "0.3.28"
 tokio = { version = "1.32.0", features = ["full"] }
-
+log = "0.4.17"
 
 serde = { version = "1.0.164", features = ["derive"] }
 primitive-types = "0.12.1"

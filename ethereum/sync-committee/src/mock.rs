@@ -161,7 +161,7 @@ impl IsmpProvider for MockHost {
 	async fn state_machine_update_notification(
 		&self,
 		_counterparty_state_id: StateMachineId,
-	) -> BoxStream<StateMachineUpdated> {
+	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
 		todo!()
 	}
 

@@ -23,7 +23,7 @@ use ismp::{
 	host::{Ethereum, StateMachine},
 	messaging::CreateConsensusState,
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 use tesseract_beefy::BeefyHost;
 use tesseract_evm::{
 	abi::BeefyConsensusState, arbitrum::client::ArbHost, optimism::client::OpHost, EvmClient,
@@ -113,10 +113,25 @@ impl Cli {
 		let mut processes = vec![];
 		if relayer.consensus {
 			// consensus streams
-			processes.push(tokio::spawn(consensus::relay(hyperbridge.clone(), ethereum)));
-			processes.push(tokio::spawn(consensus::relay(hyperbridge.clone(), arbitrum)));
-			processes.push(tokio::spawn(consensus::relay(hyperbridge.clone(), optimism)));
-			processes.push(tokio::spawn(consensus::relay(hyperbridge.clone(), base)));
+			processes.push(tokio::spawn(consensus::relay(
+				hyperbridge.clone(),
+				ethereum,
+				true,
+				true,
+			)));
+			processes.push(tokio::spawn(consensus::relay(
+				hyperbridge.clone(),
+				arbitrum,
+				true,
+				false,
+			)));
+			processes.push(tokio::spawn(consensus::relay(
+				hyperbridge.clone(),
+				optimism,
+				true,
+				false,
+			)));
+			processes.push(tokio::spawn(consensus::relay(hyperbridge.clone(), base, true, false)));
 			log::info!("Initialized consensus streams");
 		}
 
@@ -134,6 +149,8 @@ impl Cli {
 				hyperbridge,
 				ethereum,
 				Some(relayer.clone()),
+				None,
+				None,
 			)));
 			let mut hyperbridge = hyperbridge_config
 				.clone()
@@ -145,6 +162,10 @@ impl Cli {
 				hyperbridge,
 				arbitrum,
 				Some(relayer.clone()),
+				// Average time between arbitrum updates on hyperbridge is about an hour and some
+				// minutes We add extra 25 minutes buffer
+				Some(Duration::from_secs(60 * 70)),
+				None,
 			)));
 			let mut hyperbridge = hyperbridge_config
 				.clone()
@@ -156,6 +177,8 @@ impl Cli {
 				hyperbridge,
 				optimism,
 				Some(relayer.clone()),
+				None,
+				None,
 			)));
 
 			let mut hyperbridge = hyperbridge_config
@@ -168,6 +191,8 @@ impl Cli {
 				hyperbridge,
 				base,
 				Some(relayer.clone()),
+				None,
+				None,
 			)));
 			log::info!("Initialized messaging streams");
 		}

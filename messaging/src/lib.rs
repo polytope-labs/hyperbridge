@@ -20,16 +20,27 @@ mod event_parser;
 use std::time::Duration;
 
 use crate::event_parser::{filter_events, parse_ismp_events, Event};
+use anyhow::anyhow;
 use futures::StreamExt;
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
 use tesseract_primitives::{
 	config::RelayerConfig, reconnect_with_exponential_back_off, BoxStream, IsmpHost, IsmpProvider,
 	StateMachineUpdated,
 };
+
+// Default wait period in seconds
+// This creates a enough time to compensate for cases where the consensus task restarted, increasing
+// the wait time
+const DEFAULT_WAIT_TIME: u64 = 1200;
+
 pub async fn relay<A, B>(
 	chain_a: A,
 	chain_b: B,
 	config: Option<RelayerConfig>,
+	// Optional values to be used to determine acceptable wait time between state machine
+	// updates
+	wait_time_a: Option<Duration>,
+	wait_time_b: Option<Duration>,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
@@ -42,14 +53,17 @@ where
 		let router_id = router_id.clone();
 		let mut previous_height = chain_b.initial_height();
 		async move {
-			let mut state_machine_update_stream =
-				chain_a.state_machine_update_notification(chain_b.state_machine_id()).await;
+			let mut state_machine_update_stream = chain_a
+				.state_machine_update_notification(chain_b.state_machine_id())
+				.await
+				.expect("Please restart the relayer, initial websocket connection failed");
 			handle_notification(
 				&mut chain_a,
 				&mut chain_b,
 				&mut state_machine_update_stream,
 				router_id,
 				&mut previous_height,
+				wait_time_a,
 			)
 			.await
 		}
@@ -61,14 +75,17 @@ where
 		let router_id = router_id.clone();
 		let mut previous_height = chain_a.initial_height();
 		async move {
-			let mut state_machine_update_stream =
-				chain_b.state_machine_update_notification(chain_a.state_machine_id()).await;
+			let mut state_machine_update_stream = chain_b
+				.state_machine_update_notification(chain_a.state_machine_id())
+				.await
+				.expect("Please restart the relayer, initial websocket connection failed");
 			handle_notification(
 				&mut chain_b,
 				&mut chain_a,
 				&mut state_machine_update_stream,
 				router_id,
 				&mut previous_height,
+				wait_time_b,
 			)
 			.await
 		}
@@ -83,36 +100,57 @@ async fn handle_notification<A, B>(
 	state_machine_update_stream: &mut BoxStream<StateMachineUpdated>,
 	router_id: Option<StateMachine>,
 	previous_height: &mut u64,
+	wait_time: Option<Duration>,
 ) where
-	A: IsmpHost + IsmpProvider,
-	B: IsmpHost + IsmpProvider,
+	A: IsmpHost + IsmpProvider + 'static,
+	B: IsmpHost + IsmpProvider + 'static,
 {
 	loop {
-		let item = state_machine_update_stream.next().await;
+		// Default wait time before restarting stream is 15 minutes
+		let time_inbetween_yields =
+			tokio::time::sleep(wait_time.unwrap_or(Duration::from_secs(DEFAULT_WAIT_TIME)));
+		// We use a select to ensure that if the state machine stream stops yielding, we forcefully
+		// restart
+		let item = tokio::select! {
+			_ = time_inbetween_yields => {
+				Some(Err(anyhow!("State Machine Stream has stalled, restarting")))
+			}
+			res = state_machine_update_stream.next() => {
+				res
+			}
+		};
 		let res = match item {
 			None => Err(anyhow::anyhow!("Stream returned None")),
 			Some(Ok(state_machine_update)) =>
 				handle_update(chain_a, chain_b, state_machine_update, previous_height, router_id)
 					.await,
-			Some(Err(e)) => {
-				log::error!(
-					target: "tesseract",
-					"{} encountered an error in the state machine update notification stream: {e}", chain_a.name()
-				);
-				Err(e)
-			},
+			Some(Err(e)) => Err(e),
 		};
-		if let Err(_) = res {
+		if let Err(e) = res {
+			log::error!(
+				target: "tesseract",
+				"{} encountered an error in the state machine update notification stream: {e}", chain_a.name()
+			);
 			log::info!("RESTARTING {}-{} messaging task", chain_a.name(), chain_b.name());
-			if let Err(_) = reconnect_with_exponential_back_off(chain_a, chain_b, 1000).await {
+			if let Err(_) =
+				reconnect_with_exponential_back_off(chain_b, chain_a, None, None, 1000).await
+			{
 				panic!("Fatal Error, failed to reconnect")
 			}
-			if let Err(_) = reconnect_with_exponential_back_off(chain_b, chain_a, 1000).await {
+
+			if let Err(_) = reconnect_with_exponential_back_off(
+				chain_a,
+				chain_b,
+				Some(state_machine_update_stream),
+				None,
+				1000,
+			)
+			.await
+			{
 				panic!("Fatal Error, failed to reconnect")
 			}
-			*state_machine_update_stream =
-				chain_a.state_machine_update_notification(chain_b.state_machine_id()).await;
-			log::info!("RESTARTING completed");
+
+			log::info!("RESTARTING {}-{} messaging task completed", chain_a.name(), chain_b.name());
 		}
 	}
 }
@@ -158,7 +196,7 @@ where
 
 	if !messages.is_empty() {
 		// Sleep for 30 seconds before submitting messages
-		tokio::time::sleep(Duration::from_secs(30)).await;
+		tokio::time::sleep(Duration::from_secs(12)).await;
 		log::info!(
 			target: "tesseract",
 			"🛰️Submitting ismp messages from {} to {}",
@@ -170,6 +208,8 @@ where
 	}
 
 	if !get_responses.is_empty() {
+		// Sleep for 30 seconds before submitting messages
+		tokio::time::sleep(Duration::from_secs(12)).await;
 		log::info!(
 			target: "tesseract",
 			"🛰️Submitting GET response messages to {}",

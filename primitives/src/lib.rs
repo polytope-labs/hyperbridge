@@ -136,7 +136,7 @@ pub trait IsmpProvider: Reconnect {
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
-	) -> BoxStream<StateMachineUpdated>;
+	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error>;
 
 	/// This should be used to submit new messages [`Vec<Message>`] from a counterparty chain to
 	/// this chain.
@@ -201,21 +201,50 @@ impl NonceProvider {
 	}
 }
 
-pub async fn reconnect_with_exponential_back_off<A: IsmpProvider, B: IsmpProvider>(
+pub async fn reconnect_with_exponential_back_off<
+	A: IsmpProvider + IsmpHost + 'static,
+	B: IsmpProvider + IsmpHost + 'static,
+>(
 	chain: &mut A,
 	counterparty: &B,
+	mut state_machine_stream: Option<&mut BoxStream<StateMachineUpdated>>,
+	mut consensus_stream: Option<&mut BoxStream<ConsensusMessage>>,
 	reconnects: u32,
 ) -> Result<(), anyhow::Error> {
 	let mut initial_backoff = 1;
+	let set_sleep_duration = |initial_backoff: &mut u64| {
+		if *initial_backoff == 512 {
+			*initial_backoff = 1;
+		}
+		*initial_backoff = *initial_backoff * 2;
+	};
 	for _ in 0..reconnects {
 		// If backoff is more than 512 seconds reset backoff
 		if let Ok(()) = chain.reconnect(counterparty).await {
+			if let Some(old_stream) = state_machine_stream.as_mut() {
+				if let Ok(stream) =
+					chain.state_machine_update_notification(counterparty.state_machine_id()).await
+				{
+					**old_stream = stream
+				} else {
+					set_sleep_duration(&mut initial_backoff);
+					tokio::time::sleep(Duration::from_secs(initial_backoff)).await;
+					continue
+				}
+			}
+
+			if let Some(old_stream) = consensus_stream.as_mut() {
+				if let Ok(stream) = chain.consensus_notification(counterparty.clone()).await {
+					**old_stream = stream
+				} else {
+					set_sleep_duration(&mut initial_backoff);
+					tokio::time::sleep(Duration::from_secs(initial_backoff)).await;
+					continue
+				}
+			}
 			return Ok(())
 		}
-		if initial_backoff == 512 {
-			initial_backoff = 1;
-		}
-		initial_backoff = initial_backoff * 2;
+		set_sleep_duration(&mut initial_backoff);
 		tokio::time::sleep(Duration::from_secs(initial_backoff)).await;
 	}
 	return Err(anyhow!("Failed to reconnect after {} tries", reconnects))

@@ -15,12 +15,21 @@
 
 //! Consensus message relay
 
+use std::time::Duration;
+
 use anyhow::anyhow;
 use futures::StreamExt;
 use ismp::messaging::Message;
 use tesseract_primitives::{reconnect_with_exponential_back_off, IsmpHost, IsmpProvider};
+// Default wait period in seconds
+const DEFAULT_WAIT_TIME: u64 = 1200;
 /// Relays [`ConsensusMessage`] updates.
-pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
+pub async fn relay<A, B>(
+	chain_a: A,
+	chain_b: B,
+	use_wait_time_a: bool,
+	use_wait_time_b: bool,
+) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
 	B: IsmpHost + IsmpProvider + 'static,
@@ -29,20 +38,20 @@ where
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
 		async move {
-			handle_notification(chain_a, chain_b).await;
+			handle_notification(chain_a, chain_b, use_wait_time_a).await;
 		}
 	});
 
 	let task_b = tokio::spawn({
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
-		async move { handle_notification(chain_b, chain_a).await }
+		async move { handle_notification(chain_b, chain_a, use_wait_time_b).await }
 	});
 	let _ = futures::future::join_all(vec![task_a, task_b]).await;
 	Ok(())
 }
 
-async fn handle_notification<A, B>(mut chain_a: A, mut chain_b: B)
+async fn handle_notification<A, B>(mut chain_a: A, mut chain_b: B, use_wait_time: bool)
 where
 	A: IsmpHost + IsmpProvider + 'static,
 	B: IsmpHost + IsmpProvider + 'static,
@@ -50,9 +59,23 @@ where
 	let mut consensus_stream = chain_a
 		.consensus_notification(chain_b.clone())
 		.await
-		.expect("Failed to create consensus stream");
+		.expect("Fatal error, please restart relayer: Initial websocket connection failed");
 	loop {
-		let update = consensus_stream.next().await;
+		let update = if use_wait_time {
+			let time_inbetween_yields = tokio::time::sleep(Duration::from_secs(DEFAULT_WAIT_TIME));
+			// We use a select to ensure that if the state machine stream stops yielding, we
+			// forcefully restart
+			tokio::select! {
+				_ = time_inbetween_yields => {
+					Some(Err(anyhow!("Consensus stream has stalled, restarting")))
+				}
+				res = consensus_stream.next() => {
+					res
+				}
+			}
+		} else {
+			consensus_stream.next().await
+		};
 		let res = match update {
 			None => Err(anyhow!("Stream Returned None")),
 			Some(Ok(consensus_message)) => {
@@ -64,32 +87,36 @@ where
 				let _ = chain_b.submit(vec![Message::Consensus(consensus_message)]).await;
 				Ok(())
 			},
-			Some(Err(e)) => {
-				log::error!(
-					target: "tesseract",
-					"{} encountered an error in the consensus stream: {e}", chain_a.name()
-				);
-				Err(e)
-			},
+			Some(Err(e)) => Err(e),
 		};
 
-		if let Err(_) = res {
+		if let Err(e) = res {
+			log::error!(
+				target: "tesseract",
+				"{} encountered an error in the consensus stream: {e}", chain_a.name()
+			);
 			log::info!("RESTARTING {}-{} consensus task", chain_a.name(), chain_b.name());
+			// Reconnect counterparty first because counterparty is required in creating consensus
+			// stream
 			if let Err(_) =
-				reconnect_with_exponential_back_off(&mut chain_a, &mut chain_b, 1000).await
+				reconnect_with_exponential_back_off(&mut chain_b, &chain_a, None, None, 1000).await
 			{
 				panic!("Fatal Error, failed to reconnect")
 			}
-			if let Err(_) =
-				reconnect_with_exponential_back_off(&mut chain_b, &mut chain_a, 1000).await
+
+			if let Err(_) = reconnect_with_exponential_back_off(
+				&mut chain_a,
+				&chain_b,
+				None,
+				Some(&mut consensus_stream),
+				1000,
+			)
+			.await
 			{
 				panic!("Fatal Error, failed to reconnect")
 			}
-			consensus_stream = chain_a
-				.consensus_notification(chain_b.clone())
-				.await
-				.expect("Failed to create consensus stream");
-			log::info!("RESTARTING completed");
+
+			log::info!("RESTARTING {}-{} consensus task completed", chain_a.name(), chain_b.name());
 		}
 	}
 }

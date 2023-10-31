@@ -229,7 +229,7 @@ where
 	async fn state_machine_update_notification(
 		&self,
 		_counterparty_state_id: StateMachineId,
-	) -> BoxStream<StateMachineUpdated> {
+	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
 		use ethers::{contract::parse_log, core::types::Log};
 		let mut obj = ObjectParams::new();
 		let address = format!("{:?}", self.handler);
@@ -239,15 +239,14 @@ where
 		let sub = self
 			.rpc_client
 			.subscribe::<Log, _>("eth_subscribe", rpc_params!("logs", param), "eth_unsubscribe")
-			.await
-			.expect("Failed to susbcribe");
+			.await?;
 		let stream = sub.filter_map(|log| async move {
 			log.ok().and_then(|log| {
 				parse_log::<StateMachineUpdatedFilter>(log).ok().map(|ev| Ok(ev.into()))
 			})
 		});
 
-		Box::pin(stream)
+		Ok(Box::pin(stream))
 	}
 
 	async fn submit(&self, messages: Vec<Message>) -> Result<(), Error> {

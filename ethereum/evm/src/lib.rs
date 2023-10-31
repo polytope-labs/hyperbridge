@@ -113,7 +113,7 @@ where
 		config: EvmConfig,
 		counterparty: &C,
 	) -> Result<Self, anyhow::Error> {
-		let config_clone = config.clone();
+		let mut config_clone = config.clone();
 		let bytes = from_hex(config.signer.as_str())?;
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
 		let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
@@ -144,6 +144,7 @@ where
 			Some(LatestHeight::LatestHeight) => client.get_block_number().await?.as_u64(),
 			Some(LatestHeight::Const(height)) => height,
 		};
+		config_clone.latest_height = Some(LatestHeight::Const(latest_height));
 		Ok(Self {
 			host,
 			client,
@@ -171,8 +172,8 @@ where
 			.query()
 			.await?
 			.into_iter()
-			.map(|ev| ev.try_into())
-			.collect::<Result<_, _>>()?;
+			.filter_map(|ev| ev.try_into().ok())
+			.collect::<_>();
 		Ok(events)
 	}
 

@@ -197,7 +197,7 @@ where
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
-	) -> BoxStream<StateMachineUpdated> {
+	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
 		let keys = vec![system_events_key()];
 		let subscription = self
 			.client
@@ -210,7 +210,7 @@ where
 			.await
 			.expect("Storage subscription failed");
 
-		filter_map_system_events(subscription, counterparty_state_id)
+		Ok(filter_map_system_events(subscription, counterparty_state_id))
 	}
 
 	async fn submit(&self, messages: Vec<ismp::messaging::Message>) -> Result<(), anyhow::Error> {

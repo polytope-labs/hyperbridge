@@ -9,7 +9,7 @@ use ismp::{
 use primitives::{
 	consensus_types::Checkpoint, constants::Root, util::compute_sync_committee_period,
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -60,6 +60,7 @@ where
 
 			counterparty.submit(vec![Message::Consensus(message)]).await?;
 			next_period += 1;
+			tokio::time::sleep(Duration::from_secs(6)).await;
 		}
 
 		log::info!(target: "tesseract", "sync committee client sync completed");

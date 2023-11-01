@@ -163,8 +163,8 @@ impl Cli {
 				arbitrum,
 				Some(relayer.clone()),
 				// Average time between arbitrum updates on hyperbridge is about an hour and some
-				// minutes We add extra 25 minutes buffer
-				Some(Duration::from_secs(60 * 70)),
+				// minutes We add extra 15 minutes buffer
+				Some(Duration::from_secs(60 * 75)),
 				None,
 			)));
 			let mut hyperbridge = hyperbridge_config

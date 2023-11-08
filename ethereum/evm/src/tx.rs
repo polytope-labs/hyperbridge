@@ -40,7 +40,7 @@ pub async fn submit_messages<I: IsmpHost>(
 					.send()
 					.await
 				{
-					Ok(progress) => wait_for_success(progress).await,
+					Ok(progress) => wait_for_success(progress, Some(2)).await,
 					Err(err) => {
 						log::error!("Error broadcasting transaction for  {err:?}");
 					},
@@ -113,7 +113,7 @@ pub async fn submit_messages<I: IsmpHost>(
 					.send()
 					.await
 				{
-					Ok(progress) => wait_for_success(progress).await,
+					Ok(progress) => wait_for_success(progress, None).await,
 					Err(err) => {
 						log::error!("Error broadcasting transaction for  {err:?}");
 					},
@@ -190,7 +190,7 @@ pub async fn submit_messages<I: IsmpHost>(
 					.send()
 					.await
 				{
-					Ok(progress) => wait_for_success(progress).await,
+					Ok(progress) => wait_for_success(progress, None).await,
 					Err(err) => {
 						log::error!("Error broadcasting transaction for  {err:?}");
 					},
@@ -253,7 +253,7 @@ pub async fn submit_messages<I: IsmpHost>(
 					.send()
 					.await
 				{
-					Ok(progress) => wait_for_success(progress).await,
+					Ok(progress) => wait_for_success(progress, None).await,
 					Err(err) => {
 						log::error!("Error broadcasting transaction for  {err:?}");
 					},
@@ -309,7 +309,7 @@ pub async fn submit_messages<I: IsmpHost>(
 					.send()
 					.await
 				{
-					Ok(progress) => wait_for_success(progress).await,
+					Ok(progress) => wait_for_success(progress, None).await,
 					Err(err) => {
 						log::error!("Error broadcasting transaction for  {err:?}");
 					},
@@ -342,7 +342,7 @@ pub async fn submit_messages<I: IsmpHost>(
 					.send()
 					.await
 				{
-					Ok(progress) => wait_for_success(progress).await,
+					Ok(progress) => wait_for_success(progress, None).await,
 					Err(err) => {
 						log::error!("Error broadcasting transaction for  {err:?}");
 					},
@@ -357,8 +357,8 @@ pub async fn submit_messages<I: IsmpHost>(
 	Ok(())
 }
 
-async fn wait_for_success<'a>(tx: PendingTransaction<'a, Ws>) {
-	if let Err(err) = tx.await {
+async fn wait_for_success<'a>(tx: PendingTransaction<'a, Ws>, confirmations: Option<usize>) {
+	if let Err(err) = tx.confirmations(confirmations.unwrap_or(1)).await {
 		log::error!("Error broadcasting transaction for  {err:?}");
 	}
 }

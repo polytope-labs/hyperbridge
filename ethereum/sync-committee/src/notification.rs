@@ -41,7 +41,6 @@ where
 
 	let checkpoint_period = compute_sync_committee_period(checkpoint.epoch);
 	if !(state_period..=(state_period + 1)).contains(&checkpoint_period) {
-		log::info!(target: "tesseract", "Syncing sync committee client");
 		let mut next_period = state_period + 1;
 		loop {
 			if next_period >= checkpoint_period {
@@ -62,8 +61,6 @@ where
 			next_period += 1;
 			tokio::time::sleep(Duration::from_secs(6)).await;
 		}
-
-		log::info!(target: "tesseract", "sync committee client sync completed");
 		// Query the new consensus state so we can process the latest finality checkpoint
 		let new_consensus_state =
 			counterparty.query_consensus_state(None, client.consensus_state_id).await?;

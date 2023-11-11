@@ -106,7 +106,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         token_contract: MULTICHAIN_TOKEN,
                         timeout: 3 * 60 * 60,
                     })
-                    .gas(1_000_000)
+                    .gas(150_000)
                     .send()
                     .await?
                     .await?

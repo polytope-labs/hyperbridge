@@ -12,11 +12,11 @@ import "../test/CrossChainMessenger.sol";
 contract DeployScript is Script {
     bytes32 public salt = keccak256(bytes("gargantua-v0.0.5"));
 
-    address public GOERLI_HOST = 0xDaC0797eb874d7a4A53521DD16250fbEb85797f0;
-    address public ARB_GOERLI_HOST = 0xa8070743D9e2B4aa3dEF52ed04A8e045F16C3252;
-    address public OP_GOERLI_HOST = 0xB8D705737d63Ce49ec8c491b968D29F497D431f1;
-    address public BASE_GOERLI_HOST =
-        0x5Cd82e710385e7e14c5fa97B9Ceae31150Be8dFd;
+    address public SEPOLIA_HOST = 0x5b5F63C8f3985CaFE1CE53E6374f42AB60dE5a6B;
+    address public ARB_SEPOLIA_HOST = 0x43E136611Cf74E165116a47e6F9C58AFCc80Ec54;
+    address public OP_SEPOLIA_HOST = 0x0124f458900FCd101c4CE31A9772fD2c5e6d65BF;
+    address public BASE_SEPOLIA_HOST =
+        0x87825f839d95c6021c0e821917F93aDB299eD6F8;
 
     bytes32 public constant MINTER_ROLE = keccak256("MINTER ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER ROLE");
@@ -25,24 +25,24 @@ contract DeployScript is Script {
         address admin = vm.envAddress("ADMIN");
         bytes32 privateKey = vm.envBytes32("PRIVATE_KEY");
 
-        vm.createSelectFork("goerli");
+        vm.createSelectFork("sepolia");
         vm.startBroadcast(uint256(privateKey));
-        deployMessenger(GOERLI_HOST, admin);
+        deployMessenger(SEPOLIA_HOST, admin);
         vm.stopBroadcast();
 
-        vm.createSelectFork("arbitrum-goerli");
+        vm.createSelectFork("arbitrum-sepolia");
         vm.startBroadcast(uint256(privateKey));
-        deployMessenger(ARB_GOERLI_HOST, admin);
+        deployMessenger(ARB_SEPOLIA_HOST, admin);
         vm.stopBroadcast();
 
-        vm.createSelectFork("optimism-goerli");
+        vm.createSelectFork("optimism-sepolia");
         vm.startBroadcast(uint256(privateKey));
-        deployMessenger(OP_GOERLI_HOST, admin);
+        deployMessenger(OP_SEPOLIA_HOST, admin);
         vm.stopBroadcast();
 
-        vm.createSelectFork("base-goerli");
+        vm.createSelectFork("base-sepolia");
         vm.startBroadcast(uint256(privateKey));
-        deployMessenger(BASE_GOERLI_HOST, admin);
+        deployMessenger(BASE_SEPOLIA_HOST, admin);
         vm.stopBroadcast();
     }
 

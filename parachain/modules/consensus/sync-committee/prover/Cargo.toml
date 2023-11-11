@@ -46,6 +46,6 @@ std = [
     "bls_on_arkworks/std",
     "ark-bls12-381/std"
 ]
-goerli = ["sync-committee-primitives/goerli", "sync-committee-verifier/goerli"]
+sepolia = ["sync-committee-primitives/sepolia", "sync-committee-verifier/sepolia"]
 mainnet = ["sync-committee-primitives/mainnet", "sync-committee-verifier/mainnet"]
 

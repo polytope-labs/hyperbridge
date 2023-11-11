@@ -538,13 +538,13 @@ impl ChainInfo for Ethereum {
     fn execution_rpc(&self) -> String {
         match self {
             Ethereum::Base =>
-                "wss://base-goerli.g.alchemy.com/v2/T61-8vjm3pbzXg8qv-xgCFuceiH-yKx8".to_string(),
+                "wss://small-compatible-yard.base-sepolia.quiknode.pro/ca5a8b1907ef065b10c260ecb13802b574e82220".to_string(),
             Ethereum::ExecutionLayer =>
-                "wss://eth-goerli.g.alchemy.com/v2/ExCoqYRMmgK6D-XonUfuMfr8UJYuvH-q".to_string(),
+                "wss://eth-sepolia.g.alchemy.com/v2/YfHY8davK9lcmyjydissrUxrc_gUbFjZ".to_string(),
             Ethereum::Optimism =>
-                "wss://opt-goerli.g.alchemy.com/v2/K5J-ceP4ULgjvQuO2gPvikNoLE4oeuSO".to_string(),
+                "wss://yolo-billowing-daylight.optimism-sepolia.quiknode.pro/ad2efd5fe6b1422db784640f7702552797ac12e0".to_string(),
             Ethereum::Arbitrum =>
-                "wss://arb-goerli.g.alchemy.com/v2/_8F-Kfgm9ETkRHKII67WmQDgClbl7TJC".to_string(),
+                "wss://arb-sepolia.g.alchemy.com/v2/7cwLO5j3I9qI5KvLMjr_BmwXxaIPbRZi".to_string(),
         }
     }
 
@@ -651,13 +651,13 @@ pub enum Action {
 #[derive(clap::ValueEnum, Debug, Clone, Copy)]
 pub enum Network {
     /// Goerli
-    Goerli,
-    /// Optimism Goerli
-    OpGoerli,
-    /// Arbitrum Goerli
-    ArbGoerli,
-    /// Base Goerli
-    BaseGoerli,
+    Sepolia,
+    /// Optimism Sepolia
+    OpSepolia,
+    /// Arbitrum Sepolia
+    ArbSepolia,
+    /// Base Sepolia
+    BaseSepolia,
 }
 
 impl From<types::runtime::api::runtime_types::ismp::host::Ethereum> for Ethereum {
@@ -680,10 +680,10 @@ impl From<types::runtime::api::runtime_types::ismp::host::Ethereum> for Ethereum
 impl From<Network> for Ethereum {
     fn from(value: Network) -> Self {
         match value {
-            Network::Goerli => Ethereum::ExecutionLayer,
-            Network::ArbGoerli => Ethereum::Arbitrum,
-            Network::OpGoerli => Ethereum::Optimism,
-            Network::BaseGoerli => Ethereum::Base,
+            Network::Sepolia => Ethereum::ExecutionLayer,
+            Network::ArbSepolia => Ethereum::Arbitrum,
+            Network::OpSepolia => Ethereum::Optimism,
+            Network::BaseSepolia => Ethereum::Base,
         }
     }
 }

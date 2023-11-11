@@ -74,7 +74,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .with_chain_id(source.chain_id());
     let provider = Provider::<Ws>::connect_with_reconnects(source.execution_rpc(), 1000).await?;
     let mut substrate =
-        OnlineClient::<KeccakSubstrateChain>::from_url("ws://34.22.152.185:9933").await?;
+        OnlineClient::<KeccakSubstrateChain>::from_url("ws://34.140.78.68:9933").await?;
     let signer = Arc::new(provider.clone().with_signer(signer));
 
     // initiate transaction
@@ -106,7 +106,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         token_contract: MULTICHAIN_TOKEN,
                         timeout: 3 * 60 * 60,
                     })
-                    .gas(100_000)
+                    .gas(1_000_000)
                     .send()
                     .await?
                     .await?
@@ -550,30 +550,30 @@ impl ChainInfo for Ethereum {
 
     fn chain_id(&self) -> u64 {
         match self {
-            Ethereum::ExecutionLayer => 5,
-            Ethereum::Arbitrum => 421613,
-            Ethereum::Optimism => 420,
-            Ethereum::Base => 84531,
+            Ethereum::ExecutionLayer => 11155111,
+            Ethereum::Arbitrum => 421614,
+            Ethereum::Optimism => 11155420,
+            Ethereum::Base => 84532,
         }
     }
 
     fn handler(&self) -> Address {
         match self {
-            Ethereum::ExecutionLayer => H160(hex!("1df0f722a40aaFB36B10edc6641201eD6ce37d91")),
-            Ethereum::Arbitrum => H160(hex!("11f6d0323B4b8154b0b8874FB4183970bdd64C23")),
-            Ethereum::Optimism => H160(hex!("394e341299A928bC72b01A56f22125921707D7F7")),
-            Ethereum::Base => H160(hex!("A3002B1a247Fd8E2a2A5A4abFe76ca49A03B4063")),
+            Ethereum::ExecutionLayer => H160(hex!("577efa5c6184e10d54fda5eb195f7eca30644082")),
+            Ethereum::Arbitrum => H160(hex!("4221d52aa25d80bb4741d430f16f5769ca99bc58")),
+            Ethereum::Optimism => H160(hex!("4221D52aa25d80Bb4741D430f16f5769cA99bc58")),
+            Ethereum::Base => H160(hex!("3cfb5eE8D00c2620e0A63FD25deAA2d7a671F449")),
         }
     }
 
     fn etherscan(&self, transaction: H256) -> String {
         match self {
-            Ethereum::Base => format!("https://goerli.basescan.org/tx/{transaction:?}"),
-            Ethereum::ExecutionLayer => format!("https://goerli.etherscan.io/tx/{transaction:?}"),
+            Ethereum::Base => format!("https://base-sepolia.blockscout.com/tx/{transaction:?}"),
+            Ethereum::ExecutionLayer => format!("https://sepolia.etherscan.io/tx/{transaction:?}"),
             Ethereum::Optimism => {
-                format!("https://goerli-optimism.etherscan.io/tx/{transaction:?}")
+                format!("https://sepolia-optimism.etherscan.io/tx/{transaction:?}")
             },
-            Ethereum::Arbitrum => format!("https://testnet.arbiscan.io/tx/{transaction:?}"),
+            Ethereum::Arbitrum => format!("https://sepolia.arbiscan.io/tx/{transaction:?}"),
         }
     }
 }
@@ -650,7 +650,7 @@ pub enum Action {
 
 #[derive(clap::ValueEnum, Debug, Clone, Copy)]
 pub enum Network {
-    /// Goerli
+    /// Sepolia
     Sepolia,
     /// Optimism Sepolia
     OpSepolia,

@@ -2303,7 +2303,7 @@ dependencies = [
 [[package]]
 name = "ethereum-trie"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#3008599d3c3ac91c1b125899009f4c6e8bdcfcfc"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#d923d8457a4e90ed06ce58338f059b22faab49c4"
 dependencies = [
  "hash-db 0.15.2",
  "hash256-std-hasher",
@@ -2664,7 +2664,7 @@ dependencies = [
 [[package]]
 name = "fflonk"
 version = "0.1.0"
-source = "git+https://github.com/w3f/fflonk#26a5045b24e169cffc1f9328ca83d71061145c40"
+source = "git+https://github.com/w3f/fflonk#1beb0585e1c8488956fac7f05da061f9b41e8948"
 dependencies = [
  "ark-ec",
  "ark-ff",
@@ -3687,7 +3687,7 @@ dependencies = [
 [[package]]
 name = "ismp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#3008599d3c3ac91c1b125899009f4c6e8bdcfcfc"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#d923d8457a4e90ed06ce58338f059b22faab49c4"
 dependencies = [
  "ckb-merkle-mountain-range 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "derive_more",
@@ -3707,7 +3707,7 @@ dependencies = [
 [[package]]
 name = "ismp-demo"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#3008599d3c3ac91c1b125899009f4c6e8bdcfcfc"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#d923d8457a4e90ed06ce58338f059b22faab49c4"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -3723,7 +3723,7 @@ dependencies = [
 [[package]]
 name = "ismp-rpc"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#3008599d3c3ac91c1b125899009f4c6e8bdcfcfc"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#d923d8457a4e90ed06ce58338f059b22faab49c4"
 dependencies = [
  "frame-system",
  "hex-literal 0.3.4",
@@ -3744,7 +3744,7 @@ dependencies = [
 [[package]]
 name = "ismp-runtime-api"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#3008599d3c3ac91c1b125899009f4c6e8bdcfcfc"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#d923d8457a4e90ed06ce58338f059b22faab49c4"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -3757,7 +3757,7 @@ dependencies = [
 [[package]]
 name = "ismp-sync-committee"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#3008599d3c3ac91c1b125899009f4c6e8bdcfcfc"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#d923d8457a4e90ed06ce58338f059b22faab49c4"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -4832,7 +4832,7 @@ dependencies = [
 [[package]]
 name = "pallet-ismp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#3008599d3c3ac91c1b125899009f4c6e8bdcfcfc"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#d923d8457a4e90ed06ce58338f059b22faab49c4"
 dependencies = [
  "ckb-merkle-mountain-range 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "derive_more",
@@ -8468,7 +8468,7 @@ dependencies = [
 [[package]]
 name = "sync-committee-primitives"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#3008599d3c3ac91c1b125899009f4c6e8bdcfcfc"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#d923d8457a4e90ed06ce58338f059b22faab49c4"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -8485,7 +8485,7 @@ dependencies = [
 [[package]]
 name = "sync-committee-prover"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#3008599d3c3ac91c1b125899009f4c6e8bdcfcfc"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#d923d8457a4e90ed06ce58338f059b22faab49c4"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -8510,7 +8510,7 @@ dependencies = [
 [[package]]
 name = "sync-committee-verifier"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/hyperbridge?branch=main#3008599d3c3ac91c1b125899009f4c6e8bdcfcfc"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#d923d8457a4e90ed06ce58338f059b22faab49c4"
 dependencies = [
  "anyhow",
  "ark-bls12-381",

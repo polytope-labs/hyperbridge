@@ -16,9 +16,9 @@ tesseract-sync-committee = { path = "../ethereum/sync-committee" }
 tesseract-beefy = { path = "../substrate/beefy/host" }
 
 # polytope labs
-ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
-pallet-ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp-sync-committee = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+pallet-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp-sync-committee = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
 
 # crates.io
 log = "0.4.19"
@@ -35,5 +35,5 @@ codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive
 
 
 [features]
-goerli = ["tesseract-sync-committee/goerli", "tesseract-evm/goerli"]
+sepolia = ["tesseract-sync-committee/sepolia", "tesseract-evm/sepolia"]
 mainnet = ["tesseract-sync-committee/mainnet", "tesseract-evm/mainnet"]

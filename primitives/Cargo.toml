@@ -15,5 +15,5 @@ log = "0.4.17"
 serde = { version = "1.0.164", features = ["derive"] }
 primitive-types = "0.12.1"
 
-ismp = { git = "ssh://git@github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
 parity-scale-codec = "3.2.2"

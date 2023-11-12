@@ -32,7 +32,7 @@ jobs:
           toolchain: nightly
 
       - name: Build
-        run:  cargo +nightly build --release -p tesseract --features goerli
+        run:  cargo +nightly build --release -p tesseract --features sepolia
 
       - name: Install Cargo get
         run: cargo install cargo-get

@@ -11,7 +11,7 @@ upgrade-guid = "E148C7E5-DD8C-4069-A929-7819413D7954"
 path-guid = "7E49FF96-173C-489B-8BB4-3933C5A62BFE"
 
 [package.metadata.dist]
-features = ["goerli"]
+features = ["sepolia"]
 
 [dependencies]
 # crates.io
@@ -96,5 +96,5 @@ try-runtime = [
 	"try-runtime-cli/try-runtime",
 	"hyperbridge-runtime/try-runtime"
 ]
-goerli = ["hyperbridge-runtime/goerli"]
+sepolia = ["hyperbridge-runtime/sepolia"]
 mainnet = ["hyperbridge-runtime/mainnet"]

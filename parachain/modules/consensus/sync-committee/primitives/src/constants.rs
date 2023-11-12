@@ -74,29 +74,29 @@ pub const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 5;
 pub const BLOCK_ROOTS_INDEX_LOG2: u64 = 5;
 pub const HISTORICAL_ROOTS_INDEX_LOG2: u64 = 5;
 
-#[cfg(feature = "goerli")]
-pub use goerli::*;
+#[cfg(feature = "sepolia")]
+pub use sepolia::*;
 
 #[cfg(feature = "mainnet")]
 pub use mainnet::*;
 
 use crate::ssz::ByteVector;
-#[cfg(all(not(feature = "mainnet"), not(feature = "goerli")))]
+#[cfg(all(not(feature = "mainnet"), not(feature = "sepolia")))]
 pub use devnet::*;
 
-#[cfg(feature = "goerli")]
-pub mod goerli {
+#[cfg(feature = "sepolia")]
+pub mod sepolia {
     use super::*;
     pub const SLOTS_PER_EPOCH: Slot = 32;
     pub const GENESIS_VALIDATORS_ROOT: [u8; 32] =
-        hex_literal::hex!("043db0d9a83813551ee2f33450d23797757d430911a9320530ad8a0eabc43efb");
-    pub const BELLATRIX_FORK_VERSION: Version = hex_literal::hex!("02001020");
-    pub const ALTAIR_FORK_VERSION: Version = hex_literal::hex!("01001020");
-    pub const GENESIS_FORK_VERSION: Version = hex_literal::hex!("00001020");
-    pub const ALTAIR_FORK_EPOCH: Epoch = 36660;
-    pub const BELLATRIX_FORK_EPOCH: Epoch = 112260;
-    pub const CAPELLA_FORK_EPOCH: Epoch = 162304;
-    pub const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("03001020");
+        hex_literal::hex!("d8ea171f3c94aea21ebc42a1ed61052acf3f9209c00e4efbaaddac09ed9b8078");
+    pub const BELLATRIX_FORK_VERSION: Version = hex_literal::hex!("90000071");
+    pub const ALTAIR_FORK_VERSION: Version = hex_literal::hex!("90000070");
+    pub const GENESIS_FORK_VERSION: Version = hex_literal::hex!("90000069");
+    pub const ALTAIR_FORK_EPOCH: Epoch = 50;
+    pub const BELLATRIX_FORK_EPOCH: Epoch = 100;
+    pub const CAPELLA_FORK_EPOCH: Epoch = 56832;
+    pub const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("90000072");
     pub const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
 }
 
@@ -116,7 +116,7 @@ pub mod mainnet {
     pub const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
 }
 
-#[cfg(all(not(feature = "mainnet"), not(feature = "goerli")))]
+#[cfg(all(not(feature = "mainnet"), not(feature = "sepolia")))]
 pub mod devnet {
     use super::*;
     use hex_literal::hex;

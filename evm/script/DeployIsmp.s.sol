@@ -65,16 +65,16 @@ contract DeployScript is Script {
         string memory host,
         HostParams memory params
     ) public returns (address) {
-        if (Strings.equal(host, "goerli") || Strings.equal(host, "ethereum")) {
+        if (Strings.equal(host, "sepolia") || Strings.equal(host, "ethereum")) {
             EthereumHost host = new EthereumHost{salt: salt}(params);
             return address(host);
-        } else if (Strings.equal(host, "arbitrum-goerli")) {
+        } else if (Strings.equal(host, "arbitrum-sepolia")) {
             ArbitrumHost host = new ArbitrumHost{salt: salt}(params);
             return address(host);
-        } else if (Strings.equal(host, "optimism-goerli")) {
+        } else if (Strings.equal(host, "optimism-sepolia")) {
             OptimismHost host = new OptimismHost{salt: salt}(params);
             return address(host);
-        } else if (Strings.equal(host, "base-goerli")) {
+        } else if (Strings.equal(host, "base-sepolia")) {
             BaseHost host = new BaseHost{salt: salt}(params);
             return address(host);
         }

@@ -36,7 +36,7 @@ jobs:
 
       - name: Build
         run:  |
-          cargo +nightly build --release -p hyperbridge --features goerli
+          cargo +nightly build --release -p hyperbridge --features sepolia
           mv ./target/release/hyperbridge ./
 
       - name: Install Cargo get

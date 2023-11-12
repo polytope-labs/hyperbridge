@@ -4,13 +4,13 @@ out = "out"
 libs = ["lib"]
 
 [rpc_endpoints]
-goerli = "${GOERLI_RPC_URL}"
-optimism-goerli = "${OPTIMISM_GOERLI_RPC_URL}"
-arbitrum-goerli = "${ARBITRUM_GOERLI_RPC_URL}"
-base-goerli = "${BASE_GOERLI_RPC_URL}"
+sepolia = "${SEPOLIA_RPC_URL}"
+optimism-sepolia = "${OPTIMISM_SEPOLIA_RPC_URL}"
+arbitrum-sepolia = "${ARBITRUM_SEPOLIA_RPC_URL}"
+base-sepolia = "${BASE_SEPOLIA_RPC_URL}"
 
 [etherscan]
-goerli = { key = "${GOERLI_ETHERSCAN_API_KEY}", chain = 5, url = " https://api-goerli.etherscan.io/api" }
-optimism-goerli = { key = "${OPTIMISM_ETHERSCAN_API_KEY}", chain = 420, url = "https://api-goerli-optimistic.etherscan.io/api" }
-arbitrum-goerli = { key = "${ARBITRUM_ETHERSCAN_API_KEY}", chain = 421613, url = "https://api-goerli.arbiscan.io/api" }
-base-goerli = { key = "${BASE_ETHERSCAN_API_KEY}", chain = 84531, url = "https://api-goerli.basescan.org/api" }
+sepolia = { key = "${SEPOLIA_ETHERSCAN_API_KEY}", chain = 11155111, url = " https://api-sepolia.etherscan.io/api" }
+optimism-sepolia = { key = "${OPTIMISM_ETHERSCAN_API_KEY}", chain = 11155420, url = "https://api-sepolia-optimism.etherscan.io/api" }
+arbitrum-sepolia = { key = "${ARBITRUM_ETHERSCAN_API_KEY}", chain = 421614, url = "https://api-sepolia.arbiscan.io/api" }
+base-sepolia = { key = "${BASE_ETHERSCAN_API_KEY}", chain = 84532, url = "https://api-sepolia.basescan.org/api" }

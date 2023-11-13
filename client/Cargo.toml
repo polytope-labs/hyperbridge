@@ -1,6 +1,6 @@
 [package]
 name = "hyperclient"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 description = "A simple CLI application for sending cross-chain requests through Hyperbridge"
 repository = "https://github.com/polytope-labs/hyperbridge"

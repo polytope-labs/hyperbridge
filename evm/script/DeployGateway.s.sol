@@ -10,13 +10,12 @@ import "../test/PingModule.sol";
 import "../test/CrossChainMessenger.sol";
 
 contract DeployScript is Script {
-    bytes32 public salt = keccak256(bytes("gargantua-v0.0.5"));
+    bytes32 public salt = keccak256(bytes("gargantua-v0.0.7"));
 
     address public SEPOLIA_HOST = 0x5b5F63C8f3985CaFE1CE53E6374f42AB60dE5a6B;
     address public ARB_SEPOLIA_HOST = 0x43E136611Cf74E165116a47e6F9C58AFCc80Ec54;
     address public OP_SEPOLIA_HOST = 0x0124f458900FCd101c4CE31A9772fD2c5e6d65BF;
-    address public BASE_SEPOLIA_HOST =
-        0x87825f839d95c6021c0e821917F93aDB299eD6F8;
+    address public BASE_SEPOLIA_HOST = 0x87825f839d95c6021c0e821917F93aDB299eD6F8;
 
     bytes32 public constant MINTER_ROLE = keccak256("MINTER ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER ROLE");
@@ -24,26 +23,29 @@ contract DeployScript is Script {
     function run() external {
         address admin = vm.envAddress("ADMIN");
         bytes32 privateKey = vm.envBytes32("PRIVATE_KEY");
+        string memory host = vm.envString("HOST");
 
-        vm.createSelectFork("sepolia");
-        vm.startBroadcast(uint256(privateKey));
-        deployMessenger(SEPOLIA_HOST, admin);
-        vm.stopBroadcast();
-
-        vm.createSelectFork("arbitrum-sepolia");
-        vm.startBroadcast(uint256(privateKey));
-        deployMessenger(ARB_SEPOLIA_HOST, admin);
-        vm.stopBroadcast();
-
-        vm.createSelectFork("optimism-sepolia");
-        vm.startBroadcast(uint256(privateKey));
-        deployMessenger(OP_SEPOLIA_HOST, admin);
-        vm.stopBroadcast();
-
-        vm.createSelectFork("base-sepolia");
-        vm.startBroadcast(uint256(privateKey));
-        deployMessenger(BASE_SEPOLIA_HOST, admin);
-        vm.stopBroadcast();
+        if (Strings.equal(host, "sepolia") || Strings.equal(host, "ethereum")) {
+            vm.createSelectFork("sepolia");
+            vm.startBroadcast(uint256(privateKey));
+            deployGateway(SEPOLIA_HOST, admin);
+            vm.stopBroadcast();
+        } else if (Strings.equal(host, "arbitrum-sepolia")) {
+            vm.createSelectFork("arbitrum-sepolia");
+            vm.startBroadcast(uint256(privateKey));
+            deployGateway(ARB_SEPOLIA_HOST, admin);
+            vm.stopBroadcast();
+        } else if (Strings.equal(host, "optimism-sepolia")) {
+            vm.createSelectFork("optimism-sepolia");
+            vm.startBroadcast(uint256(privateKey));
+            deployGateway(OP_SEPOLIA_HOST, admin);
+            vm.stopBroadcast();
+        } else if (Strings.equal(host, "base-sepolia")) {
+            vm.createSelectFork("base-sepolia");
+            vm.startBroadcast(uint256(privateKey));
+            deployGateway(BASE_SEPOLIA_HOST, admin);
+            vm.stopBroadcast();
+        }
     }
 
     function deployMessenger(address host, address admin) public {

@@ -14,6 +14,7 @@ struct CrossChainMessage {
 
 contract CrossChainMessenger is IIsmpModule {
     event PostReceived(uint256 nonce, bytes source, string message);
+
     error NotAuthorized();
 
     // restricts call to `IIsmpHost`
@@ -66,15 +67,11 @@ contract CrossChainMessenger is IIsmpModule {
         revert("No timeouts for now");
     }
 
-    function onPostResponse(
-        PostResponse memory response
-    ) public view onlyIsmpHost {
+    function onPostResponse(PostResponse memory response) public view onlyIsmpHost {
         revert("CrossChainMessenger doesn't emit responses");
     }
 
-    function onGetResponse(
-        GetResponse memory response
-    ) public view onlyIsmpHost {
+    function onGetResponse(GetResponse memory response) public view onlyIsmpHost {
         revert("CrossChainMessenger doesn't emit Get Requests");
     }
 

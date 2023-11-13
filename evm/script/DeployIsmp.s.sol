@@ -30,11 +30,7 @@ contract DeployScript is Script {
         // handler
         HandlerV1 handler = new HandlerV1{salt: salt}();
         // cross-chain governor
-        GovernorParams memory gParams = GovernorParams({
-            admin: admin,
-            host: address(0),
-            paraId: paraId
-        });
+        GovernorParams memory gParams = GovernorParams({admin: admin, host: address(0), paraId: paraId});
         CrossChainGovernor governor = new CrossChainGovernor{salt: salt}(
             gParams
         );
@@ -61,10 +57,7 @@ contract DeployScript is Script {
         vm.stopBroadcast();
     }
 
-    function initHost(
-        string memory host,
-        HostParams memory params
-    ) public returns (address) {
+    function initHost(string memory host, HostParams memory params) public returns (address) {
         if (Strings.equal(host, "sepolia") || Strings.equal(host, "ethereum")) {
             EthereumHost host = new EthereumHost{salt: salt}(params);
             return address(host);

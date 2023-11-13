@@ -67,7 +67,8 @@ contract TokenGateway is IIsmpModule {
     }
 
     function onAccept(PostRequest memory request) public onlyIsmpHost {
-        (address _from, address to, uint256 amount, address tokenContract) = abi.decode(request.body, (address, address, uint256, address));
+        (address _from, address to, uint256 amount, address tokenContract) =
+            abi.decode(request.body, (address, address, uint256, address));
 
         IERC6160Ext20(tokenContract).mint(to, amount, "");
 
@@ -75,7 +76,8 @@ contract TokenGateway is IIsmpModule {
     }
 
     function onPostTimeout(PostRequest memory request) public onlyIsmpHost {
-        (address from, address _to, uint256 amount, address tokenContract) = abi.decode(request.body, (address, address, uint256, address));
+        (address from, address _to, uint256 amount, address tokenContract) =
+            abi.decode(request.body, (address, address, uint256, address));
 
         IERC6160Ext20(tokenContract).mint(from, amount, "");
     }

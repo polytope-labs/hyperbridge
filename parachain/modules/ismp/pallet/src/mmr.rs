@@ -15,16 +15,6 @@
 
 // This module contains code adapted from https://github.com/paritytech/substrate/blob/master/frame/merkle-mountain-range/src/mmr/mod.rs
 
-/// <HB SBP Review
-///
-/// disclaimer: This is a general comment without having the full context,
-/// but i wonder if the MMR FRAME pallet could be used and wrap the specific logic needed
-/// instead of re-implementing it and adapting the code.
-///
-/// https://github.com/paritytech/polkadot-sdk/tree/master/substrate/frame/merkle-mountain-range
-///
-/// (beefy and mmr is not my area of expertise)
-/// >
 pub mod mmr;
 pub mod storage;
 pub mod utils;

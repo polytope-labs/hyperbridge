@@ -318,13 +318,6 @@ pub mod pallet {
             <frame_system::Pallet<T>>::deposit_log(digest);
         }
 
-        /// <HB SBP Review
-        ///
-        /// As the OCW was not implemented yet, i would recommend to take a look at this forum post where some interesting security implications are discussed:
-        ///
-        /// https://forum.polkadot.network/t/offchain-workers-design-assumptions-vulnerabilities/2548
-        ///
-        /// >
         fn offchain_worker(_n: BlockNumberFor<T>) {}
     }
 

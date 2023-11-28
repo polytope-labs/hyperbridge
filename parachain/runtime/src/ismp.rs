@@ -66,13 +66,6 @@ impl ismp_sync_committee::pallet::Config for Runtime {
 
 impl pallet_ismp::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    /// <HB SBP Review
-    ///
-    /// As the OCW was not implemented yet, i would recommend to take a look at this forum post where some interesting security implications are discussed:
-    ///
-    /// https://forum.polkadot.network/t/offchain-workers-design-assumptions-vulnerabilities/2548
-    ///
-    /// >
     const INDEXING_PREFIX: &'static [u8] = b"ISMP";
     type AdminOrigin = EnsureRoot<AccountId>;
     type StateMachine = StateMachineProvider;

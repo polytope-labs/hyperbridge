@@ -13,14 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// <HB SBP Review
-///
-/// Have you considered using the MMR FRAME pallet?
-///
-/// https://github.com/paritytech/polkadot-sdk/tree/master/substrate/frame/merkle-mountain-range
-///
-/// (beefy and mmr is not my area of expertise, but it worth looking into)
-/// >
 use crate::{
     host::Host,
     mmr::{

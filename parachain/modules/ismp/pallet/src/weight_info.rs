@@ -17,6 +17,14 @@
 //! This module provides a guide on how to provide static weights for consensus clients and module
 //! callbacks
 
+// <HB SBP M1 Review
+//
+// It seems that you know what you are doing here by calculating the weight of the messages and calls by your own,
+// but i wonder if there is a future big change in weights protocol, as for example the one that happened with Weights v2 migration,
+// adapting this custom weight calculation could  be a consuming task.
+//
+// Also, is there still pending to use the weights from benchmarking execution?
+// >
 use crate::{primitives::ModuleId, Config};
 use alloc::boxed::Box;
 use frame_support::weights::Weight;
@@ -149,6 +157,11 @@ pub trait WeightInfo {
     fn dispatch_response() -> Weight;
 }
 
+// <HB SBP M1 Review
+//
+// It would be better to start with a default weight of 10.000 if no other value is summed to this initial value.
+//
+// >
 impl WeightInfo for () {
     fn on_finalize(_n: u32) -> Weight {
         Weight::zero()
@@ -215,17 +228,18 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
             let proof_verification_weight =
                 consensus_handler.verify_membership(state_machine, msg.requests.len(), &msg.proof);
 
-            acc + cb_weight +
-                proof_verification_weight +
-                <T as Config>::WeightInfo::handle_request_message()
+            acc + cb_weight
+                + proof_verification_weight
+                + <T as Config>::WeightInfo::handle_request_message()
         },
         Message::Response(msg) => match msg {
             ResponseMessage::Post { responses, proof } => {
                 let state_machine = proof.height.id;
                 let cb_weight = responses.iter().fold(Weight::zero(), |acc, res| {
                     let dest_module = match res {
-                        Response::Post(ref post) =>
-                            ModuleId::from_bytes(post.post.from.as_slice()).ok(),
+                        Response::Post(ref post) => {
+                            ModuleId::from_bytes(post.post.from.as_slice()).ok()
+                        },
                         _ => return acc,
                     };
 
@@ -244,9 +258,9 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 let proof_verification_weight =
                     consensus_handler.verify_membership(state_machine, responses.len(), &proof);
 
-                acc + cb_weight +
-                    proof_verification_weight +
-                    <T as Config>::WeightInfo::handle_response_message()
+                acc + cb_weight
+                    + proof_verification_weight
+                    + <T as Config>::WeightInfo::handle_response_message()
             },
             ResponseMessage::Get { requests, proof } => {
                 let state_machine = proof.height.id;
@@ -273,9 +287,9 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 let proof_verification_weight =
                     consensus_handler.verify_state_proof(state_machine, requests.len(), &proof);
 
-                acc + cb_weight +
-                    proof_verification_weight +
-                    <T as Config>::WeightInfo::handle_response_message()
+                acc + cb_weight
+                    + proof_verification_weight
+                    + <T as Config>::WeightInfo::handle_response_message()
             },
         },
         Message::Timeout(msg) => match msg {
@@ -304,9 +318,9 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                     &timeout_proof,
                 );
 
-                acc + cb_weight +
-                    proof_verification_weight +
-                    <T as Config>::WeightInfo::handle_response_message()
+                acc + cb_weight
+                    + proof_verification_weight
+                    + <T as Config>::WeightInfo::handle_response_message()
             },
             TimeoutMessage::Get { requests } => {
                 let cb_weight = requests.iter().fold(Weight::zero(), |acc, req| {

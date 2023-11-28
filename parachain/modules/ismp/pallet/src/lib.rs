@@ -15,6 +15,11 @@
 
 //! ISMP implementation for substrate-based chains.
 
+// <HB SBP Review
+//
+// I would recommend adding a detailed description of the pallet here.
+// >
+
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
@@ -279,6 +284,11 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
+            // <HB SBP M1 Review
+            //
+            // I would define this TODO with some level of importance before deploying.
+            //
+            // >
             // todo: return correct Mmr finalization weight here
             <T as Config>::WeightInfo::on_finalize(Self::number_of_leaves() as u32)
         }
@@ -293,7 +303,7 @@ pub mod pallet {
                     Ok(root) => root,
                     Err(e) => {
                         log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
-                        return
+                        return;
                     },
                 };
 
@@ -308,6 +318,13 @@ pub mod pallet {
             <frame_system::Pallet<T>>::deposit_log(digest);
         }
 
+        /// <HB SBP Review
+        ///
+        /// As the OCW was not implemented yet, i would recommend to take a look at this forum post where some interesting security implications are discussed:
+        ///
+        /// https://forum.polkadot.network/t/offchain-workers-design-assumptions-vulnerabilities/2548
+        ///
+        /// >
         fn offchain_worker(_n: BlockNumberFor<T>) {}
     }
 
@@ -327,6 +344,11 @@ pub mod pallet {
         /// Handles ismp messages
         #[pallet::weight(get_weight::<T>(&messages))]
         #[pallet::call_index(0)]
+        /// <HB SBP M1 Review
+        ///
+        /// There is no need to define explicitly the call as transactional, since it is already defined as such by default.
+        ///
+        /// >
         #[frame_support::transactional]
         pub fn handle(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResultWithPostInfo {
             let _ = ensure_signed(origin)?;
@@ -355,6 +377,11 @@ pub mod pallet {
         }
 
         /// Set the unbonding period for a consensus state.
+        /// // <HB SBP M1 Review
+        //
+        // I would avoid defining manually the qty of read and writes, i would use the WeightInfo function (even if the value is a placeholder)
+        //
+        // >
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(2))]
         #[pallet::call_index(2)]
         pub fn update_consensus_state(
@@ -378,7 +405,13 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Set the unbonding period for a consensus state.
         /// Set the allowed proxies
+        ///         /// // <HB SBP M1 Review
+        //
+        // I would avoid defining manually the qty of read and writes, i would use the WeightInfo function  (even if the value is a placeholder).
+        //
+        // >
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(1))]
         #[pallet::call_index(3)]
         pub fn set_config(origin: OriginFor<T>, allowed: Vec<StateMachine>) -> DispatchResult {
@@ -478,8 +511,8 @@ impl<T: Config> Pallet<T> {
                 Ok(MessageResult::ConsensusMessage(res)) => {
                     // check if this is a trusted state machine
                     let is_trusted_state_machine = host
-                        .challenge_period(res.consensus_state_id.clone()) ==
-                        Some(Duration::from_secs(0));
+                        .challenge_period(res.consensus_state_id.clone())
+                        == Some(Duration::from_secs(0));
 
                     if is_trusted_state_machine {
                         for (_, latest_height) in res.state_updates.into_iter() {
@@ -615,7 +648,7 @@ impl<T: Config> Pallet<T> {
                     _ => None,
                 },
                 _ => None,
-            }
+            };
         }
         None
     }
@@ -631,7 +664,7 @@ impl<T: Config> Pallet<T> {
                     _ => None,
                 },
                 _ => None,
-            }
+            };
         }
         None
     }
@@ -649,7 +682,7 @@ impl<T: Config> Pallet<T> {
             Self::response_leaf_pos_and_index_offchain_key(source_chain, dest_chain, nonce)
         };
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            return <(LeafIndex, LeafIndex)>::decode(&mut &*elem).ok()
+            return <(LeafIndex, LeafIndex)>::decode(&mut &*elem).ok();
         }
         None
     }

@@ -20,17 +20,17 @@ ismp = { path = "../core", default-features = false }
 pallet-ismp = { path = "../pallet", default-features = false }
 
 # substrate
-frame-support = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
-frame-system = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
-sp-trie = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
-sp-inherents = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
-sp-io = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
-sp-runtime = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
-sp-consensus-aura = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
+frame-support = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
+frame-system = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
+sp-trie = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
+sp-inherents = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
+sp-io = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
+sp-runtime = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
+sp-consensus-aura = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
 
 # cumulus
-parachain-system = { package = "cumulus-pallet-parachain-system", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0",  default-features = false }
-cumulus-primitives-core = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0", default-features = false }
+parachain-system = { package = "cumulus-pallet-parachain-system", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0",  default-features = false }
+cumulus-primitives-core = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0", default-features = false }
 
 # local
 substrate-state-machine = { path = "../state-machine", default-features = false }

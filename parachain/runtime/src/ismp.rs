@@ -86,21 +86,22 @@ impl ismp_demo::Config for Runtime {
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
         if request.dest != StateMachineProvider::get() {
-            return Ismp::dispatch_request(Request::Post(request))
+            return Ismp::dispatch_request(Request::Post(request));
         }
 
         let pallet_id = ModuleId::from_bytes(&request.to)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
         match pallet_id {
-            ismp_demo::PALLET_ID =>
-                ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
+            ismp_demo::PALLET_ID => {
+                ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request)
+            },
             _ => Err(Error::ImplementationSpecific("Destination module not found".to_string())),
         }
     }
 
     fn on_response(&self, response: Response) -> Result<(), Error> {
         if response.dest_chain() != StateMachineProvider::get() {
-            return Ismp::dispatch_response(response)
+            return Ismp::dispatch_response(response);
         }
 
         let request = &response.request();
@@ -112,8 +113,9 @@ impl IsmpModule for ProxyModule {
         let pallet_id = ModuleId::from_bytes(from)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
         match pallet_id {
-            ismp_demo::PALLET_ID =>
-                ismp_demo::IsmpModuleCallback::<Runtime>::default().on_response(response),
+            ismp_demo::PALLET_ID => {
+                ismp_demo::IsmpModuleCallback::<Runtime>::default().on_response(response)
+            },
             _ => Err(Error::ImplementationSpecific("Destination module not found".to_string())),
         }
     }
@@ -127,8 +129,9 @@ impl IsmpModule for ProxyModule {
         let pallet_id = ModuleId::from_bytes(from)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
         match pallet_id {
-            ismp_demo::PALLET_ID =>
-                ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(request),
+            ismp_demo::PALLET_ID => {
+                ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(request)
+            },
             _ => Err(Error::ImplementationSpecific("Destination module not found".to_string())),
         }
     }

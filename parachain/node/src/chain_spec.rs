@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use cumulus_primitives_core::ParaId;
-use hyperbridge_runtime::{AccountId, AuraId, Signature, EXISTENTIAL_DEPOSIT};
+use gargantuan_runtime::{AccountId, AuraId, Signature, EXISTENTIAL_DEPOSIT};
 use sc_chain_spec::{ChainSpecExtension, ChainSpecGroup};
 use sc_service::ChainType;
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,7 @@ use sp_runtime::traits::{IdentifyAccount, Verify};
 
 /// Specialized `ChainSpec` for the normal parachain runtime.
 pub type ChainSpec =
-    sc_service::GenericChainSpec<hyperbridge_runtime::RuntimeGenesisConfig, Extensions>;
+    sc_service::GenericChainSpec<gargantuan_runtime::RuntimeGenesisConfig, Extensions>;
 
 /// The default XCM version to set in genesis config.
 const SAFE_XCM_VERSION: u32 = staging_xcm::prelude::XCM_VERSION;
@@ -72,8 +72,8 @@ where
 /// Generate the session keys from individual elements.
 ///
 /// The input must be a tuple of individual keys (a single arg for now since we have just one key).
-pub fn session_keys(keys: AuraId) -> hyperbridge_runtime::SessionKeys {
-    hyperbridge_runtime::SessionKeys { aura: keys }
+pub fn session_keys(keys: AuraId) -> gargantuan_runtime::SessionKeys {
+    gargantuan_runtime::SessionKeys { aura: keys }
 }
 
 pub fn development_config(id: u32) -> ChainSpec {
@@ -199,32 +199,32 @@ fn testnet_genesis(
     endowed_accounts: Vec<AccountId>,
     id: ParaId,
     sudo: AccountId,
-) -> hyperbridge_runtime::RuntimeGenesisConfig {
+) -> gargantuan_runtime::RuntimeGenesisConfig {
     // let sibling = match id.into() {
     //     2000u32 => 2001,
     //     2001u32 => 2000,
     //     _ => unimplemented!(),
     // };
-    hyperbridge_runtime::RuntimeGenesisConfig {
-        system: hyperbridge_runtime::SystemConfig {
-            code: hyperbridge_runtime::WASM_BINARY
+    gargantuan_runtime::RuntimeGenesisConfig {
+        system: gargantuan_runtime::SystemConfig {
+            code: gargantuan_runtime::WASM_BINARY
                 .expect("WASM binary was not build, please build it!")
                 .to_vec(),
             ..Default::default()
         },
-        balances: hyperbridge_runtime::BalancesConfig {
+        balances: gargantuan_runtime::BalancesConfig {
             balances: endowed_accounts.iter().cloned().map(|k| (k, 1 << 60)).collect(),
         },
-        parachain_info: hyperbridge_runtime::ParachainInfoConfig {
+        parachain_info: gargantuan_runtime::ParachainInfoConfig {
             parachain_id: id,
             ..Default::default()
         },
-        collator_selection: hyperbridge_runtime::CollatorSelectionConfig {
+        collator_selection: gargantuan_runtime::CollatorSelectionConfig {
             invulnerables: invulnerables.iter().cloned().map(|(acc, _)| acc).collect(),
             candidacy_bond: EXISTENTIAL_DEPOSIT * 16,
             ..Default::default()
         },
-        session: hyperbridge_runtime::SessionConfig {
+        session: gargantuan_runtime::SessionConfig {
             keys: invulnerables
                 .into_iter()
                 .map(|(acc, aura)| {
@@ -241,9 +241,9 @@ fn testnet_genesis(
         aura: Default::default(),
         aura_ext: Default::default(),
         parachain_system: Default::default(),
-        // ismp_parachain: hyperbridge_runtime::IsmpParachainConfig { parachains: vec![sibling] },
-        sudo: hyperbridge_runtime::SudoConfig { key: Some(sudo) },
-        polkadot_xcm: hyperbridge_runtime::PolkadotXcmConfig {
+        // ismp_parachain: gargantuan_runtime::IsmpParachainConfig { parachains: vec![sibling] },
+        sudo: gargantuan_runtime::SudoConfig { key: Some(sudo) },
+        polkadot_xcm: gargantuan_runtime::PolkadotXcmConfig {
             safe_xcm_version: Some(SAFE_XCM_VERSION),
             ..Default::default()
         },

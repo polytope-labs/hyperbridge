@@ -23,7 +23,8 @@ jsonrpsee = { version = "0.16.2", features = ["server"] }
 futures = "0.3.28"
 
 # local
-hyperbridge-runtime = { path = "../runtime" }
+gargantuan-runtime = { path = "../runtimes/gargantuan" }
+messier-runtime = { path = "../runtimes/messier" }
 ismp-rpc = { path = "../modules/ismp/rpc" }
 ismp-runtime-api = { path = "../modules/ismp/runtime-api" }
 
@@ -53,6 +54,8 @@ sp-blockchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "
 sp-consensus-aura = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
 sp-core = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
 sp-keystore = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
+sp-consensus = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
+sp-storage = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
 sp-offchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
 sc-offchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
 sp-io = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
@@ -89,12 +92,12 @@ substrate-build-script-utils = { git = "https://github.com/paritytech/polkadot-s
 default = []
 runtime-benchmarks = [
 	"try-runtime-cli/try-runtime",
-	"hyperbridge-runtime/runtime-benchmarks",
+	"gargantuan-runtime/runtime-benchmarks",
 	"polkadot-cli/runtime-benchmarks",
 ]
 try-runtime = [
 	"try-runtime-cli/try-runtime",
-	"hyperbridge-runtime/try-runtime"
+	"gargantuan-runtime/try-runtime"
 ]
-sepolia = ["hyperbridge-runtime/sepolia"]
-mainnet = ["hyperbridge-runtime/mainnet"]
+sepolia = ["gargantuan-runtime/sepolia"]
+mainnet = ["gargantuan-runtime/mainnet"]

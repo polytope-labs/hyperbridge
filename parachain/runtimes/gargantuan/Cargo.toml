@@ -1,5 +1,5 @@
 [package]
-name = "hyperbridge-runtime"
+name = "gargantuan-runtime"
 version = "0.1.0"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "Parachain runtime implementation of the hyperbridge protocol"
@@ -69,13 +69,13 @@ pallet-collator-selection = { git = "https://github.com/paritytech/polkadot-sdk"
 parachain-info = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0", default-features = false }
 
 # polytope-labs
-ismp = { path = "../modules/ismp/core", default-features = false }
+ismp = { path = "../../modules/ismp/core", default-features = false }
 
 # ismp modules
-pallet-ismp = { path = "../modules/ismp/pallet", default-features = false }
-ismp-demo = { path = "../modules/ismp/demo", default-features = false }
-ismp-runtime-api = { path = "../modules/ismp/runtime-api", default-features = false }
-ismp-sync-committee = { path = "../modules/ismp/sync-committee", default-features = false }
+pallet-ismp = { path = "../../modules/ismp/pallet", default-features = false }
+ismp-demo = { path = "../../modules/ismp/demo", default-features = false }
+ismp-runtime-api = { path = "../../modules/ismp/runtime-api", default-features = false }
+ismp-sync-committee = { path = "../../modules/ismp/sync-committee", default-features = false }
 
 [features]
 default = [

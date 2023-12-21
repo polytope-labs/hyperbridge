@@ -45,11 +45,11 @@ pub mod api {
     #[doc = r" The error type returned when there is a runtime issue."]
     pub type DispatchError = runtime_types::sp_runtime::DispatchError;
     #[doc = r" The outer event enum."]
-    pub type Event = runtime_types::hyperbridge_runtime::RuntimeEvent;
+    pub type Event = runtime_types::gargantuan_runtime::RuntimeEvent;
     #[doc = r" The outer extrinsic enum."]
-    pub type Call = runtime_types::hyperbridge_runtime::RuntimeCall;
+    pub type Call = runtime_types::gargantuan_runtime::RuntimeCall;
     #[doc = r" The outer error enum representing the DispatchError's Module variant."]
-    pub type Error = runtime_types::hyperbridge_runtime::RuntimeError;
+    pub type Error = runtime_types::gargantuan_runtime::RuntimeError;
     pub fn constants() -> ConstantsApi {
         ConstantsApi
     }
@@ -208,7 +208,7 @@ pub mod api {
                 #[doc = " Execute the given block."]
                 pub fn execute_block(
                     &self,
-                    block : runtime_types :: sp_runtime :: generic :: block :: Block < runtime_types :: sp_runtime :: generic :: header :: Header < :: core :: primitive :: u32 > , :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > >,
+                    block : runtime_types :: sp_runtime :: generic :: block :: Block < runtime_types :: sp_runtime :: generic :: header :: Header < :: core :: primitive :: u32 > , :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > >,
                 ) -> ::subxt::runtime_api::Payload<types::ExecuteBlock, ()> {
                     ::subxt::runtime_api::Payload::new_static(
                         "Core",
@@ -263,7 +263,7 @@ pub mod api {
                 # [codec (crate = :: subxt :: ext :: codec)]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct ExecuteBlock { pub block : runtime_types :: sp_runtime :: generic :: block :: Block < runtime_types :: sp_runtime :: generic :: header :: Header < :: core :: primitive :: u32 > , :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > > , }
+                pub struct ExecuteBlock { pub block : runtime_types :: sp_runtime :: generic :: block :: Block < runtime_types :: sp_runtime :: generic :: header :: Header < :: core :: primitive :: u32 > , :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > > , }
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,
                     :: subxt :: ext :: codec :: Encode,
@@ -398,7 +398,7 @@ pub mod api {
                 #[doc = " this block or not."]
                 pub fn apply_extrinsic(
                     &self,
-                    extrinsic : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) >,
+                    extrinsic : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) >,
                 ) -> ::subxt::runtime_api::Payload<
                     types::ApplyExtrinsic,
                     ::core::result::Result<
@@ -435,7 +435,7 @@ pub mod api {
                         ],
                     )
                 }
-                #[doc = " Generate inherent extrinsics. The inherent data will vary from chain to chain."]                pub fn inherent_extrinsics (& self , inherent : runtime_types :: sp_inherents :: InherentData ,) -> :: subxt :: runtime_api :: Payload < types :: InherentExtrinsics , :: std :: vec :: Vec < :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > > >{
+                #[doc = " Generate inherent extrinsics. The inherent data will vary from chain to chain."]                pub fn inherent_extrinsics (& self , inherent : runtime_types :: sp_inherents :: InherentData ,) -> :: subxt :: runtime_api :: Payload < types :: InherentExtrinsics , :: std :: vec :: Vec < :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > > >{
                     ::subxt::runtime_api::Payload::new_static(
                         "BlockBuilder",
                         "inherent_extrinsics",
@@ -451,7 +451,7 @@ pub mod api {
                 #[doc = " Check that the inherents are valid. The inherent data will vary from chain to chain."]
                 pub fn check_inherents(
                     &self,
-                    block : runtime_types :: sp_runtime :: generic :: block :: Block < runtime_types :: sp_runtime :: generic :: header :: Header < :: core :: primitive :: u32 > , :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > >,
+                    block : runtime_types :: sp_runtime :: generic :: block :: Block < runtime_types :: sp_runtime :: generic :: header :: Header < :: core :: primitive :: u32 > , :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > >,
                     data: runtime_types::sp_inherents::InherentData,
                 ) -> ::subxt::runtime_api::Payload<
                     types::CheckInherents,
@@ -482,7 +482,7 @@ pub mod api {
                 # [codec (crate = :: subxt :: ext :: codec)]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct ApplyExtrinsic { pub extrinsic : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > , }
+                pub struct ApplyExtrinsic { pub extrinsic : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > , }
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,
                     :: subxt :: ext :: codec :: Encode,
@@ -517,7 +517,7 @@ pub mod api {
                 # [codec (crate = :: subxt :: ext :: codec)]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct CheckInherents { pub block : runtime_types :: sp_runtime :: generic :: block :: Block < runtime_types :: sp_runtime :: generic :: header :: Header < :: core :: primitive :: u32 > , :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > > , pub data : runtime_types :: sp_inherents :: InherentData , }
+                pub struct CheckInherents { pub block : runtime_types :: sp_runtime :: generic :: block :: Block < runtime_types :: sp_runtime :: generic :: header :: Header < :: core :: primitive :: u32 > , :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > > , pub data : runtime_types :: sp_inherents :: InherentData , }
             }
         }
         pub mod tagged_transaction_queue {
@@ -537,7 +537,7 @@ pub mod api {
                 pub fn validate_transaction(
                     &self,
                     source: runtime_types::sp_runtime::transaction_validity::TransactionSource,
-                    tx : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) >,
+                    tx : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) >,
                     block_hash: ::subxt::utils::H256,
                 ) -> ::subxt::runtime_api::Payload<
                     types::ValidateTransaction,
@@ -570,7 +570,7 @@ pub mod api {
                 # [codec (crate = :: subxt :: ext :: codec)]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct ValidateTransaction { pub source : runtime_types :: sp_runtime :: transaction_validity :: TransactionSource , pub tx : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > , pub block_hash : :: subxt :: utils :: H256 , }
+                pub struct ValidateTransaction { pub source : runtime_types :: sp_runtime :: transaction_validity :: TransactionSource , pub tx : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > , pub block_hash : :: subxt :: utils :: H256 , }
             }
         }
         pub mod offchain_worker_api {
@@ -750,7 +750,7 @@ pub mod api {
             impl TransactionPaymentApi {
                 pub fn query_info(
                     &self,
-                    uxt : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) >,
+                    uxt : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) >,
                     len: ::core::primitive::u32,
                 ) -> ::subxt::runtime_api::Payload<
                     types::QueryInfo,
@@ -772,7 +772,7 @@ pub mod api {
                 }
                 pub fn query_fee_details(
                     &self,
-                    uxt : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) >,
+                    uxt : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) >,
                     len: ::core::primitive::u32,
                 ) -> ::subxt::runtime_api::Payload<
                     types::QueryFeeDetails,
@@ -838,7 +838,7 @@ pub mod api {
                 # [codec (crate = :: subxt :: ext :: codec)]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct QueryInfo { pub uxt : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > , pub len : :: core :: primitive :: u32 , }
+                pub struct QueryInfo { pub uxt : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > , pub len : :: core :: primitive :: u32 , }
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,
                     :: subxt :: ext :: codec :: Encode,
@@ -849,7 +849,7 @@ pub mod api {
                 # [codec (crate = :: subxt :: ext :: codec)]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct QueryFeeDetails { pub uxt : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: hyperbridge_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > , pub len : :: core :: primitive :: u32 , }
+                pub struct QueryFeeDetails { pub uxt : :: subxt :: utils :: UncheckedExtrinsic < :: subxt :: utils :: MultiAddress < :: subxt :: utils :: AccountId32 , () > , runtime_types :: gargantuan_runtime :: RuntimeCall , runtime_types :: sp_runtime :: MultiSignature , (runtime_types :: frame_system :: extensions :: check_non_zero_sender :: CheckNonZeroSender , runtime_types :: frame_system :: extensions :: check_spec_version :: CheckSpecVersion , runtime_types :: frame_system :: extensions :: check_tx_version :: CheckTxVersion , runtime_types :: frame_system :: extensions :: check_genesis :: CheckGenesis , runtime_types :: frame_system :: extensions :: check_mortality :: CheckMortality , runtime_types :: frame_system :: extensions :: check_nonce :: CheckNonce , runtime_types :: frame_system :: extensions :: check_weight :: CheckWeight , runtime_types :: pallet_transaction_payment :: ChargeTransactionPayment ,) > , pub len : :: core :: primitive :: u32 , }
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,
                     :: subxt :: ext :: codec :: Encode,
@@ -885,7 +885,7 @@ pub mod api {
                 #[doc = " Query information of a dispatch class, weight, and fee of a given encoded `Call`."]
                 pub fn query_call_info(
                     &self,
-                    call: runtime_types::hyperbridge_runtime::RuntimeCall,
+                    call: runtime_types::gargantuan_runtime::RuntimeCall,
                     len: ::core::primitive::u32,
                 ) -> ::subxt::runtime_api::Payload<
                     types::QueryCallInfo,
@@ -908,7 +908,7 @@ pub mod api {
                 #[doc = " Query fee details of a given encoded `Call`."]
                 pub fn query_call_fee_details(
                     &self,
-                    call: runtime_types::hyperbridge_runtime::RuntimeCall,
+                    call: runtime_types::gargantuan_runtime::RuntimeCall,
                     len: ::core::primitive::u32,
                 ) -> ::subxt::runtime_api::Payload<
                     types::QueryCallFeeDetails,
@@ -976,7 +976,7 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct QueryCallInfo {
-                    pub call: runtime_types::hyperbridge_runtime::RuntimeCall,
+                    pub call: runtime_types::gargantuan_runtime::RuntimeCall,
                     pub len: ::core::primitive::u32,
                 }
                 #[derive(
@@ -990,7 +990,7 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct QueryCallFeeDetails {
-                    pub call: runtime_types::hyperbridge_runtime::RuntimeCall,
+                    pub call: runtime_types::gargantuan_runtime::RuntimeCall,
                     pub len: ::core::primitive::u32,
                 }
                 #[derive(
@@ -2354,7 +2354,7 @@ pub mod api {
                     ::subxt::storage::address::StaticStorageMapKey,
                     ::std::vec::Vec<
                         runtime_types::frame_system::EventRecord<
-                            runtime_types::hyperbridge_runtime::RuntimeEvent,
+                            runtime_types::gargantuan_runtime::RuntimeEvent,
                             ::subxt::utils::H256,
                         >,
                     >,
@@ -4581,7 +4581,7 @@ pub mod api {
                     ::subxt::storage::address::StaticStorageMapKey,
                     runtime_types::bounded_collections::bounded_vec::BoundedVec<
                         runtime_types::pallet_balances::types::IdAmount<
-                            runtime_types::hyperbridge_runtime::HoldReason,
+                            runtime_types::gargantuan_runtime::HoldReason,
                             ::core::primitive::u128,
                         >,
                     >,
@@ -4609,7 +4609,7 @@ pub mod api {
                     ::subxt::storage::address::StaticStorageMapKey,
                     runtime_types::bounded_collections::bounded_vec::BoundedVec<
                         runtime_types::pallet_balances::types::IdAmount<
-                            runtime_types::hyperbridge_runtime::HoldReason,
+                            runtime_types::gargantuan_runtime::HoldReason,
                             ::core::primitive::u128,
                         >,
                     >,
@@ -5482,7 +5482,7 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct SetKeys {
-                    pub keys: runtime_types::hyperbridge_runtime::SessionKeys,
+                    pub keys: runtime_types::gargantuan_runtime::SessionKeys,
                     pub proof: ::std::vec::Vec<::core::primitive::u8>,
                 }
                 impl ::subxt::blocks::StaticExtrinsic for SetKeys {
@@ -5510,7 +5510,7 @@ pub mod api {
                 #[doc = "See [`Pallet::set_keys`]."]
                 pub fn set_keys(
                     &self,
-                    keys: runtime_types::hyperbridge_runtime::SessionKeys,
+                    keys: runtime_types::gargantuan_runtime::SessionKeys,
                     proof: ::std::vec::Vec<::core::primitive::u8>,
                 ) -> ::subxt::tx::Payload<types::SetKeys> {
                     ::subxt::tx::Payload::new_static(
@@ -5645,7 +5645,7 @@ pub mod api {
                     ::subxt::storage::address::StaticStorageMapKey,
                     ::std::vec::Vec<(
                         ::subxt::utils::AccountId32,
-                        runtime_types::hyperbridge_runtime::SessionKeys,
+                        runtime_types::gargantuan_runtime::SessionKeys,
                     )>,
                     ::subxt::storage::address::Yes,
                     ::subxt::storage::address::Yes,
@@ -5692,7 +5692,7 @@ pub mod api {
                     &self,
                 ) -> ::subxt::storage::address::Address<
                     ::subxt::storage::address::StaticStorageMapKey,
-                    runtime_types::hyperbridge_runtime::SessionKeys,
+                    runtime_types::gargantuan_runtime::SessionKeys,
                     (),
                     (),
                     ::subxt::storage::address::Yes,
@@ -5714,7 +5714,7 @@ pub mod api {
                     _0: impl ::std::borrow::Borrow<::subxt::utils::AccountId32>,
                 ) -> ::subxt::storage::address::Address<
                     ::subxt::storage::address::StaticStorageMapKey,
-                    runtime_types::hyperbridge_runtime::SessionKeys,
+                    runtime_types::gargantuan_runtime::SessionKeys,
                     ::subxt::storage::address::Yes,
                     (),
                     (),
@@ -5943,7 +5943,7 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct Sudo {
-                    pub call: ::std::boxed::Box<runtime_types::hyperbridge_runtime::RuntimeCall>,
+                    pub call: ::std::boxed::Box<runtime_types::gargantuan_runtime::RuntimeCall>,
                 }
                 impl ::subxt::blocks::StaticExtrinsic for Sudo {
                     const PALLET: &'static str = "Sudo";
@@ -5960,7 +5960,7 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct SudoUncheckedWeight {
-                    pub call: ::std::boxed::Box<runtime_types::hyperbridge_runtime::RuntimeCall>,
+                    pub call: ::std::boxed::Box<runtime_types::gargantuan_runtime::RuntimeCall>,
                     pub weight: runtime_types::sp_weights::weight_v2::Weight,
                 }
                 impl ::subxt::blocks::StaticExtrinsic for SudoUncheckedWeight {
@@ -5996,7 +5996,7 @@ pub mod api {
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct SudoAs {
                     pub who: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
-                    pub call: ::std::boxed::Box<runtime_types::hyperbridge_runtime::RuntimeCall>,
+                    pub call: ::std::boxed::Box<runtime_types::gargantuan_runtime::RuntimeCall>,
                 }
                 impl ::subxt::blocks::StaticExtrinsic for SudoAs {
                     const PALLET: &'static str = "Sudo";
@@ -6008,7 +6008,7 @@ pub mod api {
                 #[doc = "See [`Pallet::sudo`]."]
                 pub fn sudo(
                     &self,
-                    call: runtime_types::hyperbridge_runtime::RuntimeCall,
+                    call: runtime_types::gargantuan_runtime::RuntimeCall,
                 ) -> ::subxt::tx::Payload<types::Sudo> {
                     ::subxt::tx::Payload::new_static(
                         "Sudo",
@@ -6024,7 +6024,7 @@ pub mod api {
                 #[doc = "See [`Pallet::sudo_unchecked_weight`]."]
                 pub fn sudo_unchecked_weight(
                     &self,
-                    call: runtime_types::hyperbridge_runtime::RuntimeCall,
+                    call: runtime_types::gargantuan_runtime::RuntimeCall,
                     weight: runtime_types::sp_weights::weight_v2::Weight,
                 ) -> ::subxt::tx::Payload<types::SudoUncheckedWeight> {
                     ::subxt::tx::Payload::new_static(
@@ -6059,7 +6059,7 @@ pub mod api {
                 pub fn sudo_as(
                     &self,
                     who: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
-                    call: runtime_types::hyperbridge_runtime::RuntimeCall,
+                    call: runtime_types::gargantuan_runtime::RuntimeCall,
                 ) -> ::subxt::tx::Payload<types::SudoAs> {
                     ::subxt::tx::Payload::new_static(
                         "Sudo",
@@ -11545,7 +11545,7 @@ pub mod api {
                 Initialization,
             }
         }
-        pub mod hyperbridge_runtime {
+        pub mod gargantuan_runtime {
             use super::runtime_types;
             #[derive(
                 :: subxt :: ext :: codec :: Decode,
@@ -13080,7 +13080,7 @@ pub mod api {
                     #[codec(index = 0)]
                     #[doc = "See [`Pallet::set_keys`]."]
                     set_keys {
-                        keys: runtime_types::hyperbridge_runtime::SessionKeys,
+                        keys: runtime_types::gargantuan_runtime::SessionKeys,
                         proof: ::std::vec::Vec<::core::primitive::u8>,
                     },
                     #[codec(index = 1)]
@@ -13152,13 +13152,11 @@ pub mod api {
                 pub enum Call {
                     #[codec(index = 0)]
                     #[doc = "See [`Pallet::sudo`]."]
-                    sudo {
-                        call: ::std::boxed::Box<runtime_types::hyperbridge_runtime::RuntimeCall>,
-                    },
+                    sudo { call: ::std::boxed::Box<runtime_types::gargantuan_runtime::RuntimeCall> },
                     #[codec(index = 1)]
                     #[doc = "See [`Pallet::sudo_unchecked_weight`]."]
                     sudo_unchecked_weight {
-                        call: ::std::boxed::Box<runtime_types::hyperbridge_runtime::RuntimeCall>,
+                        call: ::std::boxed::Box<runtime_types::gargantuan_runtime::RuntimeCall>,
                         weight: runtime_types::sp_weights::weight_v2::Weight,
                     },
                     #[codec(index = 2)]
@@ -13168,7 +13166,7 @@ pub mod api {
                     #[doc = "See [`Pallet::sudo_as`]."]
                     sudo_as {
                         who: ::subxt::utils::MultiAddress<::subxt::utils::AccountId32, ()>,
-                        call: ::std::boxed::Box<runtime_types::hyperbridge_runtime::RuntimeCall>,
+                        call: ::std::boxed::Box<runtime_types::gargantuan_runtime::RuntimeCall>,
                     },
                 }
                 #[derive(

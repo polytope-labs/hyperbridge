@@ -6,7 +6,7 @@ use crate::types::{
     ismp_host::PostRequestEventFilter,
     runtime::api::{
         ismp::Event as Ev,
-        runtime_types::{frame_system::EventRecord, hyperbridge_runtime::RuntimeEvent},
+        runtime_types::{frame_system::EventRecord, gargantuan_runtime::RuntimeEvent},
     },
 };
 use anyhow::anyhow;

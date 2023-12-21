@@ -7145,6 +7145,7 @@ dependencies = [
  "sp-block-builder",
  "sp-consensus-aura",
  "sp-core 21.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.4.0)",
+ "sp-genesis-builder",
  "sp-inherents",
  "sp-offchain",
  "sp-runtime 24.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.4.0)",

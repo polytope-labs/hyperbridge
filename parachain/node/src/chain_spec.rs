@@ -76,10 +76,10 @@ pub fn session_keys(keys: AuraId) -> gargantuan_runtime::SessionKeys {
     gargantuan_runtime::SessionKeys { aura: keys }
 }
 
-pub fn development_config(_id: u32) -> ChainSpec {
+pub fn gargantuan_development_config(id: u32) -> ChainSpec {
     // Give your base currency a unit name and decimal places
     let mut properties = sc_chain_spec::Properties::new();
-    properties.insert("tokenSymbol".into(), "HYPER".into());
+    properties.insert("tokenSymbol".into(), "DEV".into());
     properties.insert("tokenDecimals".into(), 12.into());
     properties.insert("ss58Format".into(), 42.into());
 
@@ -88,7 +88,7 @@ pub fn development_config(_id: u32) -> ChainSpec {
         Extensions {
             relay_chain: "rococo-local".into(),
             // You MUST set this to the correct network!
-            para_id: 2000,
+            para_id: id,
         },
     )
     .with_name("Development")
@@ -121,7 +121,57 @@ pub fn development_config(_id: u32) -> ChainSpec {
             get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
         ],
         get_account_id_from_seed::<sr25519::Public>("Alice"),
-        2000.into(),
+        id.into(),
+    ))
+    .build()
+}
+
+pub fn messier_development_config(id: u32) -> ChainSpec {
+    // Give your base currency a unit name and decimal places
+    let mut properties = sc_chain_spec::Properties::new();
+    properties.insert("tokenSymbol".into(), "DEV".into());
+    properties.insert("tokenDecimals".into(), 12.into());
+    properties.insert("ss58Format".into(), 42.into());
+
+    ChainSpec::builder(
+        messier_runtime::WASM_BINARY.expect("WASM binary was not built, please build it!"),
+        Extensions {
+            relay_chain: "rococo-local".into(),
+            // You MUST set this to the correct network!
+            para_id: id,
+        },
+    )
+    .with_name("Development")
+    .with_id("messier")
+    .with_chain_type(ChainType::Development)
+    .with_genesis_config_patch(testnet_genesis(
+        // initial collators.
+        vec![
+            (
+                get_account_id_from_seed::<sr25519::Public>("Alice"),
+                get_collator_keys_from_seed("Alice"),
+            ),
+            (
+                get_account_id_from_seed::<sr25519::Public>("Bob"),
+                get_collator_keys_from_seed("Bob"),
+            ),
+        ],
+        vec![
+            get_account_id_from_seed::<sr25519::Public>("Alice"),
+            get_account_id_from_seed::<sr25519::Public>("Bob"),
+            get_account_id_from_seed::<sr25519::Public>("Charlie"),
+            get_account_id_from_seed::<sr25519::Public>("Dave"),
+            get_account_id_from_seed::<sr25519::Public>("Eve"),
+            get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+            get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Charlie//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Dave//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
+        ],
+        get_account_id_from_seed::<sr25519::Public>("Alice"),
+        id.into(),
     ))
     .build()
 }

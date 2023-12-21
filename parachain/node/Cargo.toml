@@ -98,5 +98,5 @@ try-runtime = [
 	"try-runtime-cli/try-runtime",
 	"gargantuan-runtime/try-runtime"
 ]
-sepolia = ["gargantuan-runtime/sepolia"]
-mainnet = ["gargantuan-runtime/mainnet"]
+sepolia = ["gargantuan-runtime/sepolia", "messier-runtime/sepolia"]
+mainnet = ["gargantuan-runtime/mainnet", "messier-runtime/mainnet"]

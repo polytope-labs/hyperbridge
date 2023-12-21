@@ -15,29 +15,30 @@
 
 #![allow(dead_code)]
 
+use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use cumulus_primitives_core::Weight;
 use frame_support::{
     dispatch::{CallableCallFor, DispatchClass, DispatchInfo, DispatchResult, PostDispatchInfo},
     pallet_prelude::TypeInfo,
-    traits::{Defensive, IsSubType},
+    traits::{Currency, Defensive, IsSubType},
 };
-use sp_core::Get;
 use ismp::handlers::handle_incoming_message;
 use pallet_ismp::host::Host;
-use pallet_transaction_payment::{
-    ChargeTransactionPayment, Config, Event, OnChargeTransaction, Pallet,
-};
+use pallet_transaction_payment::{ChargeTransactionPayment, Config, OnChargeTransaction, Pallet};
+use sp_core::Get;
 use sp_runtime::{
-    traits::{DispatchInfoOf, Dispatchable, One, PostDispatchInfoOf, SignedExtension},
+    traits::{DispatchInfoOf, Dispatchable, One, PostDispatchInfoOf, SignedExtension, Zero},
     transaction_validity::{
         TransactionPriority, TransactionValidity, TransactionValidityError, ValidTransaction,
     },
     SaturatedConversion, Saturating,
 };
+use std::ops::Mul;
 
 /// Require the transactor pay for themselves and maybe include a tip to gain additional priority
-/// in the queue. We've modified the code to allow users submit ISMP messages with valid proofs without transaction fees.
+/// in the queue. We've modified the code to allow users submit ISMP messages with valid proofs
+/// without transaction fees.
 ///
 /// # Transaction Validity
 ///
@@ -184,7 +185,7 @@ impl<T: Config> sp_std::fmt::Debug for IsmpTxPayment<T> {
 
 impl<T> SignedExtension for IsmpTxPayment<T>
 where
-    T: Config + pallet_ismp::Config,
+    T: Config + pallet_ismp::Config + pallet_balances::Config,
     BalanceOf<T>: Send + Sync + From<u64>,
     T::RuntimeCall: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
         + IsSubType<CallableCallFor<pallet_ismp::Pallet<T>, T>>, // for downcasting
@@ -211,6 +212,14 @@ where
         info: &DispatchInfoOf<Self::Call>,
         len: usize,
     ) -> TransactionValidity {
+        let account = frame_system::Pallet::<T>::account(who);
+        //
+        if account.providers.is_zero() && account.sufficients.is_zero() {
+            let _ = <pallet_balances::Pallet<T> as Currency<T::AccountId>>::deposit_creating(
+                who,
+                T::ExistentialDeposit::get().mul(10u32.into()),
+            );
+        }
         let final_fee = match call.is_sub_type() {
             Some(pallet_ismp::Call::handle { messages }) => {
                 let host = Host::<T>::default();

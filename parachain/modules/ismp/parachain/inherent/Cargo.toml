@@ -10,14 +10,14 @@ codec = { package = "parity-scale-codec", version = "3.0.0", features = [ "deriv
 anyhow = "1.0.57"
 
 # Substrate
-sp-inherents = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
-sp-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
-sp-blockchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
-sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
+sp-inherents = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
+sp-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
+sp-blockchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
+sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
 
 # Cumulus
-cumulus-primitives-core = {  git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
-cumulus-relay-chain-interface = {  git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.2.0" }
+cumulus-primitives-core = {  git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
+cumulus-relay-chain-interface = {  git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
 
 # polytope-labs
 ismp = { path = "../../core" }

@@ -76,176 +76,141 @@ pub fn session_keys(keys: AuraId) -> gargantuan_runtime::SessionKeys {
     gargantuan_runtime::SessionKeys { aura: keys }
 }
 
-pub fn development_config(id: u32) -> ChainSpec {
+pub fn development_config(_id: u32) -> ChainSpec {
     // Give your base currency a unit name and decimal places
     let mut properties = sc_chain_spec::Properties::new();
     properties.insert("tokenSymbol".into(), "HYPER".into());
     properties.insert("tokenDecimals".into(), 12.into());
     properties.insert("ss58Format".into(), 42.into());
 
-    ChainSpec::from_genesis(
-        // Name
-        "Development",
-        // ID
-        "dev",
-        ChainType::Development,
-        move || {
-            testnet_genesis(
-                // initial collators.
-                vec![
-                    (
-                        get_account_id_from_seed::<sr25519::Public>("Alice"),
-                        get_collator_keys_from_seed("Alice"),
-                    ),
-                    (
-                        get_account_id_from_seed::<sr25519::Public>("Bob"),
-                        get_collator_keys_from_seed("Bob"),
-                    ),
-                ],
-                vec![
-                    get_account_id_from_seed::<sr25519::Public>("Alice"),
-                    get_account_id_from_seed::<sr25519::Public>("Bob"),
-                    get_account_id_from_seed::<sr25519::Public>("Charlie"),
-                    get_account_id_from_seed::<sr25519::Public>("Dave"),
-                    get_account_id_from_seed::<sr25519::Public>("Eve"),
-                    get_account_id_from_seed::<sr25519::Public>("Ferdie"),
-                    get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
-                    get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
-                    get_account_id_from_seed::<sr25519::Public>("Charlie//stash"),
-                    get_account_id_from_seed::<sr25519::Public>("Dave//stash"),
-                    get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
-                    get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
-                ],
-                id.into(),
-                get_account_id_from_seed::<sr25519::Public>("Alice"),
-            )
-        },
-        Vec::new(),
-        None,
-        None,
-        None,
-        None,
+    ChainSpec::builder(
+        gargantuan_runtime::WASM_BINARY.expect("WASM binary was not built, please build it!"),
         Extensions {
-            relay_chain: "rococo-local".into(), // You MUST set this to the correct network!
-            para_id: id,
+            relay_chain: "rococo-local".into(),
+            // You MUST set this to the correct network!
+            para_id: 2000,
         },
     )
+    .with_name("Development")
+    .with_id("dev")
+    .with_chain_type(ChainType::Development)
+    .with_genesis_config_patch(testnet_genesis(
+        // initial collators.
+        vec![
+            (
+                get_account_id_from_seed::<sr25519::Public>("Alice"),
+                get_collator_keys_from_seed("Alice"),
+            ),
+            (
+                get_account_id_from_seed::<sr25519::Public>("Bob"),
+                get_collator_keys_from_seed("Bob"),
+            ),
+        ],
+        vec![
+            get_account_id_from_seed::<sr25519::Public>("Alice"),
+            get_account_id_from_seed::<sr25519::Public>("Bob"),
+            get_account_id_from_seed::<sr25519::Public>("Charlie"),
+            get_account_id_from_seed::<sr25519::Public>("Dave"),
+            get_account_id_from_seed::<sr25519::Public>("Eve"),
+            get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+            get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Charlie//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Dave//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
+        ],
+        get_account_id_from_seed::<sr25519::Public>("Alice"),
+        2000.into(),
+    ))
+    .build()
 }
 
 pub fn local_testnet_config() -> ChainSpec {
     // Give your base currency a unit name and decimal places
     let mut properties = sc_chain_spec::Properties::new();
-    properties.insert("tokenSymbol".into(), "UNIT".into());
+    properties.insert("tokenSymbol".into(), "HYPER".into());
     properties.insert("tokenDecimals".into(), 12.into());
     properties.insert("ss58Format".into(), 42.into());
 
-    ChainSpec::from_genesis(
-        // Name
-        "Local Testnet",
-        // ID
-        "local_testnet",
-        ChainType::Local,
-        move || {
-            testnet_genesis(
-                // initial collators.
-                vec![
-                    (
-                        get_account_id_from_seed::<sr25519::Public>("Alice"),
-                        get_collator_keys_from_seed("Alice"),
-                    ),
-                    (
-                        get_account_id_from_seed::<sr25519::Public>("Bob"),
-                        get_collator_keys_from_seed("Bob"),
-                    ),
-                ],
-                vec![
-                    get_account_id_from_seed::<sr25519::Public>("Alice"),
-                    get_account_id_from_seed::<sr25519::Public>("Bob"),
-                    get_account_id_from_seed::<sr25519::Public>("Charlie"),
-                    get_account_id_from_seed::<sr25519::Public>("Dave"),
-                    get_account_id_from_seed::<sr25519::Public>("Eve"),
-                    get_account_id_from_seed::<sr25519::Public>("Ferdie"),
-                    get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
-                    get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
-                    get_account_id_from_seed::<sr25519::Public>("Charlie//stash"),
-                    get_account_id_from_seed::<sr25519::Public>("Dave//stash"),
-                    get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
-                    get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
-                ],
-                2000.into(),
-                get_account_id_from_seed::<sr25519::Public>("Alice"),
-            )
-        },
-        // Bootnodes
-        Vec::new(),
-        // Telemetry
-        None,
-        // Protocol ID
-        Some("template-local"),
-        // Fork ID
-        None,
-        // Properties
-        Some(properties),
-        // Extensions
+    #[allow(deprecated)]
+    ChainSpec::builder(
+        gargantuan_runtime::WASM_BINARY.expect("WASM binary was not built, please build it!"),
         Extensions {
-            relay_chain: "rococo-local".into(), // You MUST set this to the correct network!
+            relay_chain: "rococo-local".into(),
+            // You MUST set this to the correct network!
             para_id: 2000,
         },
     )
+    .with_name("Local Testnet")
+    .with_id("local_testnet")
+    .with_chain_type(ChainType::Local)
+    .with_genesis_config_patch(testnet_genesis(
+        // initial collators.
+        vec![
+            (
+                get_account_id_from_seed::<sr25519::Public>("Alice"),
+                get_collator_keys_from_seed("Alice"),
+            ),
+            (
+                get_account_id_from_seed::<sr25519::Public>("Bob"),
+                get_collator_keys_from_seed("Bob"),
+            ),
+        ],
+        vec![
+            get_account_id_from_seed::<sr25519::Public>("Alice"),
+            get_account_id_from_seed::<sr25519::Public>("Bob"),
+            get_account_id_from_seed::<sr25519::Public>("Charlie"),
+            get_account_id_from_seed::<sr25519::Public>("Dave"),
+            get_account_id_from_seed::<sr25519::Public>("Eve"),
+            get_account_id_from_seed::<sr25519::Public>("Ferdie"),
+            get_account_id_from_seed::<sr25519::Public>("Alice//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Bob//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Charlie//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Dave//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Eve//stash"),
+            get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
+        ],
+        get_account_id_from_seed::<sr25519::Public>("Alice"),
+        2000.into(),
+    ))
+    .with_protocol_id("template-local")
+    .with_properties(properties)
+    .build()
 }
 
 fn testnet_genesis(
     invulnerables: Vec<(AccountId, AuraId)>,
     endowed_accounts: Vec<AccountId>,
+    root: AccountId,
     id: ParaId,
-    sudo: AccountId,
-) -> gargantuan_runtime::RuntimeGenesisConfig {
-    // let sibling = match id.into() {
-    //     2000u32 => 2001,
-    //     2001u32 => 2000,
-    //     _ => unimplemented!(),
-    // };
-    gargantuan_runtime::RuntimeGenesisConfig {
-        system: gargantuan_runtime::SystemConfig {
-            code: gargantuan_runtime::WASM_BINARY
-                .expect("WASM binary was not build, please build it!")
-                .to_vec(),
-            ..Default::default()
+) -> serde_json::Value {
+    serde_json::json!({
+        "balances": {
+            "balances": endowed_accounts.iter().cloned().map(|k| (k, 1u64 << 60)).collect::<Vec<_>>(),
         },
-        balances: gargantuan_runtime::BalancesConfig {
-            balances: endowed_accounts.iter().cloned().map(|k| (k, 1 << 60)).collect(),
+        "parachainInfo": {
+            "parachainId": id,
         },
-        parachain_info: gargantuan_runtime::ParachainInfoConfig {
-            parachain_id: id,
-            ..Default::default()
+        "collatorSelection": {
+            "invulnerables": invulnerables.iter().cloned().map(|(acc, _)| acc).collect::<Vec<_>>(),
+            "candidacyBond": EXISTENTIAL_DEPOSIT * 16,
         },
-        collator_selection: gargantuan_runtime::CollatorSelectionConfig {
-            invulnerables: invulnerables.iter().cloned().map(|(acc, _)| acc).collect(),
-            candidacy_bond: EXISTENTIAL_DEPOSIT * 16,
-            ..Default::default()
-        },
-        session: gargantuan_runtime::SessionConfig {
-            keys: invulnerables
+        "session": {
+            "keys": invulnerables
                 .into_iter()
                 .map(|(acc, aura)| {
                     (
-                        acc.clone(),        // account id
-                        acc,                // validator id
+                        acc.clone(),                 // account id
+                        acc,                         // validator id
                         session_keys(aura), // session keys
                     )
                 })
-                .collect(),
+            .collect::<Vec<_>>(),
         },
-        // no need to pass anything to aura, in fact it will panic if we do. Session will take care
-        // of this.
-        aura: Default::default(),
-        aura_ext: Default::default(),
-        parachain_system: Default::default(),
-        // ismp_parachain: gargantuan_runtime::IsmpParachainConfig { parachains: vec![sibling] },
-        sudo: gargantuan_runtime::SudoConfig { key: Some(sudo) },
-        polkadot_xcm: gargantuan_runtime::PolkadotXcmConfig {
-            safe_xcm_version: Some(SAFE_XCM_VERSION),
-            ..Default::default()
+        "polkadotXcm": {
+            "safeXcmVersion": Some(SAFE_XCM_VERSION),
         },
-    }
+        "sudo": { "key": Some(root) }
+    })
 }

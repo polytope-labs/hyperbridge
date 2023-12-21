@@ -129,7 +129,8 @@ impl IsmpModule for ProxyModule {
         match pallet_id {
             ismp_demo::PALLET_ID =>
                 ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(request),
-            _ => Err(Error::ImplementationSpecific("Destination module not found".to_string())),
+            // instead of returning an error, do nothing. The timeout is for a connected chain.
+            _ => Ok(()),
         }
     }
 }

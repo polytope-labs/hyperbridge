@@ -1,8 +1,10 @@
+use alloc::{vec, vec::Vec};
 use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
 use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
 use ismp::host::IsmpHost;
+
 #[derive(codec::Encode, codec::Decode)]
 pub struct VerifierState {
     pub validators: Vec<H160>,
@@ -140,7 +142,8 @@ pub fn parse_validators(extra_data: &[u8]) -> Result<Option<Vec<H160>>, anyhow::
     if slice.len() == 0 {
         return Ok(None)
     }
-    let block_extra_data = <BlockExtraData as alloy_rlp::Decodable>::decode(&mut &*slice)?;
+    let block_extra_data = <BlockExtraData as alloy_rlp::Decodable>::decode(&mut &*slice)
+        .map_err(|_| anyhow!("Failed to decode header extra data"))?;
     if block_extra_data.validator_bytes.len() % 40 != 0 {
         Err(anyhow!("Invalid block extra data"))?
     }

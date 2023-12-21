@@ -1,12 +1,13 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-
+#[warn(unused_imports)]
+#[warn(unused_variables)]
 use anyhow::anyhow;
 use ismp::host::IsmpHost;
 use primitives::{get_signature, parse_validators, CodecHeader, Header, VerifierState};
 use sp_core::{H160, H256};
 pub mod primitives;
-#[warn(unused_imports)]
-#[warn(unused_variables)]
+use alloc::vec::Vec;
+
 extern crate alloc;
 
 pub trait EcdsaRecover {

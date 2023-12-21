@@ -74,7 +74,9 @@ jobs:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
       - name: check runtime no-std
-        run: cargo +nightly check -p gargantuan-runtime --no-default-features --target=wasm32-unknown-unknown --locked
+        run: |
+          cargo +nightly check -p gargantuan-runtime --no-default-features --target=wasm32-unknown-unknown --locked
+          cargo +nightly check -p messier-runtime --no-default-features --target=wasm32-unknown-unknown --locked
 
   fmt:
     name: Cargo fmt

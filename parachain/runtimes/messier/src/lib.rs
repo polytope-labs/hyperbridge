@@ -24,6 +24,7 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 extern crate alloc;
 
 mod ismp;
+mod tx_payment;
 mod weights;
 pub mod xcm;
 
@@ -131,7 +132,7 @@ pub type SignedExtra = (
     frame_system::CheckEra<Runtime>,
     frame_system::CheckNonce<Runtime>,
     frame_system::CheckWeight<Runtime>,
-    pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+    tx_payment::IsmpTxPayment<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.

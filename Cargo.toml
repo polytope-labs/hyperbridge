@@ -22,6 +22,9 @@ members = [
      "parachain/modules/consensus/sync-committee/prover",
      "parachain/modules/consensus/sync-committee/verifier",
      "parachain/modules/consensus/sync-committee/primitives",
+     "parachain/modules/consensus/polygon-pos/verifier",
+     "parachain/modules/consensus/polygon-pos/prover",
+    
 
      # cli-application
      "client",

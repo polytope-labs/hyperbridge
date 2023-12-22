@@ -14,6 +14,7 @@ members = [
      "parachain/modules/ismp/core",
      "parachain/modules/ismp/testsuite",
      "parachain/modules/ismp/sync-committee",
+     "parachain/modules/ismp/polygon-pos",
      "parachain/modules/ismp/casper-ffg",
 
      # modules

@@ -60,6 +60,10 @@ impl PolygonPosProver {
         let header = self.fetch_header(block_number.as_u64()).await?;
         Ok(header)
     }
+
+    // async fn create_verifier_state() -> Result<VerifierState, anyhow::Error> {
+
+    // }
 }
 
 /// Returns a vector of mandatory block numbers

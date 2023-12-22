@@ -4,13 +4,7 @@ use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
 use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
 use ismp::host::IsmpHost;
-
-#[derive(codec::Encode, codec::Decode)]
-pub struct VerifierState {
-    pub validators: Vec<H160>,
-    pub finalized_height: u64,
-    pub finalized_hash: H256,
-}
+use alloc::collections::BTreeSet;
 
 const EXTRA_VANITY_LENGTH: usize = 32;
 const EXTRA_SEAL_LENGTH: usize = 65;
@@ -47,7 +41,7 @@ pub struct BlockExtraData {
     pub tx_dependency: Vec<Vec<u64>>,
 }
 
-#[derive(codec::Encode, codec::Decode, Debug, Clone)]
+#[derive(codec::Encode, codec::Decode, Debug, Clone, scale_info::TypeInfo)]
 pub struct CodecHeader {
     pub parent_hash: H256,
     pub uncle_hash: H256,
@@ -132,7 +126,7 @@ pub fn get_signature(extra_data: &[u8]) -> Result<[u8; EXTRA_SEAL_LENGTH], anyho
     Ok(sig)
 }
 
-pub fn parse_validators(extra_data: &[u8]) -> Result<Option<Vec<H160>>, anyhow::Error> {
+pub fn parse_validators(extra_data: &[u8]) -> Result<Option<BTreeSet<H160>>, anyhow::Error> {
     if extra_data.len() < (EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH) {
         Err(anyhow!("Invalid extra data"))?
     }
@@ -147,10 +141,10 @@ pub fn parse_validators(extra_data: &[u8]) -> Result<Option<Vec<H160>>, anyhow::
     if block_extra_data.validator_bytes.len() % 40 != 0 {
         Err(anyhow!("Invalid block extra data"))?
     }
-    let mut validators = vec![];
+    let mut validators = BTreeSet::new();
     for chunk in block_extra_data.validator_bytes.0.chunks(40) {
         let address = H160::from_slice(&chunk[..20]);
-        validators.push(address);
+        validators.insert(address);
     }
     Ok(Some(validators))
 }

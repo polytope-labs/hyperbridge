@@ -5789,6 +5789,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-polygon-pos"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives 0.5.3",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "anyhow",
+ "ethabi",
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "ismp-sync-committee",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polygon-pos-verifier",
+ "scale-info",
+ "sp-core 27.0.0",
+ "sp-io 23.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.4.0)",
+ "sp-runtime 24.0.0 (git+https://github.com/paritytech/polkadot-sdk?branch=release-polkadot-v1.4.0)",
+]
+
+[[package]]
 name = "ismp-rpc"
 version = "0.1.0"
 dependencies = [
@@ -10506,6 +10529,7 @@ dependencies = [
  "ismp",
  "log",
  "parity-scale-codec",
+ "scale-info",
  "sp-core 27.0.0",
 ]
 

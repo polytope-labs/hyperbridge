@@ -69,7 +69,14 @@ use ismp::{
     LeafIndexQuery,
 };
 pub use pallet::*;
-use sp_runtime::RuntimeDebug;
+use sp_runtime::{
+    traits::ValidateUnsigned,
+    transaction_validity::{
+        InvalidTransaction, TransactionLongevity, TransactionSource, TransactionValidity,
+        TransactionValidityError, ValidTransaction,
+    },
+    RuntimeDebug,
+};
 use sp_std::prelude::*;
 
 // Definition of the pallet logic, to be aggregated at runtime definition through
@@ -329,7 +336,7 @@ pub mod pallet {
         #[pallet::call_index(0)]
         #[frame_support::transactional]
         pub fn handle(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResultWithPostInfo {
-            let _ = ensure_signed(origin)?;
+            ensure_none(origin)?;
 
             Self::handle_messages(messages)
         }
@@ -449,6 +456,43 @@ pub mod pallet {
         UnbondingPeriodUpdateFailed,
         /// Couldn't update challenge period
         ChallengePeriodUpdateFailed,
+    }
+
+    /// Users should not pay to submit valid ISMP datagrams.
+    #[pallet::validate_unsigned]
+    impl<T: Config> ValidateUnsigned for Pallet<T> {
+        type Call = Call<T>;
+
+        // empty pre-dispatch do we don't modify storage
+        fn pre_dispatch(_call: &Self::Call) -> Result<(), TransactionValidityError> {
+            Ok(())
+        }
+
+        fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+            let Call::handle { messages } = call else {
+                Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?
+            };
+
+            let host = Host::<T>::default();
+            let _ = messages
+                .iter()
+                .map(|msg| handle_incoming_message(&host, msg.clone()))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_err| {
+                    log::info!(target: "pallet-ismp", "Validation Errors: {:#?}", _err);
+                    TransactionValidityError::Invalid(InvalidTransaction::BadProof)
+                })?;
+
+            let msg_hash = sp_io::hashing::keccak_256(&messages.encode()).to_vec();
+
+            Ok(ValidTransaction {
+                priority: 100,
+                requires: vec![],
+                provides: vec![msg_hash],
+                longevity: TransactionLongevity::MAX,
+                propagate: true,
+            })
+        }
     }
 }
 

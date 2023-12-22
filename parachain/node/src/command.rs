@@ -48,6 +48,9 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
         name if name.contains("gargantua") => Box::new(chain_spec::ChainSpec::from_json_bytes(
             include_bytes!("../../chainspec/gargantua.json").to_vec(),
         )?),
+        "messier" => Box::new(chain_spec::ChainSpec::from_json_bytes(
+            include_bytes!("../../chainspec/messier.json").to_vec(),
+        )?),
         path => Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?),
     })
 }

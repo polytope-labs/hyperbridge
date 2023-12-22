@@ -17,7 +17,7 @@ use std::str::FromStr;
 
 use cumulus_primitives_core::ParaId;
 use frame_benchmarking_cli::{BenchmarkCmd, SUBSTRATE_REFERENCE_HARDWARE};
-use hyperbridge_runtime::Block;
+use gargantua_runtime::Block;
 use log::info;
 use sc_cli::{
     ChainSpec, CliConfiguration, DefaultConfigurationValues, ImportParams, KeystoreParams,
@@ -30,20 +30,27 @@ use std::net::SocketAddr;
 use crate::{
     chain_spec,
     cli::{Cli, RelayChainCli, Subcommand},
-    service::new_partial,
+    service::{new_partial, GargantuanExecutor, MessierExecutor},
 };
 
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
     Ok(match id {
-        name if name.starts_with("dev-") => {
+        name if name.starts_with("gargantua-") => {
             let id = name.split('-').last().expect("dev chainspec should have chain id");
             let id = u32::from_str(id).expect("can't parse Id into u32");
-            Box::new(chain_spec::development_config(id))
+            Box::new(chain_spec::gargantua_development_config(id))
         },
-        "gargantua" | "gargantuan" => Box::new(chain_spec::ChainSpec::from_json_bytes(
+        name if name.starts_with("messier-") => {
+            let id = name.split('-').last().expect("dev chainspec should have chain id");
+            let id = u32::from_str(id).expect("can't parse Id into u32");
+            Box::new(chain_spec::messier_development_config(id))
+        },
+        name if name.contains("gargantua") => Box::new(chain_spec::ChainSpec::from_json_bytes(
             include_bytes!("../../chainspec/gargantua.json").to_vec(),
         )?),
-        "" | "local" => Box::new(chain_spec::local_testnet_config()),
+        "messier" => Box::new(chain_spec::ChainSpec::from_json_bytes(
+            include_bytes!("../../chainspec/messier.json").to_vec(),
+        )?),
         path => Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?),
     })
 }
@@ -123,11 +130,21 @@ impl SubstrateCli for RelayChainCli {
 macro_rules! construct_async_run {
 	(|$components:ident, $cli:ident, $cmd:ident, $config:ident| $( $code:tt )* ) => {{
 		let runner = $cli.create_runner($cmd)?;
-		runner.async_run(|$config| {
-			let $components = new_partial(&$config)?;
-			let task_manager = $components.task_manager;
-			{ $( $code )* }.map(|v| (v, task_manager))
-		})
+			match runner.config().chain_spec.id() {
+                chain if chain.contains("gargantua") || chain.contains("dev") => {
+                    runner.async_run(|$config| {
+                        let $components = new_partial::<gargantua_runtime::RuntimeApi, GargantuanExecutor>(&$config)?;
+                        Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
+		            })
+                }
+                chain if chain.contains("messier") => {
+                    runner.async_run(|$config| {
+                        let $components = new_partial::<messier_runtime::RuntimeApi, MessierExecutor>(&$config)?;
+                        Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
+		            })
+                }
+                chain => panic!("Unknown chain with id: {}", chain),
+            }
 	}}
 }
 
@@ -142,27 +159,27 @@ pub fn run() -> Result<()> {
         },
         Some(Subcommand::CheckBlock(cmd)) => {
             construct_async_run!(|components, cli, cmd, config| {
-                Ok(cmd.run(components.client, components.import_queue))
+                cmd.run(components.client, components.import_queue)
             })
         },
         Some(Subcommand::ExportBlocks(cmd)) => {
             construct_async_run!(|components, cli, cmd, config| {
-                Ok(cmd.run(components.client, config.database))
+                cmd.run(components.client, config.database)
             })
         },
         Some(Subcommand::ExportState(cmd)) => {
             construct_async_run!(|components, cli, cmd, config| {
-                Ok(cmd.run(components.client, config.chain_spec))
+                cmd.run(components.client, config.chain_spec)
             })
         },
         Some(Subcommand::ImportBlocks(cmd)) => {
             construct_async_run!(|components, cli, cmd, config| {
-                Ok(cmd.run(components.client, components.import_queue))
+                cmd.run(components.client, components.import_queue)
             })
         },
         Some(Subcommand::Revert(cmd)) => {
             construct_async_run!(|components, cli, cmd, config| {
-                Ok(cmd.run(components.client, components.backend, None))
+                cmd.run(components.client, components.backend, None)
             })
         },
         Some(Subcommand::PurgeChain(cmd)) => {
@@ -186,9 +203,18 @@ pub fn run() -> Result<()> {
         },
         Some(Subcommand::ExportGenesisState(cmd)) => {
             let runner = cli.create_runner(cmd)?;
-            runner.sync_run(|config| {
-                let partials = new_partial(&config)?;
-                cmd.run(&*config.chain_spec, &*partials.client)
+            runner.sync_run(|config| match config.chain_spec.id() {
+                chain if chain.contains("gargantua") || chain.contains("dev") => {
+                    let components =
+                        new_partial::<gargantua_runtime::RuntimeApi, GargantuanExecutor>(&config)?;
+                    cmd.run(&*config.chain_spec, &*components.client)
+                },
+                chain if chain.contains("messier") => {
+                    let components =
+                        new_partial::<messier_runtime::RuntimeApi, MessierExecutor>(&config)?;
+                    cmd.run(&*config.chain_spec, &*components.client)
+                },
+                chain => panic!("Unknown chain with id: {}", chain),
             })
         },
         Some(Subcommand::ExportGenesisWasm(cmd)) => {
@@ -210,10 +236,24 @@ pub fn run() -> Result<()> {
 					You can enable it with `--features runtime-benchmarks`."
                             .into())
                     },
-                BenchmarkCmd::Block(cmd) => runner.sync_run(|config| {
-                    let partials = new_partial(&config)?;
-                    cmd.run(partials.client)
-                }),
+                BenchmarkCmd::Block(cmd) =>
+                    runner.sync_run(|config| match config.chain_spec.id() {
+                        chain if chain.contains("gargantua") || chain.contains("dev") => {
+                            let components = new_partial::<
+                                gargantua_runtime::RuntimeApi,
+                                GargantuanExecutor,
+                            >(&config)?;
+                            cmd.run(components.client)
+                        },
+                        chain if chain.contains("messier") => {
+                            let components = new_partial::<
+                                messier_runtime::RuntimeApi,
+                                MessierExecutor,
+                            >(&config)?;
+                            cmd.run(components.client)
+                        },
+                        chain => panic!("Unknown chain with id: {}", chain),
+                    }),
                 #[cfg(not(feature = "runtime-benchmarks"))]
                 BenchmarkCmd::Storage(_) =>
                     return Err(sc_cli::Error::Input(
@@ -223,12 +263,28 @@ pub fn run() -> Result<()> {
                     )
                     .into()),
                 #[cfg(feature = "runtime-benchmarks")]
-                BenchmarkCmd::Storage(cmd) => runner.sync_run(|config| {
-                    let partials = new_partial(&config)?;
-                    let db = partials.backend.expose_db();
-                    let storage = partials.backend.expose_storage();
-                    cmd.run(config, partials.client.clone(), db, storage)
-                }),
+                BenchmarkCmd::Storage(cmd) =>
+                    runner.sync_run(|config| match config.chain_spec.id() {
+                        chain if chain.contains("gargantua") || chain.contains("dev") => {
+                            let components = new_partial::<
+                                gargantua_runtime::RuntimeApi,
+                                GargantuanExecutor,
+                            >(&config)?;
+                            let db = components.backend.expose_db();
+                            let storage = components.backend.expose_storage();
+                            cmd.run(config, components.client.clone(), db, storage)
+                        },
+                        chain if chain.contains("messier") => {
+                            let components = new_partial::<
+                                messier_runtime::RuntimeApi,
+                                MessierExecutor,
+                            >(&config)?;
+                            let db = components.backend.expose_db();
+                            let storage = components.backend.expose_storage();
+                            cmd.run(config, components.client.clone(), db, storage)
+                        },
+                        chain => panic!("Unknown chain with id: {}", chain),
+                    }),
                 BenchmarkCmd::Machine(cmd) =>
                     runner.sync_run(|config| cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone())),
                 // NOTE: this allows the Client to leniently implement
@@ -254,7 +310,7 @@ pub fn run() -> Result<()> {
                     .map_err(|e| format!("Error: {:?}", e))?;
 
             runner.async_run(|_| {
-                Ok((cmd.run::<Block, HostFunctionsOf<ParachainNativeExecutor>>(), task_manager))
+                Ok((cmd.run::<Block, HostFunctionsOf<GargantuanExecutor>>(), task_manager))
             })
         },
         #[cfg(not(feature = "try-runtime"))]
@@ -307,7 +363,6 @@ pub fn run() -> Result<()> {
                     hwbench,
                 )
                 .await
-                .map(|r| r.0)
                 .map_err(Into::into)
             })
         },

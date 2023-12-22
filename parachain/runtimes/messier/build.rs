@@ -13,19 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Substrate Parachain Node Template CLI
+use substrate_wasm_builder::WasmBuilder;
 
-#![warn(missing_docs)]
-
-mod chain_spec;
-#[macro_use]
-mod service;
-mod cli;
-// mod client;
-mod command;
-mod rpc;
-mod runtime_api;
-
-fn main() -> sc_cli::Result<()> {
-    command::run()
+fn main() {
+    WasmBuilder::new()
+        .with_current_project()
+        .export_heap_base()
+        .import_memory()
+        .build()
 }

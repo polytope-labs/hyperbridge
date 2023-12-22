@@ -58,11 +58,11 @@ impl sc_executor::NativeExecutionDispatch for GargantuanExecutor {
     type ExtendHostFunctions = frame_benchmarking::benchmarking::HostFunctions;
 
     fn dispatch(method: &str, data: &[u8]) -> Option<Vec<u8>> {
-        gargantuan_runtime::api::dispatch(method, data)
+        gargantua_runtime::api::dispatch(method, data)
     }
 
     fn native_version() -> sc_executor::NativeVersion {
-        gargantuan_runtime::native_version()
+        gargantua_runtime::native_version()
     }
 }
 
@@ -505,8 +505,8 @@ pub async fn start_parachain_node(
     hwbench: Option<sc_sysinfo::HwBench>,
 ) -> sc_service::error::Result<TaskManager> {
     match parachain_config.chain_spec.id() {
-        chain if chain.contains("gargantuan") =>
-            start_node_impl::<gargantuan_runtime::RuntimeApi, GargantuanExecutor>(
+        chain if chain.contains("gargantua") =>
+            start_node_impl::<gargantua_runtime::RuntimeApi, GargantuanExecutor>(
                 parachain_config,
                 polkadot_config,
                 collator_options,

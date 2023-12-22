@@ -22,7 +22,7 @@
 
 use std::sync::Arc;
 
-use gargantuan_runtime::{opaque::Block, AccountId, Balance, Index as Nonce};
+use gargantua_runtime::{opaque::Block, AccountId, Balance, Index as Nonce};
 
 use crate::runtime_api::opaque;
 use sc_client_api::{AuxStore, BlockBackend, ProofProvider};

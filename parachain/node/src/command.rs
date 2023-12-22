@@ -17,7 +17,7 @@ use std::str::FromStr;
 
 use cumulus_primitives_core::ParaId;
 use frame_benchmarking_cli::{BenchmarkCmd, SUBSTRATE_REFERENCE_HARDWARE};
-use gargantuan_runtime::Block;
+use gargantua_runtime::Block;
 use log::info;
 use sc_cli::{
     ChainSpec, CliConfiguration, DefaultConfigurationValues, ImportParams, KeystoreParams,
@@ -35,20 +35,19 @@ use crate::{
 
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
     Ok(match id {
-        name if name.starts_with("gargantuan-") => {
+        name if name.starts_with("gargantua-") => {
             let id = name.split('-').last().expect("dev chainspec should have chain id");
             let id = u32::from_str(id).expect("can't parse Id into u32");
-            Box::new(chain_spec::gargantuan_development_config(id))
+            Box::new(chain_spec::gargantua_development_config(id))
         },
         name if name.starts_with("messier-") => {
             let id = name.split('-').last().expect("dev chainspec should have chain id");
             let id = u32::from_str(id).expect("can't parse Id into u32");
             Box::new(chain_spec::messier_development_config(id))
         },
-        "gargantua" | "gargantuan" => Box::new(chain_spec::ChainSpec::from_json_bytes(
+        name if name.contains("gargantua") => Box::new(chain_spec::ChainSpec::from_json_bytes(
             include_bytes!("../../chainspec/gargantua.json").to_vec(),
         )?),
-        "" | "local" => Box::new(chain_spec::local_testnet_config()),
         path => Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?),
     })
 }
@@ -129,9 +128,9 @@ macro_rules! construct_async_run {
 	(|$components:ident, $cli:ident, $cmd:ident, $config:ident| $( $code:tt )* ) => {{
 		let runner = $cli.create_runner($cmd)?;
 			match runner.config().chain_spec.id() {
-                chain if chain.contains("gargantuan") || chain.contains("dev") => {
+                chain if chain.contains("gargantua") || chain.contains("dev") => {
                     runner.async_run(|$config| {
-                        let $components = new_partial::<gargantuan_runtime::RuntimeApi, GargantuanExecutor>(&$config)?;
+                        let $components = new_partial::<gargantua_runtime::RuntimeApi, GargantuanExecutor>(&$config)?;
                         Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
 		            })
                 }
@@ -202,9 +201,9 @@ pub fn run() -> Result<()> {
         Some(Subcommand::ExportGenesisState(cmd)) => {
             let runner = cli.create_runner(cmd)?;
             runner.sync_run(|config| match config.chain_spec.id() {
-                chain if chain.contains("gargantuan") || chain.contains("dev") => {
+                chain if chain.contains("gargantua") || chain.contains("dev") => {
                     let components =
-                        new_partial::<gargantuan_runtime::RuntimeApi, GargantuanExecutor>(&config)?;
+                        new_partial::<gargantua_runtime::RuntimeApi, GargantuanExecutor>(&config)?;
                     cmd.run(&*config.chain_spec, &*components.client)
                 },
                 chain if chain.contains("messier") => {
@@ -236,9 +235,9 @@ pub fn run() -> Result<()> {
                     },
                 BenchmarkCmd::Block(cmd) =>
                     runner.sync_run(|config| match config.chain_spec.id() {
-                        chain if chain.contains("gargantuan") || chain.contains("dev") => {
+                        chain if chain.contains("gargantua") || chain.contains("dev") => {
                             let components = new_partial::<
-                                gargantuan_runtime::RuntimeApi,
+                                gargantua_runtime::RuntimeApi,
                                 GargantuanExecutor,
                             >(&config)?;
                             cmd.run(components.client)
@@ -263,9 +262,9 @@ pub fn run() -> Result<()> {
                 #[cfg(feature = "runtime-benchmarks")]
                 BenchmarkCmd::Storage(cmd) =>
                     runner.sync_run(|config| match config.chain_spec.id() {
-                        chain if chain.contains("gargantuan") || chain.contains("dev") => {
+                        chain if chain.contains("gargantua") || chain.contains("dev") => {
                             let components = new_partial::<
-                                gargantuan_runtime::RuntimeApi,
+                                gargantua_runtime::RuntimeApi,
                                 GargantuanExecutor,
                             >(&config)?;
                             let db = components.backend.expose_db();

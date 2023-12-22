@@ -24,7 +24,7 @@ futures = "0.3.28"
 serde_json = "1.0.108"
 
 # local
-gargantuan-runtime = { path = "../runtimes/gargantuan" }
+gargantua-runtime = { path = "../runtimes/gargantua" }
 messier-runtime = { path = "../runtimes/messier" }
 ismp-rpc = { path = "../modules/ismp/rpc" }
 ismp-runtime-api = { path = "../modules/ismp/runtime-api" }
@@ -91,12 +91,12 @@ substrate-build-script-utils = { git = "https://github.com/paritytech/polkadot-s
 default = []
 runtime-benchmarks = [
 	"try-runtime-cli/try-runtime",
-	"gargantuan-runtime/runtime-benchmarks",
+	"gargantua-runtime/runtime-benchmarks",
 	"polkadot-cli/runtime-benchmarks",
 ]
 try-runtime = [
 	"try-runtime-cli/try-runtime",
-	"gargantuan-runtime/try-runtime"
+	"gargantua-runtime/try-runtime"
 ]
-sepolia = ["gargantuan-runtime/sepolia", "messier-runtime/sepolia"]
-mainnet = ["gargantuan-runtime/mainnet", "messier-runtime/mainnet"]
+sepolia = ["gargantua-runtime/sepolia", "messier-runtime/sepolia"]
+mainnet = ["gargantua-runtime/mainnet", "messier-runtime/mainnet"]

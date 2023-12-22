@@ -4808,7 +4808,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gargantuan-runtime"
+name = "gargantua-runtime"
 version = "0.1.0"
 dependencies = [
  "cumulus-pallet-aura-ext",
@@ -5359,7 +5359,7 @@ dependencies = [
  "frame-benchmarking",
  "frame-benchmarking-cli",
  "futures",
- "gargantuan-runtime",
+ "gargantua-runtime",
  "ismp-rpc",
  "ismp-runtime-api",
  "jsonrpsee 0.16.3",

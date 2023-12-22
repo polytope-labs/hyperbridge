@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     # runtime
-     "parachain/runtimes/gargantuan",
+     "parachain/runtimes/gargantua",
      "parachain/runtimes/messier",
 
      # node

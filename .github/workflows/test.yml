@@ -75,7 +75,7 @@ jobs:
 
       - name: check runtime no-std
         run: |
-          cargo +nightly check -p gargantuan-runtime --no-default-features --target=wasm32-unknown-unknown --locked
+          cargo +nightly check -p gargantua-runtime --no-default-features --target=wasm32-unknown-unknown --locked
           cargo +nightly check -p messier-runtime --no-default-features --target=wasm32-unknown-unknown --locked
 
   fmt:

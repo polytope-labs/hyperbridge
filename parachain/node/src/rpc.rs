@@ -22,10 +22,11 @@
 
 use std::sync::Arc;
 
-use hyperbridge_runtime::{opaque::Block, AccountId, Balance, Index as Nonce};
+use gargantua_runtime::{opaque::Block, AccountId, Balance, Index as Nonce};
 
+use crate::runtime_api::opaque;
 use sc_client_api::{AuxStore, BlockBackend, ProofProvider};
-pub use sc_rpc::{DenyUnsafe, SubscriptionTaskExecutor};
+pub use sc_rpc::DenyUnsafe;
 use sc_transaction_pool_api::TransactionPool;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
@@ -64,7 +65,7 @@ where
     C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
     C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
     C::Api: BlockBuilder<Block>,
-    C::Api: ismp_runtime_api::IsmpRuntimeApi<Block, H256>,
+    C::Api: ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>,
     P: TransactionPool + Sync + Send + 'static,
     B: sc_client_api::Backend<Block> + Send + Sync + 'static,
     B::State: sc_client_api::StateBackend<sp_runtime::traits::HashingFor<Block>>,

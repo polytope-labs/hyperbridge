@@ -24,7 +24,8 @@ futures = "0.3.28"
 serde_json = "1.0.108"
 
 # local
-hyperbridge-runtime = { path = "../runtime" }
+gargantua-runtime = { path = "../runtimes/gargantua" }
+messier-runtime = { path = "../runtimes/messier" }
 ismp-rpc = { path = "../modules/ismp/rpc" }
 ismp-runtime-api = { path = "../modules/ismp/runtime-api" }
 
@@ -90,12 +91,12 @@ substrate-build-script-utils = { git = "https://github.com/paritytech/polkadot-s
 default = []
 runtime-benchmarks = [
 	"try-runtime-cli/try-runtime",
-	"hyperbridge-runtime/runtime-benchmarks",
+	"gargantua-runtime/runtime-benchmarks",
 	"polkadot-cli/runtime-benchmarks",
 ]
 try-runtime = [
 	"try-runtime-cli/try-runtime",
-	"hyperbridge-runtime/try-runtime"
+	"gargantua-runtime/try-runtime"
 ]
-sepolia = ["hyperbridge-runtime/sepolia"]
-mainnet = ["hyperbridge-runtime/mainnet"]
+sepolia = ["gargantua-runtime/sepolia", "messier-runtime/sepolia"]
+mainnet = ["gargantua-runtime/mainnet", "messier-runtime/mainnet"]

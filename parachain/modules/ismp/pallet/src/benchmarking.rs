@@ -116,10 +116,9 @@ pub mod benchmarks {
 
         let msg =
             RequestMessage { requests: vec![post.clone()], proof: Proof { height, proof: vec![] } };
-        let caller = whitelisted_caller();
 
         #[extrinsic_call]
-        handle(RawOrigin::Signed(caller), vec![Message::Request(msg)]);
+        handle(RawOrigin::None, vec![Message::Request(msg)]);
 
         let commitment = hash_request::<Host<T>>(&Request::Post(post));
         assert!(RequestReceipts::<T>::get(commitment).is_some());
@@ -155,10 +154,8 @@ pub mod benchmarks {
             proof: Proof { height, proof: vec![] },
         };
 
-        let caller = whitelisted_caller();
-
         #[extrinsic_call]
-        handle(RawOrigin::Signed(caller), vec![Message::Response(msg)]);
+        handle(RawOrigin::None, vec![Message::Response(msg)]);
 
         assert!(ResponseReceipts::<T>::get(request_commitment).is_some());
     }
@@ -190,10 +187,9 @@ pub mod benchmarks {
             requests: vec![request],
             timeout_proof: Proof { height, proof: vec![] },
         };
-        let caller = whitelisted_caller();
 
         #[extrinsic_call]
-        handle(RawOrigin::Signed(caller), vec![Message::Timeout(msg)]);
+        handle(RawOrigin::None, vec![Message::Timeout(msg)]);
 
         assert!(RequestCommitments::<T>::get(commitment).is_none());
     }

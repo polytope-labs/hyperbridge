@@ -22,7 +22,7 @@ members = [
      "parachain/modules/consensus/sync-committee/prover",
      "parachain/modules/consensus/sync-committee/verifier",
      "parachain/modules/consensus/sync-committee/primitives",
-
+     "parachain/modules/consensus/bnb-parlia/verifier",
      # cli-application
      "client",
 

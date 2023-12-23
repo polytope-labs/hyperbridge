@@ -11,10 +11,10 @@ const EXTRA_SEAL_LENGTH: usize = 65;
 const LUBAN_BLOCK_NUMBER:  u64 = 29020050; // need to confirm the LUBAN fork block number
 const PARLIA_CONFIG_EPOCH:  u64 = 200;
 const VALIDATOR_BYTES_LENGTH_BEFORE_LUBAN: u8 = 20;
-const BLS_PUBLIC_KEY_LENGTH: u8 = 48;
-const VALIDATOR_BYTES_LENGTH: u8 = 20 + BLS_PUBLIC_KEY_LENGTH;
-const VALIDATOR_NUMBER_SIZE: u8 = 1;
-const ADDRESS_LENGTH: u8 = 20;
+const BLS_PUBLIC_KEY_LENGTH: usize = 48;
+const VALIDATOR_BYTES_LENGTH: usize = 20 + BLS_PUBLIC_KEY_LENGTH;
+const VALIDATOR_NUMBER_SIZE: usize = 1;
+const ADDRESS_LENGTH: usize = 20;
 #[derive(codec::Encode, codec::Decode)]
 pub struct VerifierState {
     pub validators: Vec<H160>,
@@ -213,13 +213,13 @@ fn parse_extra(extra_data: &[u8]) -> Result<ExtraData, anyhow::Error> {
         if data[0] != 0xf8 {
             // RLP format of attestation begins with 'f8'
             let validator_num = data[0].clone() as usize;
-            let validator_bytes_total_length = VALIDATOR_NUMBER_SIZE as usize + validator_num * VALIDATOR_BYTES_LENGTH as usize;
+            let validator_bytes_total_length = VALIDATOR_NUMBER_SIZE+ validator_num * VALIDATOR_BYTES_LENGTH;
             if data_length < validator_bytes_total_length as usize {
                 Err(anyhow!("Parse validator failed"))?;
             }
 
             extra.validator_size = validator_num.clone() as u8;
-            let mut remaining_data = &data[VALIDATOR_NUMBER_SIZE as usize..];
+            let mut remaining_data = &data[VALIDATOR_NUMBER_SIZE..];
             for _ in 0..validator_num {
                 let mut validator_info = ValidatorInfo {
                     address: [0; 20].into(),
@@ -227,20 +227,22 @@ fn parse_extra(extra_data: &[u8]) -> Result<ExtraData, anyhow::Error> {
                     vote_included: false,
                 };
 
-                let address_bytes: Vec<u8> = remaining_data[..ADDRESS_LENGTH as usize].to_vec();
-                let bls_public_key_bytes: Vec<u8> = remaining_data[ADDRESS_LENGTH as usize..VALIDATOR_BYTES_LENGTH as usize].to_vec();
+                let address_bytes: Vec<u8> = remaining_data[..ADDRESS_LENGTH].to_vec();
+                let bls_public_key_bytes: Vec<u8> = remaining_data[ADDRESS_LENGTH..VALIDATOR_BYTES_LENGTH].to_vec();
 
                 validator_info.address.copy_from_slice(&address_bytes);
                 validator_info.bls_public_key.copy_from_slice(&bls_public_key_bytes);
                 extra.validators.push(validator_info);
 
-                remaining_data = &remaining_data[VALIDATOR_BYTES_LENGTH as usize..];
+                remaining_data = &remaining_data[VALIDATOR_BYTES_LENGTH..];
             }
 
             //extra.validators.sort();
-            data = &data[VALIDATOR_BYTES_LENGTH as usize - VALIDATOR_NUMBER_SIZE as usize..];
+            data = &data[VALIDATOR_BYTES_LENGTH- VALIDATOR_NUMBER_SIZE..];
             data_length = data.len();
         }
+
+        // parse attestation
     }
 
     Ok(extra.clone())

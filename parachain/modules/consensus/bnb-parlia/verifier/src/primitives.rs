@@ -3,7 +3,8 @@ use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
 use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
-use ismp::host::IsmpHost;
+//use ismp::host::IsmpHost;
+use bitset::BitSet;
 
 const EXTRA_VANITY_LENGTH: usize = 32;
 const EXTRA_SEAL_LENGTH: usize = 65;
@@ -13,6 +14,7 @@ const VALIDATOR_BYTES_LENGTH_BEFORE_LUBAN: u8 = 20;
 const BLS_PUBLIC_KEY_LENGTH: u8 = 48;
 const VALIDATOR_BYTES_LENGTH: u8 = 20 + BLS_PUBLIC_KEY_LENGTH;
 const VALIDATOR_NUMBER_SIZE: u8 = 1;
+const ADDRESS_LENGTH: u8 = 20;
 #[derive(codec::Encode, codec::Decode)]
 pub struct VerifierState {
     pub validators: Vec<H160>,
@@ -50,10 +52,19 @@ pub struct Header {
 #[rlp(trailing)]
 pub struct BlockExtraData {
     pub extra_vanity: alloy_primitives::Bytes,
+    pub vote_attestation: VoteAttestationData,
+    pub extra_seal: alloy_primitives::Bytes,
     pub validator_size: Option<u8>,
     pub validators: Option<Vec<ValidatorInfo>>,
-    pub vote_attestation: VoteAttestationData,
-    pub extra_seal: alloy_primitives::Bytes
+}
+
+#[derive(Debug, Clone)]
+struct ExtraData {
+    extra_vanity: Vec<u8>,
+    validator_size: u8,
+    validators: Vec<ValidatorInfo>,
+    extra_seal: Vec<u8>,
+    vote_attestation: Option<VoteAttestationData>,
 }
 
 // Used for Encoding and Decoding of Vote
@@ -70,10 +81,10 @@ pub struct ValidatorInfo {
 #[rlp(trailing)]
 pub struct VoteAttestationData {
     pub extra_vanity: alloy_primitives::Bytes,
-    pub validator_size:Option<u8>,
     pub agg_signature: [u8; 96],
     pub data: VoteData,
-    pub extra: alloy_primitives::Bytes
+    pub extra: alloy_primitives::Bytes,
+    pub validator_size:Option<u8>,
 }
 
 // Used for Encoding and Decoding of Vote
@@ -156,7 +167,7 @@ impl From<&CodecHeader> for Header {
     }
 }
 
-impl Header {
+/*impl Header {
     pub fn hash<H: IsmpHost>(mut self) -> Result<H256, anyhow::Error> {
         if self.extra_data.len() < (EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH) {
             Err(anyhow!("Invalid extra data"))?
@@ -166,7 +177,7 @@ impl Header {
         let encoding = alloy_rlp::encode(self);
         Ok(H::keccak256(&encoding))
     }
-}
+}*/
 
 pub fn get_signature(extra_data: &[u8]) -> Result<[u8; EXTRA_SEAL_LENGTH], anyhow::Error> {
     if extra_data.len() < (EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH) {
@@ -177,3 +188,64 @@ pub fn get_signature(extra_data: &[u8]) -> Result<[u8; EXTRA_SEAL_LENGTH], anyho
     sig.copy_from_slice(&extra_data[extra_data.len() - EXTRA_SEAL_LENGTH..]);
     Ok(sig)
 }
+
+fn parse_extra(extra_data: &[u8]) -> Result<ExtraData, anyhow::Error> {
+    let data = extra_data;
+    let mut extra = ExtraData {
+        extra_vanity: Vec::new(),
+        validator_size: 0,
+        validators: Vec::new(),
+        vote_attestation: None,
+        extra_seal: Vec::new(),
+    };
+
+    if extra_data.len() < EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH {
+        Err(anyhow!("Invalid extra data"))?;
+    }
+
+    extra.extra_vanity = data[..EXTRA_VANITY_LENGTH].to_vec();
+    extra.extra_seal = data[data.len() - EXTRA_SEAL_LENGTH..].to_vec();
+    let mut data = &data[EXTRA_VANITY_LENGTH..data.len() - EXTRA_SEAL_LENGTH];
+
+    let mut data_length = data.len();
+    if !data.is_empty() {
+        // Parse Validators
+        if data[0] != 0xf8 {
+            // RLP format of attestation begins with 'f8'
+            let validator_num = data[0].clone() as usize;
+            let validator_bytes_total_length = VALIDATOR_NUMBER_SIZE as usize + validator_num * VALIDATOR_BYTES_LENGTH as usize;
+            if data_length < validator_bytes_total_length as usize {
+                Err(anyhow!("Parse validator failed"))?;
+            }
+
+            extra.validator_size = validator_num.clone() as u8;
+            let mut remaining_data = &data[VALIDATOR_NUMBER_SIZE as usize..];
+            for _ in 0..validator_num {
+                let mut validator_info = ValidatorInfo {
+                    address: [0; 20].into(),
+                    bls_public_key: [0; 48],
+                    vote_included: false,
+                };
+
+                let address_bytes: Vec<u8> = remaining_data[..ADDRESS_LENGTH as usize].to_vec();
+                let bls_public_key_bytes: Vec<u8> = remaining_data[ADDRESS_LENGTH as usize..VALIDATOR_BYTES_LENGTH as usize].to_vec();
+
+                validator_info.address.copy_from_slice(&address_bytes);
+                validator_info.bls_public_key.copy_from_slice(&bls_public_key_bytes);
+                extra.validators.push(validator_info);
+
+                remaining_data = &remaining_data[VALIDATOR_BYTES_LENGTH as usize..];
+            }
+
+            //extra.validators.sort();
+            data = &data[VALIDATOR_BYTES_LENGTH as usize - VALIDATOR_NUMBER_SIZE as usize..];
+            data_length = data.len();
+        }
+    }
+
+    Ok(extra.clone())
+}
+fn is_block_forked(s: u64, head: u64) -> bool {
+    s <= head
+}
+

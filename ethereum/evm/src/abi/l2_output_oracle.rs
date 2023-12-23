@@ -804,13 +804,13 @@ pub mod l2_output_oracle {
 			log: &::ethers::core::abi::RawLog,
 		) -> ::core::result::Result<Self, ::ethers::core::abi::Error> {
 			if let Ok(decoded) = InitializedFilter::decode_log(log) {
-				return Ok(L2OutputOracleEvents::InitializedFilter(decoded))
+				return Ok(L2OutputOracleEvents::InitializedFilter(decoded));
 			}
 			if let Ok(decoded) = OutputProposedFilter::decode_log(log) {
-				return Ok(L2OutputOracleEvents::OutputProposedFilter(decoded))
+				return Ok(L2OutputOracleEvents::OutputProposedFilter(decoded));
 			}
 			if let Ok(decoded) = OutputsDeletedFilter::decode_log(log) {
-				return Ok(L2OutputOracleEvents::OutputsDeletedFilter(decoded))
+				return Ok(L2OutputOracleEvents::OutputsDeletedFilter(decoded));
 			}
 			Err(::ethers::core::abi::Error::InvalidData)
 		}
@@ -1152,87 +1152,87 @@ pub mod l2_output_oracle {
 		) -> ::core::result::Result<Self, ::ethers::core::abi::AbiError> {
 			let data = data.as_ref();
 			if let Ok(decoded) = <ChallengerCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::Challenger(decoded))
+				return Ok(Self::Challenger(decoded));
 			}
 			if let Ok(decoded) =
 				<FinalizationPeriodSecondsCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::FinalizationPeriodSeconds(decoded))
+				return Ok(Self::FinalizationPeriodSeconds(decoded));
 			}
 			if let Ok(decoded) = <L2BlockTimeCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::L2BlockTime(decoded))
+				return Ok(Self::L2BlockTime(decoded));
 			}
 			if let Ok(decoded) = <ProposerCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::Proposer(decoded))
+				return Ok(Self::Proposer(decoded));
 			}
 			if let Ok(decoded) =
 				<SubmissionIntervalCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::SubmissionInterval(decoded))
+				return Ok(Self::SubmissionInterval(decoded));
 			}
 			if let Ok(decoded) =
 				<ComputeL2TimestampCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::ComputeL2Timestamp(decoded))
+				return Ok(Self::ComputeL2Timestamp(decoded));
 			}
 			if let Ok(decoded) =
 				<DeleteL2OutputsCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::DeleteL2Outputs(decoded))
+				return Ok(Self::DeleteL2Outputs(decoded));
 			}
 			if let Ok(decoded) = <GetL2OutputCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::GetL2Output(decoded))
+				return Ok(Self::GetL2Output(decoded));
 			}
 			if let Ok(decoded) =
 				<GetL2OutputAfterCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::GetL2OutputAfter(decoded))
+				return Ok(Self::GetL2OutputAfter(decoded));
 			}
 			if let Ok(decoded) =
 				<GetL2OutputIndexAfterCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::GetL2OutputIndexAfter(decoded))
+				return Ok(Self::GetL2OutputIndexAfter(decoded));
 			}
 			if let Ok(decoded) = <InitializeCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::Initialize(decoded))
+				return Ok(Self::Initialize(decoded));
 			}
 			if let Ok(decoded) =
 				<LatestBlockNumberCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::LatestBlockNumber(decoded))
+				return Ok(Self::LatestBlockNumber(decoded));
 			}
 			if let Ok(decoded) =
 				<LatestOutputIndexCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::LatestOutputIndex(decoded))
+				return Ok(Self::LatestOutputIndex(decoded));
 			}
 			if let Ok(decoded) =
 				<NextBlockNumberCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::NextBlockNumber(decoded))
+				return Ok(Self::NextBlockNumber(decoded));
 			}
 			if let Ok(decoded) =
 				<NextOutputIndexCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::NextOutputIndex(decoded))
+				return Ok(Self::NextOutputIndex(decoded));
 			}
 			if let Ok(decoded) =
 				<ProposeL2OutputCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::ProposeL2Output(decoded))
+				return Ok(Self::ProposeL2Output(decoded));
 			}
 			if let Ok(decoded) =
 				<StartingBlockNumberCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::StartingBlockNumber(decoded))
+				return Ok(Self::StartingBlockNumber(decoded));
 			}
 			if let Ok(decoded) =
 				<StartingTimestampCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::StartingTimestamp(decoded))
+				return Ok(Self::StartingTimestamp(decoded));
 			}
 			if let Ok(decoded) = <VersionCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::Version(decoded))
+				return Ok(Self::Version(decoded));
 			}
 			Err(::ethers::core::abi::Error::InvalidData.into())
 		}

@@ -667,32 +667,32 @@ pub mod ismp_handler {
 			if let Ok(decoded) =
 				<HandleConsensusCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::HandleConsensus(decoded))
+				return Ok(Self::HandleConsensus(decoded));
 			}
 			if let Ok(decoded) =
 				<HandleGetResponsesCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::HandleGetResponses(decoded))
+				return Ok(Self::HandleGetResponses(decoded));
 			}
 			if let Ok(decoded) =
 				<HandleGetTimeoutsCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::HandleGetTimeouts(decoded))
+				return Ok(Self::HandleGetTimeouts(decoded));
 			}
 			if let Ok(decoded) =
 				<HandlePostRequestsCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::HandlePostRequests(decoded))
+				return Ok(Self::HandlePostRequests(decoded));
 			}
 			if let Ok(decoded) =
 				<HandlePostResponsesCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::HandlePostResponses(decoded))
+				return Ok(Self::HandlePostResponses(decoded));
 			}
 			if let Ok(decoded) =
 				<HandlePostTimeoutsCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::HandlePostTimeouts(decoded))
+				return Ok(Self::HandlePostTimeouts(decoded));
 			}
 			Err(::ethers::core::abi::Error::InvalidData.into())
 		}

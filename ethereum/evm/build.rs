@@ -11,6 +11,7 @@ fn main() -> anyhow::Result<()> {
 		("L2OutputOracle", format!("{base_dir}/abis/L2OutputOracle.json")),
 		("IRollup", format!("{base_dir}/abis/IRollupCore.json")),
 		("PingModule", format!("{base_dir}/abis/PingModule.json")),
+		("CrossChainMessenger", format!("{base_dir}/abis/CrossChainMessenger.json")),
 	];
 
 	MultiAbigen::new(sources)

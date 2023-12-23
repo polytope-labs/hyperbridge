@@ -112,6 +112,54 @@ where
 	}
 }
 
+/// Send an unsigned extrinsic for ISMP messages.
+pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: TxPayload>(
+	client: &OnlineClient<T>,
+	payload: Tx,
+) -> Result<(), anyhow::Error>
+where
+	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
+	T::Signature: From<MultiSignature> + Send + Sync,
+{
+	let ext = client.tx().create_unsigned(&payload)?;
+
+	let progress = match ext.submit_and_watch().await {
+		Ok(p) => p,
+		Err(err) => {
+			println!("\n\n\n{err:#?}\n\n\n");
+			return Err(err)?
+		},
+	};
+
+	let extrinsic = match progress.wait_for_in_block().await {
+		Ok(p) => p,
+		Err(err) => {
+			println!("\n\n\n{err:#?}\n\n\n");
+			// If web socket has been disconnected return an error
+			if let subxt::Error::Io(e) = &err {
+				Err(anyhow!("{:?}", e))?
+			}
+			log::error!("Error waiting for extrinsic in_block {err:?}");
+			return Ok(())
+		},
+	};
+
+	match extrinsic.wait_for_success().await {
+		Ok(p) => p,
+		Err(err) => {
+			println!("\n\n\n{err:#?}\n\n\n");
+
+			if let subxt::Error::Io(e) = &err {
+				Err(anyhow!("{:?}", e))?
+			}
+			log::error!("Error executing extrinsic: {err:?}");
+			return Ok(())
+		},
+	};
+	Ok(())
+}
+
 /// Send a transaction
 pub async fn send_extrinsic<T: subxt::Config, Tx: TxPayload>(
 	client: &OnlineClient<T>,
@@ -134,6 +182,7 @@ where
 	let extrinsic = match progress.wait_for_in_block().await {
 		Ok(p) => p,
 		Err(err) => {
+			println!("\n\n\n{err:#?}\n\n\n");
 			// If web socket has been disconnected return an error
 			if let subxt::Error::Io(e) = &err {
 				Err(anyhow!("{:?}", e))?
@@ -146,6 +195,8 @@ where
 	match extrinsic.wait_for_success().await {
 		Ok(p) => p,
 		Err(err) => {
+			println!("\n\n\n{err:#?}\n\n\n");
+
 			if let subxt::Error::Io(e) = &err {
 				Err(anyhow!("{:?}", e))?
 			}

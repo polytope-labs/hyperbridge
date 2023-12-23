@@ -36,7 +36,7 @@ pub async fn submit_messages<I: IsmpHost>(
 				match contract
 					.handle_consensus(ismp_host, msg.consensus_proof.into())
 					.nonce(nonce)
-					.gas(10_000_000)
+					.gas(client.gas_limit)
 					.send()
 					.await
 				{
@@ -109,7 +109,7 @@ pub async fn submit_messages<I: IsmpHost>(
 				match contract
 					.handle_post_requests(ismp_host, post_message)
 					.nonce(nonce)
-					.gas(10_000_000)
+					.gas(client.gas_limit)
 					.send()
 					.await
 				{
@@ -186,7 +186,7 @@ pub async fn submit_messages<I: IsmpHost>(
 				match contract
 					.handle_post_responses(ismp_host, message)
 					.nonce(nonce)
-					.gas(10_000_000)
+					.gas(client.gas_limit)
 					.send()
 					.await
 				{
@@ -249,7 +249,7 @@ pub async fn submit_messages<I: IsmpHost>(
 				match contract
 					.handle_get_responses(ismp_host, message)
 					.nonce(nonce)
-					.gas(10_000_000)
+					.gas(client.gas_limit)
 					.send()
 					.await
 				{
@@ -305,7 +305,7 @@ pub async fn submit_messages<I: IsmpHost>(
 				match contract
 					.handle_post_timeouts(ismp_host, message)
 					.nonce(nonce)
-					.gas(10_000_000)
+					.gas(client.gas_limit)
 					.send()
 					.await
 				{
@@ -338,7 +338,7 @@ pub async fn submit_messages<I: IsmpHost>(
 				match contract
 					.handle_get_timeouts(ismp_host, message)
 					.nonce(nonce)
-					.gas(10_000_000)
+					.gas(client.gas_limit)
 					.send()
 					.await
 				{

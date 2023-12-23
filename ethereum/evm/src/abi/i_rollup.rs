@@ -1636,25 +1636,25 @@ pub mod i_rollup {
 			log: &::ethers::core::abi::RawLog,
 		) -> ::core::result::Result<Self, ::ethers::core::abi::Error> {
 			if let Ok(decoded) = NodeConfirmedFilter::decode_log(log) {
-				return Ok(IRollupEvents::NodeConfirmedFilter(decoded))
+				return Ok(IRollupEvents::NodeConfirmedFilter(decoded));
 			}
 			if let Ok(decoded) = NodeCreatedFilter::decode_log(log) {
-				return Ok(IRollupEvents::NodeCreatedFilter(decoded))
+				return Ok(IRollupEvents::NodeCreatedFilter(decoded));
 			}
 			if let Ok(decoded) = NodeRejectedFilter::decode_log(log) {
-				return Ok(IRollupEvents::NodeRejectedFilter(decoded))
+				return Ok(IRollupEvents::NodeRejectedFilter(decoded));
 			}
 			if let Ok(decoded) = RollupChallengeStartedFilter::decode_log(log) {
-				return Ok(IRollupEvents::RollupChallengeStartedFilter(decoded))
+				return Ok(IRollupEvents::RollupChallengeStartedFilter(decoded));
 			}
 			if let Ok(decoded) = RollupInitializedFilter::decode_log(log) {
-				return Ok(IRollupEvents::RollupInitializedFilter(decoded))
+				return Ok(IRollupEvents::RollupInitializedFilter(decoded));
 			}
 			if let Ok(decoded) = UserStakeUpdatedFilter::decode_log(log) {
-				return Ok(IRollupEvents::UserStakeUpdatedFilter(decoded))
+				return Ok(IRollupEvents::UserStakeUpdatedFilter(decoded));
 			}
 			if let Ok(decoded) = UserWithdrawableFundsUpdatedFilter::decode_log(log) {
-				return Ok(IRollupEvents::UserWithdrawableFundsUpdatedFilter(decoded))
+				return Ok(IRollupEvents::UserWithdrawableFundsUpdatedFilter(decoded));
 			}
 			Err(::ethers::core::abi::Error::InvalidData)
 		}
@@ -2240,141 +2240,141 @@ pub mod i_rollup {
 			let data = data.as_ref();
 			if let Ok(decoded) = <AmountStakedCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::AmountStaked(decoded))
+				return Ok(Self::AmountStaked(decoded));
 			}
 			if let Ok(decoded) = <BaseStakeCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::BaseStake(decoded))
+				return Ok(Self::BaseStake(decoded));
 			}
 			if let Ok(decoded) = <BridgeCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::Bridge(decoded))
+				return Ok(Self::Bridge(decoded));
 			}
 			if let Ok(decoded) = <ChainIdCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::ChainId(decoded))
+				return Ok(Self::ChainId(decoded));
 			}
 			if let Ok(decoded) =
 				<ChallengeManagerCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::ChallengeManager(decoded))
+				return Ok(Self::ChallengeManager(decoded));
 			}
 			if let Ok(decoded) =
 				<ConfirmPeriodBlocksCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::ConfirmPeriodBlocks(decoded))
+				return Ok(Self::ConfirmPeriodBlocks(decoded));
 			}
 			if let Ok(decoded) =
 				<CurrentChallengeCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::CurrentChallenge(decoded))
+				return Ok(Self::CurrentChallenge(decoded));
 			}
 			if let Ok(decoded) =
 				<ExtraChallengeTimeBlocksCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::ExtraChallengeTimeBlocks(decoded))
+				return Ok(Self::ExtraChallengeTimeBlocks(decoded));
 			}
 			if let Ok(decoded) =
 				<FirstUnresolvedNodeCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::FirstUnresolvedNode(decoded))
+				return Ok(Self::FirstUnresolvedNode(decoded));
 			}
 			if let Ok(decoded) = <GetNodeCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::GetNode(decoded))
+				return Ok(Self::GetNode(decoded));
 			}
 			if let Ok(decoded) = <GetStakerCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::GetStaker(decoded))
+				return Ok(Self::GetStaker(decoded));
 			}
 			if let Ok(decoded) =
 				<GetStakerAddressCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::GetStakerAddress(decoded))
+				return Ok(Self::GetStakerAddress(decoded));
 			}
 			if let Ok(decoded) = <IsStakedCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::IsStaked(decoded))
+				return Ok(Self::IsStaked(decoded));
 			}
 			if let Ok(decoded) = <IsValidatorCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::IsValidator(decoded))
+				return Ok(Self::IsValidator(decoded));
 			}
 			if let Ok(decoded) = <IsZombieCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::IsZombie(decoded))
+				return Ok(Self::IsZombie(decoded));
 			}
 			if let Ok(decoded) =
 				<LastStakeBlockCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::LastStakeBlock(decoded))
+				return Ok(Self::LastStakeBlock(decoded));
 			}
 			if let Ok(decoded) =
 				<LatestConfirmedCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::LatestConfirmed(decoded))
+				return Ok(Self::LatestConfirmed(decoded));
 			}
 			if let Ok(decoded) =
 				<LatestNodeCreatedCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::LatestNodeCreated(decoded))
+				return Ok(Self::LatestNodeCreated(decoded));
 			}
 			if let Ok(decoded) =
 				<LatestStakedNodeCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::LatestStakedNode(decoded))
+				return Ok(Self::LatestStakedNode(decoded));
 			}
 			if let Ok(decoded) =
 				<LoserStakeEscrowCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::LoserStakeEscrow(decoded))
+				return Ok(Self::LoserStakeEscrow(decoded));
 			}
 			if let Ok(decoded) =
 				<MinimumAssertionPeriodCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::MinimumAssertionPeriod(decoded))
+				return Ok(Self::MinimumAssertionPeriod(decoded));
 			}
 			if let Ok(decoded) = <NodeHasStakerCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::NodeHasStaker(decoded))
+				return Ok(Self::NodeHasStaker(decoded));
 			}
 			if let Ok(decoded) = <OutboxCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::Outbox(decoded))
+				return Ok(Self::Outbox(decoded));
 			}
 			if let Ok(decoded) =
 				<RollupEventInboxCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::RollupEventInbox(decoded))
+				return Ok(Self::RollupEventInbox(decoded));
 			}
 			if let Ok(decoded) =
 				<SequencerInboxCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::SequencerInbox(decoded))
+				return Ok(Self::SequencerInbox(decoded));
 			}
 			if let Ok(decoded) = <StakeTokenCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::StakeToken(decoded))
+				return Ok(Self::StakeToken(decoded));
 			}
 			if let Ok(decoded) = <StakerCountCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::StakerCount(decoded))
+				return Ok(Self::StakerCount(decoded));
 			}
 			if let Ok(decoded) =
 				<ValidatorWhitelistDisabledCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::ValidatorWhitelistDisabled(decoded))
+				return Ok(Self::ValidatorWhitelistDisabled(decoded));
 			}
 			if let Ok(decoded) =
 				<WasmModuleRootCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::WasmModuleRoot(decoded))
+				return Ok(Self::WasmModuleRoot(decoded));
 			}
 			if let Ok(decoded) =
 				<WithdrawableFundsCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::WithdrawableFunds(decoded))
+				return Ok(Self::WithdrawableFunds(decoded));
 			}
 			if let Ok(decoded) = <ZombieAddressCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::ZombieAddress(decoded))
+				return Ok(Self::ZombieAddress(decoded));
 			}
 			if let Ok(decoded) = <ZombieCountCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::ZombieCount(decoded))
+				return Ok(Self::ZombieCount(decoded));
 			}
 			if let Ok(decoded) =
 				<ZombieLatestStakedNodeCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::ZombieLatestStakedNode(decoded))
+				return Ok(Self::ZombieLatestStakedNode(decoded));
 			}
 			Err(::ethers::core::abi::Error::InvalidData.into())
 		}

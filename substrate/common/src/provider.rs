@@ -24,6 +24,7 @@ use crate::{
 	SubstrateClient,
 };
 
+use crate::extrinsic::send_unsigned_extrinsic;
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use debounced::Debounced;
@@ -218,9 +219,7 @@ where
 		for msg in messages {
 			let call = vec![msg].encode();
 			let extrinsic = Extrinsic::new("Ismp", "handle", call);
-			let nonce = self.get_nonce().await?;
-			let signer = InMemorySigner::new(self.signer());
-			futs.push(send_extrinsic(&self.client, signer, extrinsic, nonce))
+			futs.push(send_unsigned_extrinsic(&self.client, extrinsic))
 		}
 		let _ = futures::future::join_all(futs).await;
 		Ok(())

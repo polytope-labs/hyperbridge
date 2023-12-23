@@ -555,13 +555,13 @@ pub mod ping_module {
 			if let Ok(decoded) =
 				<::std::string::String as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::RevertString(decoded))
+				return Ok(Self::RevertString(decoded));
 			}
 			if let Ok(decoded) = <ExecutionFailed as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::ExecutionFailed(decoded))
+				return Ok(Self::ExecutionFailed(decoded));
 			}
 			if let Ok(decoded) = <NotIsmpHost as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::NotIsmpHost(decoded))
+				return Ok(Self::NotIsmpHost(decoded));
 			}
 			Err(::ethers::core::abi::Error::InvalidData.into())
 		}
@@ -699,22 +699,22 @@ pub mod ping_module {
 			log: &::ethers::core::abi::RawLog,
 		) -> ::core::result::Result<Self, ::ethers::core::abi::Error> {
 			if let Ok(decoded) = GetResponseReceivedFilter::decode_log(log) {
-				return Ok(PingModuleEvents::GetResponseReceivedFilter(decoded))
+				return Ok(PingModuleEvents::GetResponseReceivedFilter(decoded));
 			}
 			if let Ok(decoded) = GetTimeoutReceivedFilter::decode_log(log) {
-				return Ok(PingModuleEvents::GetTimeoutReceivedFilter(decoded))
+				return Ok(PingModuleEvents::GetTimeoutReceivedFilter(decoded));
 			}
 			if let Ok(decoded) = MessageDispatchedFilter::decode_log(log) {
-				return Ok(PingModuleEvents::MessageDispatchedFilter(decoded))
+				return Ok(PingModuleEvents::MessageDispatchedFilter(decoded));
 			}
 			if let Ok(decoded) = PostReceivedFilter::decode_log(log) {
-				return Ok(PingModuleEvents::PostReceivedFilter(decoded))
+				return Ok(PingModuleEvents::PostReceivedFilter(decoded));
 			}
 			if let Ok(decoded) = PostResponseReceivedFilter::decode_log(log) {
-				return Ok(PingModuleEvents::PostResponseReceivedFilter(decoded))
+				return Ok(PingModuleEvents::PostResponseReceivedFilter(decoded));
 			}
 			if let Ok(decoded) = PostTimeoutReceivedFilter::decode_log(log) {
-				return Ok(PingModuleEvents::PostTimeoutReceivedFilter(decoded))
+				return Ok(PingModuleEvents::PostTimeoutReceivedFilter(decoded));
 			}
 			Err(::ethers::core::abi::Error::InvalidData)
 		}
@@ -950,40 +950,40 @@ pub mod ping_module {
 		) -> ::core::result::Result<Self, ::ethers::core::abi::AbiError> {
 			let data = data.as_ref();
 			if let Ok(decoded) = <DispatchCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::Dispatch(decoded))
+				return Ok(Self::Dispatch(decoded));
 			}
 			if let Ok(decoded) =
 				<DispatchWithRequestCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::DispatchWithRequest(decoded))
+				return Ok(Self::DispatchWithRequest(decoded));
 			}
 			if let Ok(decoded) =
 				<DispatchToParachainCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::DispatchToParachain(decoded))
+				return Ok(Self::DispatchToParachain(decoded));
 			}
 			if let Ok(decoded) = <OnAcceptCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::OnAccept(decoded))
+				return Ok(Self::OnAccept(decoded));
 			}
 			if let Ok(decoded) = <OnGetResponseCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::OnGetResponse(decoded))
+				return Ok(Self::OnGetResponse(decoded));
 			}
 			if let Ok(decoded) = <OnGetTimeoutCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::OnGetTimeout(decoded))
+				return Ok(Self::OnGetTimeout(decoded));
 			}
 			if let Ok(decoded) =
 				<OnPostResponseCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::OnPostResponse(decoded))
+				return Ok(Self::OnPostResponse(decoded));
 			}
 			if let Ok(decoded) = <OnPostTimeoutCall as ::ethers::core::abi::AbiDecode>::decode(data)
 			{
-				return Ok(Self::OnPostTimeout(decoded))
+				return Ok(Self::OnPostTimeout(decoded));
 			}
 			if let Ok(decoded) = <PingCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-				return Ok(Self::Ping(decoded))
+				return Ok(Self::Ping(decoded));
 			}
 			Err(::ethers::core::abi::Error::InvalidData.into())
 		}

@@ -240,7 +240,7 @@ pub enum StateMachine {
     Beefy(ConsensusStateId),
     #[codec(index = 5)]
     /// Polygon Pos
-    Polygon
+    Polygon,
 }
 
 impl ToString for StateMachine {

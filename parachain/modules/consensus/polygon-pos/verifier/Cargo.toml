@@ -24,5 +24,8 @@ std = [
     "sp-core/std",
     "codec/std",
     "ismp/std",
+    "alloy-primitives/std",
+    "alloy-rlp/std",
+    "ethabi/std",
     "scale-info/std"
 ]

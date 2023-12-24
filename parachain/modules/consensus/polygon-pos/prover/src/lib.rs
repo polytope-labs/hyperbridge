@@ -4,7 +4,7 @@ use ethers::{
     providers::Middleware,
     types::BlockId,
 };
-use polygon_pos_verifier::primitives::CodecHeader;
+use polygon_pos_verifier::primitives::{CodecHeader, SPAN_LENGTH};
 use std::{fmt::Debug, sync::Arc};
 
 #[cfg(test)]
@@ -15,7 +15,6 @@ pub struct PolygonPosProver {
     /// Execution Rpc client
     pub client: Arc<Provider<Ws>>,
 }
-const SPAN_LENGTH: u64 = 400 * 16;
 
 impl PolygonPosProver {
     pub fn new(client: Provider<Ws>) -> Self {

@@ -1,14 +1,13 @@
-use alloc::{vec, vec::Vec};
+use alloc::{collections::BTreeSet, vec::Vec};
 use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
 use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
 use ismp::host::IsmpHost;
-use alloc::collections::BTreeSet;
 
 const EXTRA_VANITY_LENGTH: usize = 32;
 const EXTRA_SEAL_LENGTH: usize = 65;
-
+pub const SPAN_LENGTH: u64 = 400 * 16;
 //https://github.com/maticnetwork/bor/blob/2ee39192bd5c60f9fd6baa946ae774c6d629e714/core/types/block.go#L74
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
 #[rlp(trailing)]

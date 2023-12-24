@@ -4,8 +4,9 @@ use ethers::{
     providers::Middleware,
     types::BlockId,
 };
-use polygon_pos_verifier::primitives::{CodecHeader, SPAN_LENGTH};
-use std::{fmt::Debug, sync::Arc};
+use polygon_pos_verifier::primitives::{parse_validators, CodecHeader, SPAN_LENGTH};
+use primitive_types::H160;
+use std::{collections::BTreeSet, fmt::Debug, sync::Arc};
 
 #[cfg(test)]
 mod test;
@@ -60,9 +61,19 @@ impl PolygonPosProver {
         Ok(header)
     }
 
-    // async fn create_verifier_state() -> Result<VerifierState, anyhow::Error> {
-
-    // }
+    pub async fn create_verifier_state(
+        &self,
+    ) -> Result<(CodecHeader, BTreeSet<H160>), anyhow::Error> {
+        let latest_header = self.latest_header().await?;
+        let finalized_block = latest_header.number.low_u64() - 250;
+        let span = finalized_block / SPAN_LENGTH;
+        let span_start = span * SPAN_LENGTH;
+        let span_begin_header = self.fetch_header(span_start).await?;
+        let validators = parse_validators(&span_begin_header.extra_data)?
+            .ok_or_else(|| anyhow!("Validator set not found in span header"))?;
+        let finalized_header = self.fetch_header(finalized_block).await?;
+        Ok((finalized_header, validators))
+    }
 }
 
 /// Returns a vector of mandatory block numbers

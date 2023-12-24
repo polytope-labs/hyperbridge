@@ -59,7 +59,7 @@ pub struct ConsensusState {
 
 #[derive(Encode, Decode)]
 pub struct PolygonClientUpdate {
-    pub consensus_update: BoundedVec<CodecHeader, ConstU32<16>>,
+    pub consensus_update: BoundedVec<CodecHeader, ConstU32<64>>,
 }
 
 pub struct PolygonClient<T: Config, H: IsmpHost>(PhantomData<(T, H)>);

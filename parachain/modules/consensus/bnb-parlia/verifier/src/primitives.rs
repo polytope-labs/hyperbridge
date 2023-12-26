@@ -1,20 +1,22 @@
 use alloc::{vec, vec::Vec};
 use alloy_primitives::{Address, FixedBytes, B256};
+use alloy_rlp::Decodable;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
-use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
-//use ismp::host::IsmpHost;
 use bitset::BitSet;
+use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
+use ismp::{host::IsmpHost, util::Keccak256};
 
 const EXTRA_VANITY_LENGTH: usize = 32;
 const EXTRA_SEAL_LENGTH: usize = 65;
-const LUBAN_BLOCK_NUMBER:  u64 = 29020050; // need to confirm the LUBAN fork block number
-const PARLIA_CONFIG_EPOCH:  u64 = 200;
+const LUBAN_BLOCK_NUMBER: u64 = 29020050;
+const PARLIA_CONFIG_EPOCH: u64 = 200;
 const VALIDATOR_BYTES_LENGTH_BEFORE_LUBAN: u8 = 20;
 const BLS_PUBLIC_KEY_LENGTH: usize = 48;
 const VALIDATOR_BYTES_LENGTH: usize = 20 + BLS_PUBLIC_KEY_LENGTH;
 const VALIDATOR_NUMBER_SIZE: usize = 1;
 const ADDRESS_LENGTH: usize = 20;
+
 #[derive(codec::Encode, codec::Decode)]
 pub struct VerifierState {
     pub validators: Vec<H160>,
@@ -54,17 +56,29 @@ pub struct BlockExtraData {
     pub extra_vanity: alloy_primitives::Bytes,
     pub vote_attestation: VoteAttestationData,
     pub extra_seal: alloy_primitives::Bytes,
+    pub vote_address_set: u64,
+    pub agg_signature: [u8; 96],
+    pub data: VoteData,
+    pub extra: alloy_primitives::Bytes,
     pub validator_size: Option<u8>,
     pub validators: Option<Vec<ValidatorInfo>>,
 }
 
 #[derive(Debug, Clone)]
-struct ExtraData {
-    extra_vanity: Vec<u8>,
-    validator_size: u8,
-    validators: Vec<ValidatorInfo>,
-    extra_seal: Vec<u8>,
-    vote_attestation: Option<VoteAttestationData>,
+pub struct CodecExtraData {
+    pub extra_vanity: Vec<u8>,
+    pub validator_size: u8,
+    pub validators: Vec<CodecValidatorInfo>,
+    pub extra_seal: Vec<u8>,
+    pub agg_signature: [u8; 96],
+    pub vote_data_hash: H256,
+}
+
+#[derive(Debug, Clone)]
+pub struct CodecValidatorInfo {
+    pub address: [u8; 20],
+    pub bls_public_key: [u8; 48],
+    pub vote_included: bool,
 }
 
 // Used for Encoding and Decoding of Vote
@@ -72,8 +86,8 @@ struct ExtraData {
 #[rlp(trailing)]
 pub struct ValidatorInfo {
     pub address: Address,
-    pub bls_public_key:[u8;48],
-    pub vote_included: bool
+    pub bls_public_key: [u8; 48],
+    pub vote_included: bool,
 }
 
 // Used for Encoding and Decoding of Vote Attestation
@@ -81,10 +95,10 @@ pub struct ValidatorInfo {
 #[rlp(trailing)]
 pub struct VoteAttestationData {
     pub extra_vanity: alloy_primitives::Bytes,
+    pub vote_address_set: u64,
     pub agg_signature: [u8; 96],
     pub data: VoteData,
     pub extra: alloy_primitives::Bytes,
-    pub validator_size:Option<u8>,
 }
 
 // Used for Encoding and Decoding of Vote
@@ -92,9 +106,9 @@ pub struct VoteAttestationData {
 #[rlp(trailing)]
 pub struct VoteData {
     pub source_number: u64,
-    pub source_hash:B256,
+    pub source_hash: B256,
     pub target_number: u64,
-    pub target_hash:B256,
+    pub target_hash: B256,
 }
 
 #[derive(codec::Encode, codec::Decode, Debug, Clone)]
@@ -167,36 +181,26 @@ impl From<&CodecHeader> for Header {
     }
 }
 
-/*impl Header {
-    pub fn hash<H: IsmpHost>(mut self) -> Result<H256, anyhow::Error> {
+impl Header {
+    pub fn hash<H: Keccak256>(self) -> Result<H256, anyhow::Error> {
         if self.extra_data.len() < (EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH) {
             Err(anyhow!("Invalid extra data"))?
         }
-        let slice = self.extra_data.len() - EXTRA_SEAL_LENGTH;
-        *self.extra_data = self.extra_data[..slice].to_vec().into();
         let encoding = alloy_rlp::encode(self);
         Ok(H::keccak256(&encoding))
     }
-}*/
-
-pub fn get_signature(extra_data: &[u8]) -> Result<[u8; EXTRA_SEAL_LENGTH], anyhow::Error> {
-    if extra_data.len() < (EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH) {
-        Err(anyhow!("Invalid extra data"))?
-    }
-
-    let mut sig = [0u8; 65];
-    sig.copy_from_slice(&extra_data[extra_data.len() - EXTRA_SEAL_LENGTH..]);
-    Ok(sig)
 }
 
-fn parse_extra(extra_data: &[u8]) -> Result<ExtraData, anyhow::Error> {
+pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, anyhow::Error> {
     let data = extra_data;
-    let mut extra = ExtraData {
+
+    let mut extra = CodecExtraData {
         extra_vanity: Vec::new(),
         validator_size: 0,
         validators: Vec::new(),
-        vote_attestation: None,
         extra_seal: Vec::new(),
+        agg_signature: [0; 96],
+        vote_data_hash: H256::zero(),
     };
 
     if extra_data.len() < EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH {
@@ -213,7 +217,8 @@ fn parse_extra(extra_data: &[u8]) -> Result<ExtraData, anyhow::Error> {
         if data[0] != 0xf8 {
             // RLP format of attestation begins with 'f8'
             let validator_num = data[0].clone() as usize;
-            let validator_bytes_total_length = VALIDATOR_NUMBER_SIZE+ validator_num * VALIDATOR_BYTES_LENGTH;
+            let validator_bytes_total_length =
+                VALIDATOR_NUMBER_SIZE + validator_num * VALIDATOR_BYTES_LENGTH;
             if data_length < validator_bytes_total_length as usize {
                 Err(anyhow!("Parse validator failed"))?;
             }
@@ -221,14 +226,15 @@ fn parse_extra(extra_data: &[u8]) -> Result<ExtraData, anyhow::Error> {
             extra.validator_size = validator_num.clone() as u8;
             let mut remaining_data = &data[VALIDATOR_NUMBER_SIZE..];
             for _ in 0..validator_num {
-                let mut validator_info = ValidatorInfo {
-                    address: [0; 20].into(),
+                let mut validator_info = CodecValidatorInfo {
+                    address: [0; 20],
                     bls_public_key: [0; 48],
                     vote_included: false,
                 };
 
                 let address_bytes: Vec<u8> = remaining_data[..ADDRESS_LENGTH].to_vec();
-                let bls_public_key_bytes: Vec<u8> = remaining_data[ADDRESS_LENGTH..VALIDATOR_BYTES_LENGTH].to_vec();
+                let bls_public_key_bytes: Vec<u8> =
+                    remaining_data[ADDRESS_LENGTH..VALIDATOR_BYTES_LENGTH].to_vec();
 
                 validator_info.address.copy_from_slice(&address_bytes);
                 validator_info.bls_public_key.copy_from_slice(&bls_public_key_bytes);
@@ -237,17 +243,26 @@ fn parse_extra(extra_data: &[u8]) -> Result<ExtraData, anyhow::Error> {
                 remaining_data = &remaining_data[VALIDATOR_BYTES_LENGTH..];
             }
 
-            //extra.validators.sort();
-            data = &data[VALIDATOR_BYTES_LENGTH- VALIDATOR_NUMBER_SIZE..];
+            data = &data[VALIDATOR_BYTES_LENGTH - VALIDATOR_NUMBER_SIZE..];
             data_length = data.len();
         }
 
         // parse attestation
+        if data_length > 0 {
+            let vote_attestation_data: VoteAttestationData = VoteAttestationData::decode(&mut data)
+                .map_err(|_| anyhow!("parse voteAttestation failed"))?;
+            extra.agg_signature = vote_attestation_data.agg_signature;
+            extra.vote_data_hash =
+                H::keccak256(alloy_rlp::encode(vote_attestation_data.data).as_slice());
+
+            let validators_bit_set = BitSet::from_u64(vote_attestation_data.vote_address_set);
+            for i in 0..extra.validator_size as usize {
+                if validators_bit_set.test(i as usize) {
+                    extra.validators[i.clone()].vote_included = true;
+                }
+            }
+        }
     }
 
     Ok(extra.clone())
 }
-fn is_block_forked(s: u64, head: u64) -> bool {
-    s <= head
-}
-

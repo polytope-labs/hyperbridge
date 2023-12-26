@@ -10667,6 +10667,7 @@ dependencies = [
  "alloy-rlp-derive",
  "anyhow",
  "ethabi",
+ "ethers",
  "ismp",
  "log",
  "parity-scale-codec",

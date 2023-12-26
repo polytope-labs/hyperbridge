@@ -3,6 +3,7 @@ use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
 use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
+use ethers::types::Block;
 use ismp::util::Keccak256;
 
 const EXTRA_VANITY_LENGTH: usize = 32;
@@ -52,6 +53,31 @@ pub struct CodecHeader {
     pub base_fee_per_gas: Option<U256>,
     pub withdrawals_hash: Option<H256>,
     pub excess_data_gas: Option<U256>,
+}
+
+impl From<Block<H256>> for CodecHeader {
+    fn from(block: Block<H256>) -> Self {
+        CodecHeader {
+            parent_hash: block.parent_hash,
+            uncle_hash: block.uncles_hash,
+            coinbase: block.author.unwrap_or_default(),
+            state_root: block.state_root,
+            transactions_root: block.transactions_root,
+            receipts_root: block.receipts_root,
+            logs_bloom: block.logs_bloom.unwrap_or_default(),
+            difficulty: block.difficulty,
+            number: block.number.unwrap_or_default().as_u64().into(),
+            gas_limit: block.gas_limit.low_u64(),
+            gas_used: block.gas_used.low_u64(),
+            timestamp: block.timestamp.low_u64(),
+            extra_data: block.extra_data.0.into(),
+            mix_hash: block.mix_hash.unwrap_or_default(),
+            nonce: block.nonce.unwrap_or_default(),
+            base_fee_per_gas: block.base_fee_per_gas,
+            withdrawals_hash: block.withdrawals_root,
+            excess_data_gas: block.excess_blob_gas,
+        }
+    }
 }
 
 impl From<&CodecHeader> for Header {

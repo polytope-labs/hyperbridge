@@ -16,6 +16,7 @@ ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-featu
 ismp = { path = "../../../ismp/core", default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 sp-io = { version = "27.0.0", default-features = false }
+ethers = { version = "2.0.8", default-features = false }
 
 [features]
 default = ["std"]

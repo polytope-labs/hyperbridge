@@ -2,10 +2,10 @@ use anyhow::anyhow;
 use ethers::{
     prelude::{Provider, Ws},
     providers::Middleware,
-    types::BlockId,
+    types::{Block, BlockId},
 };
 use polygon_pos_verifier::primitives::{parse_validators, CodecHeader, SPAN_LENGTH};
-use primitive_types::H160;
+use primitive_types::{H160, H256};
 use std::{collections::BTreeSet, fmt::Debug, sync::Arc};
 
 #[cfg(test)]
@@ -31,26 +31,7 @@ impl PolygonPosProver {
             .get_block(block)
             .await?
             .ok_or_else(|| anyhow!("Header not found for {:?}", block))?;
-        let header = CodecHeader {
-            parent_hash: block.parent_hash,
-            uncle_hash: block.uncles_hash,
-            coinbase: block.author.unwrap_or_default(),
-            state_root: block.state_root,
-            transactions_root: block.transactions_root,
-            receipts_root: block.receipts_root,
-            logs_bloom: block.logs_bloom.unwrap_or_default(),
-            difficulty: block.difficulty,
-            number: block.number.unwrap_or_default().as_u64().into(),
-            gas_limit: block.gas_limit.low_u64(),
-            gas_used: block.gas_used.low_u64(),
-            timestamp: block.timestamp.low_u64(),
-            extra_data: block.extra_data.0.into(),
-            mix_hash: block.mix_hash.unwrap_or_default(),
-            nonce: block.nonce.unwrap_or_default(),
-            base_fee_per_gas: block.base_fee_per_gas,
-            withdrawals_hash: block.withdrawals_root,
-            excess_data_gas: block.excess_blob_gas,
-        };
+        let header: CodecHeader = block.into();
 
         Ok(header)
     }

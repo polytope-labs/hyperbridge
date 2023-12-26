@@ -6,10 +6,16 @@ extern crate alloc;
 pub mod pallet;
 use core::marker::PhantomData;
 
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::{
+    boxed::Box,
+    collections::{BTreeMap, BTreeSet},
+    string::ToString,
+    vec,
+    vec::Vec,
+};
 use codec::{Decode, Encode};
 use ismp::{
-    consensus::{ConsensusClient, StateCommitment, StateMachineClient},
+    consensus::{ConsensusClient, ConsensusStateId, StateCommitment, StateMachineClient},
     error::Error,
     host::{IsmpHost, StateMachine},
     messaging::StateCommitmentHeight,
@@ -23,6 +29,7 @@ use polygon_pos_verifier::{
 use sp_core::{ConstU32, H160, H256, U256};
 use sp_runtime::BoundedVec;
 
+pub const POLYGON_CONSENSUS_ID: ConsensusStateId = *b"POLY";
 #[derive(Encode, Decode, Debug, Clone, PartialEq)]
 pub struct Chain {
     /// Block hash of this chain head
@@ -47,7 +54,7 @@ impl Chain {
     }
 }
 
-#[derive(Debug, Encode, Decode, Clone)]
+#[derive(Debug, Encode, Decode, Clone, Default)]
 pub struct ConsensusState {
     pub frozen_height: Option<u64>,
     pub finalized_hash: H256,
@@ -62,6 +69,18 @@ pub struct PolygonClientUpdate {
 }
 
 pub struct PolygonClient<T: Config, H: IsmpHost>(PhantomData<(T, H)>);
+
+impl<T: Config, H: IsmpHost> Default for PolygonClient<T, H> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T: Config, H: IsmpHost> Clone for PolygonClient<T, H> {
+    fn clone(&self) -> Self {
+        Self(PhantomData)
+    }
+}
 
 impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
     for PolygonClient<T, H>

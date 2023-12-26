@@ -79,6 +79,7 @@ pallet-ismp = { path = "../../modules/ismp/pallet", default-features = false }
 ismp-demo = { path = "../../modules/ismp/demo", default-features = false }
 ismp-runtime-api = { path = "../../modules/ismp/runtime-api", default-features = false }
 ismp-sync-committee = { path = "../../modules/ismp/sync-committee", default-features = false }
+ismp-polygon-pos = { path = "../../modules/ismp/polygon-pos", default-features = false }
 
 [features]
 default = [
@@ -134,6 +135,7 @@ std = [
 	"pallet-message-queue/std",
 	"ismp-sync-committee/std",
 	"parachains-common/std",
+	"ismp-polygon-pos/std"
 ]
 
 runtime-benchmarks = [

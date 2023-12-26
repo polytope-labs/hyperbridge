@@ -55,6 +55,13 @@ impl ConsensusClientProvider for ConsensusProvider {
                     ismp_sync_committee::SyncCommitteeConsensusClient::<Host<Runtime>>::default();
                 Ok(Box::new(sync_committee))
             },
+
+            ismp_polygon_pos::POLYGON_CONSENSUS_ID => {
+                let polygon_client =
+                    ismp_polygon_pos::PolygonClient::<Runtime, Host<Runtime>>::default();
+                Ok(Box::new(polygon_client))
+            },
+
             id => Err(Error::ImplementationSpecific(format!("Unknown consensus client: {id:?}")))?,
         }
     }
@@ -82,6 +89,8 @@ impl ismp_demo::Config for Runtime {
     type NativeCurrency = Balances;
     type IsmpDispatcher = pallet_ismp::dispatcher::Dispatcher<Runtime>;
 }
+
+impl ismp_polygon_pos::pallet::Config for Runtime {}
 
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {

@@ -557,6 +557,7 @@ construct_runtime!(
         Ismp: pallet_ismp = 40,
         IsmpSyncCommittee: ismp_sync_committee::pallet::{Pallet, Call} = 41,
         IsmpDemo: ismp_demo = 42,
+        IsmpPolygonPos: ismp_polygon_pos::pallet = 43,
     }
 );
 

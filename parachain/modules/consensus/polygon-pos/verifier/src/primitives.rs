@@ -3,6 +3,7 @@ use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
 use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
+#[cfg(feature = "std")]
 use ethers::types::Block;
 use ismp::util::Keccak256;
 
@@ -55,6 +56,7 @@ pub struct CodecHeader {
     pub excess_data_gas: Option<U256>,
 }
 
+#[cfg(feature = "std")]
 impl From<Block<H256>> for CodecHeader {
     fn from(block: Block<H256>) -> Self {
         CodecHeader {

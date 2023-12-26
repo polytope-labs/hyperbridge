@@ -61,14 +61,14 @@ impl PolygonPosProver {
         Ok(header)
     }
 
-    pub async fn create_verifier_state(
+    pub async fn fetch_finalized_state(
         &self,
     ) -> Result<(CodecHeader, BTreeSet<H160>), anyhow::Error> {
         let latest_header = self.latest_header().await?;
         let finalized_block = latest_header.number.low_u64() - 250;
         let span = finalized_block / SPAN_LENGTH;
         let span_start = span * SPAN_LENGTH;
-        let span_begin_header = self.fetch_header(span_start).await?;
+        let span_begin_header = self.fetch_header(span_start - 1).await?;
         let validators = parse_validators(&span_begin_header.extra_data)?
             .ok_or_else(|| anyhow!("Validator set not found in span header"))?;
         let finalized_header = self.fetch_header(finalized_block).await?;

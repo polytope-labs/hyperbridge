@@ -25,7 +25,9 @@ ethers = { version = "2.0.8", features = ["ws"] }
 tokio = { version =  "1.32.0", features = ["macros", "rt-multi-thread"]}
 parity-scale-codec = "3.2.2"
 dotenv = "0.15.0"
-
+ismp = { path = "../../../ismp/core" }
+sp-core = {version = "27.0.0" }
+sp-io = {version = "27.0.0" }
 [features]
 default = ["std"]
 std = [

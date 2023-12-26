@@ -3,7 +3,7 @@ use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
 use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
-use ismp::host::IsmpHost;
+use ismp::util::Keccak256;
 
 const EXTRA_VANITY_LENGTH: usize = 32;
 const EXTRA_SEAL_LENGTH: usize = 65;
@@ -30,14 +30,6 @@ pub struct Header {
     pub base_fee_per_gas: Option<alloy_primitives::U256>,
     pub withdrawals_hash: Option<B256>,
     pub excess_data_gas: Option<alloy_primitives::U256>,
-}
-
-// Used for Encoding and Decoding of the Extra Data Field
-#[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
-#[rlp(trailing)]
-pub struct BlockExtraData {
-    pub validator_bytes: alloy_primitives::Bytes,
-    pub tx_dependency: Vec<Vec<u64>>,
 }
 
 #[derive(codec::Encode, codec::Decode, Debug, Clone, scale_info::TypeInfo)]
@@ -104,12 +96,25 @@ impl From<&CodecHeader> for Header {
 }
 
 impl Header {
-    pub fn hash<H: IsmpHost>(mut self) -> Result<H256, anyhow::Error> {
+    pub fn hash_without_sig<H: Keccak256>(mut self) -> Result<H256, anyhow::Error> {
         if self.extra_data.len() < (EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH) {
             Err(anyhow!("Invalid extra data"))?
         }
         let slice = self.extra_data.len() - EXTRA_SEAL_LENGTH;
-        *self.extra_data = self.extra_data[..slice].to_vec().into();
+        *self.extra_data = {
+            let bytes = self.extra_data[..slice].to_vec();
+            bytes.into()
+        };
+        self.excess_data_gas = None;
+        self.withdrawals_hash = None;
+        let encoding = alloy_rlp::encode(self);
+        Ok(H::keccak256(&encoding))
+    }
+
+    pub fn hash<H: Keccak256>(self) -> Result<H256, anyhow::Error> {
+        if self.extra_data.len() < (EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH) {
+            Err(anyhow!("Invalid extra data"))?
+        }
         let encoding = alloy_rlp::encode(self);
         Ok(H::keccak256(&encoding))
     }
@@ -135,14 +140,13 @@ pub fn parse_validators(extra_data: &[u8]) -> Result<Option<BTreeSet<H160>>, any
     if slice.len() == 0 {
         return Ok(None)
     }
-    let block_extra_data = <BlockExtraData as alloy_rlp::Decodable>::decode(&mut &*slice)
-        .map_err(|_| anyhow!("Failed to decode header extra data"))?;
-    if block_extra_data.validator_bytes.len() % 40 != 0 {
+
+    if slice.len() % 20 != 0 {
         Err(anyhow!("Invalid block extra data"))?
     }
     let mut validators = BTreeSet::new();
-    for chunk in block_extra_data.validator_bytes.0.chunks(40) {
-        let address = H160::from_slice(&chunk[..20]);
+    for chunk in slice.chunks(20) {
+        let address = H160::from_slice(&chunk[..]);
         validators.insert(address);
     }
     Ok(Some(validators))

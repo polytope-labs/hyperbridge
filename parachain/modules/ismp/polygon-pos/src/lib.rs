@@ -7,7 +7,6 @@ pub mod pallet;
 use core::marker::PhantomData;
 
 use alloc::collections::{BTreeMap, BTreeSet};
-use anyhow::anyhow;
 use codec::{Decode, Encode};
 use ismp::{
     consensus::{ConsensusClient, StateCommitment, StateMachineClient},
@@ -19,7 +18,7 @@ use ismp_sync_committee::EvmStateMachine;
 use pallet::{Config, Headers};
 use polygon_pos_verifier::{
     primitives::{CodecHeader, SPAN_LENGTH},
-    verify_polygon_header, EcdsaRecover, VerificationResult,
+    verify_polygon_header, VerificationResult,
 };
 use sp_core::{ConstU32, H160, H256, U256};
 use sp_runtime::BoundedVec;
@@ -39,8 +38,8 @@ pub struct Chain {
 impl Chain {
     fn update_fork(&mut self, update: VerificationResult) {
         self.hash = update.hash;
-        let span = get_span(update.header.number.low_u64() + 1);
         if let Some(validators) = update.next_validators {
+            let span = get_span(update.header.number.low_u64() + 1);
             self.validators.insert(span, validators);
         }
         self.hashes.push(update.hash);
@@ -91,11 +90,9 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
             // Header must be a descendant of the latest finalized header or one of the known chain
             // forks
             if parent_hash == consensus_state.finalized_hash {
-                let result = verify_polygon_header::<H, SigVerifier>(
-                    &consensus_state.finalized_validators,
-                    header,
-                )
-                .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
+                let result =
+                    verify_polygon_header::<H>(&consensus_state.finalized_validators, header)
+                        .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
 
                 let chain = Chain {
                     hash: result.hash,
@@ -127,7 +124,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 let validators =
                     chain.validators.get(&span).unwrap_or(&consensus_state.finalized_validators);
 
-                let result = verify_polygon_header::<H, SigVerifier>(validators, header)
+                let result = verify_polygon_header::<H>(validators, header)
                     .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
                 chain.update_fork(result.clone());
                 Headers::<T>::insert(result.hash, result.header)
@@ -191,16 +188,6 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         _id: ismp::host::StateMachine,
     ) -> Result<Box<dyn StateMachineClient>, ismp::error::Error> {
         Ok(Box::new(<EvmStateMachine<H>>::default()))
-    }
-}
-
-pub struct SigVerifier;
-
-impl EcdsaRecover for SigVerifier {
-    fn recover(sig: [u8; 65], msg: H256) -> Result<H160, anyhow::Error> {
-        let address = sp_io::crypto::secp256k1_ecdsa_recover_compressed(&sig, &msg.0)
-            .map_err(|_| anyhow!("Signature verification failed"))?;
-        Ok(H160::from_slice(&address[..20]))
     }
 }
 

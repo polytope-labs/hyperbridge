@@ -32,8 +32,6 @@ use sp_runtime::BoundedVec;
 pub const POLYGON_CONSENSUS_ID: ConsensusStateId = *b"POLY";
 #[derive(Encode, Decode, Debug, Clone, PartialEq)]
 pub struct Chain {
-    /// Block hash of this chain head
-    pub hash: H256,
     /// Validators for this chain fork
     pub validators: BTreeMap<u64, BTreeSet<H160>>,
     /// Block hashes contained in this fork;
@@ -44,7 +42,6 @@ pub struct Chain {
 
 impl Chain {
     fn update_fork(&mut self, update: VerificationResult) {
-        self.hash = update.hash;
         if let Some(validators) = update.next_validators {
             let span = get_span(update.header.number.low_u64() + 1);
             self.validators.insert(span, validators);
@@ -65,7 +62,15 @@ pub struct ConsensusState {
 
 #[derive(Encode, Decode)]
 pub struct PolygonClientUpdate {
+    /// Headers sorted in ascending order
     pub consensus_update: BoundedVec<CodecHeader, ConstU32<64>>,
+    /// The leading hash in a fork, use a default value when building on the latest finalized hash
+    pub chain_head: H256,
+    // There could be reorgs on forks such that the current head of the fork
+    // has been discarded, the update needs to tell us the index of the initial parent hash
+    // in the hash list
+    /// The index of the hash we should use as the parent hash for the first header in the update
+    pub parent_hash_index: u64,
 }
 
 pub struct PolygonClient<T: Config, H: IsmpHost>(PhantomData<(T, H)>);
@@ -92,7 +97,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         trusted_consensus_state: Vec<u8>,
         proof: Vec<u8>,
     ) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), ismp::error::Error> {
-        let PolygonClientUpdate { mut consensus_update } =
+        let PolygonClientUpdate { consensus_update, chain_head, parent_hash_index } =
             PolygonClientUpdate::decode(&mut &proof[..]).map_err(|_| {
                 Error::ImplementationSpecific("Cannot decode polygon client update".to_string())
             })?;
@@ -102,49 +107,68 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
             })?;
 
-        consensus_update.sort_by(|a, b| a.number.cmp(&b.number));
+        if consensus_update.is_empty() {
+            Err(Error::ImplementationSpecific("Consensus update is empty".to_string()))?
+        }
 
-        for header in consensus_update {
-            let parent_hash = header.parent_hash;
-            // Header must be a descendant of the latest finalized header or one of the known chain
-            // forks
-            if parent_hash == consensus_state.finalized_hash {
+        if consensus_update[0].parent_hash == consensus_state.finalized_hash {
+            let mut chain = Chain {
+                validators: Default::default(),
+                hashes: vec![],
+                difficulty: Default::default(),
+            };
+
+            let mut parent_hash = consensus_update[0].parent_hash;
+            for header in consensus_update {
+                if parent_hash != header.parent_hash {
+                    Err(Error::ImplementationSpecific(
+                        "Headers are meant to be in sequential order".to_string(),
+                    ))?
+                }
                 let result =
                     verify_polygon_header::<H>(&consensus_state.finalized_validators, header)
                         .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
+                parent_hash = result.hash;
+                chain.update_fork(result.clone());
 
-                let chain = Chain {
-                    hash: result.hash,
-                    validators: {
-                        let span = get_span(result.header.number.low_u64() + 1);
-                        let mut vals = BTreeMap::new();
-                        if let Some(next_validators) = result.next_validators {
-                            vals.insert(span, next_validators);
-                        }
-                        vals
-                    },
-                    hashes: vec![result.hash],
-                    difficulty: result.header.difficulty,
-                };
-
-                consensus_state.forks.push(chain);
                 Headers::<T>::insert(result.hash, result.header)
+            }
+            consensus_state.forks.push(chain);
+        } else {
+            // Find the chain with the given chain head
+            let chain = if let Some(chain) = consensus_state
+                .forks
+                .iter_mut()
+                .find(|chain| chain.hashes[chain.hashes.len() - 1] == chain_head)
+            {
+                chain
             } else {
-                let chain = if let Some(chain) =
-                    consensus_state.forks.iter_mut().find(|chain| chain.hash == header.parent_hash)
-                {
-                    chain
-                } else {
-                    // If header does not belong to any known chain, we skip it
-                    continue
-                };
+                Err(Error::ImplementationSpecific("chain not found".to_string()))?
+            };
 
+            // parent Hash
+            if parent_hash_index as usize >= chain.hashes.len() {
+                Err(Error::ImplementationSpecific(
+                    "Parent hash index overflows the chain length".to_string(),
+                ))?
+            }
+            let mut parent_hash = chain.hashes[parent_hash_index as usize];
+            // Update the hash list
+            chain.hashes = chain.hashes[..=parent_hash_index as usize].to_vec();
+
+            for header in consensus_update {
+                if parent_hash != header.parent_hash {
+                    Err(Error::ImplementationSpecific(
+                        "Headers are meant to be in sequential order".to_string(),
+                    ))?
+                }
                 let span = get_span(header.number.low_u64());
                 let validators =
                     chain.validators.get(&span).unwrap_or(&consensus_state.finalized_validators);
 
                 let result = verify_polygon_header::<H>(validators, header)
                     .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
+                parent_hash = result.hash;
                 chain.update_fork(result.clone());
                 Headers::<T>::insert(result.hash, result.header)
             }

@@ -60,7 +60,7 @@ pub struct ConsensusState {
     pub ismp_contract_address: H160,
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Debug)]
 pub struct PolygonClientUpdate {
     /// Headers sorted in ascending order
     pub consensus_update: BoundedVec<CodecHeader, ConstU32<64>>,

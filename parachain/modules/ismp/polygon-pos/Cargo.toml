@@ -2,7 +2,8 @@
 name = "ismp-polygon-pos"
 version = "0.1.0"
 edition = "2021"
-authors = ["Polytope Labs"]
+description = "ISMP Consensus Client for the Polygon POS Network's Consensus Protocol"
+authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 log = { version = "0.4.17", default-features = false }

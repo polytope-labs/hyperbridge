@@ -186,6 +186,8 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
             BTreeMap::new();
         if let Some(mut longest_chain) = longest_chain {
+            // Finalize the 50th block in the chain
+            // This allows us to have probabilistic finality of atleast 5 mins and avoid reorgs
             let finalized_hash = longest_chain.hashes[50];
 
             let header = Headers::<T>::get(finalized_hash).ok_or_else(|| {
@@ -223,7 +225,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         _proof_1: Vec<u8>,
         _proof_2: Vec<u8>,
     ) -> Result<(), ismp::error::Error> {
-        unimplemented!()
+        Ok(())
     }
 
     fn state_machine(

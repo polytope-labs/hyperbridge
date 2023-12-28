@@ -2,7 +2,8 @@
 name = "polygon-pos-verifier"
 version = "0.1.0"
 edition = "2021"
-authors = ["Polytope Labs"]
+description = "Verifier for for the Polygon POS Network's Consensus Proofs"
+authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 anyhow = { version = "1.0.75", default-features = false }

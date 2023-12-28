@@ -5,8 +5,11 @@ use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
 use bitset::BitSet;
 use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
+use sp_core::sp_std::cmp::Ordering;
 use ismp::{host::IsmpHost, util::Keccak256};
 
+pub const SPAN_LENGTH: u64 = 400 * 16;
+pub const EPOCH_LENGTH: u64 = 200;
 const EXTRA_VANITY_LENGTH: usize = 32;
 const EXTRA_SEAL_LENGTH: usize = 65;
 const LUBAN_BLOCK_NUMBER: u64 = 29020050;
@@ -49,21 +52,6 @@ pub struct Header {
     pub excess_blob_gas: Option<alloy_primitives::U256>,
 }
 
-// Used for Encoding and Decoding of the Extra Data Field
-#[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
-#[rlp(trailing)]
-pub struct BlockExtraData {
-    pub extra_vanity: alloy_primitives::Bytes,
-    pub vote_attestation: VoteAttestationData,
-    pub extra_seal: alloy_primitives::Bytes,
-    pub vote_address_set: u64,
-    pub agg_signature: [u8; 96],
-    pub data: VoteData,
-    pub extra: alloy_primitives::Bytes,
-    pub validator_size: Option<u8>,
-    pub validators: Option<Vec<ValidatorInfo>>,
-}
-
 #[derive(Debug, Clone)]
 pub struct CodecExtraData {
     pub extra_vanity: Vec<u8>,
@@ -72,6 +60,7 @@ pub struct CodecExtraData {
     pub extra_seal: Vec<u8>,
     pub agg_signature: [u8; 96],
     pub vote_data_hash: H256,
+    pub vote_data: CodecVoteData,
 }
 
 #[derive(Debug, Clone)]
@@ -81,14 +70,27 @@ pub struct CodecValidatorInfo {
     pub vote_included: bool,
 }
 
-// Used for Encoding and Decoding of Vote
-#[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
-#[rlp(trailing)]
-pub struct ValidatorInfo {
-    pub address: Address,
-    pub bls_public_key: [u8; 48],
-    pub vote_included: bool,
+impl Eq for CodecValidatorInfo {}
+
+
+impl Ord for CodecValidatorInfo {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.address.cmp(&other.address)
+    }
 }
+
+impl PartialOrd for CodecValidatorInfo {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for CodecValidatorInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.address == other.address
+    }
+}
+
 
 // Used for Encoding and Decoding of Vote Attestation
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
@@ -101,6 +103,7 @@ pub struct VoteAttestationData {
     pub extra: alloy_primitives::Bytes,
 }
 
+
 // Used for Encoding and Decoding of Vote
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
 #[rlp(trailing)]
@@ -109,6 +112,25 @@ pub struct VoteData {
     pub source_hash: B256,
     pub target_number: u64,
     pub target_hash: B256,
+}
+
+#[derive(Debug, Clone)]
+pub struct CodecVoteData {
+    pub source_number: u64,
+    pub source_hash: H256,
+    pub target_number: u64,
+    pub target_hash: H256,
+}
+
+impl From<VoteData> for CodecVoteData {
+    fn from(vote_data: VoteData) -> Self {
+        CodecVoteData {
+            source_number: vote_data.source_number,
+            source_hash: vote_data.source_hash.0.into(),
+            target_number: vote_data.target_number,
+            target_hash: vote_data.target_hash.0.into()
+        }
+    }
 }
 
 #[derive(codec::Encode, codec::Decode, Debug, Clone)]
@@ -194,6 +216,13 @@ impl Header {
 pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, anyhow::Error> {
     let data = extra_data;
 
+    let mut vote_data = CodecVoteData {
+        source_number: 0,
+        source_hash: Default::default(),
+        target_number: 0,
+        target_hash: Default::default()
+    };
+
     let mut extra = CodecExtraData {
         extra_vanity: Vec::new(),
         validator_size: 0,
@@ -201,6 +230,7 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, an
         extra_seal: Vec::new(),
         agg_signature: [0; 96],
         vote_data_hash: H256::zero(),
+        vote_data,
     };
 
     if extra_data.len() < EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH {
@@ -242,7 +272,7 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, an
 
                 remaining_data = &remaining_data[VALIDATOR_BYTES_LENGTH..];
             }
-
+            extra.validators.sort();
             data = &data[VALIDATOR_BYTES_LENGTH - VALIDATOR_NUMBER_SIZE..];
             data_length = data.len();
         }
@@ -253,7 +283,8 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, an
                 .map_err(|_| anyhow!("parse voteAttestation failed"))?;
             extra.agg_signature = vote_attestation_data.agg_signature;
             extra.vote_data_hash =
-                H::keccak256(alloy_rlp::encode(vote_attestation_data.data).as_slice());
+                H::keccak256(alloy_rlp::encode(vote_attestation_data.data.clone()).as_slice());
+            extra.vote_data = vote_attestation_data.data.into();
 
             let validators_bit_set = BitSet::from_u64(vote_attestation_data.vote_address_set);
             for i in 0..extra.validator_size as usize {
@@ -265,4 +296,8 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, an
     }
 
     Ok(extra.clone())
+}
+
+pub fn compute_epoch(number: u64) -> u64 {
+    number / EPOCH_LENGTH
 }

@@ -22,9 +22,8 @@ members = [
      "parachain/modules/consensus/sync-committee/prover",
      "parachain/modules/consensus/sync-committee/verifier",
      "parachain/modules/consensus/sync-committee/primitives",
-     "parachain/modules/consensus/bnb-parlia/verifier",
-     # cli-application
-     "client",
+     "parachain/modules/consensus/bnb-pos/verifier",
+     "parachain/modules/consensus/bnb-pos/prover",
 
      # evm tests
 #     "evm/forge"

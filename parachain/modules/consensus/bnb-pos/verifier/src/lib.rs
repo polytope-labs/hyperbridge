@@ -7,12 +7,12 @@ use primitives::{parse_extra, CodecHeader, Header};
 use sp_core::{H160, H256};
 use sync_committee_verifier::crypto::verify_aggregate_signature;
 pub mod primitives;
-use crate::primitives::BlockExtraData;
 use alloc::collections::BTreeSet;
 use ark_bls12_381::G1Projective;
 use bls::{point_to_pubkey, pubkey_to_point};
 use core::ops::{Add, AddAssign};
 use sync_committee_primitives::constants::BlsPublicKey;
+use crate::primitives::CodecValidatorInfo;
 
 extern crate alloc;
 
@@ -20,11 +20,26 @@ extern crate alloc;
 pub struct VerificationResult {
     pub hash: H256,
     pub header: CodecHeader,
-    pub next_validators: Option<BTreeSet<H160>>,
+    pub next_validators: Option<Vec<H160>>,
 }
 
+pub struct ValidatorData {
+    pub address: [u8; 20],
+    pub bls_public_key: [u8; 48],
+}
+
+impl From<CodecValidatorInfo> for ValidatorData {
+    fn from(codec_info: CodecValidatorInfo) -> Self {
+        ValidatorData {
+            address: codec_info.address,
+            bls_public_key: codec_info.bls_public_key,
+        }
+    }
+}
+
+
 pub fn verify_bnb_header<I: Keccak256>(
-    validators: &BTreeSet<H160>,
+    validators: &Vec<ValidatorData>,
     header: CodecHeader,
 ) -> Result<VerificationResult, anyhow::Error> {
     let rlp_header: Header = (&header).into();
@@ -32,8 +47,7 @@ pub fn verify_bnb_header<I: Keccak256>(
     let parse_extra_data = parse_extra::<I>(&rlp_header.extra_data.0.as_ref())
         .map_err(|_| anyhow!("could not parse extra data from header"))?;
 
-    let bls_public_keys: Vec<[u8; 48]> = parse_extra_data
-        .validators
+    let bls_public_keys: Vec<[u8; 48]> = validators
         .iter()
         .map(|validator| validator.bls_public_key)
         .collect();
@@ -62,15 +76,16 @@ pub fn verify_bnb_header<I: Keccak256>(
 
     let hash = rlp_header.hash::<I>()?;
 
-    let validator_addresses: Option<BTreeSet<H160>> = Some(
-        parse_extra_data
-            .validators
-            .iter()
-            .map(|info| H160::from_slice(&info.address))
-            .collect(),
-    );
+    let next_validator_addresses: Option<Vec<H160>> = {
+        let mut iter = parse_extra_data.validators.iter().map(|data| H160::from_slice(&data.address));
+        if let Some(first) = iter.next() {
+            Some(iter.collect())
+        } else {
+            None
+        }
+    };
 
-    Ok(VerificationResult { hash, header, next_validators: validator_addresses })
+    Ok(VerificationResult { hash, header, next_validators: next_validator_addresses})
 }
 
 fn aggregate_public_keys(keys: Vec<[u8; 48]>) -> Result<Vec<u8>, anyhow::Error> {

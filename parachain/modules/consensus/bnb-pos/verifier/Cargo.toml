@@ -1,5 +1,5 @@
 [package]
-name = "bnb-parlia-verifier"
+name = "bnb-pos-verifier"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs"]

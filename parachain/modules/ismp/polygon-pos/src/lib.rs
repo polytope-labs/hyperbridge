@@ -63,14 +63,9 @@ pub struct ConsensusState {
 #[derive(Encode, Decode, Debug)]
 pub struct PolygonClientUpdate {
     /// Headers sorted in ascending order
-    pub consensus_update: BoundedVec<CodecHeader, ConstU32<64>>,
+    pub consensus_update: BoundedVec<CodecHeader, ConstU32<256>>,
     /// The leading hash in a fork, use a default value when building on the latest finalized hash
     pub chain_head: H256,
-    // There could be reorgs on forks such that the current head of the fork
-    // has been discarded, the update needs to tell us the index of the initial parent hash
-    // in the hash list
-    /// The index of the hash we should use as the parent hash for the first header in the update
-    pub parent_hash_index: u64,
 }
 
 pub struct PolygonClient<T: Config, H: IsmpHost>(PhantomData<(T, H)>);
@@ -97,7 +92,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         trusted_consensus_state: Vec<u8>,
         proof: Vec<u8>,
     ) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), ismp::error::Error> {
-        let PolygonClientUpdate { consensus_update, chain_head, parent_hash_index } =
+        let PolygonClientUpdate { consensus_update, chain_head } =
             PolygonClientUpdate::decode(&mut &proof[..]).map_err(|_| {
                 Error::ImplementationSpecific("Cannot decode polygon client update".to_string())
             })?;
@@ -146,15 +141,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 Err(Error::ImplementationSpecific("chain not found".to_string()))?
             };
 
-            // parent Hash
-            if parent_hash_index as usize >= chain.hashes.len() {
-                Err(Error::ImplementationSpecific(
-                    "Parent hash index overflows the chain length".to_string(),
-                ))?
-            }
-            let mut parent_hash = chain.hashes[parent_hash_index as usize];
-            // Update the hash list
-            chain.hashes = chain.hashes[..=parent_hash_index as usize].to_vec();
+            let mut parent_hash = chain_head;
 
             for header in consensus_update {
                 if parent_hash != header.parent_hash {
@@ -187,8 +174,8 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
             BTreeMap::new();
         if let Some(mut longest_chain) = longest_chain {
             // Finalize the 50th block in the chain
-            // This allows us to have probabilistic finality of atleast 5 mins and avoid reorgs
-            let finalized_hash = longest_chain.hashes[50];
+            // This allows us to have probabilistic finality of atleast 6 mins and avoid reorgs
+            let finalized_hash = longest_chain.hashes[10];
 
             let header = Headers::<T>::get(finalized_hash).ok_or_else(|| {
                 Error::ImplementationSpecific("Expected header to be found in storage".to_string())
@@ -209,7 +196,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 consensus_state.finalized_validators = validators.clone();
             }
 
-            longest_chain.hashes = longest_chain.hashes[51..].to_vec();
+            longest_chain.hashes = longest_chain.hashes[11..].to_vec();
             longest_chain.validators.remove(&finalized_span);
             // Drop all other chain forks
             consensus_state.forks = vec![longest_chain];

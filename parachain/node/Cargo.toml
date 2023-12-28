@@ -1,8 +1,8 @@
 [package]
 name = "hyperbridge"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Polytope Labs <hello@polytope.technology>"]
-description = "The hyperbridge coprocessor node"
+description = "The Hyperbridge coprocessor node"
 edition = "2021"
 build = "build.rs"
 

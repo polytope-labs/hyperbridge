@@ -30,14 +30,11 @@ members = [
      "parachain/modules/consensus/polygon-pos/prover",
     
 
-     # cli-application
-     "client",
-
      # evm tests
 #     "evm/forge"
 ]
 exclude = [
-"evm/forge"
+     "evm/forge"
 ]
 
 # Config for 'cargo dist'

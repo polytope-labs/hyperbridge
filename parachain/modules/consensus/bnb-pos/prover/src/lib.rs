@@ -2,17 +2,19 @@
 mod test;
 
 use anyhow::anyhow;
+use bnb_pos_verifier::{
+    primitives::{parse_extra, CodecHeader, CodecVoteData, SPAN_LENGTH},
+    ValidatorData,
+};
 use ethers::{
     prelude::{Provider, Ws},
     providers::Middleware,
     types::BlockId,
 };
-use bnb_pos_verifier::primitives::{parse_extra, CodecHeader, SPAN_LENGTH, CodecVoteData};
-use primitive_types::H160;
-use std::{collections::BTreeSet, fmt::Debug, sync::Arc};
-use sp_core::H256;
-use bnb_pos_verifier::ValidatorData;
 use ismp::util::Keccak256;
+use primitive_types::H160;
+use sp_core::H256;
+use std::{collections::BTreeSet, fmt::Debug, sync::Arc};
 
 #[derive(Clone)]
 pub struct BnbPosProver {
@@ -27,8 +29,6 @@ pub struct BnbProof {
     pub vote_data: CodecVoteData,
     pub validator_set_size: u8,
 }
-
-
 
 impl BnbPosProver {
     pub fn new(client: Provider<Ws>) -> Self {
@@ -77,12 +77,14 @@ impl BnbPosProver {
 
     pub async fn fetch_proofs_and_validators<I: Keccak256>(
         &self,
-        header: CodecHeader
+        header: CodecHeader,
     ) -> Result<(BnbProof, Option<Vec<ValidatorData>>), anyhow::Error> {
-        let parse_extra_data = parse_extra::<I>(&header.extra_data).map_err(|_| anyhow!("Extra data set not found in header"))?;
+        let parse_extra_data = parse_extra::<I>(&header.extra_data)
+            .map_err(|_| anyhow!("Extra data set not found in header"))?;
 
         let validator_data_vec: Option<Vec<ValidatorData>> = {
-            let mut iter = parse_extra_data.validators.iter().map(|data| ValidatorData::from(data.clone()));
+            let mut iter =
+                parse_extra_data.validators.iter().map(|data| ValidatorData::from(data.clone()));
             if let Some(first) = iter.next() {
                 Some(iter.collect())
             } else {
@@ -94,7 +96,7 @@ impl BnbPosProver {
             agg_signature: parse_extra_data.agg_signature,
             vote_data_hash: parse_extra_data.vote_data_hash,
             vote_data: parse_extra_data.vote_data,
-            validator_set_size: parse_extra_data.validator_size
+            validator_set_size: parse_extra_data.validator_size,
         };
 
         Ok((bnb_proof, validator_data_vec))

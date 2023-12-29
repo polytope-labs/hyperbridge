@@ -173,9 +173,9 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
             BTreeMap::new();
         if let Some(mut longest_chain) = longest_chain {
-            // Finalize the 10th block in the chain
-            // This allows us to have probabilistic finality of atleast 6 mins and avoid reorgs
-            let finalized_hash = longest_chain.hashes[10];
+            // We want a probabilistic finality of atleast 6 mins and avoid reorgs
+            let finalized_index = longest_chain.hashes.len() - 190;
+            let finalized_hash = longest_chain.hashes[finalized_index];
 
             let header = Headers::<T>::get(finalized_hash).ok_or_else(|| {
                 Error::ImplementationSpecific("Expected header to be found in storage".to_string())
@@ -196,7 +196,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 consensus_state.finalized_validators = validators.clone();
             }
 
-            longest_chain.hashes = longest_chain.hashes[11..].to_vec();
+            longest_chain.hashes = longest_chain.hashes[finalized_index..].to_vec();
             longest_chain.validators.remove(&finalized_span);
             // Drop all other chain forks
             consensus_state.forks = vec![longest_chain];

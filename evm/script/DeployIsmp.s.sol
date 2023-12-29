@@ -30,10 +30,8 @@ contract DeployScript is Script {
         // handler
         HandlerV1 handler = new HandlerV1{salt: salt}();
         // cross-chain governor
-        GovernorParams memory gParams = GovernorParams({admin: admin, host: address(0), paraId: paraId});
-        CrossChainGovernor governor = new CrossChainGovernor{salt: salt}(
-            gParams
-        );
+        HostManagerParams memory gParams = GovernorParams({admin: admin, host: address(0), paraId: paraId});
+        HostManager governor = new CrossChainGovernor{salt: salt}(gParams);
         // EvmHost
         HostParams memory params = HostParams({
             admin: admin,

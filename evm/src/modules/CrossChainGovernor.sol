@@ -7,16 +7,16 @@ import "ismp/IIsmpModule.sol";
 import "ismp/IIsmpHost.sol";
 import "ismp/StateMachine.sol";
 
-struct GovernorParams {
+struct HostManagerParams {
     address admin;
     address host;
     uint256 paraId;
 }
 
-contract CrossChainGovernor is IIsmpModule {
+contract HostManager is IIsmpModule {
     using Bytes for bytes;
 
-    GovernorParams private _params;
+    HostManagerParams private _params;
 
     modifier onlyIsmpHost() {
         require(msg.sender == _params.host, "CrossChainGovernor: Invalid caller");
@@ -28,7 +28,7 @@ contract CrossChainGovernor is IIsmpModule {
         _;
     }
 
-    constructor(GovernorParams memory params) {
+    constructor(HostManagerParams memory params) {
         _params = params;
     }
 
@@ -40,20 +40,14 @@ contract CrossChainGovernor is IIsmpModule {
     }
 
     function onAccept(PostRequest memory request) external onlyIsmpHost {
+        // Only Hyperbridge can send requests to this module.
         require(request.source.equals(StateMachine.polkadot(_params.paraId)), "Unauthorized request");
-        (
-            address admin,
-            address consensus,
-            address handler,
-            uint256 challengePeriod,
-            uint256 unstakingPeriod,
-            uint256 defaultTimeout
-        ) = abi.decode(request.body, (address, address, address, uint256, uint256, uint256));
 
-        BridgeParams memory params =
-            BridgeParams(admin, consensus, handler, challengePeriod, unstakingPeriod, defaultTimeout);
+        // TODO: we should decode the payload based on the message header.
+        // TODO: allow relayers to withdraw their fees here.
+        HostParams memory params = abi.decode(request.body, HostParams);
 
-        IIsmpHost(_params.host).setBridgeParams(params);
+        IIsmpHost(_params.host).setHostParams(params);
     }
 
     function onPostResponse(PostResponse memory response) external pure {

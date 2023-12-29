@@ -4,10 +4,22 @@ pragma solidity 0.8.17;
 import "openzeppelin/utils/Context.sol";
 import "openzeppelin/utils/math/Math.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
+import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 
 import {IIsmpModule} from "ismp/IIsmpModule.sol";
-import {IIsmpHost} from "ismp/IIsmpHost.sol";
+import {IIsmpHost, RequestMetadata} from "ismp/IIsmpHost.sol";
+import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
 import {IHandler} from "ismp/IHandler.sol";
+import {
+    PostRequest,
+    PostResponse,
+    GetRequest,
+    GetResponse,
+    PostTimeout,
+    DispatchPost,
+    DispatchGet,
+    Message
+} from "ismp/IIsmp.sol";
 
 // The IsmpHost parameters
 struct HostParams {
@@ -46,9 +58,9 @@ interface IHostManager {
 
     /**
      * @dev withdraws bridge revenue to the given address
-     * @param beneficiary the beneficiary account
+     * @param params, the parameters for withdrawal
      */
-    function withdrawRevenue(WithdrawParams memory params) external;
+    function withdraw(WithdrawParams memory params) external;
 }
 
 // Withdraw parameters
@@ -64,10 +76,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     using Bytes for bytes;
 
     // commitment of all outgoing requests and amount put up for relayers.
-    mapping(bytes32 => uint256) private _requestCommitments;
+    mapping(bytes32 => RequestMetadata) private _requestCommitments;
 
     // commitment of all outgoing responses and amount put up for relayers.
-    mapping(bytes32 => uint256) private _responseCommitments;
+    mapping(bytes32 => bool) private _responseCommitments;
 
     // commitment of all incoming requests and who delivered them.
     mapping(bytes32 => address) private _requestReceipts;
@@ -172,7 +184,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @return the address of the DAI ERC-20 contract on this state machine
      */
-    function dai() external returns (address);
+    function dai() public virtual returns (address);
 
     /**
      * @return the host timestamp
@@ -247,7 +259,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return existence status of an outgoing request commitment
      */
     function requestCommitments(bytes32 commitment) external view returns (bool) {
-        return _requestCommitments[commitment];
+        return _requestCommitments[commitment].sender != address(0);
     }
 
     /**
@@ -317,10 +329,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     /**
      * @dev withdraws bridge revenue to the given address
-     * @param beneficiary, the beneficiary account
-     * @param amount, the amount to withdraw
+     * @param params, the parameters for withdrawal
      */
-    function withdrawRevenue(WithdrawParams memory params) external onlyManager {
+    function withdraw(WithdrawParams memory params) external onlyManager {
         IERC20(dai()).transfer(params.beneficiary, params.amount);
     }
 
@@ -432,7 +443,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         address origin = _bytesToAddress(response.request.from);
 
         uint256 fee = 0;
-        for(uint256 i = 0; i < response.values.length; i++) {
+        for (uint256 i = 0; i < response.values.length; i++) {
             fee += (_hostParams.perByteFee * response.values[i].value.length);
         }
 
@@ -450,34 +461,39 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming get timeout to source module
      * @param request - get request
      */
-    function dispatchIncoming(GetRequest memory request) external onlyHandler {
+    function dispatchIncoming(GetRequest memory request, RequestMetadata memory meta, bytes32 commitment)
+        external
+        onlyHandler
+    {
         address origin = _bytesToAddress(request.from);
 
         try IIsmpModule(origin).onGetTimeout(request) {} catch {}
 
-        // TODO: refund relayer fee, somehow.
-
         // Delete Commitment
-        bytes32 commitment = Message.hash(request);
         delete _requestCommitments[commitment];
+
+        // refund relayer fee
+        IERC20(dai()).transfer(meta.sender, meta.fee);
     }
 
     /**
      * @dev Dispatch an incoming post timeout to source module
      * @param timeout - post timeout
      */
-    function dispatchIncoming(PostTimeout memory timeout) external onlyHandler {
+    function dispatchIncoming(PostTimeout memory timeout, RequestMetadata memory meta, bytes32 commitment)
+        external
+        onlyHandler
+    {
         PostRequest memory request = timeout.request;
         address origin = _bytesToAddress(request.from);
 
         try IIsmpModule(origin).onPostTimeout(request) {} catch {}
 
-        // TODO: refund relayer fee, somehow.
-//        IERC20(dai()).transfer(x, )
-
         // Delete Commitment
-        bytes32 commitment = Message.hash(request);
         delete _requestCommitments[commitment];
+
+        // refund relayer fee
+        IERC20(dai()).transfer(meta.sender, meta.fee);
     }
 
     /**
@@ -485,7 +501,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param request - post dispatch request
      */
     function dispatch(DispatchPost memory request) external {
-        dispatch(request, 0);
+        this.dispatch(request, 0);
     }
 
     /**
@@ -494,14 +510,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param request - post request
      */
     function dispatch(DispatchPost memory request, uint256 amount) external {
-        // charge the bridge fees
+        // pay your toll to the troll
         uint256 fee = (_hostParams.perByteFee * request.body.length) + amount;
         require(IERC20(dai()).transferFrom(tx.origin, this, fee), "Insufficient funds");
 
-        uint64 timeout = request.timeout == 0
+        // adjust the timeout
+        uint256 timeout = request.timeout == 0
             ? 0
             : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, request.timeout));
-
         PostRequest memory _request = PostRequest({
             source: host(),
             dest: request.dest,
@@ -515,7 +531,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // make the commitment
         bytes32 commitment = Message.hash(_request);
-        _requestCommitments[commitment] = amount;
+        _requestCommitments[commitment] = RequestMetadata({sender: tx.origin, fee: fee});
 
         emit PostRequestEvent(
             _request.source,
@@ -535,7 +551,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param request - get dispatch request
      */
     function dispatch(DispatchGet memory request) external {
-        dispatch(request, 0);
+        this.dispatch(request, 0);
     }
 
     /**
@@ -543,11 +559,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param request - get dispatch request
      */
     function dispatch(DispatchGet memory request, uint256 amount) external {
-        // charge the bridge fees
+        // pay your toll to the troll
         uint256 fee = _hostParams.baseGetRequestFee + amount;
         require(IERC20(dai()).transferFrom(tx.origin, this, fee), "Insufficient funds");
 
-        uint64 timeout = uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, request.timeout));
+        // adjust the timeout
+        uint256 timeout = request.timeout == 0
+            ? 0
+            : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, request.timeout));
         GetRequest memory _request = GetRequest({
             source: host(),
             dest: request.dest,
@@ -561,7 +580,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // make the commitment
         bytes32 commitment = Message.hash(_request);
-        _requestCommitments[commitment] = amount;
+        _requestCommitments[commitment] = RequestMetadata({sender: tx.origin, fee: fee});
 
         emit GetRequestEvent(
             _request.source,
@@ -581,7 +600,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param response - post response
      */
     function dispatch(PostResponse memory response) external {
-        dispatch(response, 0);
+        this.dispatch(response, 0);
     }
 
     /**
@@ -592,12 +611,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         bytes32 receipt = Message.hash(response.request);
         require(_requestReceipts[receipt], "EvmHost: unknown request");
 
-        // charge the bridge fees
+        // pay your toll to the troll
         uint256 fee = (_hostParams.perByteFee * response.response.length) + amount;
         require(IERC20(dai()).transferFrom(tx.origin, this, fee), "Insufficient funds");
 
         bytes32 commitment = Message.hash(response);
-        _responseCommitments[commitment] = amount;
+        _responseCommitments[commitment] = true;
 
         emit PostResponseEvent(
             response.request.source,

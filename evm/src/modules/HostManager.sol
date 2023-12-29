@@ -4,8 +4,9 @@ pragma solidity 0.8.17;
 import "solidity-merkle-trees/trie/Bytes.sol";
 
 import {IIsmpModule} from "ismp/IIsmpModule.sol";
+import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "ismp/IIsmp.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
-import {HostParams, IHostManager} from "../EvmHost.sol";
+import {HostParams, IHostManager, WithdrawParams} from "../EvmHost.sol";
 
 struct HostManagerParams {
     address admin;
@@ -47,7 +48,7 @@ contract HostManager is IIsmpModule {
         if (false) {
             // This is where relayers can withdraw their fees.
             WithdrawParams memory params = abi.decode(request.body, (WithdrawParams));
-            IHostManager(_params.host).withdrawRevenue(params);
+            IHostManager(_params.host).withdraw(params);
         } else {
             HostParams memory params = abi.decode(request.body, (HostParams));
             IHostManager(_params.host).setHostParams(params);

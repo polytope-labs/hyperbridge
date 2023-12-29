@@ -117,7 +117,8 @@ contract HandlerV1 is IHandler, Context {
             require(leaf.response.request.source.equals(host.host()), "IHandler: Invalid response destination");
 
             bytes32 requestCommitment = Message.hash(leaf.response.request);
-            require(host.requestCommitments(requestCommitment), "IHandler: Unknown request");
+            RequestMetadata memory meta = host.requestCommitments(requestCommitment);
+            require(meta.sender != address(0), "IHandler: Unknown request");
 
             bytes32 responseCommitment = Message.hash(leaf.response);
             require(!host.responseCommitments(responseCommitment), "IHandler: Duplicate Post response");
@@ -190,7 +191,8 @@ contract HandlerV1 is IHandler, Context {
             require(request.source.equals(host.host()), "IHandler: Invalid GET response destination");
 
             bytes32 requestCommitment = Message.hash(request);
-            require(host.requestCommitments(requestCommitment), "IHandler: Unknown GET request");
+            RequestMetadata memory meta = host.requestCommitments(requestCommitment);
+            require(meta.sender != address(0), "IHandler: Unknown GET request");
             require(
                 request.timeoutTimestamp == 0 || request.timeoutTimestamp > host.timestamp(),
                 "IHandler: GET request timed out"

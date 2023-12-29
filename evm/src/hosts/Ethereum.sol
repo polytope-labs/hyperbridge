@@ -10,4 +10,8 @@ contract EthereumHost is EvmHost {
     function host() public override returns (bytes memory) {
         return StateMachine.ethereum();
     }
+
+    function dai() public override returns (address)  {
+        return address(0);
+    }
 }

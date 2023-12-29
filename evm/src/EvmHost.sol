@@ -243,7 +243,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return existence status of an incoming request commitment
      */
     function requestReceipts(bytes32 commitment) external view returns (bool) {
-        return _requestReceipts[commitment];
+        return _requestReceipts[commitment] != address(0);
     }
 
     /**
@@ -251,15 +251,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return existence status of an incoming response commitment
      */
     function responseReceipts(bytes32 commitment) external view returns (bool) {
-        return _responseReceipts[commitment];
+        return _responseReceipts[commitment] != address(0);
     }
 
     /**
      * @param commitment - commitment to the request
      * @return existence status of an outgoing request commitment
      */
-    function requestCommitments(bytes32 commitment) external view returns (bool) {
-        return _requestCommitments[commitment].sender != address(0);
+    function requestCommitments(bytes32 commitment) external view returns (RequestMetadata memory) {
+        return _requestCommitments[commitment];
     }
 
     /**
@@ -448,7 +448,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         // Relayers pay for Get Responses
-        require(IERC20(dai()).transferFrom(tx.origin, this, fee), "Insufficient funds");
+        require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
         try IIsmpModule(origin).onGetResponse(response) {} catch {}
 
         bytes32 commitment = Message.hash(response);
@@ -512,10 +512,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function dispatch(DispatchPost memory request, uint256 amount) external {
         // pay your toll to the troll
         uint256 fee = (_hostParams.perByteFee * request.body.length) + amount;
-        require(IERC20(dai()).transferFrom(tx.origin, this, fee), "Insufficient funds");
+        require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
 
         // adjust the timeout
-        uint256 timeout = request.timeout == 0
+        uint64 timeout = request.timeout == 0
             ? 0
             : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, request.timeout));
         PostRequest memory _request = PostRequest({
@@ -561,10 +561,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function dispatch(DispatchGet memory request, uint256 amount) external {
         // pay your toll to the troll
         uint256 fee = _hostParams.baseGetRequestFee + amount;
-        require(IERC20(dai()).transferFrom(tx.origin, this, fee), "Insufficient funds");
+        require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
 
         // adjust the timeout
-        uint256 timeout = request.timeout == 0
+        uint64 timeout = request.timeout == 0
             ? 0
             : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, request.timeout));
         GetRequest memory _request = GetRequest({
@@ -609,11 +609,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(PostResponse memory response, uint256 amount) external {
         bytes32 receipt = Message.hash(response.request);
-        require(_requestReceipts[receipt], "EvmHost: unknown request");
+        require(_requestReceipts[receipt] != address(0), "EvmHost: unknown request");
 
         // pay your toll to the troll
         uint256 fee = (_hostParams.perByteFee * response.response.length) + amount;
-        require(IERC20(dai()).transferFrom(tx.origin, this, fee), "Insufficient funds");
+        require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
 
         bytes32 commitment = Message.hash(response);
         _responseCommitments[commitment] = true;

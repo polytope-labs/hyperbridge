@@ -6,7 +6,7 @@ import "openzeppelin/utils/Strings.sol";
 
 import "../src/HandlerV1.sol";
 import "../src/EvmHost.sol";
-import "../src/modules/CrossChainGovernor.sol";
+import "../src/modules/HostManager.sol";
 
 import "../src/beefy/BeefyV1.sol";
 import "../src/hosts/Ethereum.sol";

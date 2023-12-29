@@ -431,6 +431,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function dispatchIncoming(GetResponse memory response) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
 
+        uint256 fee = 0;
+        for(uint256 i = 0; i < response.values.length; i++) {
+            fee += (_hostParams.perByteFee * response.values[i].value.length);
+        }
+
+        // Relayers pay for Get Responses
+        require(IERC20(dai()).transferFrom(tx.origin, this, fee), "Insufficient funds");
         try IIsmpModule(origin).onGetResponse(response) {} catch {}
 
         bytes32 commitment = Message.hash(response);
@@ -448,6 +455,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         try IIsmpModule(origin).onGetTimeout(request) {} catch {}
 
+        // TODO: refund relayer fee, somehow.
+
         // Delete Commitment
         bytes32 commitment = Message.hash(request);
         delete _requestCommitments[commitment];
@@ -463,7 +472,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         try IIsmpModule(origin).onPostTimeout(request) {} catch {}
 
-        // TODO: refund relayer fee.
+        // TODO: refund relayer fee, somehow.
+//        IERC20(dai()).transfer(x, )
 
         // Delete Commitment
         bytes32 commitment = Message.hash(request);

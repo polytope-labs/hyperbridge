@@ -3,6 +3,7 @@ name = "hyperbridge"
 version = "0.2.1"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "The Hyperbridge coprocessor node"
+repository = "https://github.com/polytope-labs/hyperbridge"
 edition = "2021"
 build = "build.rs"
 

@@ -52,7 +52,6 @@ contract HandlerV1 is IHandler, Context {
             host.storeStateMachineCommitmentUpdateTime(stateMachineHeight, host.timestamp());
             host.storeLatestStateMachineHeight(stateMachineHeight.height);
 
-            // todo: enforce challenge period
             emit StateMachineUpdated({
                 stateMachineId: stateMachineHeight.stateMachineId,
                 height: stateMachineHeight.height

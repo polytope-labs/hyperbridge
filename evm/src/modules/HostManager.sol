@@ -3,9 +3,9 @@ pragma solidity 0.8.17;
 
 import "solidity-merkle-trees/trie/Bytes.sol";
 
-import "ismp/IIsmpModule.sol";
-import "ismp/IIsmpHost.sol";
-import "ismp/StateMachine.sol";
+import {IIsmpModule} from "ismp/IIsmpModule.sol";
+import {StateMachine} from "ismp/StateMachine.sol";
+import {HostParams, IHostManager} from "../EvmHost.sol";
 
 struct HostManagerParams {
     address admin;
@@ -43,11 +43,15 @@ contract HostManager is IIsmpModule {
         // Only Hyperbridge can send requests to this module.
         require(request.source.equals(StateMachine.polkadot(_params.paraId)), "Unauthorized request");
 
-        // TODO: we should decode the payload based on the message header.
-        // TODO: allow relayers to withdraw their fees here.
-        HostParams memory params = abi.decode(request.body, HostParams);
-
-        IIsmpHost(_params.host).setHostParams(params);
+        // TODO: we should decode the payload based on the first byte in the request.body
+        if (false) {
+            // This is where relayers can withdraw their fees.
+            WithdrawParams memory params = abi.decode(request.body, (WithdrawParams));
+            IHostManager(_params.host).withdrawRevenue(params);
+        } else {
+            HostParams memory params = abi.decode(request.body, (HostParams));
+            IHostManager(_params.host).setHostParams(params);
+        }
     }
 
     function onPostResponse(PostResponse memory response) external pure {

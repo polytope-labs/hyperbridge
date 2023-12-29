@@ -3,13 +3,64 @@ pragma solidity 0.8.17;
 
 import "openzeppelin/utils/Context.sol";
 import "openzeppelin/utils/math/Math.sol";
+import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 
-import "ismp/IIsmpModule.sol";
-import "ismp/IIsmpHost.sol";
-import "ismp/IHandler.sol";
+import {IIsmpModule} from "ismp/IIsmpModule.sol";
+import {IIsmpHost} from "ismp/IIsmpHost.sol";
+import {IHandler} from "ismp/IHandler.sol";
+
+// The IsmpHost parameters
+struct HostParams {
+    // default timeout in seconds for requests.
+    uint256 defaultTimeout;
+    // base fee for GET requests
+    uint256 baseGetRequestFee;
+    // timestamp for when the consensus was most recently updated
+    uint256 lastUpdated;
+    // unstaking period
+    uint256 unStakingPeriod;
+    // minimum challenge period in seconds;
+    uint256 challengePeriod;
+    // cost of cross-chain requests in $DAI per byte
+    uint256 perByteFee;
+    // consensus client contract
+    address consensusClient;
+    // admin account, this only has the rights to freeze, or unfreeze the bridge
+    address admin;
+    // Ismp request/response handler
+    address handler;
+    // the authorized host manager contract
+    address hostManager;
+    // current verified state of the consensus client;
+    bytes consensusState;
+}
+
+// The host manager interface. This provides methods for modifying the host's params or withdrawing bridge revenue.
+// Can only be called used by the HostManager module.
+interface IHostManager {
+    /**
+     * @dev Updates IsmpHost params
+     * @param params new IsmpHost params
+     */
+    function setHostParams(HostParams memory params) external;
+
+    /**
+     * @dev withdraws bridge revenue to the given address
+     * @param beneficiary the beneficiary account
+     */
+    function withdrawRevenue(WithdrawParams memory params) external;
+}
+
+// Withdraw parameters
+struct WithdrawParams {
+    // The beneficiary address
+    address beneficiary;
+    // the amount to be disbursed
+    uint256 amount;
+}
 
 /// Ismp implementation for Evm hosts
-abstract contract EvmHost is IIsmpHost, Context {
+abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     using Bytes for bytes;
 
     // commitment of all outgoing requests and amount put up for relayers.
@@ -97,8 +148,8 @@ abstract contract EvmHost is IIsmpHost, Context {
         _;
     }
 
-    modifier onlyGovernance() {
-        require(_msgSender() == _hostParams.crosschainGovernor, "EvmHost: Only governor contract");
+    modifier onlyManager() {
+        require(_msgSender() == _hostParams.hostManager, "EvmHost: Only Manager contract");
         _;
     }
 
@@ -226,7 +277,7 @@ abstract contract EvmHost is IIsmpHost, Context {
      * @param params, the new host params. If any param is empty, they won't be set.
      * `lastUpdated` param is exempted.
      */
-    function setHostParams(HostParams memory params) external onlyGovernance {
+    function setHostParams(HostParams memory params) external onlyManager {
         if (params.defaultTimeout != 0) {
             _hostParams.defaultTimeout = params.defaultTimeout;
         }
@@ -251,9 +302,26 @@ abstract contract EvmHost is IIsmpHost, Context {
             _hostParams.handler = params.handler;
         }
 
-        if (params.crosschainGovernor != address(0)) {
-            _hostParams.crosschainGovernor = params.crosschainGovernor;
+        if (params.hostManager != address(0)) {
+            _hostParams.hostManager = params.hostManager;
         }
+
+        if (params.perByteFee != 0) {
+            _hostParams.perByteFee = params.perByteFee;
+        }
+
+        if (params.baseGetRequestFee != 0) {
+            _hostParams.baseGetRequestFee = params.baseGetRequestFee;
+        }
+    }
+
+    /**
+     * @dev withdraws bridge revenue to the given address
+     * @param beneficiary, the beneficiary account
+     * @param amount, the amount to withdraw
+     */
+    function withdrawRevenue(WithdrawParams memory params) external onlyManager {
+        IERC20(dai()).transfer(params.beneficiary, params.amount);
     }
 
     /**
@@ -412,13 +480,18 @@ abstract contract EvmHost is IIsmpHost, Context {
 
     /**
      * @dev Dispatch a POST request to the ISMP router and pay for a relayer.
-     * The amount provided is charged to tx.origin in $DAI.
+     * The amount provided + a per byte fee is charged to tx.origin in $DAI.
      * @param request - post request
      */
     function dispatch(DispatchPost memory request, uint256 amount) external {
+        // charge the bridge fees
+        uint256 fee = (_hostParams.perByteFee * request.body.length) + amount;
+        require(IERC20(dai()).transferFrom(tx.origin, this, fee), "Insufficient funds");
+
         uint64 timeout = request.timeout == 0
             ? 0
             : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, request.timeout));
+
         PostRequest memory _request = PostRequest({
             source: host(),
             dest: request.dest,
@@ -429,8 +502,6 @@ abstract contract EvmHost is IIsmpHost, Context {
             body: request.body,
             gaslimit: request.gaslimit
         });
-
-        // TODO: charge per-byte fee + relayer fee at once.
 
         // make the commitment
         bytes32 commitment = Message.hash(_request);
@@ -454,6 +525,18 @@ abstract contract EvmHost is IIsmpHost, Context {
      * @param request - get dispatch request
      */
     function dispatch(DispatchGet memory request) external {
+        dispatch(request, 0);
+    }
+
+    /**
+     * @dev Dispatch a get request to the hyperbridge
+     * @param request - get dispatch request
+     */
+    function dispatch(DispatchGet memory request, uint256 amount) external {
+        // charge the bridge fees
+        uint256 fee = _hostParams.baseGetRequestFee + amount;
+        require(IERC20(dai()).transferFrom(tx.origin, this, fee), "Insufficient funds");
+
         uint64 timeout = uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, request.timeout));
         GetRequest memory _request = GetRequest({
             source: host(),
@@ -466,11 +549,9 @@ abstract contract EvmHost is IIsmpHost, Context {
             gaslimit: request.gaslimit
         });
 
-        // TODO: charge per-byte fee + relayer fee at once.
-
         // make the commitment
         bytes32 commitment = Message.hash(_request);
-        _requestCommitments[commitment] = true;
+        _requestCommitments[commitment] = amount;
 
         emit GetRequestEvent(
             _request.source,
@@ -480,7 +561,8 @@ abstract contract EvmHost is IIsmpHost, Context {
             _request.nonce,
             request.height,
             _request.timeoutTimestamp,
-            request.gaslimit
+            request.gaslimit,
+            amount
         );
     }
 
@@ -489,13 +571,23 @@ abstract contract EvmHost is IIsmpHost, Context {
      * @param response - post response
      */
     function dispatch(PostResponse memory response) external {
+        dispatch(response, 0);
+    }
+
+    /**
+     * @dev Dispatch a response to the hyperbridge
+     * @param response - post response
+     */
+    function dispatch(PostResponse memory response, uint256 amount) external {
         bytes32 receipt = Message.hash(response.request);
         require(_requestReceipts[receipt], "EvmHost: unknown request");
 
-        // TODO: charge per-byte fee + relayer fee at once.
+        // charge the bridge fees
+        uint256 fee = (_hostParams.perByteFee * response.response.length) + amount;
+        require(IERC20(dai()).transferFrom(tx.origin, this, fee), "Insufficient funds");
 
         bytes32 commitment = Message.hash(response);
-        _responseCommitments[commitment] = true;
+        _responseCommitments[commitment] = amount;
 
         emit PostResponseEvent(
             response.request.source,
@@ -506,7 +598,8 @@ abstract contract EvmHost is IIsmpHost, Context {
             response.request.timeoutTimestamp,
             response.request.body,
             response.request.gaslimit,
-            response.response
+            response.response,
+            amount
         );
     }
 

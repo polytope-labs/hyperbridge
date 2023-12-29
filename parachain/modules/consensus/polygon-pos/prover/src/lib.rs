@@ -61,17 +61,6 @@ impl PolygonPosProver {
     }
 }
 
-/// Returns a vector of mandatory block numbers
-pub fn should_sync(previous_finalized: u64, latest_header: u64) -> Vec<u64> {
-    let current_span = previous_finalized / SPAN_LENGTH;
-    let next_span = latest_header / SPAN_LENGTH;
-
-    ((current_span + 1)..=next_span)
-        .into_iter()
-        .map(|span: u64| span * SPAN_LENGTH)
-        .collect()
-}
-
 pub fn is_span_start(block_number: u64) -> bool {
     block_number % SPAN_LENGTH == 0
 }

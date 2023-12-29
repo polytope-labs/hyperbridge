@@ -22,10 +22,7 @@ use ismp::{
 };
 use ismp_sync_committee::EvmStateMachine;
 use pallet::{Config, Headers};
-use polygon_pos_verifier::{
-    primitives::{CodecHeader, SPAN_LENGTH},
-    verify_polygon_header, VerificationResult,
-};
+use polygon_pos_verifier::{primitives::CodecHeader, verify_polygon_header, VerificationResult};
 use sp_core::{ConstU32, H160, H256, U256};
 use sp_runtime::BoundedVec;
 
@@ -43,7 +40,7 @@ pub struct Chain {
 impl Chain {
     fn update_fork(&mut self, update: VerificationResult) {
         if let Some(validators) = update.next_validators {
-            let span = get_span(update.header.number.low_u64() + 1);
+            let span = get_sprint(update.header.number.low_u64() + 1);
             self.validators.insert(span, validators);
         }
         self.hashes.push(update.hash);
@@ -120,9 +117,12 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                         "Headers are meant to be in sequential order".to_string(),
                     ))?
                 }
-                let result =
-                    verify_polygon_header::<H>(&consensus_state.finalized_validators, header)
-                        .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
+                log::info!(target: "pallet-ismp", "Parent hash: {:#?} Header {:#?}", parent_hash, (header.number));
+                let sprint = get_sprint(header.number.low_u64());
+                let validators =
+                    chain.validators.get(&sprint).unwrap_or(&consensus_state.finalized_validators);
+                let result = verify_polygon_header::<H>(validators, header)
+                    .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
                 parent_hash = result.hash;
                 chain.update_fork(result.clone());
 
@@ -149,9 +149,9 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                         "Headers are meant to be in sequential order".to_string(),
                     ))?
                 }
-                let span = get_span(header.number.low_u64());
+                let sprint = get_sprint(header.number.low_u64());
                 let validators =
-                    chain.validators.get(&span).unwrap_or(&consensus_state.finalized_validators);
+                    chain.validators.get(&sprint).unwrap_or(&consensus_state.finalized_validators);
 
                 let result = verify_polygon_header::<H>(validators, header)
                     .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
@@ -173,7 +173,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
             BTreeMap::new();
         if let Some(mut longest_chain) = longest_chain {
-            // Finalize the 50th block in the chain
+            // Finalize the 10th block in the chain
             // This allows us to have probabilistic finality of atleast 6 mins and avoid reorgs
             let finalized_hash = longest_chain.hashes[10];
 
@@ -191,7 +191,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
 
             state_machine_map.insert(StateMachine::Polygon, vec![state_commitment]);
             consensus_state.finalized_hash = finalized_hash;
-            let finalized_span = get_span(header.number.low_u64());
+            let finalized_span = get_sprint(header.number.low_u64());
             if let Some(validators) = longest_chain.validators.get(&finalized_span) {
                 consensus_state.finalized_validators = validators.clone();
             }
@@ -223,6 +223,6 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
     }
 }
 
-fn get_span(number: u64) -> u64 {
-    number / SPAN_LENGTH
+fn get_sprint(number: u64) -> u64 {
+    number / 16
 }

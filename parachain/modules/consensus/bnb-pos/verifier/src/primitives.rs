@@ -8,6 +8,7 @@ use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
 use sp_core::sp_std::cmp::Ordering;
 use ismp::{host::IsmpHost, util::Keccak256};
 
+
 pub const SPAN_LENGTH: u64 = 400 * 16;
 pub const EPOCH_LENGTH: u64 = 200;
 const EXTRA_VANITY_LENGTH: usize = 32;
@@ -17,7 +18,7 @@ const PARLIA_CONFIG_EPOCH: u64 = 200;
 const VALIDATOR_BYTES_LENGTH_BEFORE_LUBAN: u8 = 20;
 const BLS_PUBLIC_KEY_LENGTH: usize = 48;
 const VALIDATOR_BYTES_LENGTH: usize = 20 + BLS_PUBLIC_KEY_LENGTH;
-const VALIDATOR_NUMBER_SIZE: usize = 1;
+const VALIDATOR_NUMBER_SIZE: usize = 1; // // Fixed number of extra prefix bytes reserved for validator number after Luban
 const ADDRESS_LENGTH: usize = 20;
 
 #[derive(codec::Encode, codec::Decode)]
@@ -96,9 +97,8 @@ impl PartialEq for CodecValidatorInfo {
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
 #[rlp(trailing)]
 pub struct VoteAttestationData {
-    pub extra_vanity: alloy_primitives::Bytes,
     pub vote_address_set: u64,
-    pub agg_signature: [u8; 96],
+    pub agg_signature: FixedBytes<96>,//[u8; 96],
     pub data: VoteData,
     pub extra: alloy_primitives::Bytes,
 }
@@ -249,44 +249,71 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, an
             let validator_num = data[0].clone() as usize;
             let validator_bytes_total_length =
                 VALIDATOR_NUMBER_SIZE + validator_num * VALIDATOR_BYTES_LENGTH;
-            if data_length < validator_bytes_total_length as usize {
+            if data_length < validator_bytes_total_length.clone() as usize {
+                println!(
+                    "Parse Validator failed",
+                );
                 Err(anyhow!("Parse validator failed"))?;
             }
-
+            println!(
+                "Validator size {:?}", validator_num.clone() as u8
+            );
             extra.validator_size = validator_num.clone() as u8;
             let mut remaining_data = &data[VALIDATOR_NUMBER_SIZE..];
-            for _ in 0..validator_num {
+
+            let validator_bytes = hex::decode("2465176c461afb316ebc773c61faee85a6515daa").unwrap();
+            println!(
+                "validator bytes is {:?}", validator_bytes
+            );
+            for i in 0..validator_num {
                 let mut validator_info = CodecValidatorInfo {
                     address: [0; 20],
                     bls_public_key: [0; 48],
                     vote_included: false,
                 };
 
-                let address_bytes: Vec<u8> = remaining_data[..ADDRESS_LENGTH].to_vec();
+                let address_bytes: Vec<u8> = remaining_data[i.clone() * VALIDATOR_BYTES_LENGTH .. i.clone() * VALIDATOR_BYTES_LENGTH + ADDRESS_LENGTH].to_vec();
+                let hex_string = hex::encode(address_bytes.clone());
+                println!(
+                    "i is {:?}, Validator address is  {:?}", i.clone(), hex_string
+                );
                 let bls_public_key_bytes: Vec<u8> =
-                    remaining_data[ADDRESS_LENGTH..VALIDATOR_BYTES_LENGTH].to_vec();
+                    remaining_data[i.clone() * VALIDATOR_BYTES_LENGTH + ADDRESS_LENGTH .. (i.clone() + 1) * VALIDATOR_BYTES_LENGTH].to_vec();
 
                 validator_info.address.copy_from_slice(&address_bytes);
                 validator_info.bls_public_key.copy_from_slice(&bls_public_key_bytes);
-                extra.validators.push(validator_info);
 
-                remaining_data = &remaining_data[VALIDATOR_BYTES_LENGTH..];
+                println!(
+                    "Validator info is  {:?}", validator_info.clone()
+                );
+
+                extra.validators.push(validator_info);
             }
             extra.validators.sort();
-            data = &data[VALIDATOR_BYTES_LENGTH - VALIDATOR_NUMBER_SIZE..];
+            data = &remaining_data[validator_bytes_total_length - VALIDATOR_NUMBER_SIZE..];
             data_length = data.len();
         }
+
+        /*println!(
+            "data length is {:?}", data_length
+        );*/
 
         // parse attestation
         if data_length > 0 {
             let vote_attestation_data: VoteAttestationData = VoteAttestationData::decode(&mut data)
                 .map_err(|_| anyhow!("parse voteAttestation failed"))?;
-            extra.agg_signature = vote_attestation_data.agg_signature;
+
+            println!(
+                "vote_attestation_data is {:?}", vote_attestation_data
+            );
+
+            extra.agg_signature = vote_attestation_data.agg_signature.0.into();
             extra.vote_data_hash =
                 H::keccak256(alloy_rlp::encode(vote_attestation_data.data.clone()).as_slice());
             extra.vote_data = vote_attestation_data.data.into();
 
             let validators_bit_set = BitSet::from_u64(vote_attestation_data.vote_address_set);
+
             for i in 0..extra.validator_size as usize {
                 if validators_bit_set.test(i as usize) {
                     extra.validators[i.clone()].vote_included = true;
@@ -295,6 +322,9 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, an
         }
     }
 
+    println!(
+        "extra is {:?}", extra.clone()
+    );
     Ok(extra.clone())
 }
 

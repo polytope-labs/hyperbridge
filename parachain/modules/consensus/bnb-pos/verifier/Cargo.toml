@@ -20,6 +20,7 @@ sync-committee-primitives  = { path = "../../../consensus/sync-committee/primiti
 ark-bls12-381 = { version = "0.4.0", default-features = false, features = ["curve"] }
 bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
 sha2 = "0.9"
+hex = "0.4.3"
 
 
 [features]

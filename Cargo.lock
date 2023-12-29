@@ -1372,6 +1372,7 @@ dependencies = [
  "bitset",
  "bls_on_arkworks",
  "ethabi",
+ "hex",
  "ismp",
  "log",
  "parity-scale-codec",

@@ -94,7 +94,7 @@ fn aggregate_public_keys(keys: Vec<[u8; 48]>) -> Result<Vec<u8>, anyhow::Error> 
 
     for key in keys.iter().skip(1) {
         let next = pubkey_to_point(&key.to_vec())
-            .map_err(|_| anyhow!("could not convert public key to point"))?;
+            .map_err(|_| anyhow!("could not convert public key to point {:?}", key))?;
         aggregate = aggregate.add(next).into();
     }
 

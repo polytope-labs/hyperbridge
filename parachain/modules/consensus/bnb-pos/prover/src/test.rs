@@ -39,8 +39,20 @@ async fn verify_bnb_pos_headers() {
     let initial_header = prover.latest_header().await.unwrap();
     let initial_header_epoch = compute_epoch(initial_header.number.low_u64());
 
+    println!(
+        "Initial header {:?} in epoch {:?}",
+        initial_header,
+        initial_header_epoch
+    );
+
     let validator_change_block_number = initial_header_epoch * EPOCH_LENGTH;
     let validator_change_header = prover.fetch_header(validator_change_block_number).await.unwrap();
+
+    println!(
+        "Initial header {:?} in epoch {:?}",
+        validator_change_header,
+        validator_change_block_number
+    );
 
     let (_, validators_data) = prover
         .fetch_proofs_and_validators::<Host>(validator_change_header)

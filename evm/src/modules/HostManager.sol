@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.17;
 
-import "solidity-merkle-trees/trie/Bytes.sol";
+import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 
 import {IIsmpModule} from "ismp/IIsmpModule.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "ismp/IIsmp.sol";

@@ -35,6 +35,9 @@ struct HostParams {
     uint256 challengePeriod;
     // cost of cross-chain requests in $DAI per byte
     uint256 perByteFee;
+    // The fee token contract. This will typically be DAI.
+    // but we allow it to be configurable to prevent future regrets.
+    address feeTokenAddress;
     // consensus client contract
     address consensusClient;
     // admin account, this only has the rights to freeze, or unfreeze the bridge
@@ -184,7 +187,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @return the address of the DAI ERC-20 contract on this state machine
      */
-    function dai() public virtual returns (address);
+    function dai() public view returns (address) {
+        return _hostParams.feeTokenAddress;
+    }
 
     /**
      * @return the host timestamp
@@ -324,6 +329,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         if (params.baseGetRequestFee != 0) {
             _hostParams.baseGetRequestFee = params.baseGetRequestFee;
+        }
+
+        if (params.feeTokenAddress != address(0)) {
+            _hostParams.feeTokenAddress = params.feeTokenAddress;
         }
     }
 
@@ -506,8 +515,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     /**
      * @dev Dispatch a POST request to the ISMP router and pay for a relayer.
-     * The amount provided + a per byte fee is charged to tx.origin in $DAI.
      * @param request - post request
+     * @param amount - The amount put forward as the relayer fee.
      */
     function dispatch(DispatchPost memory request, uint256 amount) external {
         // pay your toll to the troll

@@ -26,15 +26,15 @@ hash256-std-hasher = { version = "0.15.2", default-features = false }
 codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 
-frame-support = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
-frame-system = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
-sp-trie = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
-sp-io = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
-sp-runtime = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
-sp-core = {git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0", default-features = false }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-trie = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+sp-core = { workspace = true }
 
 [dev-dependencies]
-ethers = "2.0.3"
+ethers = { workspace = true }
 tokio = { version = "1.27.0", features = ["full"] }
 
 [features]

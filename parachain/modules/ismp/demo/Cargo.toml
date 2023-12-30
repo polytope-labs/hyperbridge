@@ -16,11 +16,11 @@ scale-info = { version = "2.1.1", default-features = false, features = ["derive"
 ismp = {path = "../core", default-features = false }
 
 # substrate
-frame-support = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
-frame-system = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
-pallet-balances = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
-sp-runtime = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
-sp-core = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+pallet-balances = { workspace = true }
+sp-runtime = { workspace = true }
+sp-core = { workspace = true }
 
 # local
 pallet-ismp = { path = "../pallet", default-features = false }

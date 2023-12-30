@@ -267,7 +267,7 @@ async fn test_client_sync() {
     let mut next_period = start_period + 1;
     loop {
         if next_period > end_period {
-            break
+            break;
         }
         let update = sync_committee_prover.latest_update_for_period(next_period).await.unwrap();
         dbg!(&update);
@@ -405,7 +405,7 @@ async fn test_prover() {
                 {
                     update
                 } else {
-                    continue
+                    continue;
                 };
 
                 if light_client_update.sync_committee_update.is_some() {
@@ -430,7 +430,7 @@ async fn test_prover() {
                 count += 1;
                 // For CI purposes we test finalization of 2 epochs
                 if count == 2 {
-                    break
+                    break;
                 }
             },
             Err(err) => {
@@ -451,9 +451,9 @@ async fn test_sync_committee_signature_verification() {
         let block = sync_committee_prover.fetch_block("head").await.unwrap();
         if block.slot < 16 {
             std::thread::sleep(Duration::from_secs(48));
-            continue
+            continue;
         }
-        break block
+        break block;
     };
     let sync_committee = sync_committee_prover
         .fetch_processed_sync_committee(block.slot.to_string().as_str())

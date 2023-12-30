@@ -45,13 +45,21 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
             let id = u32::from_str(id).expect("can't parse Id into u32");
             Box::new(chain_spec::messier_development_config(id))
         },
-        name if name.contains("gargantua") => Box::new(chain_spec::ChainSpec::from_json_bytes(
+        name if name.contains("gargantua") => Box::new(chain_spec::ChainSpec::<
+            gargantua_runtime::RuntimeGenesisConfig,
+        >::from_json_bytes(
             include_bytes!("../../chainspec/gargantua.json").to_vec(),
         )?),
-        "messier" => Box::new(chain_spec::ChainSpec::from_json_bytes(
-            include_bytes!("../../chainspec/messier.json").to_vec(),
-        )?),
-        path => Box::new(chain_spec::ChainSpec::from_json_file(std::path::PathBuf::from(path))?),
+        "messier" => Box::new(
+            chain_spec::ChainSpec::<messier_runtime::RuntimeGenesisConfig>::from_json_bytes(
+                include_bytes!("../../chainspec/messier.json").to_vec(),
+            )?,
+        ),
+        path => Box::new(
+            chain_spec::ChainSpec::<gargantua_runtime::RuntimeGenesisConfig>::from_json_file(
+                std::path::PathBuf::from(path),
+            )?,
+        ),
     })
 }
 

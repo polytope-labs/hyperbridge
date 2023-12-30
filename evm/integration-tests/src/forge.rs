@@ -109,8 +109,8 @@ fn base_runner() -> MultiContractRunnerBuilder {
 
 fn manifest_root() -> PathBuf {
     let mut root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    // need to check here where we're executing the test from, if in `integration-tests` we need to also allow
-    // `testdata`
+    // need to check here where we're executing the test from, if in `integration-tests` we need to
+    // also allow `testdata`
     if root.ends_with("integration-tests") {
         root = root.parent().unwrap();
     }

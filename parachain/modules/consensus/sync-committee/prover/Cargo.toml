@@ -30,7 +30,7 @@ hex = "0.4.3"
 env_logger = "0.10.0"
 sync-committee-primitives = { path= "../primitives" }
 sync-committee-verifier = { path= "../verifier" }
-ethers = { version = "2.0.8", features = ["ws"] }
+ethers = { workspace = true, features = ["ws"] }
 tokio = { version =  "1.32.0", features = ["macros", "rt-multi-thread"]}
 parity-scale-codec = "3.2.2"
 reqwest-eventsource = "0.4.0"

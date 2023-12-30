@@ -39,8 +39,11 @@ ethers = { git = "https://github.com/gakonst/ethers-rs", features = ["ethers-sol
 merkle-mountain-range-labs = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr" }
 rs_merkle = { git = "https://github.com/polytope-labs/rs-merkle", branch = "seun/2d-merkle-proofs" }
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main" }
+#ismp = { path = "../../parachain/modules/ismp/core" }
 beefy-prover = { git = "ssh://git@github.com/polytope-labs/tesseract.git", branch = "main" }
 beefy-verifier-primitives = { git = "ssh://git@github.com/polytope-labs/tesseract.git", branch = "main" }
+
+#sp-consensus-beefy = "12.0.0"
 
 ## substrate
 beefy-primitives = { package = "sp-consensus-beefy", git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.1.0" }

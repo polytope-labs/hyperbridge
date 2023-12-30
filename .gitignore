@@ -1,5 +1,5 @@
 /target
-/.idea
+.idea/
 
 *.log
 **/node_modules/*
@@ -14,4 +14,4 @@
 evm/out/
 evm/cache/
 evm/broadcast/
-evm/forge/target/
+evm/integration-tests/target/

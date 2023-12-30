@@ -11,7 +11,7 @@ contract BaseHost is EvmHost {
         return StateMachine.base();
     }
 
-    function dai() public override returns (address)  {
+    function dai() public override returns (address) {
         return address(0);
     }
 }

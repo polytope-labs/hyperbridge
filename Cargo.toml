@@ -27,10 +27,10 @@ members = [
      "parachain/modules/consensus/sync-committee/primitives",
 
      # evm tests
-#     "evm/forge"
+#     "evm/integration-tests"
 ]
 exclude = [
-     "evm/forge"
+     "evm/integration-tests"
 ]
 
 # Config for 'cargo dist'

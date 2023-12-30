@@ -10,7 +10,7 @@ import {PingModule} from "./PingModule.sol";
 import "../src/HandlerV1.sol";
 
 contract PostRequestTest is Test {
-    // needs a test method so that forge can detect it
+    // needs a test method so that integration-tests can detect it
     function testPostRequest() public {}
 
     IConsensusClient internal consensusClient;

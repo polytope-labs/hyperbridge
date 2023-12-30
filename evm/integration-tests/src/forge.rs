@@ -23,10 +23,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
+// access it through a fuction that sets everything up and returns it
+// static mut PROJECT: Option<Project> = None;
+
 static PROJECT: Lazy<Project> = Lazy::new(|| {
+    // root should be configurable
     let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     root = PathBuf::from(root.parent().unwrap());
     let mut paths = ProjectPathsConfig::builder().root(root.clone()).build().unwrap();
+    // parse remappings from remappings.txt.
     {
         // manually insert openzeppelin to remmapings. forge isn't autodetecting.
         let mut path = root.clone();
@@ -62,6 +67,7 @@ static PROJECT: Lazy<Project> = Lazy::new(|| {
     Project::builder().paths(paths).ephemeral().no_artifacts().build().unwrap()
 });
 
+// allow to be configurable
 static EVM_OPTS: Lazy<EvmOpts> = Lazy::new(|| EvmOpts {
     env: Env {
         gas_limit: 18446744073709551615,
@@ -103,9 +109,9 @@ fn base_runner() -> MultiContractRunnerBuilder {
 
 fn manifest_root() -> PathBuf {
     let mut root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    // need to check here where we're executing the test from, if in `forge` we need to also allow
+    // need to check here where we're executing the test from, if in `integration-tests` we need to also allow
     // `testdata`
-    if root.ends_with("forge") {
+    if root.ends_with("integration-tests") {
         root = root.parent().unwrap();
     }
     root.to_path_buf()

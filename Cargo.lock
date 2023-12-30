@@ -3931,7 +3931,7 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 [[package]]
 name = "forge"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=d8009eb526ac98f6a4c36065afcb1f63bc3eeb93#d8009eb526ac98f6a4c36065afcb1f63bc3eeb93"
+source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
  "comfy-table 6.2.0",
  "ethers",
@@ -3960,7 +3960,7 @@ dependencies = [
 [[package]]
 name = "forge-fmt"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=d8009eb526ac98f6a4c36065afcb1f63bc3eeb93#d8009eb526ac98f6a4c36065afcb1f63bc3eeb93"
+source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
  "ariadne",
  "ethers-core",
@@ -3993,7 +3993,7 @@ dependencies = [
 [[package]]
 name = "foundry-abi"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=d8009eb526ac98f6a4c36065afcb1f63bc3eeb93#d8009eb526ac98f6a4c36065afcb1f63bc3eeb93"
+source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
  "ethers-contract",
  "ethers-contract-abigen",
@@ -4007,7 +4007,7 @@ dependencies = [
 [[package]]
 name = "foundry-common"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=d8009eb526ac98f6a4c36065afcb1f63bc3eeb93#d8009eb526ac98f6a4c36065afcb1f63bc3eeb93"
+source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
  "auto_impl",
  "clap",
@@ -4038,7 +4038,7 @@ dependencies = [
 [[package]]
 name = "foundry-config"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=d8009eb526ac98f6a4c36065afcb1f63bc3eeb93#d8009eb526ac98f6a4c36065afcb1f63bc3eeb93"
+source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
  "Inflector",
  "dirs-next",
@@ -4068,7 +4068,7 @@ dependencies = [
 [[package]]
 name = "foundry-evm"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=d8009eb526ac98f6a4c36065afcb1f63bc3eeb93#d8009eb526ac98f6a4c36065afcb1f63bc3eeb93"
+source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
  "auto_impl",
  "bytes",
@@ -4103,7 +4103,7 @@ dependencies = [
 [[package]]
 name = "foundry-macros"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=d8009eb526ac98f6a4c36065afcb1f63bc3eeb93#d8009eb526ac98f6a4c36065afcb1f63bc3eeb93"
+source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
  "ethers-core",
  "foundry-macros-impl",
@@ -4114,7 +4114,7 @@ dependencies = [
 [[package]]
 name = "foundry-macros-impl"
 version = "0.0.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=d8009eb526ac98f6a4c36065afcb1f63bc3eeb93#d8009eb526ac98f6a4c36065afcb1f63bc3eeb93"
+source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4124,7 +4124,7 @@ dependencies = [
 [[package]]
 name = "foundry-utils"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=d8009eb526ac98f6a4c36065afcb1f63bc3eeb93#d8009eb526ac98f6a4c36065afcb1f63bc3eeb93"
+source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
  "dunce",
  "ethers-addressbook",
@@ -11030,7 +11030,7 @@ dependencies = [
 [[package]]
 name = "revm"
 version = "3.3.0"
-source = "git+https://github.com/bluealloy/revm/?branch=release/v25#6084e0fa2d457931cd8c9d29934bca0812b5b8d6"
+source = "git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658#88337924f4d16ed1f5e4cde12a03d0cb755cd658"
 dependencies = [
  "auto_impl",
  "revm-interpreter",
@@ -11042,7 +11042,7 @@ dependencies = [
 [[package]]
 name = "revm-interpreter"
 version = "1.1.2"
-source = "git+https://github.com/bluealloy/revm/?branch=release/v25#6084e0fa2d457931cd8c9d29934bca0812b5b8d6"
+source = "git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658#88337924f4d16ed1f5e4cde12a03d0cb755cd658"
 dependencies = [
  "derive_more",
  "enumn",
@@ -11054,7 +11054,7 @@ dependencies = [
 [[package]]
 name = "revm-precompile"
 version = "2.0.3"
-source = "git+https://github.com/bluealloy/revm/?branch=release/v25#6084e0fa2d457931cd8c9d29934bca0812b5b8d6"
+source = "git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658#88337924f4d16ed1f5e4cde12a03d0cb755cd658"
 dependencies = [
  "k256",
  "num",
@@ -11070,7 +11070,7 @@ dependencies = [
 [[package]]
 name = "revm-primitives"
 version = "1.1.2"
-source = "git+https://github.com/bluealloy/revm/?branch=release/v25#6084e0fa2d457931cd8c9d29934bca0812b5b8d6"
+source = "git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658#88337924f4d16ed1f5e4cde12a03d0cb755cd658"
 dependencies = [
  "auto_impl",
  "bitvec",

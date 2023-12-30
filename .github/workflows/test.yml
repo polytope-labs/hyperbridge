@@ -19,8 +19,8 @@ env:
 
 
 jobs:
-  check-rust:
-    name: Check Workspace
+  check-wasm:
+    name: Check Wasm Crates
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -46,13 +46,32 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - name: check workspace
-        run: |
-          cargo +nightly check --all --benches --locked
-
       - name: check no-std
         run: |
           cargo +nightly check -p ${{ matrix.crate }} --no-default-features --target=wasm32-unknown-unknown --locked
+
+  check-workspace:
+    name: Check Workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          submodules: recursive
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@v1
+      - run: rustup target add wasm32-unknown-unknown
+
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: check workspace
+        run: |
+          cargo +nightly check --all --benches --locked
 
   fmt:
     name: Cargo fmt
@@ -124,9 +143,6 @@ jobs:
 
 
   check-solidity:
-    strategy:
-      fail-fast: true
-
     name: Foundry project
     runs-on: ubuntu-latest
     steps:
@@ -141,11 +157,13 @@ jobs:
 
       - name: Run Forge build
         run: |
+          cd ./evm
           forge --version
           forge build --sizes
         id: build
 
       - name: Run Forge tests
         run: |
+          cd ./evm
           forge test -vvv
         id: test

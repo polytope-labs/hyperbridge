@@ -29,9 +29,6 @@ members = [
      # evm tests
      "evm/integration-tests"
 ]
-exclude = [
-     "evm/integration-tests"
-]
 
 # Config for 'cargo dist'
 [workspace.metadata.dist]
@@ -63,8 +60,6 @@ inherits = "release"
 lto = "thin"
 
 [workspace.dependencies]
-ethers = { version = "2.0.11", features = ["ethers-solc"] }
-
 # wasm
 frame-benchmarking = { version = "25.0.0", default-features = false }
 frame-executive = { version = "25.0.0", default-features = false }
@@ -160,3 +155,4 @@ forge = { git = "https://github.com/polytope-labs/foundry", rev = "a0e88ed933d61
 foundry-common = { git = "https://github.com/polytope-labs/foundry", rev = "a0e88ed933d61cec249524e42ea81d74652bd0c0" }
 foundry-config = { git = "https://github.com/polytope-labs/foundry", rev = "a0e88ed933d61cec249524e42ea81d74652bd0c0" }
 foundry-evm = { git = "https://github.com/polytope-labs/foundry", rev = "a0e88ed933d61cec249524e42ea81d74652bd0c0" }
+ethers = { version = "2.0.11", features = ["ethers-solc"] }

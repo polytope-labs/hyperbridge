@@ -22,6 +22,9 @@ jobs:
   check-rust:
     name: Check Workspace
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        crate: [ismp, pallet-ismp, ismp-demo, ethereum-trie, ismp-sync-committee, messier-runtime, gargantua-runtime]
     steps:
       - uses: actions/checkout@v2
         with:
@@ -46,37 +49,10 @@ jobs:
       - name: check workspace
         run: |
           cargo +nightly check --all --benches --locked
-          cargo +nightly check -p ismp --no-default-features --target=wasm32-unknown-unknown --locked
-          cargo +nightly check -p pallet-ismp --no-default-features --target=wasm32-unknown-unknown --locked
-          cargo +nightly check -p ismp-demo --no-default-features --target=wasm32-unknown-unknown --locked
-          cargo +nightly check -p ethereum-trie --no-default-features --target=wasm32-unknown-unknown --locked
-          cargo +nightly check -p ismp-sync-committee --no-default-features --target=wasm32-unknown-unknown --locked
 
-
-
-  check-runtime-wasm:
-    name: Check Runtime Wasm
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          token: ${{ secrets.GH_TOKEN }}
-          submodules: recursive
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          toolchain: nightly
-      - uses: Swatinem/rust-cache@v1
-      - run: rustup target add wasm32-unknown-unknown
-
-      - uses: webfactory/ssh-agent@v0.7.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_KEY }}
-
-      - name: check runtime no-std
+      - name: check no-std
         run: |
-          cargo +nightly check -p gargantua-runtime --no-default-features --target=wasm32-unknown-unknown --locked
-          cargo +nightly check -p messier-runtime --no-default-features --target=wasm32-unknown-unknown --locked
+          cargo +nightly check -p ${{ matrix.crate }} --no-default-features --target=wasm32-unknown-unknown --locked
 
   fmt:
     name: Cargo fmt
@@ -131,7 +107,7 @@ jobs:
           cargo +nightly test -p pallet-ismp --all-targets --all-features --locked
           cargo +nightly test -p ismp-testsuite --all-targets --all-features --locked
           cargo +nightly test -p ethereum-trie --all-features --locked
-          # cd evm/forge && cargo test
+          cargo +nightly test -p ismp-solidity-test --all-features --locked
 
       - name: Clone eth-pos-devnet repository
         run: |

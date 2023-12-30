@@ -151,8 +151,9 @@ cumulus-client-consensus-proposer = "0.4.0"
 cumulus-client-collator = "0.4.0"
 substrate-wasm-builder = { version = "16.0.0" }
 
-forge = { git = "https://github.com/polytope-labs/foundry", rev = "a0e88ed933d61cec249524e42ea81d74652bd0c0" }
-foundry-common = { git = "https://github.com/polytope-labs/foundry", rev = "a0e88ed933d61cec249524e42ea81d74652bd0c0" }
-foundry-config = { git = "https://github.com/polytope-labs/foundry", rev = "a0e88ed933d61cec249524e42ea81d74652bd0c0" }
-foundry-evm = { git = "https://github.com/polytope-labs/foundry", rev = "a0e88ed933d61cec249524e42ea81d74652bd0c0" }
-ethers = { version = "2.0.11", features = ["ethers-solc"] }
+forge = { git = "https://github.com/polytope-labs/foundry", rev = "d8009eb526ac98f6a4c36065afcb1f63bc3eeb93" }
+foundry-common = { git = "https://github.com/polytope-labs/foundry", rev = "d8009eb526ac98f6a4c36065afcb1f63bc3eeb93" }
+foundry-config = { git = "https://github.com/polytope-labs/foundry", rev = "d8009eb526ac98f6a4c36065afcb1f63bc3eeb93" }
+foundry-evm = { git = "https://github.com/polytope-labs/foundry", rev = "d8009eb526ac98f6a4c36065afcb1f63bc3eeb93" }
+ethers = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8", features = ["ethers-solc"] }
+

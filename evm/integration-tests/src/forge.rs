@@ -18,56 +18,39 @@ use foundry_evm::{
     Address,
 };
 use once_cell::sync::Lazy;
-use std::{
-    fmt::Debug,
-    path::{Path, PathBuf},
-};
-
-// access it through a fuction that sets everything up and returns it
-// static mut PROJECT: Option<Project> = None;
+use std::{fmt::Debug, fs, path::{Path, PathBuf}};
 
 static PROJECT: Lazy<Project> = Lazy::new(|| {
     // root should be configurable
     let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     root = PathBuf::from(root.parent().unwrap());
     let mut paths = ProjectPathsConfig::builder().root(root.clone()).build().unwrap();
+
     // parse remappings from remappings.txt.
-    {
-        // manually insert openzeppelin to remmapings. forge isn't autodetecting.
-        let mut path = root.clone();
-        path.push("lib/openzeppelin-contracts/contracts");
-        paths.remappings.push(Remapping {
-            context: None,
-            name: "openzeppelin/".to_string(),
-            path: path.to_str().unwrap().to_string(),
+    fs::read_to_string(root.clone().join("remappings.txt"))
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let iter = line.split("=").collect::<Vec<_>>();
+            Remapping {
+                context: None,
+                name: iter[0].to_string(),
+                path: root
+                    .clone()
+                    .join(&iter[1].to_string())
+                    .into_os_string()
+                    .into_string()
+                    .unwrap(),
+            }
+        })
+        .for_each(|mapping| {
+            paths.remappings.retain(|m| m.name != mapping.name);
+            paths.remappings.push(mapping)
         });
-    }
-    {
-        // manually insert openzeppelin to remmapings. forge isn't autodetecting.
-        let mut path = root.clone();
-        path.push("lib/ismp-solidity/src");
-        paths.remappings.push(Remapping {
-            context: None,
-            name: "ismp/".to_string(),
-            path: path.to_str().unwrap().to_string(),
-        });
-    }
-    {
-        paths.remappings.retain(|mapping| &*mapping.name != "multi-chain-tokens/");
-        // manually insert openzeppelin to remmapings. forge isn't autodetecting.
-        let mut path = root.clone();
-        path.push("lib/multi-chain-tokens/src");
-        paths.remappings.push(Remapping {
-            context: None,
-            name: "multi-chain-tokens/".to_string(),
-            path: path.to_str().unwrap().to_string(),
-        });
-    }
 
     Project::builder().paths(paths).ephemeral().no_artifacts().build().unwrap()
 });
 
-// allow to be configurable
 static EVM_OPTS: Lazy<EvmOpts> = Lazy::new(|| EvmOpts {
     env: Env {
         gas_limit: 18446744073709551615,
@@ -109,9 +92,9 @@ fn base_runner() -> MultiContractRunnerBuilder {
 
 fn manifest_root() -> PathBuf {
     let mut root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    // need to check here where we're executing the test from, if in `integration-tests` we need to
-    // also allow `testdata`
-    if root.ends_with("integration-tests") {
+    // need to check here where we're executing the test from, if in `forge` we need to also allow
+    // `testdata`
+    if root.ends_with("forge") {
         root = root.parent().unwrap();
     }
     root.to_path_buf()
@@ -144,9 +127,9 @@ pub async fn execute<T, R>(
     fn_name: &'static str,
     args: T,
 ) -> Result<R, EvmError>
-where
-    T: Tokenize,
-    R: Detokenize + Debug,
+    where
+        T: Tokenize,
+        R: Detokenize + Debug,
 {
     let db = Backend::spawn(runner.fork.take()).await;
 
@@ -249,9 +232,9 @@ pub fn execute_single<R, T>(
     func: &str,
     args: T,
 ) -> Result<R, EvmError>
-where
-    T: Tokenize,
-    R: Detokenize + Debug,
+    where
+        T: Tokenize,
+        R: Detokenize + Debug,
 {
     let function = contract.contract.functions.get(func).unwrap().first().unwrap().clone();
 
@@ -281,4 +264,14 @@ fn print_logs(func: &str, gas_used: u64, logs: &Vec<Log>) {
         println!("{}", log);
     }
     println!("=========== End Logs {func} ===========");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lol() {
+        // runner();
+    }
 }

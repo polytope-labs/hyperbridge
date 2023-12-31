@@ -57,14 +57,16 @@ jobs:
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
+
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly
+
       - uses: Swatinem/rust-cache@v1
       - run: |
           rustup target add wasm32-unknown-unknown
-          rustup target add wasm32-unknown-unknown --toolchain nightly
+          rustup target add wasm32-unknown-unknown --toolchain=nightly
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
@@ -78,7 +80,7 @@ jobs:
 
       - name: check workspace
         run: |
-          cargo +nightly check --all --benches --locked
+          cargo check --all --benches --locked
 
   fmt:
     name: Cargo fmt

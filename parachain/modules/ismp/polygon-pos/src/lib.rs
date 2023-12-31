@@ -61,7 +61,7 @@ pub struct ConsensusState {
 pub struct PolygonClientUpdate {
     /// Headers sorted in ascending order
     pub consensus_update: BoundedVec<CodecHeader, ConstU32<256>>,
-    /// The leading hash in a fork, use a default value when building on the latest finalized hash
+    /// Parent hash of the first header in the list
     pub chain_head: H256,
 }
 
@@ -117,7 +117,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                         "Headers are meant to be in sequential order".to_string(),
                     ))?
                 }
-                log::info!(target: "pallet-ismp", "Parent hash: {:#?} Header {:#?}", parent_hash, (header.number));
+
                 let sprint = get_sprint(header.number.low_u64());
                 let validators =
                     chain.validators.get(&sprint).unwrap_or(&consensus_state.finalized_validators);

@@ -98,17 +98,10 @@ jobs:
       - name: Cargo fmt
         run: cargo +nightly fmt --all --check
 
-  test:
-    name: Test Suite
+  unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
-    env:
-      TUID: 123
     steps:
-      - name: set UID env
-        run: |
-          echo $UID
-          echo "TUID=$UID" >> $GITHUB_ENV
-
       - name: Checkout sources
         uses: actions/checkout@v2
         with:
@@ -141,6 +134,38 @@ jobs:
         run: |
           cargo test --all-targets --features=runtime-benchmarks --locked
 
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          submodules: recursive
+
+      - name: Install rust stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - uses: Swatinem/rust-cache@v1
+
+      - name: Install wasm toolchain
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+          rustup show
+
+      - name: Install protoc
+        run: |
+          sudo apt update
+          sudo apt install protobuf-compiler
+
       - name: Clone eth-pos-devnet repository
         run: |
           git clone https://github.com/polytope-labs/eth-pos-devnet.git
@@ -153,7 +178,6 @@ jobs:
       - name: sync-committee integration tests
         run: |
           cargo test -p sync-committee-prover -- --nocapture --ignored
-
 
   check-solidity:
     name: Check ismp-solidity

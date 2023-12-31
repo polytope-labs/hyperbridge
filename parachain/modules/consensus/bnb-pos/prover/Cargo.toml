@@ -18,7 +18,7 @@ hex = "0.4.3"
 ethers = { version = "2.0.8", features = ["ws"] }
 ismp = { path = "../../../ismp/core" }
 sp-core = {version = "27.0.0" }
-
+sync-committee-primitives  = { path = "../../../consensus/sync-committee/primitives", default-features = false }
 
 [dev-dependencies]
 env_logger = "0.10.0"
@@ -32,5 +32,6 @@ sp-io = {version = "27.0.0" }
 default = ["std"]
 std = [
     "anyhow/std",
-    "ismp/std"
+    "ismp/std",
+    "sync-committee-primitives/std",
 ]

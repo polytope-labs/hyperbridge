@@ -1350,6 +1350,7 @@ dependencies = [
  "primitive-types",
  "sp-core 27.0.0",
  "sp-io 27.0.0",
+ "sync-committee-primitives",
  "tokio",
  "tokio-stream",
 ]

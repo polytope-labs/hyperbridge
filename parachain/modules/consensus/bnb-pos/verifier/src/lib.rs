@@ -95,7 +95,7 @@ pub fn verify_bnb_header<H: Keccak256>(
     })
 }
 
-fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Vec<u8> {
+pub fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Vec<u8> {
     let aggregate = keys
         .into_iter()
         .filter_map(|key| pubkey_to_projective(key).ok())

@@ -1,13 +1,11 @@
 use std::time::Duration;
 
-use bnb_pos_verifier::{
-    primitives::{compute_epoch, Header, EPOCH_LENGTH},
-    verify_bnb_header,
-};
+use bnb_pos_verifier::{aggregate_public_keys, primitives::{compute_epoch, Header, EPOCH_LENGTH}, verify_bnb_header};
 use ethers::providers::{Provider, Ws};
 use ismp::util::Keccak256;
 use sp_core::H160;
 use tokio::time::interval;
+use sync_committee_primitives::constants::BlsPublicKey;
 
 use crate::BnbPosProver;
 
@@ -36,81 +34,115 @@ async fn verify_bnb_pos_header() {
 
     let mut interval = interval(Duration::from_secs(2));
 
-    let initial_header = prover.latest_header().await.unwrap();
-    let initial_header_epoch = compute_epoch(initial_header.number.low_u64());
+    /*let initial_header = prover.latest_header().await.unwrap();
+    let initial_header_epoch = compute_epoch(initial_header.number.low_u64());*/
 
-    println!(
+    //let initial_header = prover.fetch_header(34801800).await.unwrap();
+   //let initial_header_epoch = 34801800;
+
+    /*println!(
         "Initial header {:?} in epoch {:?}",
         initial_header,
         initial_header_epoch
-    );
+    );*/
 
-    let validator_change_block_number = initial_header_epoch * EPOCH_LENGTH;
+    let validator_change_block_number = 34801800;
     let validator_change_header = prover.fetch_header(validator_change_block_number).await.unwrap();
 
     println!(
-        "Initial header {:?} in epoch {:?}",
+        "Validator header {:?} in epoch {:?}",
         validator_change_header,
         validator_change_block_number
     );
 
     let (_, validators_data) = prover
-        .fetch_proofs_and_validators::<Host>(validator_change_header)
+        .fetch_proofs_and_validators::<Host>(validator_change_header.clone())
         .await
         .unwrap();
-    let mut validators = validators_data.unwrap();
+    let mut current_validators = validators_data.unwrap();
 
-    loop {
-        interval.tick().await;
-        let latest_header = prover.latest_header().await.unwrap();
-        let latest_header_epoch = compute_epoch(latest_header.number.low_u64());
 
-        if initial_header_epoch == latest_header_epoch {
-            verify_bnb_header::<Host>(&validators, latest_header.clone()).unwrap();
-            println!(
-                "Successfully verified header {:?} in epoch {:?}",
-                latest_header.number.low_u64(),
-                latest_header_epoch
-            );
-        }
 
-        if initial_header_epoch > latest_header_epoch {
-            for epoch in (initial_header_epoch.clone() + 1)..latest_header_epoch {
-                let last_header_number_epoch = (epoch * EPOCH_LENGTH) + EPOCH_LENGTH - 1;
-                let last_header_in_epoch =
-                    prover.fetch_header(last_header_number_epoch.clone()).await.unwrap();
+    let attested_header_epoch = (validator_change_header.clone().number.low_u64() +
+        current_validators.len() as u64 / 2) + 1;
+    let attested_header = prover.fetch_header(attested_header_epoch).await.unwrap();
 
-                let previous_epoch = last_header_number_epoch - EPOCH_LENGTH;
-                let previous_epoch_header =
-                    prover.fetch_header(previous_epoch.clone()).await.unwrap();
-                let (previous_epoch_bnb_proof, _previous_epoch_validators_data) = prover
-                    .fetch_proofs_and_validators::<Host>(previous_epoch_header)
-                    .await
-                    .unwrap();
-                let previous_epoch_validator_set_size = previous_epoch_bnb_proof.validator_set_size;
+    let (attested_header_client_update, _) = prover
+        .fetch_proofs_and_validators::<Host>(attested_header)
+        .await
+        .unwrap();
 
-                let validator_set_change_epoch: u64 =
-                    previous_epoch_validator_set_size as u64 / 2 + previous_epoch;
+    let validators = current_validators
+        .into_iter()
+        .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
+        .collect::<Vec<BlsPublicKey>>();
+    let aggregate_public_key = aggregate_public_keys(&validators).as_slice().try_into().unwrap();
 
-                if epoch == validator_set_change_epoch {
-                    let validator_set_change_epoch_header =
-                        prover.fetch_header(epoch.clone()).await.unwrap();
-                    let (_, validator_set_change_validators_data) = prover
-                        .fetch_proofs_and_validators::<Host>(validator_set_change_epoch_header)
-                        .await
-                        .unwrap();
+    verify_bnb_header::<Host>(aggregate_public_key, &validators, attested_header_client_update).unwrap();
 
-                    validators = validator_set_change_validators_data.unwrap();
-                }
 
-                verify_bnb_header::<Host>(&validators, last_header_in_epoch.clone()).unwrap();
 
+
+
+    /*
+
+        let (_, validators_data) = prover
+            .fetch_proofs_and_validators::<Host>(validator_change_header)
+            .await
+            .unwrap();
+        let mut validators = validators_data.unwrap();
+
+        loop {
+            interval.tick().await;
+            let latest_header = prover.latest_header().await.unwrap();
+            let latest_header_epoch = compute_epoch(latest_header.number.low_u64());
+
+            if initial_header_epoch == latest_header_epoch {
+                verify_bnb_header::<Host>(&validators, latest_header.clone()).unwrap();
                 println!(
-                    "Successfully verified header {:?} in new epoch {:?}",
+                    "Successfully verified header {:?} in epoch {:?}",
                     latest_header.number.low_u64(),
-                    last_header_number_epoch
+                    latest_header_epoch
                 );
             }
-        }
-    }
+
+            if initial_header_epoch > latest_header_epoch {
+                for epoch in (initial_header_epoch.clone() + 1)..latest_header_epoch {
+                    let last_header_number_epoch = (epoch * EPOCH_LENGTH) + EPOCH_LENGTH - 1;
+                    let last_header_in_epoch =
+                        prover.fetch_header(last_header_number_epoch.clone()).await.unwrap();
+
+                    let previous_epoch = last_header_number_epoch - EPOCH_LENGTH;
+                    let previous_epoch_header =
+                        prover.fetch_header(previous_epoch.clone()).await.unwrap();
+                    let (previous_epoch_bnb_proof, _previous_epoch_validators_data) = prover
+                        .fetch_proofs_and_validators::<Host>(previous_epoch_header)
+                        .await
+                        .unwrap();
+                    let previous_epoch_validator_set_size = previous_epoch_bnb_proof.validator_set_size;
+
+                    let validator_set_change_epoch: u64 =
+                        previous_epoch_validator_set_size as u64 / 2 + previous_epoch;
+
+                    if epoch == validator_set_change_epoch {
+                        let validator_set_change_epoch_header =
+                            prover.fetch_header(epoch.clone()).await.unwrap();
+                        let (_, validator_set_change_validators_data) = prover
+                            .fetch_proofs_and_validators::<Host>(validator_set_change_epoch_header)
+                            .await
+                            .unwrap();
+
+                        validators = validator_set_change_validators_data.unwrap();
+                    }
+
+                    verify_bnb_header::<Host>(&validators, last_header_in_epoch.clone()).unwrap();
+
+                    println!(
+                        "Successfully verified header {:?} in new epoch {:?}",
+                        latest_header.number.low_u64(),
+                        last_header_number_epoch
+                    );
+                }
+            }
+        }*/
 }

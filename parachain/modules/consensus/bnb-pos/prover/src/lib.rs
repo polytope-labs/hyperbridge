@@ -3,8 +3,7 @@ mod test;
 
 use anyhow::anyhow;
 use bnb_pos_verifier::{
-    primitives::{parse_extra, CodecHeader, CodecVoteData},
-    ValidatorData,
+    primitives::{parse_extra, CodecHeader},
 };
 use ethers::{
     prelude::{Provider, Ws},
@@ -15,19 +14,13 @@ use ismp::util::Keccak256;
 use primitive_types::H160;
 use sp_core::H256;
 use std::{collections::BTreeSet, fmt::Debug, sync::Arc};
+use bnb_pos_verifier::primitives::{BnbClientUpdate, ValidatorInfo};
+use sync_committee_primitives::constants::BlsPublicKey;
 
 #[derive(Clone)]
 pub struct BnbPosProver {
     /// Execution Rpc client
     pub client: Arc<Provider<Ws>>,
-}
-
-#[derive(Clone)]
-pub struct BnbProof {
-    pub agg_signature: [u8; 96],
-    pub vote_data_hash: H256,
-    pub vote_data: CodecVoteData,
-    pub validator_set_size: u8,
 }
 
 impl BnbPosProver {
@@ -77,28 +70,31 @@ impl BnbPosProver {
 
     pub async fn fetch_proofs_and_validators<I: Keccak256>(
         &self,
-        header: CodecHeader,
-    ) -> Result<(BnbProof, Option<Vec<ValidatorData>>), anyhow::Error> {
-        let parse_extra_data = parse_extra::<I>(&header.extra_data)
+        attested_header: CodecHeader,
+    ) -> Result<(BnbClientUpdate, Option<Vec<ValidatorInfo>>), anyhow::Error> {
+        let parse_extra_data = parse_extra::<I>(&attested_header.extra_data)
             .map_err(|_| anyhow!("Extra data set not found in header"))?;
 
-        let validator_data_vec: Option<Vec<ValidatorData>> = {
-            let mut iter =
-                parse_extra_data.validators.iter().map(|data| ValidatorData::from(data.clone()));
-            if let Some(first) = iter.next() {
-                Some(iter.collect())
+        let source_header_number = parse_extra_data.vote_data.source_number;
+        let target_header_number = parse_extra_data.vote_data.target_number;
+
+        let source_header =  self.fetch_header(source_header_number).await?;
+        let target_header =  self.fetch_header(target_header_number).await?;
+
+        let validator_data_vec: Option<Vec<ValidatorInfo>> = {
+            if !parse_extra_data.validators.is_empty() {
+                Some(parse_extra_data.validators)
             } else {
                 None
             }
         };
 
-        let bnb_proof = BnbProof {
-            agg_signature: parse_extra_data.agg_signature,
-            vote_data_hash: parse_extra_data.vote_data_hash,
-            vote_data: parse_extra_data.vote_data,
-            validator_set_size: parse_extra_data.validator_size,
+        let bnb_client_update = BnbClientUpdate {
+          source_header,
+          target_header,
+          attested_header
         };
 
-        Ok((bnb_proof, validator_data_vec))
+        Ok((bnb_client_update, validator_data_vec))
     }
 }

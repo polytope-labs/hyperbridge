@@ -300,7 +300,7 @@ pub mod pallet {
                     Ok(root) => root,
                     Err(e) => {
                         log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
-                        return
+                        return;
                     },
                 };
 
@@ -659,7 +659,7 @@ impl<T: Config> Pallet<T> {
                     _ => None,
                 },
                 _ => None,
-            }
+            };
         }
         None
     }
@@ -675,7 +675,7 @@ impl<T: Config> Pallet<T> {
                     _ => None,
                 },
                 _ => None,
-            }
+            };
         }
         None
     }
@@ -693,7 +693,7 @@ impl<T: Config> Pallet<T> {
             Self::response_leaf_pos_and_index_offchain_key(source_chain, dest_chain, nonce)
         };
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            return <(LeafIndex, LeafIndex)>::decode(&mut &*elem).ok()
+            return <(LeafIndex, LeafIndex)>::decode(&mut &*elem).ok();
         }
         None
     }

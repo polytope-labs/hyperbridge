@@ -18,19 +18,19 @@ members = [
      "parachain/modules/ismp/testsuite",
      "parachain/modules/ismp/sync-committee",
      "parachain/modules/ismp/casper-ffg",
+     "parachain/modules/ismp/state-machine",
 
      # modules
-     "parachain/modules/ismp/state-machine",
      "parachain/modules/tries/ethereum",
      "parachain/modules/consensus/sync-committee/prover",
      "parachain/modules/consensus/sync-committee/verifier",
      "parachain/modules/consensus/sync-committee/primitives",
+     "parachain/modules/consensus/beefy/primitives",
+     "parachain/modules/consensus/beefy/prover",
 
-     # evm tests
-#     "evm/forge"
-]
-exclude = [
-     "evm/forge"
+     # evm stuff
+     "evm/integration-tests",
+     "evm/abi",
 ]
 
 # Config for 'cargo dist'
@@ -56,7 +56,111 @@ publish-jobs = []
 # Publish jobs to run in CI
 pr-run-mode = "skip"
 allow-dirty = ["ci", "msi"]
+
 # The profile that 'cargo dist' will build with
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[workspace.dependencies]
+# wasm
+frame-benchmarking = { version = "25.0.0", default-features = false }
+frame-executive = { version = "25.0.0", default-features = false }
+frame-support = { version = "25.0.0", default-features = false }
+frame-system = { version = "25.0.0", default-features = false }
+frame-system-benchmarking = { version = "25.0.0", default-features = false }
+frame-system-rpc-runtime-api = { version = "23.0.0", default-features = false }
+frame-try-runtime = { version = "0.31.0", default-features = false }
+pallet-aura = { version = "24.0.0", default-features = false }
+pallet-authorship = { version = "25.0.0", default-features = false }
+pallet-balances = { version = "25.0.0", default-features = false }
+pallet-session = { version = "25.0.0", default-features = false }
+pallet-sudo = { version = "25.0.0", default-features = false }
+pallet-timestamp = { version = "24.0.0", default-features = false }
+pallet-transaction-payment = { version = "25.0.0", default-features = false }
+pallet-transaction-payment-rpc-runtime-api = { version = "25.0.0", default-features = false }
+pallet-message-queue = { version = "28.0.0", default-features = false }
+sp-api = { version = "23.0.0", default-features = false }
+sp-blockchain = { version = "25.0.0", default-features = false }
+sp-io = { version = "27.0.0", default-features = false }
+sp-trie = { version = "26.0.0", default-features = false }
+sp-block-builder = { version = "23.0.0", default-features = false }
+sp-consensus-aura = { version = "0.29.0", default-features = false }
+sp-consensus-beefy = { version = "10.0.0", default-features = false }
+sp-core = { version = "25.0.0", default-features = false }
+sp-inherents = { version = "23.0.0", default-features = false }
+sp-offchain = { version = "23.0.0", default-features = false }
+sp-runtime = { version = "28.0.0", default-features = false }
+sp-session = { version = "24.0.0", default-features = false }
+sp-std = { version = "11.0.0", default-features = false }
+sp-transaction-pool = { version = "23.0.0", default-features = false }
+sp-version = { version = "26.0.0", default-features = false }
+sp-genesis-builder = { version = "0.4.0", default-features = false }
+pallet-xcm = { version = "4.0.0", default-features = false }
+polkadot-parachain-primitives = { version = "3.0.0", default-features = false }
+polkadot-runtime-common = { version = "4.0.0", default-features = false }
+staging-xcm = { version = "4.0.0", default-features = false }
+staging-xcm-builder = { version = "4.0.0", default-features = false }
+staging-xcm-executor = { version = "4.0.0", default-features = false }
+cumulus-pallet-session-benchmarking = { version = "6.0.0", default-features = false }
+cumulus-pallet-aura-ext = { version = "0.4.0", default-features = false }
+cumulus-pallet-dmp-queue = { version = "0.4.0", default-features = false }
+cumulus-pallet-parachain-system = { version = "0.4.0", default-features = false }
+cumulus-pallet-xcm = { version = "0.4.0", default-features = false }
+cumulus-pallet-xcmp-queue = { version = "0.4.0", default-features = false }
+cumulus-primitives-core = { version = "0.4.0", default-features = false }
+cumulus-primitives-timestamp = { version = "0.4.0", default-features = false }
+cumulus-primitives-utility = { version = "0.4.0", default-features = false }
+pallet-collator-selection = { version = "6.0.0", default-features = false }
+parachain-info = { package = "staging-parachain-info", version = "0.4.0", default-features = false }
+parachains-common = { version = "4.0.0", default-features = false  }
+sp-timestamp = { version = "23.0.0", default-features = false }
+sp-keystore = { version = "0.31.0", default-features = false }
+sp-mmr-primitives = { version = "23.0.0", default-features = false }
+sp-storage =  { version = "16.0.0", default-features = false }
+pallet-beefy-mmr = { version = "25.0.0", default-features = false }
+pallet-mmr = { version = "24.0.0", default-features = false }
+
+# client
+frame-benchmarking-cli = "29.0.0"
+pallet-transaction-payment-rpc = "27.0.0"
+sc-basic-authorship = "0.31.0"
+sc-chain-spec = "24.0.0"
+sc-cli = "0.33.0"
+sc-client-api = "25.0.0"
+sc-consensus = "0.30.0"
+sc-executor = "0.29.0"
+sc-network = "0.31.0"
+sc-network-sync = "0.30.0"
+sc-network-common = "0.30.0"
+sc-rpc = "26.0.0"
+sc-service = "0.32.0"
+sc-sysinfo = "24.0.0"
+sc-telemetry = "12.0.0"
+sc-tracing = "25.0.0"
+sc-transaction-pool = "25.0.0"
+sc-transaction-pool-api = "25.0.0"
+sc-offchain = "26.0.0"
+substrate-frame-rpc-system = "25.0.0"
+substrate-prometheus-endpoint = "0.14.0"
+try-runtime-cli = "0.35.0"
+polkadot-cli = "4.0.0"
+polkadot-primitives = "4.0.0"
+polkadot-service = "4.0.0"
+cumulus-client-cli = "0.4.0"
+cumulus-client-consensus-aura = "0.4.0"
+cumulus-client-consensus-common = "0.4.0"
+cumulus-client-network = "0.4.0"
+cumulus-client-service = "0.4.0"
+cumulus-primitives-parachain-inherent = "0.4.0"
+cumulus-relay-chain-interface = "0.4.0"
+cumulus-client-consensus-proposer = "0.4.0"
+cumulus-client-collator = "0.4.0"
+substrate-wasm-builder = { version = "16.0.0" }
+mmr-rpc = { version = "25.0.0" }
+
+ethers = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8", features = ["ethers-solc"] }
+ethers-contract-abigen = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8" }
+
+forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "5da50eafa1be2ebb3ceb31c3a7b9daaaec683d09" }
+merkle-mountain-range = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr" }

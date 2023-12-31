@@ -49,16 +49,12 @@ contract DeployScript is Script {
     }
 
     function deployMessenger(address host, address admin) public {
-        CrossChainMessenger c = new CrossChainMessenger{ salt: salt }(admin);
+        CrossChainMessenger c = new CrossChainMessenger{salt: salt}(admin);
         c.setIsmpHost(host);
     }
 
     function deployGateway(address host, address admin) public {
-        MultiChainNativeERC20 t = new MultiChainNativeERC20{salt: salt}(
-            admin,
-            "Hyperbridge Test Token",
-            "CORE"
-        );
+        MultiChainNativeERC20 t = new MultiChainNativeERC20{salt: salt}(admin, "Hyperbridge Test Token", "CORE");
 
         TokenGateway gateway = new TokenGateway{salt: salt}(admin);
         gateway.setIsmpHost(host);

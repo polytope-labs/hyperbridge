@@ -1,11 +1,30 @@
-use beefy_primitives::mmr::BeefyNextAuthoritySet;
-use beefy_verifier_primitives::{ConsensusMessage, ConsensusState, MmrProof};
-use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
-use merkle_mountain_range_labs::mmr_position_to_k_index;
-use primitive_types::H256;
+// Copyright (C) 2022 Polytope Labs.
+// SPDX-License-Identifier: Apache-2.0
 
-ethers::contract::abigen!(BeefyV1, "./src/abi/BeefyV1.json",);
-ethers::contract::abigen!(HandlerV1, "./src/abi/HandlerV1.json",);
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Convenient type conversions
+
+use crate::beefy::{
+    AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf, Commitment,
+    IntermediateState, Node, Parachain, ParachainProof, Payload, RelayChainProof, SignedCommitment,
+    Vote,
+};
+use beefy_verifier_primitives::{
+    BeefyNextAuthoritySet, ConsensusMessage, ConsensusState, MmrProof,
+};
+use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos, mmr_position_to_k_index};
+use primitive_types::H256;
 
 impl From<ConsensusMessage> for BeefyConsensusProof {
     fn from(message: ConsensusMessage) -> Self {
@@ -156,7 +175,7 @@ impl From<IntermediateState> for local::IntermediateState {
 }
 
 pub mod local {
-    use primitive_types::H256;
+    use super::H256;
 
     #[derive(Debug)]
     pub struct StateMachineHeight {

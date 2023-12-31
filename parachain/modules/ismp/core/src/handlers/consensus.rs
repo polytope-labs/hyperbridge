@@ -72,17 +72,17 @@ where
             let state_height = StateMachineHeight { id, height: commitment_height.height };
             // If a state machine is frozen, we skip it
             if host.is_state_machine_frozen(state_height).is_err() {
-                continue
+                continue;
             }
 
             // Only allow heights greater than latest height
             if previous_latest_height > commitment_height.height {
-                continue
+                continue;
             }
 
             // Skip duplicate states
             if host.state_machine_commitment(state_height).is_ok() {
-                continue
+                continue;
             }
 
             last_commitment_height = Some(state_height);

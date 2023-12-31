@@ -7,6 +7,7 @@ import "ismp/IConsensusClient.sol";
 contract TestConsensusClient is IConsensusClient {
     function verifyConsensus(bytes memory consensusState, bytes memory proof)
         external
+        pure
         returns (bytes memory, IntermediateState memory)
     {
         IntermediateState memory intermediate = abi.decode(proof, (IntermediateState));

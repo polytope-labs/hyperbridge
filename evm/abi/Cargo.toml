@@ -1,0 +1,20 @@
+[package]
+name = "ismp-solidity-abi"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+description = "Generated rust types for the ISMP solidity ABI"
+
+[build-dependencies]
+anyhow = "1.0.75"
+ethers-contract-abigen = { workspace = true }
+forge-testsuite = { workspace = true }
+
+[dependencies]
+primitive-types = "0.12.2"
+
+ethers = { workspace = true }
+merkle-mountain-range = { workspace = true }
+sp-consensus-beefy = { workspace =  true, features = ["default"] }
+
+beefy-verifier-primitives = { path = "../../parachain/modules/consensus/beefy/primitives" }

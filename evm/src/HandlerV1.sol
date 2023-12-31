@@ -52,7 +52,6 @@ contract HandlerV1 is IHandler, Context {
             host.storeStateMachineCommitmentUpdateTime(stateMachineHeight, host.timestamp());
             host.storeLatestStateMachineHeight(stateMachineHeight.height);
 
-            // todo: enforce challenge period
             emit StateMachineUpdated({
                 stateMachineId: stateMachineHeight.stateMachineId,
                 height: stateMachineHeight.height
@@ -118,7 +117,8 @@ contract HandlerV1 is IHandler, Context {
             require(leaf.response.request.source.equals(host.host()), "IHandler: Invalid response destination");
 
             bytes32 requestCommitment = Message.hash(leaf.response.request);
-            require(host.requestCommitments(requestCommitment), "IHandler: Unknown request");
+            RequestMetadata memory meta = host.requestCommitments(requestCommitment);
+            require(meta.sender != address(0), "IHandler: Unknown request");
 
             bytes32 responseCommitment = Message.hash(leaf.response);
             require(!host.responseCommitments(responseCommitment), "IHandler: Duplicate Post response");
@@ -157,7 +157,8 @@ contract HandlerV1 is IHandler, Context {
             );
 
             bytes32 requestCommitment = Message.hash(request);
-            require(host.requestCommitments(requestCommitment), "IHandler: Unknown request");
+            RequestMetadata memory meta = host.requestCommitments(requestCommitment);
+            require(meta.sender != address(0), "IHandler: Unknown request");
 
             bytes[] memory keys = new bytes[](1);
             keys[i] = bytes.concat(REQUEST_COMMITMENT_STORAGE_PREFIX, bytes.concat(requestCommitment));
@@ -165,7 +166,7 @@ contract HandlerV1 is IHandler, Context {
             StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
             require(entry.value.equals(new bytes(0)), "IHandler: Invalid non-membership proof");
 
-            host.dispatchIncoming(PostTimeout(request));
+            host.dispatchIncoming(PostTimeout(request), meta, requestCommitment);
         }
     }
 
@@ -190,7 +191,8 @@ contract HandlerV1 is IHandler, Context {
             require(request.source.equals(host.host()), "IHandler: Invalid GET response destination");
 
             bytes32 requestCommitment = Message.hash(request);
-            require(host.requestCommitments(requestCommitment), "IHandler: Unknown GET request");
+            RequestMetadata memory meta = host.requestCommitments(requestCommitment);
+            require(meta.sender != address(0), "IHandler: Unknown GET request");
             require(
                 request.timeoutTimestamp == 0 || request.timeoutTimestamp > host.timestamp(),
                 "IHandler: GET request timed out"
@@ -215,13 +217,14 @@ contract HandlerV1 is IHandler, Context {
         for (uint256 i = 0; i < timeoutsLength; i++) {
             GetRequest memory request = message.timeouts[i];
             bytes32 requestCommitment = Message.hash(request);
-            require(host.requestCommitments(requestCommitment), "IHandler: Unknown request");
+            RequestMetadata memory meta = host.requestCommitments(requestCommitment);
+            require(meta.sender != address(0), "IHandler: Unknown request");
 
             require(
                 request.timeoutTimestamp != 0 && host.timestamp() > request.timeoutTimestamp,
                 "IHandler: GET request not timed out"
             );
-            host.dispatchIncoming(request);
+            host.dispatchIncoming(request, meta, requestCommitment);
         }
     }
 }

@@ -35,7 +35,7 @@ contract DeployScript is Script {
         // EvmHost
         HostParams memory params = HostParams({
             admin: admin,
-            crosschainGovernor: address(governor),
+            hostManager: address(governor),
             handler: address(handler),
             // 45 mins
             defaultTimeout: 45 * 60,
@@ -45,7 +45,10 @@ contract DeployScript is Script {
             challengePeriod: 0,
             consensusClient: address(consensusClient),
             lastUpdated: 0,
-            consensusState: new bytes(0)
+            consensusState: new bytes(0),
+            baseGetRequestFee: 0,
+            perByteFee: 0,
+            feeTokenAddress: address(0)
         });
         address hostAddress = initHost(host, params);
         // set the ismphost on the cross-chain governor
@@ -57,17 +60,17 @@ contract DeployScript is Script {
 
     function initHost(string memory host, HostParams memory params) public returns (address) {
         if (Strings.equal(host, "sepolia") || Strings.equal(host, "ethereum")) {
-            EthereumHost host = new EthereumHost{salt: salt}(params);
-            return address(host);
+            EthereumHost h = new EthereumHost{salt: salt}(params);
+            return address(h);
         } else if (Strings.equal(host, "arbitrum-sepolia")) {
-            ArbitrumHost host = new ArbitrumHost{salt: salt}(params);
-            return address(host);
+            ArbitrumHost h = new ArbitrumHost{salt: salt}(params);
+            return address(h);
         } else if (Strings.equal(host, "optimism-sepolia")) {
-            OptimismHost host = new OptimismHost{salt: salt}(params);
-            return address(host);
+            OptimismHost h = new OptimismHost{salt: salt}(params);
+            return address(h);
         } else if (Strings.equal(host, "base-sepolia")) {
-            BaseHost host = new BaseHost{salt: salt}(params);
-            return address(host);
+            BaseHost h = new BaseHost{salt: salt}(params);
+            return address(h);
         }
 
         revert("unknown host");

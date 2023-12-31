@@ -26,8 +26,9 @@ members = [
      "parachain/modules/consensus/sync-committee/verifier",
      "parachain/modules/consensus/sync-committee/primitives",
 
-     # evm tests
-     "evm/integration-tests"
+     # evm stuff
+    "evm/integration-tests",
+     "evm/abi",
 ]
 
 # Config for 'cargo dist'
@@ -151,9 +152,7 @@ cumulus-client-consensus-proposer = "0.4.0"
 cumulus-client-collator = "0.4.0"
 substrate-wasm-builder = { version = "16.0.0" }
 
-forge = { git = "https://github.com/polytope-labs/foundry", rev = "acdfeeb24263903d5ab8135d67c42c8595f54192" }
-foundry-common = { git = "https://github.com/polytope-labs/foundry", rev = "acdfeeb24263903d5ab8135d67c42c8595f54192" }
-foundry-config = { git = "https://github.com/polytope-labs/foundry", rev = "acdfeeb24263903d5ab8135d67c42c8595f54192" }
-foundry-evm = { git = "https://github.com/polytope-labs/foundry", rev = "acdfeeb24263903d5ab8135d67c42c8595f54192" }
 ethers = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8", features = ["ethers-solc"] }
+ethers-contract-abigen = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8" }
 
+forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "5da50eafa1be2ebb3ceb31c3a7b9daaaec683d09" }

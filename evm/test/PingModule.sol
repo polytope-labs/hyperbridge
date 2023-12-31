@@ -64,14 +64,14 @@ contract PingModule is IIsmpModule {
         return commitment;
     }
 
-    function ping(PingMessage memory msg) public {
+    function ping(PingMessage memory pingMessage) public {
         DispatchPost memory post = DispatchPost({
             body: bytes.concat("hello from ", IIsmpHost(_host).host()),
-            dest: msg.dest,
+            dest: pingMessage.dest,
             // one hour
-            timeout: msg.timeout,
+            timeout: pingMessage.timeout,
             // instance of this pallet on another chain.
-            to: abi.encodePacked(address(msg.module)),
+            to: abi.encodePacked(address(pingMessage.module)),
             // unused for now
             gaslimit: 0
         });

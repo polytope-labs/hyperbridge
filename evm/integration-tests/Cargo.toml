@@ -1,8 +1,9 @@
 [package]
-name = "ismp-solidity-test"
+name = "ismp-solidity-tests"
 version = "0.1.0"
 edition = "2021"
-authors = ["Polytope Labs"]
+authors = ["Polytope Labs <hello@polytope.technology>"]
+description = "Integration tests for ismp-solidity"
 
 [dependencies]
 # crates.io
@@ -26,11 +27,8 @@ subxt = { version = "0.30.1", features = ["substrate-compat"] }
 merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2" }
 
 # rust-evm tools
-forge = { workspace = true }
-foundry-common = { workspace = true }
-foundry-config = { workspace = true }
-foundry-evm = { workspace = true }
 ethers = { workspace = true }
+forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "48bbd992f9da68f7ae28c5c762aa4e7169274e16" }
 
 
 # polytope-labs

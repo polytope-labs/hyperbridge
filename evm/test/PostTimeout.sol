@@ -24,7 +24,7 @@ contract PostTimeoutTest is Test {
 
         HostParams memory params = HostParams({
             admin: address(0),
-            crosschainGovernor: address(0),
+            hostManager: address(0),
             handler: address(handler),
             defaultTimeout: 0,
             unStakingPeriod: 5000,
@@ -32,7 +32,10 @@ contract PostTimeoutTest is Test {
             challengePeriod: 0,
             consensusClient: address(consensusClient),
             lastUpdated: 0,
-            consensusState: new bytes(0)
+            consensusState: new bytes(0),
+            baseGetRequestFee: 0,
+            perByteFee: 0,
+            feeTokenAddress: address(0)
         });
         host = new TestHost(params);
 

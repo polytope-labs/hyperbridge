@@ -10,8 +10,4 @@ contract ArbitrumHost is EvmHost {
     function host() public override returns (bytes memory) {
         return StateMachine.arbitrum();
     }
-
-    function dai() public override returns (address) {
-        return address(0);
-    }
 }

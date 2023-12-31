@@ -396,12 +396,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     /**
      * @dev sets the initial consensus state
-     * @param consensusState initial consensus state
+     * @param state initial consensus state
      */
-    function setConsensusState(bytes memory consensusState) public onlyAdmin {
+    function setConsensusState(bytes memory state) public onlyAdmin {
         require(_hostParams.consensusState.equals(new bytes(0)), "Unauthorized action");
 
-        _hostParams.consensusState = consensusState;
+        _hostParams.consensusState = state;
     }
 
     /**

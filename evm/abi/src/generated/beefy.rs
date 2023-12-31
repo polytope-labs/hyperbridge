@@ -7,7 +7,7 @@ pub use beefy::*;
     clippy::upper_case_acronyms,
     clippy::type_complexity,
     dead_code,
-    non_camel_case_types
+    non_camel_case_types,
 )]
 pub mod beefy {
     pub use super::super::shared_types::*;
@@ -357,7 +357,7 @@ pub mod beefy {
                                 },
                             ],
                             constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
                         },
                     ],
                 ),
@@ -369,8 +369,9 @@ pub mod beefy {
         }
     }
     ///The parsed JSON ABI of the contract.
-    pub static BEEFY_ABI: ::ethers::contract::Lazy<::ethers::core::abi::Abi> =
-        ::ethers::contract::Lazy::new(__abi);
+    pub static BEEFY_ABI: ::ethers::contract::Lazy<::ethers::core::abi::Abi> = ::ethers::contract::Lazy::new(
+        __abi,
+    );
     pub struct Beefy<M>(::ethers::contract::Contract<M>);
     impl<M> ::core::clone::Clone for Beefy<M> {
         fn clone(&self) -> Self {
@@ -400,16 +401,26 @@ pub mod beefy {
             address: T,
             client: ::std::sync::Arc<M>,
         ) -> Self {
-            Self(::ethers::contract::Contract::new(address.into(), BEEFY_ABI.clone(), client))
+            Self(
+                ::ethers::contract::Contract::new(
+                    address.into(),
+                    BEEFY_ABI.clone(),
+                    client,
+                ),
+            )
         }
         ///Calls the contract's `AURA_CONSENSUS_ID` (0x4e9fdbec) function
-        pub fn aura_consensus_id(&self) -> ::ethers::contract::builders::ContractCall<M, [u8; 4]> {
+        pub fn aura_consensus_id(
+            &self,
+        ) -> ::ethers::contract::builders::ContractCall<M, [u8; 4]> {
             self.0
                 .method_hash([78, 159, 219, 236], ())
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `ISMP_CONSENSUS_ID` (0xbabb3118) function
-        pub fn ismp_consensus_id(&self) -> ::ethers::contract::builders::ContractCall<M, [u8; 4]> {
+        pub fn ismp_consensus_id(
+            &self,
+        ) -> ::ethers::contract::builders::ContractCall<M, [u8; 4]> {
             self.0
                 .method_hash([186, 187, 49, 24], ())
                 .expect("method not found (this should never happen)")
@@ -465,13 +476,13 @@ pub mod beefy {
                 .expect("method not found (this should never happen)")
         }
     }
-    impl<M: ::ethers::providers::Middleware> From<::ethers::contract::Contract<M>> for Beefy<M> {
+    impl<M: ::ethers::providers::Middleware> From<::ethers::contract::Contract<M>>
+    for Beefy<M> {
         fn from(contract: ::ethers::contract::Contract<M>) -> Self {
             Self::new(contract.address(), contract.client())
         }
     }
-    ///Container type for all input parameters for the `AURA_CONSENSUS_ID` function with signature
-    /// `AURA_CONSENSUS_ID()` and selector `0x4e9fdbec`
+    ///Container type for all input parameters for the `AURA_CONSENSUS_ID` function with signature `AURA_CONSENSUS_ID()` and selector `0x4e9fdbec`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -480,12 +491,11 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(name = "AURA_CONSENSUS_ID", abi = "AURA_CONSENSUS_ID()")]
     pub struct AuraConsensusIdCall;
-    ///Container type for all input parameters for the `ISMP_CONSENSUS_ID` function with signature
-    /// `ISMP_CONSENSUS_ID()` and selector `0xbabb3118`
+    ///Container type for all input parameters for the `ISMP_CONSENSUS_ID` function with signature `ISMP_CONSENSUS_ID()` and selector `0xbabb3118`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -494,12 +504,11 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(name = "ISMP_CONSENSUS_ID", abi = "ISMP_CONSENSUS_ID()")]
     pub struct IsmpConsensusIdCall;
-    ///Container type for all input parameters for the `MMR_ROOT_PAYLOAD_ID` function with
-    /// signature `MMR_ROOT_PAYLOAD_ID()` and selector `0xaf8b91d6`
+    ///Container type for all input parameters for the `MMR_ROOT_PAYLOAD_ID` function with signature `MMR_ROOT_PAYLOAD_ID()` and selector `0xaf8b91d6`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -508,12 +517,11 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(name = "MMR_ROOT_PAYLOAD_ID", abi = "MMR_ROOT_PAYLOAD_ID()")]
     pub struct MmrRootPayloadIdCall;
-    ///Container type for all input parameters for the `SLOT_DURATION` function with signature
-    /// `SLOT_DURATION()` and selector `0x905c0511`
+    ///Container type for all input parameters for the `SLOT_DURATION` function with signature `SLOT_DURATION()` and selector `0x905c0511`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -522,15 +530,11 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(name = "SLOT_DURATION", abi = "SLOT_DURATION()")]
     pub struct SlotDurationCall;
-    ///Container type for all input parameters for the `verifyConsensus` function with signature
-    /// `verifyConsensus((uint256,uint256,(uint256,uint256,bytes32),(uint256,uint256,bytes32)),
-    /// (((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,
-    /// uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[][]),((uint256,
-    /// uint256,bytes),(uint256,bytes32)[][])))` and selector `0x5e399aea`
+    ///Container type for all input parameters for the `verifyConsensus` function with signature `verifyConsensus((uint256,uint256,(uint256,uint256,bytes32),(uint256,uint256,bytes32)),(((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[][]),((uint256,uint256,bytes),(uint256,bytes32)[][])))` and selector `0x5e399aea`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -539,7 +543,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "verifyConsensus",
@@ -549,8 +553,7 @@ pub mod beefy {
         pub trusted_state: BeefyConsensusState,
         pub proof: BeefyConsensusProof,
     }
-    ///Container type for all input parameters for the `verifyConsensus` function with signature
-    /// `verifyConsensus(bytes,bytes)` and selector `0x7d755598`
+    ///Container type for all input parameters for the `verifyConsensus` function with signature `verifyConsensus(bytes,bytes)` and selector `0x7d755598`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -559,7 +562,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(name = "verifyConsensus", abi = "verifyConsensus(bytes,bytes)")]
     pub struct VerifyConsensusWithEncodedStateAndEncodedProofCall {
@@ -583,28 +586,29 @@ pub mod beefy {
             data: impl AsRef<[u8]>,
         ) -> ::core::result::Result<Self, ::ethers::core::abi::AbiError> {
             let data = data.as_ref();
-            if let Ok(decoded) =
-                <AuraConsensusIdCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <AuraConsensusIdCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::AuraConsensusId(decoded));
             }
-            if let Ok(decoded) =
-                <IsmpConsensusIdCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <IsmpConsensusIdCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::IsmpConsensusId(decoded));
             }
-            if let Ok(decoded) =
-                <MmrRootPayloadIdCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <MmrRootPayloadIdCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::MmrRootPayloadId(decoded));
             }
-            if let Ok(decoded) = <SlotDurationCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <SlotDurationCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::SlotDuration(decoded));
             }
-            if let Ok(decoded) =
-                <VerifyConsensusCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <VerifyConsensusCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::VerifyConsensus(decoded));
             }
             if let Ok(decoded) = <VerifyConsensusWithEncodedStateAndEncodedProofCall as ::ethers::core::abi::AbiDecode>::decode(
@@ -618,13 +622,24 @@ pub mod beefy {
     impl ::ethers::core::abi::AbiEncode for BeefyCalls {
         fn encode(self) -> Vec<u8> {
             match self {
-                Self::AuraConsensusId(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::IsmpConsensusId(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::MmrRootPayloadId(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::SlotDuration(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::VerifyConsensus(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::VerifyConsensusWithEncodedStateAndEncodedProof(element) =>
-                    ::ethers::core::abi::AbiEncode::encode(element),
+                Self::AuraConsensusId(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::IsmpConsensusId(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::MmrRootPayloadId(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::SlotDuration(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::VerifyConsensus(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::VerifyConsensusWithEncodedStateAndEncodedProof(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
             }
         }
     }
@@ -636,8 +651,9 @@ pub mod beefy {
                 Self::MmrRootPayloadId(element) => ::core::fmt::Display::fmt(element, f),
                 Self::SlotDuration(element) => ::core::fmt::Display::fmt(element, f),
                 Self::VerifyConsensus(element) => ::core::fmt::Display::fmt(element, f),
-                Self::VerifyConsensusWithEncodedStateAndEncodedProof(element) =>
-                    ::core::fmt::Display::fmt(element, f),
+                Self::VerifyConsensusWithEncodedStateAndEncodedProof(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
             }
         }
     }
@@ -666,13 +682,13 @@ pub mod beefy {
             Self::VerifyConsensus(value)
         }
     }
-    impl ::core::convert::From<VerifyConsensusWithEncodedStateAndEncodedProofCall> for BeefyCalls {
+    impl ::core::convert::From<VerifyConsensusWithEncodedStateAndEncodedProofCall>
+    for BeefyCalls {
         fn from(value: VerifyConsensusWithEncodedStateAndEncodedProofCall) -> Self {
             Self::VerifyConsensusWithEncodedStateAndEncodedProof(value)
         }
     }
-    ///Container type for all return fields from the `AURA_CONSENSUS_ID` function with signature
-    /// `AURA_CONSENSUS_ID()` and selector `0x4e9fdbec`
+    ///Container type for all return fields from the `AURA_CONSENSUS_ID` function with signature `AURA_CONSENSUS_ID()` and selector `0x4e9fdbec`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -681,11 +697,10 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct AuraConsensusIdReturn(pub [u8; 4]);
-    ///Container type for all return fields from the `ISMP_CONSENSUS_ID` function with signature
-    /// `ISMP_CONSENSUS_ID()` and selector `0xbabb3118`
+    ///Container type for all return fields from the `ISMP_CONSENSUS_ID` function with signature `ISMP_CONSENSUS_ID()` and selector `0xbabb3118`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -694,11 +709,10 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct IsmpConsensusIdReturn(pub [u8; 4]);
-    ///Container type for all return fields from the `MMR_ROOT_PAYLOAD_ID` function with signature
-    /// `MMR_ROOT_PAYLOAD_ID()` and selector `0xaf8b91d6`
+    ///Container type for all return fields from the `MMR_ROOT_PAYLOAD_ID` function with signature `MMR_ROOT_PAYLOAD_ID()` and selector `0xaf8b91d6`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -707,11 +721,10 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct MmrRootPayloadIdReturn(pub [u8; 2]);
-    ///Container type for all return fields from the `SLOT_DURATION` function with signature
-    /// `SLOT_DURATION()` and selector `0x905c0511`
+    ///Container type for all return fields from the `SLOT_DURATION` function with signature `SLOT_DURATION()` and selector `0x905c0511`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -720,14 +733,10 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct SlotDurationReturn(pub ::ethers::core::types::U256);
-    ///Container type for all return fields from the `verifyConsensus` function with signature
-    /// `verifyConsensus((uint256,uint256,(uint256,uint256,bytes32),(uint256,uint256,bytes32)),
-    /// (((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,
-    /// uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[][]),((uint256,
-    /// uint256,bytes),(uint256,bytes32)[][])))` and selector `0x5e399aea`
+    ///Container type for all return fields from the `verifyConsensus` function with signature `verifyConsensus((uint256,uint256,(uint256,uint256,bytes32),(uint256,uint256,bytes32)),(((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[][]),((uint256,uint256,bytes),(uint256,bytes32)[][])))` and selector `0x5e399aea`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -736,10 +745,10 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct VerifyConsensusReturn(
-        pub  (
+        pub (
             ::ethers::core::types::U256,
             ::ethers::core::types::U256,
             (::ethers::core::types::U256, ::ethers::core::types::U256, [u8; 32]),
@@ -747,8 +756,7 @@ pub mod beefy {
         ),
         pub IntermediateState,
     );
-    ///Container type for all return fields from the `verifyConsensus` function with signature
-    /// `verifyConsensus(bytes,bytes)` and selector `0x7d755598`
+    ///Container type for all return fields from the `verifyConsensus` function with signature `verifyConsensus(bytes,bytes)` and selector `0x7d755598`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -757,7 +765,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct VerifyConsensusWithEncodedStateAndEncodedProofReturn(
         pub ::ethers::core::types::Bytes,
@@ -772,16 +780,14 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct AuthoritySetCommitment {
         pub id: ::ethers::core::types::U256,
         pub len: ::ethers::core::types::U256,
         pub root: [u8; 32],
     }
-    ///`BeefyConsensusProof(((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,
-    /// uint256,bytes32,(uint256,uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,
-    /// bytes32)[]),((uint256,uint256,bytes),(uint256,bytes32)[]))`
+    ///`BeefyConsensusProof(((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[]),((uint256,uint256,bytes),(uint256,bytes32)[]))`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -790,7 +796,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct BeefyConsensusProof {
         pub relay: RelayChainProof,
@@ -805,7 +811,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct BeefyConsensusState {
         pub latest_height: ::ethers::core::types::U256,
@@ -822,7 +828,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct BeefyMmrLeaf {
         pub version: ::ethers::core::types::U256,
@@ -842,7 +848,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct Commitment {
         pub payload: ::std::vec::Vec<Payload>,
@@ -858,7 +864,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct IntermediateState {
         pub state_machine_id: ::ethers::core::types::U256,
@@ -874,7 +880,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct Node {
         pub k_index: ::ethers::core::types::U256,
@@ -889,7 +895,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct Parachain {
         pub index: ::ethers::core::types::U256,
@@ -905,7 +911,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct ParachainProof {
         pub parachain: Parachain,
@@ -920,14 +926,13 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct Payload {
         pub id: [u8; 2],
         pub data: ::ethers::core::types::Bytes,
     }
-    ///`RelayChainProof((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,
-    /// bytes32,(uint256,uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[])`
+    ///`RelayChainProof((((bytes2,bytes)[],uint256,uint256),(bytes,uint256)[]),(uint256,uint256,bytes32,(uint256,uint256,bytes32),bytes32,uint256,uint256),bytes32[],(uint256,bytes32)[])`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -936,7 +941,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct RelayChainProof {
         pub signed_commitment: SignedCommitment,
@@ -953,7 +958,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct SignedCommitment {
         pub commitment: Commitment,
@@ -968,7 +973,7 @@ pub mod beefy {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct Vote {
         pub signature: ::ethers::core::types::Bytes,

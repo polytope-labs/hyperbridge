@@ -7,7 +7,7 @@ pub use ping_module::*;
     clippy::upper_case_acronyms,
     clippy::type_complexity,
     dead_code,
-    non_camel_case_types
+    non_camel_case_types,
 )]
 pub mod ping_module {
     pub use super::super::shared_types::*;
@@ -15,13 +15,15 @@ pub mod ping_module {
     fn __abi() -> ::ethers::core::abi::Abi {
         ::ethers::core::abi::ethabi::Contract {
             constructor: ::core::option::Option::Some(::ethers::core::abi::ethabi::Constructor {
-                inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                    name: ::std::borrow::ToOwned::to_owned("host"),
-                    kind: ::ethers::core::abi::ethabi::ParamType::Address,
-                    internal_type: ::core::option::Option::Some(::std::borrow::ToOwned::to_owned(
-                        "address"
-                    ),),
-                },],
+                inputs: ::std::vec![
+                    ::ethers::core::abi::ethabi::Param {
+                        name: ::std::borrow::ToOwned::to_owned("host"),
+                        kind: ::ethers::core::abi::ethabi::ParamType::Address,
+                        internal_type: ::core::option::Option::Some(
+                            ::std::borrow::ToOwned::to_owned("address"),
+                        ),
+                    },
+                ],
             }),
             functions: ::core::convert::From::from([
                 (
@@ -29,319 +31,407 @@ pub mod ping_module {
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Function {
                             name: ::std::borrow::ToOwned::to_owned("dispatch"),
-                            inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                                name: ::std::borrow::ToOwned::to_owned("request"),
-                                kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ],),
-                                internal_type: ::core::option::Option::Some(
-                                    ::std::borrow::ToOwned::to_owned("struct PostRequest"),
-                                ),
-                            },],
-                            outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                                name: ::std::string::String::new(),
-                                kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize,),
-                                internal_type: ::core::option::Option::Some(
-                                    ::std::borrow::ToOwned::to_owned("bytes32"),
-                                ),
-                            },],
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("request"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                        ],
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("struct PostRequest"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::string::String::new(),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
+                                        32usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bytes32"),
+                                    ),
+                                },
+                            ],
                             constant: ::core::option::Option::None,
-                            state_mutability:
-                                ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
                         },
                         ::ethers::core::abi::ethabi::Function {
                             name: ::std::borrow::ToOwned::to_owned("dispatch"),
-                            inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                                name: ::std::borrow::ToOwned::to_owned("request"),
-                                kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Array(
-                                        ::std::boxed::Box::new(
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("request"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
                                             ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                        ),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Array(
+                                                ::std::boxed::Box::new(
+                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                ),
+                                            ),
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                        ],
                                     ),
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ],),
-                                internal_type: ::core::option::Option::Some(
-                                    ::std::borrow::ToOwned::to_owned("struct GetRequest"),
-                                ),
-                            },],
-                            outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                                name: ::std::string::String::new(),
-                                kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize,),
-                                internal_type: ::core::option::Option::Some(
-                                    ::std::borrow::ToOwned::to_owned("bytes32"),
-                                ),
-                            },],
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("struct GetRequest"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::string::String::new(),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
+                                        32usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bytes32"),
+                                    ),
+                                },
+                            ],
                             constant: ::core::option::Option::None,
-                            state_mutability:
-                                ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
                         },
                     ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("dispatchToParachain"),
-                    ::std::vec![::ethers::core::abi::ethabi::Function {
-                        name: ::std::borrow::ToOwned::to_owned("dispatchToParachain",),
-                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                            name: ::std::borrow::ToOwned::to_owned("_paraId"),
-                            kind: ::ethers::core::abi::ethabi::ParamType::Uint(256usize,),
-                            internal_type: ::core::option::Option::Some(
-                                ::std::borrow::ToOwned::to_owned("uint256"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "dispatchToParachain",
                             ),
-                        },],
-                        outputs: ::std::vec![],
-                        constant: ::core::option::Option::None,
-                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
-                    },],
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("_paraId"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
+                                        256usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("uint256"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("onAccept"),
-                    ::std::vec![::ethers::core::abi::ethabi::Function {
-                        name: ::std::borrow::ToOwned::to_owned("onAccept"),
-                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                            name: ::std::borrow::ToOwned::to_owned("request"),
-                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                            ],),
-                            internal_type: ::core::option::Option::Some(
-                                ::std::borrow::ToOwned::to_owned("struct PostRequest"),
-                            ),
-                        },],
-                        outputs: ::std::vec![],
-                        constant: ::core::option::Option::None,
-                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("onAccept"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("request"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                        ],
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("struct PostRequest"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("onGetResponse"),
-                    ::std::vec![::ethers::core::abi::ethabi::Function {
-                        name: ::std::borrow::ToOwned::to_owned("onGetResponse"),
-                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                            name: ::std::borrow::ToOwned::to_owned("response"),
-                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Array(
-                                        ::std::boxed::Box::new(
-                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                        ),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("onGetResponse"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::string::String::new(),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                                ::std::vec![
+                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                                    ::ethers::core::abi::ethabi::ParamType::Array(
+                                                        ::std::boxed::Box::new(
+                                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                        ),
+                                                    ),
+                                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                                ],
+                                            ),
+                                            ::ethers::core::abi::ethabi::ParamType::Array(
+                                                ::std::boxed::Box::new(
+                                                    ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                                        ::std::vec![
+                                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                        ],
+                                                    ),
+                                                ),
+                                            ),
+                                        ],
                                     ),
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ],),
-                                ::ethers::core::abi::ethabi::ParamType::Array(
-                                    ::std::boxed::Box::new(
-                                        ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                        ],),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("struct GetResponse"),
                                     ),
-                                ),
-                            ],),
-                            internal_type: ::core::option::Option::Some(
-                                ::std::borrow::ToOwned::to_owned("struct GetResponse"),
-                            ),
-                        },],
-                        outputs: ::std::vec![],
-                        constant: ::core::option::Option::None,
-                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
-                    },],
+                                },
+                            ],
+                            outputs: ::std::vec![],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("onGetTimeout"),
-                    ::std::vec![::ethers::core::abi::ethabi::Function {
-                        name: ::std::borrow::ToOwned::to_owned("onGetTimeout"),
-                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                            name: ::std::borrow::ToOwned::to_owned("request"),
-                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ::ethers::core::abi::ethabi::ParamType::Array(
-                                    ::std::boxed::Box::new(
-                                        ::ethers::core::abi::ethabi::ParamType::Bytes,
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("onGetTimeout"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::string::String::new(),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Array(
+                                                ::std::boxed::Box::new(
+                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                ),
+                                            ),
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                        ],
                                     ),
-                                ),
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                            ],),
-                            internal_type: ::core::option::Option::Some(
-                                ::std::borrow::ToOwned::to_owned("struct GetRequest"),
-                            ),
-                        },],
-                        outputs: ::std::vec![],
-                        constant: ::core::option::Option::None,
-                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
-                    },],
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("struct GetRequest"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("onPostResponse"),
-                    ::std::vec![::ethers::core::abi::ethabi::Function {
-                        name: ::std::borrow::ToOwned::to_owned("onPostResponse"),
-                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                            name: ::std::borrow::ToOwned::to_owned("response"),
-                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ],),
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                            ],),
-                            internal_type: ::core::option::Option::Some(
-                                ::std::borrow::ToOwned::to_owned("struct PostResponse"),
-                            ),
-                        },],
-                        outputs: ::std::vec![],
-                        constant: ::core::option::Option::None,
-                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("onPostResponse"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::string::String::new(),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                                ::std::vec![
+                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                                ],
+                                            ),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                        ],
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("struct PostResponse"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("onPostTimeout"),
-                    ::std::vec![::ethers::core::abi::ethabi::Function {
-                        name: ::std::borrow::ToOwned::to_owned("onPostTimeout"),
-                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                            name: ::std::borrow::ToOwned::to_owned("request"),
-                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                            ],),
-                            internal_type: ::core::option::Option::Some(
-                                ::std::borrow::ToOwned::to_owned("struct PostRequest"),
-                            ),
-                        },],
-                        outputs: ::std::vec![],
-                        constant: ::core::option::Option::None,
-                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("onPostTimeout"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::string::String::new(),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                        ],
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("struct PostRequest"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("ping"),
-                    ::std::vec![::ethers::core::abi::ethabi::Function {
-                        name: ::std::borrow::ToOwned::to_owned("ping"),
-                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                            name: ::std::borrow::ToOwned::to_owned("pingMessage"),
-                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Address,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                            ],),
-                            internal_type: ::core::option::Option::Some(
-                                ::std::borrow::ToOwned::to_owned("struct PingMessage"),
-                            ),
-                        },],
-                        outputs: ::std::vec![],
-                        constant: ::core::option::Option::None,
-                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("ping"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("pingMessage"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                        ],
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("struct PingMessage"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                        },
+                    ],
                 ),
             ]),
             events: ::core::convert::From::from([
                 (
                     ::std::borrow::ToOwned::to_owned("GetResponseReceived"),
-                    ::std::vec![::ethers::core::abi::ethabi::Event {
-                        name: ::std::borrow::ToOwned::to_owned("GetResponseReceived",),
-                        inputs: ::std::vec![],
-                        anonymous: false,
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "GetResponseReceived",
+                            ),
+                            inputs: ::std::vec![],
+                            anonymous: false,
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("GetTimeoutReceived"),
-                    ::std::vec![::ethers::core::abi::ethabi::Event {
-                        name: ::std::borrow::ToOwned::to_owned("GetTimeoutReceived"),
-                        inputs: ::std::vec![],
-                        anonymous: false,
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned("GetTimeoutReceived"),
+                            inputs: ::std::vec![],
+                            anonymous: false,
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("MessageDispatched"),
-                    ::std::vec![::ethers::core::abi::ethabi::Event {
-                        name: ::std::borrow::ToOwned::to_owned("MessageDispatched"),
-                        inputs: ::std::vec![],
-                        anonymous: false,
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned("MessageDispatched"),
+                            inputs: ::std::vec![],
+                            anonymous: false,
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("PostReceived"),
-                    ::std::vec![::ethers::core::abi::ethabi::Event {
-                        name: ::std::borrow::ToOwned::to_owned("PostReceived"),
-                        inputs: ::std::vec![::ethers::core::abi::ethabi::EventParam {
-                            name: ::std::borrow::ToOwned::to_owned("message"),
-                            kind: ::ethers::core::abi::ethabi::ParamType::String,
-                            indexed: false,
-                        },],
-                        anonymous: false,
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned("PostReceived"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("message"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::String,
+                                    indexed: false,
+                                },
+                            ],
+                            anonymous: false,
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("PostResponseReceived"),
-                    ::std::vec![::ethers::core::abi::ethabi::Event {
-                        name: ::std::borrow::ToOwned::to_owned("PostResponseReceived",),
-                        inputs: ::std::vec![],
-                        anonymous: false,
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "PostResponseReceived",
+                            ),
+                            inputs: ::std::vec![],
+                            anonymous: false,
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("PostTimeoutReceived"),
-                    ::std::vec![::ethers::core::abi::ethabi::Event {
-                        name: ::std::borrow::ToOwned::to_owned("PostTimeoutReceived",),
-                        inputs: ::std::vec![],
-                        anonymous: false,
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "PostTimeoutReceived",
+                            ),
+                            inputs: ::std::vec![],
+                            anonymous: false,
+                        },
+                    ],
                 ),
             ]),
             errors: ::core::convert::From::from([
                 (
                     ::std::borrow::ToOwned::to_owned("ExecutionFailed"),
-                    ::std::vec![::ethers::core::abi::ethabi::AbiError {
-                        name: ::std::borrow::ToOwned::to_owned("ExecutionFailed"),
-                        inputs: ::std::vec![],
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("ExecutionFailed"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("NotIsmpHost"),
-                    ::std::vec![::ethers::core::abi::ethabi::AbiError {
-                        name: ::std::borrow::ToOwned::to_owned("NotIsmpHost"),
-                        inputs: ::std::vec![],
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::AbiError {
+                            name: ::std::borrow::ToOwned::to_owned("NotIsmpHost"),
+                            inputs: ::std::vec![],
+                        },
+                    ],
                 ),
             ]),
             receive: false,
@@ -349,8 +439,9 @@ pub mod ping_module {
         }
     }
     ///The parsed JSON ABI of the contract.
-    pub static PINGMODULE_ABI: ::ethers::contract::Lazy<::ethers::core::abi::Abi> =
-        ::ethers::contract::Lazy::new(__abi);
+    pub static PINGMODULE_ABI: ::ethers::contract::Lazy<::ethers::core::abi::Abi> = ::ethers::contract::Lazy::new(
+        __abi,
+    );
     pub struct PingModule<M>(::ethers::contract::Contract<M>);
     impl<M> ::core::clone::Clone for PingModule<M> {
         fn clone(&self) -> Self {
@@ -380,7 +471,13 @@ pub mod ping_module {
             address: T,
             client: ::std::sync::Arc<M>,
         ) -> Self {
-            Self(::ethers::contract::Contract::new(address.into(), PINGMODULE_ABI.clone(), client))
+            Self(
+                ::ethers::contract::Contract::new(
+                    address.into(),
+                    PINGMODULE_ABI.clone(),
+                    client,
+                ),
+            )
         }
         ///Calls the contract's `dispatch` (0x31267dee) function
         pub fn dispatch(
@@ -421,37 +518,37 @@ pub mod ping_module {
         ///Calls the contract's `onGetResponse` (0xf370fdbb) function
         pub fn on_get_response(
             &self,
-            response: GetResponse,
+            p0: GetResponse,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([243, 112, 253, 187], (response,))
+                .method_hash([243, 112, 253, 187], (p0,))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `onGetTimeout` (0x4c46c035) function
         pub fn on_get_timeout(
             &self,
-            request: GetRequest,
+            p0: GetRequest,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([76, 70, 192, 53], (request,))
+                .method_hash([76, 70, 192, 53], (p0,))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `onPostResponse` (0xc52c28af) function
         pub fn on_post_response(
             &self,
-            response: PostResponse,
+            p0: PostResponse,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([197, 44, 40, 175], (response,))
+                .method_hash([197, 44, 40, 175], (p0,))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `onPostTimeout` (0xc715f52b) function
         pub fn on_post_timeout(
             &self,
-            request: PostRequest,
+            p0: PostRequest,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([199, 21, 245, 43], (request,))
+                .method_hash([199, 21, 245, 43], (p0,))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `ping` (0x40ffb7bc) function
@@ -466,59 +563,81 @@ pub mod ping_module {
         ///Gets the contract's `GetResponseReceived` event
         pub fn get_response_received_filter(
             &self,
-        ) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, GetResponseReceivedFilter>
-        {
+        ) -> ::ethers::contract::builders::Event<
+            ::std::sync::Arc<M>,
+            M,
+            GetResponseReceivedFilter,
+        > {
             self.0.event()
         }
         ///Gets the contract's `GetTimeoutReceived` event
         pub fn get_timeout_received_filter(
             &self,
-        ) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, GetTimeoutReceivedFilter>
-        {
+        ) -> ::ethers::contract::builders::Event<
+            ::std::sync::Arc<M>,
+            M,
+            GetTimeoutReceivedFilter,
+        > {
             self.0.event()
         }
         ///Gets the contract's `MessageDispatched` event
         pub fn message_dispatched_filter(
             &self,
-        ) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, MessageDispatchedFilter>
-        {
+        ) -> ::ethers::contract::builders::Event<
+            ::std::sync::Arc<M>,
+            M,
+            MessageDispatchedFilter,
+        > {
             self.0.event()
         }
         ///Gets the contract's `PostReceived` event
         pub fn post_received_filter(
             &self,
-        ) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostReceivedFilter>
-        {
+        ) -> ::ethers::contract::builders::Event<
+            ::std::sync::Arc<M>,
+            M,
+            PostReceivedFilter,
+        > {
             self.0.event()
         }
         ///Gets the contract's `PostResponseReceived` event
         pub fn post_response_received_filter(
             &self,
-        ) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostResponseReceivedFilter>
-        {
+        ) -> ::ethers::contract::builders::Event<
+            ::std::sync::Arc<M>,
+            M,
+            PostResponseReceivedFilter,
+        > {
             self.0.event()
         }
         ///Gets the contract's `PostTimeoutReceived` event
         pub fn post_timeout_received_filter(
             &self,
-        ) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostTimeoutReceivedFilter>
-        {
+        ) -> ::ethers::contract::builders::Event<
+            ::std::sync::Arc<M>,
+            M,
+            PostTimeoutReceivedFilter,
+        > {
             self.0.event()
         }
         /// Returns an `Event` builder for all the events of this contract.
         pub fn events(
             &self,
-        ) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PingModuleEvents> {
+        ) -> ::ethers::contract::builders::Event<
+            ::std::sync::Arc<M>,
+            M,
+            PingModuleEvents,
+        > {
             self.0.event_with_filter(::core::default::Default::default())
         }
     }
-    impl<M: ::ethers::providers::Middleware> From<::ethers::contract::Contract<M>> for PingModule<M> {
+    impl<M: ::ethers::providers::Middleware> From<::ethers::contract::Contract<M>>
+    for PingModule<M> {
         fn from(contract: ::ethers::contract::Contract<M>) -> Self {
             Self::new(contract.address(), contract.client())
         }
     }
-    ///Custom Error type `ExecutionFailed` with signature `ExecutionFailed()` and selector
-    /// `0xacfdb444`
+    ///Custom Error type `ExecutionFailed` with signature `ExecutionFailed()` and selector `0xacfdb444`
     #[derive(
         Clone,
         ::ethers::contract::EthError,
@@ -527,7 +646,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[etherror(name = "ExecutionFailed", abi = "ExecutionFailed()")]
     pub struct ExecutionFailed;
@@ -540,7 +659,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[etherror(name = "NotIsmpHost", abi = "NotIsmpHost()")]
     pub struct NotIsmpHost;
@@ -558,15 +677,19 @@ pub mod ping_module {
             data: impl AsRef<[u8]>,
         ) -> ::core::result::Result<Self, ::ethers::core::abi::AbiError> {
             let data = data.as_ref();
-            if let Ok(decoded) =
-                <::std::string::String as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <::std::string::String as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::RevertString(decoded));
             }
-            if let Ok(decoded) = <ExecutionFailed as ::ethers::core::abi::AbiDecode>::decode(data) {
+            if let Ok(decoded) = <ExecutionFailed as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::ExecutionFailed(decoded));
             }
-            if let Ok(decoded) = <NotIsmpHost as ::ethers::core::abi::AbiDecode>::decode(data) {
+            if let Ok(decoded) = <NotIsmpHost as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::NotIsmpHost(decoded));
             }
             Err(::ethers::core::abi::Error::InvalidData.into())
@@ -575,8 +698,12 @@ pub mod ping_module {
     impl ::ethers::core::abi::AbiEncode for PingModuleErrors {
         fn encode(self) -> ::std::vec::Vec<u8> {
             match self {
-                Self::ExecutionFailed(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::NotIsmpHost(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::ExecutionFailed(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::NotIsmpHost(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
                 Self::RevertString(s) => ::ethers::core::abi::AbiEncode::encode(s),
             }
         }
@@ -585,9 +712,12 @@ pub mod ping_module {
         fn valid_selector(selector: [u8; 4]) -> bool {
             match selector {
                 [0x08, 0xc3, 0x79, 0xa0] => true,
-                _ if selector == <ExecutionFailed as ::ethers::contract::EthError>::selector() =>
-                    true,
-                _ if selector == <NotIsmpHost as ::ethers::contract::EthError>::selector() => true,
+                _ if selector
+                    == <ExecutionFailed as ::ethers::contract::EthError>::selector() => {
+                    true
+                }
+                _ if selector
+                    == <NotIsmpHost as ::ethers::contract::EthError>::selector() => true,
                 _ => false,
             }
         }
@@ -624,7 +754,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethevent(name = "GetResponseReceived", abi = "GetResponseReceived()")]
     pub struct GetResponseReceivedFilter;
@@ -636,7 +766,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethevent(name = "GetTimeoutReceived", abi = "GetTimeoutReceived()")]
     pub struct GetTimeoutReceivedFilter;
@@ -648,7 +778,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethevent(name = "MessageDispatched", abi = "MessageDispatched()")]
     pub struct MessageDispatchedFilter;
@@ -660,7 +790,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethevent(name = "PostReceived", abi = "PostReceived(string)")]
     pub struct PostReceivedFilter {
@@ -674,7 +804,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethevent(name = "PostResponseReceived", abi = "PostResponseReceived()")]
     pub struct PostResponseReceivedFilter;
@@ -686,7 +816,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethevent(name = "PostTimeoutReceived", abi = "PostTimeoutReceived()")]
     pub struct PostTimeoutReceivedFilter;
@@ -728,12 +858,24 @@ pub mod ping_module {
     impl ::core::fmt::Display for PingModuleEvents {
         fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
             match self {
-                Self::GetResponseReceivedFilter(element) => ::core::fmt::Display::fmt(element, f),
-                Self::GetTimeoutReceivedFilter(element) => ::core::fmt::Display::fmt(element, f),
-                Self::MessageDispatchedFilter(element) => ::core::fmt::Display::fmt(element, f),
-                Self::PostReceivedFilter(element) => ::core::fmt::Display::fmt(element, f),
-                Self::PostResponseReceivedFilter(element) => ::core::fmt::Display::fmt(element, f),
-                Self::PostTimeoutReceivedFilter(element) => ::core::fmt::Display::fmt(element, f),
+                Self::GetResponseReceivedFilter(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
+                Self::GetTimeoutReceivedFilter(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
+                Self::MessageDispatchedFilter(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
+                Self::PostReceivedFilter(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
+                Self::PostResponseReceivedFilter(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
+                Self::PostTimeoutReceivedFilter(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
             }
         }
     }
@@ -767,8 +909,7 @@ pub mod ping_module {
             Self::PostTimeoutReceivedFilter(value)
         }
     }
-    ///Container type for all input parameters for the `dispatch` function with signature
-    /// `dispatch((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector `0x31267dee`
+    ///Container type for all input parameters for the `dispatch` function with signature `dispatch((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector `0x31267dee`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -777,7 +918,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "dispatch",
@@ -786,9 +927,7 @@ pub mod ping_module {
     pub struct DispatchCall {
         pub request: GetRequest,
     }
-    ///Container type for all input parameters for the `dispatch` function with signature
-    /// `dispatch((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64))` and selector
-    /// `0xd1ab46cf`
+    ///Container type for all input parameters for the `dispatch` function with signature `dispatch((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64))` and selector `0xd1ab46cf`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -797,7 +936,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "dispatch",
@@ -806,8 +945,7 @@ pub mod ping_module {
     pub struct DispatchWithRequestCall {
         pub request: GetRequest,
     }
-    ///Container type for all input parameters for the `dispatchToParachain` function with
-    /// signature `dispatchToParachain(uint256)` and selector `0x72354e9b`
+    ///Container type for all input parameters for the `dispatchToParachain` function with signature `dispatchToParachain(uint256)` and selector `0x72354e9b`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -816,14 +954,13 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(name = "dispatchToParachain", abi = "dispatchToParachain(uint256)")]
     pub struct DispatchToParachainCall {
         pub para_id: ::ethers::core::types::U256,
     }
-    ///Container type for all input parameters for the `onAccept` function with signature
-    /// `onAccept((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector `0x4e87ba19`
+    ///Container type for all input parameters for the `onAccept` function with signature `onAccept((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector `0x4e87ba19`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -832,7 +969,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "onAccept",
@@ -841,9 +978,7 @@ pub mod ping_module {
     pub struct OnAcceptCall {
         pub request: PostRequest,
     }
-    ///Container type for all input parameters for the `onGetResponse` function with signature
-    /// `onGetResponse(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64),(bytes,bytes)[]))`
-    /// and selector `0xf370fdbb`
+    ///Container type for all input parameters for the `onGetResponse` function with signature `onGetResponse(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64),(bytes,bytes)[]))` and selector `0xf370fdbb`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -852,18 +987,14 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "onGetResponse",
         abi = "onGetResponse(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64),(bytes,bytes)[]))"
     )]
-    pub struct OnGetResponseCall {
-        pub response: GetResponse,
-    }
-    ///Container type for all input parameters for the `onGetTimeout` function with signature
-    /// `onGetTimeout((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64))` and selector
-    /// `0x4c46c035`
+    pub struct OnGetResponseCall(pub GetResponse);
+    ///Container type for all input parameters for the `onGetTimeout` function with signature `onGetTimeout((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64))` and selector `0x4c46c035`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -872,18 +1003,14 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "onGetTimeout",
         abi = "onGetTimeout((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64))"
     )]
-    pub struct OnGetTimeoutCall {
-        pub request: GetRequest,
-    }
-    ///Container type for all input parameters for the `onPostResponse` function with signature
-    /// `onPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes))` and selector
-    /// `0xc52c28af`
+    pub struct OnGetTimeoutCall(pub GetRequest);
+    ///Container type for all input parameters for the `onPostResponse` function with signature `onPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes))` and selector `0xc52c28af`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -892,18 +1019,14 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "onPostResponse",
         abi = "onPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes))"
     )]
-    pub struct OnPostResponseCall {
-        pub response: PostResponse,
-    }
-    ///Container type for all input parameters for the `onPostTimeout` function with signature
-    /// `onPostTimeout((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector
-    /// `0xc715f52b`
+    pub struct OnPostResponseCall(pub PostResponse);
+    ///Container type for all input parameters for the `onPostTimeout` function with signature `onPostTimeout((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector `0xc715f52b`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -912,17 +1035,14 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "onPostTimeout",
         abi = "onPostTimeout((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))"
     )]
-    pub struct OnPostTimeoutCall {
-        pub request: PostRequest,
-    }
-    ///Container type for all input parameters for the `ping` function with signature
-    /// `ping((bytes,address,uint64))` and selector `0x40ffb7bc`
+    pub struct OnPostTimeoutCall(pub PostRequest);
+    ///Container type for all input parameters for the `ping` function with signature `ping((bytes,address,uint64))` and selector `0x40ffb7bc`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -931,7 +1051,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(name = "ping", abi = "ping((bytes,address,uint64))")]
     pub struct PingCall {
@@ -955,40 +1075,49 @@ pub mod ping_module {
             data: impl AsRef<[u8]>,
         ) -> ::core::result::Result<Self, ::ethers::core::abi::AbiError> {
             let data = data.as_ref();
-            if let Ok(decoded) = <DispatchCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+            if let Ok(decoded) = <DispatchCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::Dispatch(decoded));
             }
-            if let Ok(decoded) =
-                <DispatchWithRequestCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <DispatchWithRequestCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::DispatchWithRequest(decoded));
             }
-            if let Ok(decoded) =
-                <DispatchToParachainCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <DispatchToParachainCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::DispatchToParachain(decoded));
             }
-            if let Ok(decoded) = <OnAcceptCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+            if let Ok(decoded) = <OnAcceptCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::OnAccept(decoded));
             }
-            if let Ok(decoded) = <OnGetResponseCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <OnGetResponseCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::OnGetResponse(decoded));
             }
-            if let Ok(decoded) = <OnGetTimeoutCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <OnGetTimeoutCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::OnGetTimeout(decoded));
             }
-            if let Ok(decoded) =
-                <OnPostResponseCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <OnPostResponseCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::OnPostResponse(decoded));
             }
-            if let Ok(decoded) = <OnPostTimeoutCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <OnPostTimeoutCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::OnPostTimeout(decoded));
             }
-            if let Ok(decoded) = <PingCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+            if let Ok(decoded) = <PingCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::Ping(decoded));
             }
             Err(::ethers::core::abi::Error::InvalidData.into())
@@ -997,16 +1126,30 @@ pub mod ping_module {
     impl ::ethers::core::abi::AbiEncode for PingModuleCalls {
         fn encode(self) -> Vec<u8> {
             match self {
-                Self::Dispatch(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::DispatchWithRequest(element) =>
-                    ::ethers::core::abi::AbiEncode::encode(element),
-                Self::DispatchToParachain(element) =>
-                    ::ethers::core::abi::AbiEncode::encode(element),
-                Self::OnAccept(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::OnGetResponse(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::OnGetTimeout(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::OnPostResponse(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::OnPostTimeout(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::Dispatch(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::DispatchWithRequest(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::DispatchToParachain(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::OnAccept(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::OnGetResponse(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::OnGetTimeout(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::OnPostResponse(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::OnPostTimeout(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
                 Self::Ping(element) => ::ethers::core::abi::AbiEncode::encode(element),
             }
         }
@@ -1015,8 +1158,12 @@ pub mod ping_module {
         fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
             match self {
                 Self::Dispatch(element) => ::core::fmt::Display::fmt(element, f),
-                Self::DispatchWithRequest(element) => ::core::fmt::Display::fmt(element, f),
-                Self::DispatchToParachain(element) => ::core::fmt::Display::fmt(element, f),
+                Self::DispatchWithRequest(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
+                Self::DispatchToParachain(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
                 Self::OnAccept(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnGetResponse(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnGetTimeout(element) => ::core::fmt::Display::fmt(element, f),
@@ -1071,8 +1218,7 @@ pub mod ping_module {
             Self::Ping(value)
         }
     }
-    ///Container type for all return fields from the `dispatch` function with signature
-    /// `dispatch((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector `0x31267dee`
+    ///Container type for all return fields from the `dispatch` function with signature `dispatch((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector `0x31267dee`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -1081,12 +1227,10 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct DispatchReturn(pub [u8; 32]);
-    ///Container type for all return fields from the `dispatch` function with signature
-    /// `dispatch((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64))` and selector
-    /// `0xd1ab46cf`
+    ///Container type for all return fields from the `dispatch` function with signature `dispatch((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64))` and selector `0xd1ab46cf`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -1095,7 +1239,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct DispatchWithRequestReturn(pub [u8; 32]);
     ///`PingMessage(bytes,address,uint64)`
@@ -1107,7 +1251,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct PingMessage {
         pub dest: ::ethers::core::types::Bytes,

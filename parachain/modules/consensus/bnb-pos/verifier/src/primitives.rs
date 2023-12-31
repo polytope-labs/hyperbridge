@@ -8,6 +8,8 @@ use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
 use ismp::util::Keccak256;
 use sync_committee_primitives::constants::BlsPublicKey;
 
+use crate::NextValidators;
+
 pub const EPOCH_LENGTH: u64 = 200;
 const EXTRA_VANITY_LENGTH: usize = 32;
 const EXTRA_SEAL_LENGTH: usize = 65;
@@ -16,11 +18,11 @@ const VALIDATOR_BYTES_LENGTH: usize = 20 + BLS_PUBLIC_KEY_LENGTH;
 const VALIDATOR_NUMBER_SIZE: usize = 1; // // Fixed number of extra prefix bytes reserved for validator number after Luban
 const ADDRESS_LENGTH: usize = 20;
 
-#[derive(codec::Encode, codec::Decode)]
-pub struct VerifierState {
+#[derive(codec::Encode, codec::Decode, Debug)]
+pub struct ConsensusState {
     pub aggregate_public_key: BlsPublicKey,
     pub current_validators: Vec<BlsPublicKey>,
-    pub next_validators: (u64, Vec<BlsPublicKey>),
+    pub next_validators: NextValidators,
     pub finalized_height: u64,
     pub finalized_hash: H256,
 }

@@ -25,7 +25,7 @@ pub struct VerificationResult {
     pub next_validators: Option<NextValidators>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, codec::Encode, codec::Decode)]
 pub struct NextValidators {
     pub validators: Vec<BlsPublicKey>,
     pub rotation_block: u64,

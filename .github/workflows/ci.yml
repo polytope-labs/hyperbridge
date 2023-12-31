@@ -79,7 +79,7 @@ jobs:
         run: |
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
-          rustup info
+          rustup show
 
       - name: check workspace
         run: |

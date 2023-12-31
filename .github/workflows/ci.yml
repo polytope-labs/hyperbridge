@@ -78,7 +78,6 @@ jobs:
       - name: Install wasm toolchain
         run: |
           rustup target add wasm32-unknown-unknown
-          rustup target add wasm32-unknown-unknown --toolchain=nightly
           rustup component add rust-src
           rustup info
 

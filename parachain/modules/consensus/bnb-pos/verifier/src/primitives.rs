@@ -20,9 +20,8 @@ const ADDRESS_LENGTH: usize = 20;
 
 #[derive(codec::Encode, codec::Decode, Debug)]
 pub struct ConsensusState {
-    pub aggregate_public_key: BlsPublicKey,
     pub current_validators: Vec<BlsPublicKey>,
-    pub next_validators: NextValidators,
+    pub next_validators: Option<NextValidators>,
     pub finalized_height: u64,
     pub finalized_hash: H256,
 }

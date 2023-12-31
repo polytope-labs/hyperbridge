@@ -3,7 +3,7 @@ mod test;
 
 use anyhow::anyhow;
 use bnb_pos_verifier::{
-    primitives::{parse_extra, CodecHeader, CodecVoteData, SPAN_LENGTH},
+    primitives::{parse_extra, CodecHeader, CodecVoteData},
     ValidatorData,
 };
 use ethers::{

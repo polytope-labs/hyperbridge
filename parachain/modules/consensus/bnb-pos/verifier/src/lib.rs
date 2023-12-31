@@ -2,102 +2,104 @@
 #[warn(unused_imports)]
 #[warn(unused_variables)]
 use anyhow::anyhow;
+use bitvec::vec::BitVec;
 use ismp::util::Keccak256;
-use primitives::{parse_extra, CodecHeader, Header};
+use primitives::{parse_extra, BnbClientUpdate, CodecHeader, Header};
 use sp_core::{H160, H256};
-use sync_committee_verifier::crypto::verify_aggregate_signature;
+use sync_committee_verifier::crypto::{pubkey_to_projective, verify_aggregate_signature};
 pub mod primitives;
-use alloc::collections::BTreeSet;
-use ark_bls12_381::G1Projective;
-use bls::{point_to_pubkey, pubkey_to_point};
-use core::ops::{Add, AddAssign};
+use bls::{point_to_pubkey, types::G1ProjectivePoint};
 use sync_committee_primitives::constants::BlsPublicKey;
-use crate::primitives::CodecValidatorInfo;
-
-pub const DST_ETHEREUM: &str = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
-
 
 extern crate alloc;
 
 #[derive(Debug, Clone)]
 pub struct VerificationResult {
     pub hash: H256,
-    pub header: CodecHeader,
-    pub next_validators: Option<Vec<H160>>,
-}
-
-pub struct ValidatorData {
-    pub address: H160,
-    pub bls_public_key: [u8; 48],
-}
-
-impl From<CodecValidatorInfo> for ValidatorData {
-    fn from(codec_info: CodecValidatorInfo) -> Self {
-        ValidatorData {
-            address: codec_info.address.into(),
-            bls_public_key: codec_info.bls_public_key,
-        }
-    }
+    pub finalized_header: CodecHeader,
+    pub next_validators: Option<NextValidators>,
 }
 
 
-pub fn verify_bnb_header<I: Keccak256>(
-    validators: &Vec<ValidatorData>,
-    header: CodecHeader,
+#[derive(Debug, Clone)]
+pub struct NextValidators {
+    pub validators: Vec<BlsPublicKey>,
+    pub aggregate_public_key: BlsPublicKey,
+    pub rotation_block: u64,
+}
+
+pub fn verify_bnb_header<H: Keccak256>(
+    aggregate_public_key: BlsPublicKey,
+    current_validators: &Vec<BlsPublicKey>,
+    update: BnbClientUpdate,
 ) -> Result<VerificationResult, anyhow::Error> {
-    let rlp_header: Header = (&header).into();
-
-    let parse_extra_data = parse_extra::<I>(&rlp_header.extra_data.0.as_ref())
+    let extra_data = parse_extra::<H>(&update.attested_header.extra_data)
         .map_err(|_| anyhow!("could not parse extra data from header"))?;
 
-    let bls_public_keys: Vec<[u8; 48]> = validators
+    let validators_bit_set = BitVec::<_>::from_element(extra_data.vote_address_set);
+    dbg!(validators_bit_set.as_bitslice());
+
+    if validators_bit_set.count_ones() < (2 * current_validators.len() / 3) {
+        Err(anyhow!("Not enough participants"))?
+    }
+    let non_participants: Vec<BlsPublicKey> = current_validators
         .iter()
-        .map(|validator| validator.bls_public_key)
+        .zip(validators_bit_set.iter())
+        .filter_map(|(validator, bit)| if !(*bit) { Some(validator.clone()) } else { None })
         .collect();
 
-    let aggregate_public_key = aggregate_public_keys(bls_public_keys.clone())?;
+    let msg = H::keccak256(alloy_rlp::encode(extra_data.vote_data.clone()).as_slice());
 
-    let msg = parse_extra_data.vote_data_hash;
-
-    let signature = parse_extra_data.agg_signature;
-
-    let bls_public_keys_as_byte_vectors: Vec<BlsPublicKey> = bls_public_keys
-        .iter()
-        .map(|&bytes| BlsPublicKey::try_from(&bytes[..]).expect("Failed to convert to ByteVector"))
-        .collect();
-
-    let aggregate_public_key_byte_vector =
-        BlsPublicKey::try_from(&aggregate_public_key[..]).expect("Failed to convert to ByteVector");
+    let signature = extra_data.agg_signature;
 
     verify_aggregate_signature(
-        &aggregate_public_key_byte_vector,
-        bls_public_keys_as_byte_vectors.as_slice(),
+        &aggregate_public_key,
+        &non_participants,
         msg.0.to_vec(),
         signature.to_vec().as_ref(),
     )
     .map_err(|_| anyhow!("Could not verify aggregate signature"))?;
 
-    let hash = rlp_header.hash::<I>()?;
+    let source_header_hash = Header::from(&update.source_header).hash::<H>()?;
+    let target_header_hash = Header::from(&update.target_header).hash::<H>()?;
 
-    let mut next_validator_addresses: Option<Vec<H160>> = None;
-
-    if !parse_extra_data.validators.is_empty() {
-        let validators = parse_extra_data.validators.iter().map(|data| H160::from_slice(&data.address)).collect();
-        next_validator_addresses = Some(validators);
+    if source_header_hash.0 != extra_data.vote_data.source_hash.0 ||
+        target_header_hash.0 != target_header_hash.0
+    {
+        Err(anyhow!("Target and Source headers do not match vote data"))?
     }
 
-    Ok(VerificationResult { hash, header, next_validators: next_validator_addresses})
+    let next_validator_addresses: Option<NextValidators> = {
+        let validators = extra_data
+            .validators
+            .into_iter()
+            .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
+            .collect::<Vec<BlsPublicKey>>();
+        let aggregate_public_key = aggregate_public_keys(&validators).as_slice().try_into()?;
+        if !validators.is_empty() {
+            Some(NextValidators {
+                validators,
+                aggregate_public_key,
+                rotation_block: update.attested_header.number.low_u64() +
+                    current_validators.len() as u64 / 2,
+            })
+        } else {
+            None
+        }
+    };
+
+    Ok(VerificationResult {
+        hash: source_header_hash,
+        finalized_header: update.source_header,
+        next_validators: next_validator_addresses,
+    })
 }
 
-fn aggregate_public_keys(keys: Vec<[u8; 48]>) -> Result<Vec<u8>, anyhow::Error> {
-    let mut aggregate = pubkey_to_point(keys[0].to_vec().as_ref())
-        .map_err(|_| anyhow!("could not convert index 0 public key to point"))?;
+fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Vec<u8> {
+    let aggregate = keys
+        .into_iter()
+        .filter_map(|key| pubkey_to_projective(key).ok())
+        .fold(G1ProjectivePoint::default(), |acc, next| acc + next);
 
-    for key in keys.iter().skip(1) {
-        let next = pubkey_to_point(&key.to_vec())
-            .map_err(|_| anyhow!("could not convert public key to point {:?}", key))?;
-        aggregate = aggregate.add(next).into();
-    }
-
-    Ok(point_to_pubkey(aggregate))
+    point_to_pubkey(aggregate.into())
 }

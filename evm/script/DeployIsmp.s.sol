@@ -54,7 +54,7 @@ contract DeployScript is Script {
         // set the ismphost on the cross-chain governor
         governor.setIsmpHost(hostAddress);
         // deploy the ping module as well
-        PingModule m = new PingModule{salt: salt}(hostAddress);
+        new PingModule{salt: salt}(hostAddress);
         vm.stopBroadcast();
     }
 

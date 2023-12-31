@@ -63,19 +63,19 @@ contract CrossChainMessenger is IIsmpModule {
         emit PostReceived(request.nonce, request.source, string(request.body));
     }
 
-    function onPostTimeout(PostRequest memory _request) external onlyIsmpHost {
+    function onPostTimeout(PostRequest memory) external view onlyIsmpHost {
         revert("No timeouts for now");
     }
 
-    function onPostResponse(PostResponse memory _response) public view onlyIsmpHost {
+    function onPostResponse(PostResponse memory) external view onlyIsmpHost {
         revert("CrossChainMessenger doesn't emit responses");
     }
 
-    function onGetResponse(GetResponse memory _response) public view onlyIsmpHost {
+    function onGetResponse(GetResponse memory) external view onlyIsmpHost {
         revert("CrossChainMessenger doesn't emit Get Requests");
     }
 
-    function onGetTimeout(GetRequest memory _request) public view onlyIsmpHost {
+    function onGetTimeout(GetRequest memory) external view onlyIsmpHost {
         revert("CrossChainMessenger doesn't emit Get Requests");
     }
 }

@@ -55,19 +55,19 @@ contract HostManager is IIsmpModule {
         }
     }
 
-    function onPostResponse(PostResponse memory response) external pure {
+    function onPostResponse(PostResponse memory) external pure {
         revert("Module doesn't emit requests");
     }
 
-    function onGetResponse(GetResponse memory response) external pure {
+    function onGetResponse(GetResponse memory) external pure {
         revert("Module doesn't emit requests");
     }
 
-    function onPostTimeout(PostRequest memory request) external pure {
+    function onPostTimeout(PostRequest memory) external pure {
         revert("Module doesn't emit requests");
     }
 
-    function onGetTimeout(GetRequest memory request) external pure {
+    function onGetTimeout(GetRequest memory) external pure {
         revert("Module doesn't emit requests");
     }
 }

@@ -285,7 +285,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @return the latest state machine height
      */
-    function latestStateMachineHeight() external returns (uint256) {
+    function latestStateMachineHeight() external view returns (uint256) {
         return _latestStateMachineHeight;
     }
 

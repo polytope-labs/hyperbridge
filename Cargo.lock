@@ -1370,6 +1370,7 @@ dependencies = [
  "anyhow",
  "ark-bls12-381",
  "bitset",
+ "bitvec",
  "bls_on_arkworks",
  "ethabi",
  "hex",

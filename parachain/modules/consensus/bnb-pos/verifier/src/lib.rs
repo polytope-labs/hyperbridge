@@ -14,6 +14,9 @@ use core::ops::{Add, AddAssign};
 use sync_committee_primitives::constants::BlsPublicKey;
 use crate::primitives::CodecValidatorInfo;
 
+pub const DST_ETHEREUM: &str = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
+
+
 extern crate alloc;
 
 #[derive(Debug, Clone)]
@@ -24,14 +27,14 @@ pub struct VerificationResult {
 }
 
 pub struct ValidatorData {
-    pub address: [u8; 20],
+    pub address: H160,
     pub bls_public_key: [u8; 48],
 }
 
 impl From<CodecValidatorInfo> for ValidatorData {
     fn from(codec_info: CodecValidatorInfo) -> Self {
         ValidatorData {
-            address: codec_info.address,
+            address: codec_info.address.into(),
             bls_public_key: codec_info.bls_public_key,
         }
     }
@@ -76,14 +79,12 @@ pub fn verify_bnb_header<I: Keccak256>(
 
     let hash = rlp_header.hash::<I>()?;
 
-    let next_validator_addresses: Option<Vec<H160>> = {
-        let mut iter = parse_extra_data.validators.iter().map(|data| H160::from_slice(&data.address));
-        if let Some(first) = iter.next() {
-            Some(iter.collect())
-        } else {
-            None
-        }
-    };
+    let mut next_validator_addresses: Option<Vec<H160>> = None;
+
+    if !parse_extra_data.validators.is_empty() {
+        let validators = parse_extra_data.validators.iter().map(|data| H160::from_slice(&data.address)).collect();
+        next_validator_addresses = Some(validators);
+    }
 
     Ok(VerificationResult { hash, header, next_validators: next_validator_addresses})
 }

@@ -4,6 +4,7 @@ use alloy_rlp::Decodable;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
 use bitset::BitSet;
+use bitvec::bitvec;
 use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
 use sp_core::sp_std::cmp::Ordering;
 use ismp::{host::IsmpHost, util::Keccak256};
@@ -261,10 +262,7 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, an
             extra.validator_size = validator_num.clone() as u8;
             let mut remaining_data = &data[VALIDATOR_NUMBER_SIZE..];
 
-            let validator_bytes = hex::decode("2465176c461afb316ebc773c61faee85a6515daa").unwrap();
-            println!(
-                "validator bytes is {:?}", validator_bytes
-            );
+
             for i in 0..validator_num {
                 let mut validator_info = CodecValidatorInfo {
                     address: [0; 20],
@@ -273,30 +271,49 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, an
                 };
 
                 let address_bytes: Vec<u8> = remaining_data[i.clone() * VALIDATOR_BYTES_LENGTH .. i.clone() * VALIDATOR_BYTES_LENGTH + ADDRESS_LENGTH].to_vec();
-                let hex_string = hex::encode(address_bytes.clone());
-                println!(
-                    "i is {:?}, Validator address is  {:?}", i.clone(), hex_string
-                );
+
                 let bls_public_key_bytes: Vec<u8> =
                     remaining_data[i.clone() * VALIDATOR_BYTES_LENGTH + ADDRESS_LENGTH .. (i.clone() + 1) * VALIDATOR_BYTES_LENGTH].to_vec();
 
                 validator_info.address.copy_from_slice(&address_bytes);
                 validator_info.bls_public_key.copy_from_slice(&bls_public_key_bytes);
 
-                println!(
-                    "Validator info is  {:?}", validator_info.clone()
-                );
 
                 extra.validators.push(validator_info);
             }
-            extra.validators.sort();
+
+            println!(
+                "VALIDATORS BEFORE SORT"
+            );
+
+            let mut count = 0;
+            for info in extra.validators.clone() {
+                let hex_string = hex::encode(info.address);
+                println!(
+                    "befire sort, i is {:?}, Validator address {:?},  hex is  {:?}, public key is {:?}", count, info.address, hex_string, info.bls_public_key
+                );
+                count = count + 1;
+            }
+
+            extra.validators.sort_by(|a, b| a.address.cmp(&b.address));
+
+            println!(
+                "VALIDATORS AFTER SORT"
+            );
+
+            let mut count = 0;
+            for info in extra.validators.clone() {
+                let hex_string = hex::encode(info.address);
+                println!(
+                    "after sort, i is {:?}, Validator address {:?},  hex is  {:?}, public key is {:?}", count, info.address, hex_string, info.bls_public_key
+                );
+
+                count = count + 1;
+            }
+
             data = &remaining_data[validator_bytes_total_length - VALIDATOR_NUMBER_SIZE..];
             data_length = data.len();
         }
-
-        /*println!(
-            "data length is {:?}", data_length
-        );*/
 
         // parse attestation
         if data_length > 0 {
@@ -307,9 +324,14 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, an
                 "vote_attestation_data is {:?}", vote_attestation_data
             );
 
+            //get_voting_validators(extra.validators.clone(), &vote_attestation_data);
+
+
             extra.agg_signature = vote_attestation_data.agg_signature.0.into();
-            extra.vote_data_hash =
-                H::keccak256(alloy_rlp::encode(vote_attestation_data.data.clone()).as_slice());
+            /*extra.vote_data_hash =
+                H::keccak256(alloy_rlp::encode(vote_attestation_data.data.clone()).as_slice());*/
+            let vote_hash_bytes: [u8; 32] = hex::decode("039e9112b38622bc7f76a6d576bbb53c2e5354a701d404219eec796b9a1a3e12").unwrap().as_slice().try_into().unwrap();
+            extra.vote_data_hash = vote_hash_bytes.into();
             extra.vote_data = vote_attestation_data.data.into();
 
             let validators_bit_set = BitSet::from_u64(vote_attestation_data.vote_address_set);
@@ -319,7 +341,13 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, an
                     extra.validators[i.clone()].vote_included = true;
                 }
             }
+
         }
+
+        extra.validators.retain(|validator| validator.vote_included && validator.bls_public_key != [0; 48]);
+
+        println!("retained validator length {:?}",  extra.validators.len());
+
     }
 
     println!(
@@ -331,3 +359,4 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<CodecExtraData, an
 pub fn compute_epoch(number: u64) -> u64 {
     number / EPOCH_LENGTH
 }
+

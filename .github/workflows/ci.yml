@@ -17,7 +17,6 @@ env:
   RUSTFLAGS: "-C link-args=-Wl,--allow-multiple-definition"
   FOUNDRY_PROFILE: ci
 
-
 jobs:
   check-wasm:
     name: Check Wasm Crates
@@ -116,20 +115,25 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
-
       - name: Install rust stable toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
 
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Install wasm toolchain
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+          rustup show
+
       - name: Install protoc
         run: |
           sudo apt update
           sudo apt install protobuf-compiler
-
-      - uses: webfactory/ssh-agent@v0.7.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_KEY }}
 
       - name: Run unit tests
         run: |

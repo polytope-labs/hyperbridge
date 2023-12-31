@@ -208,10 +208,8 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<ExtraData, anyhow:
             let validator_bytes_total_length =
                 VALIDATOR_NUMBER_SIZE + validator_num * VALIDATOR_BYTES_LENGTH;
             if data_length < validator_bytes_total_length.clone() as usize {
-                println!("Parse Validator failed",);
                 Err(anyhow!("Parse validator failed"))?;
             }
-            println!("Validator size {:?}", validator_num.clone() as u8);
             extra.validator_size = validator_num.clone() as u8;
             let remaining_data = &data[VALIDATOR_NUMBER_SIZE..];
 
@@ -223,7 +221,6 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<ExtraData, anyhow:
                     i.clone() * VALIDATOR_BYTES_LENGTH + ADDRESS_LENGTH]
                     .to_vec();
                 let hex_string = hex::encode(address_bytes.clone());
-                println!("i is {:?}, Validator address is  {:?}", i.clone(), hex_string);
                 let bls_public_key_bytes: Vec<u8> =
                     remaining_data[i.clone() * VALIDATOR_BYTES_LENGTH + ADDRESS_LENGTH..
                         (i.clone() + 1) * VALIDATOR_BYTES_LENGTH]
@@ -232,8 +229,6 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<ExtraData, anyhow:
                 validator_info.address = H160::from_slice(&address_bytes);
                 validator_info.bls_public_key.copy_from_slice(&bls_public_key_bytes);
 
-                println!("Validator info is  {:?}", validator_info.clone());
-
                 extra.validators.push(validator_info);
             }
             extra.validators.sort_by(|a, b| a.address.0.cmp(&b.address.0));
@@ -241,16 +236,10 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<ExtraData, anyhow:
             data_length = data.len();
         }
 
-        /*println!(
-            "data length is {:?}", data_length
-        );*/
-
         // parse attestation
         if data_length > 0 {
             let vote_attestation_data: VoteAttestationData = VoteAttestationData::decode(&mut data)
                 .map_err(|_| anyhow!("parse voteAttestation failed"))?;
-
-            println!("vote_attestation_data is {:?}", vote_attestation_data);
 
             extra.agg_signature = vote_attestation_data.agg_signature.0.into();
             extra.vote_data = vote_attestation_data.data.into();
@@ -259,7 +248,6 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<ExtraData, anyhow:
         }
     }
 
-    println!("extra is {:?}", extra.clone());
     Ok(extra.clone())
 }
 

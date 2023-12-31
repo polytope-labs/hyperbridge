@@ -1364,6 +1364,7 @@ dependencies = [
  "alloy-rlp-derive",
  "anyhow",
  "ark-bls12-381",
+ "ark-ec",
  "bitvec",
  "bls_on_arkworks",
  "ethabi",

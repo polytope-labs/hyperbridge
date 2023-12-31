@@ -19,6 +19,7 @@ sync-committee-verifier = { path = "../../../consensus/sync-committee/verifier",
 sync-committee-primitives  = { path = "../../../consensus/sync-committee/primitives", default-features = false }
 ark-bls12-381 = { version = "0.4.0", default-features = false, features = ["curve"] }
 bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
+ark-ec = { version = "0.4.2", default-features = false }
 sha2 = "0.9"
 hex = "0.4.3"
 
@@ -38,5 +39,6 @@ std = [
     "bls/std",
     "sync-committee-verifier/std",
     "sync-committee-primitives/std",
-    "bitvec/std"
+    "bitvec/std",
+    "ark-ec/std"
 ]

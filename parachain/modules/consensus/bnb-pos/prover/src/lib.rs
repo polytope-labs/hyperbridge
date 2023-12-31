@@ -2,9 +2,7 @@
 mod test;
 
 use anyhow::anyhow;
-use bnb_pos_verifier::{
-    primitives::{parse_extra, CodecHeader},
-};
+use bnb_pos_verifier::primitives::{parse_extra, BnbClientUpdate, CodecHeader, ValidatorInfo};
 use ethers::{
     prelude::{Provider, Ws},
     providers::Middleware,
@@ -14,7 +12,6 @@ use ismp::util::Keccak256;
 use primitive_types::H160;
 use sp_core::H256;
 use std::{collections::BTreeSet, fmt::Debug, sync::Arc};
-use bnb_pos_verifier::primitives::{BnbClientUpdate, ValidatorInfo};
 use sync_committee_primitives::constants::BlsPublicKey;
 
 #[derive(Clone)]
@@ -68,33 +65,21 @@ impl BnbPosProver {
         Ok(header)
     }
 
-    pub async fn fetch_proofs_and_validators<I: Keccak256>(
+    pub async fn fetch_bnb_update<I: Keccak256>(
         &self,
         attested_header: CodecHeader,
-    ) -> Result<(BnbClientUpdate, Option<Vec<ValidatorInfo>>), anyhow::Error> {
+    ) -> Result<BnbClientUpdate, anyhow::Error> {
         let parse_extra_data = parse_extra::<I>(&attested_header.extra_data)
             .map_err(|_| anyhow!("Extra data set not found in header"))?;
 
-        let source_header_number = parse_extra_data.vote_data.source_number;
-        let target_header_number = parse_extra_data.vote_data.target_number;
+        let source_hash = H256::from_slice(&parse_extra_data.vote_data.source_hash.0);
+        let target_hash = H256::from_slice(&parse_extra_data.vote_data.target_hash.0);
 
-        let source_header =  self.fetch_header(source_header_number).await?;
-        let target_header =  self.fetch_header(target_header_number).await?;
+        let source_header = self.fetch_header(source_hash).await?;
+        let target_header = self.fetch_header(target_hash).await?;
 
-        let validator_data_vec: Option<Vec<ValidatorInfo>> = {
-            if !parse_extra_data.validators.is_empty() {
-                Some(parse_extra_data.validators)
-            } else {
-                None
-            }
-        };
+        let bnb_client_update = BnbClientUpdate { source_header, target_header, attested_header };
 
-        let bnb_client_update = BnbClientUpdate {
-          source_header,
-          target_header,
-          attested_header
-        };
-
-        Ok((bnb_client_update, validator_data_vec))
+        Ok(bnb_client_update)
     }
 }

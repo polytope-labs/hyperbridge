@@ -27,7 +27,7 @@ fn subtract_points_from_aggregate(
     Ok(subset_aggregate)
 }
 
-fn pairing(u: G2AffinePoint, v: G1AffinePoint) -> BLS12381Pairing {
+pub fn pairing(u: G2AffinePoint, v: G1AffinePoint) -> BLS12381Pairing {
     Bls12_381::pairing(v, u)
 }
 

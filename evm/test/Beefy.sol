@@ -16,6 +16,7 @@ contract BeefyConsensusClientTest is Test {
 
     function VerifyV1(bytes memory trustedConsensusState, bytes memory proof)
         public
+        view
         returns (bytes memory, IntermediateState memory)
     {
         return beefy.verifyConsensus(trustedConsensusState, proof);

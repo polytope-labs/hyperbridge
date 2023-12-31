@@ -19,34 +19,33 @@ use sync_committee_verifier::{
 };
 use tokio_stream::StreamExt;
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn fetch_block_header_works() {
     let sync_committee_prover = setup_prover();
     let block_header = sync_committee_prover.fetch_header("head").await;
     assert!(block_header.is_ok());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn fetch_block_works() {
     let sync_committee_prover = setup_prover();
     let block = sync_committee_prover.fetch_block("head").await;
     assert!(block.is_ok());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn fetch_validator_works() {
     let sync_committee_prover = setup_prover();
     let validator = sync_committee_prover.fetch_validator("head", "0").await;
     assert!(validator.is_ok());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 #[ignore]
@@ -56,7 +55,6 @@ async fn fetch_processed_sync_committee_works() {
     assert!(validator.is_ok());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 #[ignore]
@@ -93,18 +91,18 @@ async fn generate_indexes() {
     dbg!(next_sync.floor_log2());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn fetch_beacon_state_works() {
     let sync_committee_prover = setup_prover();
     let beacon_state = sync_committee_prover.fetch_beacon_state("head").await;
     assert!(beacon_state.is_ok());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn state_root_and_block_header_root_matches() {
     let sync_committee_prover = setup_prover();
     let mut beacon_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
@@ -118,18 +116,18 @@ async fn state_root_and_block_header_root_matches() {
     assert_eq!(block_header.state_root, hash_tree_root.unwrap());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn fetch_finality_checkpoints_work() {
     let sync_committee_prover = setup_prover();
     let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint(None).await;
     assert!(finality_checkpoint.is_ok());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn test_finalized_header() {
     let sync_committee_prover = setup_prover();
     let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
@@ -153,7 +151,6 @@ async fn test_finalized_header() {
     assert_eq!(root, state.hash_tree_root().unwrap());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 #[ignore]
@@ -204,9 +201,9 @@ async fn test_execution_payload_proof() {
     assert!(is_merkle_branch_valid);
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn test_sync_committee_update_proof() {
     let sync_committee_prover = setup_prover();
 
@@ -237,7 +234,6 @@ async fn test_sync_committee_update_proof() {
     assert!(is_merkle_branch_valid);
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 #[ignore]
@@ -278,7 +274,6 @@ async fn test_client_sync() {
     println!("Sync completed");
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 #[ignore]
@@ -360,9 +355,9 @@ async fn test_sync_committee_hand_offs() {
     assert_eq!(client_state.next_sync_committee, beacon_state.current_sync_committee);
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn test_prover() {
     use log::LevelFilter;
     use parity_scale_codec::{Decode, Encode};
@@ -442,7 +437,6 @@ async fn test_prover() {
 }
 
 #[ignore]
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_sync_committee_signature_verification() {

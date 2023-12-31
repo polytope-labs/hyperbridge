@@ -58,15 +58,10 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
-      - name: Install toolchain
+      - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
-
-      - uses: Swatinem/rust-cache@v1
-      - run: |
-          rustup target add wasm32-unknown-unknown
-          rustup target add wasm32-unknown-unknown --toolchain=nightly
+          toolchain: stable
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
@@ -77,6 +72,15 @@ jobs:
       - uses: webfactory/ssh-agent@v0.7.0
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - uses: Swatinem/rust-cache@v1
+
+      - name: Install wasm toolchain
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup target add wasm32-unknown-unknown --toolchain=nightly
+          rustup component add rust-src
+          rustup info
 
       - name: check workspace
         run: |
@@ -99,7 +103,6 @@ jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
-    #    if: github.ref == 'refs/heads/main'
     env:
       TUID: 123
     steps:
@@ -118,7 +121,7 @@ jobs:
       - name: Install rust stable toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: stable
 
       - name: Install protoc
         run: |
@@ -129,13 +132,9 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-
       - name: Run unit tests
         run: |
-          cargo +nightly test -p pallet-ismp --all-targets --all-features --locked
-          cargo +nightly test -p ismp-testsuite --all-targets --all-features --locked
-          cargo +nightly test -p ethereum-trie --all-features --locked
-          cargo +nightly test -p ismp-solidity-tests --all-features --locked
+          cargo test --all-targets --features=runtime-benchmarks --locked
 
       - name: Clone eth-pos-devnet repository
         run: |
@@ -148,8 +147,7 @@ jobs:
 
       - name: sync-committee integration tests
         run: |
-          cargo +nightly test -p sync-committee-prover -- --nocapture
-
+          cargo test -p sync-committee-prover -- --nocapture --ignored
 
 
   check-solidity:
@@ -159,11 +157,6 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
 
       - name: Run Forge build
         run: |

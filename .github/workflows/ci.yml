@@ -131,7 +131,7 @@ jobs:
           cargo +nightly test -p pallet-ismp --all-targets --all-features --locked
           cargo +nightly test -p ismp-testsuite --all-targets --all-features --locked
           cargo +nightly test -p ethereum-trie --all-features --locked
-          cargo +nightly test -p ismp-solidity-test --all-features --locked
+          cargo +nightly test -p ismp-solidity-tests --all-features --locked
 
       - name: Clone eth-pos-devnet repository
         run: |

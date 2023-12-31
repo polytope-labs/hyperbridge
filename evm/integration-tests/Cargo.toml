@@ -28,8 +28,7 @@ merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.
 
 # rust-evm tools
 ethers = { workspace = true }
-forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "48bbd992f9da68f7ae28c5c762aa4e7169274e16" }
-
+forge-testsuite = { workspace = true }
 
 # polytope-labs
 merkle-mountain-range-labs = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr" }

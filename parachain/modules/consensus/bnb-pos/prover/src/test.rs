@@ -31,7 +31,7 @@ async fn setup_prover() -> BnbPosProver {
 }
 
 #[tokio::test]
-async fn verify_bnb_pos_headers() {
+async fn verify_bnb_pos_header() {
     let prover = setup_prover().await;
 
     let mut interval = interval(Duration::from_secs(2));

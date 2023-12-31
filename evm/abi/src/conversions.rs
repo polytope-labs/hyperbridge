@@ -65,7 +65,7 @@ impl From<MmrProof> for RelayChainProof {
             vec![leaf_index_to_pos(leaf_index)],
             leaf_index_to_mmr_size(leaf_index),
         )[0]
-            .1;
+        .1;
 
         RelayChainProof {
             signed_commitment: SignedCommitment {

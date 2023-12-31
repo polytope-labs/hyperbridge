@@ -11,10 +11,10 @@ ethers-contract-abigen = { workspace = true }
 forge-testsuite = { workspace = true }
 
 [dependencies]
+primitive-types = "0.12.2"
+
 ethers = { workspace = true }
+merkle-mountain-range = { workspace = true }
 sp-consensus-beefy = { workspace =  true, features = ["default"] }
 
-primitive-types = "0.12.2"
 beefy-verifier-primitives = { path = "../../parachain/modules/consensus/beefy/primitives" }
-
-merkle-mountain-range = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr" }

@@ -15,8 +15,8 @@
 
 //! Generated types for the ismp-solidity ABI
 
-mod generated;
 mod conversions;
+mod generated;
 
-pub use generated::*;
 pub use conversions::*;
+pub use generated::*;

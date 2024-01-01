@@ -186,8 +186,14 @@ jobs:
           mkdir -p polkadot-sdk/target/release
           wget -O ./polkadot-sdk/target/release/polkadot -q --show-progress 'https://dl.dropbox.com/scl/fi/fe2l45wwqqs78f68lcv4l/polkadot?rlkey=jgqeughfm0ce8g9torlfzj2md&dl=0'
           sudo chmod +x ./polkadot-sdk/target/release/polkadot
+          # install hyperbridge binary
+          cd hyperbridge
+          mkdir -p target/release
+          wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.2.0/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
+          tar xvzf ./hyperbridge-x86_64-unknown-linux-gnu.tar.gz
+          mv ./hyperbridge-x86_64-unknown-linux-gnu/hyperbridge target/release
           # install zombienet
-          cd hyperbridge/scripts/zombienet
+          cd scripts/zombienet
           wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
           sudo chmod +x ./zombienet
           # spawn devnet

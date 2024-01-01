@@ -17,7 +17,7 @@
 use codec::Encode;
 use ismp::mmr::{DataOrHash, NodeIndex};
 use log::{debug, trace};
-use mmr_lib::helper;
+use merkle_mountain_range::helper;
 use sp_core::offchain::StorageKind;
 use sp_std::iter::Peekable;
 #[cfg(not(feature = "std"))]
@@ -53,11 +53,11 @@ impl<StorageType, T> Default for Storage<StorageType, T> {
     }
 }
 
-impl<T> mmr_lib::MMRStore<DataOrHash> for Storage<OffchainStorage, T>
+impl<T> merkle_mountain_range::MMRStore<DataOrHash> for Storage<OffchainStorage, T>
 where
     T: Config,
 {
-    fn get_elem(&self, pos: NodeIndex) -> mmr_lib::Result<Option<DataOrHash>> {
+    fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<DataOrHash>> {
         let key = Pallet::<T>::offchain_key(pos);
         debug!(
             target: "runtime::mmr::offchain", "offchain db get {}: key {:?}",
@@ -71,20 +71,24 @@ where
         Ok(None)
     }
 
-    fn append(&mut self, _: NodeIndex, _: Vec<DataOrHash>) -> mmr_lib::Result<()> {
+    fn append(&mut self, _: NodeIndex, _: Vec<DataOrHash>) -> merkle_mountain_range::Result<()> {
         panic!("MMR must not be altered in the off-chain context.")
     }
 }
 
-impl<T> mmr_lib::MMRStore<DataOrHash> for Storage<RuntimeStorage, T>
+impl<T> merkle_mountain_range::MMRStore<DataOrHash> for Storage<RuntimeStorage, T>
 where
     T: Config,
 {
-    fn get_elem(&self, pos: NodeIndex) -> mmr_lib::Result<Option<DataOrHash>> {
+    fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<DataOrHash>> {
         Ok(Pallet::<T>::get_node(pos))
     }
 
-    fn append(&mut self, pos: NodeIndex, elems: Vec<DataOrHash>) -> mmr_lib::Result<()> {
+    fn append(
+        &mut self,
+        pos: NodeIndex,
+        elems: Vec<DataOrHash>,
+    ) -> merkle_mountain_range::Result<()> {
         if elems.is_empty() {
             return Ok(());
         }
@@ -98,7 +102,7 @@ where
         let size = NodesUtils::new(leaves).size();
 
         if pos != size {
-            return Err(mmr_lib::Error::InconsistentStore);
+            return Err(merkle_mountain_range::Error::InconsistentStore);
         }
 
         let new_size = size + elems.len() as NodeIndex;

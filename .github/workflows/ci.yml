@@ -171,7 +171,9 @@ jobs:
           # install polkadot binary
           cd ../
           mkdir -p polkadot-sdk/target/release
-          wget -O ./polkadot-sdk/target/release/polkadot -q --show-progress 'https://dl.dropbox.com/scl/fi/fe2l45wwqqs78f68lcv4l/polkadot?rlkey=jgqeughfm0ce8g9torlfzj2md&dl=0'
+          wget -O ./polkadot.tar.gz -q --show-progress 'https://dl.dropbox.com/scl/fi/98mcislfgxe57fwuvcjay/polkadot.tar.gz?rlkey=o596ikw5ybvphn800xuh2ic7x&dl=0'
+          tar xvzf ./polkadot.tar.gz
+          mv bins/* polkadot-sdk/target/release
           sudo chmod +x ./polkadot-sdk/target/release/polkadot
           # install hyperbridge binary
           cd hyperbridge

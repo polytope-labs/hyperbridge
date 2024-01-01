@@ -11,7 +11,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 polygon-pos-verifier = { path= "../verifier" }
 anyhow = "1.0.68"
 primitive-types = { version = "0.12.1", features = ["serde_no_std", "impl-codec"] }
-ethers = { version = "2.0.8", features = ["ws"] }
+ethers = { workspace = true, features = ["ws"] }
 
 
 [dev-dependencies]

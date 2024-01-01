@@ -31,7 +31,6 @@ pub struct Header {
     pub nonce: FixedBytes<8>,
     pub base_fee_per_gas: Option<alloy_primitives::U256>,
     pub withdrawals_hash: Option<B256>,
-    pub excess_data_gas: Option<alloy_primitives::U256>,
 }
 
 #[derive(codec::Encode, codec::Decode, Debug, Clone, scale_info::TypeInfo)]
@@ -53,7 +52,6 @@ pub struct CodecHeader {
     pub nonce: H64,
     pub base_fee_per_gas: Option<U256>,
     pub withdrawals_hash: Option<H256>,
-    pub excess_data_gas: Option<U256>,
 }
 
 #[cfg(feature = "std")]
@@ -77,7 +75,6 @@ impl From<Block<H256>> for CodecHeader {
             nonce: block.nonce.unwrap_or_default(),
             base_fee_per_gas: block.base_fee_per_gas,
             withdrawals_hash: block.withdrawals_root,
-            excess_data_gas: block.excess_blob_gas,
         }
     }
 }
@@ -114,11 +111,6 @@ impl From<&CodecHeader> for Header {
                 alloy_primitives::U256::from_be_bytes(bytes)
             }),
             withdrawals_hash: value.withdrawals_hash.map(|val| val.0.into()),
-            excess_data_gas: value.excess_data_gas.map(|val| {
-                let mut bytes = [0u8; 32];
-                val.to_big_endian(&mut bytes);
-                alloy_primitives::U256::from_be_bytes(bytes)
-            }),
         }
     }
 }
@@ -133,8 +125,6 @@ impl Header {
             let bytes = self.extra_data[..slice].to_vec();
             bytes.into()
         };
-        self.excess_data_gas = None;
-        self.withdrawals_hash = None;
         let encoding = alloy_rlp::encode(self);
         Ok(H::keccak256(&encoding))
     }

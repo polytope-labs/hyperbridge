@@ -1,11 +1,11 @@
-#![cfg(test)]
 #![allow(unused_parens)]
 
-// mod tests;
+#[cfg(test)]
+mod tests;
 
 pub use ethers::{abi::Token, types::U256, utils::keccak256};
-// use ismp::mmr::{DataOrHash, MmrHasher};
 use merkle_mountain_range::{Error, Merge};
+use primitive_types::H256;
 use rs_merkle::Hasher;
 
 #[derive(Clone)]
@@ -57,7 +57,5 @@ impl From<u32> for NumberHash {
 //         _ => panic!("not a hash"),
 //     }
 // }
-
-use primitive_types::H256;
 
 // pub type Mmr = MemMMR<DataOrHash, MmrHasher<Keccak256>>;

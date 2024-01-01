@@ -5669,6 +5669,7 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
+ "ismp-solidity-abi",
  "libfuzzer-sys",
  "once_cell",
  "parity-scale-codec",

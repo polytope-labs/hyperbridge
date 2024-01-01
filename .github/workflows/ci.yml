@@ -135,7 +135,7 @@ jobs:
           cargo test --all-targets --features=runtime-benchmarks --locked
 
   integration-tests:
-    name: Integration tests
+    name: Integration Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -166,7 +166,7 @@ jobs:
           sudo apt update
           sudo apt install protobuf-compiler
 
-      - name: Clone eth-pos-devnet repository
+      - name: Run Eth POS Devnet
         run: |
           git clone https://github.com/polytope-labs/eth-pos-devnet.git
           cd eth-pos-devnet
@@ -178,6 +178,12 @@ jobs:
       - name: sync-committee integration tests
         run: |
           cargo test -p sync-committee-prover -- --nocapture --ignored
+
+      - name: Run Parachain Devnet
+        run: |
+          cd ../
+          mkdir -p polkadot-sdk/target/release
+          cd polkadot-sdk/target/release
 
   check-solidity:
     name: Check ismp-solidity

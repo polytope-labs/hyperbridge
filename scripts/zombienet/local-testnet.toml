@@ -35,7 +35,7 @@ args = []
 
 [[parachains]]
 id = 2000
-chain = "dev-2000"
+chain = "messier-2000"
 cumulus_based = true
 
 # run alice as parachain collator
@@ -47,30 +47,30 @@ ws_port = 9988
 port = 30337
 command = "../../target/release/hyperbridge"
 args = [
-	"-lparachain=debug", "--enable-offchain-indexing=true", "--pruning=archive"
+	"-lbasic-authorship=trace,txpool=trace,pallet-ismp=trace", "--enable-offchain-indexing=true", "--pruning=archive"
 ]
 
-# run bob as parachain collator
-[[parachains.collators]]
-name = "bob"
-validator = true
-rpc_port = 9956
-ws_port = 9989
-command = "../../target/release/hyperbridge"
-args = [
-	"-lparachain=debug", "--enable-offchain-indexing=true", "--pruning=archive"
-]
-
-# run charlie as parachain collator
-[[parachains.collators]]
-name = "charlie"
-validator = true
-rpc_port = 9957
-ws_port = 9889
-command = "../../target/release/hyperbridge"
-args = [
-	"-lparachain=debug", "--enable-offchain-indexing=true", "--pruning=archive"
-]
+## run bob as parachain collator
+#[[parachains.collators]]
+#name = "bob"
+#validator = true
+#rpc_port = 9956
+#ws_port = 9989
+#command = "../../target/release/hyperbridge"
+#args = [
+#	"-lparachain=debug", "--enable-offchain-indexing=true", "--pruning=archive"
+#]
+#
+## run charlie as parachain collator
+#[[parachains.collators]]
+#name = "charlie"
+#validator = true
+#rpc_port = 9957
+#ws_port = 9889
+#command = "../../target/release/hyperbridge"
+#args = [
+#	"-lparachain=debug", "--enable-offchain-indexing=true", "--pruning=archive"
+#]
 
 
 

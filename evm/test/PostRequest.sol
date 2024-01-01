@@ -10,7 +10,7 @@ import {PingModule} from "./PingModule.sol";
 import "../src/HandlerV1.sol";
 
 contract PostRequestTest is Test {
-    // needs a test method so that forge can detect it
+    // needs a test method so that integration-tests can detect it
     function testPostRequest() public {}
 
     IConsensusClient internal consensusClient;
@@ -24,7 +24,7 @@ contract PostRequestTest is Test {
 
         HostParams memory params = HostParams({
             admin: address(0),
-            crosschainGovernor: address(0),
+            hostManager: address(0),
             handler: address(handler),
             defaultTimeout: 5000,
             unStakingPeriod: 5000,
@@ -32,7 +32,10 @@ contract PostRequestTest is Test {
             challengePeriod: 0,
             consensusClient: address(consensusClient),
             lastUpdated: 0,
-            consensusState: new bytes(0)
+            consensusState: new bytes(0),
+            baseGetRequestFee: 0,
+            perByteFee: 0,
+            feeTokenAddress: address(0)
         });
         host = new TestHost(params);
 

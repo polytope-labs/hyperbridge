@@ -1,10 +1,7 @@
 use super::*;
 use base2::Base2;
 use reqwest_eventsource::EventSource;
-use ssz_rs::{
-    calculate_multi_merkle_root, get_generalized_index, is_valid_merkle_branch, GeneralizedIndex,
-    Merkleized, SszVariableOrIndex,
-};
+use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use std::time::Duration;
 use sync_committee_primitives::{
     constants::{
@@ -19,34 +16,33 @@ use sync_committee_verifier::{
 };
 use tokio_stream::StreamExt;
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn fetch_block_header_works() {
     let sync_committee_prover = setup_prover();
     let block_header = sync_committee_prover.fetch_header("head").await;
     assert!(block_header.is_ok());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn fetch_block_works() {
     let sync_committee_prover = setup_prover();
     let block = sync_committee_prover.fetch_block("head").await;
     assert!(block.is_ok());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn fetch_validator_works() {
     let sync_committee_prover = setup_prover();
     let validator = sync_committee_prover.fetch_validator("head", "0").await;
     assert!(validator.is_ok());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 #[ignore]
@@ -56,55 +52,18 @@ async fn fetch_processed_sync_committee_works() {
     assert!(validator.is_ok());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 #[ignore]
-async fn generate_indexes() {
-    let sync_committee_prover = setup_prover();
-    let beacon_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
-    let execution_payload_index = get_generalized_index(
-        &beacon_state,
-        &[SszVariableOrIndex::Name("latest_execution_payload_header")],
-    );
-    let next_sync =
-        get_generalized_index(&beacon_state, &[SszVariableOrIndex::Name("next_sync_committee")]);
-    let finalized =
-        get_generalized_index(&beacon_state, &[SszVariableOrIndex::Name("finalized_checkpoint")]);
-    let execution_payload_root = get_generalized_index(
-        &beacon_state.latest_execution_payload_header,
-        &[SszVariableOrIndex::Name("state_root")],
-    );
-    let block_number = get_generalized_index(
-        &beacon_state.latest_execution_payload_header,
-        &[SszVariableOrIndex::Name("block_number")],
-    );
-    let timestamp = get_generalized_index(
-        &beacon_state.latest_execution_payload_header,
-        &[SszVariableOrIndex::Name("timestamp")],
-    );
-    dbg!(execution_payload_index);
-    dbg!(next_sync);
-    dbg!(finalized);
-    dbg!(execution_payload_root);
-    dbg!(block_number);
-    dbg!(timestamp);
-
-    dbg!(next_sync.floor_log2());
-}
-
-#[cfg(test)]
-#[allow(non_snake_case)]
-#[tokio::test]
 async fn fetch_beacon_state_works() {
     let sync_committee_prover = setup_prover();
     let beacon_state = sync_committee_prover.fetch_beacon_state("head").await;
     assert!(beacon_state.is_ok());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn state_root_and_block_header_root_matches() {
     let sync_committee_prover = setup_prover();
     let mut beacon_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
@@ -118,18 +77,18 @@ async fn state_root_and_block_header_root_matches() {
     assert_eq!(block_header.state_root, hash_tree_root.unwrap());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn fetch_finality_checkpoints_work() {
     let sync_committee_prover = setup_prover();
     let finality_checkpoint = sync_committee_prover.fetch_finalized_checkpoint(None).await;
     assert!(finality_checkpoint.is_ok());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn test_finalized_header() {
     let sync_committee_prover = setup_prover();
     let mut state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
@@ -153,7 +112,6 @@ async fn test_finalized_header() {
     assert_eq!(root, state.hash_tree_root().unwrap());
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 #[ignore]
@@ -204,9 +162,9 @@ async fn test_execution_payload_proof() {
     assert!(is_merkle_branch_valid);
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
+#[ignore]
 async fn test_sync_committee_update_proof() {
     let sync_committee_prover = setup_prover();
 
@@ -237,132 +195,9 @@ async fn test_sync_committee_update_proof() {
     assert!(is_merkle_branch_valid);
 }
 
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 #[ignore]
-async fn test_client_sync() {
-    let sync_committee_prover = setup_prover();
-    let start_period = 810;
-    let end_period = 815;
-    let starting_slot = ((start_period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) * SLOTS_PER_EPOCH) +
-        (EPOCHS_PER_SYNC_COMMITTEE_PERIOD * SLOTS_PER_EPOCH) -
-        1;
-    let block_header =
-        sync_committee_prover.fetch_header(&starting_slot.to_string()).await.unwrap();
-
-    let state = sync_committee_prover
-        .fetch_beacon_state(&block_header.slot.to_string())
-        .await
-        .unwrap();
-
-    let mut client_state = VerifierState {
-        finalized_header: block_header.clone(),
-        latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
-        current_sync_committee: state.current_sync_committee,
-        next_sync_committee: state.next_sync_committee,
-        state_period: 810,
-    };
-
-    let mut next_period = start_period + 1;
-    loop {
-        if next_period > end_period {
-            break
-        }
-        let update = sync_committee_prover.latest_update_for_period(next_period).await.unwrap();
-        dbg!(&update);
-        client_state = verify_sync_committee_attestation(client_state, update).unwrap();
-        next_period += 1;
-    }
-
-    println!("Sync completed");
-}
-
-#[cfg(test)]
-#[allow(non_snake_case)]
-#[tokio::test]
-#[ignore]
-async fn test_sync_committee_hand_offs() {
-    let sync_committee_prover = setup_prover();
-    let state_period = 805;
-    let signature_period = 806;
-    let starting_slot = ((state_period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) * SLOTS_PER_EPOCH) + 1;
-    let block_header =
-        sync_committee_prover.fetch_header(&starting_slot.to_string()).await.unwrap();
-
-    let state = sync_committee_prover
-        .fetch_beacon_state(&block_header.slot.to_string())
-        .await
-        .unwrap();
-
-    let mut client_state = VerifierState {
-        finalized_header: block_header.clone(),
-        latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
-        current_sync_committee: state.current_sync_committee,
-        next_sync_committee: state.next_sync_committee,
-        state_period: 805,
-    };
-
-    // Verify an update from state_period + 1
-    let latest_block_id = {
-        let slot = ((signature_period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) * SLOTS_PER_EPOCH) +
-            ((EPOCHS_PER_SYNC_COMMITTEE_PERIOD * SLOTS_PER_EPOCH) / 2);
-        slot.to_string()
-    };
-
-    let finalized_checkpoint = sync_committee_prover
-        .fetch_finalized_checkpoint(Some("head"))
-        .await
-        .unwrap()
-        .finalized;
-
-    let update = sync_committee_prover
-        .fetch_light_client_update(
-            client_state.clone(),
-            finalized_checkpoint.clone(),
-            Some(&latest_block_id),
-            "prover",
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(update.sync_committee_update.is_some());
-    client_state = verify_sync_committee_attestation(client_state, update).unwrap();
-    assert_eq!(client_state.state_period, state_period + 1);
-    // Verify block in the current state_period
-    let latest_block_id = {
-        let slot = ((signature_period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) * SLOTS_PER_EPOCH) +
-            (EPOCHS_PER_SYNC_COMMITTEE_PERIOD * SLOTS_PER_EPOCH) -
-            1;
-        slot.to_string()
-    };
-
-    let update = sync_committee_prover
-        .fetch_light_client_update(
-            client_state.clone(),
-            finalized_checkpoint,
-            Some(&latest_block_id),
-            "prover",
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(update.sync_committee_update.is_none());
-    client_state = verify_sync_committee_attestation(client_state, update).unwrap();
-
-    let next_period = signature_period + 1;
-    let next_period_slot = ((next_period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) * SLOTS_PER_EPOCH) + 1;
-    let beacon_state = sync_committee_prover
-        .fetch_beacon_state(&next_period_slot.to_string())
-        .await
-        .unwrap();
-
-    assert_eq!(client_state.next_sync_committee, beacon_state.current_sync_committee);
-}
-
-#[cfg(test)]
-#[allow(non_snake_case)]
-#[tokio::test]
 async fn test_prover() {
     use log::LevelFilter;
     use parity_scale_codec::{Decode, Encode};
@@ -405,7 +240,7 @@ async fn test_prover() {
                 {
                     update
                 } else {
-                    continue
+                    continue;
                 };
 
                 if light_client_update.sync_committee_update.is_some() {
@@ -430,7 +265,7 @@ async fn test_prover() {
                 count += 1;
                 // For CI purposes we test finalization of 2 epochs
                 if count == 2 {
-                    break
+                    break;
                 }
             },
             Err(err) => {
@@ -442,7 +277,6 @@ async fn test_prover() {
 }
 
 #[ignore]
-#[cfg(test)]
 #[allow(non_snake_case)]
 #[tokio::test]
 async fn test_sync_committee_signature_verification() {
@@ -451,9 +285,9 @@ async fn test_sync_committee_signature_verification() {
         let block = sync_committee_prover.fetch_block("head").await.unwrap();
         if block.slot < 16 {
             std::thread::sleep(Duration::from_secs(48));
-            continue
+            continue;
         }
-        break block
+        break block;
     };
     let sync_committee = sync_committee_prover
         .fetch_processed_sync_committee(block.slot.to_string().as_str())

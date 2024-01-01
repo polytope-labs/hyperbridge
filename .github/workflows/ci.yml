@@ -1,0 +1,206 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-C link-args=-Wl,--allow-multiple-definition"
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  check-wasm:
+    name: Check Wasm Crates
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        crate: [messier-runtime, gargantua-runtime]
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          submodules: recursive
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
+
+      - uses: Swatinem/rust-cache@v1
+      - run: |
+          rustup target add wasm32-unknown-unknown --toolchain nightly
+          rustup component add rust-src
+
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: check no-std
+        run: |
+          cargo +nightly check -p ${{ matrix.crate }} --no-default-features --target=wasm32-unknown-unknown --locked
+
+  check-workspace:
+    name: Check Workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          submodules: recursive
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: stable
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          version: '3.x'
+          repo-token: ${{ secrets.GH_TOKEN }}
+
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - uses: Swatinem/rust-cache@v1
+
+      - name: Install wasm toolchain
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+          rustup show
+
+      - name: check workspace
+        run: |
+          cargo check --all --benches --locked
+
+  fmt:
+    name: Cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Cargo fmt
+        run: cargo +nightly fmt --all --check
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          submodules: recursive
+
+      - name: Install rust stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - uses: Swatinem/rust-cache@v1
+
+      - name: Install wasm toolchain
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+          rustup show
+
+      - name: Install protoc
+        run: |
+          sudo apt update
+          sudo apt install protobuf-compiler
+
+      - name: Run unit tests
+        run: |
+          cargo test --all-targets --features=runtime-benchmarks --locked
+
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          submodules: recursive
+
+      - name: Install rust stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - uses: Swatinem/rust-cache@v1
+
+      - name: Install wasm toolchain
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+          rustup show
+
+      - name: Install protoc
+        run: |
+          sudo apt update
+          sudo apt install protobuf-compiler
+
+      - name: Clone eth-pos-devnet repository
+        run: |
+          git clone https://github.com/polytope-labs/eth-pos-devnet.git
+          cd eth-pos-devnet
+          ./clean.sh
+          docker compose up -d
+          ../scripts/wait_for_tcp_port_opening.sh localhost 3500
+          ../scripts/wait_for_tcp_port_opening.sh localhost 8545
+
+      - name: sync-committee integration tests
+        run: |
+          cargo test -p sync-committee-prover -- --nocapture --ignored
+
+  check-solidity:
+    name: Check ismp-solidity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Run Forge build
+        run: |
+          cd ./evm
+          forge --version
+          forge build --sizes
+        id: build
+
+      - name: Run Forge tests
+        run: |
+          cd ./evm
+          forge test -vvv
+        id: test

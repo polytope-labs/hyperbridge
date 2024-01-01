@@ -181,9 +181,20 @@ jobs:
 
       - name: Run Parachain Devnet
         run: |
+          # install polkadot binary
           cd ../
           mkdir -p polkadot-sdk/target/release
-          cd polkadot-sdk/target/release
+          wget -O ./polkadot-sdk/target/release/polkadot -q --show-progress 'https://dl.dropbox.com/scl/fi/fe2l45wwqqs78f68lcv4l/polkadot?rlkey=jgqeughfm0ce8g9torlfzj2md&dl=0'
+          # install zombienet
+          wget -O $HOME/.cargo/bin/zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
+          cd hyperbridge/scripts/zombienet
+          zombienet spawn --provider native ./local-testnet.toml
+          ../wait_for_tcp_port_opening.sh localhost 9944
+          ../wait_for_tcp_port_opening.sh localhost 9988
+
+      - name: Beefy integration tests
+        run: |
+          cargo test -p ismp-solidity-tests -- --nocapture --ignored          
 
   check-solidity:
     name: Check ismp-solidity
@@ -210,3 +221,4 @@ jobs:
           cd ./evm
           forge test -vvv
         id: test
+

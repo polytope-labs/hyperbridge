@@ -174,7 +174,10 @@ jobs:
           wget -O ./polkadot.tar.gz -q --show-progress 'https://dl.dropbox.com/scl/fi/98mcislfgxe57fwuvcjay/polkadot.tar.gz?rlkey=o596ikw5ybvphn800xuh2ic7x&dl=0'
           tar xvzf ./polkadot.tar.gz
           mv bins/* polkadot-sdk/target/release
+          ls -la polkadot-sdk/target/release
           sudo chmod +x ./polkadot-sdk/target/release/polkadot
+          sudo chmod +x ./polkadot-sdk/target/release/polkadot-execute-worker
+          sudo chmod +x ./polkadot-sdk/target/release/polkadot-prepare-worker
           # install hyperbridge binary
           cd hyperbridge
           mkdir -p target/release
@@ -187,8 +190,6 @@ jobs:
           sudo chmod +x ./zombienet
           # spawn devnet
           nohup ./zombienet -d /tmp/zombienet spawn --provider native ./local-testnet.toml & disown
-          sleep 60;
-          tail -f -n9999 /tmp/zombienet/alice.log
           ../wait_for_tcp_port_opening.sh localhost 9944
           ../wait_for_tcp_port_opening.sh localhost 9988
 

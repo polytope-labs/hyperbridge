@@ -184,7 +184,7 @@ jobs:
           # install zombienet
           cd scripts/zombienet
           wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
-          sudo chmod +x ./zombienet
+          chmod +x ./zombienet
           # spawn devnet
           nohup ./zombienet -d /tmp/zombienet spawn --provider native ./local-testnet.toml & disown
           ../wait_for_tcp_port_opening.sh localhost 9944

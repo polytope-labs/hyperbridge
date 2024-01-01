@@ -115,6 +115,7 @@ contract BeefyV1 is IConsensusClient {
     /// ConsensusID for aura
     bytes4 public constant AURA_CONSENSUS_ID = bytes4("aura");
 
+    // Authorized paraId.
     uint256 private _paraId;
 
     constructor(uint256 paraId) {
@@ -123,6 +124,7 @@ contract BeefyV1 is IConsensusClient {
 
     function verifyConsensus(bytes memory encodedState, bytes memory encodedProof)
         external
+        view
         returns (bytes memory, IntermediateState memory)
     {
         BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));

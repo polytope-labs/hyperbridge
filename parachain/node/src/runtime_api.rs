@@ -64,6 +64,8 @@ pub mod opaque {
     /// An index to a block.
     pub type BlockNumber = u32;
 
+    pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
+
     /// The address format for describing accounts.
     pub type Address = MultiAddress<AccountId, ()>;
 }

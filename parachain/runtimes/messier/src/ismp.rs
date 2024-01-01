@@ -95,7 +95,7 @@ impl ismp_polygon_pos::pallet::Config for Runtime {}
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
         if request.dest != StateMachineProvider::get() {
-            return Ismp::dispatch_request(Request::Post(request))
+            return Ismp::dispatch_request(Request::Post(request));
         }
 
         let pallet_id = ModuleId::from_bytes(&request.to)
@@ -109,7 +109,7 @@ impl IsmpModule for ProxyModule {
 
     fn on_response(&self, response: Response) -> Result<(), Error> {
         if response.dest_chain() != StateMachineProvider::get() {
-            return Ismp::dispatch_response(response)
+            return Ismp::dispatch_response(response);
         }
 
         let request = &response.request();

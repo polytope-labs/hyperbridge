@@ -29,8 +29,8 @@ pub mod xcm;
 
 use codec::{Decode, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::RelayNumberStrictlyIncreases;
-use cumulus_primitives_core::AggregateMessageOrigin;
-use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
+// use cumulus_primitives_core::AggregateMessageOrigin;
+// use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 use scale_info::TypeInfo;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
@@ -85,7 +85,7 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 // XCM Imports
 use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
-use frame_support::traits::{ConstBool, TransformOrigin};
+use frame_support::traits::ConstBool;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
 use staging_xcm_executor::XcmExecutor;
 
@@ -406,7 +406,7 @@ impl pallet_transaction_payment::Config for Runtime {
 parameter_types! {
     pub const ReservedXcmpWeight: Weight = MAXIMUM_BLOCK_WEIGHT.saturating_div(4);
     pub const ReservedDmpWeight: Weight = MAXIMUM_BLOCK_WEIGHT.saturating_div(4);
-    pub const RelayOrigin: AggregateMessageOrigin = AggregateMessageOrigin::Parent;
+    // pub const RelayOrigin: AggregateMessageOrigin = AggregateMessageOrigin::Parent;
 
 }
 
@@ -415,12 +415,13 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
     type OnSystemEvent = ();
     type SelfParaId = parachain_info::Pallet<Runtime>;
     type OutboundXcmpMessageSource = XcmpQueue;
+    type DmpMessageHandler = DmpQueue;
     type ReservedDmpWeight = ReservedDmpWeight;
     type XcmpMessageHandler = XcmpQueue;
     type ReservedXcmpWeight = ReservedXcmpWeight;
     type CheckAssociatedRelayNumber = RelayNumberStrictlyIncreases;
-    type DmpQueue = frame_support::traits::EnqueueWithOrigin<MessageQueue, RelayOrigin>;
-    type WeightInfo = ();
+    // type DmpQueue = frame_support::traits::EnqueueWithOrigin<MessageQueue, RelayOrigin>;
+    // type WeightInfo = ();
 }
 
 impl parachain_info::Config for Runtime {}
@@ -429,13 +430,15 @@ impl cumulus_pallet_aura_ext::Config for Runtime {}
 
 impl cumulus_pallet_xcmp_queue::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    type VersionWrapper = PolkadotXcm;
+    type XcmExecutor = XcmExecutor<XcmConfig>;
     type ChannelInfo = ParachainSystem;
-    type VersionWrapper = ();
+    type ExecuteOverweightOrigin = EnsureRoot<AccountId>;
     type ControllerOrigin = EnsureRoot<AccountId>;
     type ControllerOriginConverter = XcmOriginToTransactDispatchOrigin;
     type PriceForSiblingDelivery = NoPriceForMessageDelivery<ParaId>;
-    type XcmpQueue = TransformOrigin<MessageQueue, AggregateMessageOrigin, ParaId, ParaIdToSibling>;
-    type MaxInboundSuspended = sp_core::ConstU32<1_000>;
+    // type XcmpQueue = TransformOrigin<MessageQueue, AggregateMessageOrigin, ParaId,
+    // ParaIdToSibling>; type MaxInboundSuspended = sp_core::ConstU32<1_000>;
     type WeightInfo = ();
 }
 
@@ -443,26 +446,32 @@ parameter_types! {
     pub MessageQueueServiceWeight: Weight = Perbill::from_percent(35) * RuntimeBlockWeights::get().max_block;
 }
 
-impl pallet_message_queue::Config for Runtime {
+// impl pallet_message_queue::Config for Runtime {
+//     type RuntimeEvent = RuntimeEvent;
+//     type WeightInfo = ();
+//     #[cfg(feature = "runtime-benchmarks")]
+//     type MessageProcessor = pallet_message_queue::mock_helpers::NoopMessageProcessor<
+//         cumulus_primitives_core::AggregateMessageOrigin,
+//     >;
+//     #[cfg(not(feature = "runtime-benchmarks"))]
+//     type MessageProcessor = staging_xcm_builder::ProcessXcmMessage<
+//         AggregateMessageOrigin,
+//         XcmExecutor<XcmConfig>,
+//         RuntimeCall,
+//     >;
+//     type Size = u32;
+//     // The XCMP queue pallet is only ever able to handle the `Sibling(ParaId)` origin:
+//     // type QueueChangeHandler = NarrowOriginToSibling<XcmpQueue>;
+//     // type QueuePausedQuery = NarrowOriginToSibling<XcmpQueue>;
+//     type HeapSize = sp_core::ConstU32<{ 64 * 1024 }>;
+//     type MaxStale = sp_core::ConstU32<8>;
+//     type ServiceWeight = MessageQueueServiceWeight;
+// }
+
+impl cumulus_pallet_dmp_queue::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = ();
-    #[cfg(feature = "runtime-benchmarks")]
-    type MessageProcessor = pallet_message_queue::mock_helpers::NoopMessageProcessor<
-        cumulus_primitives_core::AggregateMessageOrigin,
-    >;
-    #[cfg(not(feature = "runtime-benchmarks"))]
-    type MessageProcessor = staging_xcm_builder::ProcessXcmMessage<
-        AggregateMessageOrigin,
-        XcmExecutor<XcmConfig>,
-        RuntimeCall,
-    >;
-    type Size = u32;
-    // The XCMP queue pallet is only ever able to handle the `Sibling(ParaId)` origin:
-    type QueueChangeHandler = NarrowOriginToSibling<XcmpQueue>;
-    type QueuePausedQuery = NarrowOriginToSibling<XcmpQueue>;
-    type HeapSize = sp_core::ConstU32<{ 64 * 1024 }>;
-    type MaxStale = sp_core::ConstU32<8>;
-    type ServiceWeight = MessageQueueServiceWeight;
+    type XcmExecutor = XcmExecutor<XcmConfig>;
+    type ExecuteOverweightOrigin = EnsureRoot<AccountId>;
 }
 
 parameter_types! {
@@ -550,8 +559,9 @@ construct_runtime!(
         // XCM helpers.
         XcmpQueue: cumulus_pallet_xcmp_queue::{Pallet, Call, Storage, Event<T>} = 30,
         PolkadotXcm: pallet_xcm = 31,
-        CumulusXcm: cumulus_pallet_xcm::{Pallet, Event<T>, Origin} = 32,
-        MessageQueue: pallet_message_queue = 33,
+        CumulusXcm: cumulus_pallet_xcm = 32,
+        DmpQueue: cumulus_pallet_dmp_queue = 33,
+        // MessageQueue: pallet_message_queue = 33,
 
         // ISMP stuff
         Ismp: pallet_ismp = 40,
@@ -861,12 +871,12 @@ impl_runtime_apis! {
         fn dispatch_benchmark(
             config: frame_benchmarking::BenchmarkConfig
         ) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, sp_runtime::RuntimeString> {
-            use frame_benchmarking::{Benchmarking, BenchmarkBatch, TrackedStorageKey};
-
+            use frame_benchmarking::{Benchmarking, BenchmarkBatch};
+            use frame_support::traits::TrackedStorageKey;
             use frame_system_benchmarking::Pallet as SystemBench;
-            impl frame_system_benchmarking::Config for Runtime {}
-
             use cumulus_pallet_session_benchmarking::Pallet as SessionBench;
+
+            impl frame_system_benchmarking::Config for Runtime {}
             impl cumulus_pallet_session_benchmarking::Config for Runtime {}
 
             let whitelist: Vec<TrackedStorageKey> = vec![
@@ -883,7 +893,7 @@ impl_runtime_apis! {
             ];
 
             let mut batches = Vec::<BenchmarkBatch>::new();
-            let params = (&config, &whitelist);
+            let params = (&config, &*whitelist);
             add_benchmarks!(params, batches);
 
             if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }

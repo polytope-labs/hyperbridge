@@ -157,7 +157,7 @@ impl ShouldExecute for DenyReserveTransferToRelayChain {
                     }
             )
         }) {
-            return Err(ProcessMessageError::Unsupported) // Deny
+            return Err(ProcessMessageError::Unsupported); // Deny
         }
 
         // An unexpected reserve transfer has arrived from the Relay Chain. Generally, `IsReserve`

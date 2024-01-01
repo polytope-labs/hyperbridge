@@ -7,7 +7,7 @@ import "ismp/StateMachine.sol";
 contract TestHost is EvmHost {
     constructor(HostParams memory params) EvmHost(params) {}
 
-    function host() public override returns (bytes memory) {
+    function host() public pure override returns (bytes memory) {
         return StateMachine.ethereum();
     }
 }

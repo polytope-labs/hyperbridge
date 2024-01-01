@@ -175,9 +175,6 @@ jobs:
           tar xvzf ./polkadot.tar.gz
           mv bins/* polkadot-sdk/target/release
           ls -la polkadot-sdk/target/release
-          sudo chmod +x ./polkadot-sdk/target/release/polkadot
-          sudo chmod +x ./polkadot-sdk/target/release/polkadot-execute-worker
-          sudo chmod +x ./polkadot-sdk/target/release/polkadot-prepare-worker
           # install hyperbridge binary
           cd hyperbridge
           mkdir -p target/release

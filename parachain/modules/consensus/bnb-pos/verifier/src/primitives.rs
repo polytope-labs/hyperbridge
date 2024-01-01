@@ -221,7 +221,6 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<ExtraData, anyhow:
                 let address_bytes: Vec<u8> = remaining_data[i.clone() * VALIDATOR_BYTES_LENGTH..
                     i.clone() * VALIDATOR_BYTES_LENGTH + ADDRESS_LENGTH]
                     .to_vec();
-                let hex_string = hex::encode(address_bytes.clone());
                 let bls_public_key_bytes: Vec<u8> =
                     remaining_data[i.clone() * VALIDATOR_BYTES_LENGTH + ADDRESS_LENGTH..
                         (i.clone() + 1) * VALIDATOR_BYTES_LENGTH]
@@ -240,7 +239,7 @@ pub fn parse_extra<H: Keccak256>(extra_data: &[u8]) -> Result<ExtraData, anyhow:
         // parse attestation
         if data_length > 0 {
             let vote_attestation_data: VoteAttestationData = VoteAttestationData::decode(&mut data)
-                .map_err(|_| anyhow!("parse voteAttestation failed"))?;
+                .map_err(|_| anyhow!("parse vote attestation failed"))?;
 
             extra.agg_signature = vote_attestation_data.agg_signature.0.into();
             extra.vote_data = vote_attestation_data.data.into();

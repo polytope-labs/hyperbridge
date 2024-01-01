@@ -23,7 +23,7 @@ members = [
      "parachain/modules/consensus/sync-committee/verifier",
      "parachain/modules/consensus/sync-committee/primitives",
      "parachain/modules/consensus/bnb-pos/verifier",
-     "parachain/modules/consensus/bnb-pos/prover",
+     "parachain/modules/consensus/bnb-pos/prover", "parachain/modules/ismp/bnb-pos",
 
      # evm tests
 #     "evm/forge"

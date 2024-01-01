@@ -6,7 +6,7 @@ use ark_ec::AffineRepr;
 use bitvec::vec::BitVec;
 use ismp::util::Keccak256;
 use primitives::{parse_extra, BnbClientUpdate, CodecHeader, Header};
-use sp_core::{H160, H256};
+use sp_core::H256;
 use sync_committee_verifier::crypto::{pairing, pubkey_to_projective};
 pub mod primitives;
 use bls::{
@@ -25,7 +25,7 @@ pub struct VerificationResult {
     pub next_validators: Option<NextValidators>,
 }
 
-#[derive(Debug, Clone, codec::Encode, codec::Decode)]
+#[derive(Debug, Clone, Default, codec::Encode, codec::Decode)]
 pub struct NextValidators {
     pub validators: Vec<BlsPublicKey>,
     pub rotation_block: u64,
@@ -44,11 +44,10 @@ pub fn verify_bnb_header<H: Keccak256>(
         Err(anyhow!("Not enough participants"))?
     }
 
-    dbg!(current_validators.len());
     let participants: Vec<BlsPublicKey> = current_validators
         .iter()
         .zip(validators_bit_set.iter())
-        .filter_map(|(validator, bit)| if (*bit) { Some(validator.clone()) } else { None })
+        .filter_map(|(validator, bit)| if *bit { Some(validator.clone()) } else { None })
         .collect();
 
     let aggregate_public_key = aggregate_public_keys(&participants).as_slice().try_into()?;

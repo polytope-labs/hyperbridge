@@ -5416,6 +5416,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-bnb-pos"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bnb-pos-verifier",
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "ismp-sync-committee",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 27.0.0",
+ "sp-runtime",
+ "sync-committee-primitives",
+]
+
+[[package]]
 name = "ismp-casper-ffg"
 version = "0.1.0"
 

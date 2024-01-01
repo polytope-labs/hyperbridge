@@ -136,7 +136,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    runs-on: hypercore
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -144,27 +144,27 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
-#      - name: Install rust stable toolchain
-#        uses: actions-rs/toolchain@v1
-#        with:
-#          toolchain: stable
-#
-#      - uses: webfactory/ssh-agent@v0.7.0
-#        with:
-#          ssh-private-key: ${{ secrets.SSH_KEY }}
+      - name: Install rust stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Install wasm toolchain
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+          rustup show
+
+      - name: Install protoc
+        run: |
+          sudo apt update
+          sudo apt install protobuf-compiler
 
       - uses: Swatinem/rust-cache@v1
-
-#      - name: Install wasm toolchain
-#        run: |
-#          rustup target add wasm32-unknown-unknown
-#          rustup component add rust-src
-#          rustup show
-#
-#      - name: Install protoc
-#        run: |
-#          sudo apt update
-#          sudo apt install protobuf-compiler
 
       - name: Run Parachain Devnet
         run: |
@@ -183,16 +183,18 @@ jobs:
           mv ./hyperbridge-x86_64-unknown-linux-gnu/hyperbridge target/release
           cd scripts/zombienet
           # install zombienet
-          # wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
-          # sudo chmod +x ./zombienet
-          # spawn devnet
-          nohup zombienet spawn --provider native ./local-testnet.toml & disown
+          wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
+          sudo chmod +x ./zombienet
+          spawn devnet
+          nohup ./zombienet spawn --provider native ./local-testnet.toml & disown
+          echo $! > pid.txt
           ../wait_for_tcp_port_opening.sh localhost 9944
           ../wait_for_tcp_port_opening.sh localhost 9988
 
       - name: Beefy integration tests
         run: |
-          cargo test -p ismp-solidity-tests -- --nocapture --ignored          
+          cargo test -p ismp-solidity-tests -- --nocapture --ignored 
+          kill -9 $(cat pid.txt)
 
       - name: Run Eth POS Devnet
         run: |

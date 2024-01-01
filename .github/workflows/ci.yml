@@ -185,6 +185,7 @@ jobs:
           sudo chmod +x ./zombienet
           # spawn devnet
           nohup ./zombienet -d ./ spawn --provider native ./local-testnet.toml & disown
+          sleep 10
           tail -f -n9999 ./alice.log
           ../wait_for_tcp_port_opening.sh localhost 9944
           ../wait_for_tcp_port_opening.sh localhost 9988

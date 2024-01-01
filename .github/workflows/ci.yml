@@ -171,7 +171,7 @@ jobs:
           # install polkadot binary
           cd ../
           mkdir -p polkadot-sdk/target/release
-          wget -O ./polkadot.tar.gz -q --show-progress 'https://dl.dropbox.com/scl/fi/98mcislfgxe57fwuvcjay/polkadot.tar.gz?rlkey=o596ikw5ybvphn800xuh2ic7x&dl=0'
+          wget -O ./polkadot.tar.gz -q --show-progress 'https://dl.dropbox.com/scl/fi/onsvsex4w9vf5vghqe23j/polkadot.tar.gz?rlkey=17e3gq0n82v8hhar4nzlynruu&dl=0'
           tar xvzf ./polkadot.tar.gz
           mv bins/* polkadot-sdk/target/release
           ls -la polkadot-sdk/target/release

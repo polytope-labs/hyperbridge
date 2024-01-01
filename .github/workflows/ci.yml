@@ -187,10 +187,10 @@ jobs:
           wget -O ./polkadot-sdk/target/release/polkadot -q --show-progress 'https://dl.dropbox.com/scl/fi/fe2l45wwqqs78f68lcv4l/polkadot?rlkey=jgqeughfm0ce8g9torlfzj2md&dl=0'
           # install zombienet
           cd hyperbridge/scripts
-          ./install_zombienet.sh
+          wget -O $HOME/zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
           cd zombienet
           # spawn devnet
-          zombienet spawn --provider native ./local-testnet.toml
+          $HOME/zombienet spawn --provider native ./local-testnet.toml
           ../wait_for_tcp_port_opening.sh localhost 9944
           ../wait_for_tcp_port_opening.sh localhost 9988
 

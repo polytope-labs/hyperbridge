@@ -188,6 +188,7 @@ jobs:
           # install zombienet
           cd hyperbridge/scripts/zombienet
           wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
+          sudo chmod +x ./zombienet
           # spawn devnet
           ./zombienet spawn --provider native ./local-testnet.toml
           ../wait_for_tcp_port_opening.sh localhost 9944

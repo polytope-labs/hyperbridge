@@ -4,11 +4,12 @@
 mod tests;
 
 pub use ethers::{abi::Token, types::U256, utils::keccak256};
-use merkle_mountain_range::{Error, Merge};
+use ismp::mmr::{DataOrHash, MmrHasher};
+use merkle_mountain_range::{util::MemMMR, Error, Merge};
 use primitive_types::H256;
 use rs_merkle::Hasher;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Keccak256;
 
 impl Hasher for Keccak256 {
@@ -51,11 +52,4 @@ impl From<u32> for NumberHash {
     }
 }
 
-// pub fn unwrap_hash(item: &DataOrHash) -> [u8; 32] {
-//     match item {
-//         DataOrHash::Hash(h) => (*h).into(),
-//         _ => panic!("not a hash"),
-//     }
-// }
-
-// pub type Mmr = MemMMR<DataOrHash, MmrHasher<Keccak256>>;
+pub type Mmr = MemMMR<DataOrHash, MmrHasher<Keccak256>>;

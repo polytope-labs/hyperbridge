@@ -89,6 +89,7 @@ impl DataOrHash {
 }
 
 /// Default Merging & Hashing behavior for MMR.
+#[derive(Default)]
 pub struct MmrHasher<H>(core::marker::PhantomData<H>);
 
 impl<H> merkle_mountain_range::Merge for MmrHasher<H>

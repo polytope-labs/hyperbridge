@@ -4014,7 +4014,7 @@ dependencies = [
 [[package]]
 name = "forge-testsuite"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/forge-testsuite?rev=5da50eafa1be2ebb3ceb31c3a7b9daaaec683d09#5da50eafa1be2ebb3ceb31c3a7b9daaaec683d09"
+source = "git+https://github.com/polytope-labs/forge-testsuite?rev=03c48a56db852cef8d254f3d7a3bca6ba339b1b2#03c48a56db852cef8d254f3d7a3bca6ba339b1b2"
 dependencies = [
  "ethers",
  "forge",
@@ -5573,7 +5573,7 @@ dependencies = [
 name = "ismp"
 version = "0.1.0"
 dependencies = [
- "ckb-merkle-mountain-range 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-merkle-mountain-range 0.5.2 (git+https://github.com/polytope-labs/merkle-mountain-range?branch=seun/simplified-mmr)",
  "derive_more",
  "frame-support",
  "frame-system",
@@ -15188,7 +15188,7 @@ dependencies = [
 name = "substrate-state-machine"
 version = "0.1.0"
 dependencies = [
- "ckb-merkle-mountain-range 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ckb-merkle-mountain-range 0.5.2 (git+https://github.com/polytope-labs/merkle-mountain-range?branch=seun/simplified-mmr)",
  "frame-support",
  "frame-system",
  "hash-db 0.16.0",

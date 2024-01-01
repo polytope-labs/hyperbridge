@@ -54,7 +54,10 @@ pub fn verify_bnb_header<H: Keccak256>(
         .filter_map(|(validator, bit)| if *bit { Some(validator.clone()) } else { None })
         .collect();
 
-    let aggregate_public_key = aggregate_public_keys(&participants).as_slice().try_into()?;
+    let aggregate_public_key = aggregate_public_keys(&participants)
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow!("Could not aggregate public keys"))?;
 
     let msg = H::keccak256(alloy_rlp::encode(extra_data.vote_data.clone()).as_slice());
 

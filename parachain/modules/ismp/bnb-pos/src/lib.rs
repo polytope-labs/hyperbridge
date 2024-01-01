@@ -30,7 +30,6 @@ pub struct ConsensusState {
     pub frozen_height: Option<u64>,
     pub finalized_hash: H256,
     pub finalized_validators: NextValidators,
-    pub rotation_block: Option<u64>,
     pub ismp_contract_address: H160,
 }
 

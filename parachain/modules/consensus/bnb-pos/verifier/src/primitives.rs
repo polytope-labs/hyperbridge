@@ -17,6 +17,7 @@ const BLS_PUBLIC_KEY_LENGTH: usize = 48;
 const VALIDATOR_BYTES_LENGTH: usize = 20 + BLS_PUBLIC_KEY_LENGTH;
 const VALIDATOR_NUMBER_SIZE: usize = 1; // // Fixed number of extra prefix bytes reserved for validator number after Luban
 const ADDRESS_LENGTH: usize = 20;
+pub const VALIDATOR_BIT_SET_SIZE: usize = 64;
 
 #[derive(codec::Encode, codec::Decode, Debug)]
 pub struct ConsensusState {

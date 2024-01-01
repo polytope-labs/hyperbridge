@@ -1,11 +1,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #[warn(unused_imports)]
 #[warn(unused_variables)]
+use alloc::vec::Vec;
 use anyhow::anyhow;
 use ark_ec::AffineRepr;
-use bitvec::vec::BitVec;
 use ismp::util::Keccak256;
-use primitives::{parse_extra, BnbClientUpdate, CodecHeader, Header};
+use primitives::{parse_extra, BnbClientUpdate, CodecHeader, Header, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
 use sync_committee_verifier::crypto::{pairing, pubkey_to_projective};
 pub mod primitives;
@@ -14,6 +14,7 @@ use bls::{
     types::{G1AffinePoint, G1ProjectivePoint, Signature},
     DST_ETHEREUM,
 };
+use ssz_rs::{Bitvector, Deserialize};
 use sync_committee_primitives::constants::BlsPublicKey;
 
 extern crate alloc;
@@ -38,9 +39,12 @@ pub fn verify_bnb_header<H: Keccak256>(
     let extra_data = parse_extra::<H>(&update.attested_header.extra_data)
         .map_err(|_| anyhow!("could not parse extra data from header"))?;
 
-    let validators_bit_set = BitVec::<_>::from_element(extra_data.vote_address_set);
+    let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+        extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
+    )
+    .map_err(|_| anyhow!("Could not deseerialize vote address set"))?;
 
-    if validators_bit_set.count_ones() < (2 * current_validators.len() / 3) {
+    if validators_bit_set.iter().as_bitslice().count_ones() < (2 * current_validators.len() / 3) {
         Err(anyhow!("Not enough participants"))?
     }
 
@@ -107,7 +111,8 @@ pub fn verify_aggregate_signature(
     msg: Vec<u8>,
     signature: &Signature,
 ) -> anyhow::Result<()> {
-    let aggregate_key_point: G1AffinePoint = pubkey_to_point(aggregate)?;
+    let aggregate_key_point: G1AffinePoint =
+        pubkey_to_point(aggregate).map_err(|_| anyhow!("Could not convert public key to point"))?;
     let signature = bls::signature_to_point(signature).map_err(|e| anyhow!("{:?}", e))?;
 
     if !bls::signature_subgroup_check(signature) {

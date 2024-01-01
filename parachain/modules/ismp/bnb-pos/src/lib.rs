@@ -5,12 +5,9 @@ extern crate alloc;
 
 use core::marker::PhantomData;
 
-use alloc::{
-    boxed::Box,
-    collections::BTreeMap,
-    string::ToString,
-    vec,
-    vec::Vec,
+use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
+use bnb_pos_verifier::{
+    primitives::BnbClientUpdate, verify_bnb_header, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
 use ismp::{
@@ -20,9 +17,7 @@ use ismp::{
     messaging::StateCommitmentHeight,
 };
 use ismp_sync_committee::EvmStateMachine;
-use bnb_pos_verifier::{ verify_bnb_header, VerificationResult, NextValidators};
 use sp_core::{H160, H256};
-use bnb_pos_verifier::primitives::BnbClientUpdate;
 
 pub const BNB_CONSENSUS_ID: ConsensusStateId = *b"BNBP";
 #[derive(Debug, Encode, Decode, Clone, Default)]
@@ -47,9 +42,7 @@ impl<H: IsmpHost> Clone for BnbClient<H> {
     }
 }
 
-impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
-for BnbClient<H>
-{
+impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClient<H> {
     fn verify_consensus(
         &self,
         _host: &dyn IsmpHost,
@@ -57,17 +50,20 @@ for BnbClient<H>
         trusted_consensus_state: Vec<u8>,
         proof: Vec<u8>,
     ) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), ismp::error::Error> {
-        let bnb_client_update =
-            BnbClientUpdate::decode(&mut &proof[..]).map_err(|_| {
-                Error::ImplementationSpecific("Cannot decode bnb client update".to_string())
-            })?;
+        let bnb_client_update = BnbClientUpdate::decode(&mut &proof[..]).map_err(|_| {
+            Error::ImplementationSpecific("Cannot decode bnb client update".to_string())
+        })?;
 
         let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
             .map_err(|_| {
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
             })?;
 
-        let VerificationResult {hash, finalized_header, next_validators} = verify_bnb_header::<H>(&consensus_state.finalized_validators.validators, bnb_client_update)
+        let VerificationResult { hash, finalized_header, next_validators } =
+            verify_bnb_header::<H>(
+                &consensus_state.finalized_validators.validators,
+                bnb_client_update,
+            )
             .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
 
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =

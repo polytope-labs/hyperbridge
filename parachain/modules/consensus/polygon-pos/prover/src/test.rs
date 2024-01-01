@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use ethers::providers::{Provider, Ws};
 use ismp::util::Keccak256;
 use polygon_pos_verifier::{primitives::Header, verify_polygon_header};

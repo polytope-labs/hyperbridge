@@ -5878,7 +5878,6 @@ dependencies = [
  "frame-system",
  "ismp",
  "ismp-sync-committee",
- "log",
  "pallet-ismp",
  "parity-scale-codec",
  "polygon-pos-verifier",
@@ -10698,20 +10697,13 @@ name = "polygon-pos-prover"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-stream",
  "dotenv",
- "env_logger",
  "ethers 2.0.9",
- "hex",
  "ismp",
- "log",
- "parity-scale-codec",
  "polygon-pos-verifier",
  "primitive-types",
  "sp-core 25.0.0",
- "sp-io 27.0.0",
  "tokio",
- "tokio-stream",
 ]
 
 [[package]]

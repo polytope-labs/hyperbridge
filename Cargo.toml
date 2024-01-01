@@ -163,4 +163,6 @@ ethers = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490b
 ethers-contract-abigen = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8" }
 
 forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "03c48a56db852cef8d254f3d7a3bca6ba339b1b2" }
-merkle-mountain-range = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr" }
+merkle-mountain-range = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr", default-features = false }
+
+trie-db = { version= "0.28.0", default-features = false }

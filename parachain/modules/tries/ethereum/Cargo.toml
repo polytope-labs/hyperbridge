@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 
 [dependencies]
-trie-db = { version= "0.24.0", default-features = false }
+trie-db = { workspace = true }
 hash-db = { version = "0.15.2", default-features = false }
 rlp = { version = "0.5.1", default-features = false }
 primitive-types = { version = "0.12.0", default-features = false }

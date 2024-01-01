@@ -3415,7 +3415,7 @@ dependencies = [
  "rlp",
  "rlp-derive",
  "tiny-keccak",
- "trie-db 0.24.0",
+ "trie-db 0.28.0",
 ]
 
 [[package]]
@@ -5684,7 +5684,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.18",
- "trie-db 0.24.0",
+ "trie-db 0.28.0",
 ]
 
 [[package]]
@@ -5714,7 +5714,7 @@ dependencies = [
  "sync-committee-primitives",
  "sync-committee-verifier",
  "tokio",
- "trie-db 0.24.0",
+ "trie-db 0.28.0",
 ]
 
 [[package]]
@@ -16100,19 +16100,6 @@ dependencies = [
  "thread_local",
  "tracing-core",
  "tracing-log 0.2.0",
-]
-
-[[package]]
-name = "trie-db"
-version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "004e1e8f92535694b4cb1444dc5a8073ecf0815e3357f729638b9f8fc4062908"
-dependencies = [
- "hash-db 0.15.2",
- "hashbrown 0.12.3",
- "log",
- "rustc-hex",
- "smallvec",
 ]
 
 [[package]]

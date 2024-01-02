@@ -35,7 +35,7 @@ args = []
 
 [[parachains]]
 id = 2000
-chain = "messier-2000"
+chain = "dev-2000"
 cumulus_based = true
 
 # run alice as parachain collator
@@ -47,7 +47,7 @@ ws_port = 9988
 port = 30337
 command = "../../target/release/hyperbridge"
 args = [
-	"-lbasic-authorship=trace,txpool=trace,pallet-ismp=trace", "--enable-offchain-indexing=true", "--pruning=archive"
+	"-lbasic-authorship=trace,txpool=trace,pallet-ismp=trace,pallet-ismp=info", "--enable-offchain-indexing=true", "--pruning=archive"
 ]
 
 ## run bob as parachain collator

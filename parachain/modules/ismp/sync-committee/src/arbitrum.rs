@@ -19,10 +19,9 @@ use crate::{
     utils::{derive_map_key, get_contract_storage_root, get_value_from_proof, to_bytes_32},
 };
 use alloc::{format, string::ToString};
-use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp::Decodable;
-use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
-use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
+use ethabi::ethereum_types::{H160, H256, U256};
+use geth_primitives::{CodecHeader, Header};
 use ismp::{
     consensus::{
         ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
@@ -30,95 +29,6 @@ use ismp::{
     error::Error,
     host::{Ethereum, IsmpHost, StateMachine},
 };
-
-/// https://github.com/OffchainLabs/go-ethereum/blob/8c5b9339ca9043d2b8fb5e35814a64e7e9ff7c9b/core/types/block.go#L70
-#[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
-#[rlp(trailing)]
-pub struct Header {
-    pub parent_hash: B256,
-    pub uncle_hash: B256,
-    pub coinbase: Address,
-    pub state_root: B256,
-    pub transactions_root: B256,
-    pub receipts_root: B256,
-    pub logs_bloom: FixedBytes<256>,
-    pub difficulty: alloy_primitives::U256,
-    pub number: alloy_primitives::U256,
-    pub gas_limit: u64,
-    pub gas_used: u64,
-    pub timestamp: u64,
-    // This is the sendRoot, a 32 byte hash
-    // https://github.com/OffchainLabs/go-ethereum/blob/8c5b9339ca9043d2b8fb5e35814a64e7e9ff7c9b/core/types/arb_types.go#L457
-    pub extra_data: alloy_primitives::Bytes,
-    pub mix_hash: B256,
-    pub nonce: FixedBytes<8>,
-    pub base_fee_per_gas: Option<alloy_primitives::U256>,
-}
-
-/// https://github.com/OffchainLabs/go-ethereum/blob/8c5b9339ca9043d2b8fb5e35814a64e7e9ff7c9b/core/types/block.go#L70
-#[derive(codec::Encode, codec::Decode, Debug, Clone)]
-pub struct CodecHeader {
-    pub parent_hash: H256,
-    pub uncle_hash: H256,
-    pub coinbase: H160,
-    pub state_root: H256,
-    pub transactions_root: H256,
-    pub receipts_root: H256,
-    pub logs_bloom: Bloom,
-    pub difficulty: U256,
-    pub number: U256,
-    pub gas_limit: u64,
-    pub gas_used: u64,
-    pub timestamp: u64,
-    // This is the sendRoot, a 32 byte hash
-    // https://github.com/OffchainLabs/go-ethereum/blob/8c5b9339ca9043d2b8fb5e35814a64e7e9ff7c9b/core/types/arb_types.go#L457
-    pub extra_data: Vec<u8>,
-    pub mix_hash: H256,
-    pub nonce: H64,
-    pub base_fee_per_gas: Option<U256>,
-}
-
-impl From<CodecHeader> for Header {
-    fn from(value: CodecHeader) -> Self {
-        Header {
-            parent_hash: value.parent_hash.0.into(),
-            uncle_hash: value.uncle_hash.0.into(),
-            coinbase: value.coinbase.0.into(),
-            state_root: value.state_root.0.into(),
-            transactions_root: value.transactions_root.0.into(),
-            receipts_root: value.receipts_root.0.into(),
-            logs_bloom: value.logs_bloom.0.into(),
-            difficulty: {
-                let mut bytes = [0u8; 32];
-                value.difficulty.to_big_endian(&mut bytes);
-                alloy_primitives::U256::from_be_bytes(bytes)
-            },
-            number: {
-                let mut bytes = [0u8; 32];
-                value.number.to_big_endian(&mut bytes);
-                alloy_primitives::U256::from_be_bytes(bytes)
-            },
-            gas_limit: value.gas_limit,
-            gas_used: value.gas_used,
-            timestamp: value.timestamp,
-            extra_data: value.extra_data.into(),
-            mix_hash: value.mix_hash.0.into(),
-            nonce: value.nonce.0.into(),
-            base_fee_per_gas: value.base_fee_per_gas.map(|val| {
-                let mut bytes = [0u8; 32];
-                val.to_big_endian(&mut bytes);
-                alloy_primitives::U256::from_be_bytes(bytes)
-            }),
-        }
-    }
-}
-
-impl Header {
-    pub fn hash<H: IsmpHost>(self) -> H256 {
-        let encoding = alloy_rlp::encode(self);
-        H::keccak256(&encoding)
-    }
-}
 
 #[derive(codec::Encode, codec::Decode, Debug)]
 pub struct GlobalState {
@@ -216,7 +126,7 @@ pub fn verify_arbitrum_payload<H: IsmpHost + Send + Sync>(
     let storage_root =
         get_contract_storage_root::<H>(payload.contract_proof, rollup_core_address, root)?;
 
-    let header: Header = payload.arbitrum_header.clone().into();
+    let header: Header = payload.arbitrum_header.as_ref().into();
     if &payload.global_state.send_root[..] != &payload.arbitrum_header.extra_data {
         Err(Error::ImplementationSpecific(
             "Arbitrum header extra data does not match send root in global state".to_string(),

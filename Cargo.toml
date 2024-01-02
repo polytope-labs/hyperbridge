@@ -17,6 +17,7 @@ members = [
      "parachain/modules/ismp/core",
      "parachain/modules/ismp/testsuite",
      "parachain/modules/ismp/sync-committee",
+     "parachain/modules/ismp/polygon-pos",
      "parachain/modules/ismp/casper-ffg",
      "parachain/modules/ismp/state-machine",
 
@@ -25,15 +26,18 @@ members = [
      "parachain/modules/consensus/sync-committee/prover",
      "parachain/modules/consensus/sync-committee/verifier",
      "parachain/modules/consensus/sync-committee/primitives",
+     "parachain/modules/consensus/polygon-pos/verifier",
+     "parachain/modules/consensus/polygon-pos/prover",
      "parachain/modules/consensus/beefy/primitives",
      "parachain/modules/consensus/beefy/prover",
+     "parachain/modules/consensus/geth-primitives",
 
      "parachain/modules/consensus/bnb-pos/verifier",
      "parachain/modules/consensus/bnb-pos/prover", "parachain/modules/ismp/bnb-pos",
 
      # evm stuff
-     "evm/integration-tests",
-     "evm/abi",
+      "evm/integration-tests",
+      "evm/abi",
 ]
 
 # Config for 'cargo dist'
@@ -165,5 +169,10 @@ mmr-rpc = { version = "25.0.0" }
 ethers = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8", features = ["ethers-solc"] }
 ethers-contract-abigen = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8" }
 
-forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "5da50eafa1be2ebb3ceb31c3a7b9daaaec683d09" }
-merkle-mountain-range = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr" }
+forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "03c48a56db852cef8d254f3d7a3bca6ba339b1b2" }
+merkle-mountain-range = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr", default-features = false }
+
+trie-db = { version = "0.28.0", default-features = false }
+hash-db = { version = "0.16.0", default-features = false }
+memory-db = { version = "0.32.0", default-features = false }
+codec = { version = "3.1.3", package = "parity-scale-codec", default-features = false }

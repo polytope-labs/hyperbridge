@@ -166,17 +166,55 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         let mut longest_chains = consensus_state
             .forks
             .iter()
-            .filter(|chain| chain.hashes.len() >= 200)
+            .filter(|chain| {
+                log::info!(target: "pallet-ismp", "Chain : {:?} --> {:?}; Difficulty -> {:#?}; length: {:?}", chain.hashes[0], chain.hashes[chain.hashes.len() - 1], chain.difficulty, chain.hashes.len());
+                chain.hashes.len() >= (consensus_state.finalized_validators.len() * 16)
+            })
             .collect::<Vec<&Chain>>();
-        // Sort by highest cumulative difficulty
-        longest_chains.sort_by(|a, b| a.difficulty.cmp(&b.difficulty));
-        let longest_chain = longest_chains.pop().cloned();
+
+        let longest_chain = {
+            if longest_chains.is_empty() {
+                None
+            } else {
+                // Sort by highest cumulative difficulty
+                longest_chains.sort_by(|a, b| a.difficulty.cmp(&b.difficulty));
+                let mut ties = {
+                    // Fork with the highest difficulty in the list
+                    let reference_diff = longest_chains[longest_chains.len() - 1].difficulty;
+                    // filter out all forks with the same difficulty
+                    longest_chains
+                        .into_iter()
+                        .filter(|chain| chain.difficulty == reference_diff)
+                        .collect::<Vec<_>>()
+                };
+                if ties.len() == 1 {
+                    ties.pop().cloned()
+                } else {
+                    // Find the chain with the highest cumulative difficulty for the three leading
+                    // headers
+                    let mut difficulties = ties
+                        .iter()
+                        .enumerate()
+                        .map(|(index, chain)| {
+                            let header_a = Headers::<T>::get(chain.hashes[chain.hashes.len() - 1])
+                                .expect("Infallible: Header exists in storage");
+                            let header_b = Headers::<T>::get(chain.hashes[chain.hashes.len() - 2])
+                                .expect("Infallible");
+                            let header_c = Headers::<T>::get(chain.hashes[chain.hashes.len() - 3])
+                                .expect("Infallible");
+                            (index, header_a.difficulty + header_b.difficulty + header_c.difficulty)
+                        })
+                        .collect::<Vec<_>>();
+                    difficulties.sort_by(|a, b| a.1.cmp(&b.1));
+                    let index = difficulties.pop().expect("Infallible").0;
+                    Some(ties[index].clone())
+                }
+            }
+        };
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
             BTreeMap::new();
         if let Some(mut longest_chain) = longest_chain {
-            // We want a probabilistic finality of atleast 6 mins and avoid reorgs
-            let finalized_index = longest_chain.hashes.len() - 190;
-            let finalized_hash = longest_chain.hashes[finalized_index];
+            let finalized_hash = longest_chain.hashes[0];
 
             let header = Headers::<T>::get(finalized_hash).ok_or_else(|| {
                 Error::ImplementationSpecific("Expected header to be found in storage".to_string())
@@ -197,7 +235,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 consensus_state.finalized_validators = validators.clone();
             }
 
-            longest_chain.hashes = longest_chain.hashes[finalized_index..].to_vec();
+            longest_chain.hashes = longest_chain.hashes[1..].to_vec();
             longest_chain.validators.remove(&finalized_span);
             // Drop all other chain forks
             consensus_state.forks = vec![longest_chain];

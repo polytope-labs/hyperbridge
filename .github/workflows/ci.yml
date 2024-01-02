@@ -100,7 +100,8 @@ jobs:
 
   unit-tests:
     name: Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: release-runner
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -137,6 +138,7 @@ jobs:
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2

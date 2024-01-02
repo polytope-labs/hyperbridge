@@ -1,5 +1,4 @@
 use super::*;
-use base2::Base2;
 use reqwest_eventsource::EventSource;
 use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use std::time::Duration;

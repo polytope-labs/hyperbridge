@@ -18,8 +18,7 @@ pub use pallet::*;
 #[frame_support::pallet]
 pub mod pallet {
     use frame_support::pallet_prelude::*;
-
-    use polygon_pos_verifier::primitives::CodecHeader;
+    use geth_primitives::CodecHeader;
     use sp_core::H256;
 
     #[pallet::pallet]

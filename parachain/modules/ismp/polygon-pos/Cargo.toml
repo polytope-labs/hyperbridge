@@ -12,6 +12,7 @@ scale-info = { version = "2.1.1", default-features = false, features = ["derive"
 
 ismp = { path = "../core", default-features = false }
 polygon-pos-verifier = { path = "../../consensus/polygon-pos/verifier", default-features = false }
+geth-primitives = { path = "../../consensus/geth-primitives", default-features = false }
 pallet-ismp = { path = "../pallet", default-features = false }
 ismp-sync-committee = {path = "../sync-committee", default-features = false}
 
@@ -33,5 +34,6 @@ std = [
     "sp-runtime/std",
     "ismp-sync-committee/std",
     "pallet-ismp/std",
-    "ismp/std"
+    "ismp/std",
+    "geth-primitives/std"
 ]

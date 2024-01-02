@@ -30,10 +30,11 @@ members = [
      "parachain/modules/consensus/polygon-pos/prover",
      "parachain/modules/consensus/beefy/primitives",
      "parachain/modules/consensus/beefy/prover",
+     "parachain/modules/consensus/geth-primitives",
 
      # evm stuff
-     "evm/integration-tests",
-     "evm/abi",
+      "evm/integration-tests",
+      "evm/abi",
 ]
 
 # Config for 'cargo dist'

@@ -12,6 +12,7 @@ sync-committee-primitives = { path = "../../consensus/sync-committee/primitives"
 sync-committee-verifier = { path = "../../consensus/sync-committee/verifier", default-features = false }
 ethereum-trie = { path = "../../tries/ethereum", default-features = false }
 pallet-ismp = { path = "../pallet", default-features = false }
+geth-primitives = { path = "../../consensus/geth-primitives", default-features = false }
 
 # crates.io
 trie-db = { version= "0.24.0", default-features = false }
@@ -58,6 +59,7 @@ std = [
     "sp-runtime/std",
     "sp-core/std",
     "pallet-ismp/std",
+    "geth-primitives/std"
 ]
 
 sepolia = ["sync-committee-verifier/sepolia", "sync-committee-primitives/sepolia"]

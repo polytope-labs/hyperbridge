@@ -12,7 +12,7 @@ polygon-pos-verifier = { path= "../verifier" }
 anyhow = "1.0.68"
 primitive-types = { version = "0.12.1", features = ["serde_no_std", "impl-codec"] }
 ethers = { workspace = true, features = ["ws"] }
-
+geth-primitives = { path = "../../geth-primitives", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1.32.0", features = ["macros"] }

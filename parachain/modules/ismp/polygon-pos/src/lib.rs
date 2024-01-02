@@ -14,6 +14,7 @@ use alloc::{
     vec::Vec,
 };
 use codec::{Decode, Encode};
+use geth_primitives::CodecHeader;
 use ismp::{
     consensus::{ConsensusClient, ConsensusStateId, StateCommitment, StateMachineClient},
     error::Error,
@@ -22,7 +23,7 @@ use ismp::{
 };
 use ismp_sync_committee::EvmStateMachine;
 use pallet::{Config, Headers};
-use polygon_pos_verifier::{primitives::CodecHeader, verify_polygon_header, VerificationResult};
+use polygon_pos_verifier::{verify_polygon_header, VerificationResult};
 use sp_core::{ConstU32, H160, H256, U256};
 use sp_runtime::BoundedVec;
 

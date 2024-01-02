@@ -4,7 +4,8 @@ use ethers::{
     providers::Middleware,
     types::BlockId,
 };
-use polygon_pos_verifier::primitives::{parse_validators, CodecHeader, SPAN_LENGTH};
+use geth_primitives::CodecHeader;
+use polygon_pos_verifier::primitives::{parse_validators, SPAN_LENGTH};
 use primitive_types::H160;
 use std::{collections::BTreeSet, fmt::Debug, sync::Arc};
 

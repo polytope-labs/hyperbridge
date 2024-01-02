@@ -1,0 +1,34 @@
+[package]
+name = "polygon-pos-verifier"
+version = "0.1.0"
+edition = "2021"
+description = "Verifier for for the Polygon POS Network's Consensus Proofs"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+anyhow = { version = "1.0.75", default-features = false }
+sp-core = { workspace = true }
+alloy-rlp = { version = "0.3.2", default-features = false }
+alloy-primitives = { version = "0.3.1", default-features = false, features = ["rlp"] }
+alloy-rlp-derive = "0.3.2"
+codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
+ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
+ismp = { path = "../../../ismp/core", default-features = false }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+geth-primitives = { path = "../../geth-primitives", default-features = false }
+sp-io = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "anyhow/std",
+    "sp-core/std",
+    "codec/std",
+    "ismp/std",
+    "alloy-primitives/std",
+    "alloy-rlp/std",
+    "ethabi/std",
+    "scale-info/std",
+    "sp-io/std",
+    "geth-primitives/std"
+]

@@ -17,6 +17,7 @@ members = [
      "parachain/modules/ismp/core",
      "parachain/modules/ismp/testsuite",
      "parachain/modules/ismp/sync-committee",
+     "parachain/modules/ismp/polygon-pos",
      "parachain/modules/ismp/casper-ffg",
      "parachain/modules/ismp/state-machine",
 
@@ -25,12 +26,15 @@ members = [
      "parachain/modules/consensus/sync-committee/prover",
      "parachain/modules/consensus/sync-committee/verifier",
      "parachain/modules/consensus/sync-committee/primitives",
+     "parachain/modules/consensus/polygon-pos/verifier",
+     "parachain/modules/consensus/polygon-pos/prover",
      "parachain/modules/consensus/beefy/primitives",
      "parachain/modules/consensus/beefy/prover",
+     "parachain/modules/consensus/geth-primitives",
 
      # evm stuff
-     "evm/integration-tests",
-     "evm/abi",
+      "evm/integration-tests",
+      "evm/abi",
 ]
 
 # Config for 'cargo dist'

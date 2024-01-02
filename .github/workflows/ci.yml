@@ -35,7 +35,7 @@ jobs:
         with:
           toolchain: nightly
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - run: |
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup component add rust-src
@@ -72,7 +72,7 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       - name: Install wasm toolchain
         run: |
@@ -118,7 +118,7 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       - name: Install wasm toolchain
         run: |
@@ -166,7 +166,7 @@ jobs:
           sudo apt update
           sudo apt install protobuf-compiler
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       - name: Run Parachain Devnet
         run: |

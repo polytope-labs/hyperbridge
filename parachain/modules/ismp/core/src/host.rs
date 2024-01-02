@@ -238,6 +238,9 @@ pub enum StateMachine {
     /// State machines chains running on beefy consensus state
     #[codec(index = 4)]
     Beefy(ConsensusStateId),
+    #[codec(index = 5)]
+    /// Polygon Pos
+    Polygon,
 }
 
 impl ToString for StateMachine {
@@ -253,6 +256,7 @@ impl ToString for StateMachine {
             StateMachine::Kusama(id) => format!("KUSAMA-{id}"),
             StateMachine::Grandpa(id) => format!("GRANDPA-{}", u32::from_be_bytes(*id)),
             StateMachine::Beefy(id) => format!("BEEFY-{}", u32::from_be_bytes(*id)),
+            StateMachine::Polygon => format!("POLY"),
         }
     }
 }

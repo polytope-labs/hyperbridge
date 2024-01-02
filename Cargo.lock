@@ -3858,9 +3858,9 @@ checksum = "27573eac26f4dd11e2b1916c3fe1baa56407c83c71a773a8ba17ec0bca03b6b7"
 
 [[package]]
 name = "figment"
-version = "0.10.12"
+version = "0.10.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "649f3e5d826594057e9a519626304d8da859ea8a0b18ce99500c586b8d45faee"
+checksum = "7629b8c7bcd214a072c2c88b263b5bb3ceb54c34365d8c41c1665461aeae0993"
 dependencies = [
  "atomic 0.6.0",
  "pear",
@@ -4798,6 +4798,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "geth-primitives"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "anyhow",
+ "ethabi",
+ "ethers",
+ "ismp",
+ "parity-scale-codec",
+ "scale-info",
+]
+
+[[package]]
 name = "gethostname"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5602,6 +5617,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-polygon-pos"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "frame-support",
+ "frame-system",
+ "geth-primitives",
+ "ismp",
+ "ismp-sync-committee",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polygon-pos-verifier",
+ "scale-info",
+ "sp-core 25.0.0",
+ "sp-runtime 28.0.0",
+]
+
+[[package]]
 name = "ismp-rpc"
 version = "0.1.0"
 dependencies = [
@@ -5693,6 +5727,7 @@ dependencies = [
  "ethers",
  "frame-support",
  "frame-system",
+ "geth-primitives",
  "hash-db",
  "hash256-std-hasher",
  "hex",
@@ -6862,6 +6897,7 @@ dependencies = [
  "hex-literal 0.3.4",
  "ismp",
  "ismp-demo",
+ "ismp-polygon-pos",
  "ismp-runtime-api",
  "ismp-sync-committee",
  "log",
@@ -10335,6 +10371,38 @@ dependencies = [
  "cpufeatures",
  "opaque-debug 0.3.0",
  "universal-hash",
+]
+
+[[package]]
+name = "polygon-pos-prover"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dotenv",
+ "ethers",
+ "geth-primitives",
+ "ismp",
+ "polygon-pos-verifier",
+ "primitive-types",
+ "sp-core 25.0.0",
+ "tokio",
+]
+
+[[package]]
+name = "polygon-pos-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "anyhow",
+ "ethabi",
+ "geth-primitives",
+ "ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 25.0.0",
+ "sp-io 27.0.0",
 ]
 
 [[package]]

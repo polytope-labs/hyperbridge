@@ -2,17 +2,15 @@
 mod test;
 
 use anyhow::anyhow;
-use bnb_pos_verifier::primitives::{parse_extra, BnbClientUpdate, CodecHeader, ValidatorInfo};
+use bnb_pos_verifier::primitives::{parse_extra, BnbClientUpdate, CodecHeader};
 use ethers::{
     prelude::{Provider, Ws},
     providers::Middleware,
     types::BlockId,
 };
 use ismp::util::Keccak256;
-use primitive_types::H160;
 use sp_core::H256;
-use std::{collections::BTreeSet, fmt::Debug, sync::Arc};
-use sync_committee_primitives::constants::BlsPublicKey;
+use std::{fmt::Debug, sync::Arc};
 
 #[derive(Clone)]
 pub struct BnbPosProver {

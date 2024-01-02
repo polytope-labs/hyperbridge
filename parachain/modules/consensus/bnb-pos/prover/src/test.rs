@@ -1,5 +1,4 @@
 use bnb_pos_verifier::{
-    aggregate_public_keys,
     primitives::{compute_epoch, parse_extra, EPOCH_LENGTH},
     verify_bnb_header,
 };
@@ -22,7 +21,8 @@ impl Keccak256 for Host {
 
 async fn setup_prover() -> BnbPosProver {
     dotenv::dotenv().ok();
-    let consensus_url = std::env::var("BNB_RPC").unwrap();
+    let consensus_url =
+        "wss://floral-skilled-dream.bsc.quiknode.pro/ecec3540f44d74346562bb5eab0cd677e8145c7b";
     let provider = Provider::<Ws>::connect_with_reconnects(consensus_url, 1000).await.unwrap();
 
     BnbPosProver::new(provider)

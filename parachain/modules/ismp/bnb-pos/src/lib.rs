@@ -7,7 +7,8 @@ use core::marker::PhantomData;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 use bnb_pos_verifier::{
-    primitives::BnbClientUpdate, verify_bnb_header, NextValidators, VerificationResult,
+    primitives::{compute_epoch, BnbClientUpdate, ConsensusState, EPOCH_LENGTH},
+    verify_bnb_header, VerificationResult,
 };
 use codec::{Decode, Encode};
 use ismp::{
@@ -17,16 +18,8 @@ use ismp::{
     messaging::StateCommitmentHeight,
 };
 use ismp_sync_committee::EvmStateMachine;
-use sp_core::{H160, H256};
 
 pub const BNB_CONSENSUS_ID: ConsensusStateId = *b"BNBP";
-#[derive(Debug, Encode, Decode, Clone, Default)]
-pub struct ConsensusState {
-    pub frozen_height: Option<u64>,
-    pub finalized_hash: H256,
-    pub finalized_validators: NextValidators,
-    pub ismp_contract_address: H160,
-}
 
 pub struct BnbClient<H: IsmpHost>(PhantomData<H>);
 
@@ -59,12 +52,30 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
             })?;
 
+        let current_epoch_block_number =
+            compute_epoch(bnb_client_update.attested_header.number.low_u64()) * EPOCH_LENGTH;
+        let current_rotation_block_number =
+            current_epoch_block_number + (consensus_state.current_validators.len() as u64 / 2);
+
+        if current_epoch_block_number < current_rotation_block_number {
+            return Err(Error::ImplementationSpecific(
+                "Block is less than current validator rotation block".to_string(),
+            ));
+        }
+
+        if let Some(next_validators) = consensus_state.next_validators {
+            let next_rotation_block_number = next_validators.rotation_block;
+
+            if current_epoch_block_number > next_rotation_block_number {
+                return Err(Error::ImplementationSpecific(
+                    "Block is greater than current validator rotation block".to_string(),
+                ));
+            }
+        }
+
         let VerificationResult { hash, finalized_header, next_validators } =
-            verify_bnb_header::<H>(
-                &consensus_state.finalized_validators.validators,
-                bnb_client_update,
-            )
-            .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
+            verify_bnb_header::<H>(&consensus_state.current_validators, bnb_client_update)
+                .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
 
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
             BTreeMap::new();
@@ -78,10 +89,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
             height: finalized_header.number.low_u64(),
         };
         consensus_state.finalized_hash = hash;
-
-        if let Some(validators) = next_validators {
-            consensus_state.finalized_validators = validators.clone();
-        }
+        consensus_state.next_validators = next_validators;
 
         state_machine_map.insert(StateMachine::Bnb, vec![state_commitment]);
 

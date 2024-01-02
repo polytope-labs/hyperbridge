@@ -8,6 +8,17 @@ import "../src/EvmHost.sol";
 import "./TestHost.sol";
 import {PingModule} from "./PingModule.sol";
 import "../src/HandlerV1.sol";
+import {ERC20} from "openzeppelin/token/ERC20/ERC20.sol";
+
+contract FeeToken is ERC20 {
+    constructor(uint256 initialSupply) ERC20("Fee Token", "FTK") {
+        _mint(tx.origin, initialSupply);
+    }
+
+    function superApprove(address owner, address spender) public {
+        _approve(owner, spender, type(uint256).max);
+    }
+}
 
 contract PostTimeoutTest is Test {
     // needs a test method so that integration-tests can detect it
@@ -16,11 +27,13 @@ contract PostTimeoutTest is Test {
     IConsensusClient internal consensusClient;
     EvmHost internal host;
     HandlerV1 internal handler;
-    address internal testModule;
+    PingModule internal testModule;
+    FeeToken internal feeToken;
 
     function setUp() public virtual {
         consensusClient = new TestConsensusClient();
         handler = new HandlerV1();
+        feeToken = new FeeToken(1000000000000000000000000000000); // 1,000,000,000,000 FTK
 
         HostParams memory params = HostParams({
             admin: address(0),
@@ -34,17 +47,17 @@ contract PostTimeoutTest is Test {
             lastUpdated: 0,
             consensusState: new bytes(0),
             baseGetRequestFee: 0,
-            perByteFee: 0,
-            feeTokenAddress: address(0)
+            perByteFee: 1000000000000000000, // 1FTK
+            feeTokenAddress: address(feeToken)
         });
         host = new TestHost(params);
-
-        PingModule test = new PingModule(address(host));
-        testModule = address(test);
+        // approve the host address to spend the fee token.
+        feeToken.superApprove(tx.origin, address(host));
+        testModule = new PingModule(address(host));
     }
 
     function module() public view returns (address) {
-        return testModule;
+        return address(testModule);
     }
 
     function PostTimeoutNoChallenge(
@@ -52,7 +65,17 @@ contract PostTimeoutTest is Test {
         PostRequest memory request,
         PostTimeoutMessage memory message
     ) public {
-        PingModule(testModule).dispatch(request);
+        uint256 fee = host.hostParams().perByteFee * request.body.length;
+        uint256 balanceBefore = feeToken.balanceOf(tx.origin);
+
+        testModule.dispatch(request);
+
+        uint256 balanceAfter = feeToken.balanceOf(tx.origin);
+        uint256 hostBalance = feeToken.balanceOf(address(host));
+
+        assert(fee == hostBalance);
+        assert(balanceBefore == balanceAfter + fee);
+
         handler.handleConsensus(host, consensusProof);
         vm.warp(5000);
         handler.handlePostTimeouts(host, message);

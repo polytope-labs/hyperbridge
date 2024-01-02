@@ -32,7 +32,6 @@ async fn test_post_timeout_proof() -> Result<(), anyhow::Error> {
     let mut contract = runner.deploy("PostTimeoutTest").await;
 
     let module = contract.call::<_, Address>("module", ()).await?;
-
     let storage_prefix =
         hex!("103895530afb23bb607661426d55eb8b0484aecefe882c3ce64e6f82507f715a").to_vec();
 
@@ -43,12 +42,15 @@ async fn test_post_timeout_proof() -> Result<(), anyhow::Error> {
         nonce: 0,
         from: module.as_bytes().to_vec(),
         to: module.as_bytes().to_vec(),
-        timeout_timestamp: 10000,
-        data: vec![],
+        timeout_timestamp: 10_000,
+        data: storage_prefix.clone(),
         gas_limit: 0,
     };
+    let commitment = hash_request::<Keccak256>(&Request::Post(post.clone()));
+    dbg!(&commitment);
+
     let mut key = storage_prefix.clone();
-    key.extend_from_slice(hash_request::<Keccak256>(&Request::Post(post.clone())).as_ref());
+    key.extend_from_slice(commitment.as_ref());
 
     let entries = (1..50)
         .into_iter()
@@ -73,7 +75,7 @@ async fn test_post_timeout_proof() -> Result<(), anyhow::Error> {
         state_machine_id: height.state_machine_id,
         height: height.height,
         commitment: StateCommitment {
-            timestamp: U256::from(20000),
+            timestamp: U256::from(20_000),
             overlay_root: [0u8; 32],
             state_root: root.0,
         },
@@ -99,12 +101,12 @@ async fn test_post_timeout_proof() -> Result<(), anyhow::Error> {
     sol_post.timeout_timestamp -= 1;
 
     // execute the test
-    // contract
-    //     .call::<_, ()>(
-    //         "PostTimeoutNoChallenge",
-    //         (Token::Bytes(consensus_proof), sol_post.into_token(), message.into_token()),
-    //     )
-    //     .await?;
+    contract
+        .call::<_, ()>(
+            "PostTimeoutNoChallenge",
+            (Token::Bytes(consensus_proof), sol_post.into_token(), message.into_token()),
+        )
+        .await?;
 
     Ok(())
 }

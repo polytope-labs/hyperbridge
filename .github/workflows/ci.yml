@@ -35,7 +35,7 @@ jobs:
         with:
           toolchain: nightly
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - run: |
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup component add rust-src
@@ -72,7 +72,7 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       - name: Install wasm toolchain
         run: |
@@ -100,7 +100,8 @@ jobs:
 
   unit-tests:
     name: Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: release-runner
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -117,7 +118,7 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       - name: Install wasm toolchain
         run: |
@@ -135,8 +136,9 @@ jobs:
           cargo test --all-targets --features=runtime-benchmarks --locked
 
   integration-tests:
-    name: Integration tests
-    runs-on: ubuntu-latest
+    name: Integration Tests
+    runs-on: release-runner
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -153,8 +155,6 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - uses: Swatinem/rust-cache@v1
-
       - name: Install wasm toolchain
         run: |
           rustup target add wasm32-unknown-unknown
@@ -166,7 +166,37 @@ jobs:
           sudo apt update
           sudo apt install protobuf-compiler
 
-      - name: Clone eth-pos-devnet repository
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run Parachain Devnet
+        run: |
+          # install polkadot binary
+          cd ../
+          mkdir -p polkadot-sdk/target/release
+          wget -O ./polkadot.tar.gz -q --show-progress 'https://dl.dropbox.com/scl/fi/onsvsex4w9vf5vghqe23j/polkadot.tar.gz?rlkey=17e3gq0n82v8hhar4nzlynruu&dl=0'
+          tar xvzf ./polkadot.tar.gz
+          mv bins/* polkadot-sdk/target/release
+          ls -la polkadot-sdk/target/release
+          # install hyperbridge binary
+          cd hyperbridge
+          mkdir -p target/release
+          wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.2.0/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
+          tar xvzf ./hyperbridge-x86_64-unknown-linux-gnu.tar.gz
+          mv ./hyperbridge-x86_64-unknown-linux-gnu/hyperbridge target/release
+          cd scripts/zombienet
+          # install zombienet
+          wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
+          sudo chmod +x ./zombienet
+          # spawn devnet
+          nohup ./zombienet spawn --provider native ./local-testnet.toml & disown
+          ../wait_for_tcp_port_opening.sh localhost 9944
+          ../wait_for_tcp_port_opening.sh localhost 9988
+
+      - name: Beefy integration tests
+        run: |
+          cargo test -p ismp-solidity-tests -- --nocapture --ignored 
+
+      - name: Run Eth POS Devnet
         run: |
           git clone https://github.com/polytope-labs/eth-pos-devnet.git
           cd eth-pos-devnet
@@ -204,3 +234,4 @@ jobs:
           cd ./evm
           forge test -vvv
         id: test
+

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.17;
 
-import "ismp/IConsensusClient.sol";
+import {IConsensusClient, IntermediateState} from "ismp/IConsensusClient.sol";
 
 /// Test consensus client, performs no verification
 contract TestConsensusClient is IConsensusClient {

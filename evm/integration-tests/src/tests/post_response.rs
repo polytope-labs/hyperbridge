@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::{
     abi,
     forge::{execute_single, single_runner},

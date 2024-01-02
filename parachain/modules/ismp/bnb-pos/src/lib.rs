@@ -7,8 +7,7 @@ use core::marker::PhantomData;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 use bnb_pos_verifier::{
-    primitives::{compute_epoch, BnbClientUpdate, ConsensusState, EPOCH_LENGTH},
-    verify_bnb_header, VerificationResult,
+    primitives::BnbClientUpdate, verify_bnb_header, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
 use ismp::{
@@ -18,8 +17,18 @@ use ismp::{
     messaging::StateCommitmentHeight,
 };
 use ismp_sync_committee::EvmStateMachine;
+use sp_core::H256;
+use sync_committee_primitives::constants::BlsPublicKey;
 
 pub const BNB_CONSENSUS_ID: ConsensusStateId = *b"BNBP";
+
+#[derive(codec::Encode, codec::Decode, Debug)]
+pub struct ConsensusState {
+    pub current_validators: Vec<BlsPublicKey>,
+    pub next_validators: Option<NextValidators>,
+    pub finalized_height: u64,
+    pub finalized_hash: H256,
+}
 
 pub struct BnbClient<H: IsmpHost>(PhantomData<H>);
 
@@ -52,24 +61,12 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
             })?;
 
-        let current_epoch_block_number =
-            compute_epoch(bnb_client_update.attested_header.number.low_u64()) * EPOCH_LENGTH;
-        let current_rotation_block_number =
-            current_epoch_block_number + (consensus_state.current_validators.len() as u64 / 2);
-
-        if current_epoch_block_number < current_rotation_block_number {
-            return Err(Error::ImplementationSpecific(
-                "Block is less than current validator rotation block".to_string(),
-            ));
-        }
-
         if let Some(next_validators) = consensus_state.next_validators {
             let next_rotation_block_number = next_validators.rotation_block;
 
-            if current_epoch_block_number > next_rotation_block_number {
-                return Err(Error::ImplementationSpecific(
-                    "Block is greater than current validator rotation block".to_string(),
-                ));
+            if bnb_client_update.attested_header.number.low_u64() >= next_rotation_block_number {
+                consensus_state.current_validators = next_validators.validators;
+                consensus_state.next_validators = None;
             }
         }
 

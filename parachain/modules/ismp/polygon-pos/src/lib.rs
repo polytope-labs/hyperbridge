@@ -214,7 +214,9 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
             BTreeMap::new();
         if let Some(mut longest_chain) = longest_chain {
-            let finalized_hash = longest_chain.hashes[0];
+            // we want 16 mins of probabilistic finality
+            let finality_index = longest_chain.hashes.len().saturating_sub(480);
+            let finalized_hash = longest_chain.hashes[finality_index];
 
             let header = Headers::<T>::get(finalized_hash).ok_or_else(|| {
                 Error::ImplementationSpecific("Expected header to be found in storage".to_string())
@@ -235,7 +237,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 consensus_state.finalized_validators = validators.clone();
             }
 
-            longest_chain.hashes = longest_chain.hashes[1..].to_vec();
+            longest_chain.hashes = longest_chain.hashes[(finality_index + 1)..].to_vec();
             longest_chain.validators.remove(&finalized_span);
             // Drop all other chain forks
             consensus_state.forks = vec![longest_chain];

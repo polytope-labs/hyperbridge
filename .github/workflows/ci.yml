@@ -137,7 +137,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: release-runner
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources

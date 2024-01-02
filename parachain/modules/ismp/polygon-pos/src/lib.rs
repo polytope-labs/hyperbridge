@@ -178,36 +178,13 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
             } else {
                 // Sort by highest cumulative difficulty
                 longest_chains.sort_by(|a, b| a.difficulty.cmp(&b.difficulty));
-                let mut ties = {
-                    // Fork with the highest difficulty in the list
-                    let reference_diff = longest_chains[longest_chains.len() - 1].difficulty;
-                    // filter out all forks with the same difficulty
-                    longest_chains
-                        .into_iter()
-                        .filter(|chain| chain.difficulty == reference_diff)
-                        .collect::<Vec<_>>()
-                };
-                if ties.len() == 1 {
-                    ties.pop().cloned()
+                if longest_chains.len() > 1 &&
+                    longest_chains[longest_chains.len() - 1].difficulty ==
+                        longest_chains[longest_chains.len() - 2].difficulty
+                {
+                    None
                 } else {
-                    // Find the chain with the highest cumulative difficulty for the three leading
-                    // headers
-                    let mut difficulties = ties
-                        .iter()
-                        .enumerate()
-                        .map(|(index, chain)| {
-                            let header_a = Headers::<T>::get(chain.hashes[chain.hashes.len() - 1])
-                                .expect("Infallible: Header exists in storage");
-                            let header_b = Headers::<T>::get(chain.hashes[chain.hashes.len() - 2])
-                                .expect("Infallible");
-                            let header_c = Headers::<T>::get(chain.hashes[chain.hashes.len() - 3])
-                                .expect("Infallible");
-                            (index, header_a.difficulty + header_b.difficulty + header_c.difficulty)
-                        })
-                        .collect::<Vec<_>>();
-                    difficulties.sort_by(|a, b| a.1.cmp(&b.1));
-                    let index = difficulties.pop().expect("Infallible").0;
-                    Some(ties[index].clone())
+                    longest_chains.pop().cloned()
                 }
             }
         };

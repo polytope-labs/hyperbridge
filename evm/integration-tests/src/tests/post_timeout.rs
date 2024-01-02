@@ -47,7 +47,6 @@ async fn test_post_timeout_proof() -> Result<(), anyhow::Error> {
         gas_limit: 0,
     };
     let commitment = hash_request::<Keccak256>(&Request::Post(post.clone()));
-    dbg!(&commitment);
 
     let mut key = storage_prefix.clone();
     key.extend_from_slice(commitment.as_ref());

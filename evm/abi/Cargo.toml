@@ -14,7 +14,7 @@ forge-testsuite = { workspace = true }
 primitive-types = "0.12.2"
 
 ethers = { workspace = true }
-merkle-mountain-range = { workspace = true }
+merkle-mountain-range = { workspace = true, features = ["default"] }
 sp-consensus-beefy = { workspace =  true, features = ["default"] }
 
 beefy-verifier-primitives = { path = "../../parachain/modules/consensus/beefy/primitives" }

@@ -1,36 +1,37 @@
-#![cfg(test)]
-
-use crate::{
-    abi,
-    forge::{execute_single, single_runner},
-    runner, unwrap_hash, Mmr,
-};
+use crate::{Keccak256, Mmr};
 use ethers::{
-    abi::{AbiEncode, Token, Tokenizable},
+    abi::{AbiEncode, Address, Token, Tokenizable},
     core::types::U256,
 };
-use foundry_evm::Address;
+use forge_testsuite::Runner;
 use ismp::{
     host::{Ethereum, StateMachine},
+    mmr::{DataOrHash, Leaf},
     router::{Post, Request},
 };
-use ismp::mmr::{DataOrHash, Leaf};
-use merkle_mountain_range_labs::mmr_position_to_k_index;
+use ismp_solidity_abi::{
+    beefy::IntermediateState,
+    handler::{PostRequestLeaf, PostRequestMessage, Proof},
+    shared_types::{PostRequest, StateCommitment, StateMachineHeight},
+};
+use merkle_mountain_range::mmr_position_to_k_index;
 use primitive_types::H256;
+use std::{env, path::PathBuf};
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_post_request_proof() {
-    let mut runner = runner();
-    let (mut contract, address) = single_runner(&mut runner, "PostRequestTest").await;
-    let destination =
-        execute_single::<Address, _>(&mut contract, address.clone(), "module", ()).unwrap();
+async fn test_post_request_proof() -> Result<(), anyhow::Error> {
+    let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
+    let mut runner = Runner::new(PathBuf::from(&base_dir));
+    let mut contract = runner.deploy("PostRequestTest").await;
+
+    let destination = contract.call::<_, Address>("module", ()).await?;
 
     // create post request object
     let post = Post {
         source: StateMachine::Polkadot(2000),
         dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
         nonce: 0,
-        from: contract.sender.as_bytes().to_vec(),
+        from: contract.runner.sender.as_bytes().to_vec(),
         to: destination.as_bytes().to_vec(),
         timeout_timestamp: 100,
 
@@ -44,29 +45,28 @@ async fn test_post_request_proof() {
 
     for _ in 0..30 {
         let hash = H256::random();
-        mmr.push(DataOrHash::Hash(hash)).unwrap();
+        mmr.push(DataOrHash::Hash(hash))?;
     }
 
-    let pos = mmr.push(request.clone()).unwrap();
+    let pos = mmr.push(request.clone())?;
 
     for _ in 0..30 {
         let hash = H256::random();
-        mmr.push(DataOrHash::Hash(hash)).unwrap();
+        mmr.push(DataOrHash::Hash(hash))?;
     }
 
     let k_index = mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
 
-    let proof = mmr.gen_proof(vec![pos]).unwrap();
-    let overlay_root = unwrap_hash(&mmr.get_root().unwrap());
-    let multiproof = proof.proof_items().iter().map(unwrap_hash).collect();
+    let proof = mmr.gen_proof(vec![pos])?;
+    let overlay_root = mmr.get_root()?.hash::<Keccak256>().0;
+    let multiproof = proof.proof_items().iter().map(|h| h.hash::<Keccak256>().0).collect();
 
     // create intermediate state
-    let height =
-        abi::StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(1) };
-    let consensus_proof = abi::IntermediateState {
+    let height = StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(1) };
+    let consensus_proof = IntermediateState {
         state_machine_id: height.state_machine_id,
         height: height.height,
-        commitment: abi::StateCommitment {
+        commitment: StateCommitment {
             timestamp: U256::from(20000),
             overlay_root,
             state_root: [0u8; 32],
@@ -74,10 +74,10 @@ async fn test_post_request_proof() {
     }
     .encode();
 
-    let message = abi::PostRequestMessage {
-        proof: abi::Proof { height, multiproof, leaf_count: (61).into() },
-        requests: vec![abi::PostRequestLeaf {
-            request: abi::PostRequest {
+    let message = PostRequestMessage {
+        proof: Proof { height, multiproof, leaf_count: (61).into() },
+        requests: vec![PostRequestLeaf {
+            request: PostRequest {
                 source: post.source.to_string().as_bytes().to_vec().into(),
                 dest: post.dest.to_string().as_bytes().to_vec().into(),
                 nonce: post.nonce,
@@ -93,11 +93,12 @@ async fn test_post_request_proof() {
     };
 
     // execute the test
-    execute_single::<(), _>(
-        &mut contract,
-        address.clone(),
-        "PostRequestNoChallengeNoTimeout",
-        (Token::Bytes(consensus_proof), message.into_token()),
-    )
-    .unwrap();
+    contract
+        .call::<_, ()>(
+            "PostRequestNoChallengeNoTimeout",
+            (Token::Bytes(consensus_proof), message.into_token()),
+        )
+        .await?;
+
+    Ok(())
 }

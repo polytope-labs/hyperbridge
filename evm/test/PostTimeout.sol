@@ -3,56 +3,27 @@ pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
 
-import "./TestConsensusClient.sol";
-import "../src/EvmHost.sol";
-import "./TestHost.sol";
-import {PingModule} from "./PingModule.sol";
-import "../src/HandlerV1.sol";
+import {PostTimeoutMessage} from "../src/HandlerV1.sol";
+import {BaseTest} from "./BaseTest.sol";
+import {PostRequest} from "ismp/IIsmp.sol";
 
-contract PostTimeoutTest is Test {
-    // needs a test method so that integration-tests can detect it
-    function testPostTimeout() public {}
-
-    IConsensusClient internal consensusClient;
-    EvmHost internal host;
-    HandlerV1 internal handler;
-    address internal testModule;
-
-    function setUp() public virtual {
-        consensusClient = new TestConsensusClient();
-        handler = new HandlerV1();
-
-        HostParams memory params = HostParams({
-            admin: address(0),
-            hostManager: address(0),
-            handler: address(handler),
-            defaultTimeout: 0,
-            unStakingPeriod: 5000,
-            // for this test
-            challengePeriod: 0,
-            consensusClient: address(consensusClient),
-            lastUpdated: 0,
-            consensusState: new bytes(0),
-            baseGetRequestFee: 0,
-            perByteFee: 0,
-            feeTokenAddress: address(0)
-        });
-        host = new TestHost(params);
-
-        PingModule test = new PingModule(address(host));
-        testModule = address(test);
-    }
-
-    function module() public view returns (address) {
-        return testModule;
-    }
-
+contract PostTimeoutTest is BaseTest {
     function PostTimeoutNoChallenge(
         bytes memory consensusProof,
         PostRequest memory request,
         PostTimeoutMessage memory message
     ) public {
-        PingModule(testModule).dispatch(request);
+        uint256 fee = host.hostParams().perByteFee * request.body.length;
+        uint256 balanceBefore = feeToken.balanceOf(tx.origin);
+
+        testModule.dispatch(request);
+
+        uint256 balanceAfter = feeToken.balanceOf(tx.origin);
+        uint256 hostBalance = feeToken.balanceOf(address(host));
+
+        assert(fee == hostBalance);
+        assert(balanceBefore == balanceAfter + fee);
+
         handler.handleConsensus(host, consensusProof);
         vm.warp(5000);
         handler.handlePostTimeouts(host, message);

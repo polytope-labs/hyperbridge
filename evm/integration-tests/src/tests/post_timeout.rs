@@ -1,34 +1,37 @@
-#![cfg(test)]
-
-use crate::{
-    abi,
-    forge::{execute_single, single_runner},
-    runner, Keccak256,
-};
+use crate::Keccak256;
 use ethers::{
-    abi::{AbiEncode, Token, Tokenizable},
+    abi::{AbiEncode, Address, Token, Tokenizable},
     core::types::U256,
 };
-use foundry_evm::Address;
+use forge_testsuite::Runner;
 use hex_literal::hex;
 use ismp::{
     host::{Ethereum, StateMachine},
     router::{Post, Request},
     util::hash_request,
 };
+use ismp_solidity_abi::{
+    beefy::IntermediateState,
+    handler::PostTimeoutMessage,
+    shared_types::{PostRequest, StateCommitment, StateMachineHeight},
+};
 use primitive_types::H256;
 use sp_core::KeccakHasher;
 use sp_trie::{HashDBT, LayoutV0, MemoryDB, StorageProof, TrieDBBuilder, EMPTY_PREFIX};
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    env,
+    path::PathBuf,
+};
 use trie_db::{Recorder, Trie, TrieDBMutBuilder, TrieMut};
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_post_timeout_proof() {
-    let mut runner = runner();
-    let (mut contract, address) = single_runner(&mut runner, "PostTimeoutTest").await;
-    let module =
-        execute_single::<Address, _>(&mut contract, address.clone(), "module", ()).unwrap();
+async fn test_post_timeout_proof() -> Result<(), anyhow::Error> {
+    let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
+    let mut runner = Runner::new(PathBuf::from(&base_dir));
+    let mut contract = runner.deploy("PostTimeoutTest").await;
 
+    let module = contract.call::<_, Address>("module", ()).await?;
     let storage_prefix =
         hex!("103895530afb23bb607661426d55eb8b0484aecefe882c3ce64e6f82507f715a").to_vec();
 
@@ -39,12 +42,14 @@ async fn test_post_timeout_proof() {
         nonce: 0,
         from: module.as_bytes().to_vec(),
         to: module.as_bytes().to_vec(),
-        timeout_timestamp: 10000,
-        data: vec![],
+        timeout_timestamp: 10_000,
+        data: storage_prefix.clone(),
         gas_limit: 0,
     };
+    let commitment = hash_request::<Keccak256>(&Request::Post(post.clone()));
+
     let mut key = storage_prefix.clone();
-    key.extend_from_slice(hash_request::<Keccak256>(&Request::Post(post.clone())).as_ref());
+    key.extend_from_slice(commitment.as_ref());
 
     let entries = (1..50)
         .into_iter()
@@ -64,20 +69,19 @@ async fn test_post_timeout_proof() {
     assert!(result.get(&key).unwrap().is_none());
 
     // create intermediate state
-    let height =
-        abi::StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(1) };
-    let consensus_proof = abi::IntermediateState {
+    let height = StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(1) };
+    let consensus_proof = IntermediateState {
         state_machine_id: height.state_machine_id,
         height: height.height,
-        commitment: abi::StateCommitment {
-            timestamp: U256::from(20000),
+        commitment: StateCommitment {
+            timestamp: U256::from(20_000),
             overlay_root: [0u8; 32],
             state_root: root.0,
         },
     }
     .encode();
 
-    let mut sol_post = abi::PostRequest {
+    let mut sol_post = PostRequest {
         source: post.source.to_string().as_bytes().to_vec().into(),
         dest: post.dest.to_string().as_bytes().to_vec().into(),
         nonce: post.nonce,
@@ -88,7 +92,7 @@ async fn test_post_timeout_proof() {
         gaslimit: post.gas_limit,
     };
 
-    let message = abi::PostTimeoutMessage {
+    let message = PostTimeoutMessage {
         proof: proof.into_iter().map(|node| node.into()).collect(),
         timeouts: vec![sol_post.clone()],
         height,
@@ -96,13 +100,14 @@ async fn test_post_timeout_proof() {
     sol_post.timeout_timestamp -= 1;
 
     // execute the test
-    execute_single::<(), _>(
-        &mut contract,
-        address.clone(),
-        "PostTimeoutNoChallenge",
-        (Token::Bytes(consensus_proof), sol_post.into_token(), message.into_token()),
-    )
-    .unwrap();
+    contract
+        .call::<_, ()>(
+            "PostTimeoutNoChallenge",
+            (Token::Bytes(consensus_proof), sol_post.into_token(), message.into_token()),
+        )
+        .await?;
+
+    Ok(())
 }
 
 fn generate_proof(entries: Vec<(Vec<u8>, Vec<u8>)>, keys: Vec<Vec<u8>>) -> (H256, Vec<Vec<u8>>) {

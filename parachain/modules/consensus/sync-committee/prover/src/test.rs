@@ -1,18 +1,11 @@
 use super::*;
 use reqwest_eventsource::EventSource;
 use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
-use std::time::Duration;
 use sync_committee_primitives::{
-    constants::{
-        Root, DOMAIN_SYNC_COMMITTEE, EXECUTION_PAYLOAD_INDEX_LOG2, GENESIS_FORK_VERSION,
-        GENESIS_VALIDATORS_ROOT, NEXT_SYNC_COMMITTEE_INDEX_LOG2,
-    },
+    constants::{Root, EXECUTION_PAYLOAD_INDEX_LOG2, NEXT_SYNC_COMMITTEE_INDEX_LOG2},
     types::VerifierState,
-    util::{compute_domain, compute_fork_version, compute_signing_root},
 };
-use sync_committee_verifier::{
-    crypto::verify_aggregate_signature, verify_sync_committee_attestation,
-};
+use sync_committee_verifier::verify_sync_committee_attestation;
 use tokio_stream::StreamExt;
 
 #[allow(non_snake_case)]
@@ -273,61 +266,6 @@ async fn test_prover() {
             _ => continue,
         }
     }
-}
-
-#[ignore]
-#[allow(non_snake_case)]
-#[tokio::test]
-async fn test_sync_committee_signature_verification() {
-    let sync_committee_prover = setup_prover();
-    let block = loop {
-        let block = sync_committee_prover.fetch_block("head").await.unwrap();
-        if block.slot < 16 {
-            std::thread::sleep(Duration::from_secs(48));
-            continue;
-        }
-        break block;
-    };
-    let sync_committee = sync_committee_prover
-        .fetch_processed_sync_committee(block.slot.to_string().as_str())
-        .await
-        .unwrap();
-
-    let mut attested_header = sync_committee_prover
-        .fetch_header((block.slot - 1).to_string().as_str())
-        .await
-        .unwrap();
-
-    let sync_committee_pubkeys = sync_committee.public_keys;
-
-    let non_participant_pubkeys = block
-        .body
-        .sync_aggregate
-        .sync_committee_bits
-        .iter()
-        .zip(sync_committee_pubkeys.iter())
-        .filter_map(|(bit, key)| if !(*bit) { Some(key.clone()) } else { None })
-        .collect::<Vec<_>>();
-
-    let fork_version = compute_fork_version(compute_epoch_at_slot(block.slot));
-
-    let domain = compute_domain(
-        DOMAIN_SYNC_COMMITTEE,
-        Some(fork_version),
-        Some(Root::from_bytes(GENESIS_VALIDATORS_ROOT.try_into().unwrap())),
-        GENESIS_FORK_VERSION,
-    )
-    .unwrap();
-
-    let signing_root = compute_signing_root(&mut attested_header, domain).unwrap();
-
-    verify_aggregate_signature(
-        &sync_committee.aggregate_public_key,
-        &non_participant_pubkeys,
-        signing_root.as_bytes().to_vec(),
-        &block.body.sync_aggregate.sync_committee_signature,
-    )
-    .unwrap();
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

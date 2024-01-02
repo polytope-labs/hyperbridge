@@ -3,50 +3,10 @@ pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
 
-import "./TestConsensusClient.sol";
-import "../src/EvmHost.sol";
-import "./TestHost.sol";
-import {PingModule} from "./PingModule.sol";
-import "../src/HandlerV1.sol";
+import {PostRequestMessage} from "../src/HandlerV1.sol";
+import {BaseTest} from "./BaseTest.sol";
 
-contract PostRequestTest is Test {
-    // needs a test method so that integration-tests can detect it
-    function testPostRequest() public {}
-
-    IConsensusClient internal consensusClient;
-    EvmHost internal host;
-    HandlerV1 internal handler;
-    address internal testModule;
-
-    function setUp() public virtual {
-        consensusClient = new TestConsensusClient();
-        handler = new HandlerV1();
-
-        HostParams memory params = HostParams({
-            admin: address(0),
-            hostManager: address(0),
-            handler: address(handler),
-            defaultTimeout: 5000,
-            unStakingPeriod: 5000,
-            // for this test
-            challengePeriod: 0,
-            consensusClient: address(consensusClient),
-            lastUpdated: 0,
-            consensusState: new bytes(0),
-            baseGetRequestFee: 0,
-            perByteFee: 0,
-            feeTokenAddress: address(0)
-        });
-        host = new TestHost(params);
-
-        PingModule test = new PingModule(address(host));
-        testModule = address(test);
-    }
-
-    function module() public view returns (address) {
-        return testModule;
-    }
-
+contract PostRequestTest is BaseTest {
     function PostRequestNoChallengeNoTimeout(bytes memory consensusProof, PostRequestMessage memory message) public {
         handler.handleConsensus(host, consensusProof);
         vm.warp(10);

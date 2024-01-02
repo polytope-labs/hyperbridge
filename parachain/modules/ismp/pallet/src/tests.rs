@@ -36,7 +36,7 @@ use ismp_testsuite::{
     check_challenge_period, check_client_expiry, frozen_check, timeout_post_processing_check,
     write_outgoing_commitments,
 };
-use mmr_lib::MerkleProof;
+use merkle_mountain_range::MerkleProof;
 use sp_core::{
     offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
     H256,

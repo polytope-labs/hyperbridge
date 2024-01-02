@@ -33,20 +33,20 @@ use sp_std::prelude::*;
 pub struct Mmr<StorageType, T>
 where
     T: Config,
-    Storage<StorageType, T>: mmr_lib::MMRStore<DataOrHash>,
+    Storage<StorageType, T>: merkle_mountain_range::MMRStore<DataOrHash>,
 {
-    mmr: mmr_lib::MMR<DataOrHash, MmrHasher<Host<T>>, Storage<StorageType, T>>,
+    mmr: merkle_mountain_range::MMR<DataOrHash, MmrHasher<Host<T>>, Storage<StorageType, T>>,
 }
 
 impl<StorageType, T> Mmr<StorageType, T>
 where
     T: Config,
-    Storage<StorageType, T>: mmr_lib::MMRStore<DataOrHash>,
+    Storage<StorageType, T>: merkle_mountain_range::MMRStore<DataOrHash>,
 {
     /// Create a pointer to an existing MMR with given number of leaves.
     pub fn new(leaves: NodeIndex) -> Self {
         let size = NodesUtils::new(leaves).size();
-        Self { mmr: mmr_lib::MMR::new(size, Default::default()) }
+        Self { mmr: merkle_mountain_range::MMR::new(size, Default::default()) }
     }
 }
 
@@ -89,7 +89,7 @@ where
         let store = <Storage<OffchainStorage, T>>::default();
         let leaves = positions
             .iter()
-            .map(|pos| match mmr_lib::MMRStore::get_elem(&store, *pos) {
+            .map(|pos| match merkle_mountain_range::MMRStore::get_elem(&store, *pos) {
                 Ok(Some(DataOrHash::Data(leaf))) => Ok(leaf),
                 _ => Err(Error::LeafNotFound),
             })

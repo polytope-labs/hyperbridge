@@ -532,6 +532,35 @@ pub mod evm_host {
                     },],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("hostParams"),
+                    ::std::vec![::ethers::core::abi::ethabi::Function {
+                        name: ::std::borrow::ToOwned::to_owned("hostParams"),
+                        inputs: ::std::vec![],
+                        outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::string::String::new(),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                                ::ethers::core::abi::ethabi::ParamType::Bytes,
+                            ],),
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("struct HostParams"),
+                            ),
+                        },],
+                        constant: ::core::option::Option::None,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                    },],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("latestStateMachineHeight"),
                     ::std::vec![::ethers::core::abi::ethabi::Function {
                         name: ::std::borrow::ToOwned::to_owned("latestStateMachineHeight",),
@@ -1352,6 +1381,12 @@ pub mod evm_host {
                 .method_hash([244, 55, 188, 89], ())
                 .expect("method not found (this should never happen)")
         }
+        ///Calls the contract's `hostParams` (0x2215364d) function
+        pub fn host_params(&self) -> ::ethers::contract::builders::ContractCall<M, HostParams> {
+            self.0
+                .method_hash([34, 21, 54, 77], ())
+                .expect("method not found (this should never happen)")
+        }
         ///Calls the contract's `latestStateMachineHeight` (0x56b65597) function
         pub fn latest_state_machine_height(
             &self,
@@ -2091,6 +2126,20 @@ pub mod evm_host {
     )]
     #[ethcall(name = "host", abi = "host()")]
     pub struct HostCall;
+    ///Container type for all input parameters for the `hostParams` function with signature
+    /// `hostParams()` and selector `0x2215364d`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(name = "hostParams", abi = "hostParams()")]
+    pub struct HostParamsCall;
     ///Container type for all input parameters for the `latestStateMachineHeight` function with
     /// signature `latestStateMachineHeight()` and selector `0x56b65597`
     #[derive(
@@ -2416,6 +2465,7 @@ pub mod evm_host {
         DispatchIncoming2(DispatchIncoming2Call),
         Frozen(FrozenCall),
         Host(HostCall),
+        HostParams(HostParamsCall),
         LatestStateMachineHeight(LatestStateMachineHeightCall),
         RequestCommitments(RequestCommitmentsCall),
         RequestReceipts(RequestReceiptsCall),
@@ -2514,6 +2564,9 @@ pub mod evm_host {
             }
             if let Ok(decoded) = <HostCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::Host(decoded));
+            }
+            if let Ok(decoded) = <HostParamsCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+                return Ok(Self::HostParams(decoded));
             }
             if let Ok(decoded) =
                 <LatestStateMachineHeightCall as ::ethers::core::abi::AbiDecode>::decode(data)
@@ -2628,6 +2681,7 @@ pub mod evm_host {
                 Self::DispatchIncoming2(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Frozen(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Host(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::HostParams(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::LatestStateMachineHeight(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
                 Self::RequestCommitments(element) =>
@@ -2681,6 +2735,7 @@ pub mod evm_host {
                 Self::DispatchIncoming2(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Frozen(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Host(element) => ::core::fmt::Display::fmt(element, f),
+                Self::HostParams(element) => ::core::fmt::Display::fmt(element, f),
                 Self::LatestStateMachineHeight(element) => ::core::fmt::Display::fmt(element, f),
                 Self::RequestCommitments(element) => ::core::fmt::Display::fmt(element, f),
                 Self::RequestReceipts(element) => ::core::fmt::Display::fmt(element, f),
@@ -2798,6 +2853,11 @@ pub mod evm_host {
     impl ::core::convert::From<HostCall> for EvmHostCalls {
         fn from(value: HostCall) -> Self {
             Self::Host(value)
+        }
+    }
+    impl ::core::convert::From<HostParamsCall> for EvmHostCalls {
+        fn from(value: HostParamsCall) -> Self {
+            Self::HostParams(value)
         }
     }
     impl ::core::convert::From<LatestStateMachineHeightCall> for EvmHostCalls {
@@ -2994,6 +3054,19 @@ pub mod evm_host {
         Hash,
     )]
     pub struct HostReturn(pub ::ethers::core::types::Bytes);
+    ///Container type for all return fields from the `hostParams` function with signature
+    /// `hostParams()` and selector `0x2215364d`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct HostParamsReturn(pub HostParams);
     ///Container type for all return fields from the `latestStateMachineHeight` function with
     /// signature `latestStateMachineHeight()` and selector `0x56b65597`
     #[derive(

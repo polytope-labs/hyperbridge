@@ -168,7 +168,8 @@ impl From<IntermediateState> for local::IntermediateState {
             },
             commitment: local::StateCommitment {
                 timestamp: value.commitment.timestamp.as_u64(),
-                commitment: H256(value.commitment.state_root),
+                state_root: H256(value.commitment.state_root),
+                overlay_root: H256(value.commitment.overlay_root),
             },
         }
     }
@@ -186,7 +187,8 @@ pub mod local {
     #[derive(Debug)]
     pub struct StateCommitment {
         pub timestamp: u64,
-        pub commitment: H256,
+        pub overlay_root: H256,
+        pub state_root: H256,
     }
 
     #[derive(Debug)]

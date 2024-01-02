@@ -205,6 +205,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         return _frozen;
     }
 
+    function hostParams() public view returns (HostParams memory) {
+        return _hostParams;
+    }
+
     /**
      * @param height - state machine height
      * @return the state commitment at `height`
@@ -510,7 +514,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param request - post dispatch request
      */
     function dispatch(DispatchPost memory request) external {
-        this.dispatch(request, 0);
+        _dispatch(request, 0, _msgSender());
     }
 
     /**
@@ -519,6 +523,16 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param amount - The amount put forward as the relayer fee.
      */
     function dispatch(DispatchPost memory request, uint256 amount) external {
+        _dispatch(request, amount, _msgSender());
+    }
+
+    /**
+     * @dev Dispatch a POST request to the ISMP router and pay for a relayer.
+     * @param request - post request
+     * @param amount - The amount put forward as the relayer fee.
+     * @param from - The calling contract
+     */
+    function _dispatch(DispatchPost memory request, uint256 amount, address from) internal {
         // pay your toll to the troll
         uint256 fee = (_hostParams.perByteFee * request.body.length) + amount;
         require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
@@ -531,7 +545,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             source: host(),
             dest: request.dest,
             nonce: uint64(_nextNonce()),
-            from: abi.encodePacked(_msgSender()),
+            from: abi.encodePacked(from),
             to: request.to,
             timeoutTimestamp: timeout,
             body: request.body,
@@ -560,7 +574,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param request - get dispatch request
      */
     function dispatch(DispatchGet memory request) external {
-        this.dispatch(request, 0);
+        _dispatch(request, 0, _msgSender());
     }
 
     /**
@@ -568,6 +582,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param request - get dispatch request
      */
     function dispatch(DispatchGet memory request, uint256 amount) external {
+        _dispatch(request, amount, _msgSender());
+    }
+
+    /**
+     * @dev Dispatch a get request to the hyperbridge
+     * @param request - get dispatch request
+     * @param from - The calling contract
+     */
+    function _dispatch(DispatchGet memory request, uint256 amount, address from) internal {
         // pay your toll to the troll
         uint256 fee = _hostParams.baseGetRequestFee + amount;
         require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
@@ -580,7 +603,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             source: host(),
             dest: request.dest,
             nonce: uint64(_nextNonce()),
-            from: abi.encodePacked(_msgSender()),
+            from: abi.encodePacked(from),
             timeoutTimestamp: timeout,
             keys: request.keys,
             height: request.height,

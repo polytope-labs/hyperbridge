@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use anyhow::anyhow;
 use ark_ec::AffineRepr;
 use ismp::util::Keccak256;
-use primitives::{parse_extra, BnbClientUpdate, CodecHeader, Header, VALIDATOR_BIT_SET_SIZE};
+use primitives::{parse_extra, BnbClientUpdate, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
 use sync_committee_verifier::crypto::{pairing, pubkey_to_projective};
 pub mod primitives;
@@ -14,6 +14,7 @@ use bls::{
     types::{G1AffinePoint, G1ProjectivePoint, Signature},
     DST_ETHEREUM,
 };
+use geth_primitives::{CodecHeader, Header};
 use ssz_rs::{Bitvector, Deserialize};
 use sync_committee_primitives::constants::BlsPublicKey;
 
@@ -66,8 +67,8 @@ pub fn verify_bnb_header<H: Keccak256>(
     verify_aggregate_signature(&aggregate_public_key, msg.0.to_vec(), signature.to_vec().as_ref())
         .map_err(|_| anyhow!("Could not verify aggregate signature"))?;
 
-    let source_header_hash = Header::from(&update.source_header).hash::<H>()?;
-    let target_header_hash = Header::from(&update.target_header).hash::<H>()?;
+    let source_header_hash = Header::from(&update.source_header).hash::<H>();
+    let target_header_hash = Header::from(&update.target_header).hash::<H>();
 
     if source_header_hash.0 != extra_data.vote_data.source_hash.0 ||
         target_header_hash.0 != target_header_hash.0

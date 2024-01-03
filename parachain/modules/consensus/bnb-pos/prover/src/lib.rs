@@ -2,12 +2,13 @@
 mod test;
 
 use anyhow::anyhow;
-use bnb_pos_verifier::primitives::{parse_extra, BnbClientUpdate, CodecHeader};
+use bnb_pos_verifier::primitives::{parse_extra, BnbClientUpdate};
 use ethers::{
     prelude::{Provider, Ws},
     providers::Middleware,
     types::BlockId,
 };
+use geth_primitives::CodecHeader;
 use ismp::util::Keccak256;
 use sp_core::H256;
 use std::{fmt::Debug, sync::Arc};
@@ -49,9 +50,7 @@ impl BnbPosProver {
             mix_hash: block.mix_hash.unwrap_or_default(),
             nonce: block.nonce.unwrap_or_default(),
             base_fee_per_gas: block.base_fee_per_gas,
-            withdrawals_root: block.withdrawals_root,
-            blob_gas_used: block.blob_gas_used,
-            excess_blob_gas: block.excess_blob_gas,
+            withdrawals_hash: None,
         };
 
         Ok(header)

@@ -14,7 +14,7 @@ alloy-rlp-derive = "0.3.2"
 codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
 ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
 ismp = { path = "../../../ismp/core", default-features = false }
-#bitvec = { version = "1.0.0",default-features = false, features = ["alloc"]  }
+geth-primitives = { path = "../../geth-primitives", default-features = false }
 sync-committee-verifier = { path = "../../../consensus/sync-committee/verifier", default-features = false }
 sync-committee-primitives  = { path = "../../../consensus/sync-committee/primitives", default-features = false }
 ark-bls12-381 = { version = "0.4.0", default-features = false, features = ["curve"] }
@@ -38,7 +38,7 @@ std = [
     "bls/std",
     "sync-committee-verifier/std",
     "sync-committee-primitives/std",
-   # "bitvec/default",
+    "geth-primitives/std",
     "ark-ec/std",
     "ssz-rs/std",
 ]

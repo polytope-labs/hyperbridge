@@ -17,7 +17,6 @@ bnb-pos-verifier = { path = "../../consensus/bnb-pos/verifier", default-features
 pallet-ismp = { path = "../pallet", default-features = false }
 ismp-sync-committee = {path = "../sync-committee", default-features = false}
 sync-committee-primitives = { path= "../../consensus/sync-committee/primitives", default-features = false }
-
 frame-support = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
 frame-system = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
 sp-runtime = { default-features = false, git = "https://github.com/paritytech/polkadot-sdk", branch = "release-polkadot-v1.4.0" }
@@ -37,5 +36,5 @@ std = [
     "ismp-sync-committee/std",
     "pallet-ismp/std",
     "ismp/std",
-    "sync-committee-primitives/std"
+    "sync-committee-primitives/std",
 ]

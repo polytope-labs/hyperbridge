@@ -21,14 +21,14 @@ impl Keccak256 for Host {
 
 async fn setup_prover() -> BnbPosProver {
     dotenv::dotenv().ok();
-    let consensus_url =
-        "wss://floral-skilled-dream.bsc.quiknode.pro/ecec3540f44d74346562bb5eab0cd677e8145c7b";
+    let consensus_url = std::env::var("BNB_RPC").unwrap();
     let provider = Provider::<Ws>::connect_with_reconnects(consensus_url, 1000).await.unwrap();
 
     BnbPosProver::new(provider)
 }
 
 #[tokio::test]
+#[ignore]
 async fn verify_bnb_pos_header() {
     let prover = setup_prover().await;
 

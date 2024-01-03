@@ -1,6 +1,6 @@
 use crate::{
 	abi::{
-		GetRequest, GetResponseMessage, GetTimeoutMessage, IsmpHandler, PostRequest,
+		GetRequest, GetResponseMessage, GetTimeoutMessage, Handler as IsmpHandler, PostRequest,
 		PostRequestLeaf, PostRequestMessage, PostResponse, PostResponseLeaf, PostResponseMessage,
 		PostTimeoutMessage, Proof,
 	},
@@ -16,7 +16,8 @@ use ismp::{
 	SubstrateStateProof,
 };
 use ismp_rpc::MmrProof;
-use merkle_mountain_range_labs::mmr_position_to_k_index;
+use ismp_solidity_abi::shared_types::StateMachineHeight;
+use merkle_mountain_range::mmr_position_to_k_index;
 use pallet_ismp::NodesUtils;
 use sp_core::H256;
 use tesseract_primitives::IsmpHost;
@@ -88,7 +89,7 @@ pub async fn submit_messages<I: IsmpHost>(
 
 				let post_message = PostRequestMessage {
 					proof: Proof {
-						height: crate::abi::ismp_handler::StateMachineHeight {
+						height: StateMachineHeight {
 							state_machine_id: {
 								match msg.proof.height.id.state_id {
 									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
@@ -165,7 +166,7 @@ pub async fn submit_messages<I: IsmpHost>(
 
 				let message = PostResponseMessage {
 					proof: Proof {
-						height: crate::abi::ismp_handler::StateMachineHeight {
+						height: StateMachineHeight {
 							state_machine_id: {
 								match proof.height.id.state_id {
 									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
@@ -231,7 +232,7 @@ pub async fn submit_messages<I: IsmpHost>(
 					};
 				let message = GetResponseMessage {
 					proof: state_proof.storage_proof.into_iter().map(|key| key.into()).collect(),
-					height: crate::abi::ismp_handler::StateMachineHeight {
+					height: StateMachineHeight {
 						state_machine_id: {
 							match proof.height.id.state_id {
 								StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
@@ -287,7 +288,7 @@ pub async fn submit_messages<I: IsmpHost>(
 					};
 				let message = PostTimeoutMessage {
 					timeouts: post_requests,
-					height: crate::abi::ismp_handler::StateMachineHeight {
+					height: StateMachineHeight {
 						state_machine_id: {
 							match timeout_proof.height.id.state_id {
 								StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),

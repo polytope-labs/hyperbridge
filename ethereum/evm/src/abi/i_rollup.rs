@@ -10,7 +10,6 @@ pub use i_rollup::*;
 	non_camel_case_types
 )]
 pub mod i_rollup {
-	pub use super::super::shared_types::*;
 	#[allow(deprecated)]
 	fn __abi() -> ::ethers::core::abi::Abi {
 		::ethers::core::abi::ethabi::Contract {
@@ -3089,6 +3088,32 @@ pub mod i_rollup {
 		pub latest_staked_node: u64,
 		pub current_challenge: u64,
 		pub is_staked: bool,
+	}
+	///`Node(bytes32,bytes32,bytes32,uint64,uint64,uint64,uint64,uint64,uint64,uint64,uint64,
+	/// bytes32)`
+	#[derive(
+		Clone,
+		::ethers::contract::EthAbiType,
+		::ethers::contract::EthAbiCodec,
+		Default,
+		Debug,
+		PartialEq,
+		Eq,
+		Hash,
+	)]
+	pub struct Node {
+		pub state_hash: [u8; 32],
+		pub challenge_hash: [u8; 32],
+		pub confirm_data: [u8; 32],
+		pub prev_num: u64,
+		pub deadline_block: u64,
+		pub no_child_confirmed_before_block: u64,
+		pub staker_count: u64,
+		pub child_staker_count: u64,
+		pub first_child_block: u64,
+		pub latest_child_number: u64,
+		pub created_at_block: u64,
+		pub node_hash: [u8; 32],
 	}
 	///`Assertion(((bytes32[2],uint64[2]),uint8),((bytes32[2],uint64[2]),uint8),uint64)`
 	#[derive(

@@ -1,5 +1,7 @@
 use crate::{
-	abi::{beefy::BeefyConsensusState, IIsmpHost, StateMachineUpdatedFilter},
+	abi::{
+		beefy::BeefyConsensusState, to_state_machine_updated, EvmHost, StateMachineUpdatedFilter,
+	},
 	tx::submit_messages,
 	EvmClient,
 };
@@ -35,7 +37,7 @@ where
 		at: Option<u64>,
 		_: ConsensusStateId,
 	) -> Result<Vec<u8>, Error> {
-		let contract = IIsmpHost::new(self.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.ismp_host, self.client.clone());
 		let value = {
 			let call = if let Some(block) = at {
 				contract.consensus_state().block(block)
@@ -70,7 +72,7 @@ where
 	}
 
 	async fn query_latest_height(&self, _id: StateMachineId) -> Result<u32, Error> {
-		let contract = IIsmpHost::new(self.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.ismp_host, self.client.clone());
 		let value = contract.latest_state_machine_height().call().await?;
 		Ok(value.low_u64() as u32)
 	}
@@ -84,20 +86,20 @@ where
 	}
 
 	async fn query_consensus_update_time(&self, _id: ConsensusStateId) -> Result<Duration, Error> {
-		let contract = IIsmpHost::new(self.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.ismp_host, self.client.clone());
 		let value = contract.consensus_update_time().call().await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}
 
 	async fn query_challenge_period(&self, _id: ConsensusStateId) -> Result<Duration, Error> {
-		let contract = IIsmpHost::new(self.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.ismp_host, self.client.clone());
 		let value = contract.challenge_period().call().await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}
 
 	async fn query_timestamp(&self) -> Result<Duration, Error> {
 		let client = Arc::new(self.client.clone());
-		let contract = IIsmpHost::new(self.ismp_host, client);
+		let contract = EvmHost::new(self.ismp_host, client);
 		let value = contract.timestamp().call().await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}
@@ -242,7 +244,9 @@ where
 			.await?;
 		let stream = sub.filter_map(|log| async move {
 			log.ok().and_then(|log| {
-				parse_log::<StateMachineUpdatedFilter>(log).ok().map(|ev| Ok(ev.into()))
+				parse_log::<StateMachineUpdatedFilter>(log)
+					.ok()
+					.map(|ev| Ok(to_state_machine_updated(ev)))
 			})
 		});
 

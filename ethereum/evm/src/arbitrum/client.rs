@@ -1,7 +1,7 @@
 use crate::{abi::i_rollup::*, derive_map_key, EvmClient, EvmConfig};
 use anyhow::anyhow;
 use consensus_client::{
-	arbitrum::{ArbitrumPayloadProof, CodecHeader, GlobalState as RustGlobalState},
+	arbitrum::{ArbitrumPayloadProof, GlobalState as RustGlobalState},
 	presets::NODES_SLOT,
 };
 use ethabi::ethereum_types::U256;
@@ -10,6 +10,7 @@ use ethers::{
 	providers::{Middleware, Ws},
 	types::{H160, H256},
 };
+use geth_primitives::CodecHeader;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tesseract_primitives::IsmpProvider;
@@ -70,24 +71,7 @@ impl ArbHost {
 			.get_block(block)
 			.await?
 			.ok_or_else(|| anyhow!("Header not found for {:?}", block))?;
-		let arb_header = CodecHeader {
-			parent_hash: block.parent_hash,
-			uncle_hash: block.uncles_hash,
-			coinbase: block.author.unwrap_or_default(),
-			state_root: block.state_root,
-			transactions_root: block.transactions_root,
-			receipts_root: block.receipts_root,
-			logs_bloom: block.logs_bloom.unwrap_or_default(),
-			difficulty: block.difficulty,
-			number: block.number.unwrap_or_default().as_u64().into(),
-			gas_limit: block.gas_limit.low_u64(),
-			gas_used: block.gas_used.low_u64(),
-			timestamp: block.timestamp.low_u64(),
-			extra_data: block.extra_data.0.into(),
-			mix_hash: block.mix_hash.unwrap_or_default(),
-			nonce: block.nonce.unwrap_or_default(),
-			base_fee_per_gas: block.base_fee_per_gas,
-		};
+		let arb_header = block.into();
 
 		Ok(arb_header)
 	}

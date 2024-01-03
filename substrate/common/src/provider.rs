@@ -16,7 +16,7 @@
 //! [`IsmpProvider`] implementation
 
 use crate::{
-	extrinsic::{send_extrinsic, Extrinsic, InMemorySigner},
+	extrinsic::Extrinsic,
 	runtime::api::{
 		ismp::Event as Ev,
 		runtime_types::{frame_system::EventRecord, hyperbridge_runtime::RuntimeEvent},

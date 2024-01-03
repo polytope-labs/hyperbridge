@@ -1,7 +1,8 @@
 use crate::{
-	abi::{IIsmpHost, PingModule},
+	abi::{EvmHost, PingModule},
 	consts::{REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT},
 };
+use abi::to_ismp_event;
 use ethabi::ethereum_types::{H256, U256};
 use ethers::{
 	core::k256::ecdsa::SigningKey,
@@ -163,7 +164,7 @@ where
 
 	pub async fn events(&self, from: u64, to: u64) -> Result<Vec<Event>, anyhow::Error> {
 		let client = Arc::new(self.client.clone());
-		let contract = IIsmpHost::new(self.ismp_host, client);
+		let contract = EvmHost::new(self.ismp_host, client);
 		let events = contract
 			.events()
 			.address(self.ismp_host.into())
@@ -172,14 +173,14 @@ where
 			.query()
 			.await?
 			.into_iter()
-			.filter_map(|ev| ev.try_into().ok())
+			.filter_map(|ev| to_ismp_event(ev).ok())
 			.collect::<_>();
 		Ok(events)
 	}
 
 	/// Set the consensus state on the IsmpHost
 	pub async fn set_consensus_state(&self, consensus_state: Vec<u8>) -> Result<(), anyhow::Error> {
-		let contract = IIsmpHost::new(self.ismp_host, self.signer.clone());
+		let contract = EvmHost::new(self.ismp_host, self.signer.clone());
 		let call = contract.set_consensus_state(consensus_state.clone().into());
 
 		// let gas = call.estimate_gas().await?; // todo: fix estimate gas

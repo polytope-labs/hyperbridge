@@ -1,7 +1,8 @@
 use crate::{mock::Host, EvmConfig};
 use alloy_primitives::{Address, Bytes, U256};
 use alloy_rlp::Decodable;
-use consensus_client::arbitrum::{verify_arbitrum_payload, Header};
+use consensus_client::arbitrum::verify_arbitrum_payload;
+use geth_primitives::Header;
 
 use crate::arbitrum::client::{ArbConfig, ArbHost};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};

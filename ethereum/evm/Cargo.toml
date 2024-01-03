@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [build-dependencies]
 anyhow = "1.0.75"
-ethers-contract-abigen = { version = "2.0.9" }
+ethers-contract-abigen = { workspace = true }
 
 
 [dependencies]
@@ -22,15 +22,17 @@ hex-literal = { version ="0.4.1"}
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 sp-core = { version = "21.0.0", features = ["full_crypto"] }
 log = "0.4.19"
-ethers = { version = "2.0.9", features = ["ws"] }
+ethers = { workspace = true, features = ["ws"] }
 ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
 tokio = { version = "1.32.0", features = ["macros", "sync"] }
 tokio-stream = "0.1.14"
 
 pallet-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp-solidity-abi = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
 ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
 ismp-rpc = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-beefy-verifier-primitives = { path = "../../substrate/beefy/primitives" }
+beefy-verifier-primitives = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+geth-primitives = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
 consensus-client = { package = "ismp-sync-committee", git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
 
 tesseract-primitives = { path = "../../primitives" }
@@ -39,7 +41,7 @@ ethereum-trie = { git ="https://github.com/polytope-labs/hyperbridge", branch = 
 trie-db = { version= "0.24.0", default-features = false }
 hash-db = { version = "0.15.2", default-features = false }
 
-merkle-mountain-range-labs = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr" }
+merkle-mountain-range = { workspace = true }
 jsonrpsee = { version = "0.20.2", features = ["ws-client"]}
 [dev-dependencies]
 alloy-rlp = "0.3.2"

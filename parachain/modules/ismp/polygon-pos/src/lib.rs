@@ -197,7 +197,11 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 let entry = validator_repr.entry(*signer).or_insert(0);
                 *entry += 1;
             });
-            if validator_repr.iter().all(|(_, count)| *count >= SPRINT_LENGTH) {
+            // The number of validators that have signed in this chain must be at least the length
+            // of the finalized validators we know
+            if validator_repr.len() > consensus_state.finalized_validators.len() &&
+                validator_repr.iter().all(|(_, count)| *count >= SPRINT_LENGTH)
+            {
                 Some(chain)
             } else {
                 None
@@ -248,12 +252,10 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         proof_1: Vec<u8>,
         proof_2: Vec<u8>,
     ) -> Result<(), ismp::error::Error> {
-        let header_1 = CodecHeader::decode(&mut &*proof_1).map_err(|_| {
-            Error::ImplementationSpecific("Failed to decode header".to_string())
-        })?;
-        let header_2 = CodecHeader::decode(&mut &*proof_2).map_err(|_| {
-            Error::ImplementationSpecific("Failed to decode header".to_string())
-        })?;
+        let header_1 = CodecHeader::decode(&mut &*proof_1)
+            .map_err(|_| Error::ImplementationSpecific("Failed to decode header".to_string()))?;
+        let header_2 = CodecHeader::decode(&mut &*proof_2)
+            .map_err(|_| Error::ImplementationSpecific("Failed to decode header".to_string()))?;
 
         if header_1.number != header_2.number {
             Err(Error::ImplementationSpecific("Invalid Fraud proof".to_string()))?
@@ -263,15 +265,17 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
             ConsensusState::decode(&mut &trusted_consensus_state[..]).map_err(|_| {
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
             })?;
-        let res_1 = verify_polygon_header::<H>(&consensus_state.finalized_validators, header_1.clone())
-            .map_err(|_| {
-                Error::ImplementationSpecific("Failed to verify first header".to_string())
-            })?;
+        let res_1 =
+            verify_polygon_header::<H>(&consensus_state.finalized_validators, header_1.clone())
+                .map_err(|_| {
+                    Error::ImplementationSpecific("Failed to verify first header".to_string())
+                })?;
 
-        let res_2 = verify_polygon_header::<H>(&consensus_state.finalized_validators, header_2.clone())
-            .map_err(|_| {
-                Error::ImplementationSpecific("Failed to verify second header".to_string())
-            })?;
+        let res_2 =
+            verify_polygon_header::<H>(&consensus_state.finalized_validators, header_2.clone())
+                .map_err(|_| {
+                    Error::ImplementationSpecific("Failed to verify second header".to_string())
+                })?;
 
         // Fraud proof Scenario 1: Same block number with different hashes signed by the same
         // validator

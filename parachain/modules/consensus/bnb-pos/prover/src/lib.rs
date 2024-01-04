@@ -2,7 +2,10 @@
 mod test;
 
 use anyhow::anyhow;
-use bnb_pos_verifier::primitives::{parse_extra, BnbClientUpdate};
+use bnb_pos_verifier::{
+    primitives::{compute_epoch, parse_extra, BnbClientUpdate, EPOCH_LENGTH},
+    NextValidators,
+};
 use ethers::{
     prelude::{Provider, Ws},
     providers::Middleware,
@@ -12,6 +15,7 @@ use geth_primitives::CodecHeader;
 use ismp::util::Keccak256;
 use sp_core::H256;
 use std::{fmt::Debug, sync::Arc};
+use sync_committee_primitives::constants::BlsPublicKey;
 
 #[derive(Clone)]
 pub struct BnbPosProver {
@@ -78,5 +82,55 @@ impl BnbPosProver {
         let bnb_client_update = BnbClientUpdate { source_header, target_header, attested_header };
 
         Ok(bnb_client_update)
+    }
+
+    pub async fn fetch_finalized_state<I: Keccak256>(
+        &self,
+    ) -> Result<(CodecHeader, Vec<BlsPublicKey>, Option<NextValidators>), anyhow::Error> {
+        let latest_header = self.latest_header().await?;
+
+        let current_epoch = compute_epoch(latest_header.number.low_u64());
+        let current_epoch_block_number = current_epoch * EPOCH_LENGTH;
+
+        let current_epoch_header = self.fetch_header(current_epoch_block_number).await?;
+        let current_epoch_extra_data = parse_extra::<I>(&current_epoch_header.extra_data)
+            .map_err(|_| anyhow!("Extra data set not found in header"))?;
+
+        let next_rotation_block_number =
+            current_epoch_block_number + (current_epoch_extra_data.validator_size as u64 / 2);
+
+        let current_validators;
+        let next_validators;
+        if latest_header.number.low_u64() >= next_rotation_block_number {
+            current_validators = current_epoch_extra_data
+                .validators
+                .into_iter()
+                .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
+                .collect::<Vec<BlsPublicKey>>();
+            next_validators = None;
+        } else {
+            let previous_epoch_block_number = (current_epoch - 1) * EPOCH_LENGTH;
+
+            let previous_epoch_header = self.fetch_header(previous_epoch_block_number).await?;
+
+            let previous_epoch_extra_data = parse_extra::<I>(&previous_epoch_header.extra_data)
+                .map_err(|_| anyhow!("Extra data set not found in header"))?;
+
+            current_validators = previous_epoch_extra_data
+                .validators
+                .into_iter()
+                .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
+                .collect::<Vec<BlsPublicKey>>();
+            next_validators = Some(NextValidators {
+                validators: current_epoch_extra_data
+                    .validators
+                    .into_iter()
+                    .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
+                    .collect::<Vec<BlsPublicKey>>(),
+                rotation_block: next_rotation_block_number,
+            })
+        }
+
+        Ok((latest_header, current_validators, next_validators))
     }
 }

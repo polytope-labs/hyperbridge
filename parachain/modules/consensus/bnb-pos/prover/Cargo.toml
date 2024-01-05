@@ -8,27 +8,17 @@ edition = "2021"
 [dependencies]
 bnb-pos-verifier = { path= "../verifier" }
 anyhow = "1.0.68"
-tokio = { version =  "1.32.0", features = ["sync"]}
-tokio-stream = { version = "0.1.8" }
-async-stream = { version = "0.3.3"}
-env_logger = "0.10.0"
 primitive-types = { version = "0.12.1", features = ["serde_no_std", "impl-codec"] }
-log = "0.4.20"
-hex = "0.4.3"
-ethers = { version = "2.0.8", features = ["ws"] }
+ethers = { workspace = true, features = ["ws"] }
 ismp = { path = "../../../ismp/core" }
-sp-core = {version = "27.0.0" }
+sp-core = { workspace = true, default-features = true }
 sync-committee-primitives  = { path = "../../../consensus/sync-committee/primitives", default-features = false }
 geth-primitives = { path = "../../geth-primitives", default-features = false }
 
 [dev-dependencies]
-env_logger = "0.10.0"
-bnb-pos-verifier = { path= "../verifier" }
-ethers = { version = "2.0.8", features = ["ws"] }
-tokio = { version =  "1.32.0", features = ["macros", "rt-multi-thread"]}
-parity-scale-codec = "3.2.2"
+tokio = { version = "1.32.0", features = ["macros"] }
 dotenv = "0.15.0"
-sp-io = {version = "27.0.0" }
+
 [features]
 default = ["std"]
 std = [

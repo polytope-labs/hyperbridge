@@ -1407,22 +1407,15 @@ name = "bnb-pos-prover"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-stream",
  "bnb-pos-verifier",
  "dotenv",
- "env_logger",
- "ethers 2.0.9",
+ "ethers",
  "geth-primitives",
- "hex",
  "ismp",
- "log",
- "parity-scale-codec",
  "primitive-types",
- "sp-core 27.0.0",
- "sp-io 27.0.0",
+ "sp-core 25.0.0",
  "sync-committee-primitives",
  "tokio",
- "tokio-stream",
 ]
 
 [[package]]
@@ -1628,20 +1621,6 @@ name = "cargo_metadata"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7daec1a2a2129eeba1644b220b4647ec537b0b5d4bfd6876fcc5a540056b592"
-dependencies = [
- "camino",
- "cargo-platform",
- "semver 1.0.20",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "cargo_metadata"
-version = "0.18.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d886547e41f740c616ae73108f6eb70afe6d940c7bc697cb30f13daec073037"
 dependencies = [
  "camino",
  "cargo-platform",
@@ -3751,30 +3730,14 @@ name = "ethers"
 version = "2.0.8"
 source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
 dependencies = [
- "ethers-addressbook 2.0.8",
- "ethers-contract 2.0.8",
- "ethers-core 2.0.8",
- "ethers-etherscan 2.0.8",
- "ethers-middleware 2.0.8",
- "ethers-providers 2.0.8",
- "ethers-signers 2.0.8",
- "ethers-solc 2.0.8",
-]
-
-[[package]]
-name = "ethers"
-version = "2.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ba3fd516c15a9a587135229466dbbfc85796de55c5660afbbb1b1c78517d85c"
-dependencies = [
- "ethers-addressbook 2.0.11",
- "ethers-contract 2.0.11",
- "ethers-core 2.0.11",
- "ethers-etherscan 2.0.11",
- "ethers-middleware 2.0.11",
- "ethers-providers 2.0.11",
- "ethers-signers 2.0.11",
- "ethers-solc 2.0.9",
+ "ethers-addressbook",
+ "ethers-contract",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-middleware",
+ "ethers-providers",
+ "ethers-signers",
+ "ethers-solc",
 ]
 
 [[package]]
@@ -3782,19 +3745,7 @@ name = "ethers-addressbook"
 version = "2.0.8"
 source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
 dependencies = [
- "ethers-core 2.0.8",
- "once_cell",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "ethers-addressbook"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c405f24ea3a517899ba7985385c43dc4a7eb1209af3b1e0a1a32d7dcc7f8d09"
-dependencies = [
- "ethers-core 2.0.11",
+ "ethers-core",
  "once_cell",
  "serde",
  "serde_json",
@@ -3805,32 +3756,13 @@ name = "ethers-contract"
 version = "2.0.8"
 source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
 dependencies = [
- "ethers-contract-abigen 2.0.8",
- "ethers-contract-derive 2.0.8",
- "ethers-core 2.0.8",
- "ethers-providers 2.0.8",
- "ethers-signers 2.0.8",
+ "ethers-contract-abigen",
+ "ethers-contract-derive",
+ "ethers-core",
+ "ethers-providers",
+ "ethers-signers",
  "futures-util",
  "hex",
- "once_cell",
- "pin-project",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "ethers-contract"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0111ead599d17a7bff6985fd5756f39ca7033edc79a31b23026a8d5d64fa95cd"
-dependencies = [
- "const-hex",
- "ethers-contract-abigen 2.0.11",
- "ethers-contract-derive 2.0.11",
- "ethers-core 2.0.11",
- "ethers-providers 2.0.11",
- "futures-util",
  "once_cell",
  "pin-project",
  "serde",
@@ -3845,8 +3777,8 @@ source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f
 dependencies = [
  "Inflector",
  "dunce",
- "ethers-core 2.0.8",
- "ethers-etherscan 2.0.8",
+ "ethers-core",
+ "ethers-etherscan",
  "eyre",
  "hex",
  "prettyplease 0.2.15",
@@ -3862,54 +3794,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "ethers-contract-abigen"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51258120c6b47ea9d9bec0d90f9e8af71c977fbefbef8213c91bfed385fe45eb"
-dependencies = [
- "Inflector",
- "const-hex",
- "dunce",
- "ethers-core 2.0.11",
- "ethers-etherscan 2.0.11",
- "eyre",
- "prettyplease 0.2.15",
- "proc-macro2",
- "quote",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "syn 2.0.43",
- "toml 0.8.2",
- "walkdir",
-]
-
-[[package]]
 name = "ethers-contract-derive"
 version = "2.0.8"
 source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
 dependencies = [
  "Inflector",
- "ethers-contract-abigen 2.0.8",
- "ethers-core 2.0.8",
+ "ethers-contract-abigen",
+ "ethers-core",
  "hex",
- "proc-macro2",
- "quote",
- "serde_json",
- "syn 2.0.43",
-]
-
-[[package]]
-name = "ethers-contract-derive"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "936e7a0f1197cee2b62dc89f63eff3201dbf87c283ff7e18d86d38f83b845483"
-dependencies = [
- "Inflector",
- "const-hex",
- "ethers-contract-abigen 2.0.11",
- "ethers-core 2.0.11",
  "proc-macro2",
  "quote",
  "serde_json",
@@ -3930,37 +3822,7 @@ dependencies = [
  "generic-array 0.14.7",
  "hex",
  "k256",
- "num_enum 0.6.1",
- "once_cell",
- "open-fastrlp",
- "rand 0.8.5",
- "rlp",
- "serde",
- "serde_json",
- "strum 0.25.0",
- "syn 2.0.43",
- "tempfile",
- "thiserror",
- "tiny-keccak",
- "unicode-xid",
-]
-
-[[package]]
-name = "ethers-core"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f03e0bdc216eeb9e355b90cf610ef6c5bb8aca631f97b5ae9980ce34ea7878d"
-dependencies = [
- "arrayvec 0.7.4",
- "bytes",
- "cargo_metadata 0.18.1",
- "chrono",
- "const-hex",
- "elliptic-curve",
- "ethabi",
- "generic-array 0.14.7",
- "k256",
- "num_enum 0.7.1",
+ "num_enum",
  "once_cell",
  "open-fastrlp",
  "rand 0.8.5",
@@ -3980,24 +3842,8 @@ name = "ethers-etherscan"
 version = "2.0.8"
 source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
 dependencies = [
- "ethers-core 2.0.8",
- "ethers-solc 2.0.8",
- "reqwest",
- "semver 1.0.20",
- "serde",
- "serde_json",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "ethers-etherscan"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "abbac2c890bdbe0f1b8e549a53b00e2c4c1de86bb077c1094d1f38cdf9381a56"
-dependencies = [
- "chrono",
- "ethers-core 2.0.11",
+ "ethers-core",
+ "ethers-solc",
  "reqwest",
  "semver 1.0.20",
  "serde",
@@ -4013,37 +3859,11 @@ source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f
 dependencies = [
  "async-trait",
  "auto_impl",
- "ethers-contract 2.0.8",
- "ethers-core 2.0.8",
- "ethers-etherscan 2.0.8",
- "ethers-providers 2.0.8",
- "ethers-signers 2.0.8",
- "futures-channel",
- "futures-locks",
- "futures-util",
- "instant",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-futures",
- "url",
-]
-
-[[package]]
-name = "ethers-middleware"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "681ece6eb1d10f7cf4f873059a77c04ff1de4f35c63dd7bccde8f438374fcb93"
-dependencies = [
- "async-trait",
- "auto_impl",
- "ethers-contract 2.0.11",
- "ethers-core 2.0.11",
- "ethers-providers 2.0.11",
- "ethers-signers 2.0.11",
+ "ethers-contract",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-providers",
+ "ethers-signers",
  "futures-channel",
  "futures-locks",
  "futures-util",
@@ -4068,7 +3888,7 @@ dependencies = [
  "base64 0.21.5",
  "bytes",
  "enr",
- "ethers-core 2.0.8",
+ "ethers-core",
  "futures-channel",
  "futures-core",
  "futures-timer",
@@ -4084,45 +3904,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-tungstenite 0.19.0",
- "tracing",
- "tracing-futures",
- "url",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "ws_stream_wasm",
-]
-
-[[package]]
-name = "ethers-providers"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25d6c0c9455d93d4990c06e049abf9b30daf148cf461ee939c11d88907c60816"
-dependencies = [
- "async-trait",
- "auto_impl",
- "base64 0.21.5",
- "bytes",
- "const-hex",
- "enr",
- "ethers-core 2.0.11",
- "futures-channel",
- "futures-core",
- "futures-timer",
- "futures-util",
- "hashers",
- "http",
- "instant",
- "jsonwebtoken",
- "once_cell",
- "pin-project",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tokio-tungstenite 0.20.1",
+ "tokio-tungstenite",
  "tracing",
  "tracing-futures",
  "url",
@@ -4142,27 +3924,8 @@ dependencies = [
  "coins-bip39",
  "elliptic-curve",
  "eth-keystore",
- "ethers-core 2.0.8",
+ "ethers-core",
  "hex",
- "rand 0.8.5",
- "sha2 0.10.8",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "ethers-signers"
-version = "2.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cb1b714e227bbd2d8c53528adb580b203009728b17d0d0e4119353aa9bc5532"
-dependencies = [
- "async-trait",
- "coins-bip32",
- "coins-bip39",
- "const-hex",
- "elliptic-curve",
- "eth-keystore",
- "ethers-core 2.0.11",
  "rand 0.8.5",
  "sha2 0.10.8",
  "thiserror",
@@ -4177,7 +3940,7 @@ dependencies = [
  "cfg-if",
  "dirs",
  "dunce",
- "ethers-core 2.0.8",
+ "ethers-core",
  "futures-util",
  "glob",
  "hex",
@@ -4195,38 +3958,6 @@ dependencies = [
  "solang-parser",
  "svm-rs",
  "svm-rs-builds",
- "thiserror",
- "tiny-keccak",
- "tokio",
- "tracing",
- "walkdir",
- "yansi 0.5.1",
-]
-
-[[package]]
-name = "ethers-solc"
-version = "2.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66559c8f774712df303c907d087275a52a2046b256791aaa566d5abc8ea66731"
-dependencies = [
- "cfg-if",
- "const-hex",
- "dirs",
- "dunce",
- "ethers-core 2.0.11",
- "glob",
- "home",
- "md-5",
- "num_cpus",
- "once_cell",
- "path-slash",
- "rayon",
- "regex",
- "semver 1.0.20",
- "serde",
- "serde_json",
- "solang-parser",
- "svm-rs",
  "thiserror",
  "tiny-keccak",
  "tokio",
@@ -4546,7 +4277,7 @@ version = "0.2.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
  "comfy-table 6.2.0",
- "ethers 2.0.8",
+ "ethers",
  "eyre",
  "foundry-common",
  "foundry-config",
@@ -4575,7 +4306,7 @@ version = "0.2.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
  "ariadne",
- "ethers-core 2.0.8",
+ "ethers-core",
  "foundry-config",
  "itertools 0.10.5",
  "semver 1.0.20",
@@ -4589,7 +4320,7 @@ name = "forge-testsuite"
 version = "0.1.0"
 source = "git+https://github.com/polytope-labs/forge-testsuite?rev=03c48a56db852cef8d254f3d7a3bca6ba339b1b2#03c48a56db852cef8d254f3d7a3bca6ba339b1b2"
 dependencies = [
- "ethers 2.0.8",
+ "ethers",
  "forge",
  "foundry-common",
  "foundry-config",
@@ -4620,10 +4351,10 @@ name = "foundry-abi"
 version = "0.1.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
- "ethers-contract 2.0.8",
- "ethers-contract-abigen 2.0.8",
- "ethers-core 2.0.8",
- "ethers-providers 2.0.8",
+ "ethers-contract",
+ "ethers-contract-abigen",
+ "ethers-core",
+ "ethers-providers",
  "eyre",
  "foundry-macros",
  "syn 2.0.43",
@@ -4638,11 +4369,11 @@ dependencies = [
  "clap",
  "comfy-table 6.2.0",
  "dunce",
- "ethers-core 2.0.8",
- "ethers-etherscan 2.0.8",
- "ethers-middleware 2.0.8",
- "ethers-providers 2.0.8",
- "ethers-solc 2.0.8",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-middleware",
+ "ethers-providers",
+ "ethers-solc",
  "eyre",
  "foundry-config",
  "foundry-macros",
@@ -4667,9 +4398,9 @@ source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab81
 dependencies = [
  "Inflector",
  "dirs-next",
- "ethers-core 2.0.8",
- "ethers-etherscan 2.0.8",
- "ethers-solc 2.0.8",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-solc",
  "eyre",
  "figment",
  "globset",
@@ -4697,7 +4428,7 @@ source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab81
 dependencies = [
  "auto_impl",
  "bytes",
- "ethers 2.0.8",
+ "ethers",
  "eyre",
  "foundry-abi",
  "foundry-common",
@@ -4730,7 +4461,7 @@ name = "foundry-macros"
 version = "0.2.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
- "ethers-core 2.0.8",
+ "ethers-core",
  "foundry-macros-impl",
  "serde",
  "serde_json",
@@ -4752,12 +4483,12 @@ version = "0.2.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
 dependencies = [
  "dunce",
- "ethers-addressbook 2.0.8",
- "ethers-contract 2.0.8",
- "ethers-core 2.0.8",
- "ethers-etherscan 2.0.8",
- "ethers-providers 2.0.8",
- "ethers-solc 2.0.8",
+ "ethers-addressbook",
+ "ethers-contract",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-providers",
+ "ethers-solc",
  "eyre",
  "forge-fmt",
  "futures",
@@ -5480,7 +5211,7 @@ dependencies = [
  "alloy-rlp-derive",
  "anyhow",
  "ethabi",
- "ethers 2.0.8",
+ "ethers",
  "ismp",
  "parity-scale-codec",
  "scale-info",
@@ -6377,8 +6108,8 @@ dependencies = [
  "anyhow",
  "beefy-verifier-primitives",
  "ckb-merkle-mountain-range 0.5.2 (git+https://github.com/polytope-labs/merkle-mountain-range?branch=seun/simplified-mmr)",
- "ethers 2.0.8",
- "ethers-contract-abigen 2.0.8",
+ "ethers",
+ "ethers-contract-abigen",
  "forge-testsuite",
  "primitive-types",
  "sp-consensus-beefy",
@@ -6394,7 +6125,7 @@ dependencies = [
  "bytes",
  "ckb-merkle-mountain-range 0.5.2 (git+https://github.com/polytope-labs/merkle-mountain-range?branch=seun/simplified-mmr)",
  "envy",
- "ethers 2.0.8",
+ "ethers",
  "forge-testsuite",
  "futures",
  "hex",
@@ -6427,7 +6158,7 @@ dependencies = [
  "alloy-rlp-derive",
  "ethabi",
  "ethereum-trie",
- "ethers 2.0.8",
+ "ethers",
  "frame-support 25.0.0",
  "frame-system 25.0.0",
  "geth-primitives",
@@ -6655,20 +6386,6 @@ dependencies = [
  "jsonrpsee-client-transport",
  "jsonrpsee-core",
  "jsonrpsee-types",
-]
-
-[[package]]
-name = "jsonwebtoken"
-version = "8.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6971da4d9c3aa03c3d8f3ff0f4155b534aad021292003895a469716b2a230378"
-dependencies = [
- "base64 0.21.5",
- "pem",
- "ring 0.16.20",
- "serde",
- "serde_json",
- "simple_asn1",
 ]
 
 [[package]]
@@ -8177,16 +7894,7 @@ version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a015b430d3c108a207fd776d2e2196aaf8b1cf8cf93253e3a097ff3085076a1"
 dependencies = [
- "num_enum_derive 0.6.1",
-]
-
-[[package]]
-name = "num_enum"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "683751d591e6d81200c39fb0d1032608b77724f34114db54f571ff1317b337c0"
-dependencies = [
- "num_enum_derive 0.7.1",
+ "num_enum_derive",
 ]
 
 [[package]]
@@ -8194,18 +7902,6 @@ name = "num_enum_derive"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96667db765a921f7b295ffee8b60472b686a51d4f21c2ee4ffdb94c7013b65a6"
-dependencies = [
- "proc-macro-crate 1.3.1",
- "proc-macro2",
- "quote",
- "syn 2.0.43",
-]
-
-[[package]]
-name = "num_enum_derive"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c11e44798ad209ccdd91fc192f0526a369a01234f7373e1b141c96d7cee4f0e"
 dependencies = [
  "proc-macro-crate 1.3.1",
  "proc-macro2",
@@ -11128,7 +10824,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dotenv",
- "ethers 2.0.8",
+ "ethers",
  "geth-primitives",
  "ismp",
  "polygon-pos-verifier",
@@ -14183,18 +13879,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "simple_asn1"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adc4e5204eb1910f40f9cfa375f6f05b68c3abac4b6fd879c8ff5e7ae8a0a085"
-dependencies = [
- "num-bigint",
- "num-traits",
- "thiserror",
- "time",
-]
-
-[[package]]
 name = "siphasher"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -17019,7 +16703,7 @@ dependencies = [
  "bls_on_arkworks",
  "dotenv",
  "env_logger",
- "ethers 2.0.8",
+ "ethers",
  "hex",
  "log",
  "parity-scale-codec",
@@ -17398,23 +17082,8 @@ dependencies = [
  "rustls 0.21.10",
  "tokio",
  "tokio-rustls",
- "tungstenite 0.19.0",
+ "tungstenite",
  "webpki-roots 0.23.1",
-]
-
-[[package]]
-name = "tokio-tungstenite"
-version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "212d5dcb2a1ce06d81107c3d0ffa3121fe974b73f068c8282cb1c32328113b6c"
-dependencies = [
- "futures-util",
- "log",
- "rustls 0.21.10",
- "tokio",
- "tokio-rustls",
- "tungstenite 0.20.1",
- "webpki-roots 0.25.3",
 ]
 
 [[package]]
@@ -17829,26 +17498,6 @@ dependencies = [
  "url",
  "utf-8",
  "webpki",
-]
-
-[[package]]
-name = "tungstenite"
-version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e3dac10fd62eaf6617d3a904ae222845979aec67c615d1c842b4002c7666fb9"
-dependencies = [
- "byteorder",
- "bytes",
- "data-encoding",
- "http",
- "httparse",
- "log",
- "rand 0.8.5",
- "rustls 0.21.10",
- "sha1",
- "thiserror",
- "url",
- "utf-8",
 ]
 
 [[package]]

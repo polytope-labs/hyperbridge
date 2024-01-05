@@ -12,7 +12,6 @@ import "solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
 import "solidity-merkle-trees/trie/Bytes.sol";
 import "openzeppelin/utils/cryptography/ECDSA.sol";
 
-
 struct Vote {
     bytes signature;
     uint256 authorityIndex;

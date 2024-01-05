@@ -13,7 +13,6 @@ import "solidity-merkle-trees/trie/Bytes.sol";
 import "openzeppelin/utils/cryptography/ECDSA.sol";
 import {PlonkVerifier} from "./PlonkVerifier.sol";
 
-
 struct PlonkConsensusProof {
     /// Commitment message
     Commitment commitment;
@@ -35,7 +34,7 @@ contract ZkBeefyV1 is IConsensusClient {
     uint256 public constant SLOT_DURATION = 12000;
     /// The PayloadId for the mmr root.
     bytes2 public constant MMR_ROOT_PAYLOAD_ID = bytes2("mh");
-    /// ChainId for ethereum
+    /// Digest Item ID
     bytes4 public constant ISMP_CONSENSUS_ID = bytes4("ISMP");
     /// ConsensusID for aura
     bytes4 public constant AURA_CONSENSUS_ID = bytes4("aura");
@@ -61,7 +60,7 @@ contract ZkBeefyV1 is IConsensusClient {
             abi.decode(encodedProof, (PlonkConsensusProof, ParachainProof));
 
         (BeefyConsensusState memory newState, IntermediateState memory intermediate) =
-            this.verifyConsensus(consensusState, BeefyConsensusProof(relay, parachain));
+            verifyConsensus(consensusState, BeefyConsensusProof(relay, parachain));
 
         return (abi.encode(newState), intermediate);
     }
@@ -69,7 +68,7 @@ contract ZkBeefyV1 is IConsensusClient {
     /// Verify the consensus proof and return the new trusted consensus state and any intermediate states finalized
     /// by this consensus proof.
     function verifyConsensus(BeefyConsensusState memory trustedState, BeefyConsensusProof memory proof)
-        external
+        internal
         view
         returns (BeefyConsensusState memory, IntermediateState memory)
     {
@@ -87,7 +86,7 @@ contract ZkBeefyV1 is IConsensusClient {
     /// the relay chain authority set and we can verify the membership of the authorities who signed this new root
     /// using a merkle multi proof and a merkle commitment to the total authorities.
     function verifyMmrUpdateProof(BeefyConsensusState memory trustedState, PlonkConsensusProof memory relayProof)
-        private
+        internal
         view
         returns (BeefyConsensusState memory, bytes32)
     {
@@ -102,7 +101,6 @@ contract ZkBeefyV1 is IConsensusClient {
         );
 
         bool is_current_authorities = commitment.validatorSetId == trustedState.currentAuthoritySet.id;
-
         uint256 payload_len = commitment.payload.length;
         bytes32 mmrRoot;
 
@@ -111,22 +109,21 @@ contract ZkBeefyV1 is IConsensusClient {
                 mmrRoot = Bytes.toBytes32(commitment.payload[i].data);
             }
         }
-
         require(mmrRoot != bytes32(0), "Mmr root hash not found");
 
         bytes32 commitment_hash = keccak256(Codec.Encode(commitment));
         bytes32[] memory inputs = new bytes32[](4);
 
-        (bytes32 limb0, bytes32 limb1) = bytes32toFieldElements(commitment_hash);
+        (bytes32 limb0, bytes32 limb1) = Codec.toFieldElements(commitment_hash);
         inputs[0] = limb0;
         inputs[1] = limb1;
 
         if (is_current_authorities) {
-            (bytes32 limb2, bytes32 limb3) = bytes32toFieldElements(trustedState.currentAuthoritySet.root);
+            (bytes32 limb2, bytes32 limb3) = Codec.toFieldElements(trustedState.currentAuthoritySet.root);
             inputs[2] = limb2;
             inputs[3] = limb3;
         } else {
-            (bytes32 limb2, bytes32 limb3) = bytes32toFieldElements(trustedState.nextAuthoritySet.root);
+            (bytes32 limb2, bytes32 limb3) = Codec.toFieldElements(trustedState.nextAuthoritySet.root);
             inputs[2] = limb2;
             inputs[3] = limb3;
         }
@@ -148,22 +145,21 @@ contract ZkBeefyV1 is IConsensusClient {
 
     /// Stack too deep, sigh solidity
     function verifyMmrLeaf(BeefyConsensusState memory trustedState, PlonkConsensusProof memory relay, bytes32 mmrRoot)
-        private
+        internal
         pure
     {
-        bytes32 hash = keccak256(Codec.Encode(relay.latestMmrLeaf));
-        uint256 leafCount = leafIndex(trustedState.beefyActivationBlock, relay.latestMmrLeaf.parentNumber) + 1;
+        bytes32 temp = keccak256(Codec.Encode(relay.latestMmrLeaf));
+        uint256 i = relay.mmrProof.length;
+        for (; i > 0; i--) {
+            temp = keccak256(bytes.concat(temp, relay.mmrProof[i - 1]));
+        }
 
-        MmrLeaf[] memory leaves = new MmrLeaf[](1);
-        leaves[0] = MmrLeaf(relay.latestMmrLeaf.kIndex, relay.latestMmrLeaf.leafIndex, hash);
-
-        // todo: just hash the peaks
-        require(MerkleMountainRange.VerifyProof(mmrRoot, relay.mmrProof, leaves, leafCount), "Invalid Mmr Proof");
+        require(temp == mmrRoot, "Invalid Mmr Proof");
     }
 
     /// Verifies that some parachain header has been finalized, given the current trusted consensus state.
     function verifyParachainHeaderProof(bytes32 headsRoot, ParachainProof memory proof)
-        private
+        internal
         view
         returns (IntermediateState memory)
     {
@@ -180,7 +176,6 @@ contract ZkBeefyV1 is IConsensusClient {
         uint256 timestamp;
         for (uint256 j = 0; j < header.digests.length; j++) {
             if (header.digests[j].isConsensus && header.digests[j].consensus.consensusId == ISMP_CONSENSUS_ID) {
-                // yes it may be empty
                 commitment = Bytes.toBytes32(header.digests[j].consensus.data);
             }
 
@@ -195,34 +190,8 @@ contract ZkBeefyV1 is IConsensusClient {
             para.index,
             keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
         );
-
-        IntermediateState memory intermediate =
-            IntermediateState(para.id, header.number, StateCommitment(timestamp, commitment, header.stateRoot));
-
         require(MerkleMultiProof.VerifyProof(headsRoot, proof.proof, leaves), "Invalid parachains heads proof");
 
-        return intermediate;
-    }
-
-    /// Calculates the mmr leaf index for a block whose parent number is given.
-    function leafIndex(uint256 activationBlock, uint256 parentNumber) private pure returns (uint256) {
-        if (activationBlock == 0) {
-            return parentNumber;
-        } else {
-            return parentNumber - activationBlock;
-        }
-    }
-
-    /// Check for supermajority participation.
-    function checkParticipationThreshold(uint256 len, uint256 total) private pure returns (bool) {
-        return len >= ((2 * total) / 3) + 1;
-    }
-
-    function bytes32toFieldElements(bytes32 source) internal pure returns (bytes32, bytes32) {
-        // lol should probably use assembly
-        bytes32 left = bytes32(uint256(uint128(bytes16(source))));
-        bytes32 right = bytes32(uint256(uint128(uint256(source))));
-
-        return (left, right);
+        return IntermediateState(para.id, header.number, StateCommitment(timestamp, commitment, header.stateRoot));
     }
 }

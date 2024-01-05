@@ -11,9 +11,11 @@ import {ZkBeefyV1} from "../src/beefy/ZkBeefy.sol";
 
 contract BeefyConsensusClientTest is Test {
     BeefyV1 internal beefy;
+    PlonkVerifier internal plonk;
 
     function setUp() public virtual {
         beefy = new BeefyV1(2000);
+        plonk = new PlonkVerifier();
     }
 
     function testPlonkVerifier() public {
@@ -30,18 +32,20 @@ contract BeefyConsensusClientTest is Test {
         inputs[2] = bytes32(0x00000000000000000000000000000000ad19f07c487a8497b6e4f1e9296c3634);
         inputs[3] = bytes32(0x0000000000000000000000000000000048a3f47bf8d72c875d822fc36d306d4f);
 
-        PlonkVerifier plonk = new PlonkVerifier();
         require(plonk.verify(proof, inputs), "Plonk: Invalid Proof");
     }
 
     function testFieldElementConversion() public {
-//        ZkBeefyV1 zkBeefy = new ZkBeefyV1(2000);
-//        bytes32 msg = 0x3d2fc8e85afd38a3b23610fae5cbcbf424ab7ba5c4b5df37241e921e4b2fb164;
-//        bytes32 root = 0xad19f07c487a8497b6e4f1e9296c363448a3f47bf8d72c875d822fc36d306d4f;
-//
-//        (bytes32 left, bytes32 right) = zkBeefy.bytes32toFieldElements(msg);
-//        assert(left == 0x000000000000000000000000000000003d2fc8e85afd38a3b23610fae5cbcbf4);
-//        assert(right == 0x0000000000000000000000000000000024ab7ba5c4b5df37241e921e4b2fb164);
+        bytes32 message = 0x3d2fc8e85afd38a3b23610fae5cbcbf424ab7ba5c4b5df37241e921e4b2fb164;
+        bytes32 root = 0xad19f07c487a8497b6e4f1e9296c363448a3f47bf8d72c875d822fc36d306d4f;
+
+        (bytes32 left, bytes32 right) = Codec.toFieldElements(message);
+        assert(left == 0x000000000000000000000000000000003d2fc8e85afd38a3b23610fae5cbcbf4);
+        assert(right == 0x0000000000000000000000000000000024ab7ba5c4b5df37241e921e4b2fb164);
+
+        (bytes32 limb1, bytes32 limb2) = Codec.toFieldElements(root);
+        assert(limb1 == 0x00000000000000000000000000000000ad19f07c487a8497b6e4f1e9296c3634);
+        assert(limb2 == 0x0000000000000000000000000000000048a3f47bf8d72c875d822fc36d306d4f);
     }
 
     function VerifyV1(bytes memory trustedConsensusState, bytes memory proof)

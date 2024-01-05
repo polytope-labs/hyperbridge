@@ -4,6 +4,9 @@
 extern crate alloc;
 
 pub mod pallet;
+#[cfg(test)]
+mod test;
+
 use core::marker::PhantomData;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
@@ -192,16 +195,28 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         // we want to ensure that before we finalize a chain, most blocks have been signed by unique
         // validators
         let longest_chain = if let Some(chain) = longest_chain {
-            let mut validator_repr = BTreeMap::<H160, u64>::new();
-            chain.hashes.iter().for_each(|(signer, _)| {
-                let entry = validator_repr.entry(*signer).or_insert(0);
-                *entry += 1;
-            });
-            // The number of validators that have signed in this chain must be at least the length
-            // of the finalized validators we know
-            if validator_repr.len() > consensus_state.finalized_validators.len() &&
-                validator_repr.iter().all(|(_, count)| *count >= SPRINT_LENGTH)
-            {
+            // The composition of validators in consecutive chunks must be unique
+            let mut validator_distribution = vec![];
+            for (i, hashes) in chain.hashes.chunks(SPRINT_LENGTH as usize).enumerate() {
+                let mut validator_dist = BTreeMap::<H160, u64>::new();
+                hashes.iter().for_each(|(signer, _)| {
+                    let entry = validator_dist.entry(*signer).or_insert(0);
+                    *entry += 1;
+                });
+
+                let vals = validator_dist.into_iter().map(|a| a.0).collect::<Vec<_>>();
+                validator_distribution.push(vals);
+            }
+
+            log::info!(target: "pallet-ismp", "Validator distribution : {:?}", validator_distribution);
+
+            // Ensure that the composition of validators in each chunk is different
+            let mut prev = &validator_distribution[0];
+            if validator_distribution[1..].iter().all(|next| {
+                let check = next != prev;
+                prev = next;
+                check
+            }) {
                 Some(chain)
             } else {
                 None
@@ -285,13 +300,9 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
 
         // The difficulty of an in turn block is equal to the total number of validators
         // https://github.com/maticnetwork/bor/blob/930c9463886d7695b1335b7daf275eb88514a8a7/consensus/bor/snapshot.go#L225
-        // Fraud Proof Scenario 2:  Two valid in turn blocks with different hashes either by
-        // different signers or the same signer
-        let in_turn_difficulty = consensus_state.finalized_validators.len() as u64;
-        if header_1.difficulty.low_u64() == in_turn_difficulty &&
-            header_2.difficulty.low_u64() == in_turn_difficulty &&
-            res_1.hash != res_2.hash
-        {
+        // Fraud Proof Scenario 2:  Two valid blocks with the same in turn or out turn difficulty by
+        // different or the same signers
+        if header_1.difficulty == header_2.difficulty && res_1.hash != res_2.hash {
             return Ok(())
         }
 

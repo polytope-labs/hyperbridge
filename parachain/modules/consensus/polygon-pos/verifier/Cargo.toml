@@ -17,6 +17,7 @@ ismp = { path = "../../../ismp/core", default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 geth-primitives = { path = "../../geth-primitives", default-features = false }
 sp-io = { workspace = true }
+log = { version = "0.4.17", default-features = false }
 
 [features]
 default = ["std"]

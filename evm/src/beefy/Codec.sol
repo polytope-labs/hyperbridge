@@ -5,7 +5,69 @@ import "solidity-merkle-trees/MerkleMultiProof.sol";
 import "solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
 import "solidity-merkle-trees/trie/Bytes.sol";
 import "./Header.sol";
-import "./BeefyV1.sol";
+
+struct Payload {
+    bytes2 id;
+    bytes data;
+}
+
+struct Commitment {
+    Payload[] payload;
+    uint256 blockNumber;
+    uint256 validatorSetId;
+}
+
+struct AuthoritySetCommitment {
+    /// Id of the set.
+    uint256 id;
+    /// Number of validators in the set.
+    uint256 len;
+    /// Merkle Root Hash built from BEEFY AuthorityIds.
+    bytes32 root;
+}
+
+struct BeefyMmrLeaf {
+    uint256 version;
+    uint256 parentNumber;
+    bytes32 parentHash;
+    AuthoritySetCommitment nextAuthoritySet;
+    bytes32 extra;
+    uint256 kIndex;
+    uint256 leafIndex;
+}
+
+struct BeefyConsensusState {
+    /// block number for the latest mmr_root_hash
+    uint256 latestHeight;
+    /// Block number that the beefy protocol was activated on the relay chain.
+    /// This should be the first block in the merkle-mountain-range tree.
+    uint256 beefyActivationBlock;
+    /// authorities for the current round
+    AuthoritySetCommitment currentAuthoritySet;
+    /// authorities for the next round
+    AuthoritySetCommitment nextAuthoritySet;
+}
+
+struct PartialBeefyMmrLeaf {
+    uint256 version;
+    uint256 parentNumber;
+    bytes32 parentHash;
+    AuthoritySetCommitment nextAuthoritySet;
+}
+
+struct Parachain {
+    /// k-index for latestHeadsRoot
+    uint256 index;
+    /// Parachain Id
+    uint256 id;
+    /// SCALE encoded header
+    bytes header;
+}
+
+struct ParachainProof {
+    Parachain parachain;
+    Node[][] proof;
+}
 
 /// type encoding stuff
 library Codec {
@@ -141,5 +203,14 @@ library Codec {
             revert("Code should be unreachable");
         }
         return (value);
+    }
+
+    // Convert the provided type to a bn254 field element
+    function toFieldElements(bytes32 source) internal pure returns (bytes32, bytes32) {
+        // is assembly cheaper?
+        bytes32 left = bytes32(uint256(uint128(bytes16(source))));
+        bytes32 right = bytes32(uint256(uint128(uint256(source))));
+
+        return (left, right);
     }
 }

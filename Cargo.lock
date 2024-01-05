@@ -4305,7 +4305,7 @@ dependencies = [
 [[package]]
 name = "forge-testsuite"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/forge-testsuite?rev=03c48a56db852cef8d254f3d7a3bca6ba339b1b2#03c48a56db852cef8d254f3d7a3bca6ba339b1b2"
+source = "git+https://github.com/polytope-labs/forge-testsuite?rev=82294cf1999c7b51c7a32cae77762b53c0955803#82294cf1999c7b51c7a32cae77762b53c0955803"
 dependencies = [
  "ethers",
  "forge",

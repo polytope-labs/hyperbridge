@@ -131,7 +131,7 @@ contract ZkBeefyV1 is IConsensusClient {
         // check BEEFY proof
         require(verifier.verify(relayProof.proof, inputs), "ZkBEEFY: Invalid plonk proof");
 
-        verifyMmrLeaf(trustedState, relayProof, mmrRoot);
+        verifyMmrLeaf(relayProof, mmrRoot);
 
         if (relayProof.latestMmrLeaf.nextAuthoritySet.id > trustedState.nextAuthoritySet.id) {
             trustedState.currentAuthoritySet = trustedState.nextAuthoritySet;
@@ -144,11 +144,12 @@ contract ZkBeefyV1 is IConsensusClient {
     }
 
     /// Stack too deep, sigh solidity
-    function verifyMmrLeaf(BeefyConsensusState memory trustedState, PlonkConsensusProof memory relay, bytes32 mmrRoot)
+    function verifyMmrLeaf(PlonkConsensusProof memory relay, bytes32 mmrRoot)
         internal
         pure
     {
         bytes32 temp = keccak256(Codec.Encode(relay.latestMmrLeaf));
+        // bag peaks from right to left
         uint256 i = relay.mmrProof.length;
         for (; i > 0; i--) {
             temp = keccak256(bytes.concat(temp, relay.mmrProof[i - 1]));

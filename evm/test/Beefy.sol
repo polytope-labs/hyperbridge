@@ -9,11 +9,9 @@ import {BeefyMmrLeaf, Commitment, Codec} from "../src/beefy/Codec.sol";
 
 contract BeefyConsensusClientTest is Test {
     BeefyV1 internal beefy;
-    PlonkVerifier internal plonk;
 
     function setUp() public virtual {
         beefy = new BeefyV1(2000);
-        plonk = new PlonkVerifier();
     }
 
     function testFieldElementConversion() public pure {

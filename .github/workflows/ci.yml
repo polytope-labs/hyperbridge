@@ -82,7 +82,7 @@ jobs:
 
       - name: check workspace
         run: |
-          cargo check --all --benches --locked
+          ./scripts/ignore_plonk.sh "cargo check --all --benches --locked"
 
   fmt:
     name: Cargo fmt
@@ -133,7 +133,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          cargo test --all-targets --features=runtime-benchmarks --locked
+          ./scripts/ignore_plonk.sh "cargo test --all-targets --features=runtime-benchmarks --locked"
 
   integration-tests:
     name: Integration Tests
@@ -194,7 +194,7 @@ jobs:
 
       - name: Beefy integration tests
         run: |
-          cargo test -p ismp-solidity-tests -- --nocapture --ignored 
+          ./scripts/ignore_plonk.sh "cargo test -p ismp-solidity-tests -- --nocapture --ignored "
 
       - name: Run Eth POS Devnet
         run: |
@@ -207,7 +207,7 @@ jobs:
 
       - name: sync-committee integration tests
         run: |
-          cargo test -p sync-committee-prover -- --nocapture --ignored
+          ./scripts/ignore_plonk.sh "cargo test -p sync-committee-prover -- --nocapture --ignored"
 
   check-solidity:
     name: Check ismp-solidity

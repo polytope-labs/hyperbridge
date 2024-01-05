@@ -13,36 +13,8 @@ import "solidity-merkle-trees/trie/Bytes.sol";
 import "openzeppelin/utils/cryptography/ECDSA.sol";
 import {PlonkVerifier} from "./PlonkVerifier.sol";
 
-struct BeefyConsensusState {
-    /// block number for the latest mmr_root_hash
-    uint256 latestHeight;
-    /// Block number that the beefy protocol was activated on the relay chain.
-    /// This should be the first block in the merkle-mountain-range tree.
-    uint256 beefyActivationBlock;
-    /// authorities for the current round
-    AuthoritySetCommitment currentAuthoritySet;
-    /// authorities for the next round
-    AuthoritySetCommitment nextAuthoritySet;
-}
 
-struct Vote {
-    bytes signature;
-    uint256 authorityIndex;
-}
-
-struct SignedCommitment {
-    Commitment commitment;
-    Vote[] votes;
-}
-
-struct PartialBeefyMmrLeaf {
-    uint256 version;
-    uint256 parentNumber;
-    bytes32 parentHash;
-    AuthoritySetCommitment nextAuthoritySet;
-}
-
-struct RelayChainProof {
+struct PlonkConsensusProof {
     /// Commitment message
     Commitment commitment;
     /// Latest leaf added to mmr
@@ -53,27 +25,9 @@ struct RelayChainProof {
     bytes proof;
 }
 
-struct Parachain {
-    /// k-index for latestHeadsRoot
-    uint256 index;
-    /// Parachain Id
-    uint256 id;
-    /// SCALE encoded header
-    bytes header;
-}
-
-struct ParachainProof {
-    Parachain parachain;
-    Node[][] proof;
-}
-
 struct BeefyConsensusProof {
-    RelayChainProof relay;
+    PlonkConsensusProof relay;
     ParachainProof parachain;
-}
-
-struct ConsensusMessage {
-    BeefyConsensusProof proof;
 }
 
 contract ZkBeefyV1 is IConsensusClient {
@@ -103,8 +57,8 @@ contract ZkBeefyV1 is IConsensusClient {
         returns (bytes memory, IntermediateState memory)
     {
         BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
-        (RelayChainProof memory relay, ParachainProof memory parachain) =
-            abi.decode(encodedProof, (RelayChainProof, ParachainProof));
+        (PlonkConsensusProof memory relay, ParachainProof memory parachain) =
+            abi.decode(encodedProof, (PlonkConsensusProof, ParachainProof));
 
         (BeefyConsensusState memory newState, IntermediateState memory intermediate) =
             this.verifyConsensus(consensusState, BeefyConsensusProof(relay, parachain));
@@ -132,7 +86,7 @@ contract ZkBeefyV1 is IConsensusClient {
     /// which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by
     /// the relay chain authority set and we can verify the membership of the authorities who signed this new root
     /// using a merkle multi proof and a merkle commitment to the total authorities.
-    function verifyMmrUpdateProof(BeefyConsensusState memory trustedState, RelayChainProof memory relayProof)
+    function verifyMmrUpdateProof(BeefyConsensusState memory trustedState, PlonkConsensusProof memory relayProof)
         private
         view
         returns (BeefyConsensusState memory, bytes32)
@@ -193,7 +147,7 @@ contract ZkBeefyV1 is IConsensusClient {
     }
 
     /// Stack too deep, sigh solidity
-    function verifyMmrLeaf(BeefyConsensusState memory trustedState, RelayChainProof memory relay, bytes32 mmrRoot)
+    function verifyMmrLeaf(BeefyConsensusState memory trustedState, PlonkConsensusProof memory relay, bytes32 mmrRoot)
         private
         pure
     {

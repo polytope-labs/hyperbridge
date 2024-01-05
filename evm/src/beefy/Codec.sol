@@ -5,7 +5,36 @@ import "solidity-merkle-trees/MerkleMultiProof.sol";
 import "solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
 import "solidity-merkle-trees/trie/Bytes.sol";
 import "./Header.sol";
-import "./BeefyV1.sol";
+
+struct Payload {
+    bytes2 id;
+    bytes data;
+}
+
+struct Commitment {
+    Payload[] payload;
+    uint256 blockNumber;
+    uint256 validatorSetId;
+}
+
+struct AuthoritySetCommitment {
+    /// Id of the set.
+    uint256 id;
+    /// Number of validators in the set.
+    uint256 len;
+    /// Merkle Root Hash built from BEEFY AuthorityIds.
+    bytes32 root;
+}
+
+struct BeefyMmrLeaf {
+    uint256 version;
+    uint256 parentNumber;
+    bytes32 parentHash;
+    AuthoritySetCommitment nextAuthoritySet;
+    bytes32 extra;
+    uint256 kIndex;
+    uint256 leafIndex;
+}
 
 /// type encoding stuff
 library Codec {

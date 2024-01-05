@@ -11,6 +11,7 @@ import "solidity-merkle-trees/MerklePatricia.sol";
 import "solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
 import "solidity-merkle-trees/trie/Bytes.sol";
 import "openzeppelin/utils/cryptography/ECDSA.sol";
+import {PlonkVerifier} from "./PlonkVerifier.sol";
 
 struct BeefyConsensusState {
     /// block number for the latest mmr_root_hash
@@ -42,14 +43,14 @@ struct PartialBeefyMmrLeaf {
 }
 
 struct RelayChainProof {
-    /// Signed commitment
-    SignedCommitment signedCommitment;
+    /// Commitment message
+    Commitment commitment;
     /// Latest leaf added to mmr
     BeefyMmrLeaf latestMmrLeaf;
     /// Proof for the latest mmr leaf
     bytes32[] mmrProof;
-    /// Proof for authorities in current/next session
-    Node[][] proof;
+    /// Plonk proof for BEEFY consensus
+    bytes proof;
 }
 
 struct Parachain {
@@ -75,7 +76,7 @@ struct ConsensusMessage {
     BeefyConsensusProof proof;
 }
 
-contract BeefyV1 is IConsensusClient {
+contract ZkBeefyV1 is IConsensusClient {
     /// Slot duration in milliseconds
     uint256 public constant SLOT_DURATION = 12000;
     /// The PayloadId for the mmr root.
@@ -85,11 +86,15 @@ contract BeefyV1 is IConsensusClient {
     /// ConsensusID for aura
     bytes4 public constant AURA_CONSENSUS_ID = bytes4("aura");
 
+    // Plonk verifier contract
+    PlonkVerifier internal verifier;
+
     // Authorized paraId.
     uint256 private _paraId;
 
     constructor(uint256 paraId) {
         _paraId = paraId;
+        verifier = new PlonkVerifier();
     }
 
     function verifyConsensus(bytes memory encodedState, bytes memory encodedProof)
@@ -129,21 +134,13 @@ contract BeefyV1 is IConsensusClient {
     /// using a merkle multi proof and a merkle commitment to the total authorities.
     function verifyMmrUpdateProof(BeefyConsensusState memory trustedState, RelayChainProof memory relayProof)
         private
-        pure
+        view
         returns (BeefyConsensusState memory, bytes32)
     {
-        uint256 signatures_length = relayProof.signedCommitment.votes.length;
-        uint256 latestHeight = relayProof.signedCommitment.commitment.blockNumber;
-
+        uint256 latestHeight = relayProof.commitment.blockNumber;
         require(latestHeight > trustedState.latestHeight, "consensus clients only accept proofs for new headers");
-        require(
-            checkParticipationThreshold(signatures_length, trustedState.currentAuthoritySet.len)
-                || checkParticipationThreshold(signatures_length, trustedState.nextAuthoritySet.len),
-            "Super majority threshold not reached"
-        );
 
-        Commitment memory commitment = relayProof.signedCommitment.commitment;
-
+        Commitment memory commitment = relayProof.commitment;
         require(
             commitment.validatorSetId == trustedState.currentAuthoritySet.id
                 || commitment.validatorSetId == trustedState.nextAuthoritySet.id,
@@ -164,27 +161,24 @@ contract BeefyV1 is IConsensusClient {
         require(mmrRoot != bytes32(0), "Mmr root hash not found");
 
         bytes32 commitment_hash = keccak256(Codec.Encode(commitment));
-        Node[] memory authorities = new Node[](signatures_length);
+        bytes32[] memory inputs = new bytes32[](4);
 
-        // verify authorities' votes
-        for (uint256 i = 0; i < signatures_length; i++) {
-            Vote memory vote = relayProof.signedCommitment.votes[i];
-            address authority = ECDSA.recover(commitment_hash, vote.signature);
-            authorities[i] = Node(vote.authorityIndex, keccak256(abi.encodePacked(authority)));
-        }
+        (bytes32 limb0, bytes32 limb1) = bytes32toFieldElements(commitment_hash);
+        inputs[0] = limb0;
+        inputs[1] = limb1;
 
-        // check authorities proof
         if (is_current_authorities) {
-            require(
-                MerkleMultiProof.VerifyProof(trustedState.currentAuthoritySet.root, relayProof.proof, authorities),
-                "Invalid current authorities proof"
-            );
+            (bytes32 limb2, bytes32 limb3) = bytes32toFieldElements(trustedState.currentAuthoritySet.root);
+            inputs[2] = limb2;
+            inputs[3] = limb3;
         } else {
-            require(
-                MerkleMultiProof.VerifyProof(trustedState.nextAuthoritySet.root, relayProof.proof, authorities),
-                "Invalid next authorities proof"
-            );
+            (bytes32 limb2, bytes32 limb3) = bytes32toFieldElements(trustedState.nextAuthoritySet.root);
+            inputs[2] = limb2;
+            inputs[3] = limb3;
         }
+
+        // check BEEFY proof
+        require(verifier.verify(relayProof.proof, inputs), "ZkBEEFY: Invalid plonk proof");
 
         verifyMmrLeaf(trustedState, relayProof, mmrRoot);
 
@@ -209,6 +203,7 @@ contract BeefyV1 is IConsensusClient {
         MmrLeaf[] memory leaves = new MmrLeaf[](1);
         leaves[0] = MmrLeaf(relay.latestMmrLeaf.kIndex, relay.latestMmrLeaf.leafIndex, hash);
 
+        // todo: just hash the peaks
         require(MerkleMountainRange.VerifyProof(mmrRoot, relay.mmrProof, leaves, leafCount), "Invalid Mmr Proof");
     }
 
@@ -267,5 +262,13 @@ contract BeefyV1 is IConsensusClient {
     /// Check for supermajority participation.
     function checkParticipationThreshold(uint256 len, uint256 total) private pure returns (bool) {
         return len >= ((2 * total) / 3) + 1;
+    }
+
+    function bytes32toFieldElements(bytes32 source) internal pure returns (bytes32, bytes32) {
+        // lol should probably use assembly
+        bytes32 left = bytes32(uint256(uint128(bytes16(source))));
+        bytes32 right = bytes32(uint256(uint128(uint256(source))));
+
+        return (left, right);
     }
 }

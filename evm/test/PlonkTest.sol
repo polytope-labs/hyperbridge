@@ -1,4 +1,4 @@
-import {Test} from "forge-std/src/Test.sol";
+import "forge-std/Test.sol";
 import {PlonkVerifier} from "../src/beefy/PlonkVerifier.sol";
 import {ZkBeefyV1} from "../src/beefy/ZkBeefy.sol";
 

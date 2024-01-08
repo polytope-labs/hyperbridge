@@ -10,6 +10,7 @@ use bnb_pos_verifier::{
     primitives::BnbClientUpdate, verify_bnb_header, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
+use geth_primitives::Header;
 use ismp::{
     consensus::{ConsensusClient, ConsensusStateId, StateCommitment, StateMachineClient},
     error::Error,
@@ -122,19 +123,19 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
             })?;
 
-        let res_1 =
-            verify_bnb_header::<H>(&consensus_state.current_validators, bnb_client_update_1)
-                .map_err(|_| {
-                    Error::ImplementationSpecific("Failed to verify first header".to_string())
-                })?;
+        let _ = verify_bnb_header::<H>(&consensus_state.current_validators, bnb_client_update_1)
+            .map_err(|_| {
+                Error::ImplementationSpecific("Failed to verify first header".to_string())
+            })?;
 
-        let res_2 =
-            verify_bnb_header::<H>(&consensus_state.current_validators, bnb_client_update_2)
-                .map_err(|_| {
-                    Error::ImplementationSpecific("Failed to verify second header".to_string())
-                })?;
+        let _ = verify_bnb_header::<H>(&consensus_state.current_validators, bnb_client_update_2)
+            .map_err(|_| {
+                Error::ImplementationSpecific("Failed to verify second header".to_string())
+            })?;
+        let header_1_hash = Header::from(&header_1).hash::<H>();
+        let header_2_hash = Header::from(&header_2).hash::<H>();
 
-        if res_1.hash != res_2.hash {
+        if header_1_hash != header_2_hash {
             return Ok(())
         }
         Ok(())

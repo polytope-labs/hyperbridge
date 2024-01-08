@@ -7,7 +7,7 @@ use ethers::{
 use geth_primitives::CodecHeader;
 use polygon_pos_verifier::primitives::{parse_validators, SPAN_LENGTH};
 use primitive_types::H160;
-use std::{collections::BTreeSet, fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
 #[cfg(test)]
 mod test;
@@ -41,9 +41,7 @@ impl PolygonPosProver {
         Ok(header)
     }
 
-    pub async fn fetch_finalized_state(
-        &self,
-    ) -> Result<(CodecHeader, BTreeSet<H160>), anyhow::Error> {
+    pub async fn fetch_finalized_state(&self) -> Result<(CodecHeader, Vec<H160>), anyhow::Error> {
         let latest_header = self.latest_header().await?;
         let finalized_block = latest_header.number.low_u64() - 250;
         let span = finalized_block / SPAN_LENGTH;

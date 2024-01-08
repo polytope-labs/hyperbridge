@@ -4,15 +4,12 @@
 extern crate alloc;
 
 pub mod pallet;
+#[cfg(test)]
+mod test;
+
 use core::marker::PhantomData;
 
-use alloc::{
-    boxed::Box,
-    collections::{BTreeMap, BTreeSet},
-    string::ToString,
-    vec,
-    vec::Vec,
-};
+use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
 use geth_primitives::CodecHeader;
 use ismp::{
@@ -23,28 +20,34 @@ use ismp::{
 };
 use ismp_sync_committee::EvmStateMachine;
 use pallet::{Config, Headers};
-use polygon_pos_verifier::{verify_polygon_header, VerificationResult};
+use polygon_pos_verifier::{
+    primitives::{SPAN_LENGTH, SPRINT_LENGTH},
+    verify_polygon_header, VerificationResult,
+};
 use sp_core::{ConstU32, H160, H256, U256};
 use sp_runtime::BoundedVec;
 
 pub const POLYGON_CONSENSUS_ID: ConsensusStateId = *b"POLY";
 #[derive(Encode, Decode, Debug, Clone, PartialEq)]
 pub struct Chain {
-    /// Validators for this chain fork
-    pub validators: BTreeMap<u64, BTreeSet<H160>>,
-    /// Block hashes contained in this fork;
-    pub hashes: Vec<H256>,
+    /// Validators for different spans in this chain fork
+    pub validators: BTreeMap<u64, Vec<H160>>,
+    /// Block hashes contained in this fork and signer;
+    /// And the span of the block
+    pub hashes: Vec<(H160, H256)>,
     /// Cumulative difficulty of this fork
     pub difficulty: U256,
 }
 
 impl Chain {
     fn update_fork(&mut self, update: VerificationResult) {
+        let span = get_span(update.header.number.low_u64() + 1);
         if let Some(validators) = update.next_validators {
-            let span = get_sprint(update.header.number.low_u64() + 1);
-            self.validators.insert(span, validators);
+            if !self.validators.contains_key(&span) {
+                self.validators.insert(span, validators);
+            }
         }
-        self.hashes.push(update.hash);
+        self.hashes.push((update.signer, update.hash));
         self.difficulty += update.header.difficulty;
     }
 }
@@ -53,7 +56,7 @@ impl Chain {
 pub struct ConsensusState {
     pub frozen_height: Option<u64>,
     pub finalized_hash: H256,
-    pub finalized_validators: BTreeSet<H160>,
+    pub finalized_validators: Vec<H160>,
     pub forks: Vec<Chain>,
     pub ismp_contract_address: H160,
 }
@@ -119,9 +122,9 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                     ))?
                 }
 
-                let sprint = get_sprint(header.number.low_u64());
+                let span = get_span(header.number.low_u64());
                 let validators =
-                    chain.validators.get(&sprint).unwrap_or(&consensus_state.finalized_validators);
+                    chain.validators.get(&span).unwrap_or(&consensus_state.finalized_validators);
                 let result = verify_polygon_header::<H>(validators, header)
                     .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
                 parent_hash = result.hash;
@@ -135,7 +138,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
             let chain = if let Some(chain) = consensus_state
                 .forks
                 .iter_mut()
-                .find(|chain| chain.hashes[chain.hashes.len() - 1] == chain_head)
+                .find(|chain| chain.hashes[chain.hashes.len() - 1].1 == chain_head)
             {
                 chain
             } else {
@@ -150,9 +153,9 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                         "Headers are meant to be in sequential order".to_string(),
                     ))?
                 }
-                let sprint = get_sprint(header.number.low_u64());
+                let span = get_span(header.number.low_u64());
                 let validators =
-                    chain.validators.get(&sprint).unwrap_or(&consensus_state.finalized_validators);
+                    chain.validators.get(&span).unwrap_or(&consensus_state.finalized_validators);
 
                 let result = verify_polygon_header::<H>(validators, header)
                     .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
@@ -167,8 +170,8 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
             .forks
             .iter()
             .filter(|chain| {
-                log::info!(target: "pallet-ismp", "Chain : {:?} --> {:?}; Difficulty -> {:#?}; length: {:?}", chain.hashes[0], chain.hashes[chain.hashes.len() - 1], chain.difficulty, chain.hashes.len());
-                chain.hashes.len() >= (consensus_state.finalized_validators.len() * 16)
+                log::info!(target: "pallet-ismp", "Chain : {:?} --> {:?}; Difficulty -> {:#?}; length: {:?}", chain.hashes[0].1, chain.hashes[chain.hashes.len() - 1].1, chain.difficulty, chain.hashes.len());
+                chain.hashes.len() >= (consensus_state.finalized_validators.len() * SPRINT_LENGTH as usize)
             })
             .collect::<Vec<&Chain>>();
 
@@ -188,12 +191,46 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 }
             }
         };
+
+        // we want to ensure that before we finalize a chain, most blocks have been signed by unique
+        // validators
+        let longest_chain = if let Some(chain) = longest_chain {
+            // The composition of validators in consecutive chunks must be unique
+            let mut validator_distribution = vec![];
+            for (i, hashes) in chain.hashes.chunks(SPRINT_LENGTH as usize).enumerate() {
+                let mut validator_dist = BTreeMap::<H160, u64>::new();
+                hashes.iter().for_each(|(signer, _)| {
+                    let entry = validator_dist.entry(*signer).or_insert(0);
+                    *entry += 1;
+                });
+
+                let vals = validator_dist.into_iter().map(|a| a.0).collect::<Vec<_>>();
+                validator_distribution.push(vals);
+            }
+
+            log::info!(target: "pallet-ismp", "Validator distribution : {:?}", validator_distribution);
+
+            // Ensure that the composition of validators in each chunk is different
+            let mut prev = &validator_distribution[0];
+            if validator_distribution[1..].iter().all(|next| {
+                let check = next != prev;
+                prev = next;
+                check
+            }) {
+                Some(chain)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
             BTreeMap::new();
         if let Some(mut longest_chain) = longest_chain {
             // we want 16 mins of probabilistic finality
             let finality_index = longest_chain.hashes.len().saturating_sub(480);
-            let finalized_hash = longest_chain.hashes[finality_index];
+            let finalized_hash = longest_chain.hashes[finality_index].1;
 
             let header = Headers::<T>::get(finalized_hash).ok_or_else(|| {
                 Error::ImplementationSpecific("Expected header to be found in storage".to_string())
@@ -209,7 +246,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
 
             state_machine_map.insert(StateMachine::Polygon, vec![state_commitment]);
             consensus_state.finalized_hash = finalized_hash;
-            let finalized_span = get_sprint(header.number.low_u64());
+            let finalized_span = get_span(header.number.low_u64());
             if let Some(validators) = longest_chain.validators.get(&finalized_span) {
                 consensus_state.finalized_validators = validators.clone();
             }
@@ -226,11 +263,50 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
     fn verify_fraud_proof(
         &self,
         _host: &dyn IsmpHost,
-        _trusted_consensus_state: Vec<u8>,
-        _proof_1: Vec<u8>,
-        _proof_2: Vec<u8>,
+        trusted_consensus_state: Vec<u8>,
+        proof_1: Vec<u8>,
+        proof_2: Vec<u8>,
     ) -> Result<(), ismp::error::Error> {
-        Ok(())
+        let header_1 = CodecHeader::decode(&mut &*proof_1)
+            .map_err(|_| Error::ImplementationSpecific("Failed to decode header".to_string()))?;
+        let header_2 = CodecHeader::decode(&mut &*proof_2)
+            .map_err(|_| Error::ImplementationSpecific("Failed to decode header".to_string()))?;
+
+        if header_1.number != header_2.number {
+            Err(Error::ImplementationSpecific("Invalid Fraud proof".to_string()))?
+        }
+
+        let consensus_state =
+            ConsensusState::decode(&mut &trusted_consensus_state[..]).map_err(|_| {
+                Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
+            })?;
+        let res_1 =
+            verify_polygon_header::<H>(&consensus_state.finalized_validators, header_1.clone())
+                .map_err(|_| {
+                    Error::ImplementationSpecific("Failed to verify first header".to_string())
+                })?;
+
+        let res_2 =
+            verify_polygon_header::<H>(&consensus_state.finalized_validators, header_2.clone())
+                .map_err(|_| {
+                    Error::ImplementationSpecific("Failed to verify second header".to_string())
+                })?;
+
+        // Fraud proof Scenario 1: Same block number with different hashes signed by the same
+        // validator
+        if res_1.hash != res_2.hash && res_1.signer == res_2.signer {
+            return Ok(())
+        }
+
+        // The difficulty of an in turn block is equal to the total number of validators
+        // https://github.com/maticnetwork/bor/blob/930c9463886d7695b1335b7daf275eb88514a8a7/consensus/bor/snapshot.go#L225
+        // Fraud Proof Scenario 2:  Two valid blocks with the same in turn or out turn difficulty by
+        // different or the same signers
+        if header_1.difficulty == header_2.difficulty && res_1.hash != res_2.hash {
+            return Ok(())
+        }
+
+        Err(Error::ImplementationSpecific("Invalid Fraud Proof".to_string()))
     }
 
     fn state_machine(
@@ -241,6 +317,6 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
     }
 }
 
-fn get_sprint(number: u64) -> u64 {
-    number / 16
+fn get_span(number: u64) -> u64 {
+    number / SPAN_LENGTH
 }

@@ -2,10 +2,7 @@
 mod test;
 
 use anyhow::anyhow;
-use bnb_pos_verifier::{
-    primitives::{compute_epoch, parse_extra, BnbClientUpdate, EPOCH_LENGTH},
-    NextValidators,
-};
+use bnb_pos_verifier::primitives::{compute_epoch, parse_extra, BnbClientUpdate, EPOCH_LENGTH};
 use ethers::{
     prelude::{Provider, Ws},
     providers::Middleware,
@@ -86,7 +83,7 @@ impl BnbPosProver {
 
     pub async fn fetch_finalized_state<I: Keccak256>(
         &self,
-    ) -> Result<(CodecHeader, Vec<BlsPublicKey>, Option<NextValidators>), anyhow::Error> {
+    ) -> Result<(CodecHeader, Vec<BlsPublicKey>), anyhow::Error> {
         let latest_header = self.latest_header().await?;
 
         let current_epoch = compute_epoch(latest_header.number.low_u64());
@@ -100,37 +97,16 @@ impl BnbPosProver {
             current_epoch_block_number + (current_epoch_extra_data.validator_size as u64 / 2);
 
         let current_validators;
-        let next_validators;
         if latest_header.number.low_u64() >= next_rotation_block_number {
             current_validators = current_epoch_extra_data
                 .validators
                 .into_iter()
                 .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
                 .collect::<Vec<BlsPublicKey>>();
-            next_validators = None;
         } else {
-            let previous_epoch_block_number = (current_epoch - 1) * EPOCH_LENGTH;
-
-            let previous_epoch_header = self.fetch_header(previous_epoch_block_number).await?;
-
-            let previous_epoch_extra_data = parse_extra::<I>(&previous_epoch_header.extra_data)
-                .map_err(|_| anyhow!("Extra data set not found in header"))?;
-
-            current_validators = previous_epoch_extra_data
-                .validators
-                .into_iter()
-                .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
-                .collect::<Vec<BlsPublicKey>>();
-            next_validators = Some(NextValidators {
-                validators: current_epoch_extra_data
-                    .validators
-                    .into_iter()
-                    .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
-                    .collect::<Vec<BlsPublicKey>>(),
-                rotation_block: next_rotation_block_number,
-            })
+            current_validators = vec![];
         }
 
-        Ok((latest_header, current_validators, next_validators))
+        Ok((latest_header, current_validators))
     }
 }

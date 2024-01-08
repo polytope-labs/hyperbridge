@@ -93,20 +93,11 @@ impl BnbPosProver {
         let current_epoch_extra_data = parse_extra::<I>(&current_epoch_header.extra_data)
             .map_err(|_| anyhow!("Extra data set not found in header"))?;
 
-        let next_rotation_block_number =
-            current_epoch_block_number + (current_epoch_extra_data.validator_size as u64 / 2);
-
-        let current_validators;
-        if latest_header.number.low_u64() >= next_rotation_block_number {
-            current_validators = current_epoch_extra_data
-                .validators
-                .into_iter()
-                .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
-                .collect::<Vec<BlsPublicKey>>();
-        } else {
-            current_validators = vec![];
-        }
-
+        let current_validators = current_epoch_extra_data
+            .validators
+            .into_iter()
+            .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
+            .collect::<Vec<BlsPublicKey>>();
         Ok((latest_header, current_validators))
     }
 }

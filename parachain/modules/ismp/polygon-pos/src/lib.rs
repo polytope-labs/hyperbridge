@@ -16,9 +16,10 @@ use ismp::{
     consensus::{ConsensusClient, ConsensusStateId, StateCommitment, StateMachineClient},
     error::Error,
     host::{IsmpHost, StateMachine},
-    messaging::StateCommitmentHeight,
+    messaging::{Proof, StateCommitmentHeight},
+    router::{Request, RequestResponse},
 };
-use ismp_sync_committee::EvmStateMachine;
+use ismp_sync_committee::{utils::req_res_to_key, verify_membership, verify_state_proof};
 use pallet::{Config, Headers};
 use polygon_pos_verifier::{
     primitives::{SPAN_LENGTH, SPRINT_LENGTH},
@@ -197,7 +198,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         let longest_chain = if let Some(chain) = longest_chain {
             // The composition of validators in consecutive chunks must be unique
             let mut validator_distribution = vec![];
-            for (i, hashes) in chain.hashes.chunks(SPRINT_LENGTH as usize).enumerate() {
+            for (_, hashes) in chain.hashes.chunks(SPRINT_LENGTH as usize).enumerate() {
                 let mut validator_dist = BTreeMap::<H160, u64>::new();
                 hashes.iter().for_each(|(signer, _)| {
                     let entry = validator_dist.entry(*signer).or_insert(0);
@@ -319,4 +320,43 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
 
 fn get_span(number: u64) -> u64 {
     number / SPAN_LENGTH
+}
+
+#[derive(Default, Clone)]
+pub struct EvmStateMachine<H: IsmpHost>(core::marker::PhantomData<H>);
+
+impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
+    fn verify_membership(
+        &self,
+        host: &dyn IsmpHost,
+        item: RequestResponse,
+        root: StateCommitment,
+        proof: &Proof,
+    ) -> Result<(), Error> {
+        let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
+        let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
+            Error::ImplementationSpecific("Cannot decode consensus state".to_string())
+        })?;
+
+        verify_membership::<H>(item, root, proof, consensus_state.ismp_contract_address)
+    }
+
+    fn state_trie_key(&self, requests: Vec<Request>) -> Vec<Vec<u8>> {
+        req_res_to_key::<H>(RequestResponse::Request(requests))
+    }
+
+    fn verify_state_proof(
+        &self,
+        host: &dyn IsmpHost,
+        keys: Vec<Vec<u8>>,
+        root: StateCommitment,
+        proof: &Proof,
+    ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
+        let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
+        let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
+            Error::ImplementationSpecific("Cannot decode consensus state".to_string())
+        })?;
+
+        verify_state_proof::<H>(keys, root, proof, consensus_state.ismp_contract_address)
+    }
 }

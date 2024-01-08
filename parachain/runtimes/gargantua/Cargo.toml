@@ -80,6 +80,8 @@ pallet-ismp = { path = "../../modules/ismp/pallet", default-features = false }
 ismp-demo = { path = "../../modules/ismp/demo", default-features = false }
 ismp-runtime-api = { path = "../../modules/ismp/runtime-api", default-features = false }
 ismp-sync-committee = { path = "../../modules/ismp/sync-committee", default-features = false }
+ismp-polygon-pos = { path = "../../modules/ismp/polygon-pos", default-features = false }
+ismp-bnb-pos = { path = "../../modules/ismp/bnb-pos", default-features = false }
 
 [features]
 default = [
@@ -136,7 +138,9 @@ std = [
 	"ismp-sync-committee/std",
 	"pallet-message-queue/std",
 	"parachains-common/std",
-	"sp-genesis-builder/std"
+	"sp-genesis-builder/std",
+	"ismp-bnb-pos/std",
+	"ismp-polygon-pos/std"
 ]
 
 runtime-benchmarks = [

@@ -118,6 +118,13 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
             Err(Error::ImplementationSpecific("Invalid Fraud proof".to_string()))?
         }
 
+        let header_1_hash = Header::from(&header_1).hash::<H>();
+        let header_2_hash = Header::from(&header_2).hash::<H>();
+
+        if header_1_hash == header_2_hash {
+            return Err(Error::ImplementationSpecific("Invalid Fraud proof".to_string()))
+        }
+
         let consensus_state =
             ConsensusState::decode(&mut &trusted_consensus_state[..]).map_err(|_| {
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
@@ -132,12 +139,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
             .map_err(|_| {
                 Error::ImplementationSpecific("Failed to verify second header".to_string())
             })?;
-        let header_1_hash = Header::from(&header_1).hash::<H>();
-        let header_2_hash = Header::from(&header_2).hash::<H>();
 
-        if header_1_hash != header_2_hash {
-            return Ok(())
-        }
         Ok(())
     }
 

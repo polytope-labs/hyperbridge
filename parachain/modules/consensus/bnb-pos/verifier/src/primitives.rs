@@ -17,7 +17,7 @@ const VALIDATOR_NUMBER_SIZE: usize = 1; // // Fixed number of extra prefix bytes
 const ADDRESS_LENGTH: usize = 20;
 pub const VALIDATOR_BIT_SET_SIZE: usize = 64;
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Encode, Decode, Clone)]
 pub struct BnbClientUpdate {
     /// Finalized header
     pub source_header: CodecHeader,

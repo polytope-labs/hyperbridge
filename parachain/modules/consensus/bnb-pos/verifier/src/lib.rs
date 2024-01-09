@@ -86,8 +86,7 @@ pub fn verify_bnb_header<H: Keccak256>(
         if !validators.is_empty() {
             Some(NextValidators {
                 validators,
-                rotation_block: update.attested_header.number.low_u64() +
-                    current_validators.len() as u64 / 2,
+                rotation_block: update.attested_header.number.low_u64() + 12,
             })
         } else {
             None

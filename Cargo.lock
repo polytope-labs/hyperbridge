@@ -6350,7 +6350,6 @@ name = "ismp-bnb-pos"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bnb-pos-prover",
  "bnb-pos-verifier",
  "frame-support 4.0.0-dev",
  "frame-system 4.0.0-dev",

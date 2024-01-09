@@ -7,7 +7,8 @@ use core::marker::PhantomData;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 use bnb_pos_verifier::{
-    primitives::BnbClientUpdate, verify_bnb_header, NextValidators, VerificationResult,
+    primitives::{compute_epoch, BnbClientUpdate, EPOCH_LENGTH},
+    verify_bnb_header, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
 use geth_primitives::Header;
@@ -30,6 +31,7 @@ pub struct ConsensusState {
     pub next_validators: Option<NextValidators>,
     pub finalized_height: u64,
     pub finalized_hash: H256,
+    pub current_epoch: u64,
     pub ismp_contract_address: H160,
 }
 
@@ -64,14 +66,19 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
             })?;
 
-        if let Some(next_validators) = consensus_state.next_validators {
-            let next_rotation_block_number = next_validators.rotation_block;
+        if consensus_state.finalized_height >= bnb_client_update.source_header.number.low_u64() {
+            Err(Error::ImplementationSpecific("Expired Update".to_string()))?
+        }
 
-            if bnb_client_update.attested_header.number.low_u64() >= next_rotation_block_number {
+        if let Some(next_validators) = consensus_state.next_validators.clone() {
+            if bnb_client_update.attested_header.number.low_u64() >= next_validators.rotation_block
+            {
                 consensus_state.current_validators = next_validators.validators;
                 consensus_state.next_validators = None;
             }
         }
+
+        let attested_epoch = compute_epoch(bnb_client_update.attested_header.number.low_u64());
 
         let VerificationResult { hash, finalized_header, next_validators } =
             verify_bnb_header::<H>(&consensus_state.current_validators, bnb_client_update)
@@ -89,8 +96,13 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
             height: finalized_header.number.low_u64(),
         };
         consensus_state.finalized_hash = hash;
-        consensus_state.next_validators = next_validators;
-
+        if let Some(next_validators) = next_validators {
+            consensus_state.next_validators = Some(next_validators);
+        }
+        consensus_state.finalized_height = finalized_header.number.low_u64();
+        if attested_epoch > consensus_state.current_epoch {
+            consensus_state.current_epoch = attested_epoch;
+        }
         state_machine_map.insert(StateMachine::Bnb, vec![state_commitment]);
 
         Ok((consensus_state.encode(), state_machine_map))

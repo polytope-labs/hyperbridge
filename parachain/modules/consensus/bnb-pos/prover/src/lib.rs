@@ -66,19 +66,23 @@ impl BnbPosProver {
     pub async fn fetch_bnb_update<I: Keccak256>(
         &self,
         attested_header: CodecHeader,
-    ) -> Result<BnbClientUpdate, anyhow::Error> {
+    ) -> Result<Option<BnbClientUpdate>, anyhow::Error> {
         let parse_extra_data = parse_extra::<I>(&attested_header.extra_data)
             .map_err(|_| anyhow!("Extra data set not found in header"))?;
-
+        dbg!(&parse_extra_data.vote_data);
         let source_hash = H256::from_slice(&parse_extra_data.vote_data.source_hash.0);
         let target_hash = H256::from_slice(&parse_extra_data.vote_data.target_hash.0);
+
+        if source_hash == Default::default() || target_hash == Default::default() {
+            return Ok(None)
+        }
 
         let source_header = self.fetch_header(source_hash).await?;
         let target_header = self.fetch_header(target_hash).await?;
 
         let bnb_client_update = BnbClientUpdate { source_header, target_header, attested_header };
 
-        Ok(bnb_client_update)
+        Ok(Some(bnb_client_update))
     }
 
     pub async fn fetch_finalized_state<I: Keccak256>(
@@ -98,6 +102,6 @@ impl BnbPosProver {
             .into_iter()
             .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
             .collect::<Vec<BlsPublicKey>>();
-        Ok((latest_header, current_validators))
+        Ok((current_epoch_header, current_validators))
     }
 }

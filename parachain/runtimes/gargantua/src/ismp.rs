@@ -74,6 +74,8 @@ impl ismp_sync_committee::pallet::Config for Runtime {
     type AdminOrigin = EnsureRoot<AccountId>;
 }
 
+impl ismp_polygon_pos::pallet::Config for Runtime {}
+
 impl pallet_ismp::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     const INDEXING_PREFIX: &'static [u8] = b"ISMP";

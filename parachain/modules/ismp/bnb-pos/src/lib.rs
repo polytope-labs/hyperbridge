@@ -7,7 +7,7 @@ use core::marker::PhantomData;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 use bnb_pos_verifier::{
-    primitives::{compute_epoch, BnbClientUpdate, EPOCH_LENGTH},
+    primitives::{compute_epoch, BnbClientUpdate},
     verify_bnb_header, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
@@ -98,11 +98,9 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
         consensus_state.finalized_hash = hash;
         if let Some(next_validators) = next_validators {
             consensus_state.next_validators = Some(next_validators);
-        }
-        consensus_state.finalized_height = finalized_header.number.low_u64();
-        if attested_epoch > consensus_state.current_epoch {
             consensus_state.current_epoch = attested_epoch;
         }
+        consensus_state.finalized_height = finalized_header.number.low_u64();
         state_machine_map.insert(StateMachine::Bnb, vec![state_commitment]);
 
         Ok((consensus_state.encode(), state_machine_map))

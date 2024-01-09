@@ -66,7 +66,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
             })?;
 
-        if consensus_state.finalized_height >= bnb_client_update.source_header.number.low_u64() {
+        if consensus_state.finalized_height >= bnb_client_update.attested_header.number.low_u64() {
             Err(Error::ImplementationSpecific("Expired Update".to_string()))?
         }
 

@@ -6,7 +6,9 @@ fn main() -> anyhow::Result<()> {
     // first compile the project.
     let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
 
-    let _ = Runner::new(PathBuf::from(&base_dir));
+    if cfg!(feature = "build-abi") {
+        let _ = Runner::new(PathBuf::from(&base_dir));
+    }
 
     let sources = vec![
         ("EvmHost", format!("{base_dir}/out/EvmHost.sol/EvmHost.json")),

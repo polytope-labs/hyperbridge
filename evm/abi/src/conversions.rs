@@ -26,35 +26,36 @@ use beefy_verifier_primitives::{
 use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos, mmr_position_to_k_index};
 use primitive_types::H256;
 
+impl From<beefy_verifier_primitives::ParachainProof> for ParachainProof {
+    fn from(value: beefy_verifier_primitives::ParachainProof) -> Self {
+        ParachainProof {
+            parachain: value
+                .parachains
+                .into_iter()
+                .map(|parachain| Parachain {
+                    index: parachain.index.into(),
+                    id: parachain.para_id.into(),
+                    header: parachain.header.into(),
+                })
+                .collect::<Vec<_>>()[0]
+                .clone(),
+            proof: value
+                .proof
+                .into_iter()
+                .map(|layer| {
+                    layer
+                        .into_iter()
+                        .map(|(index, node)| Node { k_index: index.into(), node: node.into() })
+                        .collect()
+                })
+                .collect(),
+        }
+    }
+}
+
 impl From<ConsensusMessage> for BeefyConsensusProof {
     fn from(message: ConsensusMessage) -> Self {
-        BeefyConsensusProof {
-            relay: message.mmr.into(),
-            parachain: ParachainProof {
-                parachain: message
-                    .parachain
-                    .parachains
-                    .into_iter()
-                    .map(|parachain| Parachain {
-                        index: parachain.index.into(),
-                        id: parachain.para_id.into(),
-                        header: parachain.header.into(),
-                    })
-                    .collect::<Vec<_>>()[0]
-                    .clone(),
-                proof: message
-                    .parachain
-                    .proof
-                    .into_iter()
-                    .map(|layer| {
-                        layer
-                            .into_iter()
-                            .map(|(index, node)| Node { k_index: index.into(), node: node.into() })
-                            .collect()
-                    })
-                    .collect(),
-            },
-        }
+        BeefyConsensusProof { relay: message.mmr.into(), parachain: message.parachain.into() }
     }
 }
 

@@ -18,3 +18,7 @@ merkle-mountain-range = { workspace = true, features = ["default"] }
 sp-consensus-beefy = { workspace =  true, features = ["default"] }
 
 beefy-verifier-primitives = { path = "../../parachain/modules/consensus/beefy/primitives" }
+
+
+[features]
+build-abi = []

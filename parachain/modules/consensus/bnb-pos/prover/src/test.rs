@@ -8,6 +8,7 @@ use ethers::{
 };
 use geth_primitives::CodecHeader;
 use ismp::util::Keccak256;
+use std::time::Duration;
 use sync_committee_primitives::constants::BlsPublicKey;
 
 use crate::BnbPosProver;
@@ -32,7 +33,7 @@ async fn setup_prover() -> BnbPosProver {
 }
 
 #[tokio::test]
-async fn verify_bnb_pos_header() {
+async fn verify_a_single_header() {
     let prover = setup_prover().await;
     let latest_block = prover.latest_header().await.unwrap();
     let epoch_1 = compute_epoch(latest_block.number.low_u64()) - 1;
@@ -53,26 +54,27 @@ async fn verify_bnb_pos_header() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn verify_bnb_pos_headers() {
     let prover = setup_prover().await;
     let latest_block = prover.latest_header().await.unwrap();
-    let epoch_header = prover
-        .fetch_header((compute_epoch(latest_block.number.low_u64())) * EPOCH_LENGTH)
-        .await
-        .unwrap();
-
-    let epoch_extra = parse_extra::<Host>(&epoch_header.extra_data).unwrap();
-    let mut validators = epoch_extra
-        .validators
-        .into_iter()
-        .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
-        .collect::<Vec<BlsPublicKey>>();
+    let (epoch_header, mut validators) = prover.fetch_finalized_state::<Host>().await.unwrap();
+    if latest_block.number.low_u64() - epoch_header.number.low_u64() < 12 {
+        // We want to ensure the current validators have been enacted before continuing
+        tokio::time::sleep(Duration::from_secs(
+            (latest_block.number.low_u64() - epoch_header.number.low_u64()) * 12,
+        ))
+        .await;
+    }
     let mut next_validators: Option<NextValidators> = None;
     let mut current_epoch = compute_epoch(latest_block.number.low_u64());
-
+    let mut done = false;
     let mut sub = prover.client.subscribe_blocks().await.unwrap();
+    // Verify at least an epoch change until validator set is rotated
     while let Some(block) = sub.next().await {
+        if done {
+            break
+        }
+
         let header: CodecHeader = block.into();
         let block_epoch = compute_epoch(header.number.low_u64());
 
@@ -87,6 +89,7 @@ async fn verify_bnb_pos_headers() {
                 println!("VALIDATOR SET ROTATED SUCCESSFULLY");
                 validators = next_validators.as_ref().unwrap().validators.clone();
                 next_validators = None;
+                done = true;
             }
             let result = verify_bnb_header::<Host>(&validators, update).unwrap();
             dbg!(&result.hash);

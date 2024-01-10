@@ -22,7 +22,7 @@ use crate::{
     },
     error::Error,
     prelude::Vec,
-    router::{IsmpRouter, Request},
+    router::{IsmpRouter, PostResponse, Request},
     util::Keccak256,
 };
 use alloc::{
@@ -31,7 +31,7 @@ use alloc::{
     string::{String, ToString},
 };
 use codec::{Decode, Encode};
-use core::{str::FromStr, time::Duration};
+use core::{fmt::Display, str::FromStr, time::Duration};
 use primitive_types::H256;
 
 /// Defines the necessary interfaces that must be satisfied by a state machine for it be ISMP
@@ -83,6 +83,9 @@ pub trait IsmpHost: Keccak256 {
 
     /// Should return an error if request commitment does not exist in storage
     fn request_commitment(&self, req: H256) -> Result<(), Error>;
+
+    /// Should return an error if request commitment does not exist in storage
+    fn response_commitment(&self, req: H256) -> Result<(), Error>;
 
     /// Increment and return the next available nonce for an outgoing request.
     fn next_nonce(&self) -> u64;
@@ -145,8 +148,13 @@ pub trait IsmpHost: Keccak256 {
     /// Store latest height for a state machine
     fn store_latest_commitment_height(&self, height: StateMachineHeight) -> Result<(), Error>;
 
-    /// Delete a request commitment from storage, used when a request is timed out
+    /// Delete a request commitment from storage, used when a request is timed out.
+    /// Make sure to refund the user their relayer fee here.
     fn delete_request_commitment(&self, req: &Request) -> Result<(), Error>;
+
+    /// Delete a request commitment from storage, used when a response is timed out.
+    /// Make sure to refund the user their relayer fee here.
+    fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error>;
 
     /// Stores a receipt for an incoming request after it is successfully routed to a module.
     /// Prevents duplicate incoming requests from being processed.
@@ -243,12 +251,12 @@ pub enum StateMachine {
     Polygon,
     /// Bnb Pos
     #[codec(index = 6)]
-    Bnb,
+    Bsc,
 }
 
-impl ToString for StateMachine {
-    fn to_string(&self) -> String {
-        match self {
+impl Display for StateMachine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
             StateMachine::Ethereum(ethereum) => match ethereum {
                 Ethereum::ExecutionLayer => "ETHE".to_string(),
                 Ethereum::Arbitrum => "ARBI".to_string(),
@@ -259,9 +267,10 @@ impl ToString for StateMachine {
             StateMachine::Kusama(id) => format!("KUSAMA-{id}"),
             StateMachine::Grandpa(id) => format!("GRANDPA-{}", u32::from_be_bytes(*id)),
             StateMachine::Beefy(id) => format!("BEEFY-{}", u32::from_be_bytes(*id)),
-            StateMachine::Polygon => format!("POLY"),
-            StateMachine::Bnb => format!("BNB"),
-        }
+            StateMachine::Polygon => "POLY".to_string(),
+            StateMachine::Bsc => "BSC".to_string(),
+        };
+        write!(f, "{}", str)
     }
 }
 
@@ -274,6 +283,8 @@ impl FromStr for StateMachine {
             "ARBI" => StateMachine::Ethereum(Ethereum::Arbitrum),
             "OPTI" => StateMachine::Ethereum(Ethereum::Optimism),
             "BASE" => StateMachine::Ethereum(Ethereum::Base),
+            "POLY" => StateMachine::Polygon,
+            "BSC" => StateMachine::Bsc,
             name if name.starts_with("POLKADOT-") => {
                 let id = name
                     .split('-')

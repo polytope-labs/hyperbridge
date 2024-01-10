@@ -43,7 +43,15 @@ impl<T> IsmpDispatcher for Dispatcher<T>
 where
     T: Config,
 {
-    fn dispatch_request(&self, request: DispatchRequest) -> Result<(), IsmpError> {
+    type Account = T::AccountId;
+    // type Balance = T::;
+
+    fn dispatch_request(
+        &self,
+        request: DispatchRequest,
+        _who: Self::Account,
+        _fee: Self::Balance,
+    ) -> Result<(), IsmpError> {
         let host = Host::<T>::default();
         let request = match request {
             DispatchRequest::Get(dispatch_get) => {
@@ -79,7 +87,12 @@ where
         Ok(())
     }
 
-    fn dispatch_response(&self, response: PostResponse) -> Result<(), IsmpError> {
+    fn dispatch_response(
+        &self,
+        response: PostResponse,
+        _who: Self::Account,
+        _fee: Self::Balance,
+    ) -> Result<(), IsmpError> {
         let response = Response::Post(response);
 
         Pallet::<T>::dispatch_response(response)?;

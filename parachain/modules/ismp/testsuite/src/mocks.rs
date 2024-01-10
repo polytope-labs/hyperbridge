@@ -9,9 +9,9 @@ use ismp::{
     module::IsmpModule,
     router::{
         DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse, Request,
-        RequestResponse, Response,
+        RequestResponse, Response, Timeout,
     },
-    util::{hash_request, hash_response, Keccak256},
+    util::{hash_post_response, hash_request, hash_response, Keccak256},
 };
 use primitive_types::H256;
 use std::{
@@ -71,7 +71,7 @@ impl StateMachineClient for MockStateMachineClient {
         Ok(())
     }
 
-    fn state_trie_key(&self, _request: Vec<Request>) -> Vec<Vec<u8>> {
+    fn state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
         Default::default()
     }
 
@@ -188,6 +188,14 @@ impl IsmpHost for Host {
             .ok_or_else(|| Error::ImplementationSpecific("Request commitment not found".into()))
     }
 
+    fn response_commitment(&self, hash: H256) -> Result<(), Error> {
+        self.responses
+            .borrow()
+            .contains(&hash)
+            .then_some(())
+            .ok_or_else(|| Error::ImplementationSpecific("Request commitment not found".into()))
+    }
+
     fn next_nonce(&self) -> u64 {
         let nonce = *self.nonce.borrow();
         *self.nonce.borrow_mut() = nonce + 1;
@@ -272,6 +280,12 @@ impl IsmpHost for Host {
         Ok(())
     }
 
+    fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error> {
+        let hash = hash_post_response::<Self>(res);
+        self.requests.borrow_mut().remove(&hash);
+        Ok(())
+    }
+
     fn store_request_receipt(&self, req: &Request) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
         self.receipts.borrow_mut().insert(hash, ());
@@ -341,7 +355,7 @@ impl IsmpModule for MockModule {
         Ok(())
     }
 
-    fn on_timeout(&self, _request: Request) -> Result<(), Error> {
+    fn on_timeout(&self, _request: Timeout) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -357,7 +371,15 @@ impl IsmpRouter for MockRouter {
 pub struct MockDispatcher(pub Arc<Host>);
 
 impl IsmpDispatcher for MockDispatcher {
-    fn dispatch_request(&self, request: DispatchRequest) -> Result<(), Error> {
+    type Account = Vec<u8>;
+    type Balance = u32;
+
+    fn dispatch_request(
+        &self,
+        request: DispatchRequest,
+        _who: Self::Account,
+        _fee: Self::Balance,
+    ) -> Result<(), Error> {
         let host = self.0.clone();
         let request = match request {
             DispatchRequest::Get(dispatch_get) => {
@@ -392,7 +414,12 @@ impl IsmpDispatcher for MockDispatcher {
         Ok(())
     }
 
-    fn dispatch_response(&self, response: PostResponse) -> Result<(), Error> {
+    fn dispatch_response(
+        &self,
+        response: PostResponse,
+        _who: Self::Account,
+        _fee: Self::Balance,
+    ) -> Result<(), Error> {
         let host = self.0.clone();
         let response = Response::Post(response);
         let hash = hash_response::<Host>(&response);

@@ -19,7 +19,7 @@ pub mod mocks;
 #[cfg(test)]
 mod tests;
 
-use crate::mocks::MOCK_CONSENSUS_CLIENT_ID;
+use crate::mocks::{MockDispatcher, MOCK_CONSENSUS_CLIENT_ID};
 use ismp::{
     consensus::{
         ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
@@ -107,7 +107,12 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 
     // Response message handling check
     let response_message = Message::Response(ResponseMessage::Post {
-        responses: vec![Response::Post(PostResponse { post, response: vec![] })],
+        responses: vec![Response::Post(PostResponse {
+            post,
+            response: vec![],
+            timeout_timestamp: 0,
+            gas_limit: 0,
+        })],
         proof: Proof { height: intermediate_state.height, proof: vec![] },
     });
 
@@ -183,7 +188,12 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
 
     // Response message handling check
     let response_message = Message::Response(ResponseMessage::Post {
-        responses: vec![Response::Post(PostResponse { post, response: vec![] })],
+        responses: vec![Response::Post(PostResponse {
+            post,
+            response: vec![],
+            timeout_timestamp: 0,
+            gas_limit: 0,
+        })],
         proof: Proof { height: intermediate_state.height, proof: vec![] },
     });
 
@@ -205,7 +215,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
 /// Ensure all timeout post processing is correctly done.
 pub fn timeout_post_processing_check<H: IsmpHost>(
     host: &H,
-    dispatcher: &dyn IsmpDispatcher,
+    dispatcher: &MockDispatcher,
 ) -> Result<(), &'static str> {
     let intermediate_state = setup_mock_client(host);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
@@ -234,7 +244,7 @@ pub fn timeout_post_processing_check<H: IsmpHost>(
     };
     let request = Request::Post(post);
     let dispatch_request = DispatchRequest::Post(dispatch_post);
-    dispatcher.dispatch_request(dispatch_request).unwrap();
+    dispatcher.dispatch_request(dispatch_request, vec![], 0).unwrap();
 
     // Timeout message handling check
     let timeout_message = Message::Timeout(TimeoutMessage::Post {
@@ -259,7 +269,7 @@ pub fn timeout_post_processing_check<H: IsmpHost>(
 /// duplicate responses
 pub fn write_outgoing_commitments<H: IsmpHost>(
     host: &H,
-    dispatcher: &dyn IsmpDispatcher,
+    dispatcher: &MockDispatcher,
 ) -> Result<(), &'static str> {
     let post = DispatchPost {
         dest: StateMachine::Kusama(2000),
@@ -272,7 +282,7 @@ pub fn write_outgoing_commitments<H: IsmpHost>(
     let dispatch_request = DispatchRequest::Post(post);
     // Dispatch the request the first time
     dispatcher
-        .dispatch_request(dispatch_request)
+        .dispatch_request(dispatch_request, vec![], 0)
         .map_err(|_| "Dispatcher failed to dispatch request")?;
     // Fetch commitment from storage
     let post = Post {
@@ -299,13 +309,13 @@ pub fn write_outgoing_commitments<H: IsmpHost>(
         data: vec![0u8; 64],
         gas_limit: 0,
     };
-    let response = PostResponse { post, response: vec![] };
+    let response = PostResponse { post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
     // Dispatch the outgoing response for the first time
     dispatcher
-        .dispatch_response(response.clone())
+        .dispatch_response(response.clone(), vec![], 0)
         .map_err(|_| "Router failed to dispatch request")?;
     // Dispatch the same response a second time
-    let err = dispatcher.dispatch_response(response);
+    let err = dispatcher.dispatch_response(response, vec![], 0);
     assert!(err.is_err(), "Expected router to return error for duplicate response");
 
     Ok(())

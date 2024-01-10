@@ -23,7 +23,7 @@ use crate::{
         ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId,
     },
     error::Error,
-    router::{Post, Request, Response},
+    router::{Post, PostResponse, Request, Response},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, Encode};
@@ -146,6 +146,13 @@ pub enum TimeoutMessage {
         /// Non membership batch proof for these requests
         timeout_proof: Proof,
     },
+    /// A non memership proof for POST requests
+    PostResponse {
+        /// Request timeouts
+        responses: Vec<PostResponse>,
+        /// Non membership batch proof for these requests
+        timeout_proof: Proof,
+    },
     /// There are no proofs for Get timeouts, we only need to
     /// ensure that the timeout timestamp has elapsed on the host
     Get {
@@ -155,14 +162,6 @@ pub enum TimeoutMessage {
 }
 
 impl TimeoutMessage {
-    /// Returns the requests in this message.
-    pub fn requests(&self) -> &[Request] {
-        match self {
-            TimeoutMessage::Post { requests, .. } => requests,
-            TimeoutMessage::Get { requests } => requests,
-        }
-    }
-
     /// Returns the associated proof
     pub fn timeout_proof(&self) -> Result<&Proof, Error> {
         match self {

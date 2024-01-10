@@ -9012,6 +9012,7 @@ dependencies = [
  "ismp",
  "ismp-testsuite",
  "log",
+ "pallet-balances",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",

@@ -14,7 +14,7 @@
 // limitations under the License.
 
 //! Implementation for the ISMP Router
-use crate::{host::Host, Config, Pallet};
+use crate::{host::Host, Pallet};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use ismp::{
@@ -31,6 +31,7 @@ pub enum Receipt {
 }
 
 /// The dispatcher commits outgoing requests and responses to the mmr
+/// This dispatcher charges no fees, use only if you intend to self-relay.
 pub struct Dispatcher<T>(PhantomData<T>);
 
 impl<T> Default for Dispatcher<T> {
@@ -41,10 +42,10 @@ impl<T> Default for Dispatcher<T> {
 
 impl<T> IsmpDispatcher for Dispatcher<T>
 where
-    T: Config,
+    T: crate::Config + pallet_balances::Config,
 {
     type Account = T::AccountId;
-    // type Balance = T::;
+    type Balance = T::Balance;
 
     fn dispatch_request(
         &self,

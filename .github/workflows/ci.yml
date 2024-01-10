@@ -22,7 +22,7 @@ env:
 jobs:
   check-wasm:
     name: Check Wasm Crates
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     strategy:
       matrix:
         crate: [messier-runtime, gargantua-runtime]
@@ -52,7 +52,7 @@ jobs:
 
   check-workspace:
     name: Check Workspace
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v2
         with:
@@ -102,7 +102,7 @@ jobs:
 
   unit-tests:
     name: Unit Tests
-    runs-on: release-runner
+    runs-on: self-hosted
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources
@@ -139,7 +139,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    runs-on: release-runner
+    runs-on: self-hosted
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources

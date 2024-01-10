@@ -55,6 +55,16 @@ impl ConsensusClientProvider for ConsensusProvider {
                     ismp_sync_committee::SyncCommitteeConsensusClient::<Host<Runtime>>::default();
                 Ok(Box::new(sync_committee))
             },
+            ismp_polygon_pos::POLYGON_CONSENSUS_ID => {
+                let polygon_client =
+                    ismp_polygon_pos::PolygonClient::<Runtime, Host<Runtime>>::default();
+                Ok(Box::new(polygon_client))
+            },
+
+            ismp_bnb_pos::BNB_CONSENSUS_ID => {
+                let bnb_client = ismp_bnb_pos::BnbClient::<Host<Runtime>>::default();
+                Ok(Box::new(bnb_client))
+            },
             id => Err(Error::ImplementationSpecific(format!("Unknown consensus client: {id:?}")))?,
         }
     }
@@ -63,6 +73,8 @@ impl ConsensusClientProvider for ConsensusProvider {
 impl ismp_sync_committee::pallet::Config for Runtime {
     type AdminOrigin = EnsureRoot<AccountId>;
 }
+
+impl ismp_polygon_pos::pallet::Config for Runtime {}
 
 impl pallet_ismp::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;

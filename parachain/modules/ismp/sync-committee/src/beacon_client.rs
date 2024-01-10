@@ -187,7 +187,15 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
         let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
             Error::ImplementationSpecific("Cannot decode consensus state".to_string())
         })?;
-        verify_membership::<H>(item, root, proof, consensus_state)
+
+        let contract_address = consensus_state
+            .ismp_contract_addresses
+            .get(&proof.height.id.state_id)
+            .cloned()
+            .ok_or_else(|| {
+                Error::ImplementationSpecific("Ismp contract address not found".to_string())
+            })?;
+        verify_membership::<H>(item, root, proof, contract_address)
     }
 
     fn state_trie_key(&self, requests: Vec<Request>) -> Vec<Vec<u8>> {
@@ -212,31 +220,8 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
             .ok_or_else(|| {
                 Error::ImplementationSpecific("Ismp contract address not found".to_string())
             })?;
-        let mut evm_state_proof = decode_evm_state_proof(proof)?;
-        let mut map = BTreeMap::new();
-        for key in keys {
-            // For keys less than 52 bytes we default to the ismp contract address as the contract
-            // key
-            let contract_address =
-                if key.len() == 52 { H160::from_slice(&key[..20]) } else { ismp_address };
-            let slot_hash =
-                if key.len() == 52 { H::keccak256(&key[20..]).0.to_vec() } else { key.clone() };
 
-            let contract_root = get_contract_storage_root::<H>(
-                evm_state_proof.contract_proof.clone(),
-                contract_address,
-                root.state_root,
-            )?;
-
-            let storage_proof = evm_state_proof.storage_proof.remove(&key).ok_or_else(|| {
-                Error::ImplementationSpecific("Missing proof for key".to_string())
-            })?;
-
-            let value = get_value_from_proof::<H>(slot_hash, contract_root, storage_proof)?;
-            map.insert(key, value);
-        }
-
-        Ok(map)
+        verify_state_proof::<H>(keys, root, proof, ismp_address)
     }
 }
 
@@ -244,16 +229,10 @@ pub fn verify_membership<H: IsmpHost + Send + Sync>(
     item: RequestResponse,
     root: StateCommitment,
     proof: &Proof,
-    consensus_state: ConsensusState,
+    contract_address: H160,
 ) -> Result<(), Error> {
     let evm_state_proof = decode_evm_state_proof(proof)?;
-    let contract_address = consensus_state
-        .ismp_contract_addresses
-        .get(&proof.height.id.state_id)
-        .cloned()
-        .ok_or_else(|| {
-            Error::ImplementationSpecific("Ismp contract address not found".to_string())
-        })?;
+
     let keys = req_res_to_key::<H>(item);
     let root = H256::from_slice(&root.state_root[..]);
     let contract_root = get_contract_storage_root::<H>(
@@ -268,4 +247,38 @@ pub fn verify_membership<H: IsmpHost + Send + Sync>(
     }
 
     Ok(())
+}
+
+pub fn verify_state_proof<H: IsmpHost + Send + Sync>(
+    keys: Vec<Vec<u8>>,
+    root: StateCommitment,
+    proof: &Proof,
+    ismp_address: H160,
+) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
+    let mut evm_state_proof = decode_evm_state_proof(proof)?;
+    let mut map = BTreeMap::new();
+    for key in keys {
+        // For keys less than 52 bytes we default to the ismp contract address as the contract
+        // key
+        let contract_address =
+            if key.len() == 52 { H160::from_slice(&key[..20]) } else { ismp_address };
+        let slot_hash =
+            if key.len() == 52 { H::keccak256(&key[20..]).0.to_vec() } else { key.clone() };
+
+        let contract_root = get_contract_storage_root::<H>(
+            evm_state_proof.contract_proof.clone(),
+            contract_address,
+            root.state_root,
+        )?;
+
+        let storage_proof = evm_state_proof
+            .storage_proof
+            .remove(&key)
+            .ok_or_else(|| Error::ImplementationSpecific("Missing proof for key".to_string()))?;
+
+        let value = get_value_from_proof::<H>(slot_hash, contract_root, storage_proof)?;
+        map.insert(key, value);
+    }
+
+    Ok(map)
 }

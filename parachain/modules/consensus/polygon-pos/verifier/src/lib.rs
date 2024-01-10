@@ -29,8 +29,6 @@ pub fn verify_polygon_header<I: Keccak256>(
     let address = sp_io::crypto::secp256k1_ecdsa_recover(&signature, &msg.0)
         .map_err(|_| anyhow!("Signature verification failed"))?;
     let signer = H160::from_slice(&I::keccak256(&address[..]).0[12..]);
-    log::info!(target: "pallet-ismp", "{signer:?}");
-    log::info!(target: "pallet-ismp", "Validators {:#?}", validators);
     if !validators.contains(&signer) {
         Err(anyhow!("Header is signed by unknown validator"))?
     }

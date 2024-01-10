@@ -26,7 +26,7 @@ where
 	let mut chain_heads = consensus_state
 		.forks
 		.iter()
-		.map(|chain| chain.hashes[chain.hashes.len() - 1])
+		.map(|chain| chain.hashes[chain.hashes.len() - 1].1)
 		.collect::<Vec<_>>();
 	chain_heads.push(consensus_state.finalized_hash);
 	let mut headers = next_headers(

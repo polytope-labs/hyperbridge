@@ -82,6 +82,7 @@ ismp-demo = { path = "../../modules/ismp/demo", default-features = false }
 ismp-runtime-api = { path = "../../modules/ismp/runtime-api", default-features = false }
 ismp-sync-committee = { path = "../../modules/ismp/sync-committee", default-features = false }
 ismp-polygon-pos = { path = "../../modules/ismp/polygon-pos", default-features = false }
+ismp-bnb-pos = { path = "../../modules/ismp/bnb-pos", default-features = false }
 
 [features]
 default = [
@@ -137,6 +138,7 @@ std = [
 	"staging-xcm/std",
 	"pallet-message-queue/std",
 	"ismp-sync-committee/std",
+	"ismp-bnb-pos/std",
 	"parachains-common/std",
 	"ismp-polygon-pos/std"
 ]

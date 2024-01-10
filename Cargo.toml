@@ -32,6 +32,9 @@ members = [
      "parachain/modules/consensus/beefy/prover",
      "parachain/modules/consensus/geth-primitives",
 
+     "parachain/modules/consensus/bnb-pos/verifier",
+     "parachain/modules/consensus/bnb-pos/prover", "parachain/modules/ismp/bnb-pos",
+
      # evm stuff
       "evm/integration-tests",
       "evm/abi",

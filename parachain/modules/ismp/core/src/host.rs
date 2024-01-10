@@ -241,6 +241,9 @@ pub enum StateMachine {
     #[codec(index = 5)]
     /// Polygon Pos
     Polygon,
+    /// Bnb Pos
+    #[codec(index = 6)]
+    Bnb,
 }
 
 impl ToString for StateMachine {
@@ -257,6 +260,7 @@ impl ToString for StateMachine {
             StateMachine::Grandpa(id) => format!("GRANDPA-{}", u32::from_be_bytes(*id)),
             StateMachine::Beefy(id) => format!("BEEFY-{}", u32::from_be_bytes(*id)),
             StateMachine::Polygon => format!("POLY"),
+            StateMachine::Bnb => format!("BNB"),
         }
     }
 }

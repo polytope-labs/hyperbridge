@@ -16,6 +16,8 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-C link-args=-Wl,--allow-multiple-definition"
   FOUNDRY_PROFILE: ci
+  BNB_RPC: ${{ secrets.BNB_RPC }}
+  POLYGON_RPC: ${{ secrets.POLYGON_RPC }}
 
 jobs:
   check-wasm:
@@ -208,6 +210,14 @@ jobs:
       - name: sync-committee integration tests
         run: |
           ./scripts/ignore_plonk.sh "cargo test -p sync-committee-prover -- --nocapture --ignored"
+
+      - name: polygon pos integration tests
+        run: |
+          ./scripts/ignore_plonk.sh "cargo test -p polygon-pos-prover -- --nocapture"
+
+      - name: Binance Smart Chain integration tests
+        run: |
+          ./scripts/ignore_plonk.sh "cargo test -p bnb-pos-prover -- --nocapture"
 
   check-solidity:
     name: Check ismp-solidity

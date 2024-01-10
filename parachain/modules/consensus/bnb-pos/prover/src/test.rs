@@ -32,7 +32,6 @@ async fn setup_prover() -> BnbPosProver {
 }
 
 #[tokio::test]
-#[ignore]
 async fn verify_bnb_pos_header() {
     let prover = setup_prover().await;
     let latest_block = prover.latest_header().await.unwrap();

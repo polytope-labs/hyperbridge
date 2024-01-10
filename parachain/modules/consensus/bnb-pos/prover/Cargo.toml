@@ -2,6 +2,8 @@
 name = "bnb-pos-prover"
 version = "0.1.0"
 edition = "2021"
+description = "Prover for Binance Smart Chain Network's Consensus Protocol"
+authors = ["Polytope Labs <hello@polytope.technology>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

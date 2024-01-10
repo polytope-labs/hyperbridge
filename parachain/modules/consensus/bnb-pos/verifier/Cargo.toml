@@ -2,7 +2,8 @@
 name = "bnb-pos-verifier"
 version = "0.1.0"
 edition = "2021"
-authors = ["Polytope Labs"]
+description = "Verifier for the Binance Smart Chain Network's Consensus Proofs"
+authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 log = { version = "0.4.17", default-features = false }

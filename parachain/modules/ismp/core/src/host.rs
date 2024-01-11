@@ -256,7 +256,7 @@ pub enum StateMachine {
 }
 
 impl Display for StateMachine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let str = match self {
             StateMachine::Ethereum(ethereum) => match ethereum {
                 Ethereum::ExecutionLayer => "ETHE".to_string(),

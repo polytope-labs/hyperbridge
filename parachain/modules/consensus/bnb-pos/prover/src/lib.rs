@@ -69,7 +69,6 @@ impl BnbPosProver {
     ) -> Result<Option<BnbClientUpdate>, anyhow::Error> {
         let parse_extra_data = parse_extra::<I>(&attested_header.extra_data)
             .map_err(|_| anyhow!("Extra data set not found in header"))?;
-        dbg!(&parse_extra_data.vote_data);
         let source_hash = H256::from_slice(&parse_extra_data.vote_data.source_hash.0);
         let target_hash = H256::from_slice(&parse_extra_data.vote_data.target_hash.0);
 

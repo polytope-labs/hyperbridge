@@ -29,8 +29,8 @@ use ismp::{
     host::IsmpHost,
     messaging::Proof,
     mmr::{DataOrHash, Leaf, MmrHasher},
-    router::{Request, RequestResponse},
-    util::hash_request,
+    router::{Request, RequestResponse, Response},
+    util::{hash_post_response, hash_request, hash_response},
     HashAlgorithm, MembershipProof, SubstrateStateProof,
 };
 use merkle_mountain_range::MerkleProof;
@@ -93,19 +93,35 @@ where
         Ok(())
     }
 
-    fn state_trie_key(&self, requests: Vec<Request>) -> Vec<Vec<u8>> {
+    fn state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
         let mut keys = vec![];
-
-        for req in requests {
-            match req {
-                Request::Post(post) => {
-                    let request = Request::Post(post);
-                    let commitment = hash_request::<Host<T>>(&request);
-                    keys.push(pallet_ismp::RequestReceipts::<T>::hashed_key_for(commitment));
+        match items {
+            RequestResponse::Request(requests) =>
+                for req in requests {
+                    match req {
+                        Request::Post(post) => {
+                            let request = Request::Post(post);
+                            let commitment = hash_request::<Host<T>>(&request);
+                            keys.push(pallet_ismp::RequestReceipts::<T>::hashed_key_for(
+                                commitment,
+                            ));
+                        },
+                        Request::Get(_) => continue,
+                    }
                 },
-                Request::Get(_) => continue,
-            }
-        }
+            RequestResponse::Response(responses) =>
+                for res in responses {
+                    match res {
+                        Response::Post(post_response) => {
+                            let commitment = hash_post_response::<Host<T>>(&post_response);
+                            keys.push(pallet_ismp::ResponseCommitments::<T>::hashed_key_for(
+                                commitment,
+                            ));
+                        },
+                        Response::Get(_) => continue,
+                    }
+                },
+        };
 
         keys
     }

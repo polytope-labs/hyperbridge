@@ -31,23 +31,25 @@ pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, Error>
 where
     H: IsmpHost,
 {
-    let state_machine = validate_state_machine(host, msg.proof().height)?;
+    let proof = msg.proof();
+    let state_machine = validate_state_machine(host, proof.height)?;
+    let state = host.state_machine_commitment(proof.height)?;
 
-    let state = host.state_machine_commitment(msg.proof().height)?;
-
-    let result = match msg {
-        ResponseMessage::Post { responses, proof } => {
+    let result = match &msg.datagram {
+        RequestResponse::Response(responses) => {
             // For a response to be valid a request commitment must be present in storage
             // Also we must not have received a response for this request
             let responses = responses
-                .into_iter()
+                .iter()
                 .filter(|response| {
                     let request = response.request();
                     let commitment = hash_request::<H>(&request);
                     host.request_commitment(commitment).is_ok() &&
                         host.response_receipt(&request).is_none()
                 })
+                .cloned()
                 .collect::<Vec<_>>();
+
             // Verify membership proof
             state_machine.verify_membership(
                 host,
@@ -57,7 +59,6 @@ where
             )?;
 
             let router = host.ismp_router();
-
             responses
                 .into_iter()
                 .map(|response| {
@@ -75,12 +76,12 @@ where
                             source_chain: response.source_chain(),
                             dest_chain: response.dest_chain(),
                         });
-                    host.store_response_receipt(&response.request())?;
+                    host.store_response_receipt(&response.request(), &msg.signer)?;
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?
         },
-        ResponseMessage::Get { requests, proof } => {
+        RequestResponse::Request(requests) => {
             let requests = requests
                 .into_iter()
                 .filter(|request| {
@@ -88,6 +89,7 @@ where
                     host.request_commitment(commitment).is_ok() &&
                         host.response_receipt(request).is_none()
                 })
+                .cloned()
                 .collect::<Vec<_>>();
             // Ensure the proof height is greater than each retrieval height specified in the Get
             // requests
@@ -120,7 +122,7 @@ where
                             source_chain: request.source_chain(),
                             dest_chain: request.dest_chain(),
                         });
-                    host.store_response_receipt(&request)?;
+                    host.store_response_receipt(&request, &msg.signer)?;
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?

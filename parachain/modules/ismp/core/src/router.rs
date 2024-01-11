@@ -297,7 +297,7 @@ impl Response {
 }
 
 /// Convenience enum for membership verification.
-#[derive(derive_more::From)]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, derive_more::From)]
 pub enum RequestResponse {
     /// A batch of requests
     Request(Vec<Request>),

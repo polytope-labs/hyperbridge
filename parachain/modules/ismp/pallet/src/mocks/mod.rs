@@ -19,11 +19,13 @@ pub mod mocks;
 
 use crate as pallet_ismp;
 use crate::*;
+use frame_support::parameter_types;
 
 use crate::primitives::ConsensusClientProvider;
 use frame_support::traits::{ConstU32, ConstU64, Get};
 use frame_system::EnsureRoot;
 use ismp::{consensus::ConsensusClient, module::IsmpModule, router::IsmpRouter};
+use sp_core::crypto::AccountId32;
 
 use mocks::{MockConsensusClient, MockModule};
 use sp_core::H256;
@@ -40,6 +42,7 @@ frame_support::construct_runtime!(
         System: frame_system::{Pallet, Call, Config<T>, Storage, Event<T>},
         Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
         Ismp: pallet_ismp::{Pallet, Storage, Call, Event<T>},
+        Balances: pallet_balances,
     }
 );
 
@@ -61,13 +64,46 @@ impl ConsensusClientProvider for ConsensusProvider {
     }
 }
 
+/// Balance of an account.
+pub type Balance = u128;
+// Unit = the base number of indivisible units for balances
+pub const UNIT: Balance = 1_000_000_000_000;
+pub const MILLIUNIT: Balance = 1_000_000_000;
+pub const MICROUNIT: Balance = 1_000_000;
+
+/// The existential deposit. Set to 1/10 of the Connected Relay Chain.
+pub const EXISTENTIAL_DEPOSIT: Balance = MILLIUNIT;
+
+parameter_types! {
+    pub const ExistentialDeposit: Balance = EXISTENTIAL_DEPOSIT;
+}
+
+impl pallet_balances::Config for Test {
+    /// The ubiquitous event type.
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type RuntimeFreezeReason = RuntimeFreezeReason;
+    type WeightInfo = pallet_balances::weights::SubstrateWeight<Test>;
+    /// The type for recording an account's balance.
+    type Balance = Balance;
+    type DustRemoval = ();
+    type ExistentialDeposit = ExistentialDeposit;
+    type AccountStore = System;
+    type ReserveIdentifier = [u8; 8];
+    type FreezeIdentifier = ();
+    type MaxLocks = ConstU32<50>;
+    type MaxReserves = ConstU32<50>;
+    type MaxHolds = ConstU32<1>;
+    type MaxFreezes = ();
+}
+
 impl frame_system::Config for Test {
     type BaseCallFilter = frame_support::traits::Everything;
     type RuntimeOrigin = RuntimeOrigin;
     type RuntimeCall = RuntimeCall;
     type Hash = H256;
     type Hashing = Keccak256;
-    type AccountId = sp_core::sr25519::Public;
+    type AccountId = AccountId32;
     type Lookup = IdentityLookup<Self::AccountId>;
     type RuntimeEvent = RuntimeEvent;
     type BlockHashCount = ConstU64<250>;
@@ -78,7 +114,7 @@ impl frame_system::Config for Test {
     type Nonce = u64;
     type Block = Block;
     type PalletInfo = PalletInfo;
-    type AccountData = ();
+    type AccountData = pallet_balances::AccountData<Balance>;
     type OnNewAccount = ();
     type OnKilledAccount = ();
     type SystemWeightInfo = ();
@@ -97,7 +133,7 @@ impl pallet_timestamp::Config for Test {
 impl Config for Test {
     type RuntimeEvent = RuntimeEvent;
     const INDEXING_PREFIX: &'static [u8] = b"ISMP";
-    type AdminOrigin = EnsureRoot<sp_core::sr25519::Public>;
+    type AdminOrigin = EnsureRoot<AccountId32>;
     type StateMachine = StateMachineProvider;
     type TimeProvider = Timestamp;
     type IsmpRouter = ModuleRouter;

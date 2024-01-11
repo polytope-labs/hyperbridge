@@ -23,7 +23,7 @@ use crate::{
         ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId,
     },
     error::Error,
-    router::{Post, PostResponse, Request, Response},
+    router::{Post, PostResponse, Request, RequestResponse},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, Encode};
@@ -82,43 +82,34 @@ pub struct RequestMessage {
     pub requests: Vec<Post>,
     /// Membership batch proof for these requests
     pub proof: Proof,
+    /// Signer information. Ideally should be their account identifier
+    pub signer: Vec<u8>,
 }
 
 /// A request message holds a batch of responses to be dispatched from a source state machine
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub enum ResponseMessage {
-    /// A POST request for sending data
-    Post {
-        /// Responses from sink chain
-        responses: Vec<Response>,
-        /// Membership batch proof for these responses
-        proof: Proof,
-    },
-    /// A GET request for querying data
-    Get {
-        /// Request batch
-        requests: Vec<Request>,
-        /// State proof
-        proof: Proof,
-    },
+pub struct ResponseMessage {
+    /// A set of either POST requests or responses to be handled
+    pub datagram: RequestResponse,
+    /// Membership batch proof for these req/res
+    pub proof: Proof,
+    /// Signer information. Ideally should be their account identifier
+    pub signer: Vec<u8>,
 }
 
 impl ResponseMessage {
     /// Returns the requests in this message.
     pub fn requests(&self) -> Vec<Request> {
-        match self {
-            ResponseMessage::Post { responses, .. } =>
+        match &self.datagram {
+            RequestResponse::Response(responses) =>
                 responses.iter().map(|res| res.request()).collect(),
-            ResponseMessage::Get { requests, .. } => requests.clone(),
+            RequestResponse::Request(requests) => requests.clone(),
         }
     }
 
     /// Retuns the associated proof
     pub fn proof(&self) -> &Proof {
-        match self {
-            ResponseMessage::Post { proof, .. } => proof,
-            ResponseMessage::Get { proof, .. } => proof,
-        }
+        &self.proof
     }
 }
 

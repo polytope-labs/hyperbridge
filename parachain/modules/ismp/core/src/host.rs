@@ -157,11 +157,12 @@ pub trait IsmpHost: Keccak256 {
     fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error>;
 
     /// Stores a receipt for an incoming request after it is successfully routed to a module.
-    /// Prevents duplicate incoming requests from being processed.
-    fn store_request_receipt(&self, req: &Request) -> Result<(), Error>;
+    /// Prevents duplicate incoming requests from being processed. Includes the relayer account
+    fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error>;
 
-    /// Stores a receipt that shows that the given request has received a response
-    fn store_response_receipt(&self, req: &Request) -> Result<(), Error>;
+    /// Stores a receipt that shows that the given request has received a response. Includes the
+    /// relayer account
+    fn store_response_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error>;
 
     /// Should return a handle to the consensus client based on the id
     fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error>;

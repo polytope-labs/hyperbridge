@@ -29,7 +29,7 @@ use ismp::{
     host::Ethereum,
     messaging::{Proof, ResponseMessage, TimeoutMessage},
     mmr::MmrHasher,
-    router::{DispatchGet, DispatchRequest, IsmpDispatcher, Post},
+    router::{DispatchGet, DispatchRequest, IsmpDispatcher, Post, RequestResponse},
     util::hash_request,
 };
 use ismp_testsuite::{
@@ -297,7 +297,9 @@ fn should_handle_get_request_timeouts_correctly() {
                 };
 
                 let dispatcher = Dispatcher::<Test>::default();
-                dispatcher.dispatch_request(DispatchRequest::Get(msg)).unwrap();
+                dispatcher
+                    .dispatch_request(DispatchRequest::Get(msg), [0u8; 32].into(), 0u32.into())
+                    .unwrap();
                 let get = ismp::router::Get {
                     source: host.host_state_machine(),
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
@@ -345,7 +347,9 @@ fn should_handle_get_request_responses_correctly() {
                 };
 
                 let dispatcher = Dispatcher::<Test>::default();
-                dispatcher.dispatch_request(DispatchRequest::Get(msg)).unwrap();
+                dispatcher
+                    .dispatch_request(DispatchRequest::Get(msg), [0u8; 32].into(), 0u32.into())
+                    .unwrap();
                 let get = ismp::router::Get {
                     source: host.host_state_machine(),
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
@@ -362,8 +366,8 @@ fn should_handle_get_request_responses_correctly() {
 
         set_timestamp(Some(Duration::from_secs(60 * 60 * 60).as_millis() as u64));
 
-        let response = ResponseMessage::Get {
-            requests: requests.clone(),
+        let response = ResponseMessage {
+            datagram: RequestResponse::Request(requests.clone()),
             proof: Proof {
                 height: StateMachineHeight {
                     id: StateMachineId {
@@ -374,6 +378,7 @@ fn should_handle_get_request_responses_correctly() {
                 },
                 proof: vec![],
             },
+            signer: vec![],
         };
 
         Pallet::<Test>::handle_messages(vec![Message::Response(response)]).unwrap();

@@ -166,11 +166,11 @@ impl IsmpHost for Host {
         todo!()
     }
 
-    fn store_request_receipt(&self, req: &Request) -> Result<(), Error> {
+    fn store_request_receipt(&self, req: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
         todo!()
     }
 
-    fn store_response_receipt(&self, req: &Request) -> Result<(), Error> {
+    fn store_response_receipt(&self, req: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
         todo!()
     }
 

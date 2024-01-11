@@ -246,13 +246,13 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
-    fn store_request_receipt(&self, req: &Request) -> Result<(), Error> {
+    fn store_request_receipt(&self, req: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
         RequestReceipts::<T>::insert(hash, Receipt::Ok);
         Ok(())
     }
 
-    fn store_response_receipt(&self, req: &Request) -> Result<(), Error> {
+    fn store_response_receipt(&self, req: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
         ResponseReceipts::<T>::insert(hash, Receipt::Ok);
         Ok(())

@@ -29,7 +29,7 @@ use ismp::{
     error::Error as IsmpError,
     host::StateMachine,
     module::IsmpModule,
-    router::{Post, Request, Response},
+    router::{Post, Request, Response, Timeout},
 };
 pub use pallet::*;
 use pallet_ismp::primitives::ModuleId;
@@ -355,19 +355,21 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
         Ok(())
     }
 
-    fn on_timeout(&self, request: Request) -> Result<(), IsmpError> {
-        let source_chain = request.source_chain();
-        let data = match request {
-            Request::Post(post) => post.data,
+    fn on_timeout(&self, timeout: Timeout) -> Result<(), IsmpError> {
+        let request = match timeout {
+            Timeout::Request(Request::Post(post)) => Request::Post(post),
             _ => Err(IsmpError::ImplementationSpecific(
                 "Only Post requests allowed, found Get".to_string(),
             ))?,
         };
-        let payload =
-            <Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(&mut &*data)
-                .map_err(|_| {
-                IsmpError::ImplementationSpecific("Failed to decode request data".to_string())
-            })?;
+        let source_chain = request.source_chain();
+
+        let payload = <Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(
+            &mut &*request.data().expect("Request has been checked; qed"),
+        )
+        .map_err(|_| {
+            IsmpError::ImplementationSpecific("Failed to decode request data".to_string())
+        })?;
         <T::NativeCurrency as Mutate<T::AccountId>>::mint_into(
             &payload.from,
             payload.amount.into(),

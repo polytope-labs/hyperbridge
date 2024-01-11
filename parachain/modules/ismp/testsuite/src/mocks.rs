@@ -286,13 +286,13 @@ impl IsmpHost for Host {
         Ok(())
     }
 
-    fn store_request_receipt(&self, req: &Request) -> Result<(), Error> {
+    fn store_request_receipt(&self, req: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
         self.receipts.borrow_mut().insert(hash, ());
         Ok(())
     }
 
-    fn store_response_receipt(&self, res: &Request) -> Result<(), Error> {
+    fn store_response_receipt(&self, res: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
         let hash = hash_request::<Self>(res);
         self.receipts.borrow_mut().insert(hash, ());
         Ok(())

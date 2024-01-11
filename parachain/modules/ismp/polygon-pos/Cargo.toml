@@ -25,6 +25,7 @@ sp-core = { workspace = true }
 [dev-dependencies]
 pallet-ismp = { path = "../pallet", features = [ "testing" ] }
 pallet-timestamp = { workspace = true }
+pallet-balances = { workspace = true }
 
 
 [features]

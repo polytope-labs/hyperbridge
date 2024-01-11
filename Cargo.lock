@@ -6395,6 +6395,7 @@ dependencies = [
  "ismp",
  "ismp-sync-committee",
  "log",
+ "pallet-balances",
  "pallet-ismp",
  "pallet-timestamp",
  "parity-scale-codec",

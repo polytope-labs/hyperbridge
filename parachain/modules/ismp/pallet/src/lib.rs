@@ -87,7 +87,7 @@ pub mod pallet {
     // Import various types used to declare pallet in scope.
     use super::*;
     use crate::{
-        dispatcher::Receipt,
+        dispatcher::{FeeMetadata, RequestMetadata},
         errors::HandlingError,
         primitives::{ConsensusClientProvider, WeightUsed},
         weight_info::{WeightInfo, WeightProvider},
@@ -110,7 +110,7 @@ pub mod pallet {
     use sp_core::H256;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config: frame_system::Config + pallet_balances::Config {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -239,25 +239,26 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn request_commitments)]
     pub type RequestCommitments<T: Config> =
-        StorageMap<_, Identity, H256, LeafIndexQuery, OptionQuery>;
+        StorageMap<_, Identity, H256, RequestMetadata<T>, OptionQuery>;
 
     /// Commitments for outgoing responses
     /// The key is the response commitment
     #[pallet::storage]
     #[pallet::getter(fn response_commitments)]
-    pub type ResponseCommitments<T: Config> = StorageMap<_, Identity, H256, Receipt, OptionQuery>;
+    pub type ResponseCommitments<T: Config> =
+        StorageMap<_, Identity, H256, FeeMetadata<T>, OptionQuery>;
 
     /// Receipts for incoming requests
     /// The key is the request commitment
     #[pallet::storage]
     #[pallet::getter(fn request_receipts)]
-    pub type RequestReceipts<T: Config> = StorageMap<_, Identity, H256, Receipt, OptionQuery>;
+    pub type RequestReceipts<T: Config> = StorageMap<_, Identity, H256, Vec<u8>, OptionQuery>;
 
     /// Receipts for incoming responses
     /// The key is the request commitment
     #[pallet::storage]
     #[pallet::getter(fn response_receipts)]
-    pub type ResponseReceipts<T: Config> = StorageMap<_, Identity, H256, Receipt, OptionQuery>;
+    pub type ResponseReceipts<T: Config> = StorageMap<_, Identity, H256, Vec<u8>, OptionQuery>;
 
     /// Consensus update results still in challenge period
     /// Set contains a tuple of previous height and latest height
@@ -703,9 +704,9 @@ impl<T: Config> Pallet<T> {
         RequestCommitments::<T>::iter()
             .filter_map(|(key, query)| {
                 let (position, _) = Self::get_position_and_leaf_index(
-                    query.source_chain,
-                    query.dest_chain,
-                    query.nonce,
+                    query.query.source_chain,
+                    query.query.dest_chain,
+                    query.query.nonce,
                     true,
                 )?;
                 let req = Self::get_request(position)?;

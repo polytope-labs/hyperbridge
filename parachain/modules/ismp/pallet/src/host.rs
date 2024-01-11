@@ -15,11 +15,11 @@
 
 //! Host implementation for ISMP
 use crate::{
-    dispatcher::Receipt, primitives::ConsensusClientProvider, AllowedProxies, ChallengePeriod,
-    Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
-    FrozenConsensusClients, FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments,
-    RequestReceipts, ResponseCommitments, ResponseReceipts, StateCommitments,
-    StateMachineUpdateTime, UnbondingPeriod,
+    primitives::ConsensusClientProvider, AllowedProxies, ChallengePeriod, Config,
+    ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
+    FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts,
+    ResponseCommitments, ResponseReceipts, StateCommitments, StateMachineUpdateTime,
+    UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use core::time::Duration;
@@ -246,15 +246,15 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
-    fn store_request_receipt(&self, req: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
+    fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
-        RequestReceipts::<T>::insert(hash, Receipt::Ok);
+        RequestReceipts::<T>::insert(hash, signer);
         Ok(())
     }
 
-    fn store_response_receipt(&self, req: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
+    fn store_response_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
-        ResponseReceipts::<T>::insert(hash, Receipt::Ok);
+        ResponseReceipts::<T>::insert(hash, signer);
         Ok(())
     }
 

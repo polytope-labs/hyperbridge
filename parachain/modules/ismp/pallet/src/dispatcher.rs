@@ -21,6 +21,7 @@ use ismp::{
     error::Error as IsmpError,
     host::IsmpHost,
     router::{DispatchRequest, Get, IsmpDispatcher, Post, PostResponse, Request, Response},
+    LeafIndexQuery,
 };
 
 /// A receipt or an outgoing or incoming request or response
@@ -28,6 +29,28 @@ use ismp::{
 pub enum Receipt {
     /// Ok
     Ok,
+}
+
+/// Queries a request leaf in the mmr
+#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[scale_info(skip_type_params(T))]
+pub struct RequestMetadata<T: crate::Config> {
+    /// Information about where it's stored in the offchain db
+    pub query: LeafIndexQuery,
+    /// Other metadata about the request
+    pub meta: FeeMetadata<T>,
+}
+
+/// This is used for tracking user fee payments for requests
+#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
+#[scale_info(skip_type_params(T))]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+pub struct FeeMetadata<T: crate::Config> {
+    /// The user who paid for this fee
+    pub origin: T::AccountId,
+    /// The amount they paid
+    pub fee: T::Balance,
 }
 
 /// The dispatcher commits outgoing requests and responses to the mmr
@@ -42,7 +65,7 @@ impl<T> Default for Dispatcher<T> {
 
 impl<T> IsmpDispatcher for Dispatcher<T>
 where
-    T: crate::Config + pallet_balances::Config,
+    T: crate::Config,
 {
     type Account = T::AccountId;
     type Balance = T::Balance;
@@ -50,8 +73,8 @@ where
     fn dispatch_request(
         &self,
         request: DispatchRequest,
-        _who: Self::Account,
-        _fee: Self::Balance,
+        origin: Self::Account,
+        fee: Self::Balance,
     ) -> Result<(), IsmpError> {
         let host = Host::<T>::default();
         let request = match request {
@@ -83,7 +106,7 @@ where
             },
         };
 
-        Pallet::<T>::dispatch_request(request)?;
+        Pallet::<T>::dispatch_request(request, FeeMetadata { origin, fee })?;
 
         Ok(())
     }
@@ -91,12 +114,12 @@ where
     fn dispatch_response(
         &self,
         response: PostResponse,
-        _who: Self::Account,
-        _fee: Self::Balance,
+        origin: Self::Account,
+        fee: Self::Balance,
     ) -> Result<(), IsmpError> {
         let response = Response::Post(response);
 
-        Pallet::<T>::dispatch_response(response)?;
+        Pallet::<T>::dispatch_response(response, FeeMetadata { origin, fee })?;
 
         Ok(())
     }

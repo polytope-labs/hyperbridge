@@ -32,7 +32,7 @@ use ismp::{
     error::Error,
     host::{Ethereum, IsmpHost, StateMachine},
     messaging::{Proof, StateCommitmentHeight},
-    router::{Request, RequestResponse},
+    router::RequestResponse,
 };
 
 use crate::{
@@ -198,8 +198,8 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
         verify_membership::<H>(item, root, proof, contract_address)
     }
 
-    fn state_trie_key(&self, requests: Vec<Request>) -> Vec<Vec<u8>> {
-        req_res_to_key::<H>(RequestResponse::Request(requests))
+    fn state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
+        req_res_to_key::<H>(items)
     }
 
     fn verify_state_proof(

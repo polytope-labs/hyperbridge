@@ -36,7 +36,7 @@ where
 pub mod benchmarks {
     use super::*;
     use crate::{
-        dispatcher::Dispatcher,
+        dispatcher::{Dispatcher, FeeMetadata, RequestMetadata},
         host::Host,
         mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
         Config, Event, Pallet, RequestCommitments, RequestReceipts, ResponseReceipts,
@@ -147,10 +147,15 @@ pub mod benchmarks {
         let request = Request::Post(post.clone());
 
         let commitment = hash_request::<Host<T>>(&request);
-        RequestCommitments::<T>::insert(
-            commitment,
-            LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: post.nonce },
-        );
+        let meta = RequestMetadata {
+            query: LeafIndexQuery {
+                source_chain: post.source,
+                dest_chain: post.dest,
+                nonce: post.nonce,
+            },
+            meta: FeeMetadata { origin: [0u8; 32].into(), fee: 0.into() },
+        };
+        RequestCommitments::<T>::insert(commitment, meta);
 
         let response = Response::Post(PostResponse {
             post,
@@ -189,10 +194,15 @@ pub mod benchmarks {
         let request = Request::Post(post.clone());
 
         let commitment = hash_request::<Host<T>>(&request);
-        RequestCommitments::<T>::insert(
-            commitment,
-            LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: post.nonce },
-        );
+        let meta = RequestMetadata {
+            query: LeafIndexQuery {
+                source_chain: post.source,
+                dest_chain: post.dest,
+                nonce: post.nonce,
+            },
+            meta: FeeMetadata { origin: [0u8; 32].into(), fee: 0.into() },
+        };
+        RequestCommitments::<T>::insert(commitment, meta);
 
         let msg = TimeoutMessage::Post {
             requests: vec![request],
@@ -284,10 +294,11 @@ pub mod benchmarks {
             gas_limit: 0,
         };
         let request_commitment = hash_request::<Host<T>>(&Request::Post(post.clone()));
-        RequestCommitments::<T>::insert(
-            request_commitment,
-            LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
-        );
+        let meta = RequestMetadata {
+            query: LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
+            meta: FeeMetadata { origin: [0u8; 32].into(), fee: 0.into() },
+        };
+        RequestCommitments::<T>::insert(request_commitment, meta);
 
         let response =
             PostResponse { post, response: vec![1u8; 64], gas_limit: 0, timeout_timestamp: 0 };

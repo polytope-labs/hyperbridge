@@ -20,7 +20,7 @@ use std::{
 };
 
 use crate::{
-    dispatcher::Dispatcher,
+    dispatcher::{Dispatcher, FeeMetadata, RequestMetadata},
     mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID},
 };
 use frame_support::traits::OnFinalize;
@@ -218,10 +218,11 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
         };
 
         let request_commitment = hash_request::<Host<Test>>(&Request::Post(post.clone()));
-        RequestCommitments::<Test>::insert(
-            request_commitment,
-            LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
-        );
+        let meta = RequestMetadata {
+            query: LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
+            meta: FeeMetadata { origin: [0u8; 32].into(), fee: 0u32.into() },
+        };
+        RequestCommitments::<Test>::insert(request_commitment, meta);
         write_outgoing_commitments(&host, &dispatcher).unwrap();
     })
 }

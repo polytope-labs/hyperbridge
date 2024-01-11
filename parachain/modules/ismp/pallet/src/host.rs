@@ -18,8 +18,8 @@ use crate::{
     primitives::ConsensusClientProvider, AllowedProxies, ChallengePeriod, Config,
     ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
     FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts,
-    ResponseCommitments, ResponseReceipts, StateCommitments, StateMachineUpdateTime,
-    UnbondingPeriod,
+    ResponseCommitments, ResponseReceipts, ResponseReciept, StateCommitments,
+    StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use core::time::Duration;
@@ -31,8 +31,8 @@ use ismp::{
     },
     error::Error,
     host::{IsmpHost, StateMachine},
-    router::{IsmpRouter, PostResponse, Request},
-    util::{hash_post_response, hash_request},
+    router::{IsmpRouter, PostResponse, Request, Response},
+    util::{hash_post_response, hash_request, hash_response},
 };
 use sp_core::H256;
 use sp_runtime::SaturatedConversion;
@@ -154,8 +154,8 @@ impl<T: Config> IsmpHost for Host<T> {
         Some(())
     }
 
-    fn response_receipt(&self, res: &Request) -> Option<()> {
-        let commitment = hash_request::<Self>(res);
+    fn response_receipt(&self, res: &Response) -> Option<()> {
+        let commitment = hash_request::<Self>(&res.request());
 
         let _ = ResponseReceipts::<T>::get(commitment)
             .ok_or_else(|| Error::ImplementationSpecific("Response receipt not found".to_string()))
@@ -252,9 +252,10 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
-    fn store_response_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error> {
-        let hash = hash_request::<Self>(req);
-        ResponseReceipts::<T>::insert(hash, signer);
+    fn store_response_receipt(&self, res: &Response, signer: &Vec<u8>) -> Result<(), Error> {
+        let hash = hash_request::<Self>(&res.request());
+        let response = hash_response::<Self>(&res);
+        ResponseReceipts::<T>::insert(hash, ResponseReciept { response, relayer: signer.clone() });
         Ok(())
     }
 

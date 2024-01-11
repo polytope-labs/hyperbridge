@@ -258,7 +258,8 @@ pub mod pallet {
     /// The key is the request commitment
     #[pallet::storage]
     #[pallet::getter(fn response_receipts)]
-    pub type ResponseReceipts<T: Config> = StorageMap<_, Identity, H256, Vec<u8>, OptionQuery>;
+    pub type ResponseReceipts<T: Config> =
+        StorageMap<_, Identity, H256, ResponseReciept, OptionQuery>;
 
     /// Consensus update results still in challenge period
     /// Set contains a tuple of previous height and latest height
@@ -497,6 +498,22 @@ pub mod pallet {
     }
 }
 
+/// Receipt for a Response
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+pub struct ResponseReciept {
+    /// Hash of the response object
+    response: H256,
+    /// Address of the relayer
+    relayer: Vec<u8>,
+}
+
+/// Digest log for mmr root hash
+#[derive(RuntimeDebug, Encode, Decode)]
+pub struct RequestResponseLog<T: Config> {
+    /// The mmr root hash
+    mmr_root_hash: <T as frame_system::Config>::Hash,
+}
+
 impl<T: Config> Pallet<T> {
     /// Generate an MMR proof for the given `leaf_indices`.
     /// Note this method can only be used from an off-chain context
@@ -613,16 +630,30 @@ impl<T: Config> Pallet<T> {
     pub fn mmr_leaf_count() -> LeafIndex {
         Self::number_of_leaves()
     }
-}
+    /// Get a node from runtime storage
+    fn get_node(pos: NodeIndex) -> Option<DataOrHash> {
+        Nodes::<T>::get(pos).map(DataOrHash::Hash)
+    }
 
-/// Digest log for mmr root hash
-#[derive(RuntimeDebug, Encode, Decode)]
-pub struct RequestResponseLog<T: Config> {
-    /// The mmr root hash
-    mmr_root_hash: <T as frame_system::Config>::Hash,
-}
+    /// Remove a node from storage
+    fn remove_node(pos: NodeIndex) {
+        Nodes::<T>::remove(pos);
+    }
 
-impl<T: Config> Pallet<T> {
+    /// Insert a node into storage
+    fn insert_node(pos: NodeIndex, node: H256) {
+        Nodes::<T>::insert(pos, node)
+    }
+
+    /// Set the number of leaves in the mmr
+    fn set_num_leaves(num_leaves: LeafIndex) {
+        NumberOfLeaves::<T>::put(num_leaves)
+    }
+
+    /// Returns the offchain key for a position in the mmr
+    fn offchain_key(pos: NodeIndex) -> Vec<u8> {
+        (T::INDEXING_PREFIX, "leaves", pos).encode()
+    }
     /// Returns the offchain key for a request leaf index
     pub fn request_leaf_pos_and_index_offchain_key(
         source_chain: StateMachine,
@@ -811,32 +842,5 @@ impl<T: Config> Pallet<T> {
         let (pos, leaf_index) = mmr.push(leaf)?;
         Pallet::<T>::store_leaf_position_and_index_offchain(offchain_key, (pos, leaf_index));
         Some((pos, leaf_index))
-    }
-}
-
-impl<T: Config> Pallet<T> {
-    /// Get a node from runtime storage
-    fn get_node(pos: NodeIndex) -> Option<DataOrHash> {
-        Nodes::<T>::get(pos).map(DataOrHash::Hash)
-    }
-
-    /// Remove a node from storage
-    fn remove_node(pos: NodeIndex) {
-        Nodes::<T>::remove(pos);
-    }
-
-    /// Insert a node into storage
-    fn insert_node(pos: NodeIndex, node: H256) {
-        Nodes::<T>::insert(pos, node)
-    }
-
-    /// Set the number of leaves in the mmr
-    fn set_num_leaves(num_leaves: LeafIndex) {
-        NumberOfLeaves::<T>::put(num_leaves)
-    }
-
-    /// Returns the offchain key for a position in the mmr
-    fn offchain_key(pos: NodeIndex) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "leaves", pos).encode()
     }
 }

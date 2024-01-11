@@ -207,8 +207,8 @@ impl IsmpHost for Host {
         self.receipts.borrow().get(&hash).map(|_| ())
     }
 
-    fn response_receipt(&self, res: &Request) -> Option<()> {
-        let hash = hash_request::<Self>(res);
+    fn response_receipt(&self, res: &Response) -> Option<()> {
+        let hash = hash_request::<Self>(&res.request());
         self.receipts.borrow().get(&hash).map(|_| ())
     }
 
@@ -292,8 +292,8 @@ impl IsmpHost for Host {
         Ok(())
     }
 
-    fn store_response_receipt(&self, res: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
-        let hash = hash_request::<Self>(res);
+    fn store_response_receipt(&self, res: &Response, _signer: &Vec<u8>) -> Result<(), Error> {
+        let hash = hash_request::<Self>(&res.request());
         self.receipts.borrow_mut().insert(hash, ());
         Ok(())
     }

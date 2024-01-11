@@ -113,7 +113,7 @@ where
                 for res in responses {
                     match res {
                         Response::Post(post_response) => {
-                            let commitment = hash_post_response::<Host<T>>(&post_response);
+                            let commitment = hash_request::<Host<T>>(&post_response.request());
                             keys.push(pallet_ismp::ResponseCommitments::<T>::hashed_key_for(
                                 commitment,
                             ));

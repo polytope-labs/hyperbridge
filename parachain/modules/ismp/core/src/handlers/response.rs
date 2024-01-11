@@ -21,10 +21,10 @@ use crate::{
     host::IsmpHost,
     messaging::{sufficient_proof_height, ResponseMessage},
     module::{DispatchError, DispatchSuccess},
-    router::{GetResponse, RequestResponse, Response},
+    router::{GetResponse, Request, RequestResponse, Response},
     util::hash_request,
 };
-use alloc::{format, string::ToString, vec::Vec};
+use alloc::{format, vec::Vec};
 
 /// Validate the state machine, verify the response message and dispatch the message to the router
 pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, Error>
@@ -45,7 +45,7 @@ where
                     let request = response.request();
                     let commitment = hash_request::<H>(&request);
                     host.request_commitment(commitment).is_ok() &&
-                        host.response_receipt(&request).is_none()
+                        host.response_receipt(&response).is_none()
                 })
                 .cloned()
                 .collect::<Vec<_>>();
@@ -76,7 +76,7 @@ where
                             source_chain: response.source_chain(),
                             dest_chain: response.dest_chain(),
                         });
-                    host.store_response_receipt(&response.request(), &msg.signer)?;
+                    host.store_response_receipt(&response, &msg.signer)?;
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?
@@ -84,10 +84,22 @@ where
         RequestResponse::Request(requests) => {
             let requests = requests
                 .into_iter()
-                .filter(|request| {
-                    let commitment = hash_request::<H>(request);
-                    host.request_commitment(commitment).is_ok() &&
-                        host.response_receipt(request).is_none()
+                .filter_map(|req| match req {
+                    Request::Post(_) => None,
+                    Request::Get(get) => {
+                        let commitment = hash_request::<H>(&Request::Get(get.clone()));
+                        if host.request_commitment(commitment).is_ok() &&
+                            host.response_receipt(&Response::Get(GetResponse {
+                                get: get.clone(),
+                                values: Default::default(),
+                            }))
+                            .is_none()
+                        {
+                            Some(get)
+                        } else {
+                            None
+                        }
+                    },
                 })
                 .cloned()
                 .collect::<Vec<_>>();
@@ -99,30 +111,29 @@ where
             requests
                 .into_iter()
                 .map(|request| {
-                    let keys = request.keys().ok_or_else(|| {
-                        Error::ImplementationSpecific("Missing keys for get request".to_string())
-                    })?;
+                    let keys = request.keys.clone();
                     let values = state_machine.verify_state_proof(host, keys, state, &proof)?;
 
                     let router = host.ismp_router();
-                    let cb = router.module_for_id(request.source_module())?;
+                    let cb = router.module_for_id(request.from.clone())?;
                     let res = cb
-                        .on_response(Response::Get(GetResponse {
-                            get: request.get_request()?,
-                            values,
-                        }))
+                        .on_response(Response::Get(GetResponse { get: request.clone(), values }))
                         .map(|_| DispatchSuccess {
-                            dest_chain: request.dest_chain(),
-                            source_chain: request.source_chain(),
-                            nonce: request.nonce(),
+                            dest_chain: request.dest,
+                            source_chain: request.source,
+                            nonce: request.nonce,
                         })
                         .map_err(|e| DispatchError {
                             msg: format!("{e:?}"),
-                            nonce: request.nonce(),
-                            source_chain: request.source_chain(),
-                            dest_chain: request.dest_chain(),
+                            nonce: request.nonce,
+                            source_chain: request.source,
+                            dest_chain: request.dest,
                         });
-                    host.store_response_receipt(&request, &msg.signer)?;
+                    let response = Response::Get(GetResponse {
+                        get: request.clone(),
+                        values: Default::default(),
+                    });
+                    host.store_response_receipt(&response, &msg.signer)?;
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?

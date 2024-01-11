@@ -22,7 +22,7 @@ use crate::{
     },
     error::Error,
     prelude::Vec,
-    router::{IsmpRouter, PostResponse, Request},
+    router::{IsmpRouter, PostResponse, Request, Response},
     util::Keccak256,
 };
 use alloc::{
@@ -94,7 +94,8 @@ pub trait IsmpHost: Keccak256 {
     fn request_receipt(&self, req: &Request) -> Option<()>;
 
     /// Should return Some(()) if a response has been received for the given request
-    fn response_receipt(&self, res: &Request) -> Option<()>;
+    /// Implementors should store both the request and response objects
+    fn response_receipt(&self, res: &Response) -> Option<()>;
 
     /// Store a map of consensus_state_id to the consensus_client_id
     /// Should return an error if the consensus_state_id already exists
@@ -162,7 +163,8 @@ pub trait IsmpHost: Keccak256 {
 
     /// Stores a receipt that shows that the given request has received a response. Includes the
     /// relayer account
-    fn store_response_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error>;
+    /// Implementors should map the request commitment to the response object commitment.
+    fn store_response_receipt(&self, req: &Response, signer: &Vec<u8>) -> Result<(), Error>;
 
     /// Should return a handle to the consensus client based on the id
     fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error>;

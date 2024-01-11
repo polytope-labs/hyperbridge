@@ -29,7 +29,7 @@ use ismp::{
     host::Ethereum,
     messaging::{Proof, ResponseMessage, TimeoutMessage},
     mmr::MmrHasher,
-    router::{DispatchGet, DispatchRequest, IsmpDispatcher, Post, RequestResponse},
+    router::{DispatchGet, DispatchRequest, GetResponse, IsmpDispatcher, Post, RequestResponse},
     util::hash_request,
 };
 use ismp_testsuite::{
@@ -385,7 +385,9 @@ fn should_handle_get_request_responses_correctly() {
         Pallet::<Test>::handle_messages(vec![Message::Response(response)]).unwrap();
 
         for request in requests {
-            assert!(host.response_receipt(&request).is_some())
+            let Request::Get(get) = request else { panic!("Shouldn't be possible") };
+            let response = Response::Get(GetResponse { get, values: Default::default() });
+            assert!(host.response_receipt(&response).is_some())
         }
     })
 }

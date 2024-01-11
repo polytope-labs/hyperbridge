@@ -30,7 +30,6 @@ pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
         },
         Request::Get(get) => {
             let mut buf = Vec::new();
-
             buf.extend_from_slice(get.source.to_string().as_bytes());
             buf.extend_from_slice(get.dest.to_string().as_bytes());
             buf.extend_from_slice(&get.nonce.to_be_bytes());
@@ -46,13 +45,10 @@ pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
 
 /// Return the keccak256 of a response
 pub fn hash_response<H: Keccak256>(res: &Response) -> H256 {
-    let res = match res {
-        Response::Post(res) => res,
-        // Responses to get messages are never hashed
-        _ => return Default::default(),
-    };
-
-    hash_post_response::<H>(res)
+    match res {
+        Response::Post(res) => hash_post_response::<H>(res),
+        Response::Get(res) => hash_request::<H>(&Request::Get(res.get.clone())),
+    }
 }
 
 /// Return the keccak256 of a response
@@ -66,6 +62,7 @@ pub fn hash_post_response<H: Keccak256>(res: &PostResponse) -> H256 {
     buf.extend_from_slice(&req.from);
     buf.extend_from_slice(&req.to);
     buf.extend_from_slice(&req.data);
+    buf.extend_from_slice(&req.gas_limit.to_be_bytes());
     buf.extend_from_slice(&res.response);
     buf.extend_from_slice(&res.timeout_timestamp.to_be_bytes());
     buf.extend_from_slice(&res.gas_limit.to_be_bytes());

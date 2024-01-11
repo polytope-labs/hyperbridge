@@ -23,7 +23,7 @@ use crate::{
         ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId,
     },
     error::Error,
-    router::{Post, PostResponse, Request, RequestResponse},
+    router::{Get, Post, PostResponse, Request, RequestResponse},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, Encode};
@@ -115,16 +115,12 @@ impl ResponseMessage {
 
 /// Returns an error if the proof height is less than any of the retrieval heights specified in the
 /// get requests
-pub fn sufficient_proof_height(requests: &[Request], proof: &Proof) -> Result<(), Error> {
-    let check = requests.iter().all(|req| match req {
-        Request::Get(get) => get.height == proof.height.height,
-        _ => false,
-    });
-    if !check {
-        Err(Error::InsufficientProofHeight)
-    } else {
-        Ok(())
+pub fn sufficient_proof_height(requests: &[Get], proof: &Proof) -> Result<(), Error> {
+    if !requests.iter().all(|get| get.height == proof.height.height) {
+        Err(Error::InsufficientProofHeight)?
     }
+
+    Ok(())
 }
 
 /// A request message holds a batch of requests to be timed-out

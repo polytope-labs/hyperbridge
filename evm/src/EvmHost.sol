@@ -609,7 +609,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             timeoutTimestamp: timeout,
             gaslimit: post.gaslimit
         });
-        _responseCommitments[response.hash()] = FeeMetadata({fee: post.fee, sender: tx.origin});
+        FeeMetadata memory meta = FeeMetadata({fee: post.fee, sender: tx.origin});
+        _responseCommitments[response.hash()] = meta;
         _responded[receipt] = true;
 
         emit PostResponseEvent(
@@ -624,7 +625,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             response.response,
             response.timeoutTimestamp,
             response.gaslimit,
-            post.fee
+            meta.fee // sigh solidity
         );
     }
 

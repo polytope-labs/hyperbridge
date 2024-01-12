@@ -3,7 +3,7 @@ pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
 
-import {PostRequestMessage} from "../src/HandlerV1.sol";
+import {PostRequestMessage} from "ismp/IIsmp.sol";
 import {BaseTest} from "./BaseTest.sol";
 
 contract PostRequestTest is BaseTest {

@@ -14,13 +14,7 @@
 // limitations under the License.
 
 //! Host implementation for ISMP
-use crate::{
-    primitives::ConsensusClientProvider, AllowedProxies, ChallengePeriod, Config,
-    ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
-    FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts,
-    ResponseCommitments, ResponseReceipts, ResponseReciept, StateCommitments,
-    StateMachineUpdateTime, UnbondingPeriod,
-};
+use crate::{primitives::ConsensusClientProvider, AllowedProxies, ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients, FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts, ResponseReciept, StateCommitments, StateMachineUpdateTime, UnbondingPeriod, Responded};
 use alloc::{format, string::ToString};
 use core::time::Duration;
 use frame_support::traits::{Get, UnixTime};
@@ -240,9 +234,12 @@ impl<T: Config> IsmpHost for Host<T> {
     }
 
     fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error> {
+        let req_commitment = hash_request::<Self>(&res.request());
         let hash = hash_post_response::<Self>(res);
+
         // We can't delete actual leaves in the mmr so this serves as a replacement for that
         ResponseCommitments::<T>::remove(hash);
+        Responded::<T>::remove(req_commitment);
         Ok(())
     }
 

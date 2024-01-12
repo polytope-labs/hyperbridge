@@ -155,6 +155,7 @@ pub trait IsmpHost: Keccak256 {
 
     /// Delete a request commitment from storage, used when a response is timed out.
     /// Make sure to refund the user their relayer fee here.
+    /// Also delete the request from the responded map.
     fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error>;
 
     /// Stores a receipt for an incoming request after it is successfully routed to a module.

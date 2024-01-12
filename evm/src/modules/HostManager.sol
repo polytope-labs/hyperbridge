@@ -63,8 +63,12 @@ contract HostManager is IIsmpModule {
         revert("Module doesn't emit requests");
     }
 
-    function onPostTimeout(PostRequest memory) external pure {
+    function onPostRequestTimeout(PostRequest memory) external pure {
         revert("Module doesn't emit requests");
+    }
+
+    function onPostResponseTimeout(PostResponse memory request) external view onlyIsmpHost {
+        revert("Token gateway doesn't emit Get Requests");
     }
 
     function onGetTimeout(GetRequest memory) external pure {

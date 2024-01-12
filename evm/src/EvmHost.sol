@@ -7,7 +7,7 @@ import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 
 import {IIsmpModule} from "ismp/IIsmpModule.sol";
-import {IIsmpHost, RequestMetadata} from "ismp/IIsmpHost.sol";
+import {IIsmpHost, FeeMetadata} from "ismp/IIsmpHost.sol";
 import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
 import {IHandler} from "ismp/IHandler.sol";
 import {
@@ -17,6 +17,7 @@ import {
     GetResponse,
     PostTimeout,
     DispatchPost,
+    DispatchPostResponse,
     DispatchGet,
     Message
 } from "ismp/IIsmp.sol";
@@ -74,21 +75,32 @@ struct WithdrawParams {
     uint256 amount;
 }
 
+struct ResponseReceipt {
+    // commitment of the response object
+    bytes32 responseCommitment;
+    // address of the relayer responsible for this response delivery
+    address relayer;
+}
+
 /// Ismp implementation for Evm hosts
 abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     using Bytes for bytes;
+    using Message for PostResponse;
+    using Message for PostRequest;
+    using Message for GetRequest;
 
     // commitment of all outgoing requests and amount put up for relayers.
-    mapping(bytes32 => RequestMetadata) private _requestCommitments;
+    mapping(bytes32 => FeeMetadata) private _requestCommitments;
 
     // commitment of all outgoing responses and amount put up for relayers.
-    mapping(bytes32 => bool) private _responseCommitments;
+    mapping(bytes32 => FeeMetadata) private _responseCommitments;
 
     // commitment of all incoming requests and who delivered them.
     mapping(bytes32 => address) private _requestReceipts;
 
     // commitment of all incoming responses and who delivered them.
-    mapping(bytes32 => address) private _responseReceipts;
+    // maps the request commitment to a receipt object
+    mapping(bytes32 => ResponseReceipt) private _responseReceipts;
 
     // (stateMachineId => (blockHeight => StateCommitment))
     mapping(uint256 => mapping(uint256 => StateCommitment)) private _stateCommitments;
@@ -107,19 +119,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // emergency shutdown button, only the admin can do this
     bool private _frozen;
 
-    event PostResponseEvent( // amount put up for relayers.
-        bytes source,
-        bytes dest,
-        bytes from,
-        bytes to,
-        uint256 indexed nonce,
-        uint256 timeoutTimestamp,
-        bytes data,
-        uint256 gaslimit,
-        bytes response,
-        uint256 amount
-    );
-
     // Emitted when an incoming POST request is handled
     event PostRequestHandled(bytes32 commitment, address relayer);
 
@@ -129,7 +128,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // Emitted when an outgoing Get request is handled
     event GetRequestHandled(bytes32 commitment, address relayer);
 
-    event PostRequestEvent( // amount put up for relayers.
+    event PostRequestEvent(
         bytes source,
         bytes dest,
         bytes from,
@@ -138,10 +137,25 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 timeoutTimestamp,
         bytes data,
         uint256 gaslimit,
-        uint256 amount
+        uint256 fee
     );
 
-    event GetRequestEvent( // amount put up for relayers.
+    event PostResponseEvent(
+        bytes source,
+        bytes dest,
+        bytes from,
+        bytes to,
+        uint256 indexed nonce,
+        uint256 timeoutTimestamp,
+        bytes data,
+        uint256 gaslimit,
+        bytes response,
+        uint256 resGaslimit,
+        uint256 resTimeoutTimestamp,
+        uint256 fee
+    );
+
+    event GetRequestEvent(
         bytes source,
         bytes dest,
         bytes from,
@@ -150,7 +164,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 height,
         uint256 timeoutTimestamp,
         uint256 gaslimit,
-        uint256 amount
+        uint256 fee
     );
 
     modifier onlyAdmin() {
@@ -260,14 +274,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return existence status of an incoming response commitment
      */
     function responseReceipts(bytes32 commitment) external view returns (bool) {
-        return _responseReceipts[commitment] != address(0);
+        return _responseReceipts[commitment].relayer != address(0);
     }
 
     /**
      * @param commitment - commitment to the request
      * @return existence status of an outgoing request commitment
      */
-    function requestCommitments(bytes32 commitment) external view returns (RequestMetadata memory) {
+    function requestCommitments(bytes32 commitment) external view returns (FeeMetadata memory) {
         return _requestCommitments[commitment];
     }
 
@@ -275,7 +289,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param commitment - commitment to the response
      * @return existence status of an outgoing response commitment
      */
-    function responseCommitments(bytes32 commitment) external view returns (bool) {
+    function responseCommitments(bytes32 commitment) external view returns (FeeMetadata memory) {
         return _responseCommitments[commitment];
     }
 
@@ -299,45 +313,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * `lastUpdated` param is exempted.
      */
     function setHostParams(HostParams memory params) external onlyManager {
-        if (params.defaultTimeout != 0) {
-            _hostParams.defaultTimeout = params.defaultTimeout;
-        }
-
-        if (params.unStakingPeriod != 0) {
-            _hostParams.unStakingPeriod = params.unStakingPeriod;
-        }
-
-        if (params.challengePeriod != 0) {
-            _hostParams.challengePeriod = params.challengePeriod;
-        }
-
-        if (params.consensusClient != address(0)) {
-            _hostParams.consensusClient = params.consensusClient;
-        }
-
-        if (params.admin != address(0)) {
-            _hostParams.admin = params.admin;
-        }
-
-        if (params.handler != address(0)) {
-            _hostParams.handler = params.handler;
-        }
-
-        if (params.hostManager != address(0)) {
-            _hostParams.hostManager = params.hostManager;
-        }
-
-        if (params.perByteFee != 0) {
-            _hostParams.perByteFee = params.perByteFee;
-        }
-
-        if (params.baseGetRequestFee != 0) {
-            _hostParams.baseGetRequestFee = params.baseGetRequestFee;
-        }
-
-        if (params.feeTokenAddress != address(0)) {
-            _hostParams.feeTokenAddress = params.feeTokenAddress;
-        }
+        _hostParams = params;
     }
 
     /**
@@ -427,7 +403,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         try IIsmpModule(destination).onAccept(request) {} catch {}
 
         // doesn't matter if it failed, if it failed once, it'll fail again
-        bytes32 commitment = Message.hash(request);
+        bytes32 commitment = request.hash();
         _requestReceipts[commitment] = tx.origin;
 
         emit PostRequestHandled({commitment: commitment, relayer: tx.origin});
@@ -442,8 +418,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         try IIsmpModule(origin).onPostResponse(response) {} catch {}
 
-        bytes32 commitment = Message.hash(response);
-        _responseReceipts[commitment] = tx.origin;
+        bytes32 commitment = response.request.hash();
+        _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: response.hash()});
 
         emit PostResponseHandled({commitment: commitment, relayer: tx.origin});
     }
@@ -464,8 +440,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
         try IIsmpModule(origin).onGetResponse(response) {} catch {}
 
-        bytes32 commitment = Message.hash(response);
-        _responseReceipts[commitment] = tx.origin;
+        bytes32 commitment = response.request.hash();
+        _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: bytes32(0)});
+        // don't commit the full response object because, it's unused.
 
         emit PostResponseHandled({commitment: commitment, relayer: tx.origin});
     }
@@ -474,7 +451,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming get timeout to source module
      * @param request - get request
      */
-    function dispatchIncoming(GetRequest memory request, RequestMetadata memory meta, bytes32 commitment)
+    function dispatchIncoming(GetRequest memory request, FeeMetadata memory meta, bytes32 commitment)
         external
         onlyHandler
     {
@@ -491,16 +468,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     /**
      * @dev Dispatch an incoming post timeout to source module
-     * @param timeout - post timeout
+     * @param request - post timeout
      */
-    function dispatchIncoming(PostTimeout memory timeout, RequestMetadata memory meta, bytes32 commitment)
+    function dispatchIncoming(PostRequest memory request, FeeMetadata memory meta, bytes32 commitment)
         external
         onlyHandler
     {
-        PostRequest memory request = timeout.request;
         address origin = _bytesToAddress(request.from);
 
-        try IIsmpModule(origin).onPostTimeout(request) {} catch {}
+        try IIsmpModule(origin).onPostRequestTimeout(request) {} catch {}
 
         // Delete Commitment
         delete _requestCommitments[commitment];
@@ -510,145 +486,131 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Dispatch a post request to the hyperbridge
-     * @param request - post dispatch request
+     * @dev Dispatch an incoming post response timeout to source module
+     * @param response - timed-out post response
      */
-    function dispatch(DispatchPost memory request) external {
-        _dispatch(request, 0, _msgSender());
+    function dispatchIncoming(PostResponse memory response, FeeMetadata memory meta, bytes32 commitment)
+        external
+        onlyHandler
+    {
+        address origin = _bytesToAddress(response.request.to);
+
+        try IIsmpModule(origin).onPostResponseTimeout(response) {} catch {}
+
+        // Delete Commitment
+        delete _responseCommitments[commitment];
+
+        // refund relayer fee
+        IERC20(dai()).transfer(meta.sender, meta.fee);
     }
 
     /**
-     * @dev Dispatch a POST request to the ISMP router and pay for a relayer.
-     * @param request - post request
-     * @param amount - The amount put forward as the relayer fee.
+     * @dev Dispatch a POST request to the hyperbridge
+     * @param post - post request
      */
-    function dispatch(DispatchPost memory request, uint256 amount) external {
-        _dispatch(request, amount, _msgSender());
-    }
-
-    /**
-     * @dev Dispatch a POST request to the ISMP router and pay for a relayer.
-     * @param request - post request
-     * @param amount - The amount put forward as the relayer fee.
-     * @param from - The calling contract
-     */
-    function _dispatch(DispatchPost memory request, uint256 amount, address from) internal {
+    function dispatch(DispatchPost memory post) external {
         // pay your toll to the troll
-        uint256 fee = (_hostParams.perByteFee * request.body.length) + amount;
+        uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
         require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
 
         // adjust the timeout
-        uint64 timeout = request.timeout == 0
+        uint64 timeout = post.timeout == 0
             ? 0
-            : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, request.timeout));
-        PostRequest memory _request = PostRequest({
+            : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, post.timeout));
+        PostRequest memory request = PostRequest({
             source: host(),
-            dest: request.dest,
+            dest: post.dest,
             nonce: uint64(_nextNonce()),
-            from: abi.encodePacked(from),
-            to: request.to,
+            from: abi.encodePacked(_msgSender()),
+            to: post.to,
             timeoutTimestamp: timeout,
-            body: request.body,
-            gaslimit: request.gaslimit
+            body: post.body,
+            gaslimit: post.gaslimit
         });
 
         // make the commitment
-        bytes32 commitment = Message.hash(_request);
-        _requestCommitments[commitment] = RequestMetadata({sender: tx.origin, fee: fee});
+        _requestCommitments[request.hash()] = FeeMetadata({sender: tx.origin, fee: fee});
 
         emit PostRequestEvent(
-            _request.source,
-            _request.dest,
-            _request.from,
-            abi.encodePacked(_request.to),
-            _request.nonce,
-            _request.timeoutTimestamp,
-            _request.body,
-            _request.gaslimit,
-            amount
+            request.source,
+            request.dest,
+            request.from,
+            abi.encodePacked(request.to),
+            request.nonce,
+            request.timeoutTimestamp,
+            request.body,
+            request.gaslimit,
+            fee
         );
     }
 
     /**
      * @dev Dispatch a get request to the hyperbridge
-     * @param request - get dispatch request
+     * @param get - get request
      */
-    function dispatch(DispatchGet memory request) external {
-        _dispatch(request, 0, _msgSender());
-    }
-
-    /**
-     * @dev Dispatch a get request to the hyperbridge
-     * @param request - get dispatch request
-     */
-    function dispatch(DispatchGet memory request, uint256 amount) external {
-        _dispatch(request, amount, _msgSender());
-    }
-
-    /**
-     * @dev Dispatch a get request to the hyperbridge
-     * @param request - get dispatch request
-     * @param from - The calling contract
-     */
-    function _dispatch(DispatchGet memory request, uint256 amount, address from) internal {
+    function dispatch(DispatchGet memory get) external {
         // pay your toll to the troll
-        uint256 fee = _hostParams.baseGetRequestFee + amount;
+        uint256 fee = _hostParams.baseGetRequestFee + get.fee;
         require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
 
         // adjust the timeout
-        uint64 timeout = request.timeout == 0
-            ? 0
-            : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, request.timeout));
-        GetRequest memory _request = GetRequest({
+        uint64 timeout =
+            get.timeout == 0 ? 0 : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, get.timeout));
+
+        GetRequest memory request = GetRequest({
             source: host(),
-            dest: request.dest,
+            dest: get.dest,
             nonce: uint64(_nextNonce()),
-            from: abi.encodePacked(from),
+            from: abi.encodePacked(_msgSender()),
             timeoutTimestamp: timeout,
-            keys: request.keys,
-            height: request.height,
-            gaslimit: request.gaslimit
+            keys: get.keys,
+            height: get.height,
+            gaslimit: get.gaslimit
         });
 
         // make the commitment
-        bytes32 commitment = Message.hash(_request);
-        _requestCommitments[commitment] = RequestMetadata({sender: tx.origin, fee: fee});
-
+        _requestCommitments[request.hash()] = FeeMetadata({sender: tx.origin, fee: fee});
         emit GetRequestEvent(
-            _request.source,
-            _request.dest,
-            _request.from,
-            _request.keys,
-            _request.nonce,
+            request.source,
+            request.dest,
+            request.from,
+            request.keys,
+            request.nonce,
             request.height,
-            _request.timeoutTimestamp,
+            request.timeoutTimestamp,
             request.gaslimit,
-            amount
+            fee
         );
     }
 
     /**
      * @dev Dispatch a response to the hyperbridge
-     * @param response - post response
+     * @param post - post response
      */
-    function dispatch(PostResponse memory response) external {
-        this.dispatch(response, 0);
-    }
+    function dispatch(DispatchPostResponse memory post) external {
+        bytes32 receipt = post.request.hash();
+        require(_requestReceipts[receipt] != address(0), "EvmHost: Unknown request");
 
-    /**
-     * @dev Dispatch a response to the hyperbridge
-     * @param response - post response
-     */
-    function dispatch(PostResponse memory response, uint256 amount) external {
-        bytes32 receipt = Message.hash(response.request);
-        require(_requestReceipts[receipt] != address(0), "EvmHost: unknown request");
+        // validate that the authorized application is issuing this response
+        require(_bytesToAddress(post.request.to) == _msgSender(), "EvmHost: Unauthorized Response");
+
+        // check that request has not already been responed to
 
         // pay your toll to the troll
-        uint256 fee = (_hostParams.perByteFee * response.response.length) + amount;
+        uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
         require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
 
-        bytes32 commitment = Message.hash(response);
-        _responseCommitments[commitment] = true;
+        // adjust the timeout
+        uint64 timeout = post.timeout == 0
+            ? 0
+            : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, post.timeout));
+        PostResponse memory response = PostResponse({
+            request: post.request,
+            response: post.response,
+            timeoutTimestamp: timeout,
+            gaslimit: post.gaslimit
+        });
+        _responseCommitments[response.hash()] = FeeMetadata({fee: fee, sender: tx.origin});
 
         emit PostResponseEvent(
             response.request.source,
@@ -660,7 +622,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             response.request.body,
             response.request.gaslimit,
             response.response,
-            amount
+            response.timeoutTimestamp,
+            response.gaslimit,
+            fee
         );
     }
 

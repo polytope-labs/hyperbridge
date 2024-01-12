@@ -241,6 +241,13 @@ pub mod pallet {
     pub type RequestCommitments<T: Config> =
         StorageMap<_, Identity, H256, RequestMetadata<T>, OptionQuery>;
 
+    /// Tracks requests that have been responded to
+    /// The key is the request commitment
+    #[pallet::storage]
+    #[pallet::getter(fn responded)]
+    pub type Responded<T: Config> =
+        StorageMap<_, Identity, H256, bool, ValueQuery>;
+
     /// Commitments for outgoing responses
     /// The key is the response commitment
     #[pallet::storage]

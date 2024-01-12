@@ -144,10 +144,7 @@ contract ZkBeefyV1 is IConsensusClient {
     }
 
     /// Stack too deep, sigh solidity
-    function verifyMmrLeaf(PlonkConsensusProof memory relay, bytes32 mmrRoot)
-        internal
-        pure
-    {
+    function verifyMmrLeaf(PlonkConsensusProof memory relay, bytes32 mmrRoot) internal pure {
         bytes32 temp = keccak256(Codec.Encode(relay.latestMmrLeaf));
         // bag peaks from right to left
         uint256 i = relay.mmrProof.length;

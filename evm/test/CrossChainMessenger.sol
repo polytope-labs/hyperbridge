@@ -5,6 +5,7 @@ pragma solidity 0.8.17;
 
 import "ismp/IIsmpModule.sol";
 import "ismp/IIsmpHost.sol";
+import "ismp/IIsmp.sol";
 
 struct CrossChainMessage {
     bytes dest;
@@ -54,7 +55,8 @@ contract CrossChainMessenger is IIsmpModule {
             // instance of this pallet on another chain.
             to: abi.encodePacked(address(this)),
             // unused for now
-            gaslimit: 0
+            gaslimit: 0,
+            fee: 0
         });
         IIsmp(host).dispatch(post);
     }
@@ -63,12 +65,16 @@ contract CrossChainMessenger is IIsmpModule {
         emit PostReceived(request.nonce, request.source, string(request.body));
     }
 
-    function onPostTimeout(PostRequest memory) external view onlyIsmpHost {
+    function onPostRequestTimeout(PostRequest memory) external view onlyIsmpHost {
         revert("No timeouts for now");
     }
 
     function onPostResponse(PostResponse memory) external view onlyIsmpHost {
         revert("CrossChainMessenger doesn't emit responses");
+    }
+
+    function onPostResponseTimeout(PostResponse memory request) external view onlyIsmpHost {
+        revert("Token gateway doesn't emit Get Requests");
     }
 
     function onGetResponse(GetResponse memory) external view onlyIsmpHost {

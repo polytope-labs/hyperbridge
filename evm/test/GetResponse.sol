@@ -3,9 +3,8 @@ pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
 
-import {GetResponseMessage} from "../src/HandlerV1.sol";
 import {BaseTest} from "./BaseTest.sol";
-import {GetRequest} from "ismp/IIsmp.sol";
+import {GetRequest, GetResponseMessage} from "ismp/IIsmp.sol";
 
 contract GetResponseTest is BaseTest {
     function GetResponseNoChallengeNoTimeout(

@@ -230,7 +230,12 @@ impl PostResponse {
 
     /// Get the request nonce
     pub fn timeout(&self) -> Duration {
-        Duration::from_secs(self.timeout_timestamp)
+        if self.timeout_timestamp == 0 {
+            Duration::from_secs(u64::MAX)
+
+        } else {
+            Duration::from_secs(self.timeout_timestamp)
+        }
     }
 }
 

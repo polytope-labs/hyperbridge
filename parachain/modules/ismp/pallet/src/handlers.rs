@@ -1,10 +1,6 @@
 //! Some extra utilities for pallet-ismp
 
-use crate::{
-    dispatcher::{FeeMetadata, RequestMetadata},
-    host::Host,
-    Config, Event, Pallet, RequestCommitments, ResponseCommitments,
-};
+use crate::{dispatcher::{FeeMetadata, RequestMetadata}, host::Host, Config, Event, Pallet, RequestCommitments, ResponseCommitments, Responded};
 use alloc::string::ToString;
 use ismp::{
     error::Error as IsmpError,
@@ -44,14 +40,20 @@ impl<T: Config> Pallet<T> {
 
     /// Dispatch an outgoing response
     pub fn dispatch_response(response: Response, meta: FeeMetadata<T>) -> Result<(), IsmpError> {
-        let commitment = hash_request::<Host<T>>(&response.request());
+        let req_commitment = hash_request::<Host<T>>(&response.request());
 
-        if !RequestCommitments::<T>::contains_key(commitment) {
+        if !RequestCommitments::<T>::contains_key(req_commitment) {
             Err(IsmpError::ImplementationSpecific("Unknown request for response".to_string()))?
+        }
+
+        if Responded::<T>::contains_key(req_commitment) {
+            Err(IsmpError::ImplementationSpecific("Request has been responded to".to_string()))?
         }
 
         let commitment = hash_response::<Host<T>>(&response);
 
+        // we allow dispatching multiple responses for the same request
+        // since only one of them will be allowed.
         if ResponseCommitments::<T>::contains_key(commitment) {
             Err(IsmpError::ImplementationSpecific("Duplicate response".to_string()))?
         }
@@ -69,6 +71,7 @@ impl<T: Config> Pallet<T> {
             source_chain,
         });
         ResponseCommitments::<T>::insert(commitment, meta);
+        Responded::<T>::insert(req_commitment, true);
         Ok(())
     }
 }

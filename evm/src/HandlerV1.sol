@@ -161,6 +161,9 @@ contract HandlerV1 is IHandler, Context {
         external
         notFrozen(host)
     {
+        uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(message.height);
+        require(delay > host.challengePeriod(), "IHandler: still in challenge period");
+
         // fetch the state commitment
         StateCommitment memory state = host.stateMachineCommitment(message.height);
         require(state.stateRoot != bytes32(0), "IHandler: State Commitment doesn't exist");
@@ -196,6 +199,8 @@ contract HandlerV1 is IHandler, Context {
         external
         notFrozen(host)
     {
+        uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(message.height);
+        require(delay > host.challengePeriod(), "IHandler: still in challenge period");
         // fetch the state commitment
         StateCommitment memory state = host.stateMachineCommitment(message.height);
         require(state.stateRoot != bytes32(0), "IHandler: State Commitment doesn't exist");

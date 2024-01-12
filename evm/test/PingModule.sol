@@ -43,8 +43,19 @@ contract PingModule is IIsmpModule {
         _host = host;
     }
 
+    function dispatchPostResponse(PostResponse memory response) public returns (bytes32) {
+        DispatchPostResponse memory post = DispatchPostResponse({
+            request: response.request,
+            response: response.response,
+            timeout: response.timeoutTimestamp,
+            gaslimit: response.gaslimit,
+            fee: 0
+        });
+        IIsmp(_host).dispatch(post);
+        return response.hash();
+    }
+
     function dispatch(PostRequest memory request) public returns (bytes32) {
-        bytes32 commitment = request.hash();
         DispatchPost memory post = DispatchPost({
             body: request.body,
             dest: request.dest,
@@ -54,11 +65,10 @@ contract PingModule is IIsmpModule {
             fee: 0
         });
         IIsmp(_host).dispatch(post);
-        return commitment;
+        return request.hash();
     }
 
     function dispatch(GetRequest memory request) public returns (bytes32) {
-        bytes32 commitment = Message.hash(request);
         DispatchGet memory get = DispatchGet({
             dest: request.dest,
             height: request.height,
@@ -68,7 +78,7 @@ contract PingModule is IIsmpModule {
             fee: 0
         });
         IIsmp(_host).dispatch(get);
-        return commitment;
+        return request.hash();
     }
 
     function ping(PingMessage memory pingMessage) public {

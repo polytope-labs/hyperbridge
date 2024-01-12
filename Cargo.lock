@@ -6447,6 +6447,7 @@ dependencies = [
  "ethers",
  "ethers-contract-abigen",
  "forge-testsuite",
+ "ismp",
  "primitive-types",
  "sp-consensus-beefy",
 ]

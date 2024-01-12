@@ -3,58 +3,72 @@ pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
 
-import "./TestConsensusClient.sol";
-import "../src/EvmHost.sol";
-import "./TestHost.sol";
-import {PingModule} from "./PingModule.sol";
-import "../src/HandlerV1.sol";
+import {
+    PostRequest,
+    PostResponse,
+    PostRequestMessage,
+    PostResponseMessage,
+    PostResponseTimeoutMessage
+} from "ismp/IIsmp.sol";
+import {IHandler} from "ismp/IHandler.sol";
+import {BaseTest} from "./BaseTest.sol";
 
-contract PostResponseTest is Test {
+contract PostResponseTest is BaseTest {
     // needs a test method so that integration-tests can detect it
     function testPostResponse() public {}
-
-    IConsensusClient internal consensusClient;
-    EvmHost internal host;
-    HandlerV1 internal handler;
-    address internal testModule;
-
-    function setUp() public virtual {
-        consensusClient = new TestConsensusClient();
-        handler = new HandlerV1();
-
-        HostParams memory params = HostParams({
-            admin: address(0),
-            hostManager: address(0),
-            handler: address(handler),
-            defaultTimeout: 0,
-            unStakingPeriod: 5000,
-            // for this test
-            challengePeriod: 0,
-            consensusClient: address(consensusClient),
-            lastUpdated: 0,
-            consensusState: new bytes(0),
-            baseGetRequestFee: 0,
-            perByteFee: 0,
-            feeTokenAddress: address(0)
-        });
-        host = new TestHost(params);
-
-        PingModule test = new PingModule(address(host));
-        testModule = address(test);
-    }
-
-    function module() public view returns (address) {
-        return testModule;
-    }
 
     function PostResponseNoChallengeNoTimeout(
         bytes memory consensusProof,
         PostRequest memory request,
         PostResponseMessage memory message
     ) public {
-        PingModule(testModule).dispatch(request);
+        testModule.dispatch(request);
         handler.handleConsensus(host, consensusProof);
         vm.warp(10);
         handler.handlePostResponses(host, message);
+    }
+
+    function PostResponseTimeoutNoChallenge(
+        bytes memory consensusProof1,
+        bytes memory consensusProof2,
+        PostRequestMessage memory request,
+        PostResponse memory response,
+        PostResponseTimeoutMessage memory timeout
+    ) public {
+        handler.handleConsensus(host, consensusProof1);
+        vm.warp(10);
+        handler.handlePostRequests(host, request);
+        response.timeoutTimestamp -= 10;
+        testModule.dispatchPostResponse(response);
+
+        handler.handleConsensus(host, consensusProof2);
+        vm.warp(20);
+        handler.handlePostResponseTimeouts(host, timeout);
+    }
+
+    function PostResponseMaliciousTimeoutNoChallenge(
+        bytes memory consensusProof1,
+        bytes memory consensusProof2,
+        PostRequestMessage memory request,
+        PostResponse memory response,
+        PostResponseTimeoutMessage memory timeout
+    ) public {
+        handler.handleConsensus(host, consensusProof1);
+        vm.warp(10);
+        handler.handlePostRequests(host, request);
+        response.timeoutTimestamp -= 10;
+        testModule.dispatchPostResponse(response);
+
+        (bool ok,) = address(testModule).call(abi.encodeCall(testModule.dispatchPostResponse, response));
+        // attempting to dispatch duplicate response should fail
+        assert(!ok);
+
+        handler.handleConsensus(host, consensusProof2);
+        vm.warp(20);
+        bytes memory callData =
+            abi.encodeWithSelector(IHandler.handlePostResponseTimeouts.selector, address(host), timeout);
+        (bool success,) = address(handler).call(callData);
+        // non-membership proof actually contains the response
+        assert(!success);
     }
 }

@@ -102,6 +102,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // maps the request commitment to a receipt object
     mapping(bytes32 => ResponseReceipt) private _responseReceipts;
 
+    // commitment of all incoming requests that have been responded to
+    mapping(bytes32 => bool) private _responded;
+
     // (stateMachineId => (blockHeight => StateCommitment))
     mapping(uint256 => mapping(uint256 => StateCommitment)) private _stateCommitments;
 
@@ -459,7 +462,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         try IIsmpModule(origin).onGetTimeout(request) {} catch {}
 
-        // Delete Commitment
+        // delete memory of this request
         delete _requestCommitments[commitment];
 
         // refund relayer fee
@@ -478,7 +481,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         try IIsmpModule(origin).onPostRequestTimeout(request) {} catch {}
 
-        // Delete Commitment
+        // delete memory of this request
         delete _requestCommitments[commitment];
 
         // refund relayer fee
@@ -497,8 +500,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         try IIsmpModule(origin).onPostResponseTimeout(response) {} catch {}
 
-        // Delete Commitment
+        // delete memory of this response
         delete _responseCommitments[commitment];
+        delete _responded[response.request.hash()];
 
         // refund relayer fee
         IERC20(dai()).transfer(meta.sender, meta.fee);
@@ -589,16 +593,19 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchPostResponse memory post) external {
         bytes32 receipt = post.request.hash();
+
+        // known request?
         require(_requestReceipts[receipt] != address(0), "EvmHost: Unknown request");
 
-        // validate that the authorized application is issuing this response
+        // check that the authorized application is issuing this response
         require(_bytesToAddress(post.request.to) == _msgSender(), "EvmHost: Unauthorized Response");
 
         // check that request has not already been responed to
+        require(!_responded[receipt], "EvmHost: Duplicate Response");
 
         // pay your toll to the troll
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
-        require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
+        require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "EvmHost: Insufficient funds");
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -611,6 +618,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             gaslimit: post.gaslimit
         });
         _responseCommitments[response.hash()] = FeeMetadata({fee: fee, sender: tx.origin});
+        _responded[receipt] = true;
 
         emit PostResponseEvent(
             response.request.source,

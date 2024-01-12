@@ -245,8 +245,7 @@ pub mod pallet {
     /// The key is the request commitment
     #[pallet::storage]
     #[pallet::getter(fn responded)]
-    pub type Responded<T: Config> =
-        StorageMap<_, Identity, H256, bool, ValueQuery>;
+    pub type Responded<T: Config> = StorageMap<_, Identity, H256, bool, ValueQuery>;
 
     /// Commitments for outgoing responses
     /// The key is the response commitment

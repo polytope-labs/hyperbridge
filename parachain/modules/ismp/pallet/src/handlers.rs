@@ -1,6 +1,10 @@
 //! Some extra utilities for pallet-ismp
 
-use crate::{dispatcher::{FeeMetadata, RequestMetadata}, host::Host, Config, Event, Pallet, RequestCommitments, ResponseCommitments, Responded};
+use crate::{
+    dispatcher::{FeeMetadata, RequestMetadata},
+    host::Host,
+    Config, Event, Pallet, RequestCommitments, Responded, ResponseCommitments,
+};
 use alloc::string::ToString;
 use ismp::{
     error::Error as IsmpError,

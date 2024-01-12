@@ -59,40 +59,6 @@ pub mod ping_module {
                         ::ethers::core::abi::ethabi::Function {
                             name: ::std::borrow::ToOwned::to_owned("dispatch"),
                             inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                                name: ::std::borrow::ToOwned::to_owned("response"),
-                                kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                    ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                        ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                        ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                        ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                        ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                        ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                        ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                        ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                        ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ],),
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ],),
-                                internal_type: ::core::option::Option::Some(
-                                    ::std::borrow::ToOwned::to_owned("struct PostResponse"),
-                                ),
-                            },],
-                            outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                                name: ::std::string::String::new(),
-                                kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize,),
-                                internal_type: ::core::option::Option::Some(
-                                    ::std::borrow::ToOwned::to_owned("bytes32"),
-                                ),
-                            },],
-                            constant: ::core::option::Option::None,
-                            state_mutability:
-                                ::ethers::core::abi::ethabi::StateMutability::NonPayable,
-                        },
-                        ::ethers::core::abi::ethabi::Function {
-                            name: ::std::borrow::ToOwned::to_owned("dispatch"),
-                            inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
                                 name: ::std::borrow::ToOwned::to_owned("request"),
                                 kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
                                     ::ethers::core::abi::ethabi::ParamType::Bytes,
@@ -124,6 +90,42 @@ pub mod ping_module {
                                 ::ethers::core::abi::ethabi::StateMutability::NonPayable,
                         },
                     ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("dispatchPostResponse"),
+                    ::std::vec![::ethers::core::abi::ethabi::Function {
+                        name: ::std::borrow::ToOwned::to_owned("dispatchPostResponse",),
+                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::borrow::ToOwned::to_owned("response"),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
+                                ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                ],),
+                                ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                            ],),
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("struct PostResponse"),
+                            ),
+                        },],
+                        outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::string::String::new(),
+                            kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize,),
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("bytes32"),
+                            ),
+                        },],
+                        constant: ::core::option::Option::None,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                    },],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("dispatchToParachain"),
@@ -457,15 +459,6 @@ pub mod ping_module {
                 .method_hash([49, 38, 125, 238], (request,))
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `dispatch` (0x95ad303b) function
-        pub fn dispatch_with_response(
-            &self,
-            response: PostResponse,
-        ) -> ::ethers::contract::builders::ContractCall<M, [u8; 32]> {
-            self.0
-                .method_hash([149, 173, 48, 59], (response,))
-                .expect("method not found (this should never happen)")
-        }
         ///Calls the contract's `dispatch` (0xd1ab46cf) function
         pub fn dispatch_with_request(
             &self,
@@ -473,6 +466,15 @@ pub mod ping_module {
         ) -> ::ethers::contract::builders::ContractCall<M, [u8; 32]> {
             self.0
                 .method_hash([209, 171, 70, 207], (request,))
+                .expect("method not found (this should never happen)")
+        }
+        ///Calls the contract's `dispatchPostResponse` (0xca4b68fc) function
+        pub fn dispatch_post_response(
+            &self,
+            response: PostResponse,
+        ) -> ::ethers::contract::builders::ContractCall<M, [u8; 32]> {
+            self.0
+                .method_hash([202, 75, 104, 252], (response,))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `dispatchToParachain` (0x72354e9b) function
@@ -871,26 +873,6 @@ pub mod ping_module {
         pub request: GetRequest,
     }
     ///Container type for all input parameters for the `dispatch` function with signature
-    /// `dispatch(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))` and
-    /// selector `0x95ad303b`
-    #[derive(
-        Clone,
-        ::ethers::contract::EthCall,
-        ::ethers::contract::EthDisplay,
-        Default,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-    )]
-    #[ethcall(
-        name = "dispatch",
-        abi = "dispatch(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))"
-    )]
-    pub struct DispatchWithResponseCall {
-        pub response: PostResponse,
-    }
-    ///Container type for all input parameters for the `dispatch` function with signature
     /// `dispatch((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64))` and selector
     /// `0xd1ab46cf`
     #[derive(
@@ -909,6 +891,26 @@ pub mod ping_module {
     )]
     pub struct DispatchWithRequestCall {
         pub request: GetRequest,
+    }
+    ///Container type for all input parameters for the `dispatchPostResponse` function with
+    /// signature `dispatchPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,
+    /// uint64,uint64))` and selector `0xca4b68fc`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(
+        name = "dispatchPostResponse",
+        abi = "dispatchPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))"
+    )]
+    pub struct DispatchPostResponseCall {
+        pub response: PostResponse,
     }
     ///Container type for all input parameters for the `dispatchToParachain` function with
     /// signature `dispatchToParachain(uint256)` and selector `0x72354e9b`
@@ -1057,8 +1059,8 @@ pub mod ping_module {
     #[derive(Clone, ::ethers::contract::EthAbiType, Debug, PartialEq, Eq, Hash)]
     pub enum PingModuleCalls {
         Dispatch(DispatchCall),
-        DispatchWithResponse(DispatchWithResponseCall),
         DispatchWithRequest(DispatchWithRequestCall),
+        DispatchPostResponse(DispatchPostResponseCall),
         DispatchToParachain(DispatchToParachainCall),
         OnAccept(OnAcceptCall),
         OnGetResponse(OnGetResponseCall),
@@ -1077,14 +1079,14 @@ pub mod ping_module {
                 return Ok(Self::Dispatch(decoded));
             }
             if let Ok(decoded) =
-                <DispatchWithResponseCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
-                return Ok(Self::DispatchWithResponse(decoded));
-            }
-            if let Ok(decoded) =
                 <DispatchWithRequestCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
                 return Ok(Self::DispatchWithRequest(decoded));
+            }
+            if let Ok(decoded) =
+                <DispatchPostResponseCall as ::ethers::core::abi::AbiDecode>::decode(data)
+            {
+                return Ok(Self::DispatchPostResponse(decoded));
             }
             if let Ok(decoded) =
                 <DispatchToParachainCall as ::ethers::core::abi::AbiDecode>::decode(data)
@@ -1127,9 +1129,9 @@ pub mod ping_module {
         fn encode(self) -> Vec<u8> {
             match self {
                 Self::Dispatch(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::DispatchWithResponse(element) =>
-                    ::ethers::core::abi::AbiEncode::encode(element),
                 Self::DispatchWithRequest(element) =>
+                    ::ethers::core::abi::AbiEncode::encode(element),
+                Self::DispatchPostResponse(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
                 Self::DispatchToParachain(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
@@ -1149,8 +1151,8 @@ pub mod ping_module {
         fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
             match self {
                 Self::Dispatch(element) => ::core::fmt::Display::fmt(element, f),
-                Self::DispatchWithResponse(element) => ::core::fmt::Display::fmt(element, f),
                 Self::DispatchWithRequest(element) => ::core::fmt::Display::fmt(element, f),
+                Self::DispatchPostResponse(element) => ::core::fmt::Display::fmt(element, f),
                 Self::DispatchToParachain(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnAccept(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnGetResponse(element) => ::core::fmt::Display::fmt(element, f),
@@ -1167,14 +1169,14 @@ pub mod ping_module {
             Self::Dispatch(value)
         }
     }
-    impl ::core::convert::From<DispatchWithResponseCall> for PingModuleCalls {
-        fn from(value: DispatchWithResponseCall) -> Self {
-            Self::DispatchWithResponse(value)
-        }
-    }
     impl ::core::convert::From<DispatchWithRequestCall> for PingModuleCalls {
         fn from(value: DispatchWithRequestCall) -> Self {
             Self::DispatchWithRequest(value)
+        }
+    }
+    impl ::core::convert::From<DispatchPostResponseCall> for PingModuleCalls {
+        fn from(value: DispatchPostResponseCall) -> Self {
+            Self::DispatchPostResponse(value)
         }
     }
     impl ::core::convert::From<DispatchToParachainCall> for PingModuleCalls {
@@ -1231,20 +1233,6 @@ pub mod ping_module {
     )]
     pub struct DispatchReturn(pub [u8; 32]);
     ///Container type for all return fields from the `dispatch` function with signature
-    /// `dispatch(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))` and
-    /// selector `0x95ad303b`
-    #[derive(
-        Clone,
-        ::ethers::contract::EthAbiType,
-        ::ethers::contract::EthAbiCodec,
-        Default,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-    )]
-    pub struct DispatchWithResponseReturn(pub [u8; 32]);
-    ///Container type for all return fields from the `dispatch` function with signature
     /// `dispatch((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64))` and selector
     /// `0xd1ab46cf`
     #[derive(
@@ -1258,6 +1246,20 @@ pub mod ping_module {
         Hash,
     )]
     pub struct DispatchWithRequestReturn(pub [u8; 32]);
+    ///Container type for all return fields from the `dispatchPostResponse` function with signature
+    /// `dispatchPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,
+    /// uint64))` and selector `0xca4b68fc`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct DispatchPostResponseReturn(pub [u8; 32]);
     ///`PingMessage(bytes,address,uint64)`
     #[derive(
         Clone,

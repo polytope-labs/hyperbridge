@@ -57,7 +57,8 @@ contract PostResponseTest is BaseTest {
         vm.warp(10);
         handler.handlePostRequests(host, request);
         response.timeoutTimestamp -= 10;
-        testModule.dispatchPostResponse(response);
+        (bool status,) = address(testModule).call(abi.encodeCall(testModule.dispatchPostResponse, response));
+        assert(status);
 
         (bool ok,) = address(testModule).call(abi.encodeCall(testModule.dispatchPostResponse, response));
         // attempting to dispatch duplicate response should fail

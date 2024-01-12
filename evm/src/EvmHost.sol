@@ -28,27 +28,29 @@ struct HostParams {
     uint256 defaultTimeout;
     // base fee for GET requests
     uint256 baseGetRequestFee;
-    // timestamp for when the consensus was most recently updated
-    uint256 lastUpdated;
-    // unstaking period
-    uint256 unStakingPeriod;
-    // minimum challenge period in seconds;
-    uint256 challengePeriod;
     // cost of cross-chain requests in $DAI per byte
     uint256 perByteFee;
     // The fee token contract. This will typically be DAI.
     // but we allow it to be configurable to prevent future regrets.
     address feeTokenAddress;
-    // consensus client contract
-    address consensusClient;
     // admin account, this only has the rights to freeze, or unfreeze the bridge
     address admin;
     // Ismp request/response handler
     address handler;
     // the authorized host manager contract
     address hostManager;
+    // unstaking period
+    uint256 unStakingPeriod;
+    // minimum challenge period in seconds;
+    uint256 challengePeriod;
+    // consensus client contract
+    address consensusClient;
     // current verified state of the consensus client;
     bytes consensusState;
+    // timestamp for when the consensus was most recently updated
+    uint256 lastUpdated;
+    // latest state machine height
+    uint256 latestStateMachineHeight;
 }
 
 // The host manager interface. This provides methods for modifying the host's params or withdrawing bridge revenue.
@@ -110,8 +112,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // (stateMachineId => (blockHeight => timestamp))
     mapping(uint256 => mapping(uint256 => uint256)) private _stateCommitmentsUpdateTime;
-
-    uint256 private _latestStateMachineHeight;
 
     // Parameters for the host
     HostParams private _hostParams;
@@ -307,7 +307,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return the latest state machine height
      */
     function latestStateMachineHeight() external view returns (uint256) {
-        return _latestStateMachineHeight;
+        return _hostParams.latestStateMachineHeight;
     }
 
     /**
@@ -346,7 +346,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param height State Machine Latest Height
      */
     function storeLatestStateMachineHeight(uint256 height) external onlyHandler {
-        _latestStateMachineHeight = height;
+        _hostParams.latestStateMachineHeight = height;
     }
 
     /**
@@ -400,10 +400,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(PostRequest memory request) external onlyHandler {
         address destination = _bytesToAddress(request.to);
-
-        // Ideally this would prevent failing requests from poisoning the batch,
-        // doesn't work, sigh solidity
-        try IIsmpModule(destination).onAccept(request) {} catch {}
+        address(destination).call(abi.encodeWithSelector(IIsmpModule.onAccept.selector, request));
 
         // doesn't matter if it failed, if it failed once, it'll fail again
         bytes32 commitment = request.hash();
@@ -418,8 +415,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(PostResponse memory response) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
-
-        try IIsmpModule(origin).onPostResponse(response) {} catch {}
+        address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, response));
 
         bytes32 commitment = response.request.hash();
         _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: response.hash()});
@@ -432,8 +428,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param response - get response
      */
     function dispatchIncoming(GetResponse memory response) external onlyHandler {
-        address origin = _bytesToAddress(response.request.from);
-
         uint256 fee = 0;
         for (uint256 i = 0; i < response.values.length; i++) {
             fee += (_hostParams.perByteFee * response.values[i].value.length);
@@ -441,7 +435,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // Relayers pay for Get Responses
         require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
-        try IIsmpModule(origin).onGetResponse(response) {} catch {}
+        address origin = _bytesToAddress(response.request.from);
+        address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, response));
 
         bytes32 commitment = response.request.hash();
         _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: bytes32(0)});
@@ -459,8 +454,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         onlyHandler
     {
         address origin = _bytesToAddress(request.from);
-
-        try IIsmpModule(origin).onGetTimeout(request) {} catch {}
+        address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
 
         // delete memory of this request
         delete _requestCommitments[commitment];
@@ -478,8 +472,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         onlyHandler
     {
         address origin = _bytesToAddress(request.from);
-
-        try IIsmpModule(origin).onPostRequestTimeout(request) {} catch {}
+        address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostRequestTimeout.selector, request));
 
         // delete memory of this request
         delete _requestCommitments[commitment];
@@ -497,8 +490,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         onlyHandler
     {
         address origin = _bytesToAddress(response.request.to);
-
-        try IIsmpModule(origin).onPostResponseTimeout(response) {} catch {}
+        address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponseTimeout.selector, response));
 
         // delete memory of this response
         delete _responseCommitments[commitment];
@@ -533,7 +525,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         });
 
         // make the commitment
-        _requestCommitments[request.hash()] = FeeMetadata({sender: tx.origin, fee: fee});
+        _requestCommitments[request.hash()] = FeeMetadata({sender: tx.origin, fee: post.fee});
 
         emit PostRequestEvent(
             request.source,
@@ -544,7 +536,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             request.timeoutTimestamp,
             request.body,
             request.gaslimit,
-            fee
+            post.fee
         );
     }
 
@@ -573,7 +565,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         });
 
         // make the commitment
-        _requestCommitments[request.hash()] = FeeMetadata({sender: tx.origin, fee: fee});
+        _requestCommitments[request.hash()] = FeeMetadata({sender: tx.origin, fee: get.fee});
         emit GetRequestEvent(
             request.source,
             request.dest,
@@ -583,7 +575,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             request.height,
             request.timeoutTimestamp,
             request.gaslimit,
-            fee
+            get.fee
         );
     }
 
@@ -617,7 +609,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             timeoutTimestamp: timeout,
             gaslimit: post.gaslimit
         });
-        _responseCommitments[response.hash()] = FeeMetadata({fee: fee, sender: tx.origin});
+        _responseCommitments[response.hash()] = FeeMetadata({fee: post.fee, sender: tx.origin});
         _responded[receipt] = true;
 
         emit PostResponseEvent(
@@ -632,7 +624,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             response.response,
             response.timeoutTimestamp,
             response.gaslimit,
-            fee
+            post.fee
         );
     }
 

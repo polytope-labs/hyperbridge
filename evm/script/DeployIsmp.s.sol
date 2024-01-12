@@ -48,7 +48,8 @@ contract DeployScript is Script {
             consensusState: new bytes(0),
             baseGetRequestFee: 0,
             perByteFee: 0,
-            feeTokenAddress: address(0)
+            feeTokenAddress: address(0),
+            latestStateMachineHeight: 0
         });
         address hostAddress = initHost(host, params);
         // set the ismphost on the cross-chain governor

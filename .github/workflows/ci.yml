@@ -32,6 +32,11 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -58,6 +63,11 @@ jobs:
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang curl libssl-dev llvm libudev-dev make protobuf-compiler
 
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -111,6 +121,11 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+
       - name: Install rust stable toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -128,11 +143,6 @@ jobs:
           rustup component add rust-src
           rustup show
 
-      - name: Install protoc
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
-
       - name: Run unit tests
         run: |
           ./scripts/ignore_plonk.sh "cargo test --all-targets --features=runtime-benchmarks --locked"
@@ -148,6 +158,11 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+
       - name: Install rust stable toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -162,11 +177,6 @@ jobs:
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
           rustup show
-
-      - name: Install protoc
-        run: |
-          sudo apt update
-          sudo apt install protobuf-compiler
 
       - uses: Swatinem/rust-cache@v2
 

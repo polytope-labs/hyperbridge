@@ -35,7 +35,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+          sudo apt-get install -y clang wget curl libssl-dev llvm libudev-dev make protobuf-compiler
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -67,18 +67,12 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+          sudo apt-get install -y clang wget curl libssl-dev llvm libudev-dev make protobuf-compiler
 
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: stable
-
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          version: '3.x'
-          repo-token: ${{ secrets.GH_TOKEN }}
 
       - uses: webfactory/ssh-agent@v0.7.0
         with:
@@ -124,7 +118,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+          sudo apt-get install -y clang wget curl libssl-dev llvm libudev-dev make protobuf-compiler
 
       - name: Install rust stable toolchain
         uses: actions-rs/toolchain@v1
@@ -161,7 +155,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+          sudo apt-get install -y clang wget curl libssl-dev llvm libudev-dev make protobuf-compiler
 
       - name: Install rust stable toolchain
         uses: actions-rs/toolchain@v1

@@ -46,21 +46,11 @@ impl<T: Config> Pallet<T> {
     pub fn dispatch_response(response: Response, meta: FeeMetadata<T>) -> Result<(), IsmpError> {
         let req_commitment = hash_request::<Host<T>>(&response.request());
 
-        if !RequestCommitments::<T>::contains_key(req_commitment) {
-            Err(IsmpError::ImplementationSpecific("Unknown request for response".to_string()))?
-        }
-
         if Responded::<T>::contains_key(req_commitment) {
             Err(IsmpError::ImplementationSpecific("Request has been responded to".to_string()))?
         }
 
         let commitment = hash_response::<Host<T>>(&response);
-
-        // we allow dispatching multiple responses for the same request
-        // since only one of them will be allowed.
-        if ResponseCommitments::<T>::contains_key(commitment) {
-            Err(IsmpError::ImplementationSpecific("Duplicate response".to_string()))?
-        }
 
         let (dest_chain, source_chain, nonce) =
             (response.dest_chain(), response.source_chain(), response.nonce());

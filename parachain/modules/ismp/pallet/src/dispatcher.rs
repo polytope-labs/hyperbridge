@@ -14,13 +14,14 @@
 // limitations under the License.
 
 //! Implementation for the ISMP Router
-use crate::{host::Host, Pallet};
+use crate::{host::Host, Pallet, RequestReceipts};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use ismp::{
     error::Error as IsmpError,
     host::IsmpHost,
     router::{DispatchRequest, Get, IsmpDispatcher, Post, PostResponse, Request, Response},
+    util::hash_request,
     LeafIndexQuery,
 };
 
@@ -117,8 +118,12 @@ where
         origin: Self::Account,
         fee: Self::Balance,
     ) -> Result<(), IsmpError> {
-        let response = Response::Post(response);
+        let req_commitment = hash_request::<Host<T>>(&response.request());
+        if !RequestReceipts::<T>::contains_key(req_commitment) {
+            Err(IsmpError::ImplementationSpecific("Unknown request for response".to_string()))?
+        }
 
+        let response = Response::Post(response);
         Pallet::<T>::dispatch_response(response, FeeMetadata { origin, fee })?;
 
         Ok(())

@@ -35,7 +35,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang wget curl libssl-dev llvm libudev-dev make protobuf-compiler
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -67,7 +67,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang wget curl libssl-dev llvm libudev-dev make protobuf-compiler
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler
 
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -118,7 +118,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang wget curl libssl-dev llvm libudev-dev make protobuf-compiler
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler
 
       - name: Install rust stable toolchain
         uses: actions-rs/toolchain@v1
@@ -155,7 +155,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang wget curl libssl-dev llvm libudev-dev make protobuf-compiler
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler
 
       - name: Install rust stable toolchain
         uses: actions-rs/toolchain@v1
@@ -217,11 +217,11 @@ jobs:
 
       - name: polygon pos integration tests
         run: |
-          ./scripts/ignore_plonk.sh "cargo test -p polygon-pos-prover -- --nocapture"
+          ./scripts/ignore_plonk.sh "cargo test -p polygon-pos-prover -- --nocapture --ignored"
 
       - name: Binance Smart Chain integration tests
         run: |
-          ./scripts/ignore_plonk.sh "cargo test -p bnb-pos-prover -- --nocapture"
+          ./scripts/ignore_plonk.sh "cargo test -p bnb-pos-prover -- --nocapture --ignored"
 
   check-solidity:
     name: Check ismp-solidity

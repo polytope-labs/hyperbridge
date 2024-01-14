@@ -8,13 +8,17 @@ import {
     PostResponse,
     PostRequestMessage,
     PostResponseMessage,
+    Message,
     PostResponseTimeoutMessage
 } from "ismp/IIsmp.sol";
 import {IHandler} from "ismp/IHandler.sol";
 import {BaseTest} from "./BaseTest.sol";
 
 contract PostResponseTest is BaseTest {
+    using Message for PostRequest;
+    using Message for PostResponse;
     // needs a test method so that integration-tests can detect it
+
     function testPostResponse() public {}
 
     function PostResponseNoChallengeNoTimeout(
@@ -26,6 +30,9 @@ contract PostResponseTest is BaseTest {
         handler.handleConsensus(host, consensusProof);
         vm.warp(10);
         handler.handlePostResponses(host, message);
+
+        // assert that we acknowledge the response
+        assert(host.responseReceipts(message.responses[0].response.request.hash()));
     }
 
     function PostResponseTimeoutNoChallenge(
@@ -40,10 +47,15 @@ contract PostResponseTest is BaseTest {
         handler.handlePostRequests(host, request);
         response.timeoutTimestamp -= 10;
         testModule.dispatchPostResponse(response);
+        response.timeoutTimestamp += 10;
+        // we should know this response
+        assert(host.responseCommitments(response.hash()).sender != address(0));
 
         handler.handleConsensus(host, consensusProof2);
         vm.warp(20);
         handler.handlePostResponseTimeouts(host, timeout);
+        // we should no longer know this response
+        assert(host.responseCommitments(response.hash()).sender == address(0));
     }
 
     function PostResponseMaliciousTimeoutNoChallenge(

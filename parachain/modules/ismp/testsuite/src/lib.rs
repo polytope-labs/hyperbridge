@@ -33,7 +33,7 @@ use ismp::{
         DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse, Request,
         RequestResponse, Response,
     },
-    util::hash_request,
+    util::{hash_post_response, hash_request},
 };
 
 fn mock_consensus_state_id() -> ConsensusStateId {
@@ -217,8 +217,8 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Ensure all timeout post processing is correctly done.
-pub fn timeout_post_processing_check<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
+/// Ensure post request timeouts are handled properly
+pub fn post_request_timeout_check<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
 where
     H: IsmpHost,
     D: IsmpDispatcher,
@@ -267,6 +267,63 @@ where
     // Assert that request commitment was deleted
     let commitment = hash_request::<H>(&request);
     let res = host.request_commitment(commitment);
+    assert!(matches!(res, Err(..)));
+    Ok(())
+}
+
+/// Ensure post request timeouts are handled properly
+pub fn post_response_timeout_check<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
+where
+    H: IsmpHost,
+    D: IsmpDispatcher,
+    D::Account: From<[u8; 32]>,
+    D::Balance: From<u32>,
+{
+    let intermediate_state = setup_mock_client(host);
+    let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+    let previous_update_time = host.timestamp() - (challenge_period * 2);
+    host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
+        .unwrap();
+    host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
+        .unwrap();
+
+    let request = Post {
+        source: intermediate_state.height.id.state_id,
+        dest: host.host_state_machine(),
+        nonce: 0,
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+        gas_limit: 0,
+    };
+
+    let request_message = Message::Request(RequestMessage {
+        requests: vec![request.clone()],
+        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        signer: vec![],
+    });
+
+    handle_incoming_message(host, request_message).unwrap();
+    // Assert that request was acknowledged
+    assert!(matches!(host.request_receipt(&Request::Post(request.clone())), Some(_)));
+
+    let response =
+        PostResponse { post: request, response: vec![], timeout_timestamp: 100, gas_limit: 0 };
+    dispatcher
+        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
+        .unwrap();
+
+    let timeout_message = Message::Timeout(TimeoutMessage::PostResponse {
+        responses: vec![response.clone()],
+        timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
+    });
+
+    handle_incoming_message(host, timeout_message).unwrap();
+
+    // Assert that response commitment was deleted
+    let commitment = hash_post_response::<H>(&response);
+    let res = host.response_commitment(commitment);
     assert!(matches!(res, Err(..)));
     Ok(())
 }

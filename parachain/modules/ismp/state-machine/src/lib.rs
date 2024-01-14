@@ -30,7 +30,7 @@ use ismp::{
     messaging::Proof,
     mmr::{DataOrHash, Leaf, MmrHasher},
     router::{Request, RequestResponse, Response},
-    util::{hash_post_response, hash_request},
+    util::hash_request,
     HashAlgorithm, MembershipProof, SubstrateStateProof,
 };
 use merkle_mountain_range::MerkleProof;

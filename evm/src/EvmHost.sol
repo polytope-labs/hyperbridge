@@ -505,7 +505,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param post - post request
      */
     function dispatch(DispatchPost memory post) external {
-        // pay your toll to the troll
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
         require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
 
@@ -545,7 +544,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param get - get request
      */
     function dispatch(DispatchGet memory get) external {
-        // pay your toll to the troll
         uint256 fee = _hostParams.baseGetRequestFee + get.fee;
         require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
 
@@ -595,7 +593,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // check that request has not already been responed to
         require(!_responded[receipt], "EvmHost: Duplicate Response");
 
-        // pay your toll to the troll
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
         require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "EvmHost: Insufficient funds");
 

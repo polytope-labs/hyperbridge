@@ -20,7 +20,7 @@ use std::{
 };
 
 use crate::{
-    dispatcher::{Dispatcher, FeeMetadata, RequestMetadata},
+    dispatcher::Dispatcher,
     mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID},
 };
 use frame_support::traits::OnFinalize;
@@ -33,8 +33,8 @@ use ismp::{
     util::hash_request,
 };
 use ismp_testsuite::{
-    check_challenge_period, check_client_expiry, frozen_check, timeout_post_processing_check,
-    write_outgoing_commitments,
+    check_challenge_period, check_client_expiry, frozen_check, post_request_timeout_check,
+    post_response_timeout_check, write_outgoing_commitments,
 };
 use merkle_mountain_range::MerkleProof;
 use sp_core::{
@@ -218,11 +218,7 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
         };
 
         let request_commitment = hash_request::<Host<Test>>(&Request::Post(post.clone()));
-        let meta = RequestMetadata {
-            query: LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
-            meta: FeeMetadata { origin: [0u8; 32].into(), fee: 0u32.into() },
-        };
-        RequestCommitments::<Test>::insert(request_commitment, meta);
+        RequestReceipts::<Test>::insert(request_commitment, &vec![0u8; 32]);
         write_outgoing_commitments(&host, &dispatcher).unwrap();
     })
 }
@@ -274,7 +270,20 @@ fn should_handle_post_request_timeouts_correctly() {
         let host = Host::<Test>::default();
         let dispatcher = Dispatcher::<Test>::default();
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
-        timeout_post_processing_check(&host, &dispatcher).unwrap()
+        post_request_timeout_check(&host, &dispatcher).unwrap()
+    })
+}
+
+#[test]
+fn should_handle_post_response_timeouts_correctly() {
+    let mut ext = new_test_ext();
+
+    ext.execute_with(|| {
+        set_timestamp(None);
+        let host = Host::<Test>::default();
+        let dispatcher = Dispatcher::<Test>::default();
+        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
+        post_response_timeout_check(&host, &dispatcher).unwrap()
     })
 }
 

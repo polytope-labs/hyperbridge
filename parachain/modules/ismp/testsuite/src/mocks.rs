@@ -282,7 +282,7 @@ impl IsmpHost for Host {
 
     fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error> {
         let hash = hash_post_response::<Self>(res);
-        self.requests.borrow_mut().remove(&hash);
+        self.responses.borrow_mut().remove(&hash);
         Ok(())
     }
 
@@ -318,7 +318,7 @@ impl IsmpHost for Host {
     }
 
     fn allowed_proxies(&self) -> Vec<StateMachine> {
-        todo!()
+        vec![]
     }
 
     fn store_allowed_proxies(&self, _allowed: Vec<StateMachine>) {

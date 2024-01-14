@@ -294,11 +294,7 @@ pub mod benchmarks {
             gas_limit: 0,
         };
         let request_commitment = hash_request::<Host<T>>(&Request::Post(post.clone()));
-        let meta = RequestMetadata {
-            query: LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
-            meta: FeeMetadata { origin: [0u8; 32].into(), fee: 0.into() },
-        };
-        RequestCommitments::<T>::insert(request_commitment, meta);
+        RequestReceipts::<T>::insert(request_commitment, &vec![0u8; 32]);
 
         let response =
             PostResponse { post, response: vec![1u8; 64], gas_limit: 0, timeout_timestamp: 0 };

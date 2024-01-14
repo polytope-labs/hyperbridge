@@ -125,11 +125,9 @@ contract HandlerV1 is IHandler, Context {
 
         for (uint256 i = 0; i < responsesLength; i++) {
             PostResponseLeaf memory leaf = response.responses[i];
-            // check destination
-            require(leaf.response.request.source.equals(host.host()), "IHandler: Invalid response destination");
             // check time-out
             require(leaf.response.timeout() > host.timestamp(), "IHandler: Response timed out");
-            // known request?
+            // known request? also serves as a source check
             bytes32 requestCommitment = leaf.response.request.hash();
             FeeMetadata memory meta = host.requestCommitments(requestCommitment);
             require(meta.sender != address(0), "IHandler: Unknown request");

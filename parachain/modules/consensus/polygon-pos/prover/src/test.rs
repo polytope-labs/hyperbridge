@@ -34,7 +34,9 @@ async fn verify_polygon_pos_headers() {
     let span_start = span * SPAN_LENGTH;
     let mut finalized_header = prover.fetch_header(span_start - 1).await.unwrap().unwrap();
     let mut parent_hash = Header::from(&finalized_header).hash::<Host>();
-    for number in (finalized_header.number.low_u64() + 1)..=(finalized_header.number.low_u64() + 10)
+    // Verify 5 minutes worth of blocks
+    for number in
+        (finalized_header.number.low_u64() + 1)..=(finalized_header.number.low_u64() + 150)
     {
         let header = prover.fetch_header(number).await.unwrap().unwrap();
         if parent_hash == header.parent_hash {

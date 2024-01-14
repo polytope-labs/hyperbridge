@@ -30,7 +30,7 @@ use ismp::{
     messaging::Proof,
     mmr::{DataOrHash, Leaf, MmrHasher},
     router::{Request, RequestResponse, Response},
-    util::hash_request,
+    util::{hash_post_response, hash_request},
     HashAlgorithm, MembershipProof, SubstrateStateProof,
 };
 use merkle_mountain_range::MerkleProof;
@@ -113,8 +113,8 @@ where
                 for res in responses {
                     match res {
                         Response::Post(post_response) => {
-                            let commitment = hash_request::<Host<T>>(&post_response.request());
-                            keys.push(pallet_ismp::ResponseCommitments::<T>::hashed_key_for(
+                            let commitment = hash_post_response::<Host<T>>(&post_response);
+                            keys.push(pallet_ismp::ResponseReceipts::<T>::hashed_key_for(
                                 commitment,
                             ));
                         },

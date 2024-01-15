@@ -30,9 +30,10 @@ use ismp::{
         ConsensusMessage, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage,
     },
     router::{
-        DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse, Request, Response,
+        DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse, Request,
+        RequestResponse, Response,
     },
-    util::hash_request,
+    util::{hash_post_response, hash_request},
 };
 
 fn mock_consensus_state_id() -> ConsensusStateId {
@@ -99,6 +100,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
     let request_message = Message::Request(RequestMessage {
         requests: vec![post.clone()],
         proof: Proof { height: intermediate_state.height, proof: vec![] },
+        signer: vec![],
     });
 
     let res = handle_incoming_message(host, request_message);
@@ -106,9 +108,15 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
     assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
 
     // Response message handling check
-    let response_message = Message::Response(ResponseMessage::Post {
-        responses: vec![Response::Post(PostResponse { post, response: vec![] })],
+    let response_message = Message::Response(ResponseMessage {
+        datagram: RequestResponse::Response(vec![Response::Post(PostResponse {
+            post,
+            response: vec![],
+            timeout_timestamp: 0,
+            gas_limit: 0,
+        })]),
         proof: Proof { height: intermediate_state.height, proof: vec![] },
+        signer: vec![],
     });
 
     let res = handle_incoming_message(host, response_message);
@@ -175,6 +183,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     let request_message = Message::Request(RequestMessage {
         requests: vec![post.clone()],
         proof: Proof { height: intermediate_state.height, proof: vec![] },
+        signer: vec![],
     });
 
     let res = handle_incoming_message(host, request_message);
@@ -182,9 +191,15 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     assert!(matches!(res, Err(ismp::error::Error::FrozenStateMachine { .. })));
 
     // Response message handling check
-    let response_message = Message::Response(ResponseMessage::Post {
-        responses: vec![Response::Post(PostResponse { post, response: vec![] })],
+    let response_message = Message::Response(ResponseMessage {
+        datagram: RequestResponse::Response(vec![Response::Post(PostResponse {
+            post,
+            response: vec![],
+            timeout_timestamp: 0,
+            gas_limit: 0,
+        })]),
         proof: Proof { height: intermediate_state.height, proof: vec![] },
+        signer: vec![],
     });
 
     let res = handle_incoming_message(host, response_message);
@@ -202,11 +217,14 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Ensure all timeout post processing is correctly done.
-pub fn timeout_post_processing_check<H: IsmpHost>(
-    host: &H,
-    dispatcher: &dyn IsmpDispatcher,
-) -> Result<(), &'static str> {
+/// Ensure post request timeouts are handled properly
+pub fn post_request_timeout_check<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
+where
+    H: IsmpHost,
+    D: IsmpDispatcher,
+    D::Account: From<[u8; 32]>,
+    D::Balance: From<u32>,
+{
     let intermediate_state = setup_mock_client(host);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
@@ -234,7 +252,9 @@ pub fn timeout_post_processing_check<H: IsmpHost>(
     };
     let request = Request::Post(post);
     let dispatch_request = DispatchRequest::Post(dispatch_post);
-    dispatcher.dispatch_request(dispatch_request).unwrap();
+    dispatcher
+        .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
+        .unwrap();
 
     // Timeout message handling check
     let timeout_message = Message::Timeout(TimeoutMessage::Post {
@@ -251,16 +271,76 @@ pub fn timeout_post_processing_check<H: IsmpHost>(
     Ok(())
 }
 
+/// Ensure post request timeouts are handled properly
+pub fn post_response_timeout_check<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
+where
+    H: IsmpHost,
+    D: IsmpDispatcher,
+    D::Account: From<[u8; 32]>,
+    D::Balance: From<u32>,
+{
+    let intermediate_state = setup_mock_client(host);
+    let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+    let previous_update_time = host.timestamp() - (challenge_period * 2);
+    host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
+        .unwrap();
+    host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
+        .unwrap();
+
+    let request = Post {
+        source: intermediate_state.height.id.state_id,
+        dest: host.host_state_machine(),
+        nonce: 0,
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+        gas_limit: 0,
+    };
+
+    let request_message = Message::Request(RequestMessage {
+        requests: vec![request.clone()],
+        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        signer: vec![],
+    });
+
+    handle_incoming_message(host, request_message).unwrap();
+    // Assert that request was acknowledged
+    assert!(matches!(host.request_receipt(&Request::Post(request.clone())), Some(_)));
+
+    let response =
+        PostResponse { post: request, response: vec![], timeout_timestamp: 100, gas_limit: 0 };
+    dispatcher
+        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
+        .unwrap();
+
+    let timeout_message = Message::Timeout(TimeoutMessage::PostResponse {
+        responses: vec![response.clone()],
+        timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
+    });
+
+    handle_incoming_message(host, timeout_message).unwrap();
+
+    // Assert that response commitment was deleted
+    let commitment = hash_post_response::<H>(&response);
+    let res = host.response_commitment(commitment);
+    assert!(matches!(res, Err(..)));
+    Ok(())
+}
+
 /*
     Check correctness of router implementation
 */
 
 /// Check that dispatcher stores commitments for outgoing requests and responses and rejects
 /// duplicate responses
-pub fn write_outgoing_commitments<H: IsmpHost>(
-    host: &H,
-    dispatcher: &dyn IsmpDispatcher,
-) -> Result<(), &'static str> {
+pub fn write_outgoing_commitments<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
+where
+    H: IsmpHost,
+    D: IsmpDispatcher,
+    D::Account: From<[u8; 32]>,
+    D::Balance: From<u32>,
+{
     let post = DispatchPost {
         dest: StateMachine::Kusama(2000),
         from: vec![0u8; 32],
@@ -272,7 +352,7 @@ pub fn write_outgoing_commitments<H: IsmpHost>(
     let dispatch_request = DispatchRequest::Post(post);
     // Dispatch the request the first time
     dispatcher
-        .dispatch_request(dispatch_request)
+        .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
         .map_err(|_| "Dispatcher failed to dispatch request")?;
     // Fetch commitment from storage
     let post = Post {
@@ -299,13 +379,13 @@ pub fn write_outgoing_commitments<H: IsmpHost>(
         data: vec![0u8; 64],
         gas_limit: 0,
     };
-    let response = PostResponse { post, response: vec![] };
+    let response = PostResponse { post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
     // Dispatch the outgoing response for the first time
     dispatcher
-        .dispatch_response(response.clone())
+        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
         .map_err(|_| "Router failed to dispatch request")?;
     // Dispatch the same response a second time
-    let err = dispatcher.dispatch_response(response);
+    let err = dispatcher.dispatch_response(response, [0; 32].into(), 0u32.into());
     assert!(err.is_err(), "Expected router to return error for duplicate response");
 
     Ok(())

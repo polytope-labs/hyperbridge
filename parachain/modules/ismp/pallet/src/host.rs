@@ -15,10 +15,11 @@
 
 //! Host implementation for ISMP
 use crate::{
-    dispatcher::Receipt, primitives::ConsensusClientProvider, AllowedProxies, ChallengePeriod,
-    Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
-    FrozenConsensusClients, FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments,
-    RequestReceipts, ResponseReceipts, StateCommitments, StateMachineUpdateTime, UnbondingPeriod,
+    primitives::ConsensusClientProvider, AllowedProxies, ChallengePeriod, Config,
+    ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
+    FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts, Responded,
+    ResponseCommitments, ResponseReceipts, ResponseReciept, StateCommitments,
+    StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use core::time::Duration;
@@ -30,8 +31,8 @@ use ismp::{
     },
     error::Error,
     host::{IsmpHost, StateMachine},
-    router::{IsmpRouter, Request},
-    util::hash_request,
+    router::{IsmpRouter, PostResponse, Request, Response},
+    util::{hash_post_response, hash_request, hash_response},
 };
 use sp_core::H256;
 use sp_runtime::SaturatedConversion;
@@ -85,6 +86,13 @@ impl<T: Config> IsmpHost for Host<T> {
             })
     }
 
+    fn consensus_client_id(
+        &self,
+        consensus_state_id: ConsensusStateId,
+    ) -> Option<ConsensusClientId> {
+        ConsensusStateClient::<T>::get(&consensus_state_id)
+    }
+
     fn consensus_state(&self, id: ConsensusClientId) -> Result<Vec<u8>, Error> {
         ConsensusStates::<T>::get(id)
             .ok_or_else(|| Error::ConsensusStateNotFound { consensus_state_id: id })
@@ -94,12 +102,42 @@ impl<T: Config> IsmpHost for Host<T> {
         <T::TimeProvider as UnixTime>::now()
     }
 
+    fn is_state_machine_frozen(&self, machine: StateMachineHeight) -> Result<(), Error> {
+        if let Some(frozen_height) = FrozenHeights::<T>::get(machine.id) {
+            if machine.height >= frozen_height {
+                Err(Error::FrozenStateMachine { height: machine })?
+            }
+        }
+        Ok(())
+    }
+
+    fn is_consensus_client_frozen(&self, client: ConsensusStateId) -> Result<(), Error> {
+        if FrozenConsensusClients::<T>::get(client) {
+            Err(Error::FrozenConsensusClient { consensus_state_id: client })?
+        }
+        Ok(())
+    }
+
     fn request_commitment(&self, commitment: H256) -> Result<(), Error> {
         let _ = RequestCommitments::<T>::get(commitment).ok_or_else(|| {
             Error::ImplementationSpecific("Request commitment not found".to_string())
         })?;
 
         Ok(())
+    }
+
+    fn response_commitment(&self, commitment: H256) -> Result<(), Error> {
+        let _ = ResponseCommitments::<T>::get(commitment).ok_or_else(|| {
+            Error::ImplementationSpecific("Response commitment not found".to_string())
+        })?;
+
+        Ok(())
+    }
+
+    fn next_nonce(&self) -> u64 {
+        let nonce = Nonce::<T>::get();
+        Nonce::<T>::put(nonce + 1);
+        nonce
     }
 
     fn request_receipt(&self, req: &Request) -> Option<()> {
@@ -116,8 +154,36 @@ impl<T: Config> IsmpHost for Host<T> {
         Some(())
     }
 
+    fn response_receipt(&self, res: &Response) -> Option<()> {
+        let commitment = hash_request::<Self>(&res.request());
+
+        let _ = ResponseReceipts::<T>::get(commitment)
+            .ok_or_else(|| Error::ImplementationSpecific("Response receipt not found".to_string()))
+            .ok()?;
+
+        Some(())
+    }
+
+    fn store_consensus_state_id(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        client_id: ConsensusClientId,
+    ) -> Result<(), Error> {
+        ConsensusStateClient::<T>::insert(consensus_state_id, client_id);
+        Ok(())
+    }
+
     fn store_consensus_state(&self, id: ConsensusClientId, state: Vec<u8>) -> Result<(), Error> {
         ConsensusStates::<T>::insert(id, state);
+        Ok(())
+    }
+
+    fn store_unbonding_period(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        period: u64,
+    ) -> Result<(), Error> {
+        UnbondingPeriod::<T>::insert(consensus_state_id, period);
         Ok(())
     }
 
@@ -156,6 +222,11 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
+    fn freeze_consensus_client(&self, client: ConsensusStateId) -> Result<(), Error> {
+        FrozenConsensusClients::<T>::insert(client, true);
+        Ok(())
+    }
+
     fn store_latest_commitment_height(&self, height: StateMachineHeight) -> Result<(), Error> {
         LatestStateMachineHeight::<T>::insert(height.id, height.height);
         Ok(())
@@ -168,9 +239,26 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
-    fn store_request_receipt(&self, req: &Request) -> Result<(), Error> {
+    fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error> {
+        let req_commitment = hash_request::<Self>(&res.request());
+        let hash = hash_post_response::<Self>(res);
+
+        // We can't delete actual leaves in the mmr so this serves as a replacement for that
+        ResponseCommitments::<T>::remove(hash);
+        Responded::<T>::remove(req_commitment);
+        Ok(())
+    }
+
+    fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
-        RequestReceipts::<T>::insert(hash, Receipt::Ok);
+        RequestReceipts::<T>::insert(hash, signer);
+        Ok(())
+    }
+
+    fn store_response_receipt(&self, res: &Response, signer: &Vec<u8>) -> Result<(), Error> {
+        let hash = hash_request::<Self>(&res.request());
+        let response = hash_response::<Self>(&res);
+        ResponseReceipts::<T>::insert(hash, ResponseReciept { response, relayer: signer.clone() });
         Ok(())
     }
 
@@ -180,82 +268,6 @@ impl<T: Config> IsmpHost for Host<T> {
 
     fn challenge_period(&self, id: ConsensusStateId) -> Option<Duration> {
         ChallengePeriod::<T>::get(&id).map(Duration::from_secs)
-    }
-
-    fn ismp_router(&self) -> Box<dyn IsmpRouter> {
-        Box::new(T::IsmpRouter::default())
-    }
-
-    fn is_state_machine_frozen(&self, machine: StateMachineHeight) -> Result<(), Error> {
-        if let Some(frozen_height) = FrozenHeights::<T>::get(machine.id) {
-            if machine.height >= frozen_height {
-                Err(Error::FrozenStateMachine { height: machine })?
-            }
-        }
-        Ok(())
-    }
-
-    fn is_consensus_client_frozen(&self, client: ConsensusStateId) -> Result<(), Error> {
-        if FrozenConsensusClients::<T>::get(client) {
-            Err(Error::FrozenConsensusClient { consensus_state_id: client })?
-        }
-        Ok(())
-    }
-
-    fn next_nonce(&self) -> u64 {
-        let nonce = Nonce::<T>::get();
-        Nonce::<T>::put(nonce + 1);
-        nonce
-    }
-
-    fn response_receipt(&self, res: &Request) -> Option<()> {
-        let commitment = hash_request::<Self>(res);
-
-        let _ = ResponseReceipts::<T>::get(commitment)
-            .ok_or_else(|| Error::ImplementationSpecific("Response receipt not found".to_string()))
-            .ok()?;
-
-        Some(())
-    }
-
-    fn freeze_consensus_client(&self, client: ConsensusStateId) -> Result<(), Error> {
-        FrozenConsensusClients::<T>::insert(client, true);
-        Ok(())
-    }
-
-    fn store_response_receipt(&self, req: &Request) -> Result<(), Error> {
-        let hash = hash_request::<Self>(req);
-        ResponseReceipts::<T>::insert(hash, Receipt::Ok);
-        Ok(())
-    }
-
-    fn consensus_client_id(
-        &self,
-        consensus_state_id: ConsensusStateId,
-    ) -> Option<ConsensusClientId> {
-        ConsensusStateClient::<T>::get(&consensus_state_id)
-    }
-
-    fn store_consensus_state_id(
-        &self,
-        consensus_state_id: ConsensusStateId,
-        client_id: ConsensusClientId,
-    ) -> Result<(), Error> {
-        ConsensusStateClient::<T>::insert(consensus_state_id, client_id);
-        Ok(())
-    }
-
-    fn unbonding_period(&self, consensus_state_id: ConsensusStateId) -> Option<Duration> {
-        UnbondingPeriod::<T>::get(&consensus_state_id).map(Duration::from_secs)
-    }
-
-    fn store_unbonding_period(
-        &self,
-        consensus_state_id: ConsensusStateId,
-        period: u64,
-    ) -> Result<(), Error> {
-        UnbondingPeriod::<T>::insert(consensus_state_id, period);
-        Ok(())
     }
 
     fn store_challenge_period(
@@ -273,6 +285,14 @@ impl<T: Config> IsmpHost for Host<T> {
 
     fn store_allowed_proxies(&self, allowed: Vec<StateMachine>) {
         AllowedProxies::<T>::set(allowed);
+    }
+
+    fn unbonding_period(&self, consensus_state_id: ConsensusStateId) -> Option<Duration> {
+        UnbondingPeriod::<T>::get(&consensus_state_id).map(Duration::from_secs)
+    }
+
+    fn ismp_router(&self) -> Box<dyn IsmpRouter> {
+        Box::new(T::IsmpRouter::default())
     }
 }
 

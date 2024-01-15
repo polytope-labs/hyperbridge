@@ -1,6 +1,6 @@
 //! ISMP utilities
 
-use crate::router::{Request, Response};
+use crate::router::{PostResponse, Request, Response};
 use alloc::{string::ToString, vec::Vec};
 use primitive_types::H256;
 
@@ -18,14 +18,10 @@ pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
         Request::Post(post) => {
             let mut buf = Vec::new();
 
-            let source_chain = post.source.to_string();
-            let dest_chain = post.dest.to_string();
-            let nonce = post.nonce.to_be_bytes();
-            let timestamp = post.timeout_timestamp.to_be_bytes();
-            buf.extend_from_slice(source_chain.as_bytes());
-            buf.extend_from_slice(dest_chain.as_bytes());
-            buf.extend_from_slice(&nonce);
-            buf.extend_from_slice(&timestamp);
+            buf.extend_from_slice(post.source.to_string().as_bytes());
+            buf.extend_from_slice(post.dest.to_string().as_bytes());
+            buf.extend_from_slice(&post.nonce.to_be_bytes());
+            buf.extend_from_slice(&post.timeout_timestamp.to_be_bytes());
             buf.extend_from_slice(&post.from);
             buf.extend_from_slice(&post.to);
             buf.extend_from_slice(&post.data);
@@ -34,17 +30,11 @@ pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
         },
         Request::Get(get) => {
             let mut buf = Vec::new();
-
-            let source_chain = get.source.to_string();
-            let dest_chain = get.dest.to_string();
-            let nonce = get.nonce.to_be_bytes();
-            let height = get.height.to_be_bytes();
-            let timestamp = get.timeout_timestamp.to_be_bytes();
-            buf.extend_from_slice(source_chain.as_bytes());
-            buf.extend_from_slice(dest_chain.as_bytes());
-            buf.extend_from_slice(&nonce);
-            buf.extend_from_slice(&height);
-            buf.extend_from_slice(&timestamp);
+            buf.extend_from_slice(get.source.to_string().as_bytes());
+            buf.extend_from_slice(get.dest.to_string().as_bytes());
+            buf.extend_from_slice(&get.nonce.to_be_bytes());
+            buf.extend_from_slice(&get.height.to_be_bytes());
+            buf.extend_from_slice(&get.timeout_timestamp.to_be_bytes());
             buf.extend_from_slice(&get.from);
             get.keys.iter().for_each(|key| buf.extend_from_slice(key));
             buf.extend_from_slice(&get.gas_limit.to_be_bytes());
@@ -55,23 +45,26 @@ pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
 
 /// Return the keccak256 of a response
 pub fn hash_response<H: Keccak256>(res: &Response) -> H256 {
-    let (req, response) = match res {
-        Response::Post(res) => (&res.post, &res.response),
-        // Responses to get messages are never hashed
-        _ => return Default::default(),
-    };
+    match res {
+        Response::Post(res) => hash_post_response::<H>(res),
+        Response::Get(res) => hash_request::<H>(&Request::Get(res.get.clone())),
+    }
+}
+
+/// Return the keccak256 of a response
+pub fn hash_post_response<H: Keccak256>(res: &PostResponse) -> H256 {
+    let req = &res.post;
     let mut buf = Vec::new();
-    let source_chain = req.source.to_string();
-    let dest_chain = req.dest.to_string();
-    let nonce = req.nonce.to_be_bytes();
-    let timestamp = req.timeout_timestamp.to_be_bytes();
-    buf.extend_from_slice(source_chain.as_bytes());
-    buf.extend_from_slice(dest_chain.as_bytes());
-    buf.extend_from_slice(&nonce);
-    buf.extend_from_slice(&timestamp);
-    buf.extend_from_slice(&req.data);
+    buf.extend_from_slice(req.source.to_string().as_bytes());
+    buf.extend_from_slice(req.dest.to_string().as_bytes());
+    buf.extend_from_slice(&req.nonce.to_be_bytes());
+    buf.extend_from_slice(&req.timeout_timestamp.to_be_bytes());
     buf.extend_from_slice(&req.from);
     buf.extend_from_slice(&req.to);
-    buf.extend_from_slice(response);
+    buf.extend_from_slice(&req.data);
+    buf.extend_from_slice(&req.gas_limit.to_be_bytes());
+    buf.extend_from_slice(&res.response);
+    buf.extend_from_slice(&res.timeout_timestamp.to_be_bytes());
+    buf.extend_from_slice(&res.gas_limit.to_be_bytes());
     H::keccak256(&buf[..])
 }

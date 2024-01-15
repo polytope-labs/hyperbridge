@@ -21,7 +21,8 @@ use crate::{
     host::IsmpHost,
     messaging::TimeoutMessage,
     module::{DispatchError, DispatchSuccess},
-    util::hash_request,
+    router::Response,
+    util::{hash_post_response, hash_request},
 };
 use alloc::{format, vec::Vec};
 
@@ -50,10 +51,8 @@ where
                 }
             }
 
-            let key = state_machine.state_trie_key(requests.clone());
-
+            let key = state_machine.state_trie_key(requests.clone().into());
             let values = state_machine.verify_state_proof(host, key, state, &timeout_proof)?;
-
             if values.into_iter().any(|(_key, val)| val.is_some()) {
                 Err(Error::ImplementationSpecific("Some Requests not timed out".into()))?
             }
@@ -64,7 +63,7 @@ where
                 .map(|request| {
                     let cb = router.module_for_id(request.source_module())?;
                     let res = cb
-                        .on_timeout(request.clone())
+                        .on_timeout(request.clone().into())
                         .map(|_| DispatchSuccess {
                             dest_chain: request.dest_chain(),
                             source_chain: request.source_chain(),
@@ -77,6 +76,55 @@ where
                             dest_chain: request.dest_chain(),
                         });
                     host.delete_request_commitment(&request)?;
+                    Ok(res)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        },
+        TimeoutMessage::PostResponse { responses, timeout_proof } => {
+            let state_machine = validate_state_machine(host, timeout_proof.height)?;
+            let state = host.state_machine_commitment(timeout_proof.height)?;
+            for response in &responses {
+                // Ensure a commitment exists for all responses in the batch
+                let commitment = hash_post_response::<H>(response);
+                host.response_commitment(commitment)?;
+
+                if response.timeout() > state.timestamp() {
+                    Err(Error::RequestTimeoutNotElapsed {
+                        nonce: response.nonce(),
+                        source: response.source_chain(),
+                        dest: response.dest_chain(),
+                        timeout_timestamp: response.timeout(),
+                        state_machine_time: state.timestamp(),
+                    })?
+                }
+            }
+
+            let items = responses.iter().map(|r| Into::into(r.clone())).collect::<Vec<Response>>();
+            let keys = state_machine.state_trie_key(items.into());
+            let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
+            if values.into_iter().any(|(_key, val)| val.is_some()) {
+                Err(Error::ImplementationSpecific("Some Requests not timed out".into()))?
+            }
+
+            let router = host.ismp_router();
+            responses
+                .into_iter()
+                .map(|response| {
+                    let cb = router.module_for_id(response.source_module())?;
+                    let res = cb
+                        .on_timeout(response.clone().into())
+                        .map(|_| DispatchSuccess {
+                            dest_chain: response.dest_chain(),
+                            source_chain: response.source_chain(),
+                            nonce: response.nonce(),
+                        })
+                        .map_err(|e| DispatchError {
+                            msg: format!("{e:?}"),
+                            nonce: response.nonce(),
+                            source_chain: response.source_chain(),
+                            dest_chain: response.dest_chain(),
+                        });
+                    host.delete_response_commitment(&response)?;
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?
@@ -103,7 +151,7 @@ where
                 .map(|request| {
                     let cb = router.module_for_id(request.source_module())?;
                     let res = cb
-                        .on_timeout(request.clone())
+                        .on_timeout(request.clone().into())
                         .map(|_| DispatchSuccess {
                             dest_chain: request.dest_chain(),
                             source_chain: request.source_chain(),

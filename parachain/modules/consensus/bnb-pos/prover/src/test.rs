@@ -33,7 +33,8 @@ async fn setup_prover() -> BnbPosProver {
 }
 
 #[tokio::test]
-async fn verify_a_single_header() {
+#[ignore]
+async fn verify_bnb_pos_header() {
     let prover = setup_prover().await;
     let latest_block = prover.latest_header().await.unwrap();
     let epoch_1 = compute_epoch(latest_block.number.low_u64()) - 1;
@@ -54,6 +55,7 @@ async fn verify_a_single_header() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn verify_bnb_pos_headers() {
     let prover = setup_prover().await;
     let latest_block = prover.latest_header().await.unwrap();

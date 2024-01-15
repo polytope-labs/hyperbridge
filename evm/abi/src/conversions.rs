@@ -15,14 +15,18 @@
 
 //! Convenient type conversions
 
-use crate::beefy::{
-    AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf, Commitment,
-    IntermediateState, Node, Parachain, ParachainProof, Payload, RelayChainProof, SignedCommitment,
-    Vote,
+use crate::{
+    beefy::{
+        AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf, Commitment,
+        IntermediateState, Node, Parachain, ParachainProof, Payload, RelayChainProof,
+        SignedCommitment, Vote,
+    },
+    shared_types::{PostRequest, PostResponse},
 };
 use beefy_verifier_primitives::{
     BeefyNextAuthoritySet, ConsensusMessage, ConsensusState, MmrProof,
 };
+use ismp::router;
 use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos, mmr_position_to_k_index};
 use primitive_types::H256;
 
@@ -172,6 +176,32 @@ impl From<IntermediateState> for local::IntermediateState {
                 state_root: H256(value.commitment.state_root),
                 overlay_root: H256(value.commitment.overlay_root),
             },
+        }
+    }
+}
+
+impl From<router::PostResponse> for PostResponse {
+    fn from(value: router::PostResponse) -> Self {
+        PostResponse {
+            request: value.post.into(),
+            response: value.response.into(),
+            timeout_timestamp: value.timeout_timestamp.into(),
+            gaslimit: value.gas_limit.into(),
+        }
+    }
+}
+
+impl From<router::Post> for PostRequest {
+    fn from(value: router::Post) -> Self {
+        PostRequest {
+            source: value.source.to_string().as_bytes().to_vec().into(),
+            dest: value.dest.to_string().as_bytes().to_vec().into(),
+            nonce: 0,
+            from: value.from.into(),
+            to: value.to.into(),
+            timeout_timestamp: value.timeout_timestamp.into(),
+            body: value.data.into(),
+            gaslimit: value.gas_limit.into(),
         }
     }
 }

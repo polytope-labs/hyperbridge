@@ -29,7 +29,7 @@ use ismp::{
     error::Error as IsmpError,
     host::StateMachine,
     module::IsmpModule,
-    router::{Post, Request, Response},
+    router::{Post, Request, Response, Timeout},
 };
 pub use pallet::*;
 use pallet_ismp::primitives::ModuleId;
@@ -60,15 +60,18 @@ pub mod pallet {
 
     /// Pallet Configuration
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_balances::Config + pallet_ismp::Config {
+    pub trait Config: frame_system::Config + pallet_ismp::Config {
         /// Overarching event
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         /// Native balance
-        type Balance: Balance + Into<<Self::NativeCurrency as Inspect<Self::AccountId>>::Balance>;
+        type Balance: Balance
+            + Into<<Self::NativeCurrency as Inspect<Self::AccountId>>::Balance>
+            + From<u32>;
         /// Native currency implementation
         type NativeCurrency: Mutate<Self::AccountId>;
         /// Ismp message disptacher
-        type IsmpDispatcher: IsmpDispatcher + Default;
+        type IsmpDispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = <Self as Config>::Balance>
+            + Default;
     }
 
     /// Pallet events
@@ -161,7 +164,7 @@ pub mod pallet {
             // dispatch the request
             let dispatcher = T::IsmpDispatcher::default();
             dispatcher
-                .dispatch_request(DispatchRequest::Post(post))
+                .dispatch_request(DispatchRequest::Post(post), origin, 0u32.into())
                 .map_err(|_| Error::<T>::TransferFailed)?;
 
             // let the user know, they've successfully sent the funds
@@ -180,7 +183,7 @@ pub mod pallet {
         #[pallet::weight(Weight::from_parts(1_000_000, 0))]
         #[pallet::call_index(1)]
         pub fn get_request(origin: OriginFor<T>, params: GetRequest) -> DispatchResult {
-            ensure_signed(origin)?;
+            let origin = ensure_signed(origin)?;
             let dest = match T::StateMachine::get() {
                 StateMachine::Kusama(_) => StateMachine::Kusama(params.para_id),
                 StateMachine::Polkadot(_) => StateMachine::Polkadot(params.para_id),
@@ -198,7 +201,7 @@ pub mod pallet {
 
             let dispatcher = T::IsmpDispatcher::default();
             dispatcher
-                .dispatch_request(DispatchRequest::Get(get))
+                .dispatch_request(DispatchRequest::Get(get), origin, 0u32.into())
                 .map_err(|_| Error::<T>::GetDispatchFailed)?;
             Ok(())
         }
@@ -207,7 +210,7 @@ pub mod pallet {
         #[pallet::weight(Weight::from_parts(1_000_000, 0))]
         #[pallet::call_index(2)]
         pub fn dispatch_to_evm(origin: OriginFor<T>, params: EvmParams) -> DispatchResult {
-            ensure_signed(origin)?;
+            let origin = ensure_signed(origin)?;
             let post = DispatchPost {
                 dest: StateMachine::Ethereum(params.destination),
                 from: PALLET_ID.to_bytes(),
@@ -220,7 +223,11 @@ pub mod pallet {
             for _ in 0..params.count {
                 // dispatch the request
                 dispatcher
-                    .dispatch_request(DispatchRequest::Post(post.clone()))
+                    .dispatch_request(
+                        DispatchRequest::Post(post.clone()),
+                        origin.clone(),
+                        0u32.into(),
+                    )
                     .map_err(|_| Error::<T>::TransferFailed)?;
             }
             Ok(())
@@ -355,19 +362,21 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
         Ok(())
     }
 
-    fn on_timeout(&self, request: Request) -> Result<(), IsmpError> {
-        let source_chain = request.source_chain();
-        let data = match request {
-            Request::Post(post) => post.data,
+    fn on_timeout(&self, timeout: Timeout) -> Result<(), IsmpError> {
+        let request = match timeout {
+            Timeout::Request(Request::Post(post)) => Request::Post(post),
             _ => Err(IsmpError::ImplementationSpecific(
                 "Only Post requests allowed, found Get".to_string(),
             ))?,
         };
-        let payload =
-            <Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(&mut &*data)
-                .map_err(|_| {
-                IsmpError::ImplementationSpecific("Failed to decode request data".to_string())
-            })?;
+        let source_chain = request.source_chain();
+
+        let payload = <Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(
+            &mut &*request.data().expect("Request has been checked; qed"),
+        )
+        .map_err(|_| {
+            IsmpError::ImplementationSpecific("Failed to decode request data".to_string())
+        })?;
         <T::NativeCurrency as Mutate<T::AccountId>>::mint_into(
             &payload.from,
             payload.amount.into(),

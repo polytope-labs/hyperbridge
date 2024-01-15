@@ -28,13 +28,15 @@ use frame_system::RawOrigin;
 /// modules using the [`crate::ismp_mocks::ModuleId`] as it's module id
 #[benchmarks(
 where
-T: pallet_timestamp::Config,
-<T as pallet_timestamp::Config>::Moment: From<u64>
+    T: pallet_timestamp::Config + pallet_balances::Config,
+    <T as pallet_timestamp::Config>::Moment: From<u64>,
+    T::AccountId: From<[u8; 32]>,
+    T::Balance: From<u32>,
 )]
 pub mod benchmarks {
     use super::*;
     use crate::{
-        dispatcher::Dispatcher,
+        dispatcher::{Dispatcher, FeeMetadata, RequestMetadata},
         host::Host,
         mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
         Config, Event, Pallet, RequestCommitments, RequestReceipts, ResponseReceipts,
@@ -51,7 +53,7 @@ pub mod benchmarks {
         mmr::Leaf,
         router::{
             DispatchGet, DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse,
-            Request, Response,
+            Request, RequestResponse, Response,
         },
         util::hash_request,
         LeafIndexQuery,
@@ -114,8 +116,11 @@ pub mod benchmarks {
             gas_limit: 0,
         };
 
-        let msg =
-            RequestMessage { requests: vec![post.clone()], proof: Proof { height, proof: vec![] } };
+        let msg = RequestMessage {
+            requests: vec![post.clone()],
+            proof: Proof { height, proof: vec![] },
+            signer: vec![],
+        };
 
         #[extrinsic_call]
         handle(RawOrigin::None, vec![Message::Request(msg)]);
@@ -142,16 +147,27 @@ pub mod benchmarks {
         let request = Request::Post(post.clone());
 
         let commitment = hash_request::<Host<T>>(&request);
-        RequestCommitments::<T>::insert(
-            commitment,
-            LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: post.nonce },
-        );
+        let meta = RequestMetadata {
+            query: LeafIndexQuery {
+                source_chain: post.source,
+                dest_chain: post.dest,
+                nonce: post.nonce,
+            },
+            meta: FeeMetadata { origin: [0u8; 32].into(), fee: 0.into() },
+        };
+        RequestCommitments::<T>::insert(commitment, meta);
 
-        let response = Response::Post(PostResponse { post, response: vec![] });
+        let response = Response::Post(PostResponse {
+            post,
+            response: vec![],
+            gas_limit: 0,
+            timeout_timestamp: 0,
+        });
         let request_commitment = hash_request::<Host<T>>(&response.request());
-        let msg = ResponseMessage::Post {
-            responses: vec![response],
+        let msg = ResponseMessage {
+            datagram: RequestResponse::Response(vec![response]),
             proof: Proof { height, proof: vec![] },
+            signer: vec![],
         };
 
         #[extrinsic_call]
@@ -178,10 +194,15 @@ pub mod benchmarks {
         let request = Request::Post(post.clone());
 
         let commitment = hash_request::<Host<T>>(&request);
-        RequestCommitments::<T>::insert(
-            commitment,
-            LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: post.nonce },
-        );
+        let meta = RequestMetadata {
+            query: LeafIndexQuery {
+                source_chain: post.source,
+                dest_chain: post.dest,
+                nonce: post.nonce,
+            },
+            meta: FeeMetadata { origin: [0u8; 32].into(), fee: 0.into() },
+        };
+        RequestCommitments::<T>::insert(commitment, meta);
 
         let msg = TimeoutMessage::Post {
             requests: vec![request],
@@ -234,7 +255,9 @@ pub mod benchmarks {
         let dispatcher = Dispatcher::<T>::default();
         #[block]
         {
-            dispatcher.dispatch_request(DispatchRequest::Post(post)).unwrap()
+            dispatcher
+                .dispatch_request(DispatchRequest::Post(post), [0u8; 32].into(), 0.into())
+                .unwrap()
         }
     }
 
@@ -252,7 +275,9 @@ pub mod benchmarks {
         let dispatcher = Dispatcher::<T>::default();
         #[block]
         {
-            dispatcher.dispatch_request(DispatchRequest::Get(get)).unwrap()
+            dispatcher
+                .dispatch_request(DispatchRequest::Get(get), [0u8; 32].into(), 0.into())
+                .unwrap()
         }
     }
 
@@ -269,17 +294,15 @@ pub mod benchmarks {
             gas_limit: 0,
         };
         let request_commitment = hash_request::<Host<T>>(&Request::Post(post.clone()));
-        RequestCommitments::<T>::insert(
-            request_commitment,
-            LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
-        );
+        RequestReceipts::<T>::insert(request_commitment, &vec![0u8; 32]);
 
-        let response = PostResponse { post, response: vec![1u8; 64] };
+        let response =
+            PostResponse { post, response: vec![1u8; 64], gas_limit: 0, timeout_timestamp: 0 };
 
         let dispatcher = Dispatcher::<T>::default();
         #[block]
         {
-            dispatcher.dispatch_response(response).unwrap()
+            dispatcher.dispatch_response(response, [0u8; 32].into(), 0.into()).unwrap()
         }
     }
 

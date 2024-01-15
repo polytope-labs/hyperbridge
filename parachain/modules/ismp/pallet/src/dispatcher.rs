@@ -15,6 +15,7 @@
 
 //! Implementation for the ISMP Router
 use crate::{host::Host, Pallet, RequestReceipts};
+use alloc::string::ToString;
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use ismp::{
@@ -24,7 +25,6 @@ use ismp::{
     util::hash_request,
     LeafIndexQuery,
 };
-use alloc::string::ToString;
 
 /// A receipt or an outgoing or incoming request or response
 #[derive(Encode, Decode, scale_info::TypeInfo)]

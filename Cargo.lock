@@ -6043,6 +6043,7 @@ dependencies = [
  "ismp",
  "ismp-sync-committee",
  "log",
+ "pallet-balances",
  "pallet-ismp",
  "pallet-timestamp",
  "parity-scale-codec",
@@ -6094,6 +6095,7 @@ dependencies = [
  "ethers",
  "ethers-contract-abigen",
  "forge-testsuite",
+ "ismp",
  "primitive-types",
  "sp-consensus-beefy",
 ]
@@ -8660,6 +8662,7 @@ dependencies = [
  "ismp",
  "ismp-testsuite",
  "log",
+ "pallet-balances",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",

@@ -6,6 +6,7 @@ pragma solidity 0.8.17;
 import "ismp/IIsmpModule.sol";
 import "ismp/IIsmpHost.sol";
 import "ismp/StateMachine.sol";
+import "ismp/IIsmp.sol";
 
 struct PingMessage {
     bytes dest;
@@ -14,6 +15,10 @@ struct PingMessage {
 }
 
 contract PingModule is IIsmpModule {
+    using Message for PostResponse;
+    using Message for PostRequest;
+    using Message for GetRequest;
+
     event PostResponseReceived();
     event GetResponseReceived();
     event PostTimeoutReceived();
@@ -38,30 +43,42 @@ contract PingModule is IIsmpModule {
         _host = host;
     }
 
+    function dispatchPostResponse(PostResponse memory response) public returns (bytes32) {
+        DispatchPostResponse memory post = DispatchPostResponse({
+            request: response.request,
+            response: response.response,
+            timeout: response.timeoutTimestamp,
+            gaslimit: response.gaslimit,
+            fee: 0
+        });
+        IIsmp(_host).dispatch(post);
+        return response.hash();
+    }
+
     function dispatch(PostRequest memory request) public returns (bytes32) {
-        bytes32 commitment = Message.hash(request);
         DispatchPost memory post = DispatchPost({
             body: request.body,
             dest: request.dest,
             timeout: request.timeoutTimestamp,
             to: request.to,
-            gaslimit: request.gaslimit
+            gaslimit: request.gaslimit,
+            fee: 0
         });
         IIsmp(_host).dispatch(post);
-        return commitment;
+        return request.hash();
     }
 
     function dispatch(GetRequest memory request) public returns (bytes32) {
-        bytes32 commitment = Message.hash(request);
         DispatchGet memory get = DispatchGet({
             dest: request.dest,
             height: request.height,
             keys: request.keys,
             timeout: request.timeoutTimestamp,
-            gaslimit: request.gaslimit
+            gaslimit: request.gaslimit,
+            fee: 0
         });
         IIsmp(_host).dispatch(get);
-        return commitment;
+        return request.hash();
     }
 
     function ping(PingMessage memory pingMessage) public {
@@ -73,7 +90,8 @@ contract PingModule is IIsmpModule {
             // instance of this pallet on another chain.
             to: abi.encodePacked(address(pingMessage.module)),
             // unused for now
-            gaslimit: 0
+            gaslimit: 0,
+            fee: 0
         });
         IIsmp(_host).dispatch(post);
     }
@@ -85,7 +103,8 @@ contract PingModule is IIsmpModule {
             timeout: 0,
             // timeout: 60 * 60, // one hour
             to: bytes("ismp-ast"), // ismp demo pallet
-            gaslimit: 0 // unnedeed, since it's a pallet
+            gaslimit: 0,
+            fee: 0
         });
         IIsmp(_host).dispatch(post);
     }
@@ -106,7 +125,11 @@ contract PingModule is IIsmpModule {
         emit GetTimeoutReceived();
     }
 
-    function onPostTimeout(PostRequest memory) external onlyIsmpHost {
+    function onPostRequestTimeout(PostRequest memory) external onlyIsmpHost {
         emit PostTimeoutReceived();
+    }
+
+    function onPostResponseTimeout(PostResponse memory request) external view onlyIsmpHost {
+        revert("Token gateway doesn't emit Get Requests");
     }
 }

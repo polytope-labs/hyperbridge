@@ -11,7 +11,7 @@ import "solidity-merkle-trees/MerklePatricia.sol";
 import "solidity-merkle-trees/trie/substrate/ScaleCodec.sol";
 import "solidity-merkle-trees/trie/Bytes.sol";
 import "openzeppelin/utils/cryptography/ECDSA.sol";
-import {PlonkVerifier} from "./PlonkVerifier.sol";
+import {IVerifier} from "./verifiers/IVerifier.sol";
 
 struct PlonkConsensusProof {
     /// Commitment message
@@ -40,14 +40,14 @@ contract ZkBeefyV1 is IConsensusClient {
     bytes4 public constant AURA_CONSENSUS_ID = bytes4("aura");
 
     // Plonk verifier contract
-    PlonkVerifier internal verifier;
+    IVerifier internal _verifier;
 
     // Authorized paraId.
     uint256 private _paraId;
 
-    constructor(uint256 paraId) {
+    constructor(uint256 paraId, IVerifier verifier) {
         _paraId = paraId;
-        verifier = new PlonkVerifier();
+        _verifier = verifier;
     }
 
     function verifyConsensus(bytes memory encodedState, bytes memory encodedProof)
@@ -129,7 +129,7 @@ contract ZkBeefyV1 is IConsensusClient {
         }
 
         // check BEEFY proof
-        require(verifier.verify(relayProof.proof, inputs), "ZkBEEFY: Invalid plonk proof");
+        require(_verifier.verify(relayProof.proof, inputs), "ZkBEEFY: Invalid plonk proof");
 
         verifyMmrLeaf(relayProof, mmrRoot);
 
@@ -144,10 +144,7 @@ contract ZkBeefyV1 is IConsensusClient {
     }
 
     /// Stack too deep, sigh solidity
-    function verifyMmrLeaf(PlonkConsensusProof memory relay, bytes32 mmrRoot)
-        internal
-        pure
-    {
+    function verifyMmrLeaf(PlonkConsensusProof memory relay, bytes32 mmrRoot) internal pure {
         bytes32 temp = keccak256(Codec.Encode(relay.latestMmrLeaf));
         // bag peaks from right to left
         uint256 i = relay.mmrProof.length;

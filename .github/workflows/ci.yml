@@ -22,7 +22,7 @@ env:
 jobs:
   check-wasm:
     name: Check Wasm Crates
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     strategy:
       matrix:
         crate: [messier-runtime, gargantua-runtime]
@@ -31,6 +31,11 @@ jobs:
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -52,23 +57,22 @@ jobs:
 
   check-workspace:
     name: Check Workspace
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v2
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: stable
-
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          version: '3.x'
-          repo-token: ${{ secrets.GH_TOKEN }}
 
       - uses: webfactory/ssh-agent@v0.7.0
         with:
@@ -102,7 +106,7 @@ jobs:
 
   unit-tests:
     name: Unit Tests
-    runs-on: release-runner
+    runs-on: self-hosted
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources
@@ -110,6 +114,11 @@ jobs:
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
 
       - name: Install rust stable toolchain
         uses: actions-rs/toolchain@v1
@@ -128,18 +137,13 @@ jobs:
           rustup component add rust-src
           rustup show
 
-      - name: Install protoc
-        run: |
-          sudo apt update
-          sudo apt install protobuf-compiler
-
       - name: Run unit tests
         run: |
           ./scripts/ignore_plonk.sh "cargo test --all-targets --features=runtime-benchmarks --locked"
 
   integration-tests:
     name: Integration Tests
-    runs-on: release-runner
+    runs-on: self-hosted
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources
@@ -147,6 +151,11 @@ jobs:
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
 
       - name: Install rust stable toolchain
         uses: actions-rs/toolchain@v1
@@ -162,11 +171,6 @@ jobs:
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
           rustup show
-
-      - name: Install protoc
-        run: |
-          sudo apt update
-          sudo apt install protobuf-compiler
 
       - uses: Swatinem/rust-cache@v2
 
@@ -213,11 +217,11 @@ jobs:
 
       - name: polygon pos integration tests
         run: |
-          ./scripts/ignore_plonk.sh "cargo test -p polygon-pos-prover -- --nocapture"
+          ./scripts/ignore_plonk.sh "cargo test -p polygon-pos-prover -- --nocapture --ignored"
 
       - name: Binance Smart Chain integration tests
         run: |
-          ./scripts/ignore_plonk.sh "cargo test -p bnb-pos-prover -- --nocapture"
+          ./scripts/ignore_plonk.sh "cargo test -p bnb-pos-prover -- --nocapture --ignored"
 
   check-solidity:
     name: Check ismp-solidity

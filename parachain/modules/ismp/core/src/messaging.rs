@@ -23,7 +23,7 @@ use crate::{
         ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId,
     },
     error::Error,
-    router::{Post, Request, Response},
+    router::{Get, Post, PostResponse, Request, RequestResponse},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, Encode};
@@ -82,58 +82,45 @@ pub struct RequestMessage {
     pub requests: Vec<Post>,
     /// Membership batch proof for these requests
     pub proof: Proof,
+    /// Signer information. Ideally should be their account identifier
+    pub signer: Vec<u8>,
 }
 
 /// A request message holds a batch of responses to be dispatched from a source state machine
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub enum ResponseMessage {
-    /// A POST request for sending data
-    Post {
-        /// Responses from sink chain
-        responses: Vec<Response>,
-        /// Membership batch proof for these responses
-        proof: Proof,
-    },
-    /// A GET request for querying data
-    Get {
-        /// Request batch
-        requests: Vec<Request>,
-        /// State proof
-        proof: Proof,
-    },
+pub struct ResponseMessage {
+    /// A set of either POST requests or responses to be handled
+    pub datagram: RequestResponse,
+    /// Membership batch proof for these req/res
+    pub proof: Proof,
+    /// Signer information. Ideally should be their account identifier
+    pub signer: Vec<u8>,
 }
 
 impl ResponseMessage {
     /// Returns the requests in this message.
     pub fn requests(&self) -> Vec<Request> {
-        match self {
-            ResponseMessage::Post { responses, .. } =>
+        match &self.datagram {
+            RequestResponse::Response(responses) =>
                 responses.iter().map(|res| res.request()).collect(),
-            ResponseMessage::Get { requests, .. } => requests.clone(),
+            RequestResponse::Request(requests) => requests.clone(),
         }
     }
 
     /// Retuns the associated proof
     pub fn proof(&self) -> &Proof {
-        match self {
-            ResponseMessage::Post { proof, .. } => proof,
-            ResponseMessage::Get { proof, .. } => proof,
-        }
+        &self.proof
     }
 }
 
 /// Returns an error if the proof height is less than any of the retrieval heights specified in the
 /// get requests
-pub fn sufficient_proof_height(requests: &[Request], proof: &Proof) -> Result<(), Error> {
-    let check = requests.iter().all(|req| match req {
-        Request::Get(get) => get.height == proof.height.height,
-        _ => false,
-    });
-    if !check {
-        Err(Error::InsufficientProofHeight)
-    } else {
-        Ok(())
+pub fn sufficient_proof_height(requests: &[Get], proof: &Proof) -> Result<(), Error> {
+    if !requests.iter().all(|get| get.height == proof.height.height) {
+        Err(Error::InsufficientProofHeight)?
     }
+
+    Ok(())
 }
 
 /// A request message holds a batch of requests to be timed-out
@@ -146,6 +133,13 @@ pub enum TimeoutMessage {
         /// Non membership batch proof for these requests
         timeout_proof: Proof,
     },
+    /// A non memership proof for POST requests
+    PostResponse {
+        /// Request timeouts
+        responses: Vec<PostResponse>,
+        /// Non membership batch proof for these requests
+        timeout_proof: Proof,
+    },
     /// There are no proofs for Get timeouts, we only need to
     /// ensure that the timeout timestamp has elapsed on the host
     Get {
@@ -155,14 +149,6 @@ pub enum TimeoutMessage {
 }
 
 impl TimeoutMessage {
-    /// Returns the requests in this message.
-    pub fn requests(&self) -> &[Request] {
-        match self {
-            TimeoutMessage::Post { requests, .. } => requests,
-            TimeoutMessage::Get { requests } => requests,
-        }
-    }
-
     /// Returns the associated proof
     pub fn timeout_proof(&self) -> Result<&Proof, Error> {
         match self {

@@ -1,7 +1,9 @@
 //! Some extra utilities for pallet-ismp
 
 use crate::{
-    dispatcher::Receipt, host::Host, Config, Event, Pallet, RequestCommitments, ResponseCommitments,
+    dispatcher::{FeeMetadata, RequestMetadata},
+    host::Host,
+    Config, Event, Pallet, RequestCommitments, Responded, ResponseCommitments,
 };
 use alloc::string::ToString;
 use ismp::{
@@ -14,7 +16,7 @@ use ismp::{
 
 impl<T: Config> Pallet<T> {
     /// Dispatch an outgoing request
-    pub fn dispatch_request(request: Request) -> Result<(), IsmpError> {
+    pub fn dispatch_request(request: Request, meta: FeeMetadata<T>) -> Result<(), IsmpError> {
         let commitment = hash_request::<Host<T>>(&request);
 
         if RequestCommitments::<T>::contains_key(commitment) {
@@ -35,24 +37,20 @@ impl<T: Config> Pallet<T> {
 
         RequestCommitments::<T>::insert(
             commitment,
-            LeafIndexQuery { source_chain, dest_chain, nonce },
+            RequestMetadata { query: LeafIndexQuery { source_chain, dest_chain, nonce }, meta },
         );
         Ok(())
     }
 
     /// Dispatch an outgoing response
-    pub fn dispatch_response(response: Response) -> Result<(), IsmpError> {
-        let commitment = hash_request::<Host<T>>(&response.request());
+    pub fn dispatch_response(response: Response, meta: FeeMetadata<T>) -> Result<(), IsmpError> {
+        let req_commitment = hash_request::<Host<T>>(&response.request());
 
-        if !RequestCommitments::<T>::contains_key(commitment) {
-            Err(IsmpError::ImplementationSpecific("Unknown request for response".to_string()))?
+        if Responded::<T>::contains_key(req_commitment) {
+            Err(IsmpError::ImplementationSpecific("Request has been responded to".to_string()))?
         }
 
         let commitment = hash_response::<Host<T>>(&response);
-
-        if ResponseCommitments::<T>::contains_key(commitment) {
-            Err(IsmpError::ImplementationSpecific("Duplicate response".to_string()))?
-        }
 
         let (dest_chain, source_chain, nonce) =
             (response.dest_chain(), response.source_chain(), response.nonce());
@@ -66,7 +64,8 @@ impl<T: Config> Pallet<T> {
             dest_chain,
             source_chain,
         });
-        ResponseCommitments::<T>::insert(commitment, Receipt::Ok);
+        ResponseCommitments::<T>::insert(commitment, meta);
+        Responded::<T>::insert(req_commitment, true);
         Ok(())
     }
 }

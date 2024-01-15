@@ -14,13 +14,16 @@
 // limitations under the License.
 
 //! Implementation for the ISMP Router
-use crate::{host::Host, Config, Pallet};
+use crate::{host::Host, Pallet, RequestReceipts};
+use alloc::string::ToString;
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use ismp::{
     error::Error as IsmpError,
     host::IsmpHost,
     router::{DispatchRequest, Get, IsmpDispatcher, Post, PostResponse, Request, Response},
+    util::hash_request,
+    LeafIndexQuery,
 };
 
 /// A receipt or an outgoing or incoming request or response
@@ -30,7 +33,30 @@ pub enum Receipt {
     Ok,
 }
 
+/// Queries a request leaf in the mmr
+#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[scale_info(skip_type_params(T))]
+pub struct RequestMetadata<T: crate::Config> {
+    /// Information about where it's stored in the offchain db
+    pub query: LeafIndexQuery,
+    /// Other metadata about the request
+    pub meta: FeeMetadata<T>,
+}
+
+/// This is used for tracking user fee payments for requests
+#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
+#[scale_info(skip_type_params(T))]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+pub struct FeeMetadata<T: crate::Config> {
+    /// The user who paid for this fee
+    pub origin: T::AccountId,
+    /// The amount they paid
+    pub fee: T::Balance,
+}
+
 /// The dispatcher commits outgoing requests and responses to the mmr
+/// This dispatcher charges no fees, use only if you intend to self-relay.
 pub struct Dispatcher<T>(PhantomData<T>);
 
 impl<T> Default for Dispatcher<T> {
@@ -41,9 +67,17 @@ impl<T> Default for Dispatcher<T> {
 
 impl<T> IsmpDispatcher for Dispatcher<T>
 where
-    T: Config,
+    T: crate::Config,
 {
-    fn dispatch_request(&self, request: DispatchRequest) -> Result<(), IsmpError> {
+    type Account = T::AccountId;
+    type Balance = T::Balance;
+
+    fn dispatch_request(
+        &self,
+        request: DispatchRequest,
+        origin: Self::Account,
+        fee: Self::Balance,
+    ) -> Result<(), IsmpError> {
         let host = Host::<T>::default();
         let request = match request {
             DispatchRequest::Get(dispatch_get) => {
@@ -74,15 +108,24 @@ where
             },
         };
 
-        Pallet::<T>::dispatch_request(request)?;
+        Pallet::<T>::dispatch_request(request, FeeMetadata { origin, fee })?;
 
         Ok(())
     }
 
-    fn dispatch_response(&self, response: PostResponse) -> Result<(), IsmpError> {
-        let response = Response::Post(response);
+    fn dispatch_response(
+        &self,
+        response: PostResponse,
+        origin: Self::Account,
+        fee: Self::Balance,
+    ) -> Result<(), IsmpError> {
+        let req_commitment = hash_request::<Host<T>>(&response.request());
+        if !RequestReceipts::<T>::contains_key(req_commitment) {
+            Err(IsmpError::ImplementationSpecific("Unknown request for response".to_string()))?
+        }
 
-        Pallet::<T>::dispatch_response(response)?;
+        let response = Response::Post(response);
+        Pallet::<T>::dispatch_response(response, FeeMetadata { origin, fee })?;
 
         Ok(())
     }

@@ -61,7 +61,8 @@ contract TokenGateway is IIsmpModule {
             to: abi.encodePacked(address(this)), // should the same address across evm hosts
             body: data,
             timeout: params.timeout, // seconds
-            gaslimit: 0 // unused
+            gaslimit: 0,
+            fee: 0
         });
         IIsmp(host).dispatch(request);
     }
@@ -75,22 +76,26 @@ contract TokenGateway is IIsmpModule {
         emit AssetReceived(request.source, request.nonce);
     }
 
-    function onPostTimeout(PostRequest memory request) public onlyIsmpHost {
+    function onPostRequestTimeout(PostRequest memory request) public onlyIsmpHost {
         (address from,, uint256 amount, address tokenContract) =
             abi.decode(request.body, (address, address, uint256, address));
 
         IERC6160Ext20(tokenContract).mint(from, amount, "");
     }
 
-    function onPostResponse(PostResponse memory) public view onlyIsmpHost {
+    function onPostResponse(PostResponse memory) external view onlyIsmpHost {
         revert("Token gateway doesn't emit responses");
     }
 
-    function onGetResponse(GetResponse memory) public view onlyIsmpHost {
+    function onGetResponse(GetResponse memory) external view onlyIsmpHost {
         revert("Token gateway doesn't emit Get Requests");
     }
 
-    function onGetTimeout(GetRequest memory) public view onlyIsmpHost {
+    function onPostResponseTimeout(PostResponse memory request) external view onlyIsmpHost {
+        revert("Token gateway doesn't emit Get Requests");
+    }
+
+    function onGetTimeout(GetRequest memory) external view onlyIsmpHost {
         revert("Token gateway doesn't emit Get Requests");
     }
 }

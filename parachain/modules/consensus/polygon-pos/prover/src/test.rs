@@ -25,6 +25,7 @@ async fn setup_prover() -> PolygonPosProver {
 }
 
 #[tokio::test]
+#[ignore]
 async fn verify_polygon_pos_headers() {
     let prover = setup_prover().await;
 

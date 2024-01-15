@@ -14,6 +14,8 @@ import "../src/hosts/Arbitrum.sol";
 import "../src/hosts/Optimism.sol";
 import "../src/hosts/Base.sol";
 import "../test/PingModule.sol";
+import {BscHost} from "../src/hosts/Bsc.sol";
+import {PolygonHost} from "../src/hosts/Polygon.sol";
 
 contract DeployScript is Script {
     bytes32 public salt = keccak256(bytes("gargantua-v0.0.1"));
@@ -48,7 +50,8 @@ contract DeployScript is Script {
             consensusState: new bytes(0),
             baseGetRequestFee: 0,
             perByteFee: 0,
-            feeTokenAddress: address(0)
+            feeTokenAddress: address(0),
+            latestStateMachineHeight: 0
         });
         address hostAddress = initHost(host, params);
         // set the ismphost on the cross-chain governor
@@ -70,6 +73,12 @@ contract DeployScript is Script {
             return address(h);
         } else if (Strings.equal(host, "base-sepolia")) {
             BaseHost h = new BaseHost{salt: salt}(params);
+            return address(h);
+        } else if (Strings.equal(host, "bsc")) {
+            BscHost h = new BscHost{salt: salt}(params);
+            return address(h);
+        } else {
+            PolygonHost h = new PolygonHost{salt: salt}(params);
             return address(h);
         }
 

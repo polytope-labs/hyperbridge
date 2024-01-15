@@ -28,7 +28,9 @@ use ismp::{
     router::{IsmpRouter, Post, Request, Response},
 };
 
+use ismp::router::Timeout;
 use pallet_ismp::{
+    dispatcher::FeeMetadata,
     host::Host,
     primitives::{ConsensusClientProvider, ModuleId},
 };
@@ -95,7 +97,8 @@ impl ismp_polygon_pos::pallet::Config for Runtime {}
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
         if request.dest != StateMachineProvider::get() {
-            return Ismp::dispatch_request(Request::Post(request));
+            let meta = FeeMetadata { origin: [0u8; 32].into(), fee: Default::default() };
+            return Ismp::dispatch_request(Request::Post(request), meta);
         }
 
         let pallet_id = ModuleId::from_bytes(&request.to)
@@ -109,7 +112,8 @@ impl IsmpModule for ProxyModule {
 
     fn on_response(&self, response: Response) -> Result<(), Error> {
         if response.dest_chain() != StateMachineProvider::get() {
-            return Ismp::dispatch_response(response);
+            let meta = FeeMetadata { origin: [0u8; 32].into(), fee: Default::default() };
+            return Ismp::dispatch_response(response, meta);
         }
 
         let request = &response.request();
@@ -127,17 +131,18 @@ impl IsmpModule for ProxyModule {
         }
     }
 
-    fn on_timeout(&self, request: Request) -> Result<(), Error> {
-        let from = match &request {
-            Request::Post(post) => &post.from,
-            Request::Get(get) => &get.from,
+    fn on_timeout(&self, timeout: Timeout) -> Result<(), Error> {
+        let from = match &timeout {
+            Timeout::Request(Request::Post(post)) => &post.from,
+            Timeout::Request(Request::Get(get)) => &get.from,
+            Timeout::Response(res) => &res.post.to,
         };
 
         let pallet_id = ModuleId::from_bytes(from)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
         match pallet_id {
             ismp_demo::PALLET_ID =>
-                ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(request),
+                ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(timeout),
             // instead of returning an error, do nothing. The timeout is for a connected chain.
             _ => Ok(()),
         }

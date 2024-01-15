@@ -8948,6 +8948,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-relayer-fee-tracker"
+version = "0.1.0"
+dependencies = [
+ "ckb-merkle-mountain-range 0.5.2 (git+https://github.com/polytope-labs/merkle-mountain-range?branch=seun/simplified-mmr)",
+ "derive_more",
+ "enum-as-inner",
+ "env_logger",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "ismp-testsuite",
+ "log",
+ "pallet-ismp",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-api",
+ "sp-core 25.0.0",
+ "sp-io 27.0.0",
+ "sp-runtime 28.0.0",
+ "sp-std 11.0.0",
+]
+
+[[package]]
 name = "pallet-scheduler"
 version = "26.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

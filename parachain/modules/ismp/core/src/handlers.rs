@@ -98,7 +98,7 @@ where
 /// - It ensures the consensus client is not frozen
 /// - It ensures the state machine is not frozen
 /// - Checks that the delay period configured for the state machine has elaspsed.
-fn validate_state_machine<H>(
+pub fn validate_state_machine<H>(
     host: &H,
     proof_height: StateMachineHeight,
 ) -> Result<Box<dyn StateMachineClient>, Error>

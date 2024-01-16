@@ -1,4 +1,3 @@
-use crate::pallet::*;
 use codec::Encode;
 use frame_support::crypto::ecdsa::ECDSAExt;
 
@@ -14,14 +13,15 @@ use ismp::{
 };
 use pallet_ismp::{
     host::Host,
-    mocks::mocks::{MockConsensusClient, MockModule},
+    mocks::{
+        mocks::{MockConsensusClient, MockModule},
+        ExistentialDeposit,
+    },
     primitives::ConsensusClientProvider,
 };
-use polygon_pos_verifier::primitives::hash_without_sig;
-use sp_core::{Pair, H160, H256};
+use sp_core::{Pair, H256};
 use sp_runtime::traits::{IdentityLookup, Keccak256};
 
-type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
 
 frame_support::construct_runtime!(
@@ -30,6 +30,7 @@ frame_support::construct_runtime!(
         Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
         Ismp: pallet_ismp::{Pallet, Storage, Call, Event<T>},
         IsmpPolygonPos: crate::pallet,
+        Balances: pallet_balances,
     }
 );
 
@@ -68,7 +69,7 @@ impl frame_system::Config for Test {
     type Nonce = u64;
     type Block = Block;
     type PalletInfo = PalletInfo;
-    type AccountData = ();
+    type AccountData = pallet_balances::AccountData<pallet_ismp::mocks::Balance>;
     type OnNewAccount = ();
     type OnKilledAccount = ();
     type SystemWeightInfo = ();
@@ -82,6 +83,25 @@ impl pallet_timestamp::Config for Test {
     type OnTimestampSet = ();
     type MinimumPeriod = ConstU64<1>;
     type WeightInfo = ();
+}
+
+impl pallet_balances::Config for Test {
+    /// The ubiquitous event type.
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type RuntimeFreezeReason = RuntimeFreezeReason;
+    type WeightInfo = pallet_balances::weights::SubstrateWeight<Test>;
+    /// The type for recording an account's balance.
+    type Balance = pallet_ismp::mocks::Balance;
+    type DustRemoval = ();
+    type ExistentialDeposit = ExistentialDeposit;
+    type AccountStore = System;
+    type ReserveIdentifier = [u8; 8];
+    type FreezeIdentifier = ();
+    type MaxLocks = ConstU32<50>;
+    type MaxReserves = ConstU32<50>;
+    type MaxHolds = ConstU32<1>;
+    type MaxFreezes = ();
 }
 
 impl pallet_ismp::Config for Test {
@@ -110,9 +130,9 @@ impl IsmpRouter for ModuleRouter {
 #[test]
 fn verify_fraud_proof() {
     let mut validators = vec![];
-    for i in 0..5u64 {
+    for _ in 0..5u64 {
         let pair = sp_core::ecdsa::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
-        let key = pair.public();
+        // let key = pair.public();
         validators.push((pair.public().to_eth_address().unwrap().into(), pair))
     }
 

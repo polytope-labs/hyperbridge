@@ -1,7 +1,7 @@
 use crate::{
     check_challenge_period, check_client_expiry, frozen_check,
     mocks::{Host, MockDispatcher},
-    timeout_post_processing_check, write_outgoing_commitments,
+    post_request_timeout_check, post_response_timeout_check, write_outgoing_commitments,
 };
 use std::sync::Arc;
 
@@ -31,8 +31,15 @@ fn should_reject_expired_check_clients() {
     check_client_expiry(&host).unwrap()
 }
 #[test]
-fn should_process_timeouts_correctly() {
+fn should_process_post_request_timeouts_correctly() {
     let host = Arc::new(Host::default());
     let dispatcher = MockDispatcher(host.clone());
-    timeout_post_processing_check(&*host, &dispatcher).unwrap()
+    post_request_timeout_check(&*host, &dispatcher).unwrap()
+}
+
+#[test]
+fn should_process_post_response_timeouts_correctly() {
+    let host = Arc::new(Host::default());
+    let dispatcher = MockDispatcher(host.clone());
+    post_response_timeout_check(&*host, &dispatcher).unwrap()
 }

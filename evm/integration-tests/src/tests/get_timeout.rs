@@ -12,7 +12,7 @@ use std::{env, path::PathBuf};
 async fn test_get_timeout() -> Result<(), anyhow::Error> {
     let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
     let mut runner = Runner::new(PathBuf::from(&base_dir));
-    let mut contract = runner.deploy("GetTimeoutTest").await;
+    let mut contract = runner.deploy("GetRequestTest").await;
     let destination = contract.call::<_, Address>("module", ()).await?;
 
     let key = H256::random().as_bytes().to_vec();
@@ -43,9 +43,7 @@ async fn test_get_timeout() -> Result<(), anyhow::Error> {
     sol_get.timeout_timestamp -= 1;
 
     // execute the test
-    contract
-        .call::<_, ()>("GetTimeoutNoChallengeNoTimeout", (sol_get.into_token(),))
-        .await?;
+    contract.call::<_, ()>("GetTimeoutNoChallenge", (sol_get.into_token(),)).await?;
 
     Ok(())
 }

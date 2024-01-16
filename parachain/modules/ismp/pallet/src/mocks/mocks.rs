@@ -12,7 +12,7 @@ use ismp::{
     host::{Ethereum, IsmpHost, StateMachine},
     messaging::{CreateConsensusState, Proof, StateCommitmentHeight},
     module::IsmpModule,
-    router::{Post, Request, RequestResponse, Response},
+    router::{Post, Request, RequestResponse, Response, Timeout},
 };
 
 /// Mock consensus state id
@@ -41,7 +41,7 @@ impl IsmpModule for MockModule {
         Ok(())
     }
 
-    fn on_timeout(&self, _request: Request) -> Result<(), ismp::error::Error> {
+    fn on_timeout(&self, _request: Timeout) -> Result<(), ismp::error::Error> {
         Ok(())
     }
 }
@@ -90,7 +90,7 @@ impl StateMachineClient for MockStateMachine {
         Ok(())
     }
 
-    fn state_trie_key(&self, _request: Vec<Request>) -> Vec<Vec<u8>> {
+    fn state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
         Default::default()
     }
 

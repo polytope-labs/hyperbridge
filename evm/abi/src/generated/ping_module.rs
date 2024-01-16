@@ -92,6 +92,42 @@ pub mod ping_module {
                     ],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("dispatchPostResponse"),
+                    ::std::vec![::ethers::core::abi::ethabi::Function {
+                        name: ::std::borrow::ToOwned::to_owned("dispatchPostResponse",),
+                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::borrow::ToOwned::to_owned("response"),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
+                                ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                ],),
+                                ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                            ],),
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("struct PostResponse"),
+                            ),
+                        },],
+                        outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::string::String::new(),
+                            kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize,),
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("bytes32"),
+                            ),
+                        },],
+                        constant: ::core::option::Option::None,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                    },],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("dispatchToParachain"),
                     ::std::vec![::ethers::core::abi::ethabi::Function {
                         name: ::std::borrow::ToOwned::to_owned("dispatchToParachain",),
@@ -201,37 +237,9 @@ pub mod ping_module {
                     },],
                 ),
                 (
-                    ::std::borrow::ToOwned::to_owned("onPostResponse"),
+                    ::std::borrow::ToOwned::to_owned("onPostRequestTimeout"),
                     ::std::vec![::ethers::core::abi::ethabi::Function {
-                        name: ::std::borrow::ToOwned::to_owned("onPostResponse"),
-                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                            name: ::std::string::String::new(),
-                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ],),
-                                ::ethers::core::abi::ethabi::ParamType::Bytes,
-                            ],),
-                            internal_type: ::core::option::Option::Some(
-                                ::std::borrow::ToOwned::to_owned("struct PostResponse"),
-                            ),
-                        },],
-                        outputs: ::std::vec![],
-                        constant: ::core::option::Option::None,
-                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
-                    },],
-                ),
-                (
-                    ::std::borrow::ToOwned::to_owned("onPostTimeout"),
-                    ::std::vec![::ethers::core::abi::ethabi::Function {
-                        name: ::std::borrow::ToOwned::to_owned("onPostTimeout"),
+                        name: ::std::borrow::ToOwned::to_owned("onPostRequestTimeout",),
                         inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
                             name: ::std::string::String::new(),
                             kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
@@ -251,6 +259,66 @@ pub mod ping_module {
                         outputs: ::std::vec![],
                         constant: ::core::option::Option::None,
                         state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                    },],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("onPostResponse"),
+                    ::std::vec![::ethers::core::abi::ethabi::Function {
+                        name: ::std::borrow::ToOwned::to_owned("onPostResponse"),
+                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::string::String::new(),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
+                                ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                ],),
+                                ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                            ],),
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("struct PostResponse"),
+                            ),
+                        },],
+                        outputs: ::std::vec![],
+                        constant: ::core::option::Option::None,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                    },],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("onPostResponseTimeout"),
+                    ::std::vec![::ethers::core::abi::ethabi::Function {
+                        name: ::std::borrow::ToOwned::to_owned("onPostResponseTimeout",),
+                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::borrow::ToOwned::to_owned("request"),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
+                                ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                ],),
+                                ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                            ],),
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("struct PostResponse"),
+                            ),
+                        },],
+                        outputs: ::std::vec![],
+                        constant: ::core::option::Option::None,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
                     },],
                 ),
                 (
@@ -400,6 +468,15 @@ pub mod ping_module {
                 .method_hash([209, 171, 70, 207], (request,))
                 .expect("method not found (this should never happen)")
         }
+        ///Calls the contract's `dispatchPostResponse` (0xca4b68fc) function
+        pub fn dispatch_post_response(
+            &self,
+            response: PostResponse,
+        ) -> ::ethers::contract::builders::ContractCall<M, [u8; 32]> {
+            self.0
+                .method_hash([202, 75, 104, 252], (response,))
+                .expect("method not found (this should never happen)")
+        }
         ///Calls the contract's `dispatchToParachain` (0x72354e9b) function
         pub fn dispatch_to_parachain(
             &self,
@@ -436,22 +513,31 @@ pub mod ping_module {
                 .method_hash([76, 70, 192, 53], (p0,))
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `onPostResponse` (0xc52c28af) function
+        ///Calls the contract's `onPostRequestTimeout` (0xd63bcf18) function
+        pub fn on_post_request_timeout(
+            &self,
+            p0: PostRequest,
+        ) -> ::ethers::contract::builders::ContractCall<M, ()> {
+            self.0
+                .method_hash([214, 59, 207, 24], (p0,))
+                .expect("method not found (this should never happen)")
+        }
+        ///Calls the contract's `onPostResponse` (0xafb760ac) function
         pub fn on_post_response(
             &self,
             p0: PostResponse,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([197, 44, 40, 175], (p0,))
+                .method_hash([175, 183, 96, 172], (p0,))
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `onPostTimeout` (0xc715f52b) function
-        pub fn on_post_timeout(
+        ///Calls the contract's `onPostResponseTimeout` (0x12b2524f) function
+        pub fn on_post_response_timeout(
             &self,
-            p0: PostRequest,
+            request: PostResponse,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([199, 21, 245, 43], (p0,))
+                .method_hash([18, 178, 82, 79], (request,))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `ping` (0x40ffb7bc) function
@@ -806,6 +892,26 @@ pub mod ping_module {
     pub struct DispatchWithRequestCall {
         pub request: GetRequest,
     }
+    ///Container type for all input parameters for the `dispatchPostResponse` function with
+    /// signature `dispatchPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,
+    /// uint64,uint64))` and selector `0xca4b68fc`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(
+        name = "dispatchPostResponse",
+        abi = "dispatchPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))"
+    )]
+    pub struct DispatchPostResponseCall {
+        pub response: PostResponse,
+    }
     ///Container type for all input parameters for the `dispatchToParachain` function with
     /// signature `dispatchToParachain(uint256)` and selector `0x72354e9b`
     #[derive(
@@ -877,9 +983,27 @@ pub mod ping_module {
         abi = "onGetTimeout((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64))"
     )]
     pub struct OnGetTimeoutCall(pub GetRequest);
+    ///Container type for all input parameters for the `onPostRequestTimeout` function with
+    /// signature `onPostRequestTimeout((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and
+    /// selector `0xd63bcf18`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(
+        name = "onPostRequestTimeout",
+        abi = "onPostRequestTimeout((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))"
+    )]
+    pub struct OnPostRequestTimeoutCall(pub PostRequest);
     ///Container type for all input parameters for the `onPostResponse` function with signature
-    /// `onPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes))` and selector
-    /// `0xc52c28af`
+    /// `onPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))`
+    /// and selector `0xafb760ac`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -892,12 +1016,12 @@ pub mod ping_module {
     )]
     #[ethcall(
         name = "onPostResponse",
-        abi = "onPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes))"
+        abi = "onPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))"
     )]
     pub struct OnPostResponseCall(pub PostResponse);
-    ///Container type for all input parameters for the `onPostTimeout` function with signature
-    /// `onPostTimeout((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector
-    /// `0xc715f52b`
+    ///Container type for all input parameters for the `onPostResponseTimeout` function with
+    /// signature `onPostResponseTimeout(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),
+    /// bytes,uint64,uint64))` and selector `0x12b2524f`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -909,10 +1033,12 @@ pub mod ping_module {
         Hash,
     )]
     #[ethcall(
-        name = "onPostTimeout",
-        abi = "onPostTimeout((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))"
+        name = "onPostResponseTimeout",
+        abi = "onPostResponseTimeout(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))"
     )]
-    pub struct OnPostTimeoutCall(pub PostRequest);
+    pub struct OnPostResponseTimeoutCall {
+        pub request: PostResponse,
+    }
     ///Container type for all input parameters for the `ping` function with signature
     /// `ping((bytes,address,uint64))` and selector `0x40ffb7bc`
     #[derive(
@@ -934,12 +1060,14 @@ pub mod ping_module {
     pub enum PingModuleCalls {
         Dispatch(DispatchCall),
         DispatchWithRequest(DispatchWithRequestCall),
+        DispatchPostResponse(DispatchPostResponseCall),
         DispatchToParachain(DispatchToParachainCall),
         OnAccept(OnAcceptCall),
         OnGetResponse(OnGetResponseCall),
         OnGetTimeout(OnGetTimeoutCall),
+        OnPostRequestTimeout(OnPostRequestTimeoutCall),
         OnPostResponse(OnPostResponseCall),
-        OnPostTimeout(OnPostTimeoutCall),
+        OnPostResponseTimeout(OnPostResponseTimeoutCall),
         Ping(PingCall),
     }
     impl ::ethers::core::abi::AbiDecode for PingModuleCalls {
@@ -954,6 +1082,11 @@ pub mod ping_module {
                 <DispatchWithRequestCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
                 return Ok(Self::DispatchWithRequest(decoded));
+            }
+            if let Ok(decoded) =
+                <DispatchPostResponseCall as ::ethers::core::abi::AbiDecode>::decode(data)
+            {
+                return Ok(Self::DispatchPostResponse(decoded));
             }
             if let Ok(decoded) =
                 <DispatchToParachainCall as ::ethers::core::abi::AbiDecode>::decode(data)
@@ -972,13 +1105,19 @@ pub mod ping_module {
                 return Ok(Self::OnGetTimeout(decoded));
             }
             if let Ok(decoded) =
+                <OnPostRequestTimeoutCall as ::ethers::core::abi::AbiDecode>::decode(data)
+            {
+                return Ok(Self::OnPostRequestTimeout(decoded));
+            }
+            if let Ok(decoded) =
                 <OnPostResponseCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
                 return Ok(Self::OnPostResponse(decoded));
             }
-            if let Ok(decoded) = <OnPostTimeoutCall as ::ethers::core::abi::AbiDecode>::decode(data)
+            if let Ok(decoded) =
+                <OnPostResponseTimeoutCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::OnPostTimeout(decoded));
+                return Ok(Self::OnPostResponseTimeout(decoded));
             }
             if let Ok(decoded) = <PingCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::Ping(decoded));
@@ -992,13 +1131,18 @@ pub mod ping_module {
                 Self::Dispatch(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::DispatchWithRequest(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
+                Self::DispatchPostResponse(element) =>
+                    ::ethers::core::abi::AbiEncode::encode(element),
                 Self::DispatchToParachain(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
                 Self::OnAccept(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::OnGetResponse(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::OnGetTimeout(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::OnPostRequestTimeout(element) =>
+                    ::ethers::core::abi::AbiEncode::encode(element),
                 Self::OnPostResponse(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::OnPostTimeout(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::OnPostResponseTimeout(element) =>
+                    ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Ping(element) => ::ethers::core::abi::AbiEncode::encode(element),
             }
         }
@@ -1008,12 +1152,14 @@ pub mod ping_module {
             match self {
                 Self::Dispatch(element) => ::core::fmt::Display::fmt(element, f),
                 Self::DispatchWithRequest(element) => ::core::fmt::Display::fmt(element, f),
+                Self::DispatchPostResponse(element) => ::core::fmt::Display::fmt(element, f),
                 Self::DispatchToParachain(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnAccept(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnGetResponse(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnGetTimeout(element) => ::core::fmt::Display::fmt(element, f),
+                Self::OnPostRequestTimeout(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnPostResponse(element) => ::core::fmt::Display::fmt(element, f),
-                Self::OnPostTimeout(element) => ::core::fmt::Display::fmt(element, f),
+                Self::OnPostResponseTimeout(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Ping(element) => ::core::fmt::Display::fmt(element, f),
             }
         }
@@ -1026,6 +1172,11 @@ pub mod ping_module {
     impl ::core::convert::From<DispatchWithRequestCall> for PingModuleCalls {
         fn from(value: DispatchWithRequestCall) -> Self {
             Self::DispatchWithRequest(value)
+        }
+    }
+    impl ::core::convert::From<DispatchPostResponseCall> for PingModuleCalls {
+        fn from(value: DispatchPostResponseCall) -> Self {
+            Self::DispatchPostResponse(value)
         }
     }
     impl ::core::convert::From<DispatchToParachainCall> for PingModuleCalls {
@@ -1048,14 +1199,19 @@ pub mod ping_module {
             Self::OnGetTimeout(value)
         }
     }
+    impl ::core::convert::From<OnPostRequestTimeoutCall> for PingModuleCalls {
+        fn from(value: OnPostRequestTimeoutCall) -> Self {
+            Self::OnPostRequestTimeout(value)
+        }
+    }
     impl ::core::convert::From<OnPostResponseCall> for PingModuleCalls {
         fn from(value: OnPostResponseCall) -> Self {
             Self::OnPostResponse(value)
         }
     }
-    impl ::core::convert::From<OnPostTimeoutCall> for PingModuleCalls {
-        fn from(value: OnPostTimeoutCall) -> Self {
-            Self::OnPostTimeout(value)
+    impl ::core::convert::From<OnPostResponseTimeoutCall> for PingModuleCalls {
+        fn from(value: OnPostResponseTimeoutCall) -> Self {
+            Self::OnPostResponseTimeout(value)
         }
     }
     impl ::core::convert::From<PingCall> for PingModuleCalls {
@@ -1090,6 +1246,20 @@ pub mod ping_module {
         Hash,
     )]
     pub struct DispatchWithRequestReturn(pub [u8; 32]);
+    ///Container type for all return fields from the `dispatchPostResponse` function with signature
+    /// `dispatchPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,
+    /// uint64))` and selector `0xca4b68fc`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct DispatchPostResponseReturn(pub [u8; 32]);
     ///`PingMessage(bytes,address,uint64)`
     #[derive(
         Clone,

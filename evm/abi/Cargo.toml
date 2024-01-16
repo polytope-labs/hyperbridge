@@ -16,7 +16,7 @@ primitive-types = "0.12.2"
 ethers = { workspace = true }
 merkle-mountain-range = { workspace = true, features = ["default"] }
 sp-consensus-beefy = { workspace =  true, features = ["default"] }
-
+ismp = { path = "../../parachain/modules/ismp/core" }
 beefy-verifier-primitives = { path = "../../parachain/modules/consensus/beefy/primitives" }
 
 

@@ -17,7 +17,7 @@ use ismp::{
     error::Error,
     host::{IsmpHost, StateMachine},
     messaging::{Proof, StateCommitmentHeight},
-    router::{Request, RequestResponse},
+    router::RequestResponse,
 };
 use ismp_sync_committee::{utils::req_res_to_key, verify_membership, verify_state_proof};
 use sp_core::{H160, H256};
@@ -101,7 +101,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
             consensus_state.current_epoch = attested_epoch;
         }
         consensus_state.finalized_height = finalized_header.number.low_u64();
-        state_machine_map.insert(StateMachine::Bnb, vec![state_commitment]);
+        state_machine_map.insert(StateMachine::Bsc, vec![state_commitment]);
 
         Ok((consensus_state.encode(), state_machine_map))
     }
@@ -180,8 +180,8 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
         verify_membership::<H>(item, root, proof, consensus_state.ismp_contract_address)
     }
 
-    fn state_trie_key(&self, requests: Vec<Request>) -> Vec<Vec<u8>> {
-        req_res_to_key::<H>(RequestResponse::Request(requests))
+    fn state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
+        req_res_to_key::<H>(items)
     }
 
     fn verify_state_proof(

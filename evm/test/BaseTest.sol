@@ -37,7 +37,8 @@ contract BaseTest is Test {
             consensusState: new bytes(0),
             baseGetRequestFee: 10000000000000000000,
             perByteFee: 1000000000000000000, // 1FTK
-            feeTokenAddress: address(feeToken)
+            feeTokenAddress: address(feeToken),
+            latestStateMachineHeight: 0
         });
         host = new TestHost(params);
         // approve the host address to spend the fee token.

@@ -55,7 +55,7 @@ pub struct PostRequest {
     pub body: ::ethers::core::types::Bytes,
     pub gaslimit: u64,
 }
-///`PostResponse((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes)`
+///`PostResponse((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64)`
 #[derive(
     Clone,
     ::ethers::contract::EthAbiType,
@@ -69,6 +69,8 @@ pub struct PostRequest {
 pub struct PostResponse {
     pub request: PostRequest,
     pub response: ::ethers::core::types::Bytes,
+    pub timeout_timestamp: u64,
+    pub gaslimit: u64,
 }
 ///`StateCommitment(uint256,bytes32,bytes32)`
 #[derive(

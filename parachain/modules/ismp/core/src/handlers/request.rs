@@ -72,7 +72,7 @@ where
                     dest_chain: request.dest,
                 });
             if res.is_ok() {
-                host.store_request_receipt(&Request::Post(request))?;
+                host.store_request_receipt(&Request::Post(request), &msg.signer)?;
             }
             Ok(res)
         })

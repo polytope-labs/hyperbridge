@@ -29,12 +29,12 @@ use ismp::{
     host::Ethereum,
     messaging::{Proof, ResponseMessage, TimeoutMessage},
     mmr::MmrHasher,
-    router::{DispatchGet, DispatchRequest, IsmpDispatcher, Post},
+    router::{DispatchGet, DispatchRequest, GetResponse, IsmpDispatcher, Post, RequestResponse},
     util::hash_request,
 };
 use ismp_testsuite::{
-    check_challenge_period, check_client_expiry, frozen_check, timeout_post_processing_check,
-    write_outgoing_commitments,
+    check_challenge_period, check_client_expiry, frozen_check, post_request_timeout_check,
+    post_response_timeout_check, write_outgoing_commitments,
 };
 use merkle_mountain_range::MerkleProof;
 use sp_core::{
@@ -218,10 +218,7 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
         };
 
         let request_commitment = hash_request::<Host<Test>>(&Request::Post(post.clone()));
-        RequestCommitments::<Test>::insert(
-            request_commitment,
-            LeafIndexQuery { source_chain: post.source, dest_chain: post.dest, nonce: 0 },
-        );
+        RequestReceipts::<Test>::insert(request_commitment, &vec![0u8; 32]);
         write_outgoing_commitments(&host, &dispatcher).unwrap();
     })
 }
@@ -273,7 +270,20 @@ fn should_handle_post_request_timeouts_correctly() {
         let host = Host::<Test>::default();
         let dispatcher = Dispatcher::<Test>::default();
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
-        timeout_post_processing_check(&host, &dispatcher).unwrap()
+        post_request_timeout_check(&host, &dispatcher).unwrap()
+    })
+}
+
+#[test]
+fn should_handle_post_response_timeouts_correctly() {
+    let mut ext = new_test_ext();
+
+    ext.execute_with(|| {
+        set_timestamp(None);
+        let host = Host::<Test>::default();
+        let dispatcher = Dispatcher::<Test>::default();
+        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
+        post_response_timeout_check(&host, &dispatcher).unwrap()
     })
 }
 
@@ -297,7 +307,9 @@ fn should_handle_get_request_timeouts_correctly() {
                 };
 
                 let dispatcher = Dispatcher::<Test>::default();
-                dispatcher.dispatch_request(DispatchRequest::Get(msg)).unwrap();
+                dispatcher
+                    .dispatch_request(DispatchRequest::Get(msg), [0u8; 32].into(), 0u32.into())
+                    .unwrap();
                 let get = ismp::router::Get {
                     source: host.host_state_machine(),
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
@@ -345,7 +357,9 @@ fn should_handle_get_request_responses_correctly() {
                 };
 
                 let dispatcher = Dispatcher::<Test>::default();
-                dispatcher.dispatch_request(DispatchRequest::Get(msg)).unwrap();
+                dispatcher
+                    .dispatch_request(DispatchRequest::Get(msg), [0u8; 32].into(), 0u32.into())
+                    .unwrap();
                 let get = ismp::router::Get {
                     source: host.host_state_machine(),
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
@@ -362,8 +376,8 @@ fn should_handle_get_request_responses_correctly() {
 
         set_timestamp(Some(Duration::from_secs(60 * 60 * 60).as_millis() as u64));
 
-        let response = ResponseMessage::Get {
-            requests: requests.clone(),
+        let response = ResponseMessage {
+            datagram: RequestResponse::Request(requests.clone()),
             proof: Proof {
                 height: StateMachineHeight {
                     id: StateMachineId {
@@ -374,12 +388,15 @@ fn should_handle_get_request_responses_correctly() {
                 },
                 proof: vec![],
             },
+            signer: vec![],
         };
 
         Pallet::<Test>::handle_messages(vec![Message::Response(response)]).unwrap();
 
         for request in requests {
-            assert!(host.response_receipt(&request).is_some())
+            let Request::Get(get) = request else { panic!("Shouldn't be possible") };
+            let response = Response::Get(GetResponse { get, values: Default::default() });
+            assert!(host.response_receipt(&response).is_some())
         }
     })
 }

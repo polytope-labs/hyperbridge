@@ -77,7 +77,7 @@ pub struct Get {
 }
 
 /// The ISMP request.
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
+#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo, derive_more::From)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub enum Request {
     /// A post request allows a module on a state machine to send arbitrary bytes to another module
@@ -191,6 +191,51 @@ pub struct PostResponse {
     pub post: Post,
     /// The response message.
     pub response: Vec<u8>,
+    /// Timestamp at which this response expires in seconds.
+    pub timeout_timestamp: u64,
+    /// Gas limit for executing the response on destination, only used for solidity modules.
+    pub gas_limit: u64,
+}
+
+impl PostResponse {
+    /// Return the underlying request in the response
+    pub fn request(&self) -> Request {
+        self.post.clone().into()
+    }
+
+    /// Module where this response originated on source chain
+    pub fn source_module(&self) -> Vec<u8> {
+        self.post.to.clone()
+    }
+
+    /// Module that this response will be routed to on destination chain
+    pub fn destination_module(&self) -> Vec<u8> {
+        self.post.from.clone()
+    }
+
+    /// Get the source chain for this response
+    pub fn source_chain(&self) -> StateMachine {
+        self.post.dest.clone()
+    }
+
+    /// Get the destination chain for this response
+    pub fn dest_chain(&self) -> StateMachine {
+        self.post.source.clone()
+    }
+
+    /// Get the request nonce
+    pub fn nonce(&self) -> u64 {
+        self.post.nonce
+    }
+
+    /// Get the request nonce
+    pub fn timeout(&self) -> Duration {
+        if self.timeout_timestamp == 0 {
+            Duration::from_secs(u64::MAX)
+        } else {
+            Duration::from_secs(self.timeout_timestamp)
+        }
+    }
 }
 
 /// The response to a POST request
@@ -204,7 +249,7 @@ pub struct GetResponse {
 }
 
 /// The ISMP response
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
+#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo, derive_more::From)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub enum Response {
     /// The response to a POST request
@@ -256,11 +301,21 @@ impl Response {
 }
 
 /// Convenience enum for membership verification.
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, derive_more::From)]
 pub enum RequestResponse {
     /// A batch of requests
     Request(Vec<Request>),
     /// A batch of responses
     Response(Vec<Response>),
+}
+
+/// Timeout message
+#[derive(derive_more::From)]
+pub enum Timeout {
+    /// A request timed out
+    Request(Request),
+    /// A post response timed out
+    Response(PostResponse),
 }
 
 /// The Ismp router dictates how messsages are routed to [`IsmpModules`]
@@ -319,9 +374,27 @@ pub enum DispatchRequest {
 /// The Ismp dispatcher allows [`IsmpModules`] to send out outgoing [`Request`] or [`Response`]
 /// [`Event`] should be emitted after successful dispatch
 pub trait IsmpDispatcher {
-    /// Dispatches an outgoing request, the dispatcher should commit them to host state trie
-    fn dispatch_request(&self, request: DispatchRequest) -> Result<(), Error>;
+    /// Sending account
+    type Account;
 
-    /// Dispatches an outgoing response, the dispatcher should commit them to host state trie
-    fn dispatch_response(&self, response: PostResponse) -> Result<(), Error>;
+    /// The balance type
+    type Balance;
+
+    /// Dispatches an outgoing request, the dispatcher should commit them to host's state trie or
+    /// overlay tree
+    fn dispatch_request(
+        &self,
+        request: DispatchRequest,
+        who: Self::Account,
+        amount: Self::Balance,
+    ) -> Result<(), Error>;
+
+    /// Dispatches an outgoing response, the dispatcher should commit them to host's state trie or
+    /// overlay tree
+    fn dispatch_response(
+        &self,
+        response: PostResponse,
+        who: Self::Account,
+        amount: Self::Balance,
+    ) -> Result<(), Error>;
 }

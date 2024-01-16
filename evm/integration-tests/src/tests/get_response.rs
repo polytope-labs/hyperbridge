@@ -24,7 +24,7 @@ use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 async fn test_get_response() -> Result<(), anyhow::Error> {
     let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
     let mut runner = Runner::new(PathBuf::from(&base_dir));
-    let mut contract = runner.deploy("GetResponseTest").await;
+    let mut contract = runner.deploy("GetRequestTest").await;
     let destination = contract.call::<_, Address>("module", ()).await?;
 
     let key = H256::random().as_bytes().to_vec();

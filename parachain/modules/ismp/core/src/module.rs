@@ -18,7 +18,7 @@
 use crate::{
     error::Error,
     host::StateMachine,
-    router::{Post as PostRequest, Request, Response},
+    router::{Post as PostRequest, Response, Timeout},
 };
 use alloc::string::String;
 
@@ -62,5 +62,5 @@ pub trait IsmpModule {
 
     /// Called by the message handler on a module, to notify module of requests that were previously
     /// sent but have now timed-out
-    fn on_timeout(&self, request: Request) -> Result<(), Error>;
+    fn on_timeout(&self, request: Timeout) -> Result<(), Error>;
 }

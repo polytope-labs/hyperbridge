@@ -87,7 +87,7 @@ pub mod pallet {
     // Import various types used to declare pallet in scope.
     use super::*;
     use crate::{
-        dispatcher::Receipt,
+        dispatcher::{FeeMetadata, RequestMetadata},
         errors::HandlingError,
         primitives::{ConsensusClientProvider, WeightUsed},
         weight_info::{WeightInfo, WeightProvider},
@@ -110,7 +110,7 @@ pub mod pallet {
     use sp_core::H256;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config: frame_system::Config + pallet_balances::Config {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -239,25 +239,33 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn request_commitments)]
     pub type RequestCommitments<T: Config> =
-        StorageMap<_, Identity, H256, LeafIndexQuery, OptionQuery>;
+        StorageMap<_, Identity, H256, RequestMetadata<T>, OptionQuery>;
+
+    /// Tracks requests that have been responded to
+    /// The key is the request commitment
+    #[pallet::storage]
+    #[pallet::getter(fn responded)]
+    pub type Responded<T: Config> = StorageMap<_, Identity, H256, bool, ValueQuery>;
 
     /// Commitments for outgoing responses
     /// The key is the response commitment
     #[pallet::storage]
     #[pallet::getter(fn response_commitments)]
-    pub type ResponseCommitments<T: Config> = StorageMap<_, Identity, H256, Receipt, OptionQuery>;
+    pub type ResponseCommitments<T: Config> =
+        StorageMap<_, Identity, H256, FeeMetadata<T>, OptionQuery>;
 
     /// Receipts for incoming requests
     /// The key is the request commitment
     #[pallet::storage]
     #[pallet::getter(fn request_receipts)]
-    pub type RequestReceipts<T: Config> = StorageMap<_, Identity, H256, Receipt, OptionQuery>;
+    pub type RequestReceipts<T: Config> = StorageMap<_, Identity, H256, Vec<u8>, OptionQuery>;
 
     /// Receipts for incoming responses
     /// The key is the request commitment
     #[pallet::storage]
     #[pallet::getter(fn response_receipts)]
-    pub type ResponseReceipts<T: Config> = StorageMap<_, Identity, H256, Receipt, OptionQuery>;
+    pub type ResponseReceipts<T: Config> =
+        StorageMap<_, Identity, H256, ResponseReciept, OptionQuery>;
 
     /// Consensus update results still in challenge period
     /// Set contains a tuple of previous height and latest height
@@ -496,6 +504,22 @@ pub mod pallet {
     }
 }
 
+/// Receipt for a Response
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+pub struct ResponseReciept {
+    /// Hash of the response object
+    response: H256,
+    /// Address of the relayer
+    relayer: Vec<u8>,
+}
+
+/// Digest log for mmr root hash
+#[derive(RuntimeDebug, Encode, Decode)]
+pub struct RequestResponseLog<T: Config> {
+    /// The mmr root hash
+    mmr_root_hash: <T as frame_system::Config>::Hash,
+}
+
 impl<T: Config> Pallet<T> {
     /// Generate an MMR proof for the given `leaf_indices`.
     /// Note this method can only be used from an off-chain context
@@ -612,16 +636,30 @@ impl<T: Config> Pallet<T> {
     pub fn mmr_leaf_count() -> LeafIndex {
         Self::number_of_leaves()
     }
-}
+    /// Get a node from runtime storage
+    fn get_node(pos: NodeIndex) -> Option<DataOrHash> {
+        Nodes::<T>::get(pos).map(DataOrHash::Hash)
+    }
 
-/// Digest log for mmr root hash
-#[derive(RuntimeDebug, Encode, Decode)]
-pub struct RequestResponseLog<T: Config> {
-    /// The mmr root hash
-    mmr_root_hash: <T as frame_system::Config>::Hash,
-}
+    /// Remove a node from storage
+    fn remove_node(pos: NodeIndex) {
+        Nodes::<T>::remove(pos);
+    }
 
-impl<T: Config> Pallet<T> {
+    /// Insert a node into storage
+    fn insert_node(pos: NodeIndex, node: H256) {
+        Nodes::<T>::insert(pos, node)
+    }
+
+    /// Set the number of leaves in the mmr
+    fn set_num_leaves(num_leaves: LeafIndex) {
+        NumberOfLeaves::<T>::put(num_leaves)
+    }
+
+    /// Returns the offchain key for a position in the mmr
+    fn offchain_key(pos: NodeIndex) -> Vec<u8> {
+        (T::INDEXING_PREFIX, "leaves", pos).encode()
+    }
     /// Returns the offchain key for a request leaf index
     pub fn request_leaf_pos_and_index_offchain_key(
         source_chain: StateMachine,
@@ -703,9 +741,9 @@ impl<T: Config> Pallet<T> {
         RequestCommitments::<T>::iter()
             .filter_map(|(key, query)| {
                 let (position, _) = Self::get_position_and_leaf_index(
-                    query.source_chain,
-                    query.dest_chain,
-                    query.nonce,
+                    query.query.source_chain,
+                    query.query.dest_chain,
+                    query.query.nonce,
                     true,
                 )?;
                 let req = Self::get_request(position)?;
@@ -810,32 +848,5 @@ impl<T: Config> Pallet<T> {
         let (pos, leaf_index) = mmr.push(leaf)?;
         Pallet::<T>::store_leaf_position_and_index_offchain(offchain_key, (pos, leaf_index));
         Some((pos, leaf_index))
-    }
-}
-
-impl<T: Config> Pallet<T> {
-    /// Get a node from runtime storage
-    fn get_node(pos: NodeIndex) -> Option<DataOrHash> {
-        Nodes::<T>::get(pos).map(DataOrHash::Hash)
-    }
-
-    /// Remove a node from storage
-    fn remove_node(pos: NodeIndex) {
-        Nodes::<T>::remove(pos);
-    }
-
-    /// Insert a node into storage
-    fn insert_node(pos: NodeIndex, node: H256) {
-        Nodes::<T>::insert(pos, node)
-    }
-
-    /// Set the number of leaves in the mmr
-    fn set_num_leaves(num_leaves: LeafIndex) {
-        NumberOfLeaves::<T>::put(num_leaves)
-    }
-
-    /// Returns the offchain key for a position in the mmr
-    fn offchain_key(pos: NodeIndex) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "leaves", pos).encode()
     }
 }

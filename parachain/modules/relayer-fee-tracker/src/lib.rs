@@ -13,8 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+extern crate alloc;
 pub mod withdrawal;
 
+use crate::withdrawal::{FeeMetadata, ResponseReceipt};
+use alloc::{collections::BTreeMap, vec::Vec};
+use alloy_primitives::Address;
+use alloy_rlp::Decodable;
 use ismp::{handlers::validate_state_machine, host::IsmpHost, messaging::Proof};
 pub use pallet::*;
 use pallet_ismp::host::Host;
@@ -27,7 +32,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use ismp::host::StateMachine;
 
-    use crate::withdrawal::{Key, WithdrawalInputData, WithdrawalOutputData, WithdrawalProof};
+    use crate::withdrawal::{WithdrawalInputData, WithdrawalOutputData, WithdrawalProof};
     use codec::{Decode, Encode};
     use ismp::router::{DispatchPost, DispatchRequest, IsmpDispatcher};
     use pallet_ismp::dispatcher::Dispatcher;
@@ -42,9 +47,6 @@ pub mod pallet {
     /// The config trait
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_ismp::Config {
-        /// Origin allowed to add or remove parachains in Consensus State
-        type AdminOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
-
         /// A Signature can be verified with a specific `PublicKey`.
         /// The additional traits are boilerplate.
         type Signature: Verify<Signer = Self::PublicKey> + Encode + Decode + Parameter;
@@ -83,12 +85,23 @@ pub mod pallet {
         WithdrawalRequestDispatchFailed,
         /// Cannot Decode Relayer Public Key
         CannotDecodeRelayerPublicKey,
+        /// Cannot Decode Source Proof
+        CannotDecodeSourceProof,
+        /// Cannot Decode Fee Metadata
+        CannotDecodeFeeMetadata,
+        /// Cannot Verify Empty Commitments
+        CannotVerifyEmptyCommitments,
+        /// Invalid Request Commitment Proof
+        InvalidRequestCommitmentProof,
+        /// Invalid Response Commitment Proof
+        InvalidResponseCommitmentProof,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T>
     where
         <T as frame_system::Config>::Hash: From<H256>,
+        <T as frame_system::Config>::AccountId: From<[u8; 32]>,
     {
         #[pallet::call_index(0)]
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
@@ -98,21 +111,37 @@ pub mod pallet {
             withdrawal_proof: WithdrawalProof,
             amount: u128,
         ) -> DispatchResult {
-            <T as Config>::AdminOrigin::ensure_origin(origin)?;
+            ensure_none(origin)?;
 
-            let keys: Vec<Vec<u8>> = withdrawal_proof
-                .commitments
-                .iter()
-                .flat_map(|key| match key {
-                    Key::Request(request_h256) => vec![request_h256.as_fixed_bytes().to_vec()],
-                    Key::Response((response_h256_1, response_h256_2)) => vec![
-                        response_h256_1.as_fixed_bytes().to_vec(),
-                        response_h256_2.as_fixed_bytes().to_vec(),
-                    ],
-                })
-                .collect();
-            Self::verify_withdrawal_proof(&withdrawal_proof.source_proof, keys.clone())?;
-            Self::verify_withdrawal_proof(&withdrawal_proof.dest_proof, keys.clone())?;
+            ensure!(
+                withdrawal_proof.request_commitments.is_empty() &&
+                    withdrawal_proof.response_commitments.is_empty(),
+                Error::<T>::CannotVerifyEmptyCommitments
+            );
+
+            if !withdrawal_proof.request_commitments.is_empty() {
+                let (address, fee_metadata) = Self::get_receipt_values(
+                    withdrawal_proof.source_proof.clone(),
+                    withdrawal_proof.dest_proof.clone(),
+                    withdrawal_proof.to_request_commitments_bytes(),
+                )?;
+
+                if address.is_none() || fee_metadata.is_none() {
+                    return Err(Error::<T>::InvalidRequestCommitmentProof.into());
+                }
+            }
+
+            if !withdrawal_proof.response_commitments.is_empty() {
+                let (address, response_receipt) = Self::get_response_values(
+                    withdrawal_proof.source_proof.clone(),
+                    withdrawal_proof.dest_proof.clone(),
+                    withdrawal_proof.to_request_commitments_bytes(),
+                )?;
+
+                if address.is_none() || response_receipt.is_none() {
+                    return Err(Error::<T>::InvalidResponseCommitmentProof.into());
+                }
+            }
 
             let state_machine = &withdrawal_proof.source_proof.height.id.state_id;
 
@@ -133,7 +162,7 @@ pub mod pallet {
             signature_data: Vec<u8>,
             signature: T::Signature,
         ) -> DispatchResult {
-            <T as Config>::AdminOrigin::ensure_origin(origin)?;
+            ensure_none(origin)?;
 
             let nonce = Nonce::<T>::get(&withdrawal_data.relayer_public_key).unwrap_or(0);
 
@@ -176,7 +205,7 @@ pub mod pallet {
             let dispatcher = Dispatcher::<T>::default();
             let dispatch_request = DispatchRequest::Post(post);
             dispatcher
-                .dispatch_request(dispatch_request)
+                .dispatch_request(dispatch_request, [0u8; 32].into(), 0u32.into())
                 .map_err(|_| Error::<T>::WithdrawalRequestDispatchFailed)?;
 
             Nonce::<T>::insert(&withdrawal_data.relayer_public_key, nonce + 1);
@@ -187,17 +216,80 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
-    pub fn verify_withdrawal_proof(proof: &Proof, keys: Vec<Vec<u8>>) -> Result<(), DispatchError> {
+    pub fn verify_withdrawal_proof(
+        proof: &Proof,
+        keys: Vec<Vec<u8>>,
+    ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, DispatchError> {
         let ismp_host = Host::<T>::default();
         let state_machine = validate_state_machine(&ismp_host, proof.height)
             .map_err(|_| Error::<T>::ErrorValidatingStateMachine)?;
         let state = ismp_host
             .state_machine_commitment(proof.height)
             .map_err(|_| Error::<T>::ErrorFetchingStateMachineCommitment)?;
-        state_machine
+        let result = state_machine
             .verify_state_proof(&ismp_host, keys, state, proof)
             .map_err(|_| Error::<T>::StateProofVerificationFailed)?;
 
-        Ok(())
+        Ok(result)
+    }
+
+    pub fn get_receipt_values(
+        source_proof: Proof,
+        dest_proof: Proof,
+        keys: Vec<Vec<u8>>,
+    ) -> Result<(Option<Address>, Option<FeeMetadata>), DispatchError> {
+        let mut fee_metadata = None;
+        let source_proof_key_values = Self::verify_withdrawal_proof(&source_proof, keys.clone())?;
+
+        for (_key, value) in source_proof_key_values.iter() {
+            if let Some(metadata) =
+                value.clone().and_then(|v| FeeMetadata::decode(&mut v.as_ref()).ok())
+            {
+                fee_metadata = Some(metadata);
+                break;
+            }
+        }
+
+        let mut request_receipt = None;
+        let dest_proof_key_values = Self::verify_withdrawal_proof(&dest_proof, keys)?;
+        for (_key, value) in dest_proof_key_values.iter() {
+            if let Some(receipt) = value.clone().and_then(|v| Address::decode(&mut v.as_ref()).ok())
+            {
+                request_receipt = Some(receipt);
+                break;
+            }
+        }
+
+        Ok((request_receipt, fee_metadata))
+    }
+
+    pub fn get_response_values(
+        source_proof: Proof,
+        dest_proof: Proof,
+        keys: Vec<Vec<u8>>,
+    ) -> Result<(Option<Address>, Option<ResponseReceipt>), DispatchError> {
+        let mut relayer_address = None;
+        let source_proof_key_values = Self::verify_withdrawal_proof(&source_proof, keys.clone())?;
+
+        for (_key, value) in source_proof_key_values.iter() {
+            if let Some(address) = value.clone().and_then(|v| Address::decode(&mut v.as_ref()).ok())
+            {
+                relayer_address = Some(address);
+                break;
+            }
+        }
+
+        let mut response_receipt = None;
+        let dest_proof_key_values = Self::verify_withdrawal_proof(&dest_proof, keys)?;
+        for (_key, value) in dest_proof_key_values.iter() {
+            if let Some(receipt) =
+                value.clone().and_then(|v| ResponseReceipt::decode(&mut v.as_ref()).ok())
+            {
+                response_receipt = Some(receipt);
+                break;
+            }
+        }
+
+        Ok((relayer_address, response_receipt))
     }
 }

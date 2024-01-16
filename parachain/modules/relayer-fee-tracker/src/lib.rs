@@ -112,7 +112,7 @@ pub mod pallet {
                     address,
                     withdrawal_proof.source_proof.height.id.state_id,
                     |inner| {
-                        *inner = Some(inner.clone().unwrap_or(U256::zero()) + fee);
+                        *inner = Some(inner.clone().unwrap_or(0u32.into()) + fee);
                         Ok(())
                     },
                 );

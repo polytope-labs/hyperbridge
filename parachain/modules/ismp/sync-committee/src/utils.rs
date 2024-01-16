@@ -127,16 +127,16 @@ pub fn get_contract_storage_root<H: IsmpHost + Send + Sync>(
     Ok(contract_account.storage_root.0.into())
 }
 
-pub(super) fn derive_map_key<H: IsmpHost>(mut key: Vec<u8>, slot: u8) -> H256 {
+pub fn derive_map_key<H: IsmpHost>(mut key: Vec<u8>, slot: u64) -> H256 {
     let mut bytes = [0u8; 32];
-    U256::from(slot as u64).to_big_endian(&mut bytes);
+    U256::from(slot).to_big_endian(&mut bytes);
     key.extend_from_slice(&bytes);
     H::keccak256(H::keccak256(&key).0.as_slice())
 }
 
-pub(super) fn derive_array_item_key<H: IsmpHost>(slot: u8, index: u64, offset: u64) -> Vec<u8> {
+pub(super) fn derive_array_item_key<H: IsmpHost>(slot: u64, index: u64, offset: u64) -> Vec<u8> {
     let mut bytes = [0u8; 32];
-    U256::from(slot as u64).to_big_endian(&mut bytes);
+    U256::from(slot).to_big_endian(&mut bytes);
 
     let hash_result = H::keccak256(&bytes);
 

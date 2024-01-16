@@ -13,11 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// Slot index for requests map
-pub const REQUEST_COMMITMENTS_SLOT: u8 = 0;
-/// Slot index for responses map
-pub const RESPONSE_COMMITMENTS_SLOT: u8 = 1;
+/// Slot index for requests commitments map
+pub const REQUEST_COMMITMENTS_SLOT: u64 = 0;
+/// Slot index for response commitments map
+pub const RESPONSE_COMMITMENTS_SLOT: u64 = 1;
+/// Slot index for requests receipts map
+pub const REQUEST_RECEIPTS_SLOT: u64 = 2;
+/// Slot index for response receipts map
+pub const RESPONSE_RECEIPTS_SLOT: u64 = 3;
 /// Slot for the l2Outputs array in the L2Oracle contract
-pub const L2_OUTPUTS_SLOT: u8 = 3;
+pub const L2_OUTPUTS_SLOT: u64 = 3;
 /// Storage layout slot for the nodes map in the Rollup Contract
-pub const NODES_SLOT: u8 = 118;
+pub const NODES_SLOT: u64 = 118;

@@ -508,9 +508,9 @@ pub mod pallet {
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct ResponseReciept {
     /// Hash of the response object
-    response: H256,
+    pub response: H256,
     /// Address of the relayer
-    relayer: Vec<u8>,
+    pub relayer: Vec<u8>,
 }
 
 /// Digest log for mmr root hash

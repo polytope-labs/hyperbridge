@@ -359,7 +359,11 @@ impl<T: Config> Pallet<T> {
                             .to_vec(),
                         );
                     },
-                    _ => keys.push(pallet_ismp::RequestReceipts::<T>::hashed_key_for(commitment)),
+                    StateMachine::Beefy(_) |
+                    StateMachine::Grandpa(_) |
+                    StateMachine::Kusama(_) |
+                    StateMachine::Polkadot(_) =>
+                        keys.push(pallet_ismp::RequestReceipts::<T>::hashed_key_for(commitment)),
                 },
                 Key::Response { request_commitment, .. } => {
                     match proof.dest_proof.height.id.state_id {
@@ -373,9 +377,12 @@ impl<T: Config> Pallet<T> {
                                 .to_vec(),
                             );
                         },
-                        _ => keys.push(pallet_ismp::ResponseReceipts::<T>::hashed_key_for(
-                            request_commitment,
-                        )),
+                        StateMachine::Beefy(_) |
+                        StateMachine::Grandpa(_) |
+                        StateMachine::Kusama(_) |
+                        StateMachine::Polkadot(_) => keys.push(
+                            pallet_ismp::ResponseReceipts::<T>::hashed_key_for(request_commitment),
+                        ),
                     }
                 },
             }
@@ -413,7 +420,10 @@ impl<T: Config> Pallet<T> {
                                     .fee;
                                 U256::from_big_endian(&fee.to_be_bytes::<32>()).low_u32().into()
                             },
-                            StateMachine::Beefy(_) | StateMachine::Kusama(_) | StateMachine::Kusama(_) | StateMachine::Polkadot(_) => {
+                            StateMachine::Beefy(_) |
+                            StateMachine::Grandpa(_) |
+                            StateMachine::Kusama(_) |
+                            StateMachine::Polkadot(_) => {
                                 use codec::Decode;
                                 pallet_ismp::dispatcher::FeeMetadata::<T>::decode(
                                     &mut &*encoded_metadata,
@@ -421,7 +431,6 @@ impl<T: Config> Pallet<T> {
                                 .map_err(|_| Error::<T>::ProofValidationError)?
                                 .fee
                             },
-                            _ => Err(Error::<T>::ProofValidationError)?
                         }
                     };
                     let encoded_receipt = dest_result
@@ -440,12 +449,14 @@ impl<T: Config> Pallet<T> {
                                     .0
                                     .to_vec()
                             },
-                            StateMachine::Beefy(_) | StateMachine::Kusama(_) | StateMachine::Kusama(_) | StateMachine::Polkadot(_) => {
+                            StateMachine::Beefy(_) |
+                            StateMachine::Grandpa(_) |
+                            StateMachine::Kusama(_) |
+                            StateMachine::Polkadot(_) => {
                                 use codec::Decode;
                                 <Vec<u8>>::decode(&mut &*encoded_receipt)
                                     .map_err(|_| Error::<T>::ProofValidationError)?
                             },
-                            _ => Err(Error::<T>::ProofValidationError)?
                         }
                     };
                     let entry = result.entry(address).or_insert(0u32.into());
@@ -468,7 +479,10 @@ impl<T: Config> Pallet<T> {
                                     .fee;
                                 U256::from_big_endian(&fee.to_be_bytes::<32>()).low_u32().into()
                             },
-                            _ => {
+                            StateMachine::Beefy(_) |
+                            StateMachine::Grandpa(_) |
+                            StateMachine::Kusama(_) |
+                            StateMachine::Polkadot(_) => {
                                 use codec::Decode;
                                 pallet_ismp::dispatcher::FeeMetadata::<T>::decode(
                                     &mut &*encoded_metadata,
@@ -493,7 +507,10 @@ impl<T: Config> Pallet<T> {
                                     .map_err(|_| Error::<T>::ProofValidationError)?;
                                 (receipt.relayer.0.to_vec(), receipt.response_commitment.0)
                             },
-                            _ => {
+                            StateMachine::Beefy(_) |
+                            StateMachine::Grandpa(_) |
+                            StateMachine::Kusama(_) |
+                            StateMachine::Polkadot(_) => {
                                 use codec::Decode;
                                 let receipt =
                                     pallet_ismp::ResponseReciept::decode(&mut &*encoded_receipt)

@@ -403,6 +403,11 @@ pub mod pallet {
             /// Consensus client id
             consensus_client_id: ConsensusClientId,
         },
+        /// Indicates that a consensus client has been created
+        ConsensusClientFrozen {
+            /// Consensus client id
+            consensus_client_id: ConsensusClientId,
+        },
         /// An Outgoing Response has been deposited
         Response {
             /// Chain that this response will be routed to
@@ -551,10 +556,13 @@ impl<T: Config> Pallet<T> {
                 Ok(MessageResult::Timeout(res)) => {
                     debug!(target: "ismp-modules", "Module Callback Results {:?}", ModuleCallbackResult::Timeout(res));
                 },
+                Ok(MessageResult::FrozenClient(id)) =>
+                    Self::deposit_event(Event::<T>::ConsensusClientFrozen {
+                        consensus_client_id: id,
+                    }),
                 Err(err) => {
                     errors.push(err.into());
                 },
-                _ => {},
             }
         }
 

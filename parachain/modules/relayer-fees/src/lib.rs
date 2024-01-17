@@ -55,10 +55,7 @@ pub mod pallet {
     use codec::Encode;
     use ismp::router::{DispatchPost, DispatchRequest, IsmpDispatcher};
     use pallet_ismp::dispatcher::Dispatcher;
-    use sp_core::{
-        crypto::{UncheckedFrom, UncheckedInto},
-        H256,
-    };
+    use sp_core::H256;
     use sp_runtime::Saturating;
 
     #[pallet::pallet]
@@ -71,7 +68,7 @@ pub mod pallet {
 
     /// double map of address to source chain, which holds the amount of the relayer address
     #[pallet::storage]
-    #[pallet::getter(fn accumulating_fees)]
+    #[pallet::getter(fn relayer_fees)]
     pub type RelayerFees<T: Config> = StorageDoubleMap<
         _,
         Twox64Concat,
@@ -119,11 +116,11 @@ pub mod pallet {
     impl<T: Config> Pallet<T>
     where
         <T as frame_system::Config>::Hash: From<H256>,
-        <T as frame_system::Config>::AccountId: UncheckedFrom<[u8; 32]>,
+        <T as frame_system::Config>::AccountId: From<[u8; 32]>,
         T::Balance: Into<u128>,
     {
         #[pallet::call_index(0)]
-        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
+        #[pallet::weight({1_000_000})]
         pub fn accumulate_fees(
             origin: OriginFor<T>,
             withdrawal_proof: WithdrawalProof,
@@ -160,7 +157,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(1)]
-        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(2, 1))]
+        #[pallet::weight({1_000_000})]
         pub fn withdraw_fees(
             origin: OriginFor<T>,
             withdrawal_data: WithdrawalInputData<T::Balance>,
@@ -274,7 +271,7 @@ pub mod pallet {
             dispatcher
                 .dispatch_request(
                     DispatchRequest::Post(post),
-                    [0u8; 32].unchecked_into(),
+                    H256::default().0.into(),
                     0u32.into(),
                 )
                 .map_err(|_| Error::<T>::DispatchFailed)?;

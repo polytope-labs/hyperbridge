@@ -5083,6 +5083,7 @@ dependencies = [
  "pallet-collator-selection",
  "pallet-ismp",
  "pallet-message-queue",
+ "pallet-relayer-fees",
  "pallet-session",
  "pallet-sudo",
  "pallet-timestamp",

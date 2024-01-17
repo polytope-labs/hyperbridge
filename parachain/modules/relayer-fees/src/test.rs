@@ -2,7 +2,7 @@ use crate as pallet_relayer_fees;
 use crate::{
     message,
     withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
-    Pallet, RelayerFees,
+    Nonce, Pallet, RelayerFees,
 };
 use codec::Encode;
 use ethereum_trie::{keccak::KeccakHasher, MemoryDB};
@@ -33,7 +33,7 @@ use pallet_ismp::{
     primitives::{ConsensusClientProvider, HashAlgorithm, SubstrateStateProof},
     RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipt, ResponseReceipts,
 };
-use sp_core::{Pair, H256};
+use sp_core::{crypto::AccountId32, Pair, H256};
 use sp_runtime::{
     traits::{IdentityLookup, Keccak256},
     BuildStorage,
@@ -108,7 +108,7 @@ impl frame_system::Config for Test {
     type RuntimeCall = RuntimeCall;
     type Hash = H256;
     type Hashing = Keccak256;
-    type AccountId = sp_core::sr25519::Public;
+    type AccountId = AccountId32;
     type Lookup = IdentityLookup<Self::AccountId>;
     type RuntimeEvent = RuntimeEvent;
     type BlockHashCount = ConstU64<250>;
@@ -157,7 +157,7 @@ impl pallet_balances::Config for Test {
 impl pallet_ismp::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     const INDEXING_PREFIX: &'static [u8] = b"ISMP";
-    type AdminOrigin = EnsureRoot<sp_core::sr25519::Public>;
+    type AdminOrigin = EnsureRoot<AccountId32>;
     type StateMachine = pallet_ismp::mocks::StateMachineProvider;
     type TimeProvider = Timestamp;
     type IsmpRouter = pallet_ismp::mocks::ModuleRouter;
@@ -248,10 +248,7 @@ fn test_withdrawal_proof() {
         for request in &requests {
             let request_commitment_key = RequestCommitments::<Test>::hashed_key_for(request);
             let request_receipt_key = RequestReceipts::<Test>::hashed_key_for(request);
-            let fee_metadata = FeeMetadata::<Test> {
-                origin: sp_core::sr25519::Public([0; 32]),
-                fee: 1000u128.into(),
-            };
+            let fee_metadata = FeeMetadata::<Test> { origin: [0; 32].into(), fee: 1000u128.into() };
             source_trie.insert(&request_commitment_key, &fee_metadata.encode()).unwrap();
             dest_trie.insert(&request_receipt_key, &vec![1u8; 32].encode()).unwrap();
         }
@@ -259,10 +256,7 @@ fn test_withdrawal_proof() {
         for (request, response) in &responses {
             let response_commitment_key = ResponseCommitments::<Test>::hashed_key_for(response);
             let response_receipt_key = ResponseReceipts::<Test>::hashed_key_for(request);
-            let fee_metadata = FeeMetadata::<Test> {
-                origin: sp_core::sr25519::Public([0; 32]),
-                fee: 1000u128.into(),
-            };
+            let fee_metadata = FeeMetadata::<Test> { origin: [0; 32].into(), fee: 1000u128.into() };
             source_trie.insert(&response_commitment_key, &fee_metadata.encode()).unwrap();
             let receipt = ResponseReceipt { response: *response, relayer: vec![2; 32] };
             dest_trie.insert(&response_receipt_key, &receipt.encode()).unwrap();
@@ -424,5 +418,7 @@ fn test_withdrawal_fees() {
             RelayerFees::<Test>::get(StateMachine::Kusama(2000), address.to_vec()),
             3_000u128
         );
+
+        assert_eq!(Nonce::<Test>::get(address.to_vec()), 1);
     })
 }

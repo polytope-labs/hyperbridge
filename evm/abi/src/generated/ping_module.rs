@@ -318,7 +318,7 @@ pub mod ping_module {
                         },],
                         outputs: ::std::vec![],
                         constant: ::core::option::Option::None,
-                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
                     },],
                 ),
                 (
@@ -380,6 +380,14 @@ pub mod ping_module {
                     },],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("PostRequestTimeoutReceived"),
+                    ::std::vec![::ethers::core::abi::ethabi::Event {
+                        name: ::std::borrow::ToOwned::to_owned("PostRequestTimeoutReceived",),
+                        inputs: ::std::vec![],
+                        anonymous: false,
+                    },],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("PostResponseReceived"),
                     ::std::vec![::ethers::core::abi::ethabi::Event {
                         name: ::std::borrow::ToOwned::to_owned("PostResponseReceived",),
@@ -388,9 +396,9 @@ pub mod ping_module {
                     },],
                 ),
                 (
-                    ::std::borrow::ToOwned::to_owned("PostTimeoutReceived"),
+                    ::std::borrow::ToOwned::to_owned("PostResponseTimeoutReceived"),
                     ::std::vec![::ethers::core::abi::ethabi::Event {
-                        name: ::std::borrow::ToOwned::to_owned("PostTimeoutReceived",),
+                        name: ::std::borrow::ToOwned::to_owned("PostResponseTimeoutReceived",),
                         inputs: ::std::vec![],
                         anonymous: false,
                     },],
@@ -577,6 +585,16 @@ pub mod ping_module {
         {
             self.0.event()
         }
+        ///Gets the contract's `PostRequestTimeoutReceived` event
+        pub fn post_request_timeout_received_filter(
+            &self,
+        ) -> ::ethers::contract::builders::Event<
+            ::std::sync::Arc<M>,
+            M,
+            PostRequestTimeoutReceivedFilter,
+        > {
+            self.0.event()
+        }
         ///Gets the contract's `PostResponseReceived` event
         pub fn post_response_received_filter(
             &self,
@@ -584,11 +602,14 @@ pub mod ping_module {
         {
             self.0.event()
         }
-        ///Gets the contract's `PostTimeoutReceived` event
-        pub fn post_timeout_received_filter(
+        ///Gets the contract's `PostResponseTimeoutReceived` event
+        pub fn post_response_timeout_received_filter(
             &self,
-        ) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, PostTimeoutReceivedFilter>
-        {
+        ) -> ::ethers::contract::builders::Event<
+            ::std::sync::Arc<M>,
+            M,
+            PostResponseTimeoutReceivedFilter,
+        > {
             self.0.event()
         }
         /// Returns an `Event` builder for all the events of this contract.
@@ -762,6 +783,18 @@ pub mod ping_module {
         Eq,
         Hash,
     )]
+    #[ethevent(name = "PostRequestTimeoutReceived", abi = "PostRequestTimeoutReceived()")]
+    pub struct PostRequestTimeoutReceivedFilter;
+    #[derive(
+        Clone,
+        ::ethers::contract::EthEvent,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
     #[ethevent(name = "PostResponseReceived", abi = "PostResponseReceived()")]
     pub struct PostResponseReceivedFilter;
     #[derive(
@@ -774,8 +807,8 @@ pub mod ping_module {
         Eq,
         Hash,
     )]
-    #[ethevent(name = "PostTimeoutReceived", abi = "PostTimeoutReceived()")]
-    pub struct PostTimeoutReceivedFilter;
+    #[ethevent(name = "PostResponseTimeoutReceived", abi = "PostResponseTimeoutReceived()")]
+    pub struct PostResponseTimeoutReceivedFilter;
     ///Container type for all of the contract's events
     #[derive(Clone, ::ethers::contract::EthAbiType, Debug, PartialEq, Eq, Hash)]
     pub enum PingModuleEvents {
@@ -783,8 +816,9 @@ pub mod ping_module {
         GetTimeoutReceivedFilter(GetTimeoutReceivedFilter),
         MessageDispatchedFilter(MessageDispatchedFilter),
         PostReceivedFilter(PostReceivedFilter),
+        PostRequestTimeoutReceivedFilter(PostRequestTimeoutReceivedFilter),
         PostResponseReceivedFilter(PostResponseReceivedFilter),
-        PostTimeoutReceivedFilter(PostTimeoutReceivedFilter),
+        PostResponseTimeoutReceivedFilter(PostResponseTimeoutReceivedFilter),
     }
     impl ::ethers::contract::EthLogDecode for PingModuleEvents {
         fn decode_log(
@@ -802,11 +836,14 @@ pub mod ping_module {
             if let Ok(decoded) = PostReceivedFilter::decode_log(log) {
                 return Ok(PingModuleEvents::PostReceivedFilter(decoded));
             }
+            if let Ok(decoded) = PostRequestTimeoutReceivedFilter::decode_log(log) {
+                return Ok(PingModuleEvents::PostRequestTimeoutReceivedFilter(decoded));
+            }
             if let Ok(decoded) = PostResponseReceivedFilter::decode_log(log) {
                 return Ok(PingModuleEvents::PostResponseReceivedFilter(decoded));
             }
-            if let Ok(decoded) = PostTimeoutReceivedFilter::decode_log(log) {
-                return Ok(PingModuleEvents::PostTimeoutReceivedFilter(decoded));
+            if let Ok(decoded) = PostResponseTimeoutReceivedFilter::decode_log(log) {
+                return Ok(PingModuleEvents::PostResponseTimeoutReceivedFilter(decoded));
             }
             Err(::ethers::core::abi::Error::InvalidData)
         }
@@ -818,8 +855,11 @@ pub mod ping_module {
                 Self::GetTimeoutReceivedFilter(element) => ::core::fmt::Display::fmt(element, f),
                 Self::MessageDispatchedFilter(element) => ::core::fmt::Display::fmt(element, f),
                 Self::PostReceivedFilter(element) => ::core::fmt::Display::fmt(element, f),
+                Self::PostRequestTimeoutReceivedFilter(element) =>
+                    ::core::fmt::Display::fmt(element, f),
                 Self::PostResponseReceivedFilter(element) => ::core::fmt::Display::fmt(element, f),
-                Self::PostTimeoutReceivedFilter(element) => ::core::fmt::Display::fmt(element, f),
+                Self::PostResponseTimeoutReceivedFilter(element) =>
+                    ::core::fmt::Display::fmt(element, f),
             }
         }
     }
@@ -843,14 +883,19 @@ pub mod ping_module {
             Self::PostReceivedFilter(value)
         }
     }
+    impl ::core::convert::From<PostRequestTimeoutReceivedFilter> for PingModuleEvents {
+        fn from(value: PostRequestTimeoutReceivedFilter) -> Self {
+            Self::PostRequestTimeoutReceivedFilter(value)
+        }
+    }
     impl ::core::convert::From<PostResponseReceivedFilter> for PingModuleEvents {
         fn from(value: PostResponseReceivedFilter) -> Self {
             Self::PostResponseReceivedFilter(value)
         }
     }
-    impl ::core::convert::From<PostTimeoutReceivedFilter> for PingModuleEvents {
-        fn from(value: PostTimeoutReceivedFilter) -> Self {
-            Self::PostTimeoutReceivedFilter(value)
+    impl ::core::convert::From<PostResponseTimeoutReceivedFilter> for PingModuleEvents {
+        fn from(value: PostResponseTimeoutReceivedFilter) -> Self {
+            Self::PostResponseTimeoutReceivedFilter(value)
         }
     }
     ///Container type for all input parameters for the `dispatch` function with signature

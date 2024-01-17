@@ -75,7 +75,9 @@ where
                             source_chain: request.source_chain(),
                             dest_chain: request.dest_chain(),
                         });
-                    host.delete_request_commitment(&request)?;
+                    if res.is_ok() {
+                        host.delete_request_commitment(&request)?;
+                    }
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?
@@ -124,7 +126,9 @@ where
                             source_chain: response.source_chain(),
                             dest_chain: response.dest_chain(),
                         });
-                    host.delete_response_commitment(&response)?;
+                    if res.is_ok() {
+                        host.delete_response_commitment(&response)?;
+                    }
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?
@@ -163,7 +167,9 @@ where
                             source_chain: request.source_chain(),
                             dest_chain: request.dest_chain(),
                         });
-                    host.delete_request_commitment(&request)?;
+                    if res.is_ok() {
+                        host.delete_request_commitment(&request)?;
+                    }
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?

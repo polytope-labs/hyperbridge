@@ -400,13 +400,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(PostRequest memory request) external onlyHandler {
         address destination = _bytesToAddress(request.to);
-        address(destination).call(abi.encodeWithSelector(IIsmpModule.onAccept.selector, request));
+        (bool success,) = address(destination).call(abi.encodeWithSelector(IIsmpModule.onAccept.selector, request));
 
-        // doesn't matter if it failed, if it failed once, it'll fail again
-        bytes32 commitment = request.hash();
-        _requestReceipts[commitment] = tx.origin;
+        if (success) {
+            // doesn't matter if it failed, if it failed once, it'll fail again
+            bytes32 commitment = request.hash();
+            _requestReceipts[commitment] = tx.origin;
 
-        emit PostRequestHandled({commitment: commitment, relayer: tx.origin});
+            emit PostRequestHandled({commitment: commitment, relayer: tx.origin});
+        }
     }
 
     /**
@@ -415,12 +417,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(PostResponse memory response) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
-        address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, response));
+        (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, response));
 
-        bytes32 commitment = response.request.hash();
-        _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: response.hash()});
+        if (success) {
+            bytes32 commitment = response.request.hash();
+            _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: response.hash()});
 
-        emit PostResponseHandled({commitment: commitment, relayer: tx.origin});
+            emit PostResponseHandled({commitment: commitment, relayer: tx.origin});
+        }
     }
 
     /**
@@ -436,13 +440,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // Relayers pay for Get Responses
         require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
         address origin = _bytesToAddress(response.request.from);
-        address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, response));
+        (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, response));
 
-        bytes32 commitment = response.request.hash();
-        _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: bytes32(0)});
-        // don't commit the full response object because, it's unused.
+        if (success) {
+            bytes32 commitment = response.request.hash();
+            _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: bytes32(0)});
+            // don't commit the full response object because, it's unused.
 
-        emit PostResponseHandled({commitment: commitment, relayer: tx.origin});
+            emit PostResponseHandled({commitment: commitment, relayer: tx.origin});
+        }
     }
 
     /**
@@ -454,13 +460,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         onlyHandler
     {
         address origin = _bytesToAddress(request.from);
-        address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
+        (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
 
-        // delete memory of this request
-        delete _requestCommitments[commitment];
+        if (success) {
+            // delete memory of this request
+            delete _requestCommitments[commitment];
 
-        // refund relayer fee
-        IERC20(dai()).transfer(meta.sender, meta.fee);
+            // refund relayer fee
+            IERC20(dai()).transfer(meta.sender, meta.fee);
+        }
     }
 
     /**
@@ -472,13 +480,16 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         onlyHandler
     {
         address origin = _bytesToAddress(request.from);
-        address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostRequestTimeout.selector, request));
+        (bool success,) =
+            address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostRequestTimeout.selector, request));
 
-        // delete memory of this request
-        delete _requestCommitments[commitment];
+        if (success) {
+            // delete memory of this request
+            delete _requestCommitments[commitment];
 
-        // refund relayer fee
-        IERC20(dai()).transfer(meta.sender, meta.fee);
+            // refund relayer fee
+            IERC20(dai()).transfer(meta.sender, meta.fee);
+        }
     }
 
     /**
@@ -490,14 +501,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         onlyHandler
     {
         address origin = _bytesToAddress(response.request.to);
-        address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponseTimeout.selector, response));
+        (bool success,) =
+            address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponseTimeout.selector, response));
 
-        // delete memory of this response
-        delete _responseCommitments[commitment];
-        delete _responded[response.request.hash()];
+        if (success) {
+            // delete memory of this response
+            delete _responseCommitments[commitment];
+            delete _responded[response.request.hash()];
 
-        // refund relayer fee
-        IERC20(dai()).transfer(meta.sender, meta.fee);
+            // refund relayer fee
+            IERC20(dai()).transfer(meta.sender, meta.fee);
+        }
     }
 
     /**

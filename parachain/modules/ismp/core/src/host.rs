@@ -77,7 +77,7 @@ pub trait IsmpHost: Keccak256 {
     /// or [`Error::FrozenStateMachine`] if it is.
     fn is_state_machine_frozen(&self, machine: StateMachineHeight) -> Result<(), Error>;
 
-    /// Checks if a consensus state is frozen at the provided height
+    /// Checks if a consensus state is frozen
     fn is_consensus_client_frozen(&self, consensus_state_id: ConsensusStateId)
         -> Result<(), Error>;
 

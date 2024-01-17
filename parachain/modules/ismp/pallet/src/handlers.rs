@@ -3,12 +3,12 @@
 use crate::{
     dispatcher::{FeeMetadata, RequestMetadata},
     host::Host,
+    mmr_primitives::Leaf,
     Config, Event, Pallet, RequestCommitments, Responded, ResponseCommitments,
 };
 use alloc::string::ToString;
 use ismp::{
     error::Error as IsmpError,
-    mmr::Leaf,
     router::{Request, Response},
     util::{hash_request, hash_response},
     LeafIndexQuery,

@@ -38,6 +38,7 @@ pub mod benchmarks {
     use crate::{
         dispatcher::{Dispatcher, FeeMetadata, RequestMetadata},
         host::Host,
+        mmr_primitives::Leaf,
         mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
         Config, Event, Pallet, RequestCommitments, RequestReceipts, ResponseReceipts,
     };
@@ -50,7 +51,6 @@ pub mod benchmarks {
             CreateConsensusState, Message, Proof, RequestMessage, ResponseMessage,
             StateCommitmentHeight, TimeoutMessage,
         },
-        mmr::Leaf,
         router::{
             DispatchGet, DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse,
             Request, RequestResponse, Response,

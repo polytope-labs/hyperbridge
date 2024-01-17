@@ -6119,6 +6119,7 @@ dependencies = [
  "ismp-solidity-abi",
  "libfuzzer-sys",
  "once_cell",
+ "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",
  "rs_merkle",

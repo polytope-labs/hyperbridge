@@ -29,6 +29,7 @@ pub mod events;
 pub mod handlers;
 pub mod host;
 mod mmr;
+pub mod mmr_primitives;
 #[cfg(any(feature = "runtime-benchmarks", feature = "testing", test))]
 pub mod mocks;
 pub mod primitives;
@@ -57,16 +58,11 @@ use sp_core::{offchain::StorageKind, H256};
 use crate::{
     errors::{HandlingError, ModuleCallbackResult},
     mmr::mmr::Mmr,
+    mmr_primitives::{DataOrHash, Leaf, LeafIndex, NodeIndex},
     weight_info::get_weight,
 };
 use frame_system::pallet_prelude::BlockNumberFor;
-use ismp::{
-    consensus::StateMachineHeight,
-    host::IsmpHost,
-    messaging::Message,
-    mmr::{DataOrHash, Leaf, LeafIndex, NodeIndex},
-    LeafIndexQuery,
-};
+use ismp::{consensus::StateMachineHeight, host::IsmpHost, messaging::Message, LeafIndexQuery};
 pub use pallet::*;
 use sp_runtime::{
     traits::ValidateUnsigned,
@@ -88,6 +84,7 @@ pub mod pallet {
     use crate::{
         dispatcher::{FeeMetadata, RequestMetadata},
         errors::HandlingError,
+        mmr_primitives::{LeafIndex, NodeIndex},
         primitives::{ConsensusClientProvider, WeightUsed},
         weight_info::{WeightInfo, WeightProvider},
     };
@@ -101,7 +98,6 @@ pub mod pallet {
         handlers::{self},
         host::StateMachine,
         messaging::Message,
-        mmr::{LeafIndex, NodeIndex},
         router::IsmpRouter,
         ISMP_ID,
     };

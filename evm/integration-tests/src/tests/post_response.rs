@@ -10,7 +10,6 @@ use forge_testsuite::Runner;
 use hex_literal::hex;
 use ismp::{
     host::{Ethereum, StateMachine},
-    mmr::{DataOrHash, Leaf},
     router,
     router::{Post, Request, Response},
     util::hash_response,
@@ -24,6 +23,7 @@ use ismp_solidity_abi::{
     shared_types::{PostRequest, PostResponse, StateCommitment, StateMachineHeight},
 };
 use merkle_mountain_range::mmr_position_to_k_index;
+use pallet_ismp::mmr_primitives::{DataOrHash, Leaf};
 use primitive_types::H256;
 use std::{env, path::PathBuf};
 

@@ -28,13 +28,15 @@ use ismp::{
     error::Error,
     host::IsmpHost,
     messaging::Proof,
-    mmr::{DataOrHash, Leaf, MmrHasher},
     router::{Request, RequestResponse, Response},
     util::{hash_post_response, hash_request},
     HashAlgorithm, MembershipProof, SubstrateStateProof,
 };
 use merkle_mountain_range::MerkleProof;
-use pallet_ismp::host::Host;
+use pallet_ismp::{
+    host::Host,
+    mmr_primitives::{DataOrHash, Leaf, MmrHasher},
+};
 use sp_runtime::traits::{BlakeTwo256, Keccak256};
 use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
 

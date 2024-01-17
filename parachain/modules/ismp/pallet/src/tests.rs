@@ -21,6 +21,7 @@ use std::{
 
 use crate::{
     dispatcher::Dispatcher,
+    mmr_primitives::MmrHasher,
     mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID},
 };
 use frame_support::traits::OnFinalize;
@@ -28,7 +29,6 @@ use ismp::{
     consensus::StateMachineHeight,
     host::Ethereum,
     messaging::{Proof, ResponseMessage, TimeoutMessage},
-    mmr::MmrHasher,
     router::{DispatchGet, DispatchRequest, GetResponse, IsmpDispatcher, Post, RequestResponse},
     util::hash_request,
 };

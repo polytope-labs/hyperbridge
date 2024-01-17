@@ -6,7 +6,6 @@ use ethers::{
 use forge_testsuite::Runner;
 use ismp::{
     host::{Ethereum, StateMachine},
-    mmr::{DataOrHash, Leaf},
     router::{Post, Request},
 };
 use ismp_solidity_abi::{
@@ -14,6 +13,7 @@ use ismp_solidity_abi::{
     handler::{PostRequestLeaf, PostRequestMessage},
     shared_types::StateCommitment,
 };
+use pallet_ismp::mmr_primitives::{DataOrHash, Leaf};
 use std::{env, path::PathBuf};
 
 #[tokio::test(flavor = "multi_thread")]

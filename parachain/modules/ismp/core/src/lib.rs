@@ -34,8 +34,6 @@ pub mod prelude {
     pub use alloc::{format, str::FromStr, string::String, vec, vec::Vec};
 }
 
-pub mod mmr;
-
 /// The `ConsensusEngineId` of ISMP digest in the parachain header.
 pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";
 

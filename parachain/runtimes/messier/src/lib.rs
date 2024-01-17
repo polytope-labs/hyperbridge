@@ -49,7 +49,6 @@ use sp_version::RuntimeVersion;
 
 use ::ismp::{
     consensus::{ConsensusClientId, StateMachineId},
-    mmr::{Leaf, LeafIndex},
     router::{Request, Response},
     LeafIndexQuery,
 };
@@ -69,7 +68,10 @@ use frame_system::{
     limits::{BlockLength, BlockWeights},
     EnsureRoot,
 };
-use pallet_ismp::primitives::Proof;
+use pallet_ismp::{
+    mmr_primitives::{Leaf, LeafIndex},
+    primitives::Proof,
+};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 use xcm::{XcmConfig, XcmOriginToTransactDispatchOrigin};

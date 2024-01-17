@@ -14,12 +14,10 @@
 // limitations under the License.
 
 //! Pallet primitives
+use crate::mmr_primitives::{LeafIndex, NodeIndex};
 use codec::{Decode, Encode};
 use frame_support::{weights::Weight, PalletId};
-use ismp::{
-    consensus::{ConsensusClient, ConsensusClientId},
-    mmr::{LeafIndex, NodeIndex},
-};
+use ismp::consensus::{ConsensusClient, ConsensusClientId};
 use scale_info::TypeInfo;
 use sp_core::{
     crypto::{AccountId32, ByteArray},

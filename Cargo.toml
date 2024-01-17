@@ -2,42 +2,46 @@
 resolver = "2"
 members = [
     # runtime
-     "parachain/runtimes/gargantua",
-     "parachain/runtimes/messier",
+    "parachain/runtimes/gargantua",
+    "parachain/runtimes/messier",
 
-     # node
-     "parachain/node",
+    # node
+    "parachain/node",
 
-     # ismp
-     "parachain/modules/ismp/pallet",
-     "parachain/modules/ismp/core",
-     "parachain/modules/ismp/rpc",
-     "parachain/modules/ismp/runtime-api",
-     "parachain/modules/ismp/demo",
-     "parachain/modules/ismp/core",
-     "parachain/modules/ismp/testsuite",
-     "parachain/modules/ismp/sync-committee",
-     "parachain/modules/ismp/polygon-pos",
-     "parachain/modules/ismp/casper-ffg",
-     "parachain/modules/ismp/state-machine",
+    # ismp
+    "parachain/modules/ismp/pallet",
+    "parachain/modules/ismp/core",
+    "parachain/modules/ismp/rpc",
+    "parachain/modules/ismp/runtime-api",
+    "parachain/modules/ismp/demo",
+    "parachain/modules/ismp/core",
+    "parachain/modules/ismp/testsuite",
+    "parachain/modules/ismp/sync-committee",
+    "parachain/modules/ismp/polygon-pos",
+    "parachain/modules/ismp/casper-ffg",
+    "parachain/modules/ismp/state-machine",
 
-     # modules
-     "parachain/modules/tries/ethereum",
-     "parachain/modules/consensus/sync-committee/prover",
-     "parachain/modules/consensus/sync-committee/verifier",
-     "parachain/modules/consensus/sync-committee/primitives",
-     "parachain/modules/consensus/polygon-pos/verifier",
-     "parachain/modules/consensus/polygon-pos/prover",
-     "parachain/modules/consensus/beefy/primitives",
-     "parachain/modules/consensus/beefy/prover",
-     "parachain/modules/consensus/geth-primitives",
+    # modules
+    "parachain/modules/tries/ethereum",
+    "parachain/modules/consensus/sync-committee/prover",
+    "parachain/modules/consensus/sync-committee/verifier",
+    "parachain/modules/consensus/sync-committee/primitives",
+    "parachain/modules/consensus/polygon-pos/verifier",
+    "parachain/modules/consensus/polygon-pos/prover",
+    "parachain/modules/consensus/beefy/primitives",
+    "parachain/modules/consensus/beefy/prover",
+    "parachain/modules/consensus/geth-primitives",
 
-     "parachain/modules/consensus/bnb-pos/verifier",
-     "parachain/modules/consensus/bnb-pos/prover", "parachain/modules/ismp/bnb-pos",
+    "parachain/modules/consensus/bnb-pos/verifier",
+    "parachain/modules/consensus/bnb-pos/prover", "parachain/modules/ismp/bnb-pos",
 
-     # evm stuff
-      "evm/integration-tests",
-      "evm/abi",
+    # evm stuff
+    "evm/integration-tests",
+    "evm/abi",
+
+
+    # hyper-client (sdk)
+    "client",
 ]
 
 # Config for 'cargo dist'

@@ -30,12 +30,12 @@ use ismp::{
     messaging::Proof,
     router::{Request, RequestResponse, Response},
     util::{hash_post_response, hash_request},
-    HashAlgorithm, MembershipProof, SubstrateStateProof,
 };
 use merkle_mountain_range::MerkleProof;
 use pallet_ismp::{
     host::Host,
     mmr_primitives::{DataOrHash, Leaf, MmrHasher},
+    primitives::{HashAlgorithm, MembershipProof, SubstrateStateProof},
 };
 use sp_runtime::traits::{BlakeTwo256, Keccak256};
 use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
@@ -137,7 +137,6 @@ where
     ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
         let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
             .map_err(|e| Error::ImplementationSpecific(format!("failed to decode proof: {e:?}")))?;
-
         let data = match state_proof.hasher {
             HashAlgorithm::Keccak => {
                 let db = StorageProof::new(state_proof.storage_proof).into_memory_db::<Keccak256>();

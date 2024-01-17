@@ -59,10 +59,11 @@ use crate::{
     errors::{HandlingError, ModuleCallbackResult},
     mmr::mmr::Mmr,
     mmr_primitives::{DataOrHash, Leaf, LeafIndex, NodeIndex},
+    primitives::LeafIndexQuery,
     weight_info::get_weight,
 };
 use frame_system::pallet_prelude::BlockNumberFor;
-use ismp::{consensus::StateMachineHeight, host::IsmpHost, messaging::Message, LeafIndexQuery};
+use ismp::{consensus::StateMachineHeight, host::IsmpHost, messaging::Message};
 pub use pallet::*;
 use sp_runtime::{
     traits::ValidateUnsigned,
@@ -85,7 +86,7 @@ pub mod pallet {
         dispatcher::{FeeMetadata, RequestMetadata},
         errors::HandlingError,
         mmr_primitives::{LeafIndex, NodeIndex},
-        primitives::{ConsensusClientProvider, WeightUsed},
+        primitives::{ConsensusClientProvider, WeightUsed, ISMP_ID},
         weight_info::{WeightInfo, WeightProvider},
     };
     use frame_support::{pallet_prelude::*, traits::UnixTime};
@@ -99,7 +100,6 @@ pub mod pallet {
         host::StateMachine,
         messaging::Message,
         router::IsmpRouter,
-        ISMP_ID,
     };
     use sp_core::H256;
 
@@ -259,7 +259,7 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn response_receipts)]
     pub type ResponseReceipts<T: Config> =
-        StorageMap<_, Identity, H256, ResponseReciept, OptionQuery>;
+        StorageMap<_, Identity, H256, ResponseReceipt, OptionQuery>;
 
     /// Latest nonce for messages sent from this chain
     #[pallet::storage]
@@ -481,7 +481,7 @@ pub mod pallet {
 
 /// Receipt for a Response
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub struct ResponseReciept {
+pub struct ResponseReceipt {
     /// Hash of the response object
     pub response: H256,
     /// Address of the relayer

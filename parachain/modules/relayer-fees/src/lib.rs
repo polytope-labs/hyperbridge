@@ -15,6 +15,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
+#[cfg(test)]
+mod test;
 pub mod withdrawal;
 
 use crate::withdrawal::{
@@ -55,7 +57,10 @@ pub mod pallet {
     use codec::Encode;
     use ismp::router::{DispatchPost, DispatchRequest, IsmpDispatcher};
     use pallet_ismp::dispatcher::Dispatcher;
-    use sp_core::H256;
+    use sp_core::{
+        crypto::{UncheckedFrom, UncheckedInto},
+        H256,
+    };
     use sp_runtime::Saturating;
 
     #[pallet::pallet]
@@ -72,11 +77,11 @@ pub mod pallet {
     pub type RelayerFees<T: Config> = StorageDoubleMap<
         _,
         Twox64Concat,
-        Vec<u8>,
-        Twox64Concat,
         StateMachine,
+        Twox64Concat,
+        Vec<u8>,
         T::Balance,
-        OptionQuery,
+        ValueQuery,
     >;
 
     /// Latest nonce for each address when they withdraw
@@ -108,13 +113,15 @@ pub mod pallet {
         DispatchFailed,
         /// Error
         ErrorCompletingCall,
+        /// Missing commitments
+        MissingCommitments,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T>
     where
         <T as frame_system::Config>::Hash: From<H256>,
-        <T as frame_system::Config>::AccountId: From<[u8; 32]>,
+        <T as frame_system::Config>::AccountId: UncheckedFrom<[u8; 32]>,
         T::Balance: Into<u128>,
     {
         #[pallet::call_index(0)]
@@ -125,8 +132,7 @@ pub mod pallet {
         ) -> DispatchResult {
             ensure_none(origin)?;
 
-            ensure!(withdrawal_proof.commitments.is_empty(), Error::<T>::ProofValidationError);
-
+            ensure!(!withdrawal_proof.commitments.is_empty(), Error::<T>::MissingCommitments);
             let source_keys = Self::get_commitment_keys(&withdrawal_proof);
             let dest_keys = Self::get_receipt_keys(&withdrawal_proof);
 
@@ -134,7 +140,6 @@ pub mod pallet {
                 Self::verify_withdrawal_proof(&withdrawal_proof.source_proof, source_keys.clone())?;
             let dest_result =
                 Self::verify_withdrawal_proof(&withdrawal_proof.dest_proof, dest_keys.clone())?;
-
             let result = Self::validate_results(
                 &withdrawal_proof,
                 source_keys,
@@ -144,10 +149,10 @@ pub mod pallet {
             )?;
             for (address, fee) in result.into_iter() {
                 let _ = RelayerFees::<T>::try_mutate(
-                    address,
                     withdrawal_proof.source_proof.height.id.state_id,
+                    address,
                     |inner| {
-                        *inner = Some(inner.clone().unwrap_or(0u32.into()) + fee);
+                        *inner += fee;
                         Ok::<(), ()>(())
                     },
                 );
@@ -215,13 +220,8 @@ pub mod pallet {
                     public_key
                 },
             };
-            let available_amount = if let Some(balance) =
-                RelayerFees::<T>::get(address.clone(), withdrawal_data.dest_chain)
-            {
-                balance
-            } else {
-                Err(Error::<T>::EmptyBalance)?
-            };
+            let available_amount =
+                RelayerFees::<T>::get(withdrawal_data.dest_chain, address.clone());
 
             if available_amount < withdrawal_data.amount {
                 Err(Error::<T>::InvalidAmount)?
@@ -256,12 +256,16 @@ pub mod pallet {
 
             // Account is not useful in this case
             dispatcher
-                .dispatch_request(DispatchRequest::Post(post), [0u8; 32].into(), 0u32.into())
+                .dispatch_request(
+                    DispatchRequest::Post(post),
+                    [0u8; 32].unchecked_into(),
+                    0u32.into(),
+                )
                 .map_err(|_| Error::<T>::DispatchFailed)?;
 
             RelayerFees::<T>::insert(
-                address,
                 withdrawal_data.dest_chain,
+                address,
                 available_amount.saturating_sub(withdrawal_data.amount),
             );
             Ok(())
@@ -270,7 +274,7 @@ pub mod pallet {
         /// Set the relayer manager addresses for different state machines
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(addresses.len() as u64))]
         #[pallet::call_index(2)]
-        pub fn set_relayer_manager_addreses(
+        pub fn set_relayer_manager_addresses(
             origin: OriginFor<T>,
             addresses: BTreeMap<StateMachine, Vec<u8>>,
         ) -> DispatchResult {
@@ -513,7 +517,7 @@ impl<T: Config> Pallet<T> {
                             StateMachine::Polkadot(_) => {
                                 use codec::Decode;
                                 let receipt =
-                                    pallet_ismp::ResponseReciept::decode(&mut &*encoded_receipt)
+                                    pallet_ismp::ResponseReceipt::decode(&mut &*encoded_receipt)
                                         .map_err(|_| Error::<T>::ProofValidationError)?;
                                 (receipt.relayer, receipt.response.0)
                             },

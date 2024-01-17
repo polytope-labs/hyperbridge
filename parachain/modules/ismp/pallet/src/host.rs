@@ -18,7 +18,7 @@ use crate::{
     primitives::ConsensusClientProvider, AllowedProxies, ChallengePeriod, Config,
     ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
     FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts, Responded,
-    ResponseCommitments, ResponseReceipts, ResponseReciept, StateCommitments,
+    ResponseCommitments, ResponseReceipt, ResponseReceipts, StateCommitments,
     StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
@@ -258,7 +258,7 @@ impl<T: Config> IsmpHost for Host<T> {
     fn store_response_receipt(&self, res: &Response, signer: &Vec<u8>) -> Result<(), Error> {
         let hash = hash_request::<Self>(&res.request());
         let response = hash_response::<Self>(&res);
-        ResponseReceipts::<T>::insert(hash, ResponseReciept { response, relayer: signer.clone() });
+        ResponseReceipts::<T>::insert(hash, ResponseReceipt { response, relayer: signer.clone() });
         Ok(())
     }
 

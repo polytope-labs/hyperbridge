@@ -14,7 +14,7 @@
 // limitations under the License.
 
 //! Implementation for the ISMP Router
-use crate::{host::Host, Pallet, RequestReceipts};
+use crate::{host::Host, primitives::LeafIndexQuery, Pallet, RequestReceipts};
 use alloc::string::ToString;
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
@@ -24,7 +24,6 @@ use ismp::{
     host::IsmpHost,
     router::{DispatchRequest, Get, IsmpDispatcher, Post, PostResponse, Request, Response},
     util::hash_request,
-    LeafIndexQuery,
 };
 
 /// A receipt or an outgoing or incoming request or response

@@ -188,9 +188,9 @@ checksum = "0942ffc6dcaadf03badf6e6a2d0228460359d5e34b57ccdc720b7382dfbd5ec5"
 
 [[package]]
 name = "alloy-primitives"
-version = "0.3.3"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e416903084d3392ebd32d94735c395d6709415b76c7728e594d3f996f2b03e65"
+checksum = "3729132072f369bc4e8e6e070f9cf4deb3490fc9b9eea6f71f75ec19406df811"
 dependencies = [
  "alloy-rlp",
  "bytes",
@@ -199,25 +199,7 @@ dependencies = [
  "derive_more",
  "hex-literal 0.4.1",
  "itoa",
- "proptest",
- "ruint",
- "serde",
- "tiny-keccak",
-]
-
-[[package]]
-name = "alloy-primitives"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c234f92024707f224510ff82419b2be0e1d8e1fd911defcac5a085cd7f83898"
-dependencies = [
- "alloy-rlp",
- "bytes",
- "cfg-if",
- "const-hex",
- "derive_more",
- "hex-literal 0.4.1",
- "itoa",
+ "k256",
  "keccak-asm",
  "proptest",
  "rand 0.8.5",
@@ -1360,7 +1342,7 @@ dependencies = [
 name = "bnb-pos-verifier"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.5.4",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
@@ -5157,7 +5139,7 @@ dependencies = [
 name = "geth-primitives"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.3.3",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
@@ -5978,19 +5960,12 @@ dependencies = [
 name = "ismp"
 version = "0.1.0"
 dependencies = [
- "ckb-merkle-mountain-range 0.5.2 (git+https://github.com/polytope-labs/merkle-mountain-range?branch=seun/simplified-mmr)",
  "derive_more",
- "frame-support",
- "frame-system",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",
  "serde",
  "serde_json",
- "sp-consensus-aura",
- "sp-core 25.0.0",
- "sp-io 27.0.0",
- "sp-runtime 28.0.0",
 ]
 
 [[package]]
@@ -6139,7 +6114,7 @@ dependencies = [
 name = "ismp-sync-committee"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.3.3",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
@@ -8669,6 +8644,7 @@ dependencies = [
  "scale-info",
  "serde",
  "sp-api",
+ "sp-consensus-aura",
  "sp-core 25.0.0",
  "sp-io 27.0.0",
  "sp-runtime 28.0.0",
@@ -8955,22 +8931,31 @@ dependencies = [
 name = "pallet-relayer-fees"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.5.4",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
+ "ethereum-trie",
  "frame-support",
  "frame-system",
+ "hash-db",
  "ismp",
+ "ismp-bnb-pos",
+ "ismp-polygon-pos",
  "ismp-sync-committee",
  "log",
+ "pallet-balances",
  "pallet-ismp",
+ "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
  "sp-core 25.0.0",
  "sp-io 27.0.0",
  "sp-runtime 28.0.0",
  "sp-std 11.0.0",
+ "sp-trie 26.0.0",
+ "substrate-state-machine",
+ "trie-db 0.28.0",
 ]
 
 [[package]]
@@ -10947,7 +10932,7 @@ dependencies = [
 name = "polygon-pos-verifier"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.3.3",
+ "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",

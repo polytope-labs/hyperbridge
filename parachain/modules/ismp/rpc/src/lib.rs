@@ -28,10 +28,12 @@ use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     events::{Event, StateMachineUpdated},
     router::{Get, Request, Response},
-    LeafIndexQuery,
 };
 use ismp_runtime_api::IsmpRuntimeApi;
-use pallet_ismp::mmr_primitives::{Leaf, LeafIndex, NodeIndex};
+use pallet_ismp::{
+    mmr_primitives::{Leaf, LeafIndex, NodeIndex},
+    primitives::LeafIndexQuery,
+};
 use sc_client_api::{BlockBackend, ProofProvider};
 use serde::{Deserialize, Serialize};
 use sp_api::{ApiExt, ProvideRuntimeApi};

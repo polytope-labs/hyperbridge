@@ -47,8 +47,8 @@ use sp_version::RuntimeVersion;
 use ::ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     router::{Request, Response},
-    LeafIndexQuery,
 };
+use pallet_ismp::primitives::LeafIndexQuery;
 
 use frame_support::{
     construct_runtime,

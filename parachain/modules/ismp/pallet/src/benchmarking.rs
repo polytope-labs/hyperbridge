@@ -40,6 +40,7 @@ pub mod benchmarks {
         host::Host,
         mmr_primitives::Leaf,
         mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
+        primitives::LeafIndexQuery,
         Config, Event, Pallet, RequestCommitments, RequestReceipts, ResponseReceipts,
     };
     use frame_support::traits::{Get, Hooks};
@@ -56,7 +57,6 @@ pub mod benchmarks {
             Request, RequestResponse, Response,
         },
         util::hash_request,
-        LeafIndexQuery,
     };
 
     /// Verify the the last event emitted

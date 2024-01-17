@@ -17,7 +17,7 @@ sp-std = { workspace = true }
 sp-api = { workspace = true }
 merkle-mountain-range = { workspace = true }
 pallet-timestamp = { workspace = true, optional = true }
-
+sp-consensus-aura = { workspace = true }
  # polytope labs
 ismp = { package = "ismp", path = "../core", default-features = false }
 
@@ -53,6 +53,7 @@ std = [
     "sp-api/std",
     "serde",
     "pallet-balances/std",
+    "sp-consensus-aura/std"
 ]
 
 testing = ["pallet-timestamp/std"]

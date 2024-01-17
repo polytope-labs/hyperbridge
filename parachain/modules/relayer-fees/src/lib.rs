@@ -12,13 +12,17 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 pub mod withdrawal;
 
-use crate::withdrawal::{FeeMetadata, Key, ResponseReceipt, WithdrawalProof};
+use crate::withdrawal::{
+    FeeMetadata, Key, ResponseReceipt, Signature, WithdrawalInputData, WithdrawalProof,
+};
 use alloc::{collections::BTreeMap, vec::Vec};
 use alloy_primitives::Address;
+use codec::{Codec, Encode};
 use ismp::{
     handlers::validate_state_machine,
     host::{IsmpHost, StateMachine},
@@ -29,27 +33,30 @@ use ismp_sync_committee::{
         REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
         RESPONSE_RECEIPTS_SLOT,
     },
-    utils::derive_map_key,
+    utils::derive_unhashed_map_key,
 };
 pub use pallet::*;
 use pallet_ismp::host::Host;
 use sp_core::U256;
 use sp_runtime::DispatchError;
+use sp_std::prelude::*;
+
+pub const MODULE_ID: [u8; 32] = [1; 32];
 
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use frame_support::pallet_prelude::*;
+    use frame_support::pallet_prelude::{OptionQuery, *};
     use frame_system::pallet_prelude::*;
     use ismp::host::StateMachine;
+    use withdrawal::WithdrawalParams;
 
     use crate::withdrawal::{WithdrawalInputData, WithdrawalProof};
-    use codec::{Decode, Encode};
+    use codec::Encode;
     use ismp::router::{DispatchPost, DispatchRequest, IsmpDispatcher};
     use pallet_ismp::dispatcher::Dispatcher;
-    use sp_core::{H256, U256};
-    use sp_runtime::traits::{IdentifyAccount, Verify};
-    use sp_std::{prelude::*, vec};
+    use sp_core::H256;
+    use sp_runtime::Saturating;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -62,18 +69,45 @@ pub mod pallet {
     /// double map of address to source chain, which holds the amount of the relayer address
     #[pallet::storage]
     #[pallet::getter(fn accumulating_fees)]
-    pub type RelayerFees<T: Config> =
-        StorageDoubleMap<_, Twox64Concat, Vec<u8>, Twox64Concat, StateMachine, T::Balance, OptionQuery>;
+    pub type RelayerFees<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        Vec<u8>,
+        Twox64Concat,
+        StateMachine,
+        T::Balance,
+        OptionQuery,
+    >;
 
     /// Latest nonce for each address when they withdraw
     #[pallet::storage]
     #[pallet::getter(fn nonce)]
-    pub type Nonce<T: Config> = StorageMap<_, Identity, Vec<u8>, u64, ValueQuery>;
+    pub type Nonce<T: Config> = StorageMap<_, Twox64Concat, Vec<u8>, u64, ValueQuery>;
+
+    /// Relayer Manager Address on different chains
+    #[pallet::storage]
+    #[pallet::getter(fn manager)]
+    pub type RelayerManager<T: Config> =
+        StorageMap<_, Twox64Concat, StateMachine, Vec<u8>, OptionQuery>;
 
     #[pallet::error]
     pub enum Error<T> {
         /// Withdrawal Proof Validation Error
         ProofValidationError,
+        /// Invalid Public Key
+        InvalidPublicKey,
+        /// Invalid Withdrawal signature
+        InvalidSignature,
+        /// Empty balance
+        EmptyBalance,
+        /// Invalid Amount
+        InvalidAmount,
+        /// Relayer Manager Address on Dest chain not set
+        MissingMangerAddress,
+        /// Failed to dispatch request
+        DispatchFailed,
+        /// Error
+        ErrorCompletingCall,
     }
 
     #[pallet::call]
@@ -81,6 +115,7 @@ pub mod pallet {
     where
         <T as frame_system::Config>::Hash: From<H256>,
         <T as frame_system::Config>::AccountId: From<[u8; 32]>,
+        T::Balance: Into<u128>,
     {
         #[pallet::call_index(0)]
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
@@ -108,12 +143,12 @@ pub mod pallet {
                 dest_result,
             )?;
             for (address, fee) in result.into_iter() {
-                RelayerFees::<T>::try_mutate(
+                let _ = RelayerFees::<T>::try_mutate(
                     address,
                     withdrawal_proof.source_proof.height.id.state_id,
                     |inner| {
                         *inner = Some(inner.clone().unwrap_or(0u32.into()) + fee);
-                        Ok(())
+                        Ok::<(), ()>(())
                     },
                 );
             }
@@ -128,6 +163,122 @@ pub mod pallet {
             withdrawal_data: WithdrawalInputData<T::Balance>,
         ) -> DispatchResult {
             ensure_none(origin)?;
+            let address = match withdrawal_data.signature.clone() {
+                Signature::Ethereum { address, signature } => {
+                    if signature.len() != 65 {
+                        Err(Error::<T>::InvalidSignature)?
+                    }
+                    let nonce = Nonce::<T>::get(address.clone());
+                    let msg = message::<T::Balance>(nonce, &withdrawal_data);
+                    let mut sig = [0u8; 65];
+                    sig.copy_from_slice(&signature);
+                    let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig, &msg)
+                        .map_err(|_| Error::<T>::InvalidSignature)?;
+                    let signer = sp_io::hashing::keccak_256(&pub_key[..])[12..].to_vec();
+                    if signer != address {
+                        Err(Error::<T>::InvalidPublicKey)?
+                    }
+                    address
+                },
+                Signature::Sr25519 { public_key, signature } => {
+                    if signature.len() != 64 {
+                        Err(Error::<T>::InvalidSignature)?
+                    }
+
+                    if public_key.len() != 32 {
+                        Err(Error::<T>::InvalidPublicKey)?
+                    }
+                    let nonce = Nonce::<T>::get(public_key.clone());
+                    let msg = message::<T::Balance>(nonce, &withdrawal_data);
+                    let signature = signature.as_slice().try_into().expect("Infallible");
+                    let pub_key = public_key.as_slice().try_into().expect("Infallible");
+                    if !sp_io::crypto::sr25519_verify(&signature, &msg, &pub_key) {
+                        Err(Error::<T>::InvalidSignature)?
+                    }
+                    public_key
+                },
+                Signature::Ed25519 { public_key, signature } => {
+                    if signature.len() != 64 {
+                        Err(Error::<T>::InvalidSignature)?
+                    }
+
+                    if public_key.len() != 32 {
+                        Err(Error::<T>::InvalidPublicKey)?
+                    }
+                    let nonce = Nonce::<T>::get(public_key.clone());
+                    let msg = message::<T::Balance>(nonce, &withdrawal_data);
+                    let signature = signature.as_slice().try_into().expect("Infallible");
+                    let pub_key = public_key.as_slice().try_into().expect("Infallible");
+                    if !sp_io::crypto::ed25519_verify(&signature, &msg, &pub_key) {
+                        Err(Error::<T>::InvalidSignature)?
+                    }
+                    public_key
+                },
+            };
+            let available_amount = if let Some(balance) =
+                RelayerFees::<T>::get(address.clone(), withdrawal_data.dest_chain)
+            {
+                balance
+            } else {
+                Err(Error::<T>::EmptyBalance)?
+            };
+
+            if available_amount < withdrawal_data.amount {
+                Err(Error::<T>::InvalidAmount)?
+            }
+            let dispatcher = Dispatcher::<T>::default();
+            let relayer_manager_address = RelayerManager::<T>::get(withdrawal_data.dest_chain)
+                .ok_or_else(|| Error::<T>::MissingMangerAddress)?;
+            Nonce::<T>::try_mutate(address.clone(), |value| {
+                *value += 1;
+                Ok::<(), ()>(())
+            })
+            .map_err(|_| Error::<T>::ErrorCompletingCall)?;
+            let params = WithdrawalParams {
+                beneficiary_address: address.clone(),
+                amount: withdrawal_data.amount.into(),
+            };
+
+            let data = match withdrawal_data.dest_chain {
+                StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc =>
+                    params.abi_encode(),
+                _ => params.encode(),
+            };
+
+            let post = DispatchPost {
+                dest: withdrawal_data.dest_chain,
+                from: MODULE_ID.to_vec(),
+                to: relayer_manager_address,
+                timeout_timestamp: 3 * 60 * 60,
+                data,
+                gas_limit: withdrawal_data.gas_limit,
+            };
+
+            // Account is not useful in this case
+            dispatcher
+                .dispatch_request(DispatchRequest::Post(post), [0u8; 32].into(), 0u32.into())
+                .map_err(|_| Error::<T>::DispatchFailed)?;
+
+            RelayerFees::<T>::insert(
+                address,
+                withdrawal_data.dest_chain,
+                available_amount.saturating_sub(withdrawal_data.amount),
+            );
+            Ok(())
+        }
+
+        /// Set the relayer manager addresses for different state machines
+        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(addresses.len() as u64))]
+        #[pallet::call_index(2)]
+        pub fn set_relayer_manager_addreses(
+            origin: OriginFor<T>,
+            addresses: BTreeMap<StateMachine, Vec<u8>>,
+        ) -> DispatchResult {
+            <T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
+
+            for (state_machine, address) in addresses {
+                RelayerManager::<T>::insert(state_machine, address);
+            }
 
             Ok(())
         }
@@ -159,7 +310,7 @@ impl<T: Config> Pallet<T> {
                 Key::Request(commitment) => match proof.source_proof.height.id.state_id {
                     StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                         keys.push(
-                            derive_map_key::<Host<T>>(
+                            derive_unhashed_map_key::<Host<T>>(
                                 commitment.0.to_vec(),
                                 REQUEST_COMMITMENTS_SLOT,
                             )
@@ -174,7 +325,7 @@ impl<T: Config> Pallet<T> {
                     match proof.source_proof.height.id.state_id {
                         StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                             keys.push(
-                                derive_map_key::<Host<T>>(
+                                derive_unhashed_map_key::<Host<T>>(
                                     response_commitment.0.to_vec(),
                                     RESPONSE_COMMITMENTS_SLOT,
                                 )
@@ -200,19 +351,21 @@ impl<T: Config> Pallet<T> {
                 Key::Request(commitment) => match proof.dest_proof.height.id.state_id {
                     StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                         keys.push(
-                            derive_map_key::<Host<T>>(commitment.0.to_vec(), REQUEST_RECEIPTS_SLOT)
-                                .0
-                                .to_vec(),
+                            derive_unhashed_map_key::<Host<T>>(
+                                commitment.0.to_vec(),
+                                REQUEST_RECEIPTS_SLOT,
+                            )
+                            .0
+                            .to_vec(),
                         );
                     },
-                    _ =>
-                        keys.push(pallet_ismp::RequestCommitments::<T>::hashed_key_for(commitment)),
+                    _ => keys.push(pallet_ismp::RequestReceipts::<T>::hashed_key_for(commitment)),
                 },
                 Key::Response { request_commitment, .. } => {
                     match proof.dest_proof.height.id.state_id {
                         StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                             keys.push(
-                                derive_map_key::<Host<T>>(
+                                derive_unhashed_map_key::<Host<T>>(
                                     request_commitment.0.to_vec(),
                                     RESPONSE_RECEIPTS_SLOT,
                                 )
@@ -220,7 +373,7 @@ impl<T: Config> Pallet<T> {
                                 .to_vec(),
                             );
                         },
-                        _ => keys.push(pallet_ismp::ResponseCommitments::<T>::hashed_key_for(
+                        _ => keys.push(pallet_ismp::ResponseReceipts::<T>::hashed_key_for(
                             request_commitment,
                         )),
                     }
@@ -240,7 +393,7 @@ impl<T: Config> Pallet<T> {
     ) -> Result<BTreeMap<Vec<u8>, T::Balance>, Error<T>> {
         let mut result = BTreeMap::new();
         for ((key, source_key), dest_key) in
-            proof.commitments.into_iter().zip(source_keys).zip(dest_keys)
+            proof.commitments.clone().into_iter().zip(source_keys).zip(dest_keys)
         {
             match key {
                 Key::Request(_) => {
@@ -258,7 +411,7 @@ impl<T: Config> Pallet<T> {
                                 let fee = FeeMetadata::decode(&mut &*encoded_metadata)
                                     .map_err(|_| Error::<T>::ProofValidationError)?
                                     .fee;
-                                U256::from_big_endian(&fee.to_be_bytes()).low_u32().into()
+                                U256::from_big_endian(&fee.to_be_bytes::<32>()).low_u32().into()
                             },
                             _ => {
                                 use codec::Decode;
@@ -311,7 +464,7 @@ impl<T: Config> Pallet<T> {
                                 let fee = FeeMetadata::decode(&mut &*encoded_metadata)
                                     .map_err(|_| Error::<T>::ProofValidationError)?
                                     .fee;
-                                U256::from_big_endian(&fee.to_be_bytes()).low_u32().into()
+                                U256::from_big_endian(&fee.to_be_bytes::<32>()).low_u32().into()
                             },
                             _ => {
                                 use codec::Decode;
@@ -343,7 +496,7 @@ impl<T: Config> Pallet<T> {
                                 let receipt =
                                     pallet_ismp::ResponseReciept::decode(&mut &*encoded_receipt)
                                         .map_err(|_| Error::<T>::ProofValidationError)?;
-                                (receipt.relayer, receipt.response.0);
+                                (receipt.relayer, receipt.response.0)
                             },
                         }
                     };
@@ -359,4 +512,8 @@ impl<T: Config> Pallet<T> {
 
         Ok(result)
     }
+}
+
+pub fn message<B: Codec + Copy>(nonce: u64, data: &WithdrawalInputData<B>) -> [u8; 32] {
+    sp_io::hashing::keccak_256(&(nonce, data.dest_chain, data.amount).encode())
 }

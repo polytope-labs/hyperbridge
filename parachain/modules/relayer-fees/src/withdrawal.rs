@@ -1,8 +1,9 @@
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{Address, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
-use codec::{Decode, Encode};
+use codec::{Codec, Decode, Encode};
 use ismp::{host::StateMachine, messaging::Proof};
 use sp_core::H256;
+use sp_std::prelude::*;
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum Key {
@@ -30,29 +31,43 @@ pub struct ResponseReceipt {
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
 #[rlp(trailing)]
 pub struct FeeMetadata {
-    pub fee: U256,
+    pub fee: alloy_primitives::U256,
     pub sender: Address,
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub struct WithdrawalInputData<Balance> {
+pub struct WithdrawalInputData<Balance: Codec + Copy> {
     /// Signature data to prove account ownership
     pub signature: Signature,
     /// Chain to withdraw funds from
     pub dest_chain: StateMachine,
     /// Amount to withdraw
     pub amount: Balance,
+    /// gas limit for evm withdrawals
+    pub gas_limit: u64,
 }
 
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum Signature {
-    Ecdsa(Vec<u8>),
+    /// An Ethereum Address and signature
+    Ethereum { address: Vec<u8>, signature: Vec<u8> },
+    /// An Sr25519 public key and signature
     Sr25519 { public_key: Vec<u8>, signature: Vec<u8> },
+    /// An Ed25519 public key and signature
     Ed25519 { public_key: Vec<u8>, signature: Vec<u8> },
 }
 
-#[derive(Debug, Clone, scale_info::TypeInfo, PartialEq, Eq)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct WithdrawalParams {
-    pub beneficiary_address: Address,
+    pub beneficiary_address: Vec<u8>,
     pub amount: u128,
+}
+
+impl WithdrawalParams {
+    pub fn abi_encode(&self) -> Vec<u8> {
+        let mut data = vec![];
+        data.extend_from_slice(&self.beneficiary_address);
+        data.extend_from_slice(&self.amount.to_be_bytes());
+        data
+    }
 }

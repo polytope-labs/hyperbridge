@@ -40,7 +40,6 @@ pub use mmr::utils::NodesUtils;
 
 use crate::host::Host;
 use codec::{Decode, Encode};
-use core::time::Duration;
 use frame_support::{
     dispatch::{DispatchResult, DispatchResultWithPostInfo, Pays, PostDispatchInfo},
     traits::{Get, UnixTime},
@@ -92,7 +91,6 @@ pub mod pallet {
         primitives::{ConsensusClientProvider, WeightUsed},
         weight_info::{WeightInfo, WeightProvider},
     };
-    use alloc::collections::BTreeSet;
     use frame_support::{pallet_prelude::*, traits::UnixTime};
     use frame_system::pallet_prelude::*;
     use ismp::{
@@ -267,18 +265,6 @@ pub mod pallet {
     pub type ResponseReceipts<T: Config> =
         StorageMap<_, Identity, H256, ResponseReciept, OptionQuery>;
 
-    /// Consensus update results still in challenge period
-    /// Set contains a tuple of previous height and latest height
-    #[pallet::storage]
-    #[pallet::getter(fn consensus_update_results)]
-    pub type ConsensusUpdateResults<T: Config> = StorageMap<
-        _,
-        Twox64Concat,
-        ConsensusClientId,
-        BTreeSet<(StateMachineHeight, StateMachineHeight)>,
-        OptionQuery,
-    >;
-
     /// Latest nonce for messages sent from this chain
     #[pallet::storage]
     #[pallet::getter(fn nonce)]
@@ -416,13 +402,6 @@ pub mod pallet {
             /// State machine latest height
             latest_height: u64,
         },
-        /// Signifies that a client has begun it's challenge period
-        ChallengePeriodStarted {
-            /// Consensus client id
-            consensus_client_id: ConsensusClientId,
-            /// Tuple of previous height and latest height for state machines
-            state_machines: BTreeSet<(StateMachineHeight, StateMachineHeight)>,
-        },
         /// Indicates that a consensus client has been created
         ConsensusClientCreated {
             /// Consensus client id
@@ -544,41 +523,11 @@ impl<T: Config> Pallet<T> {
         for message in messages {
             match handle_incoming_message(&host, message.clone()) {
                 Ok(MessageResult::ConsensusMessage(res)) => {
-                    // check if this is a trusted state machine
-                    let is_trusted_state_machine = host
-                        .challenge_period(res.consensus_state_id.clone()) ==
-                        Some(Duration::from_secs(0));
-
-                    if is_trusted_state_machine {
-                        for (_, latest_height) in res.state_updates.into_iter() {
-                            Self::deposit_event(Event::<T>::StateMachineUpdated {
-                                state_machine_id: latest_height.id,
-                                latest_height: latest_height.height,
-                            })
-                        }
-                    } else {
-                        if let Some(pending_updates) =
-                            ConsensusUpdateResults::<T>::get(res.consensus_client_id)
-                        {
-                            for (_, latest_height) in pending_updates.into_iter() {
-                                Self::deposit_event(Event::<T>::StateMachineUpdated {
-                                    state_machine_id: latest_height.id,
-                                    latest_height: latest_height.height,
-                                })
-                            }
-                        }
-
-                        Self::deposit_event(Event::<T>::ChallengePeriodStarted {
-                            consensus_client_id: res.consensus_client_id,
-                            state_machines: res.state_updates.clone(),
-                        });
-
-                        // Store the new update result that have just entered the challenge
-                        // period
-                        ConsensusUpdateResults::<T>::insert(
-                            res.consensus_client_id,
-                            res.state_updates,
-                        );
+                    for (_, latest_height) in res.state_updates.into_iter() {
+                        Self::deposit_event(Event::<T>::StateMachineUpdated {
+                            state_machine_id: latest_height.id,
+                            latest_height: latest_height.height,
+                        })
                     }
                 },
                 Ok(MessageResult::Response(res)) => {

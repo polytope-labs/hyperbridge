@@ -371,13 +371,6 @@ where
                         response_positions.extend(positions);
                         None
                     },
-                    pallet_ismp::events::Event::ChallengePeriodStarted {
-                        consensus_state_id,
-                        state_machines,
-                    } => Some(Event::ChallengePeriodStarted(ChallengePeriodStarted {
-                        consensus_state_id,
-                        state_machines,
-                    })),
                     pallet_ismp::events::Event::StateMachineUpdated {
                         state_machine_id,
                         latest_height,

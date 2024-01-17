@@ -134,6 +134,13 @@ pub fn derive_map_key<H: IsmpHost>(mut key: Vec<u8>, slot: u64) -> H256 {
     H::keccak256(H::keccak256(&key).0.as_slice())
 }
 
+pub fn derive_unhashed_map_key<H: IsmpHost>(mut key: Vec<u8>, slot: u64) -> H256 {
+    let mut bytes = [0u8; 32];
+    U256::from(slot).to_big_endian(&mut bytes);
+    key.extend_from_slice(&bytes);
+    H::keccak256(&key)
+}
+
 pub(super) fn derive_array_item_key<H: IsmpHost>(slot: u64, index: u64, offset: u64) -> Vec<u8> {
     let mut bytes = [0u8; 32];
     U256::from(slot).to_big_endian(&mut bytes);

@@ -18,6 +18,7 @@ use crate::{host::Host, Pallet, RequestReceipts};
 use alloc::string::ToString;
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
+use frame_support::traits::UnixTime;
 use ismp::{
     error::Error as IsmpError,
     host::IsmpHost,
@@ -88,7 +89,8 @@ where
                     from: dispatch_get.from,
                     keys: dispatch_get.keys,
                     height: dispatch_get.height,
-                    timeout_timestamp: dispatch_get.timeout_timestamp,
+                    timeout_timestamp: <T::TimeProvider as UnixTime>::now().as_secs() +
+                        dispatch_get.timeout_timestamp,
                     gas_limit: dispatch_get.gas_limit,
                 };
                 Request::Get(get)
@@ -100,7 +102,8 @@ where
                     nonce: host.next_nonce(),
                     from: dispatch_post.from,
                     to: dispatch_post.to,
-                    timeout_timestamp: dispatch_post.timeout_timestamp,
+                    timeout_timestamp: <T::TimeProvider as UnixTime>::now().as_secs() +
+                        dispatch_post.timeout_timestamp,
                     data: dispatch_post.data,
                     gas_limit: dispatch_post.gas_limit,
                 };

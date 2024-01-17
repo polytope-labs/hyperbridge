@@ -16,7 +16,7 @@ contract PostRequestTest is BaseTest {
 
         // assert that request was acknowledged
         bytes32 commitment = message.requests[0].request.hash();
-        assert(host.requestReceipts(commitment));
+        assert(host.requestReceipts(commitment) != address(0));
     }
 
     function PostRequestTimeoutNoChallenge(

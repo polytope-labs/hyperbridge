@@ -7,7 +7,7 @@ import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 
 import {IIsmpModule} from "ismp/IIsmpModule.sol";
-import {IIsmpHost, FeeMetadata} from "ismp/IIsmpHost.sol";
+import {IIsmpHost, FeeMetadata, ResponseReceipt} from "ismp/IIsmpHost.sol";
 import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
 import {IHandler} from "ismp/IHandler.sol";
 import {
@@ -75,13 +75,6 @@ struct WithdrawParams {
     address beneficiary;
     // the amount to be disbursed
     uint256 amount;
-}
-
-struct ResponseReceipt {
-    // commitment of the response object
-    bytes32 responseCommitment;
-    // address of the relayer responsible for this response delivery
-    address relayer;
 }
 
 /// Ismp implementation for Evm hosts
@@ -268,16 +261,16 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param commitment - commitment to the request
      * @return existence status of an incoming request commitment
      */
-    function requestReceipts(bytes32 commitment) external view returns (bool) {
-        return _requestReceipts[commitment] != address(0);
+    function requestReceipts(bytes32 commitment) external view returns (address) {
+        return _requestReceipts[commitment];
     }
 
     /**
      * @param commitment - commitment to the response
      * @return existence status of an incoming response commitment
      */
-    function responseReceipts(bytes32 commitment) external view returns (bool) {
-        return _responseReceipts[commitment].relayer != address(0);
+    function responseReceipts(bytes32 commitment) external view returns (ResponseReceipt memory) {
+        return _responseReceipts[commitment];
     }
 
     /**

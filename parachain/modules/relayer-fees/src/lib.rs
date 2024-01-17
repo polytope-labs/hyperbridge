@@ -413,7 +413,7 @@ impl<T: Config> Pallet<T> {
                                     .fee;
                                 U256::from_big_endian(&fee.to_be_bytes::<32>()).low_u32().into()
                             },
-                            _ => {
+                            StateMachine::Beefy(_) | StateMachine::Kusama(_) | StateMachine::Kusama(_) | StateMachine::Polkadot(_) => {
                                 use codec::Decode;
                                 pallet_ismp::dispatcher::FeeMetadata::<T>::decode(
                                     &mut &*encoded_metadata,
@@ -421,6 +421,7 @@ impl<T: Config> Pallet<T> {
                                 .map_err(|_| Error::<T>::ProofValidationError)?
                                 .fee
                             },
+                            _ => Err(Error::<T>::ProofValidationError)?
                         }
                     };
                     let encoded_receipt = dest_result
@@ -439,11 +440,12 @@ impl<T: Config> Pallet<T> {
                                     .0
                                     .to_vec()
                             },
-                            _ => {
+                            StateMachine::Beefy(_) | StateMachine::Kusama(_) | StateMachine::Kusama(_) | StateMachine::Polkadot(_) => {
                                 use codec::Decode;
                                 <Vec<u8>>::decode(&mut &*encoded_receipt)
                                     .map_err(|_| Error::<T>::ProofValidationError)?
                             },
+                            _ => Err(Error::<T>::ProofValidationError)?
                         }
                     };
                     let entry = result.entry(address).or_insert(0u32.into());

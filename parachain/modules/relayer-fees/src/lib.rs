@@ -19,9 +19,7 @@ extern crate alloc;
 mod test;
 pub mod withdrawal;
 
-use crate::withdrawal::{
-    FeeMetadata, Key, ResponseReceipt, Signature, WithdrawalInputData, WithdrawalProof,
-};
+use crate::withdrawal::{FeeMetadata, Key, ResponseReceipt, Signature, WithdrawalProof};
 use alloc::{collections::BTreeMap, vec::Vec};
 use alloy_primitives::Address;
 use codec::{Codec, Encode};
@@ -174,7 +172,11 @@ pub mod pallet {
                         Err(Error::<T>::InvalidSignature)?
                     }
                     let nonce = Nonce::<T>::get(address.clone());
-                    let msg = message::<T::Balance>(nonce, &withdrawal_data);
+                    let msg = message::<T::Balance>(
+                        nonce,
+                        withdrawal_data.dest_chain,
+                        withdrawal_data.amount,
+                    );
                     let mut sig = [0u8; 65];
                     sig.copy_from_slice(&signature);
                     let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig, &msg)
@@ -194,7 +196,11 @@ pub mod pallet {
                         Err(Error::<T>::InvalidPublicKey)?
                     }
                     let nonce = Nonce::<T>::get(public_key.clone());
-                    let msg = message::<T::Balance>(nonce, &withdrawal_data);
+                    let msg = message::<T::Balance>(
+                        nonce,
+                        withdrawal_data.dest_chain,
+                        withdrawal_data.amount,
+                    );
                     let signature = signature.as_slice().try_into().expect("Infallible");
                     let pub_key = public_key.as_slice().try_into().expect("Infallible");
                     if !sp_io::crypto::sr25519_verify(&signature, &msg, &pub_key) {
@@ -211,7 +217,11 @@ pub mod pallet {
                         Err(Error::<T>::InvalidPublicKey)?
                     }
                     let nonce = Nonce::<T>::get(public_key.clone());
-                    let msg = message::<T::Balance>(nonce, &withdrawal_data);
+                    let msg = message::<T::Balance>(
+                        nonce,
+                        withdrawal_data.dest_chain,
+                        withdrawal_data.amount,
+                    );
                     let signature = signature.as_slice().try_into().expect("Infallible");
                     let pub_key = public_key.as_slice().try_into().expect("Infallible");
                     if !sp_io::crypto::ed25519_verify(&signature, &msg, &pub_key) {
@@ -227,8 +237,14 @@ pub mod pallet {
                 Err(Error::<T>::InvalidAmount)?
             }
             let dispatcher = Dispatcher::<T>::default();
-            let relayer_manager_address = RelayerManager::<T>::get(withdrawal_data.dest_chain)
-                .ok_or_else(|| Error::<T>::MissingMangerAddress)?;
+            let relayer_manager_address = match withdrawal_data.dest_chain {
+                StateMachine::Beefy(_) |
+                StateMachine::Grandpa(_) |
+                StateMachine::Kusama(_) |
+                StateMachine::Polkadot(_) => MODULE_ID.to_vec(),
+                _ => RelayerManager::<T>::get(withdrawal_data.dest_chain)
+                    .ok_or_else(|| Error::<T>::MissingMangerAddress)?,
+            };
             Nonce::<T>::try_mutate(address.clone(), |value| {
                 *value += 1;
                 Ok::<(), ()>(())
@@ -537,6 +553,6 @@ impl<T: Config> Pallet<T> {
     }
 }
 
-pub fn message<B: Codec + Copy>(nonce: u64, data: &WithdrawalInputData<B>) -> [u8; 32] {
-    sp_io::hashing::keccak_256(&(nonce, data.dest_chain, data.amount).encode())
+pub fn message<B: Codec + Copy>(nonce: u64, dest_chain: StateMachine, amount: B) -> [u8; 32] {
+    sp_io::hashing::keccak_256(&(nonce, dest_chain, amount).encode())
 }

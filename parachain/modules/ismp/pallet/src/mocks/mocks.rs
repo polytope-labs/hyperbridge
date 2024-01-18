@@ -14,6 +14,7 @@ use ismp::{
     module::IsmpModule,
     router::{Post, Request, RequestResponse, Response, Timeout},
 };
+use sp_core::H256;
 
 /// Mock consensus state id
 pub const MOCK_CONSENSUS_STATE_ID: [u8; 4] = *b"mock";
@@ -110,6 +111,11 @@ pub fn setup_mock_client<H: IsmpHost, T: pallet_timestamp::Config>(host: &H) -> 
 where
     <T as pallet_timestamp::Config>::Moment: From<u64>,
 {
+    let number = frame_system::Pallet::<T>::block_number() + 1u32.into();
+
+    frame_system::Pallet::<T>::reset_events();
+    frame_system::Pallet::<T>::initialize(&number, &Default::default(), &Default::default());
+    frame_system::Pallet::<T>::finalize();
     set_timestamp::<T>(1000_000);
     handlers::create_client(
         host,

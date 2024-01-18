@@ -16,7 +16,7 @@
 use crate::{mocks::*, *};
 use std::{
     ops::Range,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
@@ -203,7 +203,7 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
     let mut ext = new_test_ext();
 
     ext.execute_with(|| {
-        set_timestamp(None);
+        set_timestamp(Some(1));
         let host = Host::<Test>::default();
         let dispatcher = Dispatcher::<Test>::default();
         let post = Post {
@@ -266,10 +266,10 @@ fn should_handle_post_request_timeouts_correctly() {
     let mut ext = new_test_ext();
 
     ext.execute_with(|| {
-        set_timestamp(None);
+        set_timestamp(Some(0));
         let host = Host::<Test>::default();
         let dispatcher = Dispatcher::<Test>::default();
-        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
+        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 0).unwrap();
         post_request_timeout_check(&host, &dispatcher).unwrap()
     })
 }
@@ -293,7 +293,7 @@ fn should_handle_get_request_timeouts_correctly() {
     ext.execute_with(|| {
         let host = Host::<Test>::default();
         setup_mock_client::<_, Test>(&host);
-        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
+        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 0).unwrap();
         let requests = (0..2)
             .into_iter()
             .map(|i| {
@@ -317,7 +317,7 @@ fn should_handle_get_request_timeouts_correctly() {
                     from: vec![0u8; 32],
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 2,
-                    timeout_timestamp: 1000,
+                    timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() + 1000,
                     gas_limit: 0,
                 };
                 ismp::router::Request::Get(get)
@@ -326,7 +326,7 @@ fn should_handle_get_request_timeouts_correctly() {
 
         let timeout_msg = TimeoutMessage::Get { requests: requests.clone() };
 
-        set_timestamp(Some(Duration::from_secs(60 * 60 * 60).as_millis() as u64));
+        set_timestamp(Some(Duration::from_secs(100_000_000).as_millis() as u64));
         Pallet::<Test>::handle_messages(vec![Message::Timeout(timeout_msg)]).unwrap();
         for request in requests {
             // commitments should not be found in storage after timeout has been processed
@@ -342,7 +342,7 @@ fn should_handle_get_request_responses_correctly() {
     ext.execute_with(|| {
         let host = Host::<Test>::default();
         setup_mock_client::<_, Test>(&host);
-        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 60 * 60).unwrap();
+        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 0).unwrap();
         let requests = (0..2)
             .into_iter()
             .map(|i| {
@@ -368,13 +368,13 @@ fn should_handle_get_request_responses_correctly() {
                     gas_limit: 0,
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 3,
-                    timeout_timestamp: 1000,
+                    timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() + 1000,
                 };
                 ismp::router::Request::Get(get)
             })
             .collect::<Vec<_>>();
 
-        set_timestamp(Some(Duration::from_secs(60 * 60 * 60).as_millis() as u64));
+        set_timestamp(Some(Duration::from_secs(100_000_000).as_millis() as u64));
 
         let response = ResponseMessage {
             datagram: RequestResponse::Request(requests.clone()),

@@ -91,7 +91,7 @@ where
         },
     )?;
     let current_timestamp = host.timestamp();
-    Ok(current_timestamp - update_time > delay_period)
+    Ok(delay_period.as_secs() == 0 || current_timestamp.saturating_sub(update_time) > delay_period)
 }
 
 /// This function does the preliminary checks for a request or response message

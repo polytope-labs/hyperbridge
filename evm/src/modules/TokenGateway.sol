@@ -21,6 +21,8 @@ struct SendParams {
     bytes dest;
     // timeout in seconds
     uint64 timeout;
+    // if to burn wrapper or native
+    bool redeem;
 }
 
 struct Body {
@@ -46,6 +48,8 @@ contract TokenGateway is IIsmpModule {
     mapping(bytes32 => address) private _erc20s;
     // foreign to local asset identifier mapping
     mapping(bytes32 => bytes32) private _assets;
+    // chain to its gateway address
+    mapping(bytes => bytes) private _chainToGateway;
 
     // User has received some assets, source chain & nonce
     event AssetReceived(bytes source, uint256 nonce);
@@ -73,7 +77,19 @@ contract TokenGateway is IIsmpModule {
     // set the ismp host address
     function setIsmpHost(address _host) public onlyAdmin {
         host = _host;
-        admin = address(0);
+    }
+
+    function setTokenIdentifierDetails(bytes32 _tokenId, address _erc20, address _erc6160) external onlyAdmin {
+        _erc6160s[_tokenId] = _erc6160;
+        _erc20s[_tokenId] = _erc20;
+    }
+
+    function setForeignTokenIdToLocalTokenId(bytes32 _foreignTokenId, bytes32 _localTokenId) external onlyAdmin {
+        _assets[_foreignTokenId] = _localTokenId;
+    }
+
+    function setChainsGateway(bytes memory _chain, address _host) external onlyAdmin {
+        _chainToGateway[_chain] = abi.encodePacked(_host);
     }
 
     // The Gateway contract has to have the roles `MINTER` and `BURNER`.
@@ -83,27 +99,27 @@ contract TokenGateway is IIsmpModule {
         address erc20 = _erc20s[params.tokenId];
         address erc6160 = _erc6160s[params.tokenId];
         require(params.to != address(0), "Burn your funds some other way");
-        bool redeem = false;
 
-        if (erc20 != address(0)) {
+        if (erc20 != address(0) && !params.redeem) {
             // custody the user's funds
             require(
                 IERC20(erc20).transferFrom(from, address(this), params.amount), "Gateway: Insufficient user balance"
             );
-        } else if (erc6160 != address(0)) {
+        } else if (erc6160 != address(0) && params.redeem) {
             // we're sending an erc6160 asset so we should redeem on the destination if we can.
-            redeem = true;
             IERC6160Ext20(erc6160).burn(from, params.amount, "");
         } else {
             revert("Gateway: Unknown Token Identifier");
         }
 
         bytes memory data = abi.encode(
-            Body({from: from, to: params.to, amount: params.amount, tokenId: params.tokenId, redeem: redeem})
+            Body({from: from, to: params.to, amount: params.amount, tokenId: params.tokenId, redeem: params.redeem})
         );
+        bytes memory to = _chainToGateway[params.dest];
+        require(to.length > 0, "Unsupported chain");
         DispatchPost memory request = DispatchPost({
             dest: params.dest,
-            to: abi.encodePacked(address(this)), // should be the same address across evm hosts
+            to: to,
             body: data,
             timeout: params.timeout,
             gaslimit: uint64(params.gaslimit),

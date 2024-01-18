@@ -19,14 +19,21 @@ extern crate alloc;
 mod test;
 pub mod withdrawal;
 
-use crate::withdrawal::{FeeMetadata, Key, ResponseReceipt, Signature, WithdrawalProof};
+use crate::withdrawal::{
+    FeeMetadata, Key, ResponseReceipt, Signature, WithdrawalInputData, WithdrawalParams,
+    WithdrawalProof,
+};
 use alloc::{collections::BTreeMap, vec::Vec};
 use alloy_primitives::Address;
 use codec::{Codec, Encode};
+use ethabi::ethereum_types::H256;
+use frame_support::{dispatch::DispatchResult, ensure};
+use frame_system::pallet_prelude::OriginFor;
 use ismp::{
     handlers::validate_state_machine,
     host::{IsmpHost, StateMachine},
     messaging::Proof,
+    router::{DispatchPost, DispatchRequest, IsmpDispatcher},
 };
 use ismp_sync_committee::{
     presets::{
@@ -36,9 +43,9 @@ use ismp_sync_committee::{
     utils::derive_unhashed_map_key,
 };
 pub use pallet::*;
-use pallet_ismp::host::Host;
+use pallet_ismp::{dispatcher::Dispatcher, host::Host};
 use sp_core::U256;
-use sp_runtime::DispatchError;
+use sp_runtime::{DispatchError, Saturating};
 use sp_std::prelude::*;
 
 pub const MODULE_ID: [u8; 32] = [1; 32];
@@ -49,14 +56,10 @@ pub mod pallet {
     use frame_support::pallet_prelude::{OptionQuery, *};
     use frame_system::pallet_prelude::*;
     use ismp::host::StateMachine;
-    use withdrawal::WithdrawalParams;
 
     use crate::withdrawal::{WithdrawalInputData, WithdrawalProof};
     use codec::Encode;
-    use ismp::router::{DispatchPost, DispatchRequest, IsmpDispatcher};
-    use pallet_ismp::dispatcher::Dispatcher;
     use sp_core::H256;
-    use sp_runtime::Saturating;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -126,34 +129,7 @@ pub mod pallet {
             withdrawal_proof: WithdrawalProof,
         ) -> DispatchResult {
             ensure_none(origin)?;
-
-            ensure!(!withdrawal_proof.commitments.is_empty(), Error::<T>::MissingCommitments);
-            let source_keys = Self::get_commitment_keys(&withdrawal_proof);
-            let dest_keys = Self::get_receipt_keys(&withdrawal_proof);
-
-            let source_result =
-                Self::verify_withdrawal_proof(&withdrawal_proof.source_proof, source_keys.clone())?;
-            let dest_result =
-                Self::verify_withdrawal_proof(&withdrawal_proof.dest_proof, dest_keys.clone())?;
-            let result = Self::validate_results(
-                &withdrawal_proof,
-                source_keys,
-                dest_keys,
-                source_result,
-                dest_result,
-            )?;
-            for (address, fee) in result.into_iter() {
-                let _ = RelayerFees::<T>::try_mutate(
-                    withdrawal_proof.source_proof.height.id.state_id,
-                    address,
-                    |inner| {
-                        *inner += fee;
-                        Ok::<(), ()>(())
-                    },
-                );
-            }
-
-            Ok(())
+            Self::accumulate(withdrawal_proof)
         }
 
         #[pallet::call_index(1)]
@@ -163,125 +139,7 @@ pub mod pallet {
             withdrawal_data: WithdrawalInputData<T::Balance>,
         ) -> DispatchResult {
             ensure_none(origin)?;
-            let address = match withdrawal_data.signature.clone() {
-                Signature::Ethereum { address, signature } => {
-                    if signature.len() != 65 {
-                        Err(Error::<T>::InvalidSignature)?
-                    }
-                    let nonce = Nonce::<T>::get(address.clone());
-                    let msg = message::<T::Balance>(
-                        nonce,
-                        withdrawal_data.dest_chain,
-                        withdrawal_data.amount,
-                    );
-                    let mut sig = [0u8; 65];
-                    sig.copy_from_slice(&signature);
-                    let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig, &msg)
-                        .map_err(|_| Error::<T>::InvalidSignature)?;
-                    let signer = sp_io::hashing::keccak_256(&pub_key[..])[12..].to_vec();
-                    if signer != address {
-                        Err(Error::<T>::InvalidPublicKey)?
-                    }
-                    address
-                },
-                Signature::Sr25519 { public_key, signature } => {
-                    if signature.len() != 64 {
-                        Err(Error::<T>::InvalidSignature)?
-                    }
-
-                    if public_key.len() != 32 {
-                        Err(Error::<T>::InvalidPublicKey)?
-                    }
-                    let nonce = Nonce::<T>::get(public_key.clone());
-                    let msg = message::<T::Balance>(
-                        nonce,
-                        withdrawal_data.dest_chain,
-                        withdrawal_data.amount,
-                    );
-                    let signature = signature.as_slice().try_into().expect("Infallible");
-                    let pub_key = public_key.as_slice().try_into().expect("Infallible");
-                    if !sp_io::crypto::sr25519_verify(&signature, &msg, &pub_key) {
-                        Err(Error::<T>::InvalidSignature)?
-                    }
-                    public_key
-                },
-                Signature::Ed25519 { public_key, signature } => {
-                    if signature.len() != 64 {
-                        Err(Error::<T>::InvalidSignature)?
-                    }
-
-                    if public_key.len() != 32 {
-                        Err(Error::<T>::InvalidPublicKey)?
-                    }
-                    let nonce = Nonce::<T>::get(public_key.clone());
-                    let msg = message::<T::Balance>(
-                        nonce,
-                        withdrawal_data.dest_chain,
-                        withdrawal_data.amount,
-                    );
-                    let signature = signature.as_slice().try_into().expect("Infallible");
-                    let pub_key = public_key.as_slice().try_into().expect("Infallible");
-                    if !sp_io::crypto::ed25519_verify(&signature, &msg, &pub_key) {
-                        Err(Error::<T>::InvalidSignature)?
-                    }
-                    public_key
-                },
-            };
-            let available_amount =
-                RelayerFees::<T>::get(withdrawal_data.dest_chain, address.clone());
-
-            if available_amount < withdrawal_data.amount {
-                Err(Error::<T>::InvalidAmount)?
-            }
-            let dispatcher = Dispatcher::<T>::default();
-            let relayer_manager_address = match withdrawal_data.dest_chain {
-                StateMachine::Beefy(_) |
-                StateMachine::Grandpa(_) |
-                StateMachine::Kusama(_) |
-                StateMachine::Polkadot(_) => MODULE_ID.to_vec(),
-                _ => RelayerManager::<T>::get(withdrawal_data.dest_chain)
-                    .ok_or_else(|| Error::<T>::MissingMangerAddress)?,
-            };
-            Nonce::<T>::try_mutate(address.clone(), |value| {
-                *value += 1;
-                Ok::<(), ()>(())
-            })
-            .map_err(|_| Error::<T>::ErrorCompletingCall)?;
-            let params = WithdrawalParams {
-                beneficiary_address: address.clone(),
-                amount: withdrawal_data.amount.into(),
-            };
-
-            let data = match withdrawal_data.dest_chain {
-                StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc =>
-                    params.abi_encode(),
-                _ => params.encode(),
-            };
-
-            let post = DispatchPost {
-                dest: withdrawal_data.dest_chain,
-                from: MODULE_ID.to_vec(),
-                to: relayer_manager_address,
-                timeout_timestamp: 0,
-                data,
-                gas_limit: withdrawal_data.gas_limit,
-            };
-
-            // Account is not useful in this case
-            dispatcher
-                .dispatch_request(
-                    DispatchRequest::Post(post),
-                    H256::default().0.into(),
-                    0u32.into(),
-                )
-                .map_err(|_| Error::<T>::DispatchFailed)?;
-
-            RelayerFees::<T>::insert(
-                withdrawal_data.dest_chain,
-                address,
-                available_amount.saturating_sub(withdrawal_data.amount),
-            );
-            Ok(())
+            Self::withdraw(withdrawal_data)
         }
 
         /// Set the relayer manager addresses for different state machines
@@ -300,9 +158,204 @@ pub mod pallet {
             Ok(())
         }
     }
+
+    #[pallet::validate_unsigned]
+    impl<T: Config> ValidateUnsigned for Pallet<T>
+    where
+        <T as frame_system::Config>::Hash: From<H256>,
+        <T as frame_system::Config>::AccountId: From<[u8; 32]>,
+        T::Balance: Into<u128>,
+    {
+        type Call = Call<T>;
+
+        // empty pre-dispatch so we don't modify storage
+        fn pre_dispatch(_call: &Self::Call) -> Result<(), TransactionValidityError> {
+            Ok(())
+        }
+
+        fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
+            let res = match call {
+                Call::accumulate_fees { withdrawal_proof } =>
+                    Self::accumulate(withdrawal_proof.clone()),
+                Call::withdraw_fees { withdrawal_data } => Self::withdraw(withdrawal_data.clone()),
+                _ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
+            };
+
+            if let Err(_) = res {
+                Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?
+            }
+
+            let encoding = match call {
+                Call::accumulate_fees { withdrawal_proof } => withdrawal_proof.encode(),
+                Call::withdraw_fees { withdrawal_data } => withdrawal_data.encode(),
+                _ => unreachable!(),
+            };
+
+            let msg_hash = sp_io::hashing::keccak_256(&encoding).to_vec();
+
+            Ok(ValidTransaction {
+                priority: 100,
+                requires: vec![],
+                provides: vec![msg_hash],
+                longevity: TransactionLongevity::MAX,
+                propagate: true,
+            })
+        }
+    }
 }
 
-impl<T: Config> Pallet<T> {
+impl<T: Config> Pallet<T>
+where
+    <T as frame_system::Config>::Hash: From<H256>,
+    <T as frame_system::Config>::AccountId: From<[u8; 32]>,
+    T::Balance: Into<u128>,
+{
+    pub fn withdraw(withdrawal_data: WithdrawalInputData<T::Balance>) -> DispatchResult {
+        let address = match withdrawal_data.signature.clone() {
+            Signature::Ethereum { address, signature } => {
+                if signature.len() != 65 {
+                    Err(Error::<T>::InvalidSignature)?
+                }
+                let nonce = Nonce::<T>::get(address.clone());
+                let msg = message::<T::Balance>(
+                    nonce,
+                    withdrawal_data.dest_chain,
+                    withdrawal_data.amount,
+                );
+                let mut sig = [0u8; 65];
+                sig.copy_from_slice(&signature);
+                let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig, &msg)
+                    .map_err(|_| Error::<T>::InvalidSignature)?;
+                let signer = sp_io::hashing::keccak_256(&pub_key[..])[12..].to_vec();
+                if signer != address {
+                    Err(Error::<T>::InvalidPublicKey)?
+                }
+                address
+            },
+            Signature::Sr25519 { public_key, signature } => {
+                if signature.len() != 64 {
+                    Err(Error::<T>::InvalidSignature)?
+                }
+
+                if public_key.len() != 32 {
+                    Err(Error::<T>::InvalidPublicKey)?
+                }
+                let nonce = Nonce::<T>::get(public_key.clone());
+                let msg = message::<T::Balance>(
+                    nonce,
+                    withdrawal_data.dest_chain,
+                    withdrawal_data.amount,
+                );
+                let signature = signature.as_slice().try_into().expect("Infallible");
+                let pub_key = public_key.as_slice().try_into().expect("Infallible");
+                if !sp_io::crypto::sr25519_verify(&signature, &msg, &pub_key) {
+                    Err(Error::<T>::InvalidSignature)?
+                }
+                public_key
+            },
+            Signature::Ed25519 { public_key, signature } => {
+                if signature.len() != 64 {
+                    Err(Error::<T>::InvalidSignature)?
+                }
+
+                if public_key.len() != 32 {
+                    Err(Error::<T>::InvalidPublicKey)?
+                }
+                let nonce = Nonce::<T>::get(public_key.clone());
+                let msg = message::<T::Balance>(
+                    nonce,
+                    withdrawal_data.dest_chain,
+                    withdrawal_data.amount,
+                );
+                let signature = signature.as_slice().try_into().expect("Infallible");
+                let pub_key = public_key.as_slice().try_into().expect("Infallible");
+                if !sp_io::crypto::ed25519_verify(&signature, &msg, &pub_key) {
+                    Err(Error::<T>::InvalidSignature)?
+                }
+                public_key
+            },
+        };
+        let available_amount = RelayerFees::<T>::get(withdrawal_data.dest_chain, address.clone());
+
+        if available_amount < withdrawal_data.amount {
+            Err(Error::<T>::InvalidAmount)?
+        }
+        let dispatcher = Dispatcher::<T>::default();
+        let relayer_manager_address = match withdrawal_data.dest_chain {
+            StateMachine::Beefy(_) |
+            StateMachine::Grandpa(_) |
+            StateMachine::Kusama(_) |
+            StateMachine::Polkadot(_) => MODULE_ID.to_vec(),
+            _ => RelayerManager::<T>::get(withdrawal_data.dest_chain)
+                .ok_or_else(|| Error::<T>::MissingMangerAddress)?,
+        };
+        Nonce::<T>::try_mutate(address.clone(), |value| {
+            *value += 1;
+            Ok::<(), ()>(())
+        })
+        .map_err(|_| Error::<T>::ErrorCompletingCall)?;
+        let params = WithdrawalParams {
+            beneficiary_address: address.clone(),
+            amount: withdrawal_data.amount.into(),
+        };
+
+        let data = match withdrawal_data.dest_chain {
+            StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc =>
+                params.abi_encode(),
+            _ => params.encode(),
+        };
+
+        let post = DispatchPost {
+            dest: withdrawal_data.dest_chain,
+            from: MODULE_ID.to_vec(),
+            to: relayer_manager_address,
+            timeout_timestamp: 0,
+            data,
+            gas_limit: withdrawal_data.gas_limit,
+        };
+
+        // Account is not useful in this case
+        dispatcher
+            .dispatch_request(DispatchRequest::Post(post), H256::default().0.into(), 0u32.into())
+            .map_err(|_| Error::<T>::DispatchFailed)?;
+
+        RelayerFees::<T>::insert(
+            withdrawal_data.dest_chain,
+            address,
+            available_amount.saturating_sub(withdrawal_data.amount),
+        );
+        Ok(())
+    }
+
+    pub fn accumulate(withdrawal_proof: WithdrawalProof) -> DispatchResult {
+        ensure!(!withdrawal_proof.commitments.is_empty(), Error::<T>::MissingCommitments);
+        let source_keys = Self::get_commitment_keys(&withdrawal_proof);
+        let dest_keys = Self::get_receipt_keys(&withdrawal_proof);
+
+        let source_result =
+            Self::verify_withdrawal_proof(&withdrawal_proof.source_proof, source_keys.clone())?;
+        let dest_result =
+            Self::verify_withdrawal_proof(&withdrawal_proof.dest_proof, dest_keys.clone())?;
+        let result = Self::validate_results(
+            &withdrawal_proof,
+            source_keys,
+            dest_keys,
+            source_result,
+            dest_result,
+        )?;
+        for (address, fee) in result.into_iter() {
+            let _ = RelayerFees::<T>::try_mutate(
+                withdrawal_proof.source_proof.height.id.state_id,
+                address,
+                |inner| {
+                    *inner += fee;
+                    Ok::<(), ()>(())
+                },
+            );
+        }
+
+        Ok(())
+    }
     pub fn verify_withdrawal_proof(
         proof: &Proof,
         keys: Vec<Vec<u8>>,

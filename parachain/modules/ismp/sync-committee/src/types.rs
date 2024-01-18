@@ -15,7 +15,7 @@
 
 use crate::{arbitrum::ArbitrumPayloadProof, optimism::OptimismPayloadProof, prelude::*};
 use alloc::collections::BTreeMap;
-use alloy_rlp_derive::RlpDecodable;
+use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use codec::{Decode, Encode};
 use ethabi::ethereum_types::{H160, H256};
 use hash256_std_hasher::Hash256StdHasher;
@@ -60,10 +60,10 @@ pub struct EvmStateProof {
 }
 
 /// The ethereum account stored in the global state trie.
-#[derive(RlpDecodable)]
+#[derive(RlpDecodable, RlpEncodable)]
 pub struct Account {
-    _nonce: u64,
-    _balance: alloy_primitives::U256,
+    pub _nonce: u64,
+    pub _balance: alloy_primitives::U256,
     pub storage_root: alloy_primitives::B256,
-    _code_hash: alloy_primitives::B256,
+    pub _code_hash: alloy_primitives::B256,
 }

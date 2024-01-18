@@ -97,6 +97,8 @@ impl ismp_demo::Config for Runtime {
     type IsmpDispatcher = pallet_ismp::dispatcher::Dispatcher<Runtime>;
 }
 
+impl pallet_relayer_fees::Config for Runtime {}
+
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
         if request.dest != StateMachineProvider::get() {

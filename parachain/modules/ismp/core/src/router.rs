@@ -335,7 +335,7 @@ pub struct DispatchPost {
     pub from: Vec<u8>,
     /// Module ID of the receiving module
     pub to: Vec<u8>,
-    /// Timestamp which this request expires in seconds.
+    /// Relative from the current timestamp at which this request expires in seconds.
     pub timeout_timestamp: u64,
     /// Encoded Request.
     pub data: Vec<u8>,
@@ -355,7 +355,7 @@ pub struct DispatchGet {
     pub keys: Vec<Vec<u8>>,
     /// Height at which to read the state machine.
     pub height: u64,
-    /// Host timestamp at which this request expires in seconds
+    /// Relative from the current timestamp at which this request expires in seconds.
     pub timeout_timestamp: u64,
     /// Gas limit for executing the response to this get request
     /// This value should be zero if the dispatching module is not a contract

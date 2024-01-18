@@ -20,12 +20,11 @@
 use core::fmt::Formatter;
 
 use codec::{Decode, Encode};
-//use frame_support::sp_io;
-use crate::{
+use ismp::{
     router::{Request, Response},
     util::{hash_request, hash_response, Keccak256},
 };
-use primitive_types::H256;
+use sp_core::H256;
 
 /// Index of a leaf in the MMR
 pub type LeafIndex = u64;

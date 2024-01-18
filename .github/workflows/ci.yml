@@ -27,7 +27,7 @@ jobs:
       matrix:
         crate: [messier-runtime, gargantua-runtime]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
@@ -59,7 +59,7 @@ jobs:
     name: Check Workspace
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
@@ -94,7 +94,7 @@ jobs:
     name: Cargo fmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -110,7 +110,7 @@ jobs:
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
@@ -147,7 +147,7 @@ jobs:
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive

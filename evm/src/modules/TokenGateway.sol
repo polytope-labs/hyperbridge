@@ -13,12 +13,12 @@ struct SendParams {
     uint256 fee;
     // Gas limit for the request
     uint256 gaslimit;
+    // The token identifier
+    bytes32 tokenId;
     // recipient address
     address to;
     // recipient state machine
     bytes dest;
-    // The token identifier
-    bytes32 tokenId;
     // timeout in seconds
     uint64 timeout;
 }
@@ -28,6 +28,8 @@ struct Body {
     uint256 amount;
     // The token identifier
     bytes32 tokenId;
+    // flag to redeem the erc20 asset on the destination
+    bool redeem;
     // sender address
     address from;
     // recipient address
@@ -81,18 +83,24 @@ contract TokenGateway is IIsmpModule {
         address erc20 = _erc20s[params.tokenId];
         address erc6160 = _erc6160s[params.tokenId];
         require(params.to != address(0), "Burn your funds some other way");
+        bool redeem = false;
 
         if (erc20 != address(0)) {
             // custody the user's funds
-            require(IERC20(erc20).transferFrom(from, address(this), params.amount), "Gateway: Insufficient Balance");
+            require(
+                IERC20(erc20).transferFrom(from, address(this), params.amount), "Gateway: Insufficient user balance"
+            );
         } else if (erc6160 != address(0)) {
-            require(IERC6160Ext20(erc6160).burn(from, params.amount, ""), "Gateway: Insufficient Balance");
+            // we're sending an erc6160 asset so we should redeem on the destination if we can.
+            redeem = true;
+            IERC6160Ext20(erc6160).burn(from, params.amount, "");
         } else {
             revert("Gateway: Unknown Token Identifier");
         }
 
-        bytes memory data =
-            abi.encode(Body({from: from, to: params.to, amount: params.amount, tokenId: params.tokenId}));
+        bytes memory data = abi.encode(
+            Body({from: from, to: params.to, amount: params.amount, tokenId: params.tokenId, redeem: redeem})
+        );
         DispatchPost memory request = DispatchPost({
             dest: params.dest,
             to: abi.encodePacked(address(this)), // should be the same address across evm hosts
@@ -112,9 +120,14 @@ contract TokenGateway is IIsmpModule {
         address erc6160 = _erc6160s[localAsset];
 
         // prefer to give the user erc20
-        if (erc20 != address(0)) {
+        if (erc20 != address(0) && body.redeem) {
+            // a relayer/user is redeeming the native asset
+            require(IERC20(erc20).transfer(body.to, body.amount), "Gateway: Insufficient Balance");
+        } else if (erc20 != address(0) && erc6160 != address(0)) {
             // relayers double as liquidity providers, todo: protocol fees
-            require(IERC20(erc20).transferFrom(tx.origin, body.to, body.amount), "Gateway: Insufficient Balance");
+            require(
+                IERC20(erc20).transferFrom(tx.origin, body.to, body.amount), "Gateway: Insufficient relayer balance"
+            );
             // hand the relayer the erc6160, so they can redeem on the source chain
             IERC6160Ext20(erc6160).mint(tx.origin, body.amount, "");
         } else if (erc6160 != address(0)) {
@@ -132,12 +145,12 @@ contract TokenGateway is IIsmpModule {
         address erc20 = _erc20s[body.tokenId];
         address erc6160 = _erc6160s[body.tokenId];
 
-        if (erc20 != address(0)) {
-            require(IERC20(erc20).transfer(body.from, body.amount), "Gateway: Insufficient Balance, Undefined State");
-        } else if (erc6160 != address(0)) {
-            IERC6160Ext20(tokenContract).mint(from, amount, "");
+        if (erc20 != address(0) && !body.redeem) {
+            require(IERC20(erc20).transfer(body.from, body.amount), "Gateway: Insufficient Balance");
+        } else if (erc6160 != address(0) && body.redeem) {
+            IERC6160Ext20(erc6160).mint(from, amount, "");
         } else {
-            revert("Gateway: Inconsisten State");
+            revert("Gateway: Inconsistent State");
         }
     }
 

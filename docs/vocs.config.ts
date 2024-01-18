@@ -14,6 +14,7 @@ export default defineConfig({
       }
     }
   },
+  rootDir: ".",
   markdown: {
     remarkPlugins: [remarkParse, remarkMath, remarkRehype, rehypeKatex, rehypeStringify],
   },
@@ -36,11 +37,11 @@ export default defineConfig({
         },
         {
           text: "Consensus Client",
-          link: "/protocol/consensus-client",
+          link: "/protocol/consensus",
         },
         {
           text: "State Machine Client",
-          link: "/protocol/state-machine-client",
+          link: "/protocol/state-machine",
         },
         {
           text: "Router",
@@ -72,22 +73,22 @@ export default defineConfig({
       items: [
         {
           text: "Integration",
-          link: "/evm/config",
+          link: "/evm/integration",
         },
 
         {
           text: "Protocol Fees",
-          link: "/evm/config",
+          link: "/evm/fees",
         },
 
         {
           text: "Message delivery",
-          link: "/evm/config",
+          link: "/evm/delivery",
         },
 
         {
           text: "Supported Networks",
-          link: "/evm/config",
+          link: "/evm/networks",
         },
       ],
     },
@@ -101,7 +102,7 @@ export default defineConfig({
         },
         {
           text: "Integration - Solochains",
-          link: "/polkadot/solocahins",
+          link: "/polkadot/solochains",
         },
         {
           text: "ISMP Modules",
@@ -109,7 +110,7 @@ export default defineConfig({
         },
         {
           text: "RPC Interface",
-          link: "/polkadot/modules",
+          link: "/polkadot/rpc",
         },
         {
           text: "Protocol Fees",
@@ -121,7 +122,7 @@ export default defineConfig({
         },
         {
           text: "Supported Networks",
-          link: "/polkadot/network",
+          link: "/polkadot/networks",
         },
       ],
     },

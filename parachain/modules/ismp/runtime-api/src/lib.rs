@@ -22,11 +22,9 @@ use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     router::{Get, Request, Response},
 };
-use pallet_ismp::primitives::{Error, Proof};
-
-use ismp::{
-    mmr::{Leaf, LeafIndex},
-    LeafIndexQuery,
+use pallet_ismp::{
+    mmr_primitives::{Leaf, LeafIndex},
+    primitives::{Error, LeafIndexQuery, Proof},
 };
 #[cfg(not(feature = "std"))]
 use sp_std::vec::Vec;

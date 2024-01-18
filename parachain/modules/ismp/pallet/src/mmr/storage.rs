@@ -14,8 +14,8 @@
 // limitations under the License.
 
 //! An MMR storage implementation.
+use crate::mmr_primitives::{DataOrHash, NodeIndex};
 use codec::Encode;
-use ismp::mmr::{DataOrHash, NodeIndex};
 use log::{debug, trace};
 use merkle_mountain_range::helper;
 use sp_core::offchain::StorageKind;

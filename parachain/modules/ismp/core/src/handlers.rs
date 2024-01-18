@@ -91,14 +91,14 @@ where
         },
     )?;
     let current_timestamp = host.timestamp();
-    Ok(current_timestamp - update_time > delay_period)
+    Ok(delay_period.as_secs() == 0 || current_timestamp.saturating_sub(update_time) > delay_period)
 }
 
 /// This function does the preliminary checks for a request or response message
 /// - It ensures the consensus client is not frozen
 /// - It ensures the state machine is not frozen
 /// - Checks that the delay period configured for the state machine has elaspsed.
-fn validate_state_machine<H>(
+pub fn validate_state_machine<H>(
     host: &H,
     proof_height: StateMachineHeight,
 ) -> Result<Box<dyn StateMachineClient>, Error>

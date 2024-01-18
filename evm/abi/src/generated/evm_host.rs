@@ -564,9 +564,9 @@ pub mod evm_host {
                         },],
                         outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
                             name: ::std::string::String::new(),
-                            kind: ::ethers::core::abi::ethabi::ParamType::Bool,
+                            kind: ::ethers::core::abi::ethabi::ParamType::Address,
                             internal_type: ::core::option::Option::Some(
-                                ::std::borrow::ToOwned::to_owned("bool"),
+                                ::std::borrow::ToOwned::to_owned("address"),
                             ),
                         },],
                         constant: ::core::option::Option::None,
@@ -611,9 +611,12 @@ pub mod evm_host {
                         },],
                         outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
                             name: ::std::string::String::new(),
-                            kind: ::ethers::core::abi::ethabi::ParamType::Bool,
+                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
+                                ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                            ],),
                             internal_type: ::core::option::Option::Some(
-                                ::std::borrow::ToOwned::to_owned("bool"),
+                                ::std::borrow::ToOwned::to_owned("struct ResponseReceipt"),
                             ),
                         },],
                         constant: ::core::option::Option::None,
@@ -1353,7 +1356,7 @@ pub mod evm_host {
         pub fn request_receipts(
             &self,
             commitment: [u8; 32],
-        ) -> ::ethers::contract::builders::ContractCall<M, bool> {
+        ) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::Address> {
             self.0
                 .method_hash([25, 102, 122, 62], commitment)
                 .expect("method not found (this should never happen)")
@@ -1371,7 +1374,7 @@ pub mod evm_host {
         pub fn response_receipts(
             &self,
             commitment: [u8; 32],
-        ) -> ::ethers::contract::builders::ContractCall<M, bool> {
+        ) -> ::ethers::contract::builders::ContractCall<M, ResponseReceipt> {
             self.0
                 .method_hash([136, 86, 51, 126], commitment)
                 .expect("method not found (this should never happen)")
@@ -2994,7 +2997,7 @@ pub mod evm_host {
         Eq,
         Hash,
     )]
-    pub struct RequestReceiptsReturn(pub bool);
+    pub struct RequestReceiptsReturn(pub ::ethers::core::types::Address);
     ///Container type for all return fields from the `responseCommitments` function with signature
     /// `responseCommitments(bytes32)` and selector `0x2211f1dd`
     #[derive(
@@ -3020,7 +3023,7 @@ pub mod evm_host {
         Eq,
         Hash,
     )]
-    pub struct ResponseReceiptsReturn(pub bool);
+    pub struct ResponseReceiptsReturn(pub ResponseReceipt);
     ///Container type for all return fields from the `stateMachineCommitment` function with
     /// signature `stateMachineCommitment((uint256,uint256))` and selector `0xa70a8c47`
     #[derive(
@@ -3172,6 +3175,21 @@ pub mod evm_host {
         pub consensus_state: ::ethers::core::types::Bytes,
         pub last_updated: ::ethers::core::types::U256,
         pub latest_state_machine_height: ::ethers::core::types::U256,
+    }
+    ///`ResponseReceipt(bytes32,address)`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct ResponseReceipt {
+        pub response_commitment: [u8; 32],
+        pub relayer: ::ethers::core::types::Address,
     }
     ///`WithdrawParams(address,uint256)`
     #[derive(

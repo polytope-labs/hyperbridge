@@ -93,7 +93,7 @@ contract HandlerV1 is IHandler, Context {
             require(leaf.request.timeout() > host.timestamp(), "IHandler: Request timed out");
             // duplicate request?
             bytes32 commitment = leaf.request.hash();
-            require(!host.requestReceipts(commitment), "IHandler: Duplicate request");
+            require(host.requestReceipts(commitment) == address(0), "IHandler: Duplicate request");
 
             leaves[i] = MmrLeaf(leaf.kIndex, leaf.index, commitment);
         }
@@ -133,7 +133,7 @@ contract HandlerV1 is IHandler, Context {
             require(meta.sender != address(0), "IHandler: Unknown request");
 
             // duplicate response?
-            require(!host.responseReceipts(requestCommitment), "IHandler: Duplicate Post response");
+            require(host.responseReceipts(requestCommitment).relayer == address(0), "IHandler: Duplicate Post response");
             leaves[i] = MmrLeaf(leaf.kIndex, leaf.index, leaf.response.hash());
         }
 
@@ -251,7 +251,7 @@ contract HandlerV1 is IHandler, Context {
             require(meta.sender != address(0), "IHandler: Unknown GET request");
 
             // duplicate response?
-            require(!host.responseReceipts(requestCommitment), "IHandler: Duplicate GET response");
+            require(host.responseReceipts(requestCommitment).relayer == address(0), "IHandler: Duplicate GET response");
             StorageValue[] memory values =
                 MerklePatricia.ReadChildProofCheck(root, proof, request.keys, bytes.concat(requestCommitment));
             GetResponse memory response = GetResponse({request: request, values: values});

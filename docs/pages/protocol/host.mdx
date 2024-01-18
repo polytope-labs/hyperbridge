@@ -2,12 +2,12 @@
 
 The `IsmpHost` defines the storage interface that is used by the ISMP handlers. These handlers are tasked with modifying the host and executing the relevant storage operations for a particular handler message. The host assumes that all key-value pairs will be stored in the blockchain's state trie. Where a *state commitment* and *state proof* can be obtained to verify their existence or lack thereof.
 
-Notably, the host is agnostic to the underlying storage mechanism and allows for the storage of requests and responses in an overlay tree. This overlay tree can be selected to minimize the state proof verification cost, consequently reducing the verification cost of outgoing requests and responses.
+Notably, the handlers are agnostic to the underlying storage mechanism and allows for the storage of requests and responses in an overlay tree. This overlay tree can be selected to minimize the state proof verification cost, consequently reducing the verification cost of outgoing requests and responses.
 
 ```rust
 /// Defines the necessary interfaces that must be satisfied by a state machine for it be ISMP
 /// compatible.
-pub trait IsmpHost: Keccak256 {
+pub trait IsmpHost {
     /// Should return the state machine type for the host.
     fn host_state_machine(&self) -> StateMachine;
 

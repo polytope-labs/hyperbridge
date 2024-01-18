@@ -23,6 +23,7 @@ jobs:
   check-wasm:
     name: Check Wasm Crates
     runs-on: arc-runner-set
+    if: github.event.pull_request.draft == false
     strategy:
       matrix:
         crate: [messier-runtime, gargantua-runtime]
@@ -58,6 +59,7 @@ jobs:
   check-workspace:
     name: Check Workspace
     runs-on: arc-runner-set
+    if: github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v2
         with:
@@ -93,6 +95,7 @@ jobs:
   fmt:
     name: Cargo fmt
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v2
 
@@ -226,6 +229,7 @@ jobs:
   check-solidity:
     name: Check ismp-solidity
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v3
         with:

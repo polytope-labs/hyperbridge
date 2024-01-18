@@ -106,7 +106,7 @@ contract TokenGateway is IIsmpModule {
             to: abi.encodePacked(address(this)), // should be the same address across evm hosts
             body: data,
             timeout: params.timeout,
-            gaslimit: params.gaslimit,
+            gaslimit: uint64(params.gaslimit),
             fee: params.fee
         });
         IIsmp(host).dispatch(request);
@@ -148,7 +148,7 @@ contract TokenGateway is IIsmpModule {
         if (erc20 != address(0) && !body.redeem) {
             require(IERC20(erc20).transfer(body.from, body.amount), "Gateway: Insufficient Balance");
         } else if (erc6160 != address(0) && body.redeem) {
-            IERC6160Ext20(erc6160).mint(from, amount, "");
+            IERC6160Ext20(erc6160).mint(body.from, body.amount, "");
         } else {
             revert("Gateway: Inconsistent State");
         }
@@ -158,7 +158,7 @@ contract TokenGateway is IIsmpModule {
         revert("Token gateway doesn't emit Post responses");
     }
 
-    function onPostResponseTimeout(PostResponse memory request) external view onlyIsmpHost {
+    function onPostResponseTimeout(PostResponse memory) external view onlyIsmpHost {
         revert("Token gateway doesn't emit Post responses");
     }
 

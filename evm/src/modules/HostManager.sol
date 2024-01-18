@@ -17,6 +17,11 @@ struct HostManagerParams {
 contract HostManager is IIsmpModule {
     using Bytes for bytes;
 
+    enum OnAcceptActions {
+        Withdraw,
+        SetHostParam
+    }
+
     HostManagerParams private _params;
 
     modifier onlyIsmpHost() {
@@ -40,17 +45,19 @@ contract HostManager is IIsmpModule {
         _params.admin = address(0);
     }
 
-    function onAccept(PostRequest memory request) external onlyIsmpHost {
+    function onAccept(PostRequest calldata request) external onlyIsmpHost {
         // Only Hyperbridge can send requests to this module.
         require(request.source.equals(StateMachine.polkadot(_params.paraId)), "Unauthorized request");
 
-        // TODO: we should decode the payload based on the first byte in the request.body
-        if (false) {
+        // note, the below will revert with solidity error `Panic(0x21)`
+        OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
+        if (action == OnAcceptActions.Withdraw) {
             // This is where relayers can withdraw their fees.
-            WithdrawParams memory params = abi.decode(request.body, (WithdrawParams));
+            WithdrawParams memory params = abi.decode(request.body[1:], (WithdrawParams));
             IHostManager(_params.host).withdraw(params);
         } else {
-            HostParams memory params = abi.decode(request.body, (HostParams));
+            // i.e if (action == OnAcceptActions.SetHostParam)
+            HostParams memory params = abi.decode(request.body[1:], (HostParams));
             IHostManager(_params.host).setHostParams(params);
         }
     }
@@ -67,7 +74,7 @@ contract HostManager is IIsmpModule {
         revert("Module doesn't emit requests");
     }
 
-    function onPostResponseTimeout(PostResponse memory request) external view onlyIsmpHost {
+    function onPostResponseTimeout(PostResponse memory) external view onlyIsmpHost {
         revert("Token gateway doesn't emit Get Requests");
     }
 

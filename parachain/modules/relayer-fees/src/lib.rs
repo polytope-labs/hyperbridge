@@ -262,7 +262,7 @@ pub mod pallet {
                 dest: withdrawal_data.dest_chain,
                 from: MODULE_ID.to_vec(),
                 to: relayer_manager_address,
-                timeout_timestamp: 3 * 60 * 60,
+                timeout_timestamp: 0,
                 data,
                 gas_limit: withdrawal_data.gas_limit,
             };

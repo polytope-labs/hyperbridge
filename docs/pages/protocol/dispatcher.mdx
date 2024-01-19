@@ -1,6 +1,6 @@
 # ISMP Dispatcher
 
-The dispatcher is the public interface which `IsmpModule`s use to *dispatch* requests and responses. It is also responsible for committing the outgoing requests and responses to storage. It may do so in an overlay tree or the underlying state trie. This ensrues that state proofs maybe obtained for dispatched requests and responses. The dispatcher should emit relevant events after any dispatch operation. The interface for the Ismp Dispatcher is
+The dispatcher is the public interface which `IsmpModule`s use to *dispatch* requests and responses. It is also responsible for committing the outgoing requests and responses to storage. It may do so in an overlay tree or the underlying state trie. This ensures that state proofs maybe obtained for dispatched requests and responses. The dispatcher should also emit relevant events after any dispatch operation. The interface for the Ismp Dispatcher is
 
 ```rust
 /// Simplified POST request, intended to be used for sending outgoing requests

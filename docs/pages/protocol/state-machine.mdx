@@ -64,4 +64,4 @@ The ISMP framework does not enforce where requests & responses should be persist
 
 ## `verify_state_proof`
 
-Given a `StateCommitmen`, an arbitrary set of keys and a state proof, this method should perform state proof verification and provide the verified values for provided storage keys. These keys may point to an empty leaf and as such should be represented with `Option::None`. This signals a non-membership proof for the provided keys which is used in request timeouts. State proof verification is also used in handling `Response::Get` in order to verify the storage values requested in the `Request::Get`
+Given a `StateCommitment`, an arbitrary set of keys and a state proof, this method should perform state proof verification and return the verified values for provided storage keys. These keys may point to an empty leaf and as such should be represented with `Option::None`. This signals a non-membership proof for the provided keys which is used in request timeouts. State proof verification is also used in handling `Response::Get` in order to verify the storage values requested in the `Request::Get`

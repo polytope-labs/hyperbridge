@@ -33,7 +33,7 @@ This transactions list $T_i$ can be seen as a list of database transactions $\{t
 
 ISMP's messaging abstraction is built on top of the `ConsensusClient`. We refer to it as a consensus client because that is precisely what it should be: a client that observes a blockchain's consensus messages in order to determine what is the canonical chain on the network. Armed with the knowledge of the canonical state of the chain, we are now able to verify the state proofs of the requests & responses that have been committed to the state trie.
 
-This document formally defines the `ConsensusClient`, which serves as an oracle for the canonical state of a state machine, and the corresponding `ConsensusMessage`, which is used to advance the state of the consensus client.
+This document formally defines the `ConsensusClient`, which serves as an oracle for the canonical state of a state machine, and the corresponding handlers which are used to modify the state of the consensus client.
 
 
 ## `ConsensusState`
@@ -42,7 +42,7 @@ We define the `ConsensusState` as the minimum data required by consensus clients
 
 ## `StateCommitment`
 
-We define the `StateCommitment` as a succinct, cryptographic commitment to the entire blockchain state at an arbitrary block height. This state commitment scheme used to derive this commitment must support partial reveals proofs that have a complexity of $O(\log_n)$ or better. This state commitment is also colloquially known as the *state_root*.
+We define the `StateCommitment` as a succinct, cryptographic commitment to the entire blockchain state at an arbitrary block height. The state scheme used to derive this commitment must support partial reveals proofs that have a complexity of $O(\log_n)$ or better. This state commitment is also colloquially known as the *state_root*.
 
 
 ## `ConsensusClient`

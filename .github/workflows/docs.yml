@@ -39,6 +39,8 @@ jobs:
 
         with:
           node-version: 18
+          cache: "npm"
+          cache-dependency-path: "docs"
 
       - name: Install dependencies
         run: npm install
@@ -53,7 +55,7 @@ jobs:
         uses: actions/upload-pages-artifact@v2
         with:
           # Upload dist repository
-          path: './dist'
+          path: './docs/dist'
 
       - name: Deploy to GitHub Pages
         id: deployment

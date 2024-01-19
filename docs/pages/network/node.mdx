@@ -1,1 +1,84 @@
 # Running a node
+
+We provide a variety of ways to obtain a node for running. For now we only officially support linux environments.
+
+## System Requirements
+
+## Docker releases
+
+## Prebuilt Binaries
+
+## Building from source
+
+Ensure you have a rust installation, if not you can install rust here.
+
+Dependencies
+ - git
+ - clang
+ - curl
+ - make
+ - build-essential
+ - libssl-dev
+ - llvm
+ - libudev-dev
+ - protobuf-compiler 
+
+ ::::steps
+### Install Dependencies
+ 
+Install the required dependencies
+
+:::code-group
+ 
+```bash [Debian]
+sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+```
+ 
+```bash [Arch]
+pacman -Syu --needed --noconfirm curl git clang make protobuf
+```
+ 
+```bash [Fedora]
+sudo dnf update
+sudo dnf install clang curl git openssl-devel make protobuf-compiler
+```
+
+```bash [Opensuse]
+sudo zypper install clang curl git openssl-devel llvm-devel libudev-devel make protobuf
+```
+:::
+
+### Install rust compiler
+
+If you don't have an already existing rust installation, you can install it using the one-liner below. Follow the prompts displayed to proceed with a default installation.
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+### Install WebAssembly target
+
+Hyperbridge's blockchain runtime compiles to wasm which allows it's code to be forklessly upgraded. In order to build hyperbridge we need the wasm toolchain installed.
+
+```bash
+rustup update nightly
+rustup target add wasm32-unknown-unknown --toolchain nightly
+```
+
+### Clone the repo
+
+Download a local copy of the repo and checkout the latest release tag
+
+```bash
+git clone https://github.com/polytope-labs/hyperbridge.git
+cd ./hyperbidge
+git checkout v0.2.0
+```
+ 
+### Build the node
+ 
+```bash
+cargo build --release -p hyperbridge
+```
+::::
+
+## Running the node

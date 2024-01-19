@@ -7,6 +7,10 @@ import remarkRehype from 'remark-rehype'
 
 export default defineConfig({
   title: "Hyperbridge",
+  description: "Hyperbridge is a coprocessor for cryptographically secure interoperability",
+  ogImageUrl: 'https://vocs.dev/api/og?logo=%logo&title=%title&description=%description',
+  logoUrl: '/logotype.svg',
+  iconUrl: '/favicon.svg',
   socials: [
     {
       icon: 'github',

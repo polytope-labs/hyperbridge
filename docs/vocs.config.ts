@@ -7,6 +7,24 @@ import remarkRehype from 'remark-rehype'
 
 export default defineConfig({
   title: "Hyperbridge",
+  socials: [
+    {
+      icon: 'github',
+      link: 'https://github.com/polytope-labs/hyperbridge',
+    },
+    {
+      icon: 'x',
+      link: 'https://twitter.com/hyperbridge_',
+    },
+    {
+      icon: "discord",
+      link: "https://discord.gg/WYTUQrTR9y"
+    },
+    {
+      icon: "telegram",
+      link: "https://t.me/hyper_bridge"
+    }
+  ],
   vite: {
     server: {
       fs: {

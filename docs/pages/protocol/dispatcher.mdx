@@ -1,15 +1,12 @@
 # ISMP Dispatcher
 
-The dispatcher is the public interface which modules use to create requests and responses.
-The dispatcher should be the only public interface through which modules interact with the protocol.
-The dispatcher should emit relevant events after any dispatch
-The interface for the Ismp Dispatcher is:
+The dispatcher is the public interface which `IsmpModule`s use to *dispatch* requests and responses. It is also responsible for committing the outgoing requests and responses to storage. It may do so in an overlay tree or the underlying state trie. This ensrues that state proofs maybe obtained for dispatched requests and responses. The dispatcher should emit relevant events after any dispatch operation. The interface for the Ismp Dispatcher is
 
 ```rust
 /// Simplified POST request, intended to be used for sending outgoing requests
 pub struct DispatchPost {
     /// The destination state machine of this request.
-    pub dest_chain: StateMachine,
+    pub dest: StateMachine,
     /// Module Id of the sending module
     pub from: Vec<u8>,
     /// Module ID of the receiving module
@@ -18,12 +15,15 @@ pub struct DispatchPost {
     pub timeout_timestamp: u64,
     /// Encoded Request.
     pub data: Vec<u8>,
+    /// Gas limit for executing request on destination chain
+    /// This should be zero if the destination module is not a contract
+    pub gas_limit: u64,
 }
 
 /// Simplified GET request, intended to be used for sending outgoing requests
 pub struct DispatchGet {
     /// The destination state machine of this request.
-    pub dest_chain: StateMachine,
+    pub dest: StateMachine,
     /// Module Id of the sending module
     pub from: Vec<u8>,
     /// Raw Storage keys that would be used to fetch the values from the counterparty
@@ -32,6 +32,9 @@ pub struct DispatchGet {
     pub height: u64,
     /// Host timestamp at which this request expires in seconds
     pub timeout_timestamp: u64,
+    /// Gas limit for executing the response to this get request
+    /// This value should be zero if the dispatching module is not a contract
+    pub gas_limit: u64,
 }
 
 /// Simplified request, intended to be used for sending outgoing requests
@@ -40,6 +43,18 @@ pub enum DispatchRequest {
     Post(DispatchPost),
     /// The GET variant
     Get(DispatchGet),
+}
+
+/// The response to a POST request
+pub struct PostResponse {
+    /// The request that triggered this response.
+    pub post: Post,
+    /// The response message.
+    pub response: Vec<u8>,
+    /// Timestamp at which this response expires in seconds.
+    pub timeout_timestamp: u64,
+    /// Gas limit for executing the response on destination, only used for solidity modules.
+    pub gas_limit: u64,
 }
 
 pub trait IsmpDispatcher {
@@ -53,45 +68,20 @@ pub trait IsmpDispatcher {
 }
 ```
 
-### Events
+## Events
 
-Events should be emitted for state machine updates and when requests are responses are dispatched.This allows offchain
-components to be notified when new messages need to be relayed.  
-The structure of ISMP events is described below:
+Events should be emitted when requests are responses are dispatched. This notifies relayers of the new requests and responses to be transmitted.
+The structure of ISMP dispatcher events is described below
 
 ```rust
 pub enum Event {
-    /// Emitted when a state machine is successfully updated to a new height
-    StateMachineUpdated {
-        /// State machine id
-        state_machine_id: StateMachineId,
-        /// Latest height
-        latest_height: u64,
-    },
-    /// Emitted when a challenge period has begun for a consensus client
-    ChallengePeriodStarted {
-        /// Consensus client id
-        consensus_client_id: ConsensusClientId,
-        /// Tuple of previous height and latest height
-        state_machines: BTreeSet<(StateMachineHeight, StateMachineHeight)>,
-    },
     /// Emitted for an outgoing response
     Response {
-        /// Chain that this response will be routed to
-        dest_chain: StateMachine,
-        /// Source Chain for this response
-        source_chain: StateMachine,
-        /// Nonce for the request which this response is for
-        request_nonce: u64,
+        // .. relevant metadata
     },
     /// Emitted for an outgoing request
     Request {
-        /// Chain that this request will be routed to
-        dest_chain: StateMachine,
-        /// Source Chain for request
-        source_chain: StateMachine,
-        /// Request nonce
-        request_nonce: u64,
+        // .. relevant metadata
     },
 }
 ```

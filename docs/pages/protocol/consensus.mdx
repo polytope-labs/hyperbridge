@@ -42,6 +42,8 @@ We define the `ConsensusState` as the minimum data required by consensus clients
 
 ## `StateCommitment`
 
+We define the `StateCommitment` as a succinct, cryptographic commitment to the entire blockchain state at an arbitrary block height. This state commitment scheme used to derive this commitment must support partial reveals proofs that have a complexity of $O(\log_n)$ or better. This state commitment is also colloquially known as the *state_root*.
+
 
 ## `ConsensusClient`
 

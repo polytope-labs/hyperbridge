@@ -1,9 +1,63 @@
 # Requests
 
-ISMP is a request-response protocol, modeled on HTTP. A *module* on one state machine sends a request to a counterpart *module* on a different state machine in this protocol. After processing the request, the recipient module may optionally generate a response, which is sent back to the original sender.
+ISMP is a request-response protocol, modeled after HTTP. A *module* on one state machine sends a request to a counterpart *module* on a different state machine. After processing the request, the recipient module may **optionally** generate a response, which is sent back to the original sender.
 
 ISMP requests can be either POST or GET, similar to HTTP. A POST request indicates an intention to execute a transaction on the counterpart blockchain and carries an opaque payload intended for the destination ISMP module on the counterpart state machine. Conversely, a GET request aims to retrieve the values for the provided `keys` from the storage of a counterpart blockchain. Unlike a POST request, which must be delivered to the counterpart for processing, a GET request can be processed offchain by any interested party.
 
-## Handlers
+<figure>
+  <img src="/receipts.svg" alt="A Full Node" />
+</figure>
+
+## Handlers
+
+The ISMP framework exposes a handler that allows relayers submit new requests, alongside the neccessary state proofs required for verification so that they may be executed by `IsmpModules`s
 
 ### `handle_post_request`
+
+```rust
+/// The ISMP POST request.
+pub struct Post {
+    /// The source state machine of this request.
+    pub source: StateMachine,
+    /// The destination state machine of this request.
+    pub dest: StateMachine,
+    /// The nonce of this request on the source chain
+    pub nonce: u64,
+    /// Module Id of the sending module
+    pub from: Vec<u8>,
+    /// Module ID of the receiving module
+    pub to: Vec<u8>,
+    /// Unix timestamp which this request expires in seconds.
+    pub timeout_timestamp: u64,
+    /// Serialized request body.
+    pub data: Vec<u8>,
+    /// Gas limit for executing the request on destination
+    /// This value should be zero if destination module is not a contract
+    pub gas_limit: u64,
+}
+
+/// A request message holds a batch of requests to be dispatched from a source state machine
+pub struct RequestMessage {
+    /// POST requests from a source chain
+    pub requests: Vec<Post>,
+    /// Membership batch proof for these requests
+    pub proof: Proof,
+}
+
+/// Handles incoming POST requests and dispatches them to the appropriate modules
+pub fn handle_post_requests<H>(host: &H, msg: RequestMessage) -> Result<(), Error>
+where
+    H: IsmpHost,
+{
+  // .. implementation details
+}
+```
+
+The `handle_post_requests` is used to notify onchain `IsmpModule`s of new requests to be processed. A relayer will construct the `RequestMessage` which holds a batch of new `Post` requests, as well as a *multi-proof* of their existence on the source chain. The handler will perform the following operations
+  - Assert that the consensus client is not frozen
+  - Assert that the configured `challenge_period` for the `StateCommitment` has elapsed
+  - Assert that the membership proof for the requests verify
+  - Assert that the requests have not been previously processed
+  - Assert that the requests have not timed out
+  - Finally dispatch the requests to the `IsmpModule` and store a receipt for each request to prevent requests from being replayed.
+ 

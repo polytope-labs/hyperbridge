@@ -1,6 +1,6 @@
 # ISMP Router
 
-The router lives in-between the ISMP message handlers and modules, the router provides access to a concrete implementation of an `IsmpModule` which a request or response is designated for based on the destination module Id. The interface for the ISMP Router is
+The router lives in-between the ISMP message handlers and modules, the router provides access to a concrete implementation of an `IsmpModule` which a request or response is designated for based on the destination module Id. The interface for the router is
 
 ```rust
 pub trait IsmpRouter {

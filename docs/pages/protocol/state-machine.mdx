@@ -1,3 +1,8 @@
+---
+title: The State Machine Client
+description: The ISMP protocol specification for state machine clients
+---
+
 # State Machine Client
 
 Now that we have a way to verify the consensus proofs of a blockchain in a fully byzantine fault tolerant manner. We might like to read the state of the blockchain. This allows us to execute any outgoing requests addressed to us, stored in the state trie of the counterparty blockchain. In order to read the state of the blockchain we’ll make use of state proofs. Different blockchains may adopt different kinds of state tries. eg Merkle-patricia, IAVL, Verkle tries, Binary merkle trees, whatever the case may be, it is also the responsibility of the consensus client to provide the ISMP framework with an implementation of the `StateMachineClient`.

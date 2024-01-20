@@ -1,18 +1,45 @@
 # Running a node
 
-We provide a variety of ways to obtain a node for running. For now we only officially support linux environments.
+We provide a variety of ways to obtain a node for running. For now we only officially support x86 linux environments.
 
 ## System Requirements
 
-## Docker releases
+Since hyperbridge is a substrate-based blockchain, it has the same hardware requirements as the [Polkadot validator node](https://wiki.polkadot.network/docs/maintain-guides-how-to-validate-polkadot#requirements).
+
+
+## Docker
+
+Hyperbridge is available at the official docker repository [`polytopelabs/hyperbridge`](https://hub.docker.com/r/polytopelabs/hyperbridge)
+
+```bash
+docker run polytopelabs/hyperbridge:latest --chain=messier
+```
 
 ## Prebuilt Binaries
 
+You can install a prebuilt binary for the hyperbridge node with the following bash script
+
+```bash
+wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.2.0/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
+tar -xvzf hyperbridge-x86_64-unknown-linux-gnu.tar.gz
+# copy to $PATH
+cp hyperbridge-x86_64-unknown-linux-gnu/hyperbridge $HOME/.local/bin/
+```
+
+or a 1-liner shell script
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/v0.2.0/hyperbridge-installer.sh | sh
+```
+
 ## Building from source
 
-Ensure you have a rust installation, if not you can install rust here.
+You can follow the steps below if you'd prefer to build the hyperbridge node from source:
 
-Dependencies
+ ::::steps
+### Install Dependencies
+ 
+Builinding the hyperbridge node requires some dependencies
  - git
  - clang
  - curl
@@ -22,11 +49,6 @@ Dependencies
  - llvm
  - libudev-dev
  - protobuf-compiler 
-
- ::::steps
-### Install Dependencies
- 
-Install the required dependencies
 
 :::code-group
  
@@ -82,3 +104,7 @@ cargo build --release -p hyperbridge
 ::::
 
 ## Running the node
+
+```bash
+hyperbridge --chain=messier --enable-offchain-indexing --base-path=$HOME/.hyperbridge --pruning-archive
+```

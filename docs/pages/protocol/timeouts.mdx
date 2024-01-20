@@ -1,7 +1,7 @@
 # Timeouts
 
-Blockchains may become incapable of processing transactions due to various reasons. These might include *liveness failures*, which can occur when the state transition function becomes unable to produce new blocks, transaction fee spikes that make transaction execution unprofitable, or a doomsday scenario such as a nation state sanctioned attack.
+Blockchains may become incapable of processing transactions for to various reasons. These might include *liveness failures*, which can occur when the state transition function becomes unable to produce new blocks, consensus faults, transaction fee spikes that make transaction execution unprofitable, or a doomsday scenario such as a nation state sanctioned attack.
 
-Regardless of the reason, if the destination chain cannot process incoming ISMP requests, the framework provides a timeout mechanism. This feature allows for the safe reversion of state changes that were executed prior to dispatching the request, as if no issue ever occurred.
+Regardless of the reason, if the destination chain cannot process incoming ISMP requests, the framework provides a timeout mechanism. This feature allows for the safe reversion of state changes on the source chain that were executed prior to dispatching the request, as if no issue ever occurred.
 
-In the context of the ISMP framework, POST requests, POST responses, and GET requests have the ability to time out due to the `timeout_timestamp` value they possess. This value stipulates the lifespan of a message and is evaluated from the perspective of the sending chain.
+Within the ISMP framework, POST requests, POST responses, and GET requests can time out due to their `timeout_timestamp` value. This value defines the lifespan of a message. A `PostRequest` and `PostResponse` will time out when their destination's `host.timestamp()` surpasses the `timeout_timestamp`. Conversely, a `GetRequest` times out when its source's `host.timestamp()` surpasses the `timeout_timestamp`.

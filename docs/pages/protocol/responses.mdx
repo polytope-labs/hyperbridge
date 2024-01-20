@@ -9,10 +9,7 @@ A `PostResponse` can be seen as the result or return value of a `PostRequest` ex
 
 ## Handlers
 
-
-
 ### `handle_response`
-
 
 :::danger
 It's important to note that if the `IsmpModule::on_response` does not return `Ok`, the receipt of this response will not be persisted, allowing the response to be **replayed**. Consequently, the `IsmpModule` is responsible for maintaining all invariants before modifying it's internal state to prevent partial state changes that could result in critical vulnerabilities in their response handler. This model ensures that if a response cannot be executed successfully on a destination state machine, it can time out gracefully on the source.

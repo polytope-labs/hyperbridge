@@ -3,14 +3,16 @@ title: Requests
 description: The ISMP Request specification
 ---
 
-<link href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css" rel="stylesheet" />
+<link
+  href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
+  rel="stylesheet"
+/>
 
 # Requests
 
-ISMP is a request-response protocol, modeled after HTTP. A *module* on one state machine initiates a request which is to be executed by a counterpart *module* on a different state machine. After processing the request, the recipient module may **optionally** generate a response, which is sent back to the original sender.
+ISMP is a request-response protocol, modeled after HTTP. A _module_ on one state machine initiates a request which is to be executed by a counterpart _module_ on a different state machine. After processing the request, the recipient module may **optionally** generate a response, which is sent back to the original sender.
 
 ISMP requests can be either POST or GET, similar to HTTP. A POST request indicates an intention to execute a transaction on the counterpart blockchain and carries an opaque payload intended for the destination ISMP module on the counterpart state machine. Conversely, a GET request aims to retrieve the values for the provided `keys` from the storage of a counterpart blockchain. Unlike a POST request, which must be delivered to the counterpart for processing, a GET request can be processed offchain by any interested party. Requests can also [time-out](/protocol/timeouts).
-
 
 ```rust
 /// The ISMP POST request.
@@ -126,13 +128,14 @@ where
 }
 ```
 
-The `handle_post_requests` is used to notify onchain `IsmpModule`s of new requests to be processed. A relayer will construct the `RequestMessage` which holds a batch of new `Post` requests, as well as a *multi-proof*$^{[1]}$ of their existence on the source chain. The handler will perform the following operations
-  - Assert that the state machine's consensus client is not frozen
-  - Assert that the configured `challenge_period` for the `StateCommitment` has elapsed
-  - Assert that the requests have not been previously processed
-  - Assert that the requests have not timed out
-  - Assert that the membership proof for the requests verify
-  - Finally dispatch the requests to the relevant `IsmpModule::on_accept` and store a receipt for each request to prevent requests from being replayed.
+The `handle_post_requests` is used to notify onchain `IsmpModule`s of new requests to be processed. A relayer will construct the `RequestMessage` which holds a batch of new `Post` requests, as well as a _multi-proof_$^{[1]}$ of their existence on the source chain. The handler will perform the following operations
+
+- Assert that the state machine's consensus client is not frozen
+- Assert that the configured `challenge_period` for the `StateCommitment` has elapsed
+- Assert that the requests have not been previously processed
+- Assert that the requests have not timed out
+- Assert that the membership proof for the requests verify
+- Finally dispatch the requests to the relevant `IsmpModule::on_accept` and store a receipt for each request to prevent requests from being replayed.
 
 :::danger
 It's important to note that if the `IsmpModule::on_accept` does not return `Ok`, the receipt of this request will not be persisted, allowing the request to be **replayed**. Consequently, the `IsmpModule` is responsible for maintaining all invariants before modifying it's internal state to prevent partial state changes that could result in critical vulnerabilities in their request handler. This model ensures that if a request cannot be executed successfully on a destination state machine, it can time out gracefully on the source.

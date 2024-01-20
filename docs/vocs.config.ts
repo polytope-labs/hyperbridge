@@ -1,44 +1,61 @@
 import { defineConfig } from "vocs";
-import rehypeKatex from 'rehype-katex'
-import rehypeStringify from 'rehype-stringify'
-import remarkMath from 'remark-math'
-import remarkParse from 'remark-parse'
-import remarkRehype from 'remark-rehype'
+import rehypeKatex from "rehype-katex";
+import rehypeStringify from "rehype-stringify";
+import remarkMath from "remark-math";
+import remarkParse from "remark-parse";
+import remarkRehype from "remark-rehype";
+import { VitePluginRadar } from "vite-plugin-radar";
 
 export default defineConfig({
   title: "Hyperbridge",
-  description: "Hyperbridge is a coprocessor for cryptographically secure interoperability",
-  ogImageUrl: 'https://vocs.dev/api/og?logo=%logo&title=%title&description=%description',
-  logoUrl: '/logotype.svg',
-  iconUrl: '/favicon.svg',
+  description:
+    "Hyperbridge is a coprocessor for cryptographically secure interoperability",
+  ogImageUrl:
+    "https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
+  logoUrl: "/logotype.svg",
+  iconUrl: "/favicon.svg",
   socials: [
     {
-      icon: 'github',
-      link: 'https://github.com/polytope-labs/hyperbridge',
+      icon: "github",
+      link: "https://github.com/polytope-labs/hyperbridge",
     },
     {
-      icon: 'x',
-      link: 'https://twitter.com/hyperbridge_',
+      icon: "x",
+      link: "https://twitter.com/hyperbridge_",
     },
     {
       icon: "discord",
-      link: "https://discord.gg/WYTUQrTR9y"
+      link: "https://discord.gg/WYTUQrTR9y",
     },
     {
       icon: "telegram",
-      link: "https://t.me/hyper_bridge"
-    }
+      link: "https://t.me/hyper_bridge",
+    },
   ],
   vite: {
     server: {
       fs: {
-        allow: [".."]
-      }
-    }
+        allow: [".."],
+      },
+    },
+    plugins: [
+      VitePluginRadar({
+        // Google Analytics tag injection
+        analytics: {
+          id: process.env.GA_ID!,
+        },
+      }),
+    ],
   },
   rootDir: ".",
   markdown: {
-    remarkPlugins: [remarkParse, remarkMath, remarkRehype, rehypeKatex, rehypeStringify],
+    remarkPlugins: [
+      remarkParse,
+      remarkMath,
+      remarkRehype,
+      rehypeKatex,
+      rehypeStringify,
+    ],
   },
   sidebar: [
     {

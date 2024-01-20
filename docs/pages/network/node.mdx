@@ -3,7 +3,6 @@ title: Node Operators
 description: Running the Hyperbridge node
 ---
 
-
 # Running a node
 
 We provide a variety of ways to obtain a node for running. For now we only officially support x86 linux environments.
@@ -11,7 +10,6 @@ We provide a variety of ways to obtain a node for running. For now we only offic
 ## System Requirements
 
 Since hyperbridge is a substrate-based blockchain, it has the same hardware requirements as the [Polkadot validator node](https://wiki.polkadot.network/docs/maintain-guides-how-to-validate-polkadot#requirements).
-
 
 ## Docker
 
@@ -42,30 +40,32 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbrid
 
 You can follow the steps below if you'd prefer to build the hyperbridge node from source:
 
- ::::steps
+::::steps
+
 ### Install Dependencies
- 
-Builinding the hyperbridge node requires some dependencies
- - git
- - clang
- - curl
- - make
- - build-essential
- - libssl-dev
- - llvm
- - libudev-dev
- - protobuf-compiler 
+
+Building the hyperbridge node requires some dependencies
+
+- git
+- clang
+- curl
+- make
+- build-essential
+- libssl-dev
+- llvm
+- libudev-dev
+- protobuf-compiler
 
 :::code-group
- 
+
 ```bash [Debian]
 sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
 ```
- 
+
 ```bash [Arch]
 pacman -Syu --needed --noconfirm curl git clang make protobuf
 ```
- 
+
 ```bash [Fedora]
 sudo dnf update
 sudo dnf install clang curl git openssl-devel make protobuf-compiler
@@ -74,6 +74,7 @@ sudo dnf install clang curl git openssl-devel make protobuf-compiler
 ```bash [Opensuse]
 sudo zypper install clang curl git openssl-devel llvm-devel libudev-devel make protobuf
 ```
+
 :::
 
 ### Install rust compiler
@@ -83,6 +84,7 @@ If you don't have an already existing rust installation, you can install it usin
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
+
 ### Install WebAssembly target
 
 Hyperbridge's blockchain runtime compiles to wasm which allows it's code to be forklessly upgraded. In order to build hyperbridge we need the wasm toolchain installed.
@@ -101,12 +103,13 @@ git clone https://github.com/polytope-labs/hyperbridge.git
 cd ./hyperbidge
 git checkout v0.2.0
 ```
- 
+
 ### Build the node
- 
+
 ```bash
 cargo build --release -p hyperbridge
 ```
+
 ::::
 
 ## Running the node

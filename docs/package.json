@@ -18,5 +18,8 @@
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.0",
     "vocs": "latest"
+  },
+  "devDependencies": {
+    "vite-plugin-radar": "^0.9.2"
   }
 }

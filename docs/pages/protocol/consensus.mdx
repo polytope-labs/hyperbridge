@@ -5,14 +5,16 @@ description: The ISMP protocol specification for consensus clients
 
 # Blockchains as State Machines
 
+<link
+  href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
+  rel="stylesheet"
+/>
 
-<link href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css" rel="stylesheet" />
-
-
-In a generalised blockchain model, we can describe a blockchain with blocks $B_1, B_2, B_3 \dots B_n$ as a state machine. To create new blocks, we apply a *state transition function* to the state $S_i$ at block height $B_i$  with a transaction list $T_i$, which results in some new state $S_{i+1}$. This can be more formally expressed as follows:
+In a generalised blockchain model, we can describe a blockchain with blocks $B_1, B_2, B_3 \dots B_n$ as a state machine. To create new blocks, we apply a _state transition function_ to the state $S_i$ at block height $B_i$ with a transaction list $T_i$, which results in some new state $S_{i+1}$. This can be more formally expressed as follows:
 
 $$
 transition(S_i, T_i) = S_{i+1}
+
 
 $$
 
@@ -26,12 +28,13 @@ This transactions list $T_i$ can be seen as a list of database transactions $\{t
   <figcaption>Each block holds a new state.</figcaption>
 </figure>
 
-
-> There may potentially be multiple state transitions for a given block, as you can see in the diagram: $B_3$,  $B_4$, $B_5$ all have multiple state transitions. This is where the role of a consensus algorithm aka *fork choice rule* comes into play.
-> 
+> There may potentially be multiple state transitions for a given block, as you can see in the diagram: $B_3$, $B_4$, $B_5$ all have multiple state transitions. This is where the role of a consensus algorithm aka _fork choice rule_ comes into play.
 
 <figure>
-  <img src="/consensus.svg" alt="Consensus is denoted by the blocks marked as green." />
+  <img
+    src="/consensus.svg"
+    alt="Consensus is denoted by the blocks marked as green."
+  />
   <figcaption>Consensus is denoted by the blocks marked as green.</figcaption>
 </figure>
 
@@ -41,15 +44,13 @@ ISMP's messaging abstraction is built on top of the `ConsensusClient`. We refer 
 
 This document formally defines the `ConsensusClient`, which serves as an oracle for the canonical state of a state machine, and the corresponding handlers which are used to modify the state of the consensus client.
 
-
 ## `ConsensusState`
 
 We define the `ConsensusState` as the minimum data required by consensus clients in order to verify incoming consensus messages and advance it's view of the state machines running on this consenus system.
 
 ## `StateCommitment`
 
-We define the `StateCommitment` as a succinct, cryptographic commitment to the entire blockchain state at an arbitrary block height. The state scheme used to derive this commitment must support partial reveals proofs that have a complexity of $O(\log_n)$ or better. This state commitment is also colloquially known as the *state_root*.
-
+We define the `StateCommitment` as a succinct, cryptographic commitment to the entire blockchain state at an arbitrary block height. The state scheme used to derive this commitment must support partial reveals proofs that have a complexity of $O(\log_n)$ or better. This state commitment is also colloquially known as the _state_root_.
 
 ## `ConsensusClient`
 
@@ -60,7 +61,6 @@ The consensus client is one half of a full blockchain client. It verifies only c
 </figure>
 
 The quest for a mechanism by which a consensus client may observe and come to conclusions about the canonical state of another blockchain leads us to understand the concept of safety in distributed systems. We elaborate further on this in our research article on consensus proofs $^{[1]}$. In summary, we show that safety in on-chain consensus clients will require the use of a challenge window, even after consensus proof verification. This allows us to detect potential Byzantine behavior that may arise without the challenge window in place.
-
 
 ```rust
 /// The consensus state of the consensus client
@@ -130,7 +130,6 @@ pub trait Id {
 
 The ISMP consensus subsystem exposes a set of `handlers`, which can be seen as transactions that allows offchain parties to manage the state of it's various consensus clients.
 
-
 ### `create_client`
 
 ```rust
@@ -169,7 +168,7 @@ where
 }
 ```
 
-The `create_client` method is used by offchain parties to initialize a consensus client. This contains a subjectively chosen initial state for the consensus client. A sort of trusted setup for the initiated. Because it is subjectively chosen, it is recommended that this message is initiated either by the "admin" of the state machine or through a quorum of votes which allows the network to properly audit the contents of the initial consensus state. The handler for this message simply persists the consensus client and all of it's intermediate states as is to storage. 
+The `create_client` method is used by offchain parties to initialize a consensus client. This contains a subjectively chosen initial state for the consensus client. A sort of trusted setup for the initiated. Because it is subjectively chosen, it is recommended that this message is initiated either by the "admin" of the state machine or through a quorum of votes which allows the network to properly audit the contents of the initial consensus state. The handler for this message simply persists the consensus client and all of it's intermediate states as is to storage.
 
 ### `update_client`
 
@@ -196,9 +195,9 @@ where
 
 The `update_client` method is responsible for advancing the state of the consensus client. This performs the consensus verification of new `StateCommitment`s that have been finalized by a `StateMachine`'s consensus system. The `IsmpHost` must return the concrete implementation of the associated `ConsensusClient` and a previously stored `ConsensusState`. The procedure for updating the consensus client is as follows.
 
- - First the handler must assert that the consensus state is not within a challenge period. The challenge period is enforeced every time a new consensus update is processed and is configured on a per-consensus state basis. 
- - Next the handler must assert that the consensus client is not yet frozen. ie The last time the consensus client was updated hasn't exceeded the chain's unbonding period. This effectively mitigates any potential long fork attacks that may arise due to a loss of liveness of consensus clients.
- - Finally the handler may perform consensus proof verification using the concrete implementation for the consensus client. If verifications pass, the udpated `ConsensusState` and `IntermediateState`s are persisted to storage and enter a new challenge period.
+- First the handler must assert that the consensus state is not within a challenge period. The challenge period is enforeced every time a new consensus update is processed and is configured on a per-consensus state basis.
+- Next the handler must assert that the consensus client is not yet frozen. ie The last time the consensus client was updated hasn't exceeded the chain's unbonding period. This effectively mitigates any potential long fork attacks that may arise due to a loss of liveness of consensus clients.
+- Finally the handler may perform consensus proof verification using the concrete implementation for the consensus client. If verifications pass, the udpated `ConsensusState` and `IntermediateState`s are persisted to storage and enter a new challenge period.
 
 ### `freeze_client`
 
@@ -222,7 +221,7 @@ where
 }
 ```
 
-The `freeze_client` method is used to prove the existence of a consensus fault to an onchain consensus client. This message will be sent by offchain parties, colloquially known as *fishermen* when they detect the existence of two conflicting views of the network backed by consensus proofs. This may arise from double signing or eclipse attacks. The consensus client after successfully verifying the validity of the conflicting views of the network will go into a frozen state. In this state it can no longer process new consensus messages as well as new requests & responses. Frozen consensus clients cannot be unfrozen and a new consensus client must be initialized through the `create_client` method instead.
+The `freeze_client` method is used to prove the existence of a consensus fault to an onchain consensus client. This message will be sent by offchain parties, colloquially known as _fishermen_ when they detect the existence of two conflicting views of the network backed by consensus proofs. This may arise from double signing or eclipse attacks. The consensus client after successfully verifying the validity of the conflicting views of the network will go into a frozen state. In this state it can no longer process new consensus messages as well as new requests & responses. Frozen consensus clients cannot be unfrozen and a new consensus client must be initialized through the `create_client` method instead.
 
 ## Events
 
@@ -253,8 +252,6 @@ struct ConsensusClientFrozen {
 ```
 
 A `ConsensusClientFrozen` event is emitted after a consensus fault is successfully verified and the offending client frozen. This should instruct relayers to shut down any tasks for relaying requests from the byzantine network to the host network.
-
-
 
 ## References
 

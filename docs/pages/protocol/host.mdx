@@ -3,12 +3,14 @@ title: The Host Interface
 description: The Host interface specification for ISMP compatible host state machines.
 ---
 
-
-<link href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css" rel="stylesheet" />
+<link
+  href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
+  rel="stylesheet"
+/>
 
 # The Host Interface
 
-The `IsmpHost` defines the storage interface that is used by the ISMP handlers. These handlers are tasked with modifying the host and executing the relevant storage operations for a particular *handler message*. The host assumes that all key-value pairs will be stored in a *state trie*$^{[1]}$. Where a *state commitment* and *state proof* can be obtained to verify their existence or lack thereof.
+The `IsmpHost` defines the storage interface that is used by the ISMP handlers. These handlers are tasked with modifying the host and executing the relevant storage operations for a particular _handler message_. The host assumes that all key-value pairs will be stored in a _state trie_$^{[1]}$. Where a _state commitment_ and _state proof_ can be obtained to verify their existence or lack thereof.
 
 Notably, the handlers are agnostic to the underlying storage mechanism and allows for the storage of requests and responses in an overlay tree. This overlay tree can be selected to minimize the state proof verification cost, consequently reducing the verification cost of outgoing requests and responses.
 
@@ -192,6 +194,7 @@ pub trait IsmpHost {
     fn ismp_router(&self) -> Box<dyn IsmpRouter>;
 }
 ```
+
 ## References
 
-$^{[1]}$ [State (Machine) Proofs, Polytope Labs Research](https://research.polytope.technology/state-(machine)-proofs)
+$^{[1]}$ [State (Machine) Proofs, Polytope Labs Research](<https://research.polytope.technology/state-(machine)-proofs>)

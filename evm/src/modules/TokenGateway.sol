@@ -5,6 +5,8 @@ import "ismp/IIsmpModule.sol";
 import "ismp/IIsmp.sol";
 import "multi-chain-tokens/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
+import "../EvmHost.sol";
+import "../interfaces/IUniswapV2Router.sol";
 
 struct SendParams {
     // amount to be sent
@@ -23,6 +25,10 @@ struct SendParams {
     uint64 timeout;
     // if to burn wrapper or native
     bool redeem;
+    // amount for fee, if bridged token is feetoken require that amount or less is taken by host
+    // else, swap the amount for fee into dai and use fee to limit slippage,
+    // ideally minAmountOut should be the fees you expect to pay
+    uint256 amountForFee;
 }
 
 struct Body {
@@ -41,6 +47,7 @@ struct Body {
 contract TokenGateway is IIsmpModule {
     address private host;
     address private admin;
+    IUniswapV2Router immutable uniswapV2Router;
 
     // mapping of token identifier to erc6160 contracts
     mapping(bytes32 => address) private _erc6160s;
@@ -70,8 +77,9 @@ contract TokenGateway is IIsmpModule {
         _;
     }
 
-    constructor(address _admin) {
+    constructor(address _admin, address _uniswapV2Router) {
         admin = _admin;
+        uniswapV2Router = IUniswapV2Router(_uniswapV2Router);
     }
 
     // set the ismp host address
@@ -100,11 +108,29 @@ contract TokenGateway is IIsmpModule {
         address erc6160 = _erc6160s[params.tokenId];
         require(params.to != address(0), "Burn your funds some other way");
 
+        uint256 toBridge = params.amount;
+
         if (erc20 != address(0) && !params.redeem) {
+            address feeToken = EvmHost(host).dai();
             // custody the user's funds
+            require(params.amountForFee <= toBridge, "fee greater than amount");
             require(
                 IERC20(erc20).transferFrom(from, address(this), params.amount), "Gateway: Insufficient user balance"
             );
+
+            // only swap if the fee token is not the token to bridge and if the amount the user chose to bridge is > 0
+            if (feeToken != erc20 && params.amountForFee > 0) {
+                require(IERC20(erc20).approve(address(uniswapV2Router), params.amountForFee), "approve failed.");
+                address[] memory path = new address[](2);
+                path[0] = erc20;
+                path[1] = feeToken;
+                uniswapV2Router.swapExactTokensForTokens(
+                    params.amountForFee, params.fee, path, tx.origin, block.timestamp
+                );
+                unchecked {
+                    toBridge -= params.amountForFee;
+                }
+            }
         } else if (erc6160 != address(0) && params.redeem) {
             // we're sending an erc6160 asset so we should redeem on the destination if we can.
             IERC6160Ext20(erc6160).burn(from, params.amount, "");
@@ -113,10 +139,12 @@ contract TokenGateway is IIsmpModule {
         }
 
         bytes memory data = abi.encode(
-            Body({from: from, to: params.to, amount: params.amount, tokenId: params.tokenId, redeem: params.redeem})
+            Body({from: from, to: params.to, amount: toBridge, tokenId: params.tokenId, redeem: params.redeem})
         );
+
         bytes memory to = _chainToGateway[params.dest];
         require(to.length > 0, "Unsupported chain");
+
         DispatchPost memory request = DispatchPost({
             dest: params.dest,
             to: to,

@@ -24,6 +24,10 @@ contract MockHost {
         return _host;
     }
 
+    function dai() public view returns (address) {
+        return _hostParams.feeTokenAddress;
+    }
+
     /**
      * @dev Dispatch a POST request to the hyperbridge
      * @param post - post request
@@ -41,7 +45,7 @@ contract MockHost {
             source: host(),
             dest: post.dest,
             nonce: uint64(_nextNonce()),
-            from: abi.encodePacked(msg.sender),
+            from: abi.encodePacked(tx.origin),
             to: post.to,
             timeoutTimestamp: timeout,
             body: post.body,
@@ -57,6 +61,7 @@ contract MockHost {
     function dispatchIncoming(PostRequest memory request) external {
         address destination = _bytesToAddress(request.to);
         require(destination.code.length > 0, "no code");
+
         (bool success, bytes memory d) =
             address(destination).call(abi.encodeWithSelector(TokenGateway.onAccept.selector, request));
         // require(success);

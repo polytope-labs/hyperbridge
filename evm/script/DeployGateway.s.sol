@@ -6,8 +6,8 @@ import "multi-chain-tokens/tokens/ERC20.sol";
 
 import "../src/modules/TokenGateway.sol";
 import "../src/modules/TokenFaucet.sol";
-import "../test/PingModule.sol";
-import "../test/CrossChainMessenger.sol";
+import "../examples/PingModule.sol";
+import "../examples/CrossChainMessenger.sol";
 
 contract DeployScript is Script {
     bytes32 public salt = keccak256(bytes("gargantua-v0.0.7"));

@@ -1,3 +1,8 @@
+---
+title: Responses
+description: The ISMP Response specification
+---
+
 # Responses
 
 A `PostResponse` can be seen as the result or return value of a `PostRequest` execution. `IsmpModule`s may choose not to emit `PostResponse` and instead employ an optimistic model where state is modified in a way that can be reverted when the request times out. This saves significant message round trip and verification costs and provides a better experience for application users.

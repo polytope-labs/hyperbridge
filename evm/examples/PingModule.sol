@@ -99,7 +99,7 @@ contract PingModule is IIsmpModule {
 
     function dispatchToParachain(uint256 _paraId) public {
         DispatchPost memory post = DispatchPost({
-            body: bytes("hello from ethereum"),
+            body: bytes("hello from evm"),
             dest: StateMachine.kusama(_paraId),
             timeout: 0,
             // timeout: 60 * 60, // one hour

@@ -5,7 +5,7 @@ description: Request and Response timeouts
 
 # Timeouts
 
-Blockchains may become incapable of processing transactions for to various reasons. These might include _liveness failures_, which can occur when the state transition function becomes unable to produce new blocks, consensus faults, transaction fee spikes that make transaction execution unprofitable, or a doomsday scenario such as a nation state sanctioned attack.
+Blockchains may become incapable of processing transactions for a vareity of reasons. These might include _liveness failures_, which can occur when the state transition function becomes unable to produce new blocks, consensus faults, transaction fee spikes that make transaction execution unprofitable, or a doomsday scenario such as a nation state sanctioned attack.
 
 Regardless of the reason, if the destination chain cannot process incoming ISMP requests, the framework provides a timeout mechanism. This feature allows for the safe reversion of state changes on the source chain that were executed prior to dispatching the request, as if no issue ever occurred.
 

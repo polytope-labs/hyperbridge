@@ -64,7 +64,7 @@ pub mod pallet {
     pub enum Event<T: Config> {
         /// An account `account` has been whitelisted
         AccountWhitelisted { account: T::AccountId },
-        /// An account `account` has been removed from whitelisted account
+        /// An account `account` has been removed from whitelisted accounts
         AccountRemovedFromWhitelistedAccount { account: T::AccountId },
         /// `state_machine` is frozen
         StateMachineFrozen { state_machine: StateMachineHeight },

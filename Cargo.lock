@@ -9101,14 +9101,10 @@ dependencies = [
  "frame-support",
  "frame-system",
  "ismp",
- "log",
  "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
- "sp-core 25.0.0",
- "sp-io 27.0.0",
  "sp-runtime 28.0.0",
- "sp-std 11.0.0",
 ]
 
 [[package]]

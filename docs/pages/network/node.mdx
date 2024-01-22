@@ -1,5 +1,15 @@
-# Hyperbridge
-Hyperbridge is a hyper-scalable coprocessor for cryptographically secure, cross-chain interoperability.
+---
+title: Node Operators
+description: Running the Hyperbridge node
+---
+
+# Running a node
+
+We provide a variety of ways to obtain a node for running. For now we only officially support x86 linux environments.
+
+## System Requirements
+
+Since hyperbridge is a substrate-based blockchain, it has the same hardware requirements as the [Polkadot validator node](https://wiki.polkadot.network/docs/maintain-guides-how-to-validate-polkadot#requirements).
 
 ## Docker
 
@@ -14,7 +24,7 @@ docker run polytopelabs/hyperbridge:latest --chain=messier
 You can install a prebuilt binary for the hyperbridge node with the following bash script
 
 ```bash
-wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/${latest-tag}/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
+wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.2.0/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
 tar -xvzf hyperbridge-x86_64-unknown-linux-gnu.tar.gz
 # copy to $PATH
 cp hyperbridge-x86_64-unknown-linux-gnu/hyperbridge $HOME/.local/bin/
@@ -23,13 +33,14 @@ cp hyperbridge-x86_64-unknown-linux-gnu/hyperbridge $HOME/.local/bin/
 or a 1-liner shell script
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/${latest-tag}/hyperbridge-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/v0.2.0/hyperbridge-installer.sh | sh
 ```
 
 ## Building from source
 
 You can follow the steps below if you'd prefer to build the hyperbridge node from source:
 
+::::steps
 
 ### Install Dependencies
 
@@ -45,27 +56,26 @@ Building the hyperbridge node requires some dependencies
 - libudev-dev
 - protobuf-compiler
 
-Debian/Ubuntu
+:::code-group
 
-```bash 
+```bash [Debian]
 sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
 ```
-Arch
 
-```bash
+```bash [Arch]
 pacman -Syu --needed --noconfirm curl git clang make protobuf
 ```
-Fedora
 
-```bash
+```bash [Fedora]
 sudo dnf update
 sudo dnf install clang curl git openssl-devel make protobuf-compiler
 ```
-Opensuse
 
-```bash
+```bash [Opensuse]
 sudo zypper install clang curl git openssl-devel llvm-devel libudev-devel make protobuf
 ```
+
+:::
 
 ### Install rust compiler
 
@@ -91,7 +101,7 @@ Download a local copy of the repo and checkout the latest release tag
 ```bash
 git clone https://github.com/polytope-labs/hyperbridge.git
 cd ./hyperbidge
-git checkout ${latest-tag}
+git checkout v0.2.0
 ```
 
 ### Build the node
@@ -100,24 +110,10 @@ git checkout ${latest-tag}
 cargo build --release -p hyperbridge
 ```
 
+::::
+
 ## Running the node
 
 ```bash
 hyperbridge --chain=messier --enable-offchain-indexing --base-path=$HOME/.hyperbridge --pruning-archive
-```
-
-## Running a local tesnet with zombienet
-Download the zombienet binary for your operating system [here](https://github.com/paritytech/zombienet).
-
-```bash
-zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml
-```
-
-## Running a local testnet with docker
-Build the and run the  hyperbridge docker image locally by running 
-
-```bash
-docker build -t hyperbridge -f ./scripts/docker/Dockerfile .
-cd scripts/parachain-launch
-docker compose up
 ```

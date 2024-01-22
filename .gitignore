@@ -15,3 +15,5 @@ evm/out/
 evm/cache/
 evm/broadcast/
 evm/integration-tests/target/
+
+.uuid*

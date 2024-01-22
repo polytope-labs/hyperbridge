@@ -76,7 +76,9 @@ where
                             source_chain: response.source_chain(),
                             dest_chain: response.dest_chain(),
                         });
-                    host.store_response_receipt(&response, &msg.signer)?;
+                    if res.is_ok() {
+                        host.store_response_receipt(&response, &msg.signer)?;
+                    }
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?
@@ -133,7 +135,9 @@ where
                         get: request.clone(),
                         values: Default::default(),
                     });
-                    host.store_response_receipt(&response, &msg.signer)?;
+                    if res.is_ok() {
+                        host.store_response_receipt(&response, &msg.signer)?;
+                    }
                     Ok(res)
                 })
                 .collect::<Result<Vec<_>, _>>()?

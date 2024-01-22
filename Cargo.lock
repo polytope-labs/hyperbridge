@@ -1801,6 +1801,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ethers",
+ "hex-literal 0.3.4",
  "ismp 0.1.0",
  "ismp-solidity-abi 0.1.0 (git+https://github.com/polytope-labs/hyperbridge?branch=main)",
  "subxt",

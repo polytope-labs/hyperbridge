@@ -1,19 +1,16 @@
 use wasm_bindgen::prelude::*;
 use ismp::host::{StateMachine};
-use ismp::router::Post;
-
+use ismp::router::{Post, PostResponse};
+use ethers::types::{Address, H160};
 
 #[wasm_bindgen]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum MessageStatus {
-    Pending,
-    Hyperbridge,
-    Destination,
-    Timeout
+    Pending, // messaging is still residing on the source chain
+    Hyperbridge, // messaging is on the hub (hyperbridge)
+    Destination, // message has gotten to the destination chain)
+    Timeout // message has timed out
 }
-
-
-
 
 
 #[wasm_bindgen]
@@ -37,6 +34,45 @@ pub struct WasmPost {
     pub gas_limit: u64,
 }
 
+
+#[wasm_bindgen]
+pub struct WasmPostResponse {
+    pub post: WasmPost,
+    pub response: Vec<u8>,
+    pub timeout_timestamp: u64,
+    pub gas_limit: u64,
+}
+
+#[wasm_bindgen]
+pub struct WasmHyperClientConfig {
+    pub hyper_bridge_rpc_url: String,
+    pub destination_ismp_host_address: String,
+    pub source_ismp_host_address: String,
+    pub destination_rpc_ws: String,
+    pub source_rpc_ws: String,
+}
+
+pub struct HyperClientConfig {
+    pub hyper_bridge_rpc_url: String,
+    pub destination_ismp_host_address: H160,
+    pub source_ismp_host_address: H160,
+    pub destination_rpc_ws: String,
+    pub source_rpc_ws: String,
+}
+
+
+
+
+impl From<WasmPostResponse> for PostResponse {
+    fn from(wasm_post_response: WasmPostResponse) -> Self {
+        Self {
+            post: wasm_post_response.post.into(),
+            response: wasm_post_response.response,
+            timeout_timestamp: wasm_post_response.timeout_timestamp,
+            gas_limit: wasm_post_response.gas_limit
+        }
+    }
+}
 
 
 impl From<WasmPost> for Post {

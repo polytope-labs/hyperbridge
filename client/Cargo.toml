@@ -12,3 +12,4 @@ subxt = { version = "0.30.1", default-features = false, features = ["substrate-c
 ismp-solidity-abi = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
 ethers = { workspace = true, features = ["ws"] }
 anyhow = "1.0.75"
+hex-literal = { version = "0.3.3" }

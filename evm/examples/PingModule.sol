@@ -21,7 +21,8 @@ contract PingModule is IIsmpModule {
 
     event PostResponseReceived();
     event GetResponseReceived();
-    event PostTimeoutReceived();
+    event PostRequestTimeoutReceived();
+    event PostResponseTimeoutReceived();
     event GetTimeoutReceived();
     event PostReceived(string message);
     event MessageDispatched();
@@ -98,7 +99,7 @@ contract PingModule is IIsmpModule {
 
     function dispatchToParachain(uint256 _paraId) public {
         DispatchPost memory post = DispatchPost({
-            body: bytes("hello from ethereum"),
+            body: bytes("hello from evm"),
             dest: StateMachine.kusama(_paraId),
             timeout: 0,
             // timeout: 60 * 60, // one hour
@@ -126,10 +127,10 @@ contract PingModule is IIsmpModule {
     }
 
     function onPostRequestTimeout(PostRequest memory) external onlyIsmpHost {
-        emit PostTimeoutReceived();
+        emit PostRequestTimeoutReceived();
     }
 
-    function onPostResponseTimeout(PostResponse memory request) external view onlyIsmpHost {
-        revert("Token gateway doesn't emit Get Requests");
+    function onPostResponseTimeout(PostResponse memory request) external onlyIsmpHost {
+        emit PostResponseTimeoutReceived();
     }
 }

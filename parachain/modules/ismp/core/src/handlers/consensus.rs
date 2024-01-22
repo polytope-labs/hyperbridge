@@ -34,23 +34,7 @@ where
     )?;
     let consensus_client = host.consensus_client(consensus_client_id)?;
     let trusted_state = host.consensus_state(msg.consensus_state_id)?;
-
-    let update_time = host.consensus_update_time(msg.consensus_state_id)?;
-    let delay = host.challenge_period(msg.consensus_state_id).ok_or(
-        Error::ChallengePeriodNotConfigured { consensus_state_id: msg.consensus_state_id },
-    )?;
-    let now = host.timestamp();
-
     host.is_consensus_client_frozen(msg.consensus_state_id)?;
-
-    if (now - update_time) <= delay {
-        Err(Error::ChallengePeriodNotElapsed {
-            consensus_state_id: msg.consensus_state_id,
-            current_time: now,
-            update_time,
-        })?
-    }
-
     host.is_expired(msg.consensus_state_id)?;
 
     let (new_state, intermediate_states) = consensus_client.verify_consensus(

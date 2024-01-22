@@ -12,17 +12,20 @@ anyhow = "1.0.75"
 async-trait = "0.1.53"
 futures = "0.3.28"
 tokio = { version = "1.32.0", features = ["full"] }
-pallet-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-tesseract-primitives = { path = "../primitives" }
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
 primitive-types = "0.12.2"
 prisma-client-rust = { git = "https://github.com/Brendonovich/prisma-client-rust.git", tag = "0.6.11", features = ["sqlite", "migrations"] }
 serde = { version = "1.0.195", features = ["derive"] }
-tesseract-evm = { path = "../ethereum/evm" }
-tesseract-substrate = { path = "../substrate/common" }
+
 sp-core = { workspace = true }
 hex = "0.4.3"
 subxt = { version = "0.30.1", features = ["substrate-compat"] }
 chrono = "0.4.31"
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
-pallet-relayer-fees = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+
+tesseract-evm = { path = "../ethereum/evm" }
+tesseract-substrate = { path = "../substrate/common" }
+tesseract-primitives = { path = "../primitives" }
+
+pallet-ismp.workspace = true
+ismp.workspace = true
+pallet-relayer-fees.workspace = true

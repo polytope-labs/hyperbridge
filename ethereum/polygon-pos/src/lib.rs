@@ -13,18 +13,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use consensus_client::{ConsensusState, PolygonClientUpdate};
 use ethers::providers::{Provider, Ws};
 pub use geth_primitives::Header;
 use ismp::{consensus::ConsensusStateId, host::StateMachine, util::Keccak256};
+pub use ismp_polygon_pos::{ConsensusState, PolygonClientUpdate};
 use jsonrpsee::ws_client::WsClientBuilder;
+use polygon_pos_prover::PolygonPosProver;
+pub use polygon_pos_verifier::verify_polygon_header;
 use primitive_types::H160;
-use prover::PolygonPosProver;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::IsmpProvider;
-pub use verifier::verify_polygon_header;
 
 mod byzantine;
 mod host;

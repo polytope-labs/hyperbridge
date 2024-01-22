@@ -10,8 +10,10 @@ anyhow = "1.0.75"
 log = "0.4.17"
 futures = "0.3.28"
 tokio = { version = "1.32.0", features = ["full"] }
-pallet-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-tesseract-primitives = { path = "../primitives" }
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-sp-core = { workspace = true, features = ["full_crypto"] }
+sp-core = { version = "21.0.0", features = ["full_crypto"] }
+
+ismp.workspace = true
+pallet-ismp.workspace = true
+
 transaction-payment = { path = "../payments" }
+tesseract-primitives = { path = "../primitives" }

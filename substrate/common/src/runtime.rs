@@ -3397,7 +3397,7 @@ pub mod api {
 						],
 					)
 				}
-				#[doc = " The parachain host configuration that was obtained from the relay parent."]
+				#[doc = " The parachain naive configuration that was obtained from the relay parent."]
 				#[doc = ""]
 				#[doc = " This field is meant to be updated each block with the validation data inherent. Therefore,"]
 				#[doc = " before processing of the inherent, e.g. in `on_initialize` this data may be stale."]
@@ -10456,7 +10456,7 @@ pub mod api {
 					#[doc = "The inherent which supplies the validation data did not run this block."]
 					ValidationDataNotAvailable,
 					#[codec(index = 4)]
-					#[doc = "The inherent which supplies the host configuration did not run this block."]
+					#[doc = "The inherent which supplies the naive configuration did not run this block."]
 					HostConfigurationNotAvailable,
 					#[codec(index = 5)]
 					#[doc = "No validation function upgrade is currently scheduled."]

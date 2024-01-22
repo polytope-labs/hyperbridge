@@ -97,7 +97,7 @@ pub trait IsmpProvider: Reconnect {
 		keys: Vec<Vec<u8>>,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
-	/// Query all ismp events on host that can be processed for a [`StateMachineUpdated`]
+	/// Query all ismp events on naive that can be processed for a [`StateMachineUpdated`]
 	/// event on the counterparty
 	async fn query_ismp_events(
 		&self,

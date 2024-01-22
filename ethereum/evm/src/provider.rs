@@ -8,7 +8,6 @@ use crate::{
 use anyhow::{anyhow, Error};
 use beefy_verifier_primitives::{BeefyNextAuthoritySet, ConsensusState};
 use codec::Encode;
-use consensus_client::types::EvmStateProof;
 use ethers::{abi::AbiDecode, providers::Middleware};
 use futures::stream::StreamExt;
 use ismp::{
@@ -16,6 +15,7 @@ use ismp::{
 	events::Event,
 	messaging::Message,
 };
+use ismp_sync_committee::types::EvmStateProof;
 use jsonrpsee::{
 	core::{client::SubscriptionClientT, params::ObjectParams, traits::ToRpcParams},
 	rpc_params,

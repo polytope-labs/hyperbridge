@@ -1,10 +1,10 @@
 use crate::{mock::MockHost, SyncCommitteeConfig, SyncCommitteeHost};
 use codec::Decode;
-use consensus_client::{
-	arbitrum::verify_arbitrum_payload, optimism::verify_optimism_payload, types::BeaconClientUpdate,
-};
 use futures::StreamExt;
 use ismp::host::{Ethereum, StateMachine};
+use ismp_sync_committee::{
+	arbitrum::verify_arbitrum_payload, optimism::verify_optimism_payload, types::BeaconClientUpdate,
+};
 use tesseract_evm::{
 	arbitrum::client::{ArbConfig, ArbHost},
 	mock::Host,
@@ -22,7 +22,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 	let geth_url = std::env::var("GETH_URL").expect("GETH_URL must be set.");
 	let beacon_url = std::env::var("BEACON_URL").expect("BEACON_URL must be set.");
 	let chain_a = MockHost::new(
-		consensus_client::types::ConsensusState {
+		ismp_sync_committee::types::ConsensusState {
 			frozen_height: Default::default(),
 			light_client_state: Default::default(),
 			ismp_contract_addresses: Default::default(),

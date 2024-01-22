@@ -3,10 +3,10 @@ use crate::{
 	optimism::client::{OpConfig, OpHost},
 	EvmConfig,
 };
-use consensus_client::optimism::verify_optimism_payload;
 use ethabi::ethereum_types::H160;
 use ethers::providers::Middleware;
 use hex_literal::hex;
+use ismp_sync_committee::optimism::verify_optimism_payload;
 
 const L2_ORACLE: [u8; 20] = hex!("E6Dfba0953616Bacab0c9A8ecb3a9BBa77FC15c0");
 const MESSAGE_PARSER: [u8; 20] = hex!("4200000000000000000000000000000000000016");

@@ -10,6 +10,5 @@ anyhow = "1.0.75"
 futures = "0.3.28"
 async-trait = "0.1.53"
 
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-
+ismp.workspace = true
 tesseract-primitives = { path = "../../primitives" }

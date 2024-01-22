@@ -1,6 +1,5 @@
 use crate::{EvmClient, EvmConfig};
 use anyhow::anyhow;
-use consensus_client::{optimism::OptimismPayloadProof, presets::L2_OUTPUTS_SLOT};
 use ethabi::ethereum_types::{H256, U256};
 use ethers::{
 	prelude::Provider,
@@ -8,6 +7,7 @@ use ethers::{
 	types::H160,
 };
 use ismp::host::StateMachine;
+use ismp_sync_committee::{optimism::OptimismPayloadProof, presets::L2_OUTPUTS_SLOT};
 use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
 use std::sync::Arc;

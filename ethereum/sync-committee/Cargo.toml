@@ -6,10 +6,6 @@ description = "Sync-committee primitives for ISMP messaging relay"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
-prover = { package = "sync-committee-prover", git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-verifier = { package = "sync-committee-verifier", git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-primitives = { package = "sync-committee-primitives", git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-consensus-client = { package = "ismp-sync-committee", git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
 serde = { version = "1.0.164", features = ["derive"] }
 serde_json = "1.0.105"
 hex = "0.4.3"
@@ -25,7 +21,11 @@ base2 = "0.3.1"
 primitive-types = { version = "0.12.1", features = ["impl-codec"] }
 eventsource-client = "0.11.0"
 
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp.workspace = true
+sync-committee-prover.workspace = true
+sync-committee-verifier.workspace = true
+sync-committee-primitives.workspace = true
+ismp-sync-committee.workspace = true
 
 tesseract-primitives = { path = "../../primitives" }
 tesseract-evm = { path = "../evm"}
@@ -33,13 +33,13 @@ tesseract-evm = { path = "../evm"}
 [dev-dependencies]
 tesseract-evm = { path = "../evm", features = ["testing"] }
 sp-core = "22.0.0"
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 dotenv = "0.15.0"
 anyhow = "1.0.75"
 
 [features]
-sepolia = ["consensus-client/sepolia", "prover/sepolia"]
-mainnet = ["consensus-client/mainnet"]
+sepolia = ["ismp-sync-committee/sepolia", "sync-committee-prover/sepolia"]
+mainnet = ["ismp-sync-committee/mainnet"]
 finality-events = []
 testing = []

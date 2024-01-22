@@ -1,11 +1,11 @@
 use anyhow::anyhow;
 use codec::Decode;
-use consensus_client::{ConsensusState, PolygonClientUpdate};
+use ismp_polygon_pos::{ConsensusState, PolygonClientUpdate};
 
 use ethers::types::Block;
 use geth_primitives::CodecHeader;
+use polygon_pos_prover::PolygonPosProver;
 use primitive_types::H256;
-use prover::PolygonPosProver;
 
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 

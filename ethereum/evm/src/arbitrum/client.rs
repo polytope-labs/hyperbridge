@@ -1,9 +1,5 @@
 use crate::{abi::i_rollup::*, derive_map_key, EvmClient, EvmConfig};
 use anyhow::anyhow;
-use consensus_client::{
-	arbitrum::{ArbitrumPayloadProof, GlobalState as RustGlobalState},
-	presets::NODES_SLOT,
-};
 use ethabi::ethereum_types::U256;
 use ethers::{
 	prelude::Provider,
@@ -12,6 +8,10 @@ use ethers::{
 };
 use geth_primitives::CodecHeader;
 use ismp::host::StateMachine;
+use ismp_sync_committee::{
+	arbitrum::{ArbitrumPayloadProof, GlobalState as RustGlobalState},
+	presets::NODES_SLOT,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tesseract_primitives::IsmpProvider;

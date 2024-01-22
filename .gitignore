@@ -26,5 +26,6 @@
 .vscode/*
 .env
 
+**/proofs/*
 /payments/prisma/dev.db
 /payments/prisma/dev.db-journal

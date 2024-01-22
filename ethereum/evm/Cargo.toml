@@ -28,16 +28,16 @@ tokio = { version = "1.32.0", features = ["macros", "sync"] }
 tokio-stream = "0.1.14"
 frame-support = { workspace = true }
 
-pallet-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp-solidity-abi = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp-rpc = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-beefy-verifier-primitives = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-geth-primitives = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-consensus-client = { package = "ismp-sync-committee", git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp-solidity-abi.workspace = true
+beefy-verifier-primitives.workspace = true
+pallet-ismp.workspace = true
+ismp.workspace = true
+ismp-rpc.workspace = true
+geth-primitives.workspace = true
+ismp-sync-committee.workspace = true
+ethereum-trie.workspace = true
 
 tesseract-primitives = { path = "../../primitives" }
-ethereum-trie = { git ="https://github.com/polytope-labs/hyperbridge", branch = "main", default-features = false }
 
 trie-db = { version= "0.24.0", default-features = false }
 hash-db = { version = "0.15.2", default-features = false }
@@ -52,6 +52,6 @@ hex = "0.4.3"
 dotenv = "0.15.0"
 
 [features]
-sepolia = ["consensus-client/sepolia"]
-mainnet = ["consensus-client/mainnet"]
+sepolia = ["ismp-sync-committee/sepolia"]
+mainnet = ["ismp-sync-committee/mainnet"]
 testing = []

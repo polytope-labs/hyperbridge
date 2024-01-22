@@ -72,7 +72,7 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-	fn response_commitment(&self, req: H256) -> Result<(), Error> {
+	fn response_commitment(&self, _req: H256) -> Result<(), Error> {
 		todo!()
 	}
 
@@ -152,15 +152,15 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-	fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error> {
+	fn delete_response_commitment(&self, _res: &PostResponse) -> Result<(), Error> {
 		todo!()
 	}
 
-	fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error> {
+	fn store_request_receipt(&self, _req: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
 		todo!()
 	}
 
-	fn store_response_receipt(&self, req: &Response, signer: &Vec<u8>) -> Result<(), Error> {
+	fn store_response_receipt(&self, _req: &Response, _signer: &Vec<u8>) -> Result<(), Error> {
 		todo!()
 	}
 

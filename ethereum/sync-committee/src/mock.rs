@@ -1,13 +1,12 @@
 use anyhow::{anyhow, Error};
 use codec::Encode;
-use consensus_client::types::ConsensusState;
 use futures::stream;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::Event,
 	messaging::{CreateConsensusState, Message},
-	router::Get,
 };
+use ismp_sync_committee::types::ConsensusState;
 use primitive_types::H256;
 use std::{
 	sync::{Arc, Mutex},
@@ -170,19 +169,19 @@ impl IsmpProvider for MockHost {
 		todo!()
 	}
 
-	fn request_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
+	fn request_commitment_full_key(&self, _commitment: H256) -> Vec<u8> {
 		Default::default()
 	}
 
-	fn request_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
+	fn request_receipt_full_key(&self, _commitment: H256) -> Vec<u8> {
 		Default::default()
 	}
 
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
+	fn response_commitment_full_key(&self, _commitment: H256) -> Vec<u8> {
 		Default::default()
 	}
 
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
+	fn response_receipt_full_key(&self, _commitment: H256) -> Vec<u8> {
 		Default::default()
 	}
 
@@ -190,7 +189,7 @@ impl IsmpProvider for MockHost {
 		Default::default()
 	}
 
-	fn sign(&self, msg: &[u8]) -> Signature {
+	fn sign(&self, _msg: &[u8]) -> Signature {
 		todo!()
 	}
 
@@ -198,13 +197,13 @@ impl IsmpProvider for MockHost {
 		todo!()
 	}
 
-	fn set_nonce_provider(&mut self, nonce_provider: NonceProvider) {
+	fn set_nonce_provider(&mut self, _nonce_provider: NonceProvider) {
 		todo!()
 	}
 
 	async fn set_initial_consensus_state(
 		&self,
-		message: CreateConsensusState,
+		_message: CreateConsensusState,
 	) -> Result<(), Error> {
 		todo!()
 	}

@@ -82,7 +82,7 @@ impl Default for EvmConfig {
 
 /// Core EVM client.
 pub struct EvmClient<I> {
-	/// Ismp host implementation
+	/// Ismp naive implementation
 	pub host: I,
 	/// Execution Rpc client
 	pub client: Arc<Provider<Ws>>,

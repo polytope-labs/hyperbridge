@@ -34,7 +34,7 @@ impl IsmpHost for SyncCommitteeHost {
 		C: IsmpHost + IsmpProvider + 'static,
 	{
 		use eventsource_client::Client;
-		use primitives::consensus_types::Checkpoint;
+		use sync_committee_primitives::consensus_types::Checkpoint;
 		let client = SyncCommitteeHost::clone(&self);
 		let challenge_period = counterparty.query_challenge_period(self.consensus_state_id).await?;
 		let node_url =
@@ -216,7 +216,7 @@ impl IsmpHost for SyncCommitteeHost {
 			.await?;
 		Ok(Some(CreateConsensusState {
 			consensus_state: initial_consensus_state.encode(),
-			consensus_client_id: consensus_client::BEACON_CONSENSUS_ID,
+			consensus_client_id: ismp_sync_committee::BEACON_CONSENSUS_ID,
 			consensus_state_id: self.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,
 			challenge_period: 5 * 60,

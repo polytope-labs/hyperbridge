@@ -13,19 +13,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use consensus_client::types::{BeaconClientUpdate, ConsensusState};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
+pub use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
 use primitive_types::H160;
-use primitives::{
+use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, time::Duration};
+use sync_committee_primitives::{
 	types::VerifierState,
 	util::{compute_epoch_at_slot, compute_sync_committee_period_at_slot},
 };
-use prover::SyncCommitteeProver;
-use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, time::Duration};
+use sync_committee_prover::SyncCommitteeProver;
+pub use sync_committee_verifier::verify_sync_committee_attestation;
 use tesseract_evm::{arbitrum::client::ArbHost, optimism::client::OpHost, EvmClient, EvmConfig};
 use tesseract_primitives::IsmpProvider;
-pub use verifier::verify_sync_committee_attestation;
 
 mod byzantine;
 mod host;

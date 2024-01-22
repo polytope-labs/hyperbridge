@@ -61,7 +61,7 @@ impl SubstrateConfig {
 
 /// Core substrate client.
 pub struct SubstrateClient<I, C: subxt::Config> {
-	/// Ismp host implementation
+	/// Ismp naive implementation
 	pub host: I,
 	/// Subxt client for the substrate chain
 	pub client: OnlineClient<C>,

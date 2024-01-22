@@ -147,8 +147,8 @@ impl AnyConfig {
 				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
 				AnyClient::Bsc(client)
 			}, /* AnyConfig::Polkadot(config) => {
-			    *     let host = GrandpaHost::new(&config).await?;
-			    *     AnyClient::Grandpa(Grandpa::new(host, config.substrate).await?)
+			    *     let naive = GrandpaHost::new(&config).await?;
+			    *     AnyClient::Grandpa(Grandpa::new(naive, config.substrate).await?)
 			    * } */
 		};
 

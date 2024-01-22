@@ -13,19 +13,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use consensus_client::ConsensusState;
+use bnb_pos_prover::BnbPosProver;
+use bnb_pos_verifier::primitives::compute_epoch;
+pub use bnb_pos_verifier::verify_bnb_header;
 use ethers::providers::{Provider, Ws};
 pub use geth_primitives::Header;
 use ismp::{consensus::ConsensusStateId, host::StateMachine, util::Keccak256};
+pub use ismp_bnb_pos::ConsensusState;
 use jsonrpsee::ws_client::WsClientBuilder;
 use primitive_types::H160;
-use prover::BnbPosProver;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::IsmpProvider;
-use verifier::primitives::compute_epoch;
-pub use verifier::verify_bnb_header;
 
 mod byzantine;
 mod host;

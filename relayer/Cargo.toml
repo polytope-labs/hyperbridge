@@ -15,13 +15,13 @@ tesseract-evm = { path = "../ethereum/evm" }
 tesseract-polygon-pos = { path = "../ethereum/polygon-pos" }
 tesseract-bnb-pos = { path = "../ethereum/bnb-pos" }
 tesseract-sync-committee = { path = "../ethereum/sync-committee" }
-tesseract-beefy = { path = "../substrate/beefy/host" }
+tesseract-beefy = { path = "../substrate/beefy/naive" }
 transaction-payment = { path = "../payments" }
 
 # polytope labs
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-pallet-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp-sync-committee = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp.workspace = true
+pallet-ismp.workspace = true
+ismp-sync-committee.workspace = true
 
 # crates.io
 log = "0.4.19"

@@ -73,7 +73,7 @@ impl IsmpHost for PolygonPosHost {
 			self.get_consensus_state(self.config.evm_config.ismp_host).await?;
 		Ok(Some(CreateConsensusState {
 			consensus_state: initial_consensus_state.encode(),
-			consensus_client_id: consensus_client::POLYGON_CONSENSUS_ID,
+			consensus_client_id: ismp_polygon_pos::POLYGON_CONSENSUS_ID,
 			consensus_state_id: self.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,
 			challenge_period: 5 * 60,

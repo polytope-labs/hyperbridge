@@ -6,10 +6,7 @@ description = "Polyon consensus host for tesseract"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
-prover = { package = "polygon-pos-prover", git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-verifier = { package = "polygon-pos-verifier", git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-consensus-client = { package = "ismp-polygon-pos", git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-geth-primitives = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+
 serde = { version = "1.0.164", features = ["derive"] }
 serde_json = "1.0.105"
 hex = "0.4.3"
@@ -25,7 +22,12 @@ base2 = "0.3.1"
 primitive-types = { version = "0.12.1", features = ["impl-codec"] }
 ethers = { workspace = true, features = ["ws"] }
 sp-core = "22.0.0"
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+
+ismp.workspace = true
+polygon-pos-prover.workspace = true
+polygon-pos-verifier.workspace = true
+ismp-polygon-pos.workspace = true
+geth-primitives.workspace = true
 
 tesseract-primitives = { path = "../../primitives" }
 tesseract-evm = { path = "../evm"}
@@ -35,7 +37,7 @@ debounced = { git = "https://github.com/polytope-labs/debounced", branch = "main
 [dev-dependencies]
 tesseract-evm = { path = "../evm", features = ["testing"] }
 sp-core = "22.0.0"
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 dotenv = "0.15.0"
 anyhow = "1.0.75"

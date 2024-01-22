@@ -14,16 +14,16 @@ subxt = { version = "0.30.1", features = ["substrate-compat"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 sp-core = { version = "21.0.0", features = ["full_crypto"] }
 log = "0.4.19"
+tokio = { version = "1.32.0" }
+
+debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
 
 primitives = { package = "tesseract-primitives", path = "../../primitives" }
-
-pallet-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp-demo = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp-rpc = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-tokio = { version = "1.32.0" }
-debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
-pallet-relayer-fees = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+pallet-ismp.workspace = true
+pallet-relayer-fees.workspace = true
+ismp-demo.workspace = true
+ismp-rpc.workspace = true
+ismp.workspace = true
 
 [features]
 testing = []

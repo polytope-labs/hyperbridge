@@ -6,10 +6,11 @@ description = "Bnb consensus host for tesseract"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
-prover = { package = "bnb-pos-prover", git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-verifier = { package = "bnb-pos-verifier", git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-consensus-client = { package = "ismp-bnb-pos", git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
-geth-primitives = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+bnb-pos-prover.workspace = true
+bnb-pos-verifier.workspace = true
+ismp-bnb-pos.workspace = true
+geth-primitives.workspace = true
+ismp.workspace = true
 
 serde = { version = "1.0.164", features = ["derive"] }
 serde_json = "1.0.105"
@@ -26,7 +27,6 @@ base2 = "0.3.1"
 primitive-types = { version = "0.12.1", features = ["impl-codec"] }
 ethers = { workspace = true, features = ["ws"] }
 sp-core = "22.0.0"
-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main"  }
 
 
 tesseract-primitives = { path = "../../primitives" }

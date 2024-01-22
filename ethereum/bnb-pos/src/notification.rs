@@ -1,11 +1,11 @@
 use anyhow::anyhow;
 use codec::{Decode, Encode};
-use consensus_client::ConsensusState;
+use ismp_bnb_pos::ConsensusState;
 
+use bnb_pos_verifier::primitives::{compute_epoch, BnbClientUpdate, EPOCH_LENGTH};
 use ethers::types::Block;
 use ismp::messaging::{ConsensusMessage, Message};
 use primitive_types::H256;
-use verifier::primitives::{compute_epoch, BnbClientUpdate, EPOCH_LENGTH};
 
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 

@@ -1,15 +1,15 @@
 use crate::SyncCommitteeHost;
 use codec::{Decode, Encode};
-use consensus_client::types::{BeaconClientUpdate, ConsensusState};
 use ismp::{
 	consensus::StateMachineId,
 	host::{Ethereum, StateMachine},
 	messaging::{ConsensusMessage, Message},
 };
-use primitives::{
+use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
+use std::collections::BTreeMap;
+use sync_committee_primitives::{
 	consensus_types::Checkpoint, constants::Root, util::compute_sync_committee_period,
 };
-use std::collections::BTreeMap;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

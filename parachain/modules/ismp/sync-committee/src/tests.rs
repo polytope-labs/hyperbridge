@@ -158,6 +158,10 @@ impl IsmpHost for Host {
         todo!()
     }
 
+    fn unfreeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error> {
+        todo!()
+    }
+
     fn freeze_consensus_client(&self, consensus_state_id: ConsensusStateId) -> Result<(), Error> {
         todo!()
     }

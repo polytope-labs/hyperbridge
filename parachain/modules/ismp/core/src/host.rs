@@ -143,6 +143,9 @@ pub trait IsmpHost: Keccak256 {
     /// Freeze a state machine at the given height
     fn freeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error>;
 
+    /// UnFreeze a state machine at the given height
+    fn unfreeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error>;
+
     /// Freeze a consensus state with the given identifier
     fn freeze_consensus_client(&self, consensus_state_id: ConsensusStateId) -> Result<(), Error>;
 

@@ -222,6 +222,11 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
+    fn unfreeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error> {
+        FrozenHeights::<T>::remove(&height.id);
+        Ok(())
+    }
+
     fn freeze_consensus_client(&self, client: ConsensusStateId) -> Result<(), Error> {
         FrozenConsensusClients::<T>::insert(client, true);
         Ok(())

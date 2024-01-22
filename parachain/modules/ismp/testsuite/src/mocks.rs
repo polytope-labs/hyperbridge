@@ -265,6 +265,11 @@ impl IsmpHost for Host {
         Ok(())
     }
 
+    fn unfreeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error> {
+        self.frozen_state_machines.borrow_mut().remove(&height.id);
+        Ok(())
+    }
+
     fn freeze_consensus_client(&self, _client: ConsensusStateId) -> Result<(), Error> {
         Ok(())
     }

@@ -37,7 +37,7 @@ members = [
 
      # evm stuff
       "evm/integration-tests",
-      "evm/abi", "parachain/modules/relayer-fees",
+      "evm/abi", "parachain/modules/relayer-fees", "parachain/modules/state-machine-freezer",
 ]
 
 # Config for 'cargo dist'

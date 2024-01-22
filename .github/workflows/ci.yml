@@ -146,7 +146,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    runs-on: arc-runner-set
+    runs-on: self-hosted
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources

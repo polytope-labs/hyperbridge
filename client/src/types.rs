@@ -39,20 +39,17 @@ pub struct WasmPost {
 
 
 
-pub fn build_state_machine(wasm_state_machine: String) -> StateMachine {
-    wasm_state_machine.into()
-}
-
-
-pub fn build_post(wasm_post: WasmPost) -> Post {
-    Post {
-        source: build_state_machine(wasm_post.source),
-        dest: build_state_machine(wasm_post.dest),
-        nonce: wasm_post.nonce,
-        from: wasm_post.from,
-        to: wasm_post.to,
-        timeout_timestamp: wasm_post.timeout_timestamp,
-        data: wasm_post.data,
-        gas_limit: wasm_post.gas_limit
+impl From<WasmPost> for Post {
+    fn from(wasm_post: WasmPost) -> Self {
+        Post {
+            source: wasm_post.source.into(),
+            dest: wasm_post.dest.into(),
+            nonce: wasm_post.nonce,
+            from: wasm_post.from,
+            to: wasm_post.to,
+            timeout_timestamp: wasm_post.timeout_timestamp,
+            data: wasm_post.data,
+            gas_limit: wasm_post.gas_limit
+        }
     }
 }

@@ -13,7 +13,7 @@ import "../src/hosts/Ethereum.sol";
 import "../src/hosts/Arbitrum.sol";
 import "../src/hosts/Optimism.sol";
 import "../src/hosts/Base.sol";
-import "../test/PingModule.sol";
+import "../examples/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 

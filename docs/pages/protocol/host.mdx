@@ -1,42 +1,23 @@
-// Copyright (C) Polytope Labs Ltd.
-// SPDX-License-Identifier: Apache-2.0
+---
+title: The Host Interface
+description: The Host interface specification for ISMP compatible host state machines.
+---
 
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// 	http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+<link
+  href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
+  rel="stylesheet"
+/>
 
-//! The IsmpHost definition
+# The Host Interface
 
-use crate::{
-    consensus::{
-        ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
-        StateMachineId,
-    },
-    error::Error,
-    prelude::Vec,
-    router::{IsmpRouter, PostResponse, Request, Response},
-    util::Keccak256,
-};
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-};
-use codec::{Decode, Encode};
-use core::{fmt::Display, str::FromStr, time::Duration};
-use primitive_types::H256;
+The `IsmpHost` defines the storage interface that is used by the ISMP handlers. These handlers are tasked with modifying the host and executing the relevant storage operations for a particular _handler message_. The host assumes that all key-value pairs will be stored in a _state trie_$^{[1]}$. Where a _state commitment_ and _state proof_ can be obtained to verify their existence or lack thereof.
 
+Notably, the handlers are agnostic to the underlying storage mechanism and allows for the storage of requests and responses in an overlay tree. This overlay tree can be selected to minimize the state proof verification cost, consequently reducing the verification cost of outgoing requests and responses.
+
+```rust
 /// Defines the necessary interfaces that must be satisfied by a state machine for it be ISMP
 /// compatible.
-pub trait IsmpHost: Keccak256 {
+pub trait IsmpHost {
     /// Should return the state machine type for the host.
     fn host_state_machine(&self) -> StateMachine;
 
@@ -212,152 +193,8 @@ pub trait IsmpHost: Keccak256 {
     /// Return a handle to the router
     fn ismp_router(&self) -> Box<dyn IsmpRouter>;
 }
+```
 
-/// Currently supported ethereum state machines.
-#[derive(
-    Clone, Debug, Copy, Encode, Decode, PartialOrd, Ord, PartialEq, Eq, Hash, scale_info::TypeInfo,
-)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
-pub enum Ethereum {
-    /// Ethereum Execution layer
-    ExecutionLayer,
-    /// The optimism state machine
-    Optimism,
-    /// The Arbitrum state machine
-    Arbitrum,
-    /// The Base state machine
-    Base,
-}
+## References
 
-/// Currently supported state machines.
-#[derive(
-    Clone, Debug, Copy, Encode, Decode, PartialOrd, Ord, PartialEq, Eq, Hash, scale_info::TypeInfo,
-)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
-pub enum StateMachine {
-    /// Ethereum state machines
-    #[codec(index = 0)]
-    Ethereum(Ethereum),
-    /// Polkadot parachains
-    #[codec(index = 1)]
-    Polkadot(u32),
-    /// Kusama parachains
-    #[codec(index = 2)]
-    Kusama(u32),
-    /// We identify standalone state machines by their consensus state
-    #[codec(index = 3)]
-    Grandpa(ConsensusStateId),
-    /// State machines chains running on beefy consensus state
-    #[codec(index = 4)]
-    Beefy(ConsensusStateId),
-    #[codec(index = 5)]
-    /// Polygon Pos
-    Polygon,
-    /// Bnb Pos
-    #[codec(index = 6)]
-    Bsc,
-}
-
-impl Display for StateMachine {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let str = match self {
-            StateMachine::Ethereum(ethereum) => match ethereum {
-                Ethereum::ExecutionLayer => "ETHE".to_string(),
-                Ethereum::Arbitrum => "ARBI".to_string(),
-                Ethereum::Optimism => "OPTI".to_string(),
-                Ethereum::Base => "BASE".to_string(),
-            },
-            StateMachine::Polkadot(id) => format!("POLKADOT-{id}"),
-            StateMachine::Kusama(id) => format!("KUSAMA-{id}"),
-            StateMachine::Grandpa(id) => format!("GRANDPA-{}", u32::from_be_bytes(*id)),
-            StateMachine::Beefy(id) => format!("BEEFY-{}", u32::from_be_bytes(*id)),
-            StateMachine::Polygon => "POLY".to_string(),
-            StateMachine::Bsc => "BSC".to_string(),
-        };
-        write!(f, "{}", str)
-    }
-}
-
-impl FromStr for StateMachine {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s = match s {
-            "ETHE" => StateMachine::Ethereum(Ethereum::ExecutionLayer),
-            "ARBI" => StateMachine::Ethereum(Ethereum::Arbitrum),
-            "OPTI" => StateMachine::Ethereum(Ethereum::Optimism),
-            "BASE" => StateMachine::Ethereum(Ethereum::Base),
-            "POLY" => StateMachine::Polygon,
-            "BSC" => StateMachine::Bsc,
-            name if name.starts_with("POLKADOT-") => {
-                let id = name
-                    .split('-')
-                    .last()
-                    .and_then(|id| u32::from_str(id).ok())
-                    .ok_or_else(|| format!("invalid state machine: {name}"))?;
-                StateMachine::Polkadot(id)
-            },
-            name if name.starts_with("KUSAMA-") => {
-                let id = name
-                    .split('-')
-                    .last()
-                    .and_then(|id| u32::from_str(id).ok())
-                    .ok_or_else(|| format!("invalid state machine: {name}"))?;
-                StateMachine::Kusama(id)
-            },
-            name if name.starts_with("GRANDPA-") => {
-                let id = name
-                    .split('-')
-                    .last()
-                    .and_then(|id| u32::from_str(id).ok().map(u32::to_be_bytes))
-                    .ok_or_else(|| format!("invalid state machine: {name}"))?;
-                StateMachine::Grandpa(id)
-            },
-            name if name.starts_with("BEEFY-") => {
-                let id = name
-                    .split('-')
-                    .last()
-                    .and_then(|id| u32::from_str(id).ok().map(u32::to_be_bytes))
-                    .ok_or_else(|| format!("invalid state machine: {name}"))?;
-                StateMachine::Beefy(id)
-            },
-            name => Err(format!("Unknown state machine: {name}"))?,
-        };
-
-        Ok(s)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::host::{Ethereum, StateMachine};
-    use alloc::string::ToString;
-    use core::str::FromStr;
-
-    #[test]
-    fn state_machine_conversions() {
-        let grandpa = StateMachine::Grandpa(*b"hybr");
-        let beefy = StateMachine::Beefy(*b"hybr");
-        let eth = StateMachine::Ethereum(Ethereum::ExecutionLayer);
-        let arb = StateMachine::Ethereum(Ethereum::Arbitrum);
-        let op = StateMachine::Ethereum(Ethereum::Optimism);
-        let base = StateMachine::Ethereum(Ethereum::Base);
-
-        let grandpa_string = grandpa.to_string();
-        let beefy_string = beefy.to_string();
-        let eth_str = eth.to_string();
-        let arb_str = arb.to_string();
-        let op_str = op.to_string();
-        let base_str = base.to_string();
-
-        dbg!(&grandpa_string);
-        dbg!(&beefy_string);
-
-        assert_eq!(grandpa, StateMachine::from_str(&grandpa_string).unwrap());
-        assert_eq!(beefy, StateMachine::from_str(&beefy_string).unwrap());
-        assert_eq!(eth, StateMachine::from_str(&eth_str).unwrap());
-        assert_eq!(arb, StateMachine::from_str(&arb_str).unwrap());
-        assert_eq!(op, StateMachine::from_str(&op_str).unwrap());
-        assert_eq!(base, StateMachine::from_str(&base_str).unwrap());
-    }
-}
+$^{[1]}$ [State (Machine) Proofs, Polytope Labs Research](<https://research.polytope.technology/state-(machine)-proofs>)

@@ -4,7 +4,7 @@ pragma solidity 0.8.17;
 import "forge-std/Test.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
-import {PingModule} from "./PingModule.sol";
+import {PingModule} from "../examples/PingModule.sol";
 import {HandlerV1} from "../src/HandlerV1.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {HostParams} from "../src/EvmHost.sol";

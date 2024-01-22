@@ -1,5 +1,6 @@
 /target
 .idea/
+.uuid
 
 *.log
 **/node_modules/*

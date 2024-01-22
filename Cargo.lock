@@ -1053,7 +1053,7 @@ name = "beefy-prover"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "beefy-verifier-primitives",
+ "beefy-verifier-primitives 0.1.0",
  "derive_more",
  "frame-support",
  "hex",
@@ -1076,6 +1076,21 @@ dependencies = [
 [[package]]
 name = "beefy-verifier-primitives"
 version = "0.1.0"
+dependencies = [
+ "derive_more",
+ "parity-scale-codec",
+ "serde",
+ "sp-consensus-beefy",
+ "sp-core 25.0.0",
+ "sp-io 27.0.0",
+ "sp-mmr-primitives",
+ "sp-std 11.0.0",
+]
+
+[[package]]
+name = "beefy-verifier-primitives"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#018b98ea7a21bc9a040718dc5bcdb07567aa0dbe"
 dependencies = [
  "derive_more",
  "parity-scale-codec",
@@ -1349,7 +1364,7 @@ dependencies = [
  "dotenv",
  "ethers",
  "geth-primitives",
- "ismp",
+ "ismp 0.1.0",
  "primitive-types",
  "sp-core 25.0.0",
  "sync-committee-primitives",
@@ -1369,7 +1384,7 @@ dependencies = [
  "bls_on_arkworks",
  "ethabi",
  "geth-primitives",
- "ismp",
+ "ismp 0.1.0",
  "log",
  "parity-scale-codec",
  "sp-core 27.0.0",
@@ -1784,6 +1799,11 @@ checksum = "702fc72eb24e5a1e48ce58027a675bc24edd52096d5397d4aea7c6dd9eca0bd1"
 name = "client"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "ethers",
+ "ismp 0.1.0",
+ "ismp-solidity-abi 0.1.0 (git+https://github.com/polytope-labs/hyperbridge?branch=main)",
+ "subxt",
  "wasm-bindgen",
 ]
 
@@ -5095,7 +5115,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
  "hex-literal 0.3.4",
- "ismp",
+ "ismp 0.1.0",
  "ismp-bnb-pos",
  "ismp-demo",
  "ismp-polygon-pos",
@@ -5170,7 +5190,7 @@ dependencies = [
  "anyhow",
  "ethabi",
  "ethers",
- "ismp",
+ "ismp 0.1.0",
  "parity-scale-codec",
  "scale-info",
 ]
@@ -6001,6 +6021,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#018b98ea7a21bc9a040718dc5bcdb07567aa0dbe"
+dependencies = [
+ "derive_more",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ismp-bnb-pos"
 version = "0.1.0"
 dependencies = [
@@ -6009,7 +6042,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "geth-primitives",
- "ismp",
+ "ismp 0.1.0",
  "ismp-sync-committee",
  "log",
  "pallet-ismp",
@@ -6030,7 +6063,7 @@ version = "0.1.0"
 dependencies = [
  "frame-support",
  "frame-system",
- "ismp",
+ "ismp 0.1.0",
  "pallet-balances",
  "pallet-ismp",
  "parity-scale-codec",
@@ -6047,7 +6080,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "geth-primitives",
- "ismp",
+ "ismp 0.1.0",
  "ismp-sync-committee",
  "log",
  "pallet-balances",
@@ -6066,7 +6099,7 @@ version = "0.1.0"
 dependencies = [
  "frame-system",
  "hex-literal 0.3.4",
- "ismp",
+ "ismp 0.1.0",
  "ismp-runtime-api",
  "jsonrpsee",
  "pallet-ismp",
@@ -6084,7 +6117,7 @@ dependencies = [
 name = "ismp-runtime-api"
 version = "0.1.0"
 dependencies = [
- "ismp",
+ "ismp 0.1.0",
  "pallet-ismp",
  "parity-scale-codec",
  "serde",
@@ -6097,12 +6130,28 @@ name = "ismp-solidity-abi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "beefy-verifier-primitives",
+ "beefy-verifier-primitives 0.1.0",
  "ckb-merkle-mountain-range 0.5.2 (git+https://github.com/polytope-labs/merkle-mountain-range?branch=seun/simplified-mmr)",
  "ethers",
  "ethers-contract-abigen",
  "forge-testsuite",
- "ismp",
+ "ismp 0.1.0",
+ "primitive-types",
+ "sp-consensus-beefy",
+]
+
+[[package]]
+name = "ismp-solidity-abi"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/hyperbridge?branch=main#018b98ea7a21bc9a040718dc5bcdb07567aa0dbe"
+dependencies = [
+ "anyhow",
+ "beefy-verifier-primitives 0.1.0 (git+https://github.com/polytope-labs/hyperbridge?branch=main)",
+ "ckb-merkle-mountain-range 0.5.2 (git+https://github.com/polytope-labs/merkle-mountain-range?branch=seun/simplified-mmr)",
+ "ethers",
+ "ethers-contract-abigen",
+ "forge-testsuite",
+ "ismp 0.1.0 (git+https://github.com/polytope-labs/hyperbridge?branch=main)",
  "primitive-types",
  "sp-consensus-beefy",
 ]
@@ -6113,7 +6162,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "beefy-prover",
- "beefy-verifier-primitives",
+ "beefy-verifier-primitives 0.1.0",
  "bytes",
  "ckb-merkle-mountain-range 0.5.2 (git+https://github.com/polytope-labs/merkle-mountain-range?branch=seun/simplified-mmr)",
  "envy",
@@ -6122,8 +6171,8 @@ dependencies = [
  "futures",
  "hex",
  "hex-literal 0.4.1",
- "ismp",
- "ismp-solidity-abi",
+ "ismp 0.1.0",
+ "ismp-solidity-abi 0.1.0",
  "libfuzzer-sys",
  "once_cell",
  "parity-scale-codec",
@@ -6158,7 +6207,7 @@ dependencies = [
  "hash256-std-hasher",
  "hex",
  "hex-literal 0.3.4",
- "ismp",
+ "ismp 0.1.0",
  "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
@@ -6176,7 +6225,7 @@ dependencies = [
 name = "ismp-testsuite"
 version = "0.1.0"
 dependencies = [
- "ismp",
+ "ismp 0.1.0",
  "parity-scale-codec",
  "primitive-types",
  "sp-core 25.0.0",
@@ -7381,7 +7430,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
  "hex-literal 0.3.4",
- "ismp",
+ "ismp 0.1.0",
  "ismp-bnb-pos",
  "ismp-demo",
  "ismp-polygon-pos",
@@ -8666,7 +8715,7 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
- "ismp",
+ "ismp 0.1.0",
  "ismp-testsuite",
  "log",
  "pallet-balances",
@@ -10920,7 +10969,7 @@ dependencies = [
  "dotenv",
  "ethers",
  "geth-primitives",
- "ismp",
+ "ismp 0.1.0",
  "polygon-pos-verifier",
  "primitive-types",
  "sp-core 25.0.0",
@@ -10937,7 +10986,7 @@ dependencies = [
  "anyhow",
  "ethabi",
  "geth-primitives",
- "ismp",
+ "ismp 0.1.0",
  "log",
  "parity-scale-codec",
  "scale-info",
@@ -16103,7 +16152,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "hash-db",
- "ismp",
+ "ismp 0.1.0",
  "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",

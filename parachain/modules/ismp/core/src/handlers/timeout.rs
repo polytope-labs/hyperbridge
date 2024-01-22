@@ -26,7 +26,7 @@ use crate::{
 };
 use alloc::{format, vec::Vec};
 
-/// This function handles timeouts for Requests
+/// This function handles timeouts
 pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, Error>
 where
     H: IsmpHost,

@@ -123,7 +123,7 @@ pub fn sufficient_proof_height(requests: &[Get], proof: &Proof) -> Result<(), Er
     Ok(())
 }
 
-/// A timeout message holds a batch of requests to be timed-out
+/// A timeout message holds a batch of messages to be timed-out
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum TimeoutMessage {
     /// A non memership proof for POST requests

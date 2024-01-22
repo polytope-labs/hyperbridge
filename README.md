@@ -114,7 +114,7 @@ zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml
 ```
 
 ## Running a local testnet with docker
-1. Build the and run the  hyperbridge docker image locally by running 
+Build the and run the  hyperbridge docker image locally by running 
 
 ```bash
 docker build -t hyperbridge -f ./scripts/docker/Dockerfile .

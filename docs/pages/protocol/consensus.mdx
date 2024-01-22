@@ -100,7 +100,7 @@ pub struct IntermediateState {
 }
 
 /// We define the consensus client as a module that handles logic for consensus proof verification.
-pub trait Id {
+pub trait ConsensusClient {
     /// Verify the associated consensus proof, using the trusted consensus state.
     fn verify_consensus(
         &self,
@@ -195,9 +195,8 @@ where
 
 The `update_client` method is responsible for advancing the state of the consensus client. This performs the consensus verification of new `StateCommitment`s that have been finalized by a `StateMachine`'s consensus system. The `IsmpHost` must return the concrete implementation of the associated `ConsensusClient` and a previously stored `ConsensusState`. The procedure for updating the consensus client is as follows.
 
-- First the handler must assert that the consensus state is not within a challenge period. The challenge period is enforeced every time a new consensus update is processed and is configured on a per-consensus state basis.
-- Next the handler must assert that the consensus client is not yet frozen. ie The last time the consensus client was updated hasn't exceeded the chain's unbonding period. This effectively mitigates any potential long fork attacks that may arise due to a loss of liveness of consensus clients.
-- Finally the handler may perform consensus proof verification using the concrete implementation for the consensus client. If verifications pass, the udpated `ConsensusState` and `IntermediateState`s are persisted to storage and enter a new challenge period.
+- First the handler must assert that the consensus client is not frozen or expired. Consensus clients can expire if the last time the consensus client was updated has exceeded the chain's unbonding period. This effectively mitigates any potential long fork attacks that may arise due to a loss of liveness of consensus clients.
+- Finally the handler may perform consensus proof verification using the concrete implementation for the consensus client using `ConsensusClient::verify_consensus`. If verifications pass, the udpated `ConsensusState` and `IntermediateState`s are persisted to storage and enter a new challenge period.
 
 ### `freeze_client`
 
@@ -213,7 +212,7 @@ pub struct FraudProofMessage {
 }
 
 /// Freeze a consensus client by providing a valid consensus fault proof.
-pub fn freeze_client<H>(host: &H, msg: FraudProofMessage) -> Result<MessageResult, Error>
+pub fn freeze_client<H>(host: &H, msg: FraudProofMessage) -> Result<(), Error>
 where
     H: IsmpHost,
 {

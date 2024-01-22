@@ -3,9 +3,9 @@ title: Relayers
 description: Running the tesseract relayer
 ---
 
-# Running a relayer
+# Relayers
 
-Critical to the function of Hyperbridge are relayers who transmit requests & responses across it's connected chains. These relayers much like node operators earn rewards for relaying requests. Since requests are paid for ahead of time on the source chain by the initiating application. Relayers can relay these requests and redeem their fees on the source chain. This works by the relayer showing state proofs to the hyperbridge parachain of their successful delivery. Hyperbridge then authorizes the release of the fees to the relayer on the source chain.
+Critical to the function of Hyperbridge are relayers who transmit requests & responses across it's connected chains. These relayers much like node operators earn rewards for relaying requests. Since request execution fees are paid for ahead of time on the source chain by the initiating application. Relayers can relay and pay for the execution of these requests on the destination chain and redeem their fees on the source chain. This works by the relayer showing state proofs of request delivery to the hyperbridge parachain. Hyperbridge then authorizes the release of the fees to the relayer on the source chain through an ISMP request.
 
 ## Installation
 
@@ -28,3 +28,5 @@ docker run polytopelabs/tesseract:latest --config=/path/to/config
 Unfortunately, tesseract is closed-souce for now.
 
 ## Running the relayer
+
+### Config

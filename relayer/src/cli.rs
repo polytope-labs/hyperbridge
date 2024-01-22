@@ -15,28 +15,29 @@
 
 //! Tesseract CLI utilities
 
-use crate::{config::HyperbridgeConfig, logging};
+use crate::{
+	config::{AnyClient, HyperbridgeConfig},
+	logging,
+	tx_payment::Subcommand,
+};
+use anyhow::anyhow;
 use clap::Parser;
-use codec::Encode;
-use ethers::abi::AbiEncode;
-use ismp::{
-	host::{Ethereum, StateMachine},
-	messaging::CreateConsensusState,
-};
-use std::{collections::BTreeMap, time::Duration};
+use ismp::host::{Ethereum, StateMachine};
+use primitives::{IsmpHost, IsmpProvider, NonceProvider};
+use std::{collections::HashMap, sync::Arc};
 use tesseract_beefy::BeefyHost;
-use tesseract_evm::{
-	abi::BeefyConsensusState, arbitrum::client::ArbHost, optimism::client::OpHost, EvmClient,
-};
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
 	SubstrateClient,
 };
-use tesseract_sync_committee::SyncCommitteeHost;
+use tesseract_sync_committee::L2Host;
+use transaction_payment::TransactionPayment;
 
 /// CLI interface for tesseract relayer.
 #[derive(Parser, Debug)]
 pub struct Cli {
+	#[command(subcommand)]
+	pub subcommand: Option<Subcommand>,
 	/// Path to the relayer config file
 	#[arg(short, long)]
 	config: String,
@@ -58,51 +59,27 @@ impl Cli {
 
 		let config = {
 			let toml = tokio::fs::read_to_string(&self.config).await?;
-			toml::from_str::<HyperbridgeConfig>(&toml)?
+			HyperbridgeConfig::parse_conf(toml).await?
 		};
 
-		let HyperbridgeConfig {
-			hyperbridge: hyperbridge_config,
-			ethereum: eth_config,
-			arbitrum: arb_config,
-			optimism: op_config,
-			base: base_config,
-			relayer,
-		} = config.clone();
+		let tx_payment = Arc::new(TransactionPayment::initialize().await?);
+
+		let HyperbridgeConfig { hyperbridge: hyperbridge_config, relayer, .. } = config.clone();
 		let mut hyperbridge = hyperbridge_config
 			.clone()
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
-		// extrinsic submission pipeline
+
 		let hyperbridge_nonce_provider = hyperbridge.initialize_nonce().await?;
 		hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
 
-		let mut ethereum = eth_config.clone().into_client(&hyperbridge).await?;
-		let mut arbitrum = arb_config.clone().into_client(&hyperbridge).await?;
-		let mut optimism = op_config.clone().into_client(&hyperbridge).await?;
-		let mut base = base_config.clone().into_client(&hyperbridge).await?;
-
-		let eth_tx_nonce = ethereum.initialize_nonce().await?;
-		let arb_tx_nonce = arbitrum.initialize_nonce().await?;
-		let op_tx_nonce = optimism.initialize_nonce().await?;
-		let base_tx_nonce = base.initialize_nonce().await?;
-		ethereum.host.set_arb_host(arbitrum.host.clone());
-		ethereum.host.set_op_host(optimism.host.clone());
-		ethereum.host.set_base_host(base.host.clone());
-		ethereum.set_nonce_provider(eth_tx_nonce.clone());
-		arbitrum.set_nonce_provider(arb_tx_nonce.clone());
-		optimism.set_nonce_provider(op_tx_nonce.clone());
-		base.set_nonce_provider(base_tx_nonce.clone());
+		let (client_map, nonce_providers) = create_client_map(config.clone(), &hyperbridge).await?;
 
 		// set up initial consensus states
 		if self.setup_eth || self.setup_para {
 			initialize_consensus_clients(
 				&hyperbridge,
-				&ethereum,
-				&arbitrum,
-				&optimism,
-				&base,
-				config,
+				&client_map,
 				self.setup_eth,
 				self.setup_para,
 			)
@@ -113,87 +90,41 @@ impl Cli {
 		let mut processes = vec![];
 		if relayer.consensus {
 			// consensus streams
-			processes.push(tokio::spawn(consensus::relay(
-				hyperbridge.clone(),
-				ethereum,
-				true,
-				true,
-			)));
-			processes.push(tokio::spawn(consensus::relay(
-				hyperbridge.clone(),
-				arbitrum,
-				true,
-				false,
-			)));
-			processes.push(tokio::spawn(consensus::relay(
-				hyperbridge.clone(),
-				optimism,
-				true,
-				false,
-			)));
-			processes.push(tokio::spawn(consensus::relay(hyperbridge.clone(), base, true, false)));
+			for (_, client) in client_map {
+				processes.push(tokio::spawn(consensus::relay(
+					hyperbridge.clone(),
+					client,
+					true,
+					true,
+				)));
+			}
 			log::info!("Initialized consensus streams");
 		}
 
 		if relayer.messaging {
-			let mut ethereum = eth_config.into_client(&hyperbridge).await?;
-			let mut arbitrum = arb_config.into_client(&hyperbridge).await?;
-			let mut optimism = op_config.into_client(&hyperbridge).await?;
-			let mut base = base_config.into_client(&hyperbridge).await?;
-			ethereum.set_nonce_provider(eth_tx_nonce);
-			arbitrum.set_nonce_provider(arb_tx_nonce);
-			optimism.set_nonce_provider(op_tx_nonce);
-			base.set_nonce_provider(base_tx_nonce);
+			let (clients, _) = create_client_map(config.clone(), &hyperbridge).await?;
 			// messaging streams
-			processes.push(tokio::spawn(messaging::relay(
-				hyperbridge,
-				ethereum,
-				Some(relayer.clone()),
-				None,
-				None,
-			)));
-			let mut hyperbridge = hyperbridge_config
-				.clone()
-				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
-				.await?;
-			hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
-
-			processes.push(tokio::spawn(messaging::relay(
-				hyperbridge,
-				arbitrum,
-				Some(relayer.clone()),
-				// Average time between arbitrum updates on hyperbridge is about an hour and some
-				// minutes We add extra 15 minutes buffer
-				Some(Duration::from_secs(60 * 75)),
-				None,
-			)));
-			let mut hyperbridge = hyperbridge_config
-				.clone()
-				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
-				.await?;
-			hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
-
-			processes.push(tokio::spawn(messaging::relay(
-				hyperbridge,
-				optimism,
-				Some(relayer.clone()),
-				None,
-				None,
-			)));
-
-			let mut hyperbridge = hyperbridge_config
-				.clone()
-				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
-				.await?;
-			hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
-
-			processes.push(tokio::spawn(messaging::relay(
-				hyperbridge,
-				base,
-				Some(relayer.clone()),
-				None,
-				None,
-			)));
+			for (state_machine, mut client) in clients {
+				let mut hyperbridge = hyperbridge_config
+					.clone()
+					.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
+					.await?;
+				hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
+				client.set_nonce_provider(
+					nonce_providers
+						.get(&state_machine)
+						.cloned()
+						.ok_or_else(|| anyhow!("Expected Nonce Provider"))?,
+				);
+				processes.push(tokio::spawn(messaging::relay(
+					hyperbridge,
+					client,
+					Some(relayer.clone()),
+					tx_payment.clone(),
+					None,
+					None,
+				)));
+			}
 			log::info!("Initialized messaging streams");
 		}
 
@@ -209,74 +140,63 @@ type HyperbridgeChain =
 /// Initializes the consensus state across all connected chains.
 async fn initialize_consensus_clients(
 	hyperbridge: &HyperbridgeChain,
-	ethereum: &EvmClient<SyncCommitteeHost>,
-	arbitrum: &EvmClient<ArbHost>,
-	optimism: &EvmClient<OpHost>,
-	base: &EvmClient<OpHost>,
-	config: HyperbridgeConfig,
+	chains: &HashMap<StateMachine, AnyClient>,
 	setup_eth: bool,
 	setup_para: bool,
 ) -> anyhow::Result<()> {
-	let HyperbridgeConfig {
-		ethereum: eth_config,
-		arbitrum: arb_config,
-		optimism: op_config,
-		base: base_config,
-		..
-	} = config;
-
 	if setup_eth {
-		let initial_state: BeefyConsensusState =
-			hyperbridge.host.prover.get_initial_consensus_state().await?.into();
-		log::info!("setting consensus state on ethereum");
-		ethereum.set_consensus_state(initial_state.clone().encode()).await?;
-		log::info!("setting consensus state on abitrum");
-		arbitrum.set_consensus_state(initial_state.clone().encode()).await?;
-		log::info!("setting consensus state on optimism");
-		optimism.set_consensus_state(initial_state.clone().encode()).await?;
-		log::info!("setting consensus state on base");
-		base.set_consensus_state(initial_state.clone().encode()).await?;
+		let initial_state = hyperbridge
+			.get_initial_consensus_state()
+			.await?
+			.ok_or_else(|| anyhow!("Failed to fetch beef consensus state"))?;
+		for (state_machine, chain) in chains {
+			log::info!("setting consensus state on {state_machine:?}");
+			chain.set_initial_consensus_state(initial_state.clone()).await?;
+		}
 	}
 
 	if setup_para {
-		let ismp_contract_addresses = BTreeMap::from([
-			(StateMachine::Ethereum(Ethereum::ExecutionLayer), eth_config.evm_config.ismp_host),
-			(StateMachine::Ethereum(Ethereum::Arbitrum), arb_config.evm_config.ismp_host),
-			(StateMachine::Ethereum(Ethereum::Optimism), op_config.evm_config.ismp_host),
-			(StateMachine::Ethereum(Ethereum::Base), base_config.evm_config.ismp_host),
-		]);
-
-		let l2_oracle = BTreeMap::from([
-			(StateMachine::Ethereum(Ethereum::Optimism), op_config.l2_oracle),
-			(StateMachine::Ethereum(Ethereum::Base), base_config.l2_oracle),
-		]);
-
-		let beacon_consensus_state = ethereum
-			.host
-			.get_initial_consensus_state(
-				ismp_contract_addresses,
-				l2_oracle,
-				arb_config.rollup_core,
-				None,
-			)
-			.await?;
-		let consensus_state_id = {
-			let mut tmp = [0u8; 4];
-			tmp.copy_from_slice(eth_config.evm_config.consensus_state_id.as_bytes());
-			tmp
-		};
-
-		log::info!("setting consensus state on hyperbridge");
-		hyperbridge
-			.create_consensus_state(CreateConsensusState {
-				consensus_state: beacon_consensus_state.encode(),
-				consensus_client_id: ismp_sync_committee::BEACON_CONSENSUS_ID,
-				consensus_state_id,
-				unbonding_period: 60 * 60 * 60 * 27,
-				challenge_period: 0,
-				state_machine_commitments: vec![],
-			})
-			.await?;
+		for (state_machine, client) in chains {
+			log::info!("setting consensus state for {state_machine:?} on hyperbridge");
+			if let Some(consensus_state) = client.get_initial_consensus_state().await? {
+				hyperbridge.set_initial_consensus_state(consensus_state).await?;
+			}
+		}
 	}
 	Ok(())
+}
+
+pub async fn create_client_map<C: IsmpProvider + 'static>(
+	config: HyperbridgeConfig,
+	hyperbridge: &C,
+) -> anyhow::Result<(HashMap<StateMachine, AnyClient>, HashMap<StateMachine, NonceProvider>)> {
+	let HyperbridgeConfig { chains, .. } = config.clone();
+
+	let mut clients = HashMap::new();
+	let mut nonce_providers = HashMap::new();
+	let mut l2_hosts = vec![];
+
+	for (state_machine, config) in chains {
+		let mut client = config.into_client(hyperbridge).await?;
+		match &client {
+			AnyClient::Arbitrum(client) => l2_hosts.push(L2Host::Arb(client.host.clone())),
+			AnyClient::Base(client) => l2_hosts.push(L2Host::Base(client.host.clone())),
+			AnyClient::Optimism(client) => l2_hosts.push(L2Host::Op(client.host.clone())),
+			_ => {},
+		}
+		let nonce_provider = client.initialize_nonce().await?;
+		client.set_nonce_provider(nonce_provider.clone());
+		clients.insert(state_machine, client);
+		nonce_providers.insert(state_machine, nonce_provider);
+	}
+
+	let execution_layer = clients.get_mut(&StateMachine::Ethereum(Ethereum::ExecutionLayer));
+	if let Some(exec_layer) = execution_layer {
+		match exec_layer {
+			AnyClient::Ethereum(client) => client.host.set_l2_hosts(l2_hosts),
+			_ => unreachable!(),
+		}
+	}
+
+	Ok((clients, nonce_providers))
 }

@@ -16,9 +16,9 @@
 //! [`IsmpHost`] implementation
 
 use crate::SubstrateClient;
-use primitives::{
-	BoxStream, ByzantineHandler, ChallengePeriodStarted, IsmpHost, IsmpProvider, Reconnect,
-};
+use anyhow::Error;
+use ismp::{events::StateMachineUpdated, messaging::CreateConsensusState};
+use primitives::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, Reconnect};
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
 	ext::sp_runtime::MultiSignature,
@@ -32,7 +32,7 @@ where
 {
 	async fn query_consensus_message(
 		&self,
-		challenge_event: ChallengePeriodStarted,
+		challenge_event: StateMachineUpdated,
 	) -> Result<ismp::messaging::ConsensusMessage, anyhow::Error> {
 		self.host.query_consensus_message(challenge_event).await
 	}
@@ -65,6 +65,10 @@ where
 		I: IsmpHost + IsmpProvider + Clone + 'static,
 	{
 		self.host.consensus_notification(counterparty).await
+	}
+
+	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+		self.host.get_initial_consensus_state().await
 	}
 }
 
@@ -101,6 +105,7 @@ impl<T: IsmpHost + Clone, C: subxt::Config> Clone for SubstrateClient<T, C> {
 			state_machine: self.state_machine,
 			hashing: self.hashing.clone(),
 			signer: self.signer.clone(),
+			address: self.address.clone(),
 			initial_height: self.initial_height,
 			config: self.config.clone(),
 			nonce_provider: self.nonce_provider.clone(),

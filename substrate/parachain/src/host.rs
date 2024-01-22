@@ -14,8 +14,9 @@
 // limitations under the License.
 
 use crate::ParachainHost;
+use anyhow::Error;
 use futures::stream;
-use ismp::messaging::ConsensusMessage;
+use ismp::messaging::{ConsensusMessage, CreateConsensusState};
 use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider, Reconnect};
 
 #[async_trait::async_trait]
@@ -29,6 +30,10 @@ impl IsmpHost for ParachainHost {
 	{
 		// use the inherent provider
 		Ok(Box::pin(stream::pending()))
+	}
+
+	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+		Ok(None)
 	}
 }
 

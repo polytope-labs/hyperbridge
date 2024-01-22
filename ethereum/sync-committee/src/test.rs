@@ -39,6 +39,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 			ismp_host: Default::default(),
 			handler: Default::default(),
 			signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
+
 			latest_height: None,
 			chain_id: 32382,
 			gas_limit: 30_000_000, // 30m
@@ -58,6 +59,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				handler: Default::default(),
 				signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 					.to_string(),
+
 				latest_height: None,
 				chain_id: 32382,
 				gas_limit: 30_000_000, // 30m
@@ -82,6 +84,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				handler: Default::default(),
 				signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 					.to_string(),
+
 				latest_height: None,
 				chain_id: 32382,
 				gas_limit: 30_000_000, // 30m
@@ -109,6 +112,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				handler: Default::default(),
 				signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 					.to_string(),
+
 				latest_height: None,
 				chain_id: 32382,
 				gas_limit: 30_000_000, // 30m

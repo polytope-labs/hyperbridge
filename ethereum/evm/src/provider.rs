@@ -15,7 +15,6 @@ use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::Event,
 	messaging::Message,
-	router::Get,
 };
 use jsonrpsee::{
 	core::{client::SubscriptionClientT, params::ObjectParams, traits::ToRpcParams},
@@ -23,9 +22,13 @@ use jsonrpsee::{
 };
 
 use ethereum_trie::StorageProof;
+use ethers::middleware::MiddlewareBuilder;
+use ismp::messaging::CreateConsensusState;
 use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
-use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider, Query, StateMachineUpdated};
+use tesseract_primitives::{
+	BoxStream, IsmpHost, IsmpProvider, NonceProvider, Query, Signature, StateMachineUpdated,
+};
 
 #[async_trait::async_trait]
 impl<I: IsmpHost> IsmpProvider for EvmClient<I>
@@ -150,44 +153,79 @@ where
 	}
 
 	async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
-		let mut contract_proofs: Vec<_> = vec![];
-		let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
-		for key in keys {
-			if key.len() != 52 {
-				Err(anyhow!("Invalid key supplied, keys should be 52 bytes"))?
+		let ismp_proof = keys.iter().all(|key| key.len() == 32);
+		let state_proof = if ismp_proof {
+			let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
+			let locations = keys.iter().map(|key| H256::from_slice(key)).collect();
+			let proof = self.client.get_proof(self.ismp_host, locations, Some(at.into())).await?;
+			for (index, key) in keys.into_iter().enumerate() {
+				map.insert(
+					key,
+					proof
+						.storage_proof
+						.get(index)
+						.cloned()
+						.ok_or_else(|| {
+							anyhow!("Invalid key supplied, storage proof could not be retrieved")
+						})?
+						.proof
+						.into_iter()
+						.map(|bytes| bytes.0.into())
+						.collect(),
+				);
 			}
 
-			let contract_address = H160::from_slice(&key[..20]);
-			let slot_hash = H256::from_slice(&key[20..]);
-			let proof = self
-				.client
-				.get_proof(contract_address, vec![slot_hash], Some(at.into()))
-				.await?;
-			contract_proofs
-				.push(StorageProof::new(proof.account_proof.into_iter().map(|node| node.0.into())));
-			map.insert(
-				key,
-				proof
-					.storage_proof
-					.get(0)
-					.cloned()
-					.ok_or_else(|| {
-						anyhow!("Invalid key supplied, storage proof could not be retrieved")
-					})?
-					.proof
+			let state_proof = EvmStateProof {
+				contract_proof: proof
+					.account_proof
 					.into_iter()
 					.map(|bytes| bytes.0.into())
 					.collect(),
-			);
-		}
+				storage_proof: map,
+			};
+			state_proof.encode()
+		} else {
+			let mut contract_proofs: Vec<_> = vec![];
+			let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
+			for key in keys {
+				if key.len() != 52 {
+					continue
+				}
 
-		let contract_proof = StorageProof::merge(contract_proofs);
+				let contract_address = H160::from_slice(&key[..20]);
+				let slot_hash = H256::from_slice(&key[20..]);
+				let proof = self
+					.client
+					.get_proof(contract_address, vec![slot_hash], Some(at.into()))
+					.await?;
+				contract_proofs.push(StorageProof::new(
+					proof.account_proof.into_iter().map(|node| node.0.into()),
+				));
+				map.insert(
+					key,
+					proof
+						.storage_proof
+						.get(0)
+						.cloned()
+						.ok_or_else(|| {
+							anyhow!("Invalid key supplied, storage proof could not be retrieved")
+						})?
+						.proof
+						.into_iter()
+						.map(|bytes| bytes.0.into())
+						.collect(),
+				);
+			}
+			let contract_proof = StorageProof::merge(contract_proofs);
 
-		let state_proof = EvmStateProof {
-			contract_proof: contract_proof.into_nodes().into_iter().collect(),
-			storage_proof: map,
+			let state_proof = EvmStateProof {
+				contract_proof: contract_proof.into_nodes().into_iter().collect(),
+				storage_proof: map,
+			};
+			state_proof.encode()
 		};
-		Ok(state_proof.encode())
+
+		Ok(state_proof)
 	}
 
 	async fn query_ismp_events(
@@ -202,10 +240,6 @@ where
 		let events = self.events(previous_height + 1, event.latest_height).await?;
 		log::info!("querying: {range:?}");
 		Ok(events)
-	}
-
-	async fn query_pending_get_requests(&self, _height: u64) -> Result<Vec<Get>, Error> {
-		Ok(Default::default())
 	}
 
 	fn name(&self) -> String {
@@ -255,6 +289,59 @@ where
 
 	async fn submit(&self, messages: Vec<Message>) -> Result<(), Error> {
 		submit_messages(&self, messages).await?;
+		Ok(())
+	}
+
+	fn request_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
+		self.request_commitment_key(commitment).0.to_vec()
+	}
+
+	fn request_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
+		self.request_receipt_key(commitment).0.to_vec()
+	}
+
+	fn response_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
+		self.response_commitment_key(commitment).0.to_vec()
+	}
+
+	fn response_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
+		self.response_receipt_key(commitment).0.to_vec()
+	}
+
+	fn address(&self) -> Vec<u8> {
+		self.address.clone()
+	}
+
+	fn sign(&self, msg: &[u8]) -> Signature {
+		let signature = self
+			.signer
+			.signer()
+			.sign_hash(H256::from_slice(msg))
+			.expect("Infallible")
+			.to_vec();
+		Signature::Ethereum { address: self.address.clone(), signature }
+	}
+
+	async fn initialize_nonce(&self) -> Result<NonceProvider, anyhow::Error> {
+		let nonce = self
+			.client
+			.clone()
+			.nonce_manager(self.signer.address())
+			.initialize_nonce(None)
+			.await?
+			.as_u64();
+		Ok(NonceProvider::new(nonce))
+	}
+
+	fn set_nonce_provider(&mut self, nonce_provider: NonceProvider) {
+		self.nonce_provider = Some(nonce_provider);
+	}
+
+	async fn set_initial_consensus_state(
+		&self,
+		message: CreateConsensusState,
+	) -> Result<(), Error> {
+		self.set_consensus_state(message.consensus_state).await?;
 		Ok(())
 	}
 }

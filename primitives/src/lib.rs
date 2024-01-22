@@ -21,12 +21,13 @@ use anyhow::anyhow;
 use futures::Stream;
 pub use ismp::events::StateMachineUpdated;
 use ismp::{
-	consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
+	consensus::{ConsensusStateId, StateMachineId},
 	events::Event,
 	host::StateMachine,
-	messaging::{ConsensusMessage, Message},
-	router::Get,
+	messaging::{ConsensusMessage, CreateConsensusState, Message},
+	router::Post,
 };
+pub use pallet_relayer_fees::withdrawal::{Signature, WithdrawalProof};
 use primitive_types::H256;
 use std::{pin::Pin, sync::Arc, time::Duration};
 
@@ -39,14 +40,6 @@ pub struct Query {
 	pub dest_chain: StateMachine,
 	pub nonce: u64,
 	pub commitment: H256,
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct ChallengePeriodStarted {
-	/// State machine update still in challenge period
-	pub state_machine_height: StateMachineHeight,
-	/// Height at which this event was emitted on the host chain
-	pub host_chain_height: u64,
 }
 
 /// Stream alias
@@ -112,9 +105,6 @@ pub trait IsmpProvider: Reconnect {
 		event: StateMachineUpdated,
 	) -> Result<Vec<Event>, anyhow::Error>;
 
-	/// Query requests
-	async fn query_pending_get_requests(&self, height: u64) -> Result<Vec<Get>, anyhow::Error>;
-
 	/// Name of this chain, used in logs.
 	fn name(&self) -> String;
 
@@ -143,17 +133,50 @@ pub trait IsmpProvider: Reconnect {
 	///
 	/// Should only return Ok if the transaction was successfully inserted into a block.
 	async fn submit(&self, messages: Vec<Message>) -> Result<(), anyhow::Error>;
+
+	/// This method should return the key used to be used to query the state proof for the request
+	/// commitment
+	fn request_commitment_full_key(&self, commitment: H256) -> Vec<u8>;
+
+	/// This method should return the key used to be used to query the state proof for the request
+	/// receipt
+	fn request_receipt_full_key(&self, commitment: H256) -> Vec<u8>;
+
+	/// This method should return the key used to be used to query the state proof for the response
+	/// commitment
+	fn response_commitment_full_key(&self, commitment: H256) -> Vec<u8>;
+
+	/// This method should return the key used to be used to query the state proof for the response
+	/// receipt
+	fn response_receipt_full_key(&self, commitment: H256) -> Vec<u8>;
+
+	/// Relayer's address on this chain
+	fn address(&self) -> Vec<u8>;
+
+	/// Sign a prehashed message using the Relayer's private key
+	fn sign(&self, msg: &[u8]) -> Signature;
+
+	/// Initialize a nonce for the chain
+	async fn initialize_nonce(&self) -> Result<NonceProvider, anyhow::Error>;
+	/// Set the nonce provider for the chain
+	fn set_nonce_provider(&mut self, nonce_provider: NonceProvider);
+
+	/// Set the initial consensus state for a given consensus state id on this chain
+	async fn set_initial_consensus_state(
+		&self,
+		message: CreateConsensusState,
+	) -> Result<(), anyhow::Error>;
 }
 
 /// Provides an interface for handling byzantine behaviour. Implementations of this should watch for
 /// eclipse attacks, as well as invalid state transitions.
 #[async_trait::async_trait]
 pub trait ByzantineHandler {
-	/// Returns the [`ConsensusMessage`] that caused the emission of  [`ChallengePeriodStarted`]
+	/// Returns the [`ConsensusMessage`] that caused the emission of  [`StateMachineUpdated`]
 	/// event
 	async fn query_consensus_message(
 		&self,
-		challenge_event: ChallengePeriodStarted,
+		challenge_event: StateMachineUpdated,
 	) -> Result<ConsensusMessage, anyhow::Error>;
 
 	/// Check the client message for byzantine behaviour and submit it to the chain if any.
@@ -175,12 +198,35 @@ pub trait IsmpHost: ByzantineHandler + Reconnect + Clone + Send + Sync {
 	) -> Result<BoxStream<ConsensusMessage>, anyhow::Error>
 	where
 		C: IsmpHost + IsmpProvider + Clone + 'static;
+
+	/// Get a trusted consensus state for this host
+	async fn get_initial_consensus_state(
+		&self,
+	) -> Result<Option<CreateConsensusState>, anyhow::Error>;
 }
 
 #[async_trait::async_trait]
 pub trait Reconnect: Clone + Send + Sync {
 	/// Recreate all underline network connections
 	async fn reconnect<C: IsmpProvider>(&mut self, counterparty: &C) -> Result<(), anyhow::Error>;
+}
+
+#[async_trait::async_trait]
+pub trait HyperbridgeClaim {
+	async fn accumulate_fees(&self, proof: WithdrawalProof) -> anyhow::Result<()>;
+	async fn withdraw_funds<C: IsmpProvider>(
+		&self,
+		counterparty: &C,
+		chain: StateMachine,
+		gas_limit: u64,
+	) -> anyhow::Result<WithdrawFundsResult>;
+}
+
+pub struct WithdrawFundsResult {
+	/// Post request emitted by the withdraw request
+	pub post: Post,
+	/// Block height at which the post request was emitted
+	pub block: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -248,4 +294,21 @@ pub async fn reconnect_with_exponential_back_off<
 		tokio::time::sleep(Duration::from_secs(initial_backoff)).await;
 	}
 	return Err(anyhow!("Failed to reconnect after {} tries", reconnects))
+}
+
+pub async fn wait_for_challenge_period<C: IsmpProvider>(
+	client: &C,
+	last_consensus_update: Duration,
+	challenge_period: Duration,
+) -> anyhow::Result<()> {
+	tokio::time::sleep(challenge_period + Duration::from_secs(60)).await;
+	loop {
+		let current_timestamp = client.query_timestamp().await?;
+		if current_timestamp.saturating_sub(last_consensus_update) <= challenge_period {
+			tokio::time::sleep(Duration::from_secs(60)).await;
+		} else {
+			break
+		}
+	}
+	Ok(())
 }

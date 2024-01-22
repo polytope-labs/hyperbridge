@@ -11,6 +11,7 @@ use ethers::{
 	types::{H160, H256},
 };
 use geth_primitives::CodecHeader;
+use ismp::host::StateMachine;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tesseract_primitives::IsmpProvider;
@@ -36,6 +37,10 @@ impl ArbConfig {
 		let client = EvmClient::new(host, self.evm_config, counterparty).await?;
 
 		Ok(client)
+	}
+
+	pub fn state_machine(&self) -> StateMachine {
+		self.evm_config.state_machine
 	}
 }
 

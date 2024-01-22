@@ -12,11 +12,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+use anyhow::Error;
 use codec::Encode;
 use debounced::Debounced;
 use ethers::types::Block;
 use futures::StreamExt;
-use ismp::messaging::ConsensusMessage;
+use ismp::messaging::{ConsensusMessage, CreateConsensusState};
 use jsonrpsee::{core::client::SubscriptionClientT, rpc_params};
 use primitive_types::H256;
 use std::time::Duration;
@@ -34,8 +35,6 @@ impl IsmpHost for PolygonPosHost {
 		C: IsmpHost + IsmpProvider + 'static,
 	{
 		let client = PolygonPosHost::clone(&self);
-		let challenge_period =
-			counterparty.query_challenge_period(self.consensus_state_id.clone()).await?;
 
 		let sub = self
 			.rpc_client
@@ -50,16 +49,6 @@ impl IsmpHost for PolygonPosHost {
 			let client = client.clone();
 			let counterparty = counterparty.clone();
 			async move {
-				let last_consensus_update = counterparty
-					.query_consensus_update_time(client.consensus_state_id.clone())
-					.await
-					.ok()?;
-				let counterparty_timestamp = counterparty.query_timestamp().await.ok()?;
-				let delay = counterparty_timestamp - last_consensus_update;
-				// If onchain timestamp has not progressed sleep
-				if delay < challenge_period {
-					tokio::time::sleep(delay + Duration::from_secs(12 * 10)).await;
-				}
 				match res {
 					Ok(header) => consensus_notification(&client, counterparty, header)
 						.await
@@ -77,6 +66,19 @@ impl IsmpHost for PolygonPosHost {
 		});
 
 		Ok(Box::pin(stream))
+	}
+
+	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+		let initial_consensus_state =
+			self.get_consensus_state(self.config.evm_config.ismp_host).await?;
+		Ok(Some(CreateConsensusState {
+			consensus_state: initial_consensus_state.encode(),
+			consensus_client_id: consensus_client::POLYGON_CONSENSUS_ID,
+			consensus_state_id: self.consensus_state_id,
+			unbonding_period: 60 * 60 * 60 * 27,
+			challenge_period: 5 * 60,
+			state_machine_commitments: vec![],
+		}))
 	}
 }
 

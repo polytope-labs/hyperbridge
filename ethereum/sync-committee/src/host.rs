@@ -1,8 +1,8 @@
 // Copyright (C) 2023 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Duration;
-
+use anyhow::Error;
+use std::collections::BTreeMap;
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -16,7 +16,8 @@ use std::time::Duration;
 // limitations under the License.
 use crate::SyncCommitteeHost;
 use codec::Encode;
-use ismp::messaging::ConsensusMessage;
+use ismp::messaging::{ConsensusMessage, CreateConsensusState};
+use primitive_types::H160;
 
 use crate::notification::consensus_notification;
 use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider, Reconnect};
@@ -106,6 +107,41 @@ impl IsmpHost for SyncCommitteeHost {
 
 		Ok(Box::pin(stream))
 	}
+
+	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+		let mut ismp_contract_addresses = BTreeMap::new();
+		let mut l2_oracle = BTreeMap::new();
+		let mut rollup_core = H160::default();
+		if let Some(host) = &self.arbitrum_client {
+			ismp_contract_addresses
+				.insert(host.config.evm_config.state_machine, host.config.evm_config.ismp_host);
+			rollup_core = host.config.rollup_core;
+		}
+
+		if let Some(host) = &self.optimism_client {
+			ismp_contract_addresses
+				.insert(host.config.evm_config.state_machine, host.config.evm_config.ismp_host);
+			l2_oracle.insert(host.config.evm_config.state_machine, host.config.l2_oracle);
+		}
+
+		if let Some(host) = &self.base_client {
+			ismp_contract_addresses
+				.insert(host.config.evm_config.state_machine, host.config.evm_config.ismp_host);
+			l2_oracle.insert(host.config.evm_config.state_machine, host.config.l2_oracle);
+		}
+		ismp_contract_addresses.insert(self.state_machine, self.config.evm_config.ismp_host);
+		let initial_consensus_state = self
+			.get_consensus_state(ismp_contract_addresses, l2_oracle, rollup_core, None)
+			.await?;
+		Ok(Some(CreateConsensusState {
+			consensus_state: initial_consensus_state.encode(),
+			consensus_client_id: consensus_client::BEACON_CONSENSUS_ID,
+			consensus_state_id: self.consensus_state_id,
+			unbonding_period: 60 * 60 * 60 * 27,
+			challenge_period: 5 * 60,
+			state_machine_commitments: vec![],
+		}))
+	}
 }
 
 #[cfg(not(feature = "finality-events"))]
@@ -119,8 +155,6 @@ impl IsmpHost for SyncCommitteeHost {
 		C: IsmpHost + IsmpProvider + 'static,
 	{
 		let client = SyncCommitteeHost::clone(&self);
-		let challenge_period =
-			counterparty.query_challenge_period(self.consensus_state_id.clone()).await?;
 
 		let interval = tokio::time::interval(self.consensus_update_frequency);
 
@@ -132,17 +166,9 @@ impl IsmpHost for SyncCommitteeHost {
 				loop {
 					// tick the interval
 					interval.tick().await;
+
 					let checkpoint =
 						client.prover.fetch_finalized_checkpoint(Some("head")).await?.finalized;
-					let last_consensus_update = counterparty
-						.query_consensus_update_time(client.consensus_state_id.clone())
-						.await?;
-					let counterparty_timestamp = counterparty.query_timestamp().await?;
-					let delay = counterparty_timestamp - last_consensus_update;
-					// If onchain timestamp has not progressed sleep
-					if delay < challenge_period {
-						tokio::time::sleep(delay + Duration::from_secs(12 * 10)).await;
-					}
 
 					let update = consensus_notification(&client, counterparty.clone(), checkpoint)
 						.await?
@@ -161,6 +187,41 @@ impl IsmpHost for SyncCommitteeHost {
 		});
 
 		Ok(Box::pin(interval_stream))
+	}
+
+	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+		let mut ismp_contract_addresses = BTreeMap::new();
+		let mut l2_oracle = BTreeMap::new();
+		let mut rollup_core = H160::default();
+		if let Some(host) = &self.arbitrum_client {
+			ismp_contract_addresses
+				.insert(host.config.evm_config.state_machine, host.config.evm_config.ismp_host);
+			rollup_core = host.config.rollup_core;
+		}
+
+		if let Some(host) = &self.optimism_client {
+			ismp_contract_addresses
+				.insert(host.config.evm_config.state_machine, host.config.evm_config.ismp_host);
+			l2_oracle.insert(host.config.evm_config.state_machine, host.config.l2_oracle);
+		}
+
+		if let Some(host) = &self.base_client {
+			ismp_contract_addresses
+				.insert(host.config.evm_config.state_machine, host.config.evm_config.ismp_host);
+			l2_oracle.insert(host.config.evm_config.state_machine, host.config.l2_oracle);
+		}
+		ismp_contract_addresses.insert(self.state_machine, self.config.evm_config.ismp_host);
+		let initial_consensus_state = self
+			.get_consensus_state(ismp_contract_addresses, l2_oracle, rollup_core, None)
+			.await?;
+		Ok(Some(CreateConsensusState {
+			consensus_state: initial_consensus_state.encode(),
+			consensus_client_id: consensus_client::BEACON_CONSENSUS_ID,
+			consensus_state_id: self.consensus_state_id,
+			unbonding_period: 60 * 60 * 60 * 27,
+			challenge_period: 5 * 60,
+			state_machine_commitments: vec![],
+		}))
 	}
 }
 

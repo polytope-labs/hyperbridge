@@ -13,8 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ismp::messaging::ConsensusMessage;
-use tesseract_primitives::{ByzantineHandler, ChallengePeriodStarted, IsmpHost};
+use ismp::{events::StateMachineUpdated, messaging::ConsensusMessage};
+use tesseract_primitives::{ByzantineHandler, IsmpHost};
 
 use crate::BnbPosHost;
 
@@ -22,7 +22,7 @@ use crate::BnbPosHost;
 impl ByzantineHandler for BnbPosHost {
 	async fn query_consensus_message(
 		&self,
-		_challenge_event: ChallengePeriodStarted,
+		_challenge_event: StateMachineUpdated,
 	) -> Result<ConsensusMessage, anyhow::Error> {
 		unimplemented!()
 	}

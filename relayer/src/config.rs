@@ -15,22 +15,28 @@
 #![allow(dead_code)]
 //! Tesseract config utilities
 
+use anyhow::anyhow;
+use pallet_ismp::primitives::HashAlgorithm;
+use std::collections::HashMap;
 // use grandpa::{GrandpaConfig, GrandpaHost};
-use ismp::HashAlgorithm;
+use ismp::host::StateMachine;
 use parachain::ParachainHost;
 use primitives::{config::RelayerConfig, IsmpProvider};
 use serde::{Deserialize, Serialize};
 use tesseract_beefy::BeefyConfig;
+use tesseract_bnb_pos::{BnbPosConfig, BnbPosHost};
 use tesseract_evm::{
 	arbitrum::client::{ArbConfig, ArbHost},
 	optimism::client::{OpConfig, OpHost},
 	EvmClient,
 };
+use tesseract_polygon_pos::{PolygonPosConfig, PolygonPosHost};
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
 	SubstrateClient, SubstrateConfig,
 };
 use tesseract_sync_committee::{SyncCommitteeConfig, SyncCommitteeHost};
+use toml::Table;
 
 type Parachain<T> = SubstrateClient<ParachainHost, T>;
 // type Grandpa<T> = SubstrateClient<GrandpaHost<T>, T>;
@@ -42,6 +48,8 @@ crate::chain! {
 	Arbitrum(ArbConfig, EvmClient<ArbHost>),
 	Optimism(OpConfig, EvmClient<OpHost>),
 	Base(OpConfig, EvmClient<OpHost>),
+	Polygon(PolygonPosConfig, EvmClient<PolygonPosHost>),
+	Bsc(BnbPosConfig, EvmClient<BnbPosHost>),
 	// Polkadot(GrandpaConfig, Grandpa<Blake2SubstrateChain>),
 	// Kusama(GrandpaConfig, Grandpa<Blake2SubstrateChain>),
 }
@@ -51,16 +59,43 @@ crate::chain! {
 pub struct HyperbridgeConfig {
 	/// Configuration options for hyperbridge.
 	pub hyperbridge: BeefyConfig,
-	/// Configuration options for Ethereum.
-	pub ethereum: SyncCommitteeConfig,
-	/// Configuration options for Arbitrum.
-	pub arbitrum: ArbConfig,
-	/// Configuration options for Optimism.
-	pub optimism: OpConfig,
-	/// Configuration options for Base.
-	pub base: OpConfig,
-	/// Configuration options for the relayer.
+	/// Other chains
+	pub chains: HashMap<StateMachine, AnyConfig>,
+	/// Relayer config
 	pub relayer: RelayerConfig,
+}
+const HYPERRIDGE: &'static str = "hyperbridge";
+const RELAYER: &'static str = "relayer";
+
+impl HyperbridgeConfig {
+	pub async fn parse_conf(config: String) -> Result<Self, anyhow::Error> {
+		let toml = tokio::fs::read_to_string(&config).await?;
+		let table = toml.parse::<Table>()?;
+		let mut chains: HashMap<StateMachine, AnyConfig> = HashMap::new();
+		if !table.contains_key(HYPERRIDGE) || !table.contains_key(RELAYER) {
+			Err(anyhow!("Missing Hyperbridge or Relayer Config, Check your toml file"))?
+		}
+
+		let hyperbridge: BeefyConfig = table
+			.get(HYPERRIDGE)
+			.cloned()
+			.expect("Hyperbridge Config is Present")
+			.try_into()
+			.expect("Failed to parse hyperbridge config");
+		let relayer: RelayerConfig = table
+			.get(RELAYER)
+			.cloned()
+			.expect("Relayer Config is Present")
+			.try_into()
+			.expect("Failed to parse relayer config");
+		for (key, val) in table {
+			if &key != HYPERRIDGE && key != RELAYER {
+				let any_conf: AnyConfig = val.try_into().unwrap();
+				chains.insert(any_conf.state_machine(), any_conf);
+			}
+		}
+		Ok(Self { hyperbridge, chains, relayer })
+	}
 }
 
 impl AnyConfig {
@@ -101,6 +136,16 @@ impl AnyConfig {
 				let host = OpHost::new(&config).await?;
 				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
 				AnyClient::Base(client)
+			},
+			AnyConfig::Polygon(config) => {
+				let host = PolygonPosHost::new(&config).await?;
+				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
+				AnyClient::Polygon(client)
+			},
+			AnyConfig::Bsc(config) => {
+				let host = BnbPosHost::new(&config).await?;
+				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
+				AnyClient::Bsc(client)
 			}, /* AnyConfig::Polkadot(config) => {
 			    *     let host = GrandpaHost::new(&config).await?;
 			    *     AnyClient::Grandpa(Grandpa::new(host, config.substrate).await?)
@@ -109,4 +154,10 @@ impl AnyConfig {
 
 		Ok(client)
 	}
+}
+
+#[tokio::test]
+async fn test_parsing() {
+	let config = HyperbridgeConfig::parse_conf("../test-config.toml".to_string()).await.unwrap();
+	dbg!(config);
 }

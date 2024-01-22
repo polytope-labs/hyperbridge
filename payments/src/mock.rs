@@ -1,35 +1,26 @@
 use anyhow::{anyhow, Error};
-use codec::Encode;
-use consensus_client::types::ConsensusState;
 use futures::stream;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
-	events::Event,
+	events::{Event, StateMachineUpdated},
+	host::StateMachine,
 	messaging::{CreateConsensusState, Message},
-	router::Get,
 };
+use pallet_relayer_fees::withdrawal::Signature;
 use primitive_types::H256;
-use std::{
-	sync::{Arc, Mutex},
-	time::Duration,
-};
+use std::time::Duration;
 use tesseract_primitives::{
 	BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, NonceProvider, Query, Reconnect,
-	Signature, StateMachineUpdated,
 };
 
 #[derive(Clone)]
 pub struct MockHost {
-	pub consensus_state: Arc<Mutex<ConsensusState>>,
-	pub latest_height: Arc<Mutex<u64>>,
+	pub state_machine: StateMachine,
 }
 
 impl MockHost {
-	pub fn new(consensus_state: ConsensusState, latest_height: u64) -> Self {
-		Self {
-			consensus_state: Arc::new(Mutex::new(consensus_state)),
-			latest_height: Arc::new(Mutex::new(latest_height)),
-		}
+	pub fn new(state_machine: StateMachine) -> Self {
+		Self { state_machine }
 	}
 }
 
@@ -75,36 +66,36 @@ impl IsmpProvider for MockHost {
 		_at: Option<u64>,
 		_id: ConsensusStateId,
 	) -> Result<Vec<u8>, anyhow::Error> {
-		Ok(self.consensus_state.lock().unwrap().encode())
+		unimplemented!()
 	}
 
 	async fn query_latest_height(&self, _id: StateMachineId) -> Result<u32, anyhow::Error> {
-		Ok(*self.latest_height.lock().unwrap() as u32)
+		unimplemented!()
 	}
 
 	async fn query_latest_messaging_height(
 		&self,
 		_id: StateMachineId,
 	) -> Result<u64, anyhow::Error> {
-		Ok(*self.latest_height.lock().unwrap() as u64)
+		unimplemented!()
 	}
 
 	async fn query_consensus_update_time(
 		&self,
 		_id: ConsensusStateId,
 	) -> Result<Duration, anyhow::Error> {
-		Ok(Duration::from_secs(0))
+		unimplemented!()
 	}
 
 	async fn query_challenge_period(
 		&self,
 		_id: ConsensusStateId,
 	) -> Result<Duration, anyhow::Error> {
-		Ok(Duration::from_secs(0))
+		unimplemented!()
 	}
 
 	async fn query_timestamp(&self) -> Result<Duration, anyhow::Error> {
-		Ok(Duration::from_secs(0))
+		unimplemented!()
 	}
 
 	async fn query_requests_proof(
@@ -144,7 +135,7 @@ impl IsmpProvider for MockHost {
 	}
 
 	fn state_machine_id(&self) -> StateMachineId {
-		todo!()
+		StateMachineId { state_id: self.state_machine, consensus_state_id: *b"POLY" }
 	}
 
 	fn block_max_gas(&self) -> u64 {

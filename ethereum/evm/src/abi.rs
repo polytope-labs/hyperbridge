@@ -56,6 +56,8 @@ pub fn to_ismp_event(event: EvmHostEvents) -> Result<Event, anyhow::Error> {
 					gas_limit: resp.gaslimit.low_u64(),
 				},
 				response: resp.response.0.into(),
+				timeout_timestamp: resp.timeout_timestamp.low_u64(),
+				gas_limit: resp.res_gaslimit.low_u64(),
 			})),
 		_ => Err(anyhow!("Unknown event")),
 	}

@@ -23,5 +23,7 @@ ismp-rpc = { git = "https://github.com/polytope-labs/hyperbridge", branch = "mai
 ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
 tokio = { version = "1.32.0" }
 debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
+pallet-relayer-fees = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+
 [features]
 testing = []

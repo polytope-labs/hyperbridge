@@ -48,6 +48,10 @@ impl PolygonPosConfig {
 
 		Ok(client)
 	}
+
+	pub fn state_machine(&self) -> StateMachine {
+		self.evm_config.state_machine
+	}
 }
 
 #[derive(Clone)]
@@ -86,7 +90,7 @@ impl PolygonPosHost {
 		})
 	}
 
-	pub async fn get_initial_consensus_state(
+	pub async fn get_consensus_state(
 		&self,
 		ismp_contract_address: H160,
 	) -> Result<ConsensusState, anyhow::Error> {

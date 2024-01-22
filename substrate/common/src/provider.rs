@@ -25,7 +25,7 @@ use crate::{
 };
 
 use crate::extrinsic::send_unsigned_extrinsic;
-use anyhow::anyhow;
+use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use debounced::Debounced;
 use futures::StreamExt;
@@ -33,14 +33,15 @@ use hex_literal::hex;
 use ismp::{
 	consensus::{ConsensusClientId, ConsensusStateId, StateMachineId},
 	events::Event,
-	router::Get,
-	LeafIndexQuery, SubstrateStateProof,
+	messaging::CreateConsensusState,
 };
 use ismp_rpc::{BlockNumberOrHash, MmrProof};
-use primitives::{BoxStream, IsmpHost, IsmpProvider, Query, StateMachineUpdated};
+use pallet_ismp::primitives::{LeafIndexQuery, SubstrateStateProof};
+use pallet_relayer_fees::withdrawal::Signature;
+use primitives::{BoxStream, IsmpHost, IsmpProvider, NonceProvider, Query, StateMachineUpdated};
 use sp_core::{
 	storage::{StorageChangeSet, StorageKey},
-	H256,
+	Pair, H256,
 };
 use std::{collections::HashMap, time::Duration};
 use subxt::{
@@ -163,15 +164,6 @@ where
 		Ok(events)
 	}
 
-	async fn query_pending_get_requests(&self, height: u64) -> Result<Vec<Get>, anyhow::Error> {
-		let response = self
-			.client
-			.rpc()
-			.request("ismp_pendingGetRequests", rpc_params![height])
-			.await?;
-		Ok(response)
-	}
-
 	fn name(&self) -> String {
 		self.state_machine.to_string()
 	}
@@ -247,6 +239,48 @@ where
 		let timestamp: u64 = codec::Decode::decode(&mut response.0.as_slice())?;
 
 		Ok(Duration::from_millis(timestamp))
+	}
+
+	fn request_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
+		self.req_commitments_key(commitment)
+	}
+
+	fn request_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
+		self.req_receipts_key(commitment)
+	}
+
+	fn response_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
+		self.res_commitments_key(commitment)
+	}
+
+	fn response_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
+		self.res_receipt_key(commitment)
+	}
+
+	fn address(&self) -> Vec<u8> {
+		self.address.clone()
+	}
+
+	fn sign(&self, msg: &[u8]) -> primitives::Signature {
+		let signature = self.signer.sign(msg).0.to_vec();
+		Signature::Sr25519 { public_key: self.address.clone(), signature }
+	}
+
+	async fn initialize_nonce(&self) -> Result<NonceProvider, anyhow::Error> {
+		let nonce = self.client.tx().account_nonce(&self.account()).await?;
+		Ok(NonceProvider::new(nonce))
+	}
+
+	fn set_nonce_provider(&mut self, nonce_provider: NonceProvider) {
+		self.nonce_provider = Some(nonce_provider);
+	}
+
+	async fn set_initial_consensus_state(
+		&self,
+		message: CreateConsensusState,
+	) -> Result<(), Error> {
+		self.create_consensus_state(message).await?;
+		Ok(())
 	}
 }
 

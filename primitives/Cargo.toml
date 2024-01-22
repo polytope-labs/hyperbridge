@@ -16,4 +16,5 @@ serde = { version = "1.0.164", features = ["derive"] }
 primitive-types = "0.12.1"
 
 ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+pallet-relayer-fees = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
 parity-scale-codec = "3.2.2"

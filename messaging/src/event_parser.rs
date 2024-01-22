@@ -1,9 +1,9 @@
 use ismp::{
 	consensus::StateMachineHeight,
-	events::{ChallengePeriodStarted, Event as IsmpEvent, StateMachineUpdated},
+	events::{Event as IsmpEvent, StateMachineUpdated},
 	host::StateMachine,
 	messaging::{Message, Proof, RequestMessage, ResponseMessage},
-	router::{Request, Response},
+	router::{Request, RequestResponse, Response},
 	util::{hash_request, hash_response, Keccak256},
 };
 use sp_core::{keccak_256, H256};
@@ -25,8 +25,6 @@ pub enum Event {
 	/// Emitted when a state machine is successfully updated to a new height after the challenge
 	/// period has elapsed
 	StateMachineUpdated(StateMachineUpdated),
-	/// Emitted when a challenge period has begun for a consensus client
-	ChallengePeriodStarted(ChallengePeriodStarted),
 	/// An event that is emitted when a post request is dispatched
 	PostRequest(Meta),
 	/// An event that is emitted when a post response is dispatched
@@ -39,7 +37,6 @@ impl From<IsmpEvent> for Event {
 	fn from(value: IsmpEvent) -> Self {
 		match value {
 			IsmpEvent::StateMachineUpdated(e) => Event::StateMachineUpdated(e),
-			IsmpEvent::ChallengePeriodStarted(e) => Event::ChallengePeriodStarted(e),
 			IsmpEvent::PostRequest(e) =>
 				Event::PostRequest(Meta { nonce: e.nonce, dest: e.dest, source: e.source }),
 			IsmpEvent::PostResponse(e) => Event::PostResponse(Meta {
@@ -63,7 +60,7 @@ pub async fn parse_ismp_events<A, B>(
 	sink: &B,
 	events: Vec<IsmpEvent>,
 	state_machine_height: StateMachineHeight,
-) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error>
+) -> Result<Vec<Message>, anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider,
 	B: IsmpHost + IsmpProvider,
@@ -107,7 +104,6 @@ where
 		}
 	}
 	let mut messages = vec![];
-	let mut get_responses = vec![];
 
 	if !post_request_queries.is_empty() {
 		let chunks = chunk_size(sink.state_machine_id().state_id);
@@ -120,31 +116,10 @@ where
 			let msg = RequestMessage {
 				requests: post_requests.to_vec(),
 				proof: Proof { height: state_machine_height, proof: requests_proof },
+				signer: sink.address(),
 			};
 			messages.push(Message::Request(msg));
 		}
-	}
-
-	// Let's handle get requests
-	let sink_latest_height_on_source =
-		source.query_latest_height(sink.state_machine_id()).await? as u64;
-	let get_requests = source.query_pending_get_requests(sink_latest_height_on_source).await?;
-	for get_request in get_requests {
-		if get_request.timeout_timestamp != 0 &&
-			get_request.timeout_timestamp < counterparty_timestamp.as_secs()
-		{
-			continue
-		}
-		let height = get_request.height;
-		let state_proof = sink.query_state_proof(height, get_request.keys.clone()).await?;
-		let msg = ResponseMessage::Get {
-			requests: vec![Request::Get(get_request)],
-			proof: Proof {
-				height: StateMachineHeight { id: sink.state_machine_id(), height },
-				proof: state_proof,
-			},
-		};
-		get_responses.push(Message::Response(msg))
 	}
 
 	if !response_queries.is_empty() {
@@ -155,15 +130,16 @@ where
 			let responses_proof = source
 				.query_responses_proof(state_machine_height.height, queries.to_vec())
 				.await?;
-			let msg = ResponseMessage::Post {
-				responses: post_responses.to_vec(),
+			let msg = ResponseMessage {
+				datagram: RequestResponse::Response(post_responses.to_vec()),
 				proof: Proof { height: state_machine_height, proof: responses_proof },
+				signer: sink.address(),
 			};
 			messages.push(Message::Response(msg));
 		}
 	}
 
-	Ok((messages, get_responses))
+	Ok(messages)
 }
 
 /// Return true for Request and Response events designated for the counterparty

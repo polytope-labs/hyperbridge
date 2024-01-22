@@ -30,6 +30,17 @@ macro_rules! chain {
 			)*
 		}
 
+		impl AnyConfig {
+			pub fn state_machine(&self) -> ismp::host::StateMachine {
+				match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(config) => config.state_machine(),
+					)*
+				}
+			}
+		}
+
 		#[derive(Clone)]
 		pub enum AnyClient {
 			$(
@@ -54,6 +65,15 @@ macro_rules! chain {
 					)*
 				}
             }
+
+			async fn get_initial_consensus_state(&self) -> Result<Option<ismp::messaging::CreateConsensusState>, anyhow::Error> {
+				match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.get_initial_consensus_state().await,
+					)*
+				}
+			}
         }
 
         #[async_trait::async_trait]
@@ -198,15 +218,6 @@ macro_rules! chain {
 				}
             }
 
-            async fn query_pending_get_requests(&self, height: u64) -> Result<Vec<ismp::router::Get>, anyhow::Error> {
-                match self {
-					$(
-						$(#[$($meta)*])*
-						Self::$name(chain) => chain.query_pending_get_requests(height).await,
-					)*
-				}
-            }
-
 
             fn name(&self) -> String {
                 match self {
@@ -244,7 +255,7 @@ macro_rules! chain {
 				}
             }
 
-            async fn estimate_gas(&self, msg: Vec<ismp::messaging::Message>) -> Result<u64, anyhow::Error> {
+			async fn estimate_gas(&self, msg: Vec<ismp::messaging::Message>) -> Result<u64, anyhow::Error> {
                 match self {
 					$(
 						$(#[$($meta)*])*
@@ -252,6 +263,26 @@ macro_rules! chain {
 					)*
 				}
             }
+
+            async fn initialize_nonce(&self) -> Result<primitives::NonceProvider, anyhow::Error> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.initialize_nonce().await,
+					)*
+				}
+            }
+
+			 fn set_nonce_provider(&mut self, nonce_provider: primitives::NonceProvider) {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.set_nonce_provider(nonce_provider),
+					)*
+				}
+            }
+
+
 
             async fn state_machine_update_notification(
                 &self,
@@ -273,13 +304,76 @@ macro_rules! chain {
 					)*
 				}
             }
+
+            fn request_commitment_full_key(&self, commitment: sp_core::H256) -> Vec<u8> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.request_commitment_full_key(commitment),
+					)*
+				}
+            }
+
+	        fn request_receipt_full_key(&self, commitment: sp_core::H256) -> Vec<u8> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.request_receipt_full_key(commitment),
+					)*
+				}
+            }
+
+	        fn response_commitment_full_key(&self, commitment: sp_core::H256) -> Vec<u8> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.response_commitment_full_key(commitment),
+					)*
+				}
+            }
+
+	        fn response_receipt_full_key(&self, commitment: sp_core::H256) -> Vec<u8> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.response_receipt_full_key(commitment),
+					)*
+				}
+            }
+
+	        fn address(&self) -> Vec<u8> {
+				match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.address(),
+					)*
+				}
+			}
+
+			fn sign(&self, msg: &[u8]) -> primitives::Signature {
+				match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.sign(msg),
+					)*
+				}
+			}
+
+			async fn set_initial_consensus_state(&self, msg: ismp::messaging::CreateConsensusState) -> Result<(), anyhow::Error> {
+				match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.set_initial_consensus_state(msg).await,
+					)*
+				}
+			}
         }
 
         #[async_trait::async_trait]
         impl primitives::ByzantineHandler for AnyClient {
             async fn query_consensus_message(
                 &self,
-                event: primitives::ChallengePeriodStarted,
+                event: primitives::StateMachineUpdated,
             ) -> Result<ismp::messaging::ConsensusMessage, anyhow::Error> {
                 match self {
 					$(

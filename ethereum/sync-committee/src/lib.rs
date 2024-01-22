@@ -57,6 +57,10 @@ impl SyncCommitteeConfig {
 
 		Ok(client)
 	}
+
+	pub fn state_machine(&self) -> StateMachine {
+		self.evm_config.state_machine
+	}
 }
 
 #[derive(Clone)]
@@ -113,7 +117,17 @@ impl SyncCommitteeHost {
 		self.base_client = Some(host)
 	}
 
-	pub async fn get_initial_consensus_state(
+	pub fn set_l2_hosts(&mut self, hosts: Vec<L2Host>) {
+		for host in hosts {
+			match host {
+				L2Host::Arb(host) => self.set_arb_host(host),
+				L2Host::Op(host) => self.set_op_host(host),
+				L2Host::Base(host) => self.set_base_host(host),
+			}
+		}
+	}
+
+	pub async fn get_consensus_state(
 		&self,
 		ismp_contract_addresses: BTreeMap<StateMachine, H160>,
 		l2_oracle: BTreeMap<StateMachine, H160>,
@@ -142,4 +156,11 @@ impl SyncCommitteeHost {
 
 		Ok(consensus_state)
 	}
+}
+
+/// Hosts for the various l2s
+pub enum L2Host {
+	Arb(ArbHost),
+	Op(OpHost),
+	Base(OpHost),
 }

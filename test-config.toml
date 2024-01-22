@@ -1,0 +1,50 @@
+# Required
+[hyperbridge]
+state_machine = { Kusama = 2000 }
+hashing = "Keccak"
+consensus_state_id = "PARA" # empty on other chains
+relay_rpc_ws = "ws://127.0.0.1:9944"
+chain_rpc_ws = "ws://127.0.0.1:9933"
+beefy_activation_block = 3804028
+consensus_update_frequency = 390 # seconds,
+para_ids = [4296]
+epoch_length = 600
+signer = "e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a"
+
+[ethereum]
+type = "ethereum"
+state_machine = { Ethereum = "ExecutionLayer" }
+beacon_http_url = "https://127.0.0.1:443"
+execution_ws = "wss://127.0.0.1:7000"
+consensus_state_id = "ET14"
+ismp_host = "0x5b5f63c8f3985cafe1ce53e6374f42ab60de5a6b"
+handler = "0x577efa5c6184e10d54fda5eb195f7eca30644082"
+signer = "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
+latest_height = "LastMessaging"
+consensus_update_frequency = 30 # seconds,
+chain_id = 11155111
+gas_limit = 20000000
+
+
+[base]
+type = "base"
+state_machine = { Ethereum = "Base" }
+beacon_execution_ws = "wss://127.0.0.1:8565"
+execution_ws = "wss://127.0.0.1:8000"
+l2_oracle = "0x84457ca9D0163FbC4bbfe4Dfbb20ba46e48DF254"
+message_parser = "0x4200000000000000000000000000000000000016"
+consensus_state_id = "ET14"
+ismp_host = "0x87825f839d95c6021c0e821917F93aDB299eD6F8"
+handler = "0x3cfb5eE8D00c2620e0A63FD25deAA2d7a671F449"
+signer = "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
+latest_height = "LastMessaging"
+chain_id = 84532
+gas_limit = 10000000
+
+
+# Required
+[relayer]
+consensus = false
+messaging = true
+router = { Kusama = 4296 }
+module_filter = []

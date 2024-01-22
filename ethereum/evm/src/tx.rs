@@ -1,8 +1,7 @@
 use crate::{
 	abi::{
-		GetRequest, GetResponseMessage, GetTimeoutMessage, Handler as IsmpHandler, PostRequest,
-		PostRequestLeaf, PostRequestMessage, PostResponse, PostResponseLeaf, PostResponseMessage,
-		PostTimeoutMessage, Proof,
+		GetRequest, GetResponseMessage, GetTimeoutMessage, Handler as IsmpHandler, PostRequestLeaf,
+		PostRequestMessage, PostResponseLeaf, PostResponseMessage, Proof,
 	},
 	EvmClient,
 };
@@ -12,13 +11,15 @@ use ethers::{prelude::Ws, providers::PendingTransaction};
 use ismp::{
 	host::StateMachine,
 	messaging::{Message, ResponseMessage, TimeoutMessage},
-	router::{Request, Response},
-	SubstrateStateProof,
+	router::{Request, RequestResponse, Response},
 };
 use ismp_rpc::MmrProof;
-use ismp_solidity_abi::shared_types::StateMachineHeight;
+use ismp_solidity_abi::{
+	handler::{PostRequestTimeoutMessage, PostResponseTimeoutMessage},
+	shared_types::StateMachineHeight,
+};
 use merkle_mountain_range::mmr_position_to_k_index;
-use pallet_ismp::NodesUtils;
+use pallet_ismp::{primitives::SubstrateStateProof, NodesUtils};
 use sp_core::H256;
 use tesseract_primitives::IsmpHost;
 
@@ -71,16 +72,7 @@ pub async fn submit_messages<I: IsmpHost>(
 					.into_iter()
 					.zip(k_and_leaf_indices)
 					.map(|(post, (k_index, leaf_index))| PostRequestLeaf {
-						request: PostRequest {
-							source: post.source.to_string().as_bytes().to_vec().into(),
-							dest: post.dest.to_string().as_bytes().to_vec().into(),
-							nonce: post.nonce,
-							from: post.from.into(),
-							to: post.to.into(),
-							timeout_timestamp: post.timeout_timestamp,
-							body: post.data.into(),
-							gaslimit: post.gas_limit.into(),
-						},
+						request: post.into(),
 						index: leaf_index.into(),
 						k_index: k_index.into(),
 					})
@@ -120,7 +112,7 @@ pub async fn submit_messages<I: IsmpHost>(
 					},
 				}
 			},
-			Message::Response(ResponseMessage::Post { responses, proof }) => {
+			Message::Response(ResponseMessage { datagram, proof, .. }) => {
 				let membership_proof = match MmrProof::<H256>::decode(&mut proof.proof.as_slice()) {
 					Ok(proof) => proof,
 					_ => {
@@ -138,125 +130,131 @@ pub async fn submit_messages<I: IsmpHost>(
 					})
 					.collect::<Vec<_>>();
 
-				let mut leaves = responses
-					.into_iter()
-					.zip(k_and_leaf_indices)
-					.filter_map(|(res, (k_index, leaf_index))| match res {
-						Response::Post(res) => Some(PostResponseLeaf {
-							response: PostResponse {
-								request: PostRequest {
-									source: res.post.source.to_string().as_bytes().to_vec().into(),
-									dest: res.post.dest.to_string().as_bytes().to_vec().into(),
-									nonce: res.post.nonce,
-									from: res.post.from.into(),
-									to: res.post.to.into(),
-									timeout_timestamp: res.post.timeout_timestamp,
-									body: res.post.data.into(),
-									gaslimit: res.post.gas_limit.into(),
-								},
-								response: res.response.into(),
-							},
-							index: leaf_index.into(),
-							k_index: k_index.into(),
-						}),
-						_ => None,
-					})
-					.collect::<Vec<_>>();
-				leaves.sort_by_key(|leaf| leaf.index);
+				match datagram {
+					RequestResponse::Response(responses) => {
+						let mut leaves = responses
+							.into_iter()
+							.zip(k_and_leaf_indices)
+							.filter_map(|(res, (k_index, leaf_index))| match res {
+								Response::Post(res) => Some(PostResponseLeaf {
+									response: res.into(),
+									index: leaf_index.into(),
+									k_index: k_index.into(),
+								}),
+								_ => None,
+							})
+							.collect::<Vec<_>>();
+						leaves.sort_by_key(|leaf| leaf.index);
 
-				let message = PostResponseMessage {
-					proof: Proof {
-						height: StateMachineHeight {
-							state_machine_id: {
-								match proof.height.id.state_id {
-									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
-										id.into(),
-									_ => {
-										log::error!("Expected polkadot or kusama state machines");
-										continue
+						let message =
+							PostResponseMessage {
+								proof: Proof {
+									height: StateMachineHeight {
+										state_machine_id: {
+											match proof.height.id.state_id {
+												StateMachine::Polkadot(id) |
+												StateMachine::Kusama(id) => id.into(),
+												_ => {
+													log::error!("Expected polkadot or kusama state machines");
+													continue
+												},
+											}
+										},
+										height: proof.height.height.into(),
 									},
-								}
+									multiproof: membership_proof
+										.items
+										.into_iter()
+										.map(|node| node.0)
+										.collect(),
+									leaf_count: membership_proof.leaf_count.into(),
+								},
+								responses: leaves,
+							};
+						match contract
+							.handle_post_responses(ismp_host, message)
+							.nonce(nonce)
+							.gas(client.gas_limit)
+							.send()
+							.await
+						{
+							Ok(progress) => wait_for_success(progress, None).await,
+							Err(err) => {
+								log::error!("Error broadcasting transaction for  {err:?}");
 							},
-							height: proof.height.height.into(),
-						},
-						multiproof: membership_proof.items.into_iter().map(|node| node.0).collect(),
-						leaf_count: membership_proof.leaf_count.into(),
+						}
 					},
-					responses: leaves,
-				};
-				match contract
-					.handle_post_responses(ismp_host, message)
-					.nonce(nonce)
-					.gas(client.gas_limit)
-					.send()
-					.await
-				{
-					Ok(progress) => wait_for_success(progress, None).await,
-					Err(err) => {
-						log::error!("Error broadcasting transaction for  {err:?}");
-					},
-				}
-			},
-			Message::Response(ResponseMessage::Get { requests, proof }) => {
-				let requests = match requests
-					.into_iter()
-					.map(|req| {
-						let get = req.get_request().map_err(|_| anyhow!("Expected get request"))?;
-						Ok(GetRequest {
-							source: get.source.to_string().as_bytes().to_vec().into(),
-							dest: get.dest.to_string().as_bytes().to_vec().into(),
-							nonce: get.nonce,
-							from: get.from.into(),
-							keys: get.keys.into_iter().map(|key| key.into()).collect(),
-							timeout_timestamp: get.timeout_timestamp,
-							gaslimit: get.gas_limit.into(),
-							height: get.height.into(),
-						})
-					})
-					.collect::<Result<Vec<_>, Error>>()
-				{
-					Ok(reqs) => reqs,
-					Err(err) => {
-						log::error!("Failed to error {err:?}");
-						continue
-					},
-				};
+					RequestResponse::Request(requests) => {
+						let requests = match requests
+							.into_iter()
+							.map(|req| {
+								let get = req
+									.get_request()
+									.map_err(|_| anyhow!("Expected get request"))?;
+								Ok(GetRequest {
+									source: get.source.to_string().as_bytes().to_vec().into(),
+									dest: get.dest.to_string().as_bytes().to_vec().into(),
+									nonce: get.nonce,
+									from: get.from.into(),
+									keys: get.keys.into_iter().map(|key| key.into()).collect(),
+									timeout_timestamp: get.timeout_timestamp,
+									gaslimit: get.gas_limit.into(),
+									height: get.height.into(),
+								})
+							})
+							.collect::<Result<Vec<_>, Error>>()
+						{
+							Ok(reqs) => reqs,
+							Err(err) => {
+								log::error!("Failed to error {err:?}");
+								continue
+							},
+						};
 
-				let state_proof: SubstrateStateProof =
-					match codec::Decode::decode(&mut proof.proof.as_slice()) {
-						Ok(proof) => proof,
-						_ => {
-							log::error!("Failed to decode membership proof");
-							continue
-						},
-					};
-				let message = GetResponseMessage {
-					proof: state_proof.storage_proof.into_iter().map(|key| key.into()).collect(),
-					height: StateMachineHeight {
-						state_machine_id: {
-							match proof.height.id.state_id {
-								StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
+						let state_proof: SubstrateStateProof =
+							match codec::Decode::decode(&mut proof.proof.as_slice()) {
+								Ok(proof) => proof,
 								_ => {
-									log::error!("Expected polkadot or kusama state machines");
+									log::error!("Failed to decode membership proof");
 									continue
 								},
-							}
-						},
-						height: proof.height.height.into(),
-					},
-					requests,
-				};
+							};
+						let message = GetResponseMessage {
+							proof: state_proof
+								.storage_proof
+								.into_iter()
+								.map(|key| key.into())
+								.collect(),
+							height: StateMachineHeight {
+								state_machine_id: {
+									match proof.height.id.state_id {
+										StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
+											id.into(),
+										_ => {
+											log::error!(
+												"Expected polkadot or kusama state machines"
+											);
+											continue
+										},
+									}
+								},
+								height: proof.height.height.into(),
+							},
+							requests,
+						};
 
-				match contract
-					.handle_get_responses(ismp_host, message)
-					.nonce(nonce)
-					.gas(client.gas_limit)
-					.send()
-					.await
-				{
-					Ok(progress) => wait_for_success(progress, None).await,
-					Err(err) => {
-						log::error!("Error broadcasting transaction for  {err:?}");
+						match contract
+							.handle_get_responses(ismp_host, message)
+							.nonce(nonce)
+							.gas(client.gas_limit)
+							.send()
+							.await
+						{
+							Ok(progress) => wait_for_success(progress, None).await,
+							Err(err) => {
+								log::error!("Error broadcasting transaction for  {err:?}");
+							},
+						}
 					},
 				}
 			},
@@ -264,16 +262,7 @@ pub async fn submit_messages<I: IsmpHost>(
 				let post_requests = requests
 					.into_iter()
 					.filter_map(|req| match req {
-						Request::Post(post) => Some(PostRequest {
-							source: post.source.to_string().as_bytes().to_vec().into(),
-							dest: post.dest.to_string().as_bytes().to_vec().into(),
-							nonce: post.nonce,
-							from: post.from.into(),
-							to: post.to.into(),
-							timeout_timestamp: post.timeout_timestamp,
-							body: post.data.into(),
-							gaslimit: post.gas_limit.into(),
-						}),
+						Request::Post(post) => Some(post.into()),
 						Request::Get(_) => None,
 					})
 					.collect();
@@ -286,7 +275,7 @@ pub async fn submit_messages<I: IsmpHost>(
 							continue
 						},
 					};
-				let message = PostTimeoutMessage {
+				let message = PostRequestTimeoutMessage {
 					timeouts: post_requests,
 					height: StateMachineHeight {
 						state_machine_id: {
@@ -304,7 +293,49 @@ pub async fn submit_messages<I: IsmpHost>(
 				};
 
 				match contract
-					.handle_post_timeouts(ismp_host, message)
+					.handle_post_request_timeouts(ismp_host, message)
+					.nonce(nonce)
+					.gas(client.gas_limit)
+					.send()
+					.await
+				{
+					Ok(progress) => wait_for_success(progress, None).await,
+					Err(err) => {
+						log::error!("Error broadcasting transaction for  {err:?}");
+					},
+				}
+			},
+
+			Message::Timeout(TimeoutMessage::PostResponse { timeout_proof, responses }) => {
+				let post_responses = responses.into_iter().map(|res| res.into()).collect();
+
+				let state_proof: SubstrateStateProof =
+					match codec::Decode::decode(&mut timeout_proof.proof.as_slice()) {
+						Ok(proof) => proof,
+						_ => {
+							log::error!("Failed to decode membership proof");
+							continue
+						},
+					};
+				let message = PostResponseTimeoutMessage {
+					timeouts: post_responses,
+					height: StateMachineHeight {
+						state_machine_id: {
+							match timeout_proof.height.id.state_id {
+								StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
+								_ => {
+									log::error!("Expected polkadot or kusama state machines");
+									continue
+								},
+							}
+						},
+						height: timeout_proof.height.height.into(),
+					},
+					proof: state_proof.storage_proof.into_iter().map(|key| key.into()).collect(),
+				};
+
+				match contract
+					.handle_post_response_timeouts(ismp_host, message)
 					.nonce(nonce)
 					.gas(client.gas_limit)
 					.send()
@@ -337,7 +368,7 @@ pub async fn submit_messages<I: IsmpHost>(
 				let message = GetTimeoutMessage { timeouts: get_requests };
 
 				match contract
-					.handle_get_timeouts(ismp_host, message)
+					.handle_get_request_timeouts(ismp_host, message)
 					.nonce(nonce)
 					.gas(client.gas_limit)
 					.send()

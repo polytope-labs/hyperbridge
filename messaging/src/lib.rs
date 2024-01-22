@@ -17,16 +17,17 @@
 
 mod event_parser;
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::event_parser::{filter_events, parse_ismp_events, Event};
 use anyhow::anyhow;
 use futures::StreamExt;
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
 use tesseract_primitives::{
-	config::RelayerConfig, reconnect_with_exponential_back_off, BoxStream, IsmpHost, IsmpProvider,
-	StateMachineUpdated,
+	config::RelayerConfig, reconnect_with_exponential_back_off, wait_for_challenge_period,
+	BoxStream, IsmpHost, IsmpProvider, StateMachineUpdated,
 };
+use transaction_payment::TransactionPayment;
 
 // Default wait period in seconds
 // This creates a enough time to compensate for cases where the consensus task restarted, increasing
@@ -37,6 +38,7 @@ pub async fn relay<A, B>(
 	chain_a: A,
 	chain_b: B,
 	config: Option<RelayerConfig>,
+	tx_payment: Arc<TransactionPayment>,
 	// Optional values to be used to determine acceptable wait time between state machine
 	// updates
 	wait_time_a: Option<Duration>,
@@ -50,8 +52,21 @@ where
 	let task_a = tokio::spawn({
 		let mut chain_a = chain_a.clone();
 		let mut chain_b = chain_b.clone();
+		let tx_payment = tx_payment.clone();
 		let router_id = router_id.clone();
-		let mut previous_height = chain_b.initial_height();
+		let mut previous_height = {
+			if let Some(previous_height) = tx_payment
+				.retreive_latest_height(
+					chain_b.state_machine_id().state_id,
+					chain_a.state_machine_id().state_id,
+				)
+				.await?
+			{
+				previous_height
+			} else {
+				chain_b.initial_height()
+			}
+		};
 		async move {
 			let mut state_machine_update_stream = chain_a
 				.state_machine_update_notification(chain_b.state_machine_id())
@@ -60,6 +75,7 @@ where
 			handle_notification(
 				&mut chain_a,
 				&mut chain_b,
+				tx_payment,
 				&mut state_machine_update_stream,
 				router_id,
 				&mut previous_height,
@@ -72,8 +88,21 @@ where
 	let task_b = tokio::spawn({
 		let mut chain_a = chain_a.clone();
 		let mut chain_b = chain_b.clone();
+		let tx_payment = tx_payment.clone();
 		let router_id = router_id.clone();
-		let mut previous_height = chain_a.initial_height();
+		let mut previous_height = {
+			if let Some(previous_height) = tx_payment
+				.retreive_latest_height(
+					chain_a.state_machine_id().state_id,
+					chain_b.state_machine_id().state_id,
+				)
+				.await?
+			{
+				previous_height
+			} else {
+				chain_b.initial_height()
+			}
+		};
 		async move {
 			let mut state_machine_update_stream = chain_b
 				.state_machine_update_notification(chain_a.state_machine_id())
@@ -82,6 +111,7 @@ where
 			handle_notification(
 				&mut chain_b,
 				&mut chain_a,
+				tx_payment,
 				&mut state_machine_update_stream,
 				router_id,
 				&mut previous_height,
@@ -97,6 +127,7 @@ where
 async fn handle_notification<A, B>(
 	chain_a: &mut A,
 	chain_b: &mut B,
+	tx_payment: Arc<TransactionPayment>,
 	state_machine_update_stream: &mut BoxStream<StateMachineUpdated>,
 	router_id: Option<StateMachine>,
 	previous_height: &mut u64,
@@ -122,8 +153,15 @@ async fn handle_notification<A, B>(
 		let res = match item {
 			None => Err(anyhow::anyhow!("Stream returned None")),
 			Some(Ok(state_machine_update)) =>
-				handle_update(chain_a, chain_b, state_machine_update, previous_height, router_id)
-					.await,
+				handle_update(
+					chain_a,
+					chain_b,
+					&tx_payment,
+					state_machine_update,
+					previous_height,
+					router_id,
+				)
+				.await,
 			Some(Err(e)) => Err(e),
 		};
 		if let Err(e) = res {
@@ -158,6 +196,7 @@ async fn handle_notification<A, B>(
 async fn handle_update<A, B>(
 	chain_a: &A,
 	chain_b: &B,
+	tx_payment: &Arc<TransactionPayment>,
 	state_machine_update: StateMachineUpdated,
 	previous_height: &mut u64,
 	router_id: Option<StateMachine>,
@@ -191,32 +230,37 @@ where
 		id: state_machine_update.state_machine_id,
 		height: state_machine_update.latest_height,
 	};
-	let (messages, get_responses) =
-		parse_ismp_events(chain_b, chain_a, events, state_machine_height).await?;
+	let messages = parse_ismp_events(chain_b, chain_a, events, state_machine_height).await?;
 
 	if !messages.is_empty() {
-		// Sleep for 30 seconds before submitting messages
-		tokio::time::sleep(Duration::from_secs(12)).await;
 		log::info!(
 			target: "tesseract",
 			"🛰️Submitting ismp messages from {} to {}",
 			chain_b.name(), chain_a.name()
 		);
-		if let Err(err) = chain_a.submit(messages).await {
+		let last_consensus_update = chain_a
+			.query_consensus_update_time(chain_b.state_machine_id().consensus_state_id)
+			.await?;
+		let challenge_period = chain_a
+			.query_challenge_period(chain_b.state_machine_id().consensus_state_id)
+			.await?;
+		// Wait for the challenge period for the consensus update to elapse before submitting
+		// messages
+		wait_for_challenge_period(chain_a, last_consensus_update, challenge_period).await?;
+		if let Err(err) = chain_a.submit(messages.clone()).await {
 			log::error!("Failed to submit transaction to {}: {err:?}", chain_a.name())
+		} else {
+			tx_payment.store_messages(messages).await?;
 		}
 	}
 
-	if !get_responses.is_empty() {
-		// Sleep for 30 seconds before submitting messages
-		tokio::time::sleep(Duration::from_secs(12)).await;
-		log::info!(
-			target: "tesseract",
-			"🛰️Submitting GET response messages to {}",
-			chain_b.name()
-		);
-		let _ = chain_b.submit(get_responses).await;
-	}
 	*previous_height = state_machine_update.latest_height;
+	tx_payment
+		.store_latest_height(
+			chain_b.state_machine_id().state_id,
+			chain_a.state_machine_id().state_id,
+			state_machine_update.latest_height,
+		)
+		.await?;
 	Ok(())
 }

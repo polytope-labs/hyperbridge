@@ -12,8 +12,11 @@ consensus = { package = "tesseract-consensus", path = "../consensus" }
 primitives = { package = "tesseract-primitives", path = "../primitives" }
 messaging = { package = "tesseract-messaging", path = "../messaging" }
 tesseract-evm = { path = "../ethereum/evm" }
+tesseract-polygon-pos = { path = "../ethereum/polygon-pos" }
+tesseract-bnb-pos = { path = "../ethereum/bnb-pos" }
 tesseract-sync-committee = { path = "../ethereum/sync-committee" }
 tesseract-beefy = { path = "../substrate/beefy/host" }
+transaction-payment = { path = "../payments" }
 
 # polytope labs
 ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
@@ -27,12 +30,12 @@ anyhow = "1.0.71"
 futures = "0.3.28"
 serde = { version = "1.0.164", features = ["derive"] }
 toml = "0.7.4"
-async-trait = "0.1.68"
+async-trait = "0.1.77"
 clap = { version = "4.3.5", features = ["derive"] }
 tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
 ethers = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
-
+sp-core = { workspace = true }
 
 [features]
 sepolia = ["tesseract-sync-committee/sepolia", "tesseract-evm/sepolia"]

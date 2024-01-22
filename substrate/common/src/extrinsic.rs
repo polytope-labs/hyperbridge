@@ -116,7 +116,7 @@ where
 pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: TxPayload>(
 	client: &OnlineClient<T>,
 	payload: Tx,
-) -> Result<(), anyhow::Error>
+) -> Result<Option<T::Hash>, anyhow::Error>
 where
 	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
@@ -141,12 +141,12 @@ where
 				Err(anyhow!("{:?}", e))?
 			}
 			log::error!("Error waiting for extrinsic in_block {err:?}");
-			return Ok(())
+			return Ok(None)
 		},
 	};
 
-	match extrinsic.wait_for_success().await {
-		Ok(p) => p,
+	let hash = match extrinsic.wait_for_success().await {
+		Ok(p) => p.block_hash(),
 		Err(err) => {
 			println!("\n\n\n{err:#?}\n\n\n");
 
@@ -154,10 +154,10 @@ where
 				Err(anyhow!("{:?}", e))?
 			}
 			log::error!("Error executing extrinsic: {err:?}");
-			return Ok(())
+			return Ok(None)
 		},
 	};
-	Ok(())
+	Ok(Some(hash))
 }
 
 /// Send a transaction

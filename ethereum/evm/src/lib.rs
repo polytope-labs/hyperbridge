@@ -1,6 +1,9 @@
 use crate::{
 	abi::{EvmHost, PingModule},
-	consts::{REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT},
+	consts::{
+		REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
+		RESPONSE_RECEIPTS_SLOT,
+	},
 };
 use abi::to_ismp_event;
 use ethabi::ethereum_types::{H256, U256};
@@ -10,6 +13,7 @@ use ethers::{
 	providers::{Middleware, Provider, Ws},
 	signers::Signer,
 };
+use frame_support::crypto::ecdsa::ECDSAExt;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::Event,
@@ -84,8 +88,10 @@ pub struct EvmClient<I> {
 	pub client: Arc<Provider<Ws>>,
 	/// Transaction signer
 	pub signer: Arc<SignerMiddleware<Provider<Ws>, Wallet<SigningKey>>>,
+	/// Public Key Address
+	pub address: Vec<u8>,
 	/// Consensus state Id
-	consensus_state_id: ConsensusStateId,
+	pub consensus_state_id: ConsensusStateId,
 	/// State machine Identifier for this client.
 	state_machine: StateMachine,
 	/// Latest state machine height.
@@ -117,6 +123,7 @@ where
 		let mut config_clone = config.clone();
 		let bytes = from_hex(config.signer.as_str())?;
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
+		let address = signer.public().to_eth_address().expect("Infallible").to_vec();
 		let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
 			.with_chain_id(config.chain_id);
 		let provider =
@@ -150,6 +157,7 @@ where
 			host,
 			client,
 			signer,
+			address,
 			consensus_state_id,
 			state_machine: config.state_machine,
 			initial_height: latest_height,
@@ -221,8 +229,9 @@ where
 		derive_map_key(key.0.to_vec(), REQUEST_RECEIPTS_SLOT)
 	}
 
-	pub fn set_nonce_provider(&mut self, nonce_provider: NonceProvider) {
-		self.nonce_provider = Some(nonce_provider);
+	pub fn response_receipt_key(&self, key: H256) -> H256 {
+		// commitment is mapped to a  bool
+		derive_map_key(key.0.to_vec(), RESPONSE_RECEIPTS_SLOT)
 	}
 
 	pub async fn get_nonce(&self) -> Result<u64, anyhow::Error> {
@@ -230,17 +239,6 @@ where
 			return Ok(nonce_provider.get_nonce().await)
 		}
 		Err(anyhow::anyhow!("Nonce provider not set on client"))
-	}
-
-	pub async fn initialize_nonce(&self) -> Result<NonceProvider, anyhow::Error> {
-		let nonce = self
-			.client
-			.clone()
-			.nonce_manager(self.signer.address())
-			.initialize_nonce(None)
-			.await?
-			.as_u64();
-		Ok(NonceProvider::new(nonce))
 	}
 }
 

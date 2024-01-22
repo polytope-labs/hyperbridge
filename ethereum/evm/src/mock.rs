@@ -6,7 +6,7 @@ use ismp::{
 	},
 	error::Error,
 	host::StateMachine,
-	router::{IsmpRouter, Request},
+	router::{IsmpRouter, PostResponse, Request, Response},
 };
 use std::time::Duration;
 
@@ -72,6 +72,10 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
+	fn response_commitment(&self, req: H256) -> Result<(), Error> {
+		todo!()
+	}
+
 	fn next_nonce(&self) -> u64 {
 		todo!()
 	}
@@ -80,7 +84,7 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-	fn response_receipt(&self, _res: &Request) -> Option<()> {
+	fn response_receipt(&self, _res: &Response) -> Option<()> {
 		todo!()
 	}
 
@@ -148,11 +152,15 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-	fn store_request_receipt(&self, _req: &Request) -> Result<(), Error> {
+	fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error> {
 		todo!()
 	}
 
-	fn store_response_receipt(&self, _req: &Request) -> Result<(), Error> {
+	fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error> {
+		todo!()
+	}
+
+	fn store_response_receipt(&self, req: &Response, signer: &Vec<u8>) -> Result<(), Error> {
 		todo!()
 	}
 

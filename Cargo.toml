@@ -12,7 +12,9 @@ members = [
     "integration-tests",
     "ethereum/sync-committee",
     "ethereum/evm",
-    "ethereum/bnb-pos"
+    "ethereum/bnb-pos",
+    "payments",
+    "payments/prisma-cli"
 ]
 
 [profile.release]

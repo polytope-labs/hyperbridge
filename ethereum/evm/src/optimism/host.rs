@@ -1,15 +1,14 @@
 use crate::optimism::client::OpHost;
-use anyhow::anyhow;
+use anyhow::{anyhow, Error};
 use futures::stream;
-use tesseract_primitives::{
-	BoxStream, ByzantineHandler, ChallengePeriodStarted, IsmpHost, IsmpProvider, Reconnect,
-};
+use ismp::{events::StateMachineUpdated, messaging::CreateConsensusState};
+use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, Reconnect};
 
 #[async_trait::async_trait]
 impl ByzantineHandler for OpHost {
 	async fn query_consensus_message(
 		&self,
-		_challenge_event: ChallengePeriodStarted,
+		_challenge_event: StateMachineUpdated,
 	) -> Result<ismp::messaging::ConsensusMessage, anyhow::Error> {
 		Err(anyhow!("No consensus messages"))
 	}
@@ -33,6 +32,10 @@ impl IsmpHost for OpHost {
 		I: IsmpHost + IsmpProvider + Clone + 'static,
 	{
 		Ok(Box::pin(stream::pending()))
+	}
+
+	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+		Ok(None)
 	}
 }
 

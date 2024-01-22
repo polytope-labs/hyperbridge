@@ -9,7 +9,7 @@ use ismp::{
 use primitives::{
 	consensus_types::Checkpoint, constants::Root, util::compute_sync_committee_period,
 };
-use std::{collections::BTreeMap, time::Duration};
+use std::collections::BTreeMap;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -59,7 +59,6 @@ where
 
 			counterparty.submit(vec![Message::Consensus(message)]).await?;
 			next_period += 1;
-			tokio::time::sleep(Duration::from_secs(6)).await;
 		}
 		// Query the new consensus state so we can process the latest finality checkpoint
 		let new_consensus_state =

@@ -14,10 +14,12 @@
 // limitations under the License.
 
 pub use crate::provider::{filter_map_system_events, system_events_key};
-use ismp::{consensus::ConsensusStateId, host::StateMachine, HashAlgorithm};
+use hex_literal::hex;
+use ismp::{consensus::ConsensusStateId, host::StateMachine};
+use pallet_ismp::primitives::HashAlgorithm;
 use primitives::{IsmpHost, NonceProvider};
 use serde::{Deserialize, Serialize};
-use sp_core::{bytes::from_hex, sr25519, Pair};
+use sp_core::{bytes::from_hex, sr25519, Pair, H256};
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
@@ -26,7 +28,7 @@ use subxt::{
 	OnlineClient,
 };
 
-mod calls;
+pub mod calls;
 pub mod config;
 pub mod extrinsic;
 mod host;
@@ -51,6 +53,12 @@ pub struct SubstrateConfig {
 	pub latest_height: Option<u64>,
 }
 
+impl SubstrateConfig {
+	pub fn state_machine(&self) -> StateMachine {
+		self.state_machine
+	}
+}
+
 /// Core substrate client.
 pub struct SubstrateClient<I, C: subxt::Config> {
 	/// Ismp host implementation
@@ -65,6 +73,8 @@ pub struct SubstrateClient<I, C: subxt::Config> {
 	hashing: HashAlgorithm,
 	/// Private key of the signing account
 	pub signer: sr25519::Pair,
+	/// Public Address
+	pub address: Vec<u8>,
 	/// Latest state machine height.
 	initial_height: u64,
 	/// Config
@@ -103,7 +113,7 @@ where
 		let signer = sr25519::Pair::from_seed_slice(&bytes)?;
 		let mut consensus_state_id: ConsensusStateId = Default::default();
 		consensus_state_id.copy_from_slice(config.consensus_state_id.as_bytes());
-
+		let address = signer.public().0.to_vec();
 		Ok(Self {
 			host,
 			client,
@@ -111,6 +121,7 @@ where
 			state_machine: config.state_machine,
 			hashing: config.hashing,
 			signer,
+			address,
 			initial_height: latest_height,
 			config: config_clone,
 			nonce_provider: None,
@@ -121,17 +132,8 @@ where
 		self.signer.clone()
 	}
 
-	pub fn set_nonce_provider(&mut self, nonce_provider: NonceProvider) {
-		self.nonce_provider = Some(nonce_provider);
-	}
-
 	pub fn account(&self) -> C::AccountId {
 		MultiSigner::Sr25519(self.signer.public()).into_account().into()
-	}
-
-	pub async fn initialize_nonce(&self) -> Result<NonceProvider, anyhow::Error> {
-		let nonce = self.client.tx().account_nonce(&self.account()).await?;
-		Ok(NonceProvider::new(nonce))
 	}
 
 	pub async fn get_nonce(&self) -> Result<u64, anyhow::Error> {
@@ -139,5 +141,33 @@ where
 			return Ok(nonce_provider.get_nonce().await)
 		}
 		Err(anyhow::anyhow!("Nonce provider not set on client"))
+	}
+
+	pub fn req_commitments_key(&self, commitment: H256) -> Vec<u8> {
+		let mut key =
+			hex!("103895530afb23bb607661426d55eb8bbd3caa596ab5c98b359f0ffc7d17e376").to_vec();
+		key.extend_from_slice(commitment.as_bytes());
+		key
+	}
+
+	pub fn res_commitments_key(&self, commitment: H256) -> Vec<u8> {
+		let mut key =
+			hex!("103895530afb23bb607661426d55eb8b8fdfbc1b10c58ed36779810ffdba8e79").to_vec();
+		key.extend_from_slice(commitment.as_bytes());
+		key
+	}
+
+	pub fn req_receipts_key(&self, commitment: H256) -> Vec<u8> {
+		let mut key =
+			hex!("103895530afb23bb607661426d55eb8b0484aecefe882c3ce64e6f82507f715a").to_vec();
+		key.extend_from_slice(commitment.as_bytes());
+		key
+	}
+
+	pub fn res_receipt_key(&self, commitment: H256) -> Vec<u8> {
+		let mut key =
+			hex!("103895530afb23bb607661426d55eb8b554b72b7162725f9457d35ecafb8b02f").to_vec();
+		key.extend_from_slice(commitment.as_bytes());
+		key
 	}
 }

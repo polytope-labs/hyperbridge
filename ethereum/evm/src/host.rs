@@ -1,7 +1,7 @@
 use crate::EvmClient;
-use tesseract_primitives::{
-	BoxStream, ByzantineHandler, ChallengePeriodStarted, IsmpHost, IsmpProvider, Reconnect,
-};
+use anyhow::Error;
+use ismp::{events::StateMachineUpdated, messaging::CreateConsensusState};
+use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, Reconnect};
 
 #[async_trait::async_trait]
 impl<I> ByzantineHandler for EvmClient<I>
@@ -10,7 +10,7 @@ where
 {
 	async fn query_consensus_message(
 		&self,
-		challenge_event: ChallengePeriodStarted,
+		challenge_event: StateMachineUpdated,
 	) -> Result<ismp::messaging::ConsensusMessage, anyhow::Error> {
 		self.host.query_consensus_message(challenge_event).await
 	}
@@ -38,6 +38,10 @@ where
 	{
 		self.host.consensus_notification(counterparty).await
 	}
+
+	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+		self.host.get_initial_consensus_state().await
+	}
 }
 
 #[async_trait::async_trait]
@@ -64,6 +68,7 @@ impl<T: IsmpHost + Clone> Clone for EvmClient<T> {
 			host: self.host.clone(),
 			client: self.client.clone(),
 			signer: self.signer.clone(),
+			address: self.address.clone(),
 			consensus_state_id: self.consensus_state_id,
 			state_machine: self.state_machine,
 			initial_height: self.initial_height,

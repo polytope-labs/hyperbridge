@@ -1,7 +1,6 @@
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use consensus_client::ConsensusState;
-use std::time::Duration;
 
 use ethers::types::Block;
 use ismp::messaging::{ConsensusMessage, Message};
@@ -55,7 +54,6 @@ where
 				consensus_state_id: client.consensus_state_id,
 			};
 
-			tokio::time::sleep(Duration::from_secs(12)).await;
 			counterparty.submit(vec![Message::Consensus(message)]).await?;
 			next_epoch += 1;
 		}

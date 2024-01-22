@@ -44,8 +44,11 @@ jobs:
       - name: Build
         run:  cargo +nightly check --all --benches
 
-      - name: Run tests
+      - name: Run Tesseract Evm Tests
         run: cargo +nightly test -p tesseract-evm --verbose
+
+      - name: Run Transaction Payment Tests
+        run: cargo +nightly test -p transaction-payment --verbose
 
   lint:
     if: github.event.pull_request.draft == false

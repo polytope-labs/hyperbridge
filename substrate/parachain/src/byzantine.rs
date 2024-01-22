@@ -15,14 +15,14 @@
 
 use crate::ParachainHost;
 use anyhow::anyhow;
-use ismp::messaging::ConsensusMessage;
-use tesseract_primitives::{ByzantineHandler, ChallengePeriodStarted, IsmpHost};
+use ismp::{events::StateMachineUpdated, messaging::ConsensusMessage};
+use tesseract_primitives::{ByzantineHandler, IsmpHost};
 
 #[async_trait::async_trait]
 impl ByzantineHandler for ParachainHost {
 	async fn query_consensus_message(
 		&self,
-		_challenge_event: ChallengePeriodStarted,
+		_challenge_event: StateMachineUpdated,
 	) -> Result<ConsensusMessage, anyhow::Error> {
 		Err(anyhow!("Parachains consensus can't misbehave"))?
 	}

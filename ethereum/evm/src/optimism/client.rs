@@ -7,6 +7,7 @@ use ethers::{
 	providers::{Middleware, Ws},
 	types::H160,
 };
+use ismp::host::StateMachine;
 use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
 use std::sync::Arc;
@@ -37,6 +38,10 @@ impl OpConfig {
 		let client = EvmClient::new(host, self.evm_config, counterparty).await?;
 
 		Ok(client)
+	}
+
+	pub fn state_machine(&self) -> StateMachine {
+		self.evm_config.state_machine
 	}
 }
 

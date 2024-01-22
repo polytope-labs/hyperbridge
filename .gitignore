@@ -25,3 +25,6 @@
 # ignore user vscode sttings
 .vscode/*
 .env
+
+/payments/prisma/dev.db
+/payments/prisma/dev.db-journal

@@ -49,6 +49,10 @@ impl BnbPosConfig {
 
 		Ok(client)
 	}
+
+	pub fn state_machine(&self) -> StateMachine {
+		self.evm_config.state_machine
+	}
 }
 
 #[derive(Clone)]
@@ -87,7 +91,7 @@ impl BnbPosHost {
 		})
 	}
 
-	pub async fn get_initial_consensus_state<I: Keccak256>(
+	pub async fn get_consensus_state<I: Keccak256>(
 		&self,
 		ismp_contract_address: H160,
 	) -> Result<ConsensusState, anyhow::Error> {

@@ -14,11 +14,16 @@
 // limitations under the License.
 
 use clap::Parser;
-use tesseract::Cli;
+use tesseract::{tx_payment::Subcommand, Cli};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
 	let cli = Cli::parse();
-
+	if let Some(command) = cli.subcommand {
+		match command {
+			Subcommand::AccumulateFees(cmd) => cmd.accumulate_fees().await?,
+		}
+		return Ok(())
+	}
 	cli.run().await
 }

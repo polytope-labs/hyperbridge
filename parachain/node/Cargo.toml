@@ -6,9 +6,6 @@ description = "The Hyperbridge coprocessor node"
 edition = "2021"
 build = "build.rs"
 
-[package.metadata.dist]
-features = ["sepolia"]
-
 [dependencies]
 # crates.io
 clap = { version = "4.0.32", features = ["derive"] }

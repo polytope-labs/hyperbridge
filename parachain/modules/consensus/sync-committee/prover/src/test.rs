@@ -2,7 +2,9 @@ use super::*;
 use reqwest_eventsource::EventSource;
 use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use sync_committee_primitives::{
-    constants::{Root, EXECUTION_PAYLOAD_INDEX_LOG2, NEXT_SYNC_COMMITTEE_INDEX_LOG2},
+    constants::{
+        devnet::Devnet, Root, EXECUTION_PAYLOAD_INDEX_LOG2, NEXT_SYNC_COMMITTEE_INDEX_LOG2,
+    },
     types::VerifierState,
 };
 use sync_committee_verifier::verify_sync_committee_attestation;
@@ -32,15 +34,6 @@ async fn fetch_block_works() {
 async fn fetch_validator_works() {
     let sync_committee_prover = setup_prover();
     let validator = sync_committee_prover.fetch_validator("head", "0").await;
-    assert!(validator.is_ok());
-}
-
-#[allow(non_snake_case)]
-#[tokio::test]
-#[ignore]
-async fn fetch_processed_sync_committee_works() {
-    let sync_committee_prover = setup_prover();
-    let validator = sync_committee_prover.fetch_processed_sync_committee("head").await;
     assert!(validator.is_ok());
 }
 
@@ -112,7 +105,7 @@ async fn test_execution_payload_proof() {
 
     let mut finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
     let block_id = finalized_state.slot.to_string();
-    let execution_payload_proof = prove_execution_payload(&mut finalized_state).unwrap();
+    let execution_payload_proof = prove_execution_payload::<Devnet>(&mut finalized_state).unwrap();
 
     let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
 
@@ -164,7 +157,7 @@ async fn test_sync_committee_update_proof() {
     let block_id = finalized_state.slot.to_string();
     let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
 
-    let sync_committee_proof = prove_sync_committee_update(&mut finalized_state).unwrap();
+    let sync_committee_proof = prove_sync_committee_update::<Devnet>(&mut finalized_state).unwrap();
 
     let mut sync_committee = finalized_state.next_sync_committee;
 
@@ -210,10 +203,10 @@ async fn test_prover() {
 
     let mut client_state = VerifierState {
         finalized_header: block_header.clone(),
-        latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
+        latest_finalized_epoch: compute_epoch_at_slot::<Devnet>(block_header.slot),
         current_sync_committee: state.current_sync_committee,
         next_sync_committee: state.next_sync_committee,
-        state_period: compute_sync_committee_period_at_slot(block_header.slot),
+        state_period: compute_sync_committee_period_at_slot::<Devnet>(block_header.slot),
     };
 
     let mut count = 0;
@@ -245,9 +238,11 @@ async fn test_prover() {
                 let decoded = VerifierStateUpdate::decode(&mut &*encoded).unwrap();
                 assert_eq!(light_client_update, decoded);
 
-                client_state =
-                    verify_sync_committee_attestation(client_state.clone(), light_client_update)
-                        .unwrap();
+                client_state = verify_sync_committee_attestation::<Devnet>(
+                    client_state.clone(),
+                    light_client_update,
+                )
+                .unwrap();
                 debug!(
                     target: "prover",
                     "Sucessfully verified Ethereum block at slot {:?}",
@@ -276,9 +271,9 @@ pub struct EventResponse {
     pub execution_optimistic: bool,
 }
 
-fn setup_prover() -> SyncCommitteeProver {
+fn setup_prover() -> SyncCommitteeProver<Devnet> {
     dotenv::dotenv().ok();
     let consensus_url =
         std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:3500".to_string());
-    SyncCommitteeProver::new(consensus_url)
+    SyncCommitteeProver::<Devnet>::new(consensus_url)
 }

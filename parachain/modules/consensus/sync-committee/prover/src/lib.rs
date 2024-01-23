@@ -10,11 +10,9 @@ use anyhow::anyhow;
 use bls_on_arkworks::{point_to_pubkey, types::G1ProjectivePoint};
 use log::debug;
 use reqwest::Client;
+use std::marker::PhantomData;
 use sync_committee_primitives::{
-    consensus_types::{
-        BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, SyncCommittee, Validator,
-    },
-    constants::EPOCHS_PER_SYNC_COMMITTEE_PERIOD,
+    consensus_types::{BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, Validator},
     types::VerifierState,
 };
 
@@ -26,10 +24,10 @@ use crate::{
     routes::*,
 };
 use primitive_types::H256;
-use ssz_rs::{List, Merkleized, Node, Vector};
+use ssz_rs::{Merkleized, Node};
 use sync_committee_primitives::{
     constants::{
-        BlsPublicKey, Root, ValidatorIndex, BLOCK_ROOTS_INDEX, BYTES_PER_LOGS_BLOOM,
+        BlsPublicKey, Config, Root, BLOCK_ROOTS_INDEX, BYTES_PER_LOGS_BLOOM,
         EPOCHS_PER_HISTORICAL_VECTOR, EPOCHS_PER_SLASHINGS_VECTOR, ETH1_DATA_VOTES_BOUND,
         EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
         EXECUTION_PAYLOAD_STATE_ROOT_INDEX, EXECUTION_PAYLOAD_TIMESTAMP_INDEX,
@@ -37,7 +35,7 @@ use sync_committee_primitives::{
         MAX_BLS_TO_EXECUTION_CHANGES, MAX_BYTES_PER_TRANSACTION, MAX_DEPOSITS,
         MAX_EXTRA_DATA_BYTES, MAX_PROPOSER_SLASHINGS, MAX_TRANSACTIONS_PER_PAYLOAD,
         MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS, MAX_WITHDRAWALS_PER_PAYLOAD,
-        NEXT_SYNC_COMMITTEE_INDEX, SLOTS_PER_EPOCH, SLOTS_PER_HISTORICAL_ROOT, SYNC_COMMITTEE_SIZE,
+        NEXT_SYNC_COMMITTEE_INDEX, SLOTS_PER_HISTORICAL_ROOT, SYNC_COMMITTEE_SIZE,
         VALIDATOR_REGISTRY_LIMIT,
     },
     types::{
@@ -67,17 +65,23 @@ pub type BeaconStateType = BeaconState<
     MAX_TRANSACTIONS_PER_PAYLOAD,
 >;
 
-#[derive(Clone)]
-pub struct SyncCommitteeProver {
+pub struct SyncCommitteeProver<C: Config> {
     pub node_url: String,
     pub client: Client,
+    pub phantom: PhantomData<C>,
 }
 
-impl SyncCommitteeProver {
+impl<C: Config> Clone for SyncCommitteeProver<C> {
+    fn clone(&self) -> Self {
+        Self { node_url: self.node_url.clone(), client: self.client.clone(), phantom: PhantomData }
+    }
+}
+
+impl<C: Config> SyncCommitteeProver<C> {
     pub fn new(node_url: String) -> Self {
         let client = Client::new();
 
-        SyncCommitteeProver { node_url, client }
+        SyncCommitteeProver::<C> { node_url, client, phantom: PhantomData }
     }
 
     pub async fn fetch_finalized_checkpoint(
@@ -187,40 +191,6 @@ impl SyncCommitteeProver {
         Ok(beacon_state)
     }
 
-    pub async fn fetch_processed_sync_committee(
-        &self,
-        state_id: &str,
-    ) -> Result<SyncCommittee<SYNC_COMMITTEE_SIZE>, anyhow::Error> {
-        // fetches sync committee from Node
-        let node_sync_committee = self.fetch_sync_committee(state_id).await?;
-
-        let mut validators: List<Validator, VALIDATOR_REGISTRY_LIMIT> = Default::default();
-        for validator_index in node_sync_committee.validators.iter() {
-            // fetches validator based on validator index
-            let validator = self.fetch_validator(state_id, validator_index).await?;
-            validators.push(validator);
-        }
-
-        let public_keys_vector = node_sync_committee
-            .validators
-            .into_iter()
-            .map(|i| {
-                let validator_index: ValidatorIndex = i.parse()?;
-                Ok(validators[validator_index as usize].public_key.clone())
-            })
-            .collect::<Result<Vec<_>, anyhow::Error>>()?;
-
-        let aggregate_public_key = eth_aggregate_public_keys(&public_keys_vector)?;
-
-        let sync_committee = SyncCommittee::<SYNC_COMMITTEE_SIZE> {
-            public_keys: Vector::<BlsPublicKey, SYNC_COMMITTEE_SIZE>::try_from(public_keys_vector)
-                .map_err(|e| anyhow!("{:?}", e))?,
-            aggregate_public_key,
-        };
-
-        Ok(sync_committee)
-    }
-
     fn generate_route(&self, path: &str) -> String {
         format!("{}{}", self.node_url.clone(), path)
     }
@@ -268,7 +238,7 @@ impl SyncCommitteeProver {
 
             let num_signatures = block.body.sync_aggregate.sync_committee_bits.count_ones();
 
-            let signature_period = compute_sync_committee_period_at_slot(block.slot);
+            let signature_period = compute_sync_committee_period_at_slot::<C>(block.slot);
 
             if num_signatures >= min_signatures &&
                 (state_period..=state_period + 1).contains(&signature_period) &&
@@ -292,12 +262,12 @@ impl SyncCommitteeProver {
             self.fetch_beacon_state(&get_block_id(finalized_header.state_root)).await?;
         let finality_proof = FinalityProof {
             epoch: attested_state.finalized_checkpoint.epoch,
-            finality_branch: prove_finalized_header(&mut attested_state)?,
+            finality_branch: prove_finalized_header::<C>(&mut attested_state)?,
         };
 
-        let execution_payload_proof = prove_execution_payload(&mut finalized_state)?;
+        let execution_payload_proof = prove_execution_payload::<C>(&mut finalized_state)?;
 
-        let signature_period = compute_sync_committee_period_at_slot(block.slot);
+        let signature_period = compute_sync_committee_period_at_slot::<C>(block.slot);
         let client_state_next_sync_committee_root =
             client_state.next_sync_committee.hash_tree_root()?;
         let attested_state_current_sync_committee_root =
@@ -305,7 +275,7 @@ impl SyncCommitteeProver {
         let sync_committee_update =
             // We must make sure we switch the sync comittee only when the finalized header has changed sync committees
             if should_have_sync_committee_update(state_period, signature_period) && client_state_next_sync_committee_root == attested_state_current_sync_committee_root {
-                let sync_committee_proof = prove_sync_committee_update(&mut attested_state)?;
+                let sync_committee_proof = prove_sync_committee_update::<C>(&mut attested_state)?;
                 Some(SyncCommitteeUpdate {
                     next_sync_committee: attested_state.next_sync_committee,
                     next_sync_committee_branch: sync_committee_proof,
@@ -332,9 +302,9 @@ impl SyncCommitteeProver {
         &self,
         period: u64,
     ) -> Result<VerifierStateUpdate, anyhow::Error> {
-        let mut higest_slot_in_epoch = ((period * EPOCHS_PER_SYNC_COMMITTEE_PERIOD) *
-            SLOTS_PER_EPOCH) +
-            (EPOCHS_PER_SYNC_COMMITTEE_PERIOD * SLOTS_PER_EPOCH) -
+        let mut higest_slot_in_epoch = ((period * C::EPOCHS_PER_SYNC_COMMITTEE_PERIOD) *
+            C::SLOTS_PER_EPOCH) +
+            (C::EPOCHS_PER_SYNC_COMMITTEE_PERIOD * C::SLOTS_PER_EPOCH) -
             1;
         let mut count = 0;
         // Some slots are empty so we'll use a loop to fetch the highest available slot in an epoch
@@ -381,13 +351,13 @@ impl SyncCommitteeProver {
             self.fetch_beacon_state(&get_block_id(finalized_header.state_root)).await?;
         let finality_proof = FinalityProof {
             epoch: attested_state.finalized_checkpoint.epoch,
-            finality_branch: prove_finalized_header(&mut attested_state)?,
+            finality_branch: prove_finalized_header::<C>(&mut attested_state)?,
         };
 
-        let execution_payload_proof = prove_execution_payload(&mut finalized_state)?;
+        let execution_payload_proof = prove_execution_payload::<C>(&mut finalized_state)?;
 
         let sync_committee_update = {
-            let sync_committee_proof = prove_sync_committee_update(&mut attested_state)?;
+            let sync_committee_proof = prove_sync_committee_update::<C>(&mut attested_state)?;
             Some(SyncCommitteeUpdate {
                 next_sync_committee: attested_state.next_sync_committee,
                 next_sync_committee_branch: sync_committee_proof,
@@ -409,7 +379,7 @@ impl SyncCommitteeProver {
     }
 }
 
-pub fn prove_execution_payload(
+pub fn prove_execution_payload<C: Config>(
     beacon_state: &mut BeaconStateType,
 ) -> anyhow::Result<ExecutionPayloadProof> {
     let indices = [
@@ -437,28 +407,30 @@ pub fn prove_execution_payload(
     })
 }
 
-pub fn prove_sync_committee_update(state: &mut BeaconStateType) -> anyhow::Result<Vec<Node>> {
+pub fn prove_sync_committee_update<C: Config>(
+    state: &mut BeaconStateType,
+) -> anyhow::Result<Vec<Node>> {
     let proof = ssz_rs::generate_proof(state, &[NEXT_SYNC_COMMITTEE_INDEX as usize])?;
     Ok(proof)
 }
 
-pub fn prove_finalized_header(state: &mut BeaconStateType) -> anyhow::Result<Vec<Node>> {
+pub fn prove_finalized_header<C: Config>(state: &mut BeaconStateType) -> anyhow::Result<Vec<Node>> {
     let indices = [FINALIZED_ROOT_INDEX as usize];
     let proof = ssz_rs::generate_proof(state, indices.as_slice())?;
 
     Ok(proof)
 }
 
-pub fn prove_block_roots_proof(
+pub fn prove_block_roots_proof<C: Config>(
     state: &mut BeaconStateType,
     mut header: BeaconBlockHeader,
 ) -> anyhow::Result<AncestryProof> {
     // Check if block root should still be part of the block roots vector on the beacon state
-    let epoch_for_header = compute_epoch_at_slot(header.slot) as usize;
-    let epoch_for_state = compute_epoch_at_slot(state.slot) as usize;
+    let epoch_for_header = compute_epoch_at_slot::<C>(header.slot) as usize;
+    let epoch_for_state = compute_epoch_at_slot::<C>(state.slot) as usize;
 
     if epoch_for_state.saturating_sub(epoch_for_header) >=
-        SLOTS_PER_HISTORICAL_ROOT / SLOTS_PER_EPOCH as usize
+        SLOTS_PER_HISTORICAL_ROOT / C::SLOTS_PER_EPOCH as usize
     {
         // todo:  Historical root proofs
         unimplemented!()

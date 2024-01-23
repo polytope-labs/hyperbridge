@@ -62,5 +62,3 @@ std = [
     "geth-primitives/std"
 ]
 
-sepolia = ["sync-committee-verifier/sepolia", "sync-committee-primitives/sepolia"]
-mainnet = ["sync-committee-verifier/mainnet", "sync-committee-primitives/mainnet"]

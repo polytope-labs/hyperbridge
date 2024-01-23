@@ -57,7 +57,6 @@ pub const MAX_EXTRA_DATA_BYTES: usize = 32;
 
 pub const DEPOSIT_PROOF_LENGTH: usize = 33;
 
-pub const ETH1_DATA_VOTES_BOUND: usize = (EPOCHS_PER_ETH1_VOTING_PERIOD * SLOTS_PER_EPOCH) as usize;
 pub const DOMAIN_SYNC_COMMITTEE: DomainType = DomainType::SyncCommittee;
 pub const FINALIZED_ROOT_INDEX: u64 = 52;
 pub const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 18;
@@ -73,62 +72,83 @@ pub const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 5;
 pub const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 5;
 pub const BLOCK_ROOTS_INDEX_LOG2: u64 = 5;
 pub const HISTORICAL_ROOTS_INDEX_LOG2: u64 = 5;
+pub const ETH1_DATA_VOTES_BOUND: usize = (EPOCHS_PER_ETH1_VOTING_PERIOD * 32) as usize;
 
-#[cfg(feature = "sepolia")]
-pub use sepolia::*;
-
-#[cfg(feature = "mainnet")]
-pub use mainnet::*;
+pub trait Config {
+    const SLOTS_PER_EPOCH: Slot;
+    const GENESIS_VALIDATORS_ROOT: [u8; 32];
+    const BELLATRIX_FORK_VERSION: Version;
+    const ALTAIR_FORK_VERSION: Version;
+    const GENESIS_FORK_VERSION: Version;
+    const ALTAIR_FORK_EPOCH: Epoch;
+    const BELLATRIX_FORK_EPOCH: Epoch;
+    const CAPELLA_FORK_EPOCH: Epoch;
+    const CAPELLA_FORK_VERSION: Version;
+    const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch;
+}
 
 use crate::ssz::ByteVector;
-#[cfg(all(not(feature = "mainnet"), not(feature = "sepolia")))]
-pub use devnet::*;
 
-#[cfg(feature = "sepolia")]
 pub mod sepolia {
     use super::*;
-    pub const SLOTS_PER_EPOCH: Slot = 32;
-    pub const GENESIS_VALIDATORS_ROOT: [u8; 32] =
-        hex_literal::hex!("d8ea171f3c94aea21ebc42a1ed61052acf3f9209c00e4efbaaddac09ed9b8078");
-    pub const BELLATRIX_FORK_VERSION: Version = hex_literal::hex!("90000071");
-    pub const ALTAIR_FORK_VERSION: Version = hex_literal::hex!("90000070");
-    pub const GENESIS_FORK_VERSION: Version = hex_literal::hex!("90000069");
-    pub const ALTAIR_FORK_EPOCH: Epoch = 50;
-    pub const BELLATRIX_FORK_EPOCH: Epoch = 100;
-    pub const CAPELLA_FORK_EPOCH: Epoch = 56832;
-    pub const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("90000072");
-    pub const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
+
+    #[derive(Default)]
+    pub struct Sepolia;
+
+    impl Config for Sepolia {
+        const SLOTS_PER_EPOCH: Slot = 32;
+        const GENESIS_VALIDATORS_ROOT: [u8; 32] =
+            hex_literal::hex!("d8ea171f3c94aea21ebc42a1ed61052acf3f9209c00e4efbaaddac09ed9b8078");
+        const BELLATRIX_FORK_VERSION: Version = hex_literal::hex!("90000071");
+        const ALTAIR_FORK_VERSION: Version = hex_literal::hex!("90000070");
+        const GENESIS_FORK_VERSION: Version = hex_literal::hex!("90000069");
+        const ALTAIR_FORK_EPOCH: Epoch = 50;
+        const BELLATRIX_FORK_EPOCH: Epoch = 100;
+        const CAPELLA_FORK_EPOCH: Epoch = 56832;
+        const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("90000072");
+        const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
+    }
 }
 
-#[cfg(feature = "mainnet")]
 pub mod mainnet {
     use super::*;
-    pub const SLOTS_PER_EPOCH: Slot = 32;
-    pub const GENESIS_VALIDATORS_ROOT: [u8; 32] =
-        hex_literal::hex!("4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95");
-    pub const BELLATRIX_FORK_VERSION: Version = hex_literal::hex!("02000000");
-    pub const ALTAIR_FORK_VERSION: Version = hex_literal::hex!("01000000");
-    pub const GENESIS_FORK_VERSION: Version = hex_literal::hex!("00000000");
-    pub const ALTAIR_FORK_EPOCH: Epoch = 74240;
-    pub const BELLATRIX_FORK_EPOCH: Epoch = 144896;
-    pub const CAPELLA_FORK_EPOCH: Epoch = 194048;
-    pub const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("03000000");
-    pub const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
+
+    #[derive(Default)]
+    pub struct Mainnet;
+
+    impl Config for Mainnet {
+        const SLOTS_PER_EPOCH: Slot = 32;
+        const GENESIS_VALIDATORS_ROOT: [u8; 32] =
+            hex_literal::hex!("4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95");
+        const BELLATRIX_FORK_VERSION: Version = hex_literal::hex!("02000000");
+        const ALTAIR_FORK_VERSION: Version = hex_literal::hex!("01000000");
+        const GENESIS_FORK_VERSION: Version = hex_literal::hex!("00000000");
+        const ALTAIR_FORK_EPOCH: Epoch = 74240;
+        const BELLATRIX_FORK_EPOCH: Epoch = 144896;
+        const CAPELLA_FORK_EPOCH: Epoch = 194048;
+        const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("03000000");
+        const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
+    }
 }
 
-#[cfg(all(not(feature = "mainnet"), not(feature = "sepolia")))]
 pub mod devnet {
     use super::*;
     use hex_literal::hex;
-    pub const SLOTS_PER_EPOCH: Slot = 6;
-    pub const GENESIS_VALIDATORS_ROOT: [u8; 32] =
-        hex_literal::hex!("83431ec7fcf92cfc44947fc0418e831c25e1d0806590231c439830db7ad54fda");
-    pub const BELLATRIX_FORK_VERSION: Version = hex!("52525502");
-    pub const ALTAIR_FORK_VERSION: Version = hex!("52525501");
-    pub const GENESIS_FORK_VERSION: Version = hex!("52525500");
-    pub const ALTAIR_FORK_EPOCH: Epoch = 0;
-    pub const BELLATRIX_FORK_EPOCH: Epoch = 0;
-    pub const CAPELLA_FORK_EPOCH: Epoch = 2;
-    pub const CAPELLA_FORK_VERSION: Version = hex!("52525503");
-    pub const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 4;
+
+    #[derive(Default)]
+    pub struct Devnet;
+
+    impl Config for Devnet {
+        const SLOTS_PER_EPOCH: Slot = 6;
+        const GENESIS_VALIDATORS_ROOT: [u8; 32] =
+            hex_literal::hex!("83431ec7fcf92cfc44947fc0418e831c25e1d0806590231c439830db7ad54fda");
+        const BELLATRIX_FORK_VERSION: Version = hex!("52525502");
+        const ALTAIR_FORK_VERSION: Version = hex!("52525501");
+        const GENESIS_FORK_VERSION: Version = hex!("52525500");
+        const ALTAIR_FORK_EPOCH: Epoch = 0;
+        const BELLATRIX_FORK_EPOCH: Epoch = 0;
+        const CAPELLA_FORK_EPOCH: Epoch = 2;
+        const CAPELLA_FORK_VERSION: Version = hex!("52525503");
+        const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 4;
+    }
 }

@@ -1,10 +1,6 @@
 use crate::{
     consensus_types::ForkData,
-    constants::{
-        Domain, Root, Version, ALTAIR_FORK_EPOCH, ALTAIR_FORK_VERSION, BELLATRIX_FORK_EPOCH,
-        BELLATRIX_FORK_VERSION, CAPELLA_FORK_EPOCH, CAPELLA_FORK_VERSION,
-        EPOCHS_PER_SYNC_COMMITTEE_PERIOD, GENESIS_FORK_VERSION, SLOTS_PER_EPOCH,
-    },
+    constants::{Config, Domain, Root, Version},
     domains::DomainType,
 };
 use alloc::{vec, vec::Vec};
@@ -17,26 +13,25 @@ pub fn should_have_sync_committee_update(state_period: u64, signature_period: u6
 }
 
 /// Return the sync committee period at the given ``epoch``
-pub fn compute_sync_committee_period(epoch: u64) -> u64 {
-    epoch / EPOCHS_PER_SYNC_COMMITTEE_PERIOD
+pub fn compute_sync_committee_period<C: Config>(epoch: u64) -> u64 {
+    epoch / C::EPOCHS_PER_SYNC_COMMITTEE_PERIOD
 }
 
 /// Return the epoch number at ``slot``.
-pub fn compute_epoch_at_slot(slot: u64) -> u64 {
-    slot / SLOTS_PER_EPOCH
+pub fn compute_epoch_at_slot<C: Config>(slot: u64) -> u64 {
+    slot / C::SLOTS_PER_EPOCH
 }
 
-#[cfg(not(feature = "testing"))]
 /// Return the fork version at the given ``epoch``.
-pub fn compute_fork_version(epoch: u64) -> [u8; 4] {
-    if epoch >= CAPELLA_FORK_EPOCH {
-        CAPELLA_FORK_VERSION
-    } else if epoch >= BELLATRIX_FORK_EPOCH {
-        BELLATRIX_FORK_VERSION
-    } else if epoch >= ALTAIR_FORK_EPOCH {
-        ALTAIR_FORK_VERSION
+pub fn compute_fork_version<C: Config>(epoch: u64) -> [u8; 4] {
+    if epoch >= C::CAPELLA_FORK_EPOCH {
+        C::CAPELLA_FORK_VERSION
+    } else if epoch >= C::BELLATRIX_FORK_EPOCH {
+        C::BELLATRIX_FORK_VERSION
+    } else if epoch >= C::ALTAIR_FORK_EPOCH {
+        C::ALTAIR_FORK_VERSION
     } else {
-        GENESIS_FORK_VERSION
+        C::GENESIS_FORK_VERSION
     }
 }
 
@@ -81,6 +76,6 @@ pub fn compute_fork_data_root(
 }
 
 /// Return the sync committee period at ``slot``
-pub fn compute_sync_committee_period_at_slot(slot: u64) -> u64 {
-    compute_sync_committee_period(compute_epoch_at_slot(slot))
+pub fn compute_sync_committee_period_at_slot<C: Config>(slot: u64) -> u64 {
+    compute_sync_committee_period::<C>(compute_epoch_at_slot::<C>(slot))
 }

@@ -83,6 +83,7 @@ ismp-sync-committee = { path = "../../modules/ismp/sync-committee", default-feat
 ismp-polygon-pos = { path = "../../modules/ismp/polygon-pos", default-features = false }
 ismp-bnb-pos = { path = "../../modules/ismp/bnb-pos", default-features = false }
 pallet-relayer-fees = { path = "../../modules/relayer-fees", default-features = false }
+state-machine-manager = { path = "../../modules/state-machine-manager", default-features = false }
 
 [features]
 default = [

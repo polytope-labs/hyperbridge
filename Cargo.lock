@@ -5113,6 +5113,7 @@ dependencies = [
  "staging-xcm",
  "staging-xcm-builder",
  "staging-xcm-executor",
+ "state-machine-manager",
  "substrate-wasm-builder 16.0.0",
 ]
 

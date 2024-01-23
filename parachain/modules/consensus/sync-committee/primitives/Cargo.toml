@@ -32,5 +32,4 @@ std = [
     "primitive-types/std",
     "serde"
 ]
-mainnet = []
-sepolia = []
+

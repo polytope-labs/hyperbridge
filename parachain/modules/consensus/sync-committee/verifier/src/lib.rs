@@ -15,11 +15,10 @@ use ssz_rs::{
 use sync_committee_primitives::{
     consensus_types::Checkpoint,
     constants::{
-        Root, DOMAIN_SYNC_COMMITTEE, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX, EXECUTION_PAYLOAD_INDEX,
-        EXECUTION_PAYLOAD_INDEX_LOG2, EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
+        Config, Root, DOMAIN_SYNC_COMMITTEE, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
+        EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_INDEX_LOG2, EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
         EXECUTION_PAYLOAD_TIMESTAMP_INDEX, FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_LOG2,
-        GENESIS_FORK_VERSION, GENESIS_VALIDATORS_ROOT, NEXT_SYNC_COMMITTEE_INDEX,
-        NEXT_SYNC_COMMITTEE_INDEX_LOG2,
+        NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_LOG2,
     },
     types::{VerifierState, VerifierStateUpdate},
     util::{
@@ -29,7 +28,7 @@ use sync_committee_primitives::{
 };
 
 /// This function simply verifies a sync committee's attestation & it's finalized counterpart.
-pub fn verify_sync_committee_attestation(
+pub fn verify_sync_committee_attestation<C: Config>(
     trusted_state: VerifierState,
     mut update: VerifierStateUpdate,
 ) -> Result<VerifierState, Error> {
@@ -60,7 +59,7 @@ pub fn verify_sync_committee_attestation(
     }
 
     let state_period = trusted_state.state_period;
-    let update_signature_period = compute_sync_committee_period_at_slot(update.signature_slot);
+    let update_signature_period = compute_sync_committee_period_at_slot::<C>(update.signature_slot);
     if !(state_period..=state_period + 1).contains(&update_signature_period) {
         Err(Error::InvalidUpdate("State period does not contain signature period".into()))?
     }
@@ -86,13 +85,13 @@ pub fn verify_sync_committee_attestation(
         .filter_map(|(bit, key)| if !(*bit) { Some(key.clone()) } else { None })
         .collect::<Vec<_>>();
 
-    let fork_version = compute_fork_version(compute_epoch_at_slot(update.signature_slot));
+    let fork_version = compute_fork_version::<C>(compute_epoch_at_slot::<C>(update.signature_slot));
 
     let domain = compute_domain(
         DOMAIN_SYNC_COMMITTEE,
         Some(fork_version),
-        Some(Root::from_bytes(GENESIS_VALIDATORS_ROOT.try_into().expect("Infallible"))),
-        GENESIS_FORK_VERSION,
+        Some(Root::from_bytes(C::GENESIS_VALIDATORS_ROOT.try_into().expect("Infallible"))),
+        C::GENESIS_FORK_VERSION,
     )
     .map_err(|_| Error::InvalidUpdate("Failed to compute domain".into()))?;
 

@@ -4,5 +4,3 @@ pub mod beacon_state_response;
 pub mod finality_checkpoint_response;
 pub mod sync_committee_response;
 pub mod validator_response;
-
-// todo: collapse into one file.

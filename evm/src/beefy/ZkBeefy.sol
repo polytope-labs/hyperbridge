@@ -52,7 +52,6 @@ contract ZkBeefyV1 is IConsensusClient {
 
     function verifyConsensus(bytes memory encodedState, bytes memory encodedProof)
         external
-        view
         returns (bytes memory, IntermediateState memory)
     {
         BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
@@ -69,7 +68,6 @@ contract ZkBeefyV1 is IConsensusClient {
     /// by this consensus proof.
     function verifyConsensus(BeefyConsensusState memory trustedState, BeefyConsensusProof memory proof)
         internal
-        view
         returns (BeefyConsensusState memory, IntermediateState memory)
     {
         // verify mmr root proofs
@@ -87,7 +85,6 @@ contract ZkBeefyV1 is IConsensusClient {
     /// using a merkle multi proof and a merkle commitment to the total authorities.
     function verifyMmrUpdateProof(BeefyConsensusState memory trustedState, PlonkConsensusProof memory relayProof)
         internal
-        view
         returns (BeefyConsensusState memory, bytes32)
     {
         uint256 latestHeight = relayProof.commitment.blockNumber;
@@ -131,7 +128,7 @@ contract ZkBeefyV1 is IConsensusClient {
         // check BEEFY proof
         require(_verifier.verify(relayProof.proof, inputs), "ZkBEEFY: Invalid plonk proof");
 
-        verifyMmrLeaf(relayProof, mmrRoot);
+        verifyMmrLeaf(trustedState, relayProof, mmrRoot);
 
         if (relayProof.latestMmrLeaf.nextAuthoritySet.id > trustedState.nextAuthoritySet.id) {
             trustedState.currentAuthoritySet = trustedState.nextAuthoritySet;
@@ -144,15 +141,16 @@ contract ZkBeefyV1 is IConsensusClient {
     }
 
     /// Stack too deep, sigh solidity
-    function verifyMmrLeaf(PlonkConsensusProof memory relay, bytes32 mmrRoot) internal pure {
-        bytes32 temp = keccak256(Codec.Encode(relay.latestMmrLeaf));
-        // bag peaks from right to left
-        uint256 i = relay.mmrProof.length;
-        for (; i > 0; i--) {
-            temp = keccak256(bytes.concat(temp, relay.mmrProof[i - 1]));
-        }
+    function verifyMmrLeaf(BeefyConsensusState memory trustedState, PlonkConsensusProof memory relay, bytes32 mmrRoot)
+        internal
+    {
+        bytes32 hash = keccak256(Codec.Encode(relay.latestMmrLeaf));
+        uint256 leafCount = leafIndex(trustedState.beefyActivationBlock, relay.latestMmrLeaf.parentNumber) + 1;
 
-        require(temp == mmrRoot, "Invalid Mmr Proof");
+        MmrLeaf[] memory leaves = new MmrLeaf[](1);
+        leaves[0] = MmrLeaf(relay.latestMmrLeaf.kIndex, relay.latestMmrLeaf.leafIndex, hash);
+
+        require(MerkleMountainRange.VerifyProof(mmrRoot, relay.mmrProof, leaves, leafCount), "Invalid Mmr Proof");
     }
 
     /// Verifies that some parachain header has been finalized, given the current trusted consensus state.
@@ -191,5 +189,14 @@ contract ZkBeefyV1 is IConsensusClient {
         require(MerkleMultiProof.VerifyProof(headsRoot, proof.proof, leaves), "Invalid parachains heads proof");
 
         return IntermediateState(para.id, header.number, StateCommitment(timestamp, commitment, header.stateRoot));
+    }
+
+    /// Calculates the mmr leaf index for a block whose parent number is given.
+    function leafIndex(uint256 activationBlock, uint256 parentNumber) private pure returns (uint256) {
+        if (activationBlock == 0) {
+            return parentNumber;
+        } else {
+            return parentNumber - activationBlock;
+        }
     }
 }

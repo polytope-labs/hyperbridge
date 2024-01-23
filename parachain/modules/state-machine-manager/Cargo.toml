@@ -2,6 +2,8 @@
 name = "state-machine-manager"
 version = "0.1.0"
 edition = "2021"
+description = "Manager for freezing and unfreezing State Machines"
+authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 # substrate

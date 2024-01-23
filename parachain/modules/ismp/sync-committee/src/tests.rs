@@ -154,11 +154,11 @@ impl IsmpHost for Host {
         todo!()
     }
 
-    fn freeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error> {
+    fn freeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
         todo!()
     }
 
-    fn unfreeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error> {
+    fn unfreeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
         todo!()
     }
 

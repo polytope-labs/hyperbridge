@@ -102,6 +102,10 @@ impl ismp_demo::Config for Runtime {
 
 impl pallet_relayer_fees::Config for Runtime {}
 
+impl state_machine_manager::pallet::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+}
+
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
         if request.dest != StateMachineProvider::get() {

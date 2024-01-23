@@ -517,10 +517,6 @@ impl pallet_collator_selection::Config for Runtime {
     type WeightInfo = ();
 }
 
-impl state_machine_manager::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-}
-
 impl pallet_sudo::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type RuntimeCall = RuntimeCall;
@@ -561,7 +557,7 @@ construct_runtime!(
         IsmpDemo: ismp_demo = 42,
         RelayerFees: pallet_relayer_fees = 43,
         IsmpPolygonPos: ismp_polygon_pos::pallet = 44,
-        StateMachineManager: state_machine_manager = 45,
+        StateMachineManager: state_machine_manager::pallet = 45,
     }
 );
 

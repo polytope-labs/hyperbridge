@@ -33,11 +33,14 @@ members = [
      "parachain/modules/consensus/geth-primitives",
 
      "parachain/modules/consensus/bnb-pos/verifier",
-     "parachain/modules/consensus/bnb-pos/prover", "parachain/modules/ismp/bnb-pos",
+     "parachain/modules/consensus/bnb-pos/prover",
+     "parachain/modules/ismp/bnb-pos",
+     "parachain/modules/state-machine-manager",
 
      # evm stuff
-      "evm/integration-tests",
-      "evm/abi", "parachain/modules/relayer-fees", "parachain/modules/state-machine-manager",
+     "evm/integration-tests",
+     "evm/abi",
+     "parachain/modules/relayer-fees",
 ]
 
 # Config for 'cargo dist'

@@ -75,7 +75,7 @@ impl IsmpHost for Host {
         todo!()
     }
 
-    fn is_state_machine_frozen(&self, machine: StateMachineHeight) -> Result<(), Error> {
+    fn is_state_machine_frozen(&self, machine: StateMachineId) -> Result<(), Error> {
         todo!()
     }
 

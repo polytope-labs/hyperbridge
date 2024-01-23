@@ -73,9 +73,9 @@ pub trait IsmpHost: Keccak256 {
     /// Should return the current timestamp on the host
     fn timestamp(&self) -> Duration;
 
-    /// Checks if a state machine is frozen at the provided height, should return Ok(()) if it isn't
+    /// Checks if a state machine is frozen, should return Ok(()) if it isn't
     /// or [`Error::FrozenStateMachine`] if it is.
-    fn is_state_machine_frozen(&self, machine: StateMachineHeight) -> Result<(), Error>;
+    fn is_state_machine_frozen(&self, machine: StateMachineId) -> Result<(), Error>;
 
     /// Checks if a consensus state is frozen
     fn is_consensus_client_frozen(&self, consensus_state_id: ConsensusStateId)
@@ -141,10 +141,10 @@ pub trait IsmpHost: Keccak256 {
     ) -> Result<(), Error>;
 
     /// Freeze a state machine at the given height
-    fn freeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error>;
+    fn freeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error>;
 
     /// UnFreeze a state machine at the given height
-    fn unfreeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error>;
+    fn unfreeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error>;
 
     /// Freeze a consensus state with the given identifier
     fn freeze_consensus_client(&self, consensus_state_id: ConsensusStateId) -> Result<(), Error>;

@@ -16,14 +16,12 @@
 
 extern crate alloc;
 
-pub const MODULE_ID: [u8; 32] = [1; 32];
-
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
     use frame_support::pallet_prelude::{OptionQuery, *};
     use frame_system::pallet_prelude::*;
-    use ismp::{consensus::StateMachineHeight, host::IsmpHost};
+    use ismp::{consensus::StateMachineId, host::IsmpHost};
     use pallet_ismp::host::Host;
 
     #[pallet::pallet]
@@ -67,9 +65,9 @@ pub mod pallet {
         /// An account `account` has been removed from whitelisted accounts
         AccountRemovedFromWhitelistedAccount { account: T::AccountId },
         /// `state_machine` is frozen
-        StateMachineFrozen { state_machine: StateMachineHeight },
+        StateMachineFrozen { state_machine: StateMachineId },
         ///  `state_machine` is unfrozen
-        StateMachineUnFrozen { state_machine: StateMachineHeight },
+        StateMachineUnFrozen { state_machine: StateMachineId },
     }
 
     #[pallet::call]
@@ -117,7 +115,7 @@ pub mod pallet {
         #[pallet::weight({1_000_000})]
         pub fn freeze_state_machine(
             origin: OriginFor<T>,
-            state_machine: StateMachineHeight,
+            state_machine: StateMachineId,
         ) -> DispatchResult {
             let account = ensure_signed(origin)?;
             ensure!(
@@ -141,7 +139,7 @@ pub mod pallet {
         #[pallet::weight({1_000_000})]
         pub fn unfreeze_state_machine(
             origin: OriginFor<T>,
-            state_machine: StateMachineHeight,
+            state_machine: StateMachineId,
         ) -> DispatchResult {
             T::AdminOrigin::ensure_origin(origin)?;
 

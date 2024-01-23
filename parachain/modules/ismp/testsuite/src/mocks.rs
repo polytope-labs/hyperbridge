@@ -162,15 +162,15 @@ impl IsmpHost for Host {
         SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
     }
 
-    fn is_state_machine_frozen(&self, machine: StateMachineHeight) -> Result<(), Error> {
+    fn is_state_machine_frozen(&self, machine: StateMachineId) -> Result<(), Error> {
         let val = self
             .frozen_state_machines
             .borrow()
-            .get(&machine.id)
-            .map(|frozen_height| machine.height >= frozen_height.height)
+            .get(&machine)
+            .map(|frozen| frozen == true)
             .unwrap_or(false);
         if val {
-            Err(Error::FrozenStateMachine { height: machine })?;
+            Err(Error::FrozenStateMachine { id: machine })?;
         }
 
         Ok(())

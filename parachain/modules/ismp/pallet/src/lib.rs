@@ -171,9 +171,9 @@ pub mod pallet {
     /// Holds a map of state machines to the height at which they've been frozen due to byzantine
     /// behaviour
     #[pallet::storage]
-    #[pallet::getter(fn frozen_heights)]
-    pub type FrozenHeights<T: Config> =
-        StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
+    #[pallet::getter(fn frozen_state_machine)]
+    pub type FrozenStateMachine<T: Config> =
+        StorageMap<_, Blake2_128Concat, StateMachineId, bool, OptionQuery>;
 
     /// Holds a map of state machines to the latest height we've processed requests for
     #[pallet::storage]

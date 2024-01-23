@@ -25,8 +25,7 @@ std = [
     "ark-bls12-381/std",
     "bls/std"
 ]
-sepolia = ["sync-committee-primitives/sepolia"]
-mainnet = ["sync-committee-primitives/mainnet"]
+
 
 [dev-dependencies]
 hex = "0.4.3"

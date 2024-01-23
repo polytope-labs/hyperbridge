@@ -35,3 +35,5 @@ pub mod types;
 pub mod utils;
 
 pub use beacon_client::*;
+
+pub use sync_committee_primitives::constants;

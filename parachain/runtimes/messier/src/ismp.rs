@@ -29,6 +29,7 @@ use ismp::{
 };
 
 use ismp::router::Timeout;
+use ismp_sync_committee::constants::mainnet::Mainnet;
 use pallet_ismp::{
     dispatcher::FeeMetadata,
     host::Host,
@@ -53,8 +54,10 @@ impl ConsensusClientProvider for ConsensusProvider {
     fn consensus_client(id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
         match id {
             ismp_sync_committee::BEACON_CONSENSUS_ID => {
-                let sync_committee =
-                    ismp_sync_committee::SyncCommitteeConsensusClient::<Host<Runtime>>::default();
+                let sync_committee = ismp_sync_committee::SyncCommitteeConsensusClient::<
+                    Host<Runtime>,
+                    Mainnet,
+                >::default();
                 Ok(Box::new(sync_committee))
             },
 

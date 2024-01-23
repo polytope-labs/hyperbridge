@@ -104,7 +104,7 @@ impl<T: Config> IsmpHost for Host<T> {
 
     fn is_state_machine_frozen(&self, machine: StateMachineId) -> Result<(), Error> {
         if let Some(frozen) = FrozenStateMachine::<T>::get(machine) {
-            if frozen == true {
+            if frozen {
                 Err(Error::FrozenStateMachine { id: machine })?
             }
         }

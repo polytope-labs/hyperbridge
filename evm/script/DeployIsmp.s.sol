@@ -16,8 +16,6 @@ import "../src/hosts/Base.sol";
 import "../examples/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
-import {ZkBeefyV1} from "../src/beefy/ZkBeefy.sol";
-import {RococoVerifier} from "../src/beefy/verifiers/RococoVerifier.sol";
 
 contract DeployScript is Script {
     bytes32 public salt = keccak256(bytes("gargantua-v0.0.1"));
@@ -30,9 +28,7 @@ contract DeployScript is Script {
         vm.startBroadcast(uint256(privateKey));
 
         // consensus client
-//        BeefyV1 consensusClient = new BeefyV1{salt: salt}(paraId);
-        RococoVerifier verifier = new RococoVerifier{salt: salt}();
-        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
+        BeefyV1 consensusClient = new BeefyV1{salt: salt}(paraId);
         // handler
         HandlerV1 handler = new HandlerV1{salt: salt}();
         // cross-chain governor

@@ -517,6 +517,10 @@ impl pallet_collator_selection::Config for Runtime {
     type WeightInfo = ();
 }
 
+impl state_machine_manager::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+}
+
 impl pallet_sudo::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type RuntimeCall = RuntimeCall;

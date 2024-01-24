@@ -16,6 +16,8 @@
 
 extern crate alloc;
 
+pub use pallet::*;
+
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;

@@ -5,7 +5,6 @@ hashing = "Keccak"
 consensus_state_id = "PARA" # empty on other chains
 relay_rpc_ws = "ws://127.0.0.1:9944"
 chain_rpc_ws = "ws://127.0.0.1:9933"
-beefy_activation_block = 3804028
 consensus_update_frequency = 390 # seconds,
 para_ids = [4296]
 epoch_length = 600

@@ -11468,6 +11468,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "sp-io"
+version = "29.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c600c911757504c43f8c354edd1b0d327a1c2abfe947e490a6b62d8f1543d96"
+dependencies = [
+ "bytes",
+ "ed25519-dalek 2.1.0",
+ "libsecp256k1",
+ "log",
+ "parity-scale-codec",
+ "rustversion",
+ "secp256k1 0.28.1",
+ "sp-core 27.0.0",
+ "sp-externalities 0.24.0",
+ "sp-keystore 0.33.0",
+ "sp-runtime-interface 23.0.0",
+ "sp-state-machine 0.34.0",
+ "sp-std 13.0.0",
+ "sp-tracing 15.0.0",
+ "sp-trie 28.0.0",
+ "tracing",
+ "tracing-core",
+]
+
+[[package]]
 name = "sp-keyring"
 version = "24.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11519,6 +11544,19 @@ dependencies = [
  "parking_lot 0.12.1",
  "sp-core 25.0.0",
  "sp-externalities 0.23.0",
+ "thiserror",
+]
+
+[[package]]
+name = "sp-keystore"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b955546b815ace30f63542efda71ce4e010444596cd8316f7ef49a26fb971709"
+dependencies = [
+ "parity-scale-codec",
+ "parking_lot 0.12.1",
+ "sp-core 27.0.0",
+ "sp-externalities 0.24.0",
  "thiserror",
 ]
 
@@ -11899,6 +11937,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "sp-state-machine"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f5027dceaa62f3c18f40593ee6a898df69c70e84e01450a17293511c4f3c46c"
+dependencies = [
+ "hash-db 0.16.0",
+ "log",
+ "parity-scale-codec",
+ "parking_lot 0.12.1",
+ "rand 0.8.5",
+ "smallvec",
+ "sp-core 27.0.0",
+ "sp-externalities 0.24.0",
+ "sp-panic-handler 12.0.0",
+ "sp-std 13.0.0",
+ "sp-trie 28.0.0",
+ "thiserror",
+ "tracing",
+ "trie-db 0.28.0",
+]
+
+[[package]]
 name = "sp-statement-store"
 version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12189,6 +12249,32 @@ dependencies = [
  "schnellru",
  "sp-core 25.0.0",
  "sp-std 12.0.0",
+ "thiserror",
+ "tracing",
+ "trie-db 0.28.0",
+ "trie-root",
+]
+
+[[package]]
+name = "sp-trie"
+version = "28.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cbc3ad723c9addc4b7aafbe8bfabf638c39be3c911e11f58e924e17554003ac"
+dependencies = [
+ "ahash 0.8.7",
+ "hash-db 0.16.0",
+ "hashbrown 0.13.2",
+ "lazy_static",
+ "memory-db",
+ "nohash-hasher",
+ "parity-scale-codec",
+ "parking_lot 0.12.1",
+ "rand 0.8.5",
+ "scale-info",
+ "schnellru",
+ "sp-core 27.0.0",
+ "sp-externalities 0.24.0",
+ "sp-std 13.0.0",
  "thiserror",
  "tracing",
  "trie-db 0.28.0",
@@ -13050,6 +13136,7 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-solidity-abi",
+ "log",
  "pallet-ismp",
  "parity-scale-codec",
  "polkadot-core-primitives",
@@ -15525,8 +15612,10 @@ dependencies = [
  "beefy-prover",
  "beefy-verifier-primitives",
  "bn254_blackbox_solver",
+ "derive_more 1.0.0-beta.6",
  "ethers",
  "hex",
+ "hex-literal 0.4.1",
  "ismp-solidity-abi",
  "libsecp256k1",
  "nargo",
@@ -15538,6 +15627,7 @@ dependencies = [
  "serde_json",
  "sp-consensus-beefy",
  "sp-core 27.0.0",
+ "sp-io 29.0.0",
  "subxt",
  "tokio",
  "toml 0.8.8",

@@ -54,19 +54,7 @@ where
 		let mut chain_b = chain_b.clone();
 		let tx_payment = tx_payment.clone();
 		let router_id = router_id.clone();
-		let mut previous_height = {
-			if let Some(previous_height) = tx_payment
-				.retreive_latest_height(
-					chain_b.state_machine_id().state_id,
-					chain_a.state_machine_id().state_id,
-				)
-				.await?
-			{
-				previous_height
-			} else {
-				chain_b.initial_height()
-			}
-		};
+		let mut previous_height = get_previous_height(&chain_a, &chain_b, &tx_payment).await;
 		async move {
 			let mut state_machine_update_stream = chain_a
 				.state_machine_update_notification(chain_b.state_machine_id())
@@ -90,19 +78,7 @@ where
 		let mut chain_b = chain_b.clone();
 		let tx_payment = tx_payment.clone();
 		let router_id = router_id.clone();
-		let mut previous_height = {
-			if let Some(previous_height) = tx_payment
-				.retreive_latest_height(
-					chain_a.state_machine_id().state_id,
-					chain_b.state_machine_id().state_id,
-				)
-				.await?
-			{
-				previous_height
-			} else {
-				chain_b.initial_height()
-			}
-		};
+		let mut previous_height = get_previous_height(&chain_b, &chain_a, &tx_payment).await;
 		async move {
 			let mut state_machine_update_stream = chain_b
 				.state_machine_update_notification(chain_a.state_machine_id())
@@ -263,4 +239,42 @@ where
 		)
 		.await?;
 	Ok(())
+}
+
+async fn get_previous_height<A: IsmpProvider, B: IsmpProvider>(
+	source: &A,
+	sink: &B,
+	tx_payment: &Arc<TransactionPayment>,
+) -> u64 {
+	let retrieve_latest_height = tx_payment
+		.retreive_latest_height(
+			sink.state_machine_id().state_id,
+			source.state_machine_id().state_id,
+		)
+		.await;
+	if retrieve_latest_height.is_err() {
+		log::error!(
+			"Error retrieving last relayed height from database; resuming from latest height"
+		)
+	}
+	if let Some(previous_height) = retrieve_latest_height.ok().flatten() {
+		// Try to query events at stored height to see if it exists,
+		// if the query returns an error we resume relaying from the latest height
+		let res = sink
+			.query_ismp_events(
+				previous_height,
+				StateMachineUpdated {
+					state_machine_id: sink.state_machine_id(),
+					latest_height: previous_height + 1,
+				},
+			)
+			.await;
+		if res.is_ok() {
+			previous_height
+		} else {
+			sink.initial_height()
+		}
+	} else {
+		sink.initial_height()
+	}
 }

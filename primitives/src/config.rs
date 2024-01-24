@@ -27,6 +27,8 @@ pub struct RelayerConfig {
 	pub consensus: bool,
 	/// Relay messages
 	pub messaging: bool,
+	/// Fisherman protocol
+	pub fisherman: bool,
 	/// Routing state machine id
 	pub router: Option<StateMachine>,
 }

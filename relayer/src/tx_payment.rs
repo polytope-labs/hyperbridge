@@ -67,7 +67,7 @@ impl AccumulateFees {
 
 		let hyperbridge_nonce_provider = hyperbridge.initialize_nonce().await?;
 		hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
-		let (clients, _) = create_client_map(config, &hyperbridge).await?;
+		let (clients, _) = create_client_map(config).await?;
 
 		let tx_payment = TransactionPayment::initialize().await?;
 
@@ -178,7 +178,7 @@ async fn deliver_post_request<C: IsmpProvider + Reconnect, D: IsmpProvider>(
 		}
 		if !delivered {
 			println!("Trying to resubmit withdrawal to destination");
-			dest_chain.reconnect(hyperbridge).await?;
+			dest_chain.reconnect().await?;
 			stream = dest_chain
 				.state_machine_update_notification(hyperbridge.state_machine_id())
 				.await?;

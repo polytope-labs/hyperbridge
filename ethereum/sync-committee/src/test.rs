@@ -1,17 +1,18 @@
-use crate::{mock::MockHost, SyncCommitteeConfig, SyncCommitteeHost};
+use crate::{SyncCommitteeConfig, SyncCommitteeHost};
 use codec::Decode;
 use futures::StreamExt;
 use ismp::host::{Ethereum, StateMachine};
 use ismp_sync_committee::{
 	arbitrum::verify_arbitrum_payload, optimism::verify_optimism_payload, types::BeaconClientUpdate,
 };
+use sync_committee_primitives::constants::sepolia::Sepolia;
 use tesseract_evm::{
 	arbitrum::client::{ArbConfig, ArbHost},
 	mock::Host,
 	optimism::client::{OpConfig, OpHost},
 	EvmClient, EvmConfig,
 };
-use tesseract_primitives::IsmpHost;
+use tesseract_primitives::{mocks::MockHost, IsmpHost};
 
 #[tokio::test]
 async fn check_consensus_notification() -> anyhow::Result<()> {
@@ -30,6 +31,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 			rollup_core_address: Default::default(),
 		},
 		0,
+		StateMachine::Polygon,
 	);
 	let chain_b = {
 		let config = EvmConfig {
@@ -39,8 +41,6 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 			ismp_host: Default::default(),
 			handler: Default::default(),
 			signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
-
-			latest_height: None,
 			chain_id: 32382,
 			gas_limit: 30_000_000, // 30m
 		};
@@ -59,8 +59,6 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				handler: Default::default(),
 				signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 					.to_string(),
-
-				latest_height: None,
 				chain_id: 32382,
 				gas_limit: 30_000_000, // 30m
 			};
@@ -84,8 +82,6 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				handler: Default::default(),
 				signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 					.to_string(),
-
-				latest_height: None,
 				chain_id: 32382,
 				gas_limit: 30_000_000, // 30m
 			};
@@ -112,8 +108,6 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				handler: Default::default(),
 				signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 					.to_string(),
-
-				latest_height: None,
 				chain_id: 32382,
 				gas_limit: 30_000_000, // 30m
 			};
@@ -131,11 +125,11 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 			.await?
 		};
 
-		let mut host = SyncCommitteeHost::new(&sync_commitee_config).await?;
+		let mut host = SyncCommitteeHost::<Sepolia>::new(&sync_commitee_config).await?;
 		host.set_arb_host(arb_host);
 		host.set_op_host(op_host);
 		host.set_base_host(base_host);
-		EvmClient::new(host, config, &chain_a).await?
+		EvmClient::new(host, config).await?
 	};
 
 	let mut consensus_stream = chain_b.consensus_notification(chain_a.clone()).await.unwrap();

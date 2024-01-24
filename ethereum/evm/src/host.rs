@@ -15,7 +15,7 @@ where
 		self.host.query_consensus_message(challenge_event).await
 	}
 
-	async fn check_for_byzantine_attack<T: IsmpHost>(
+	async fn check_for_byzantine_attack<T: IsmpHost + IsmpProvider>(
 		&self,
 		counterparty: &T,
 		consensus_message: ismp::messaging::ConsensusMessage,
@@ -49,11 +49,11 @@ impl<T> Reconnect for EvmClient<T>
 where
 	T: IsmpHost + Clone,
 {
-	async fn reconnect<C: IsmpProvider>(&mut self, counterparty: &C) -> Result<(), anyhow::Error> {
+	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
 		let nonce_provider = self.nonce_provider.clone();
-		self.host.reconnect(counterparty).await?;
+		self.host.reconnect().await?;
 		let host = self.host.clone();
-		let mut new_client = EvmClient::new(host, self.config.clone(), counterparty).await?;
+		let mut new_client = EvmClient::new(host, self.config.clone()).await?;
 		if let Some(nonce_provider) = nonce_provider {
 			new_client.set_nonce_provider(nonce_provider);
 		}

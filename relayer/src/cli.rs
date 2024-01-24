@@ -24,7 +24,7 @@ use anyhow::anyhow;
 use clap::Parser;
 use ismp::host::{Ethereum, StateMachine};
 use primitives::{IsmpHost, IsmpProvider, NonceProvider};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tesseract_beefy::BeefyHost;
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
@@ -73,7 +73,7 @@ impl Cli {
 		let hyperbridge_nonce_provider = hyperbridge.initialize_nonce().await?;
 		hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
 
-		let (client_map, nonce_providers) = create_client_map(config.clone(), &hyperbridge).await?;
+		let (client_map, nonce_providers) = create_client_map(config.clone()).await?;
 
 		// set up initial consensus states
 		if self.setup_eth || self.setup_para {
@@ -88,6 +88,7 @@ impl Cli {
 		}
 
 		let mut processes = vec![];
+
 		if relayer.consensus {
 			// consensus streams
 			for (_, client) in client_map {
@@ -101,8 +102,33 @@ impl Cli {
 			log::info!("Initialized consensus streams");
 		}
 
+		if relayer.fisherman {
+			let (clients, _) = create_client_map(config.clone()).await?;
+			for (state_machine, mut client) in clients {
+				let mut hyperbridge = hyperbridge_config
+					.clone()
+					.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
+					.await?;
+				hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
+				client.set_nonce_provider(
+					nonce_providers
+						.get(&state_machine)
+						.cloned()
+						.ok_or_else(|| anyhow!("Expected Nonce Provider"))?,
+				);
+				let wait_time_b = get_wait_time(state_machine);
+				processes.push(tokio::spawn(fisherman::fish(
+					hyperbridge,
+					client,
+					None,
+					wait_time_b,
+				)));
+			}
+			log::info!("Initialized fishermen");
+		}
+
 		if relayer.messaging {
-			let (clients, _) = create_client_map(config.clone(), &hyperbridge).await?;
+			let (clients, _) = create_client_map(config.clone()).await?;
 			// messaging streams
 			for (state_machine, mut client) in clients {
 				let mut hyperbridge = hyperbridge_config
@@ -116,13 +142,14 @@ impl Cli {
 						.cloned()
 						.ok_or_else(|| anyhow!("Expected Nonce Provider"))?,
 				);
+				let wait_time_b = get_wait_time(state_machine);
 				processes.push(tokio::spawn(messaging::relay(
 					hyperbridge,
 					client,
 					Some(relayer.clone()),
 					tx_payment.clone(),
 					None,
-					None,
+					wait_time_b,
 				)));
 			}
 			log::info!("Initialized messaging streams");
@@ -166,9 +193,8 @@ async fn initialize_consensus_clients(
 	Ok(())
 }
 
-pub async fn create_client_map<C: IsmpProvider + 'static>(
+pub async fn create_client_map(
 	config: HyperbridgeConfig,
-	hyperbridge: &C,
 ) -> anyhow::Result<(HashMap<StateMachine, AnyClient>, HashMap<StateMachine, NonceProvider>)> {
 	let HyperbridgeConfig { chains, .. } = config.clone();
 
@@ -177,7 +203,7 @@ pub async fn create_client_map<C: IsmpProvider + 'static>(
 	let mut l2_hosts = vec![];
 
 	for (state_machine, config) in chains {
-		let mut client = config.into_client(hyperbridge).await?;
+		let mut client = config.into_client().await?;
 		match &client {
 			AnyClient::Arbitrum(client) => l2_hosts.push(L2Host::Arb(client.host.clone())),
 			AnyClient::Base(client) => l2_hosts.push(L2Host::Base(client.host.clone())),
@@ -193,10 +219,22 @@ pub async fn create_client_map<C: IsmpProvider + 'static>(
 	let execution_layer = clients.get_mut(&StateMachine::Ethereum(Ethereum::ExecutionLayer));
 	if let Some(exec_layer) = execution_layer {
 		match exec_layer {
-			AnyClient::Ethereum(client) => client.host.set_l2_hosts(l2_hosts),
+			AnyClient::EthereumSepolia(client) => client.host.set_l2_hosts(l2_hosts),
+			AnyClient::EthereumMainnet(client) => client.host.set_l2_hosts(l2_hosts),
 			_ => unreachable!(),
 		}
 	}
 
 	Ok((clients, nonce_providers))
+}
+
+/// Return the ideal interval between state machine updates time or return None to use the default
+/// wait time
+pub fn get_wait_time(state_machine: StateMachine) -> Option<Duration> {
+	match state_machine {
+		// Arbitrum has an interval of 60 mins on mainnet and testnet other chains can use the
+		// default value of 20 mins
+		StateMachine::Ethereum(Ethereum::Arbitrum) => Some(Duration::from_secs(65 * 60)),
+		_ => None,
+	}
 }

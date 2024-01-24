@@ -13,24 +13,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use ethers::prelude::{Provider, Ws};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 pub use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
 use primitive_types::H160;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use sync_committee_primitives::{
+	constants::Config,
 	types::VerifierState,
 	util::{compute_epoch_at_slot, compute_sync_committee_period_at_slot},
 };
 use sync_committee_prover::SyncCommitteeProver;
 pub use sync_committee_verifier::verify_sync_committee_attestation;
 use tesseract_evm::{arbitrum::client::ArbHost, optimism::client::OpHost, EvmClient, EvmConfig};
-use tesseract_primitives::IsmpProvider;
 
 mod byzantine;
 mod host;
-#[cfg(any(test, feature = "testing"))]
-pub mod mock;
 mod notification;
 #[cfg(test)]
 mod test;
@@ -48,12 +47,11 @@ pub struct SyncCommitteeConfig {
 
 impl SyncCommitteeConfig {
 	/// Convert the config into a client.
-	pub async fn into_client<C: IsmpProvider>(
+	pub async fn into_client<T: Config + Send + Sync + 'static>(
 		self,
-		counterparty: &C,
-	) -> anyhow::Result<EvmClient<SyncCommitteeHost>> {
+	) -> anyhow::Result<EvmClient<SyncCommitteeHost<T>>> {
 		let host = SyncCommitteeHost::new(&self).await?;
-		let client = EvmClient::new(host, self.evm_config, counterparty).await?;
+		let client = EvmClient::new(host, self.evm_config).await?;
 
 		Ok(client)
 	}
@@ -63,8 +61,7 @@ impl SyncCommitteeConfig {
 	}
 }
 
-#[derive(Clone)]
-pub struct SyncCommitteeHost {
+pub struct SyncCommitteeHost<C: Config> {
 	/// Consensus state id on counterparty chain
 	pub consensus_state_id: ConsensusStateId,
 	/// State machine Identifier for this chain.
@@ -76,18 +73,22 @@ pub struct SyncCommitteeHost {
 	/// Base  client
 	pub base_client: Option<OpHost>,
 	/// Consensus prover
-	pub prover: SyncCommitteeProver,
+	pub prover: SyncCommitteeProver<C>,
 	/// Http URl beacon chain, required for subscribing to events SSE
 	pub beacon_node_rpc: String,
 	/// Interval in seconds at which consensus updates should happen
 	pub consensus_update_frequency: Duration,
 	/// Config
 	pub config: SyncCommitteeConfig,
+	/// Eth L1 execution client
+	pub el: Arc<Provider<Ws>>,
 }
 
-impl SyncCommitteeHost {
+impl<C: Config> SyncCommitteeHost<C> {
 	pub async fn new(config: &SyncCommitteeConfig) -> Result<Self, anyhow::Error> {
 		let prover = SyncCommitteeProver::new(config.beacon_http_url.clone());
+		let el =
+			Provider::<Ws>::connect_with_reconnects(&config.evm_config.execution_ws, 1000).await?;
 		Ok(Self {
 			consensus_state_id: {
 				let mut consensus_state_id: ConsensusStateId = Default::default();
@@ -102,6 +103,7 @@ impl SyncCommitteeHost {
 			beacon_node_rpc: config.beacon_http_url.clone(),
 			consensus_update_frequency: Duration::from_secs(config.consensus_update_frequency),
 			config: config.clone(),
+			el: Arc::new(el),
 		})
 	}
 
@@ -140,10 +142,10 @@ impl SyncCommitteeHost {
 
 		let client_state = VerifierState {
 			finalized_header: block_header.clone(),
-			latest_finalized_epoch: compute_epoch_at_slot(block_header.slot),
+			latest_finalized_epoch: compute_epoch_at_slot::<C>(block_header.slot),
 			current_sync_committee: state.current_sync_committee,
 			next_sync_committee: state.next_sync_committee,
-			state_period: compute_sync_committee_period_at_slot(block_header.slot),
+			state_period: compute_sync_committee_period_at_slot::<C>(block_header.slot),
 		};
 
 		let consensus_state = ConsensusState {
@@ -163,4 +165,21 @@ pub enum L2Host {
 	Arb(ArbHost),
 	Op(OpHost),
 	Base(OpHost),
+}
+
+impl<C: Config> Clone for SyncCommitteeHost<C> {
+	fn clone(&self) -> Self {
+		Self {
+			consensus_state_id: self.consensus_state_id,
+			state_machine: self.state_machine,
+			arbitrum_client: self.arbitrum_client.clone(),
+			optimism_client: self.optimism_client.clone(),
+			base_client: self.base_client.clone(),
+			prover: self.prover.clone(),
+			beacon_node_rpc: self.beacon_node_rpc.clone(),
+			consensus_update_frequency: self.consensus_update_frequency,
+			config: self.config.clone(),
+			el: self.el.clone(),
+		}
+	}
 }

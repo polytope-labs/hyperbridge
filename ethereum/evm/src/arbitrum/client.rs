@@ -7,14 +7,13 @@ use ethers::{
 	types::{H160, H256},
 };
 use geth_primitives::CodecHeader;
-use ismp::host::StateMachine;
+use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use ismp_sync_committee::{
 	arbitrum::{ArbitrumPayloadProof, GlobalState as RustGlobalState},
 	presets::NODES_SLOT,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tesseract_primitives::IsmpProvider;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbConfig {
@@ -29,12 +28,9 @@ pub struct ArbConfig {
 
 impl ArbConfig {
 	/// Convert the config into a client.
-	pub async fn into_client<C: IsmpProvider>(
-		self,
-		counterparty: &C,
-	) -> anyhow::Result<EvmClient<ArbHost>> {
+	pub async fn into_client(self) -> anyhow::Result<EvmClient<ArbHost>> {
 		let host = ArbHost::new(&self).await?;
-		let client = EvmClient::new(host, self.evm_config, counterparty).await?;
+		let client = EvmClient::new(host, self.evm_config).await?;
 
 		Ok(client)
 	}
@@ -54,6 +50,8 @@ pub struct ArbHost {
 	pub(crate) rollup_core: H160,
 	/// Config
 	pub config: ArbConfig,
+	/// Consensus State Id
+	pub consensus_state_id: ConsensusStateId,
 }
 
 impl ArbHost {
@@ -67,6 +65,11 @@ impl ArbHost {
 			beacon_execution_client: Arc::new(beacon_client),
 			rollup_core: config.rollup_core,
 			config: config.clone(),
+			consensus_state_id: {
+				let mut consensus_state_id: ConsensusStateId = Default::default();
+				consensus_state_id.copy_from_slice(config.evm_config.consensus_state_id.as_bytes());
+				consensus_state_id
+			},
 		})
 	}
 

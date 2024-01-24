@@ -78,15 +78,14 @@ macro_rules! chain {
 
         #[async_trait::async_trait]
         impl primitives::Reconnect for AnyClient {
-            async fn reconnect<C: IsmpProvider>(
+            async fn reconnect(
                 &mut self,
-                counterparty: &C,
             ) -> Result<(), anyhow::Error>
             {
                 match self {
 					$(
 						$(#[$($meta)*])*
-						Self::$name(chain) => chain.reconnect(counterparty).await,
+						Self::$name(chain) => chain.reconnect().await,
 					)*
 				}
             }
@@ -119,14 +118,14 @@ macro_rules! chain {
 				}
             }
 
-            async fn query_latest_messaging_height(
+			async fn query_state_machine_commitment(
                 &self,
-                id: ismp::consensus::StateMachineId,
-            ) -> Result<u64, anyhow::Error> {
+                height: ismp::consensus::StateMachineHeight,
+            ) -> Result<ismp::consensus::StateCommitment, anyhow::Error> {
                 match self {
 					$(
 						$(#[$($meta)*])*
-						Self::$name(chain) => chain.query_latest_messaging_height(id).await,
+						Self::$name(chain) => chain.query_state_machine_commitment(height).await,
 					)*
 				}
             }
@@ -367,6 +366,15 @@ macro_rules! chain {
 					)*
 				}
 			}
+
+			async fn freeze_state_machine(&self, id: ismp::consensus::StateMachineId) -> Result<(), anyhow::Error> {
+				match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.freeze_state_machine(id).await,
+					)*
+				}
+			}
         }
 
         #[async_trait::async_trait]
@@ -383,7 +391,7 @@ macro_rules! chain {
 				}
             }
 
-            async fn check_for_byzantine_attack<C: primitives::IsmpHost>(
+            async fn check_for_byzantine_attack<C: primitives::IsmpHost + primitives::IsmpProvider>(
                 &self,
                 counterparty: &C,
                 consensus_message: ismp::messaging::ConsensusMessage,

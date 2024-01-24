@@ -28,7 +28,6 @@ use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::SubstrateConfig;
 
 mod db;
-mod mock;
 #[cfg(test)]
 mod tests;
 

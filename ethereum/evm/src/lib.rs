@@ -15,7 +15,7 @@ use ethers::{
 };
 use frame_support::crypto::ecdsa::ECDSAExt;
 use ismp::{
-	consensus::{ConsensusStateId, StateMachineId},
+	consensus::ConsensusStateId,
 	events::Event,
 	host::{Ethereum, StateMachine},
 };
@@ -23,7 +23,7 @@ use jsonrpsee::ws_client::WsClientBuilder;
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::sync::Arc;
-use tesseract_primitives::{IsmpHost, IsmpProvider, NonceProvider};
+use tesseract_primitives::{IsmpHost, NonceProvider};
 
 pub mod abi;
 pub mod arbitrum;
@@ -34,13 +34,6 @@ pub mod mock;
 pub mod optimism;
 pub mod provider;
 pub mod tx;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum LatestHeight {
-	LastMessaging,
-	LatestHeight,
-	Const(u64),
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvmConfig {
@@ -56,8 +49,6 @@ pub struct EvmConfig {
 	pub handler: H160,
 	/// Relayer account private key
 	pub signer: String,
-	/// Latest state machine height
-	pub latest_height: Option<LatestHeight>,
 	/// EVM chain Id.
 	pub chain_id: u64,
 	/// Block gas limit
@@ -73,7 +64,6 @@ impl Default for EvmConfig {
 			ismp_host: Default::default(),
 			handler: Default::default(),
 			signer: Default::default(),
-			latest_height: Default::default(),
 			chain_id: Default::default(),
 			gas_limit: Default::default(),
 		}
@@ -115,12 +105,8 @@ impl<I> EvmClient<I>
 where
 	I: IsmpHost + Send + Sync,
 {
-	pub async fn new<C: IsmpProvider>(
-		host: I,
-		config: EvmConfig,
-		counterparty: &C,
-	) -> Result<Self, anyhow::Error> {
-		let mut config_clone = config.clone();
+	pub async fn new(host: I, config: EvmConfig) -> Result<Self, anyhow::Error> {
+		let config_clone = config.clone();
 		let bytes = from_hex(config.signer.as_str())?;
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
 		let address = signer.public().to_eth_address().expect("Infallible").to_vec();
@@ -137,22 +123,7 @@ where
 		};
 		let rpc_client = WsClientBuilder::default().build(&config.execution_ws).await?;
 
-		let latest_height = match config.latest_height {
-			Some(LatestHeight::LastMessaging) | None => {
-				let state_machine_id =
-					StateMachineId { state_id: config.state_machine, consensus_state_id };
-				if let Ok(height) =
-					counterparty.query_latest_messaging_height(state_machine_id).await
-				{
-					height
-				} else {
-					client.get_block_number().await?.as_u64()
-				}
-			},
-			Some(LatestHeight::LatestHeight) => client.get_block_number().await?.as_u64(),
-			Some(LatestHeight::Const(height)) => height,
-		};
-		config_clone.latest_height = Some(LatestHeight::Const(latest_height));
+		let latest_height = client.get_block_number().await?.as_u64();
 		Ok(Self {
 			host,
 			client,

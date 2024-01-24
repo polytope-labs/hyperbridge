@@ -39,7 +39,7 @@ impl IsmpHost for ParachainHost {
 
 #[async_trait::async_trait]
 impl Reconnect for ParachainHost {
-	async fn reconnect<C: IsmpProvider>(&mut self, _counterparty: &C) -> Result<(), anyhow::Error> {
+	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
 		Ok(())
 	}
 }

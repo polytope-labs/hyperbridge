@@ -14,23 +14,59 @@
 // limitations under the License.
 
 use crate::SyncCommitteeHost;
-use ismp::{events::StateMachineUpdated, messaging::ConsensusMessage};
-use tesseract_primitives::{ByzantineHandler, IsmpHost};
+use anyhow::anyhow;
+use codec::{Decode, Encode};
+use ethers::prelude::Middleware;
+use geth_primitives::CodecHeader;
+use ismp::{
+	consensus::{StateMachineHeight, StateMachineId},
+	events::StateMachineUpdated,
+	messaging::ConsensusMessage,
+};
+use sync_committee_primitives::constants::Config;
+use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
-impl ByzantineHandler for SyncCommitteeHost {
+impl<T: Config + Send + Sync + 'static> ByzantineHandler for SyncCommitteeHost<T> {
 	async fn query_consensus_message(
 		&self,
-		_challenge_event: StateMachineUpdated,
+		event: StateMachineUpdated,
 	) -> Result<ConsensusMessage, anyhow::Error> {
-		unimplemented!()
+		let header: CodecHeader = self
+			.el
+			.get_block(event.latest_height)
+			.await?
+			.ok_or_else(|| anyhow!("Header should be available"))?
+			.into();
+		Ok(ConsensusMessage {
+			consensus_proof: header.encode(),
+			consensus_state_id: self.consensus_state_id,
+		})
 	}
 
-	async fn check_for_byzantine_attack<C: IsmpHost>(
+	async fn check_for_byzantine_attack<C: IsmpHost + IsmpProvider>(
 		&self,
-		_counterparty: &C,
-		_consensus_message: ConsensusMessage,
+		counterparty: &C,
+		consensus_message: ConsensusMessage,
 	) -> Result<(), anyhow::Error> {
-		unimplemented!()
+		let header = CodecHeader::decode(&mut &*consensus_message.consensus_proof)?;
+		let height = StateMachineHeight {
+			id: StateMachineId {
+				state_id: self.state_machine,
+				consensus_state_id: self.consensus_state_id,
+			},
+			height: header.number.low_u64(),
+		};
+		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
+		if state_machine_commitment.state_root != header.state_root {
+			// Submit Freeze message
+			log::info!(
+				"Freezing {:?} on {:?}",
+				self.state_machine,
+				counterparty.state_machine_id().state_id
+			);
+			counterparty.freeze_state_machine(height.id).await?;
+		}
+		Ok(())
 	}
 }

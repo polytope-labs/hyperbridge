@@ -23,7 +23,10 @@ use jsonrpsee::{
 
 use ethereum_trie::StorageProof;
 use ethers::middleware::MiddlewareBuilder;
-use ismp::messaging::CreateConsensusState;
+use ismp::{
+	consensus::{StateCommitment, StateMachineHeight},
+	messaging::CreateConsensusState,
+};
 use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
@@ -80,12 +83,21 @@ where
 		Ok(value.low_u64() as u32)
 	}
 
-	async fn query_latest_messaging_height(
+	async fn query_state_machine_commitment(
 		&self,
-		id: StateMachineId,
-	) -> Result<u64, anyhow::Error> {
-		// todo: needs correct implementation
-		self.query_latest_height(id).await.map(|height| height.into())
+		height: StateMachineHeight,
+	) -> Result<StateCommitment, Error> {
+		let contract = EvmHost::new(self.ismp_host, self.client.clone());
+		let state_machine_height = ismp_solidity_abi::shared_types::StateMachineHeight {
+			state_machine_id: Default::default(),
+			height: height.height.into(),
+		};
+		let commitment = contract.state_machine_commitment(state_machine_height).call().await?;
+		Ok(StateCommitment {
+			timestamp: commitment.timestamp.low_u64(),
+			overlay_root: Some(commitment.overlay_root.into()),
+			state_root: commitment.state_root.into(),
+		})
 	}
 
 	async fn query_consensus_update_time(&self, _id: ConsensusStateId) -> Result<Duration, Error> {
@@ -322,7 +334,7 @@ where
 		Signature::Ethereum { address: self.address.clone(), signature }
 	}
 
-	async fn initialize_nonce(&self) -> Result<NonceProvider, anyhow::Error> {
+	async fn initialize_nonce(&self) -> Result<NonceProvider, Error> {
 		let nonce = self
 			.client
 			.clone()
@@ -342,6 +354,12 @@ where
 		message: CreateConsensusState,
 	) -> Result<(), Error> {
 		self.set_consensus_state(message.consensus_state).await?;
+		Ok(())
+	}
+
+	async fn freeze_state_machine(&self, _id: StateMachineId) -> Result<(), Error> {
+		let contract = EvmHost::new(self.ismp_host, self.client.clone());
+		contract.set_frozen_state(true).nonce(self.get_nonce().await?).call().await?;
 		Ok(())
 	}
 }

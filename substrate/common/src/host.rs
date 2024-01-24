@@ -37,7 +37,7 @@ where
 		self.host.query_consensus_message(challenge_event).await
 	}
 
-	async fn check_for_byzantine_attack<T: IsmpHost>(
+	async fn check_for_byzantine_attack<T: IsmpHost + IsmpProvider>(
 		&self,
 		counterparty: &T,
 		consensus_message: ismp::messaging::ConsensusMessage,
@@ -83,9 +83,9 @@ where
 	C::AccountId:
 		From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 {
-	async fn reconnect<S: IsmpProvider>(&mut self, counterparty: &S) -> Result<(), anyhow::Error> {
+	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
 		let nonce_provider = self.nonce_provider.clone();
-		self.host.reconnect(counterparty).await?;
+		self.host.reconnect().await?;
 		let host = self.host.clone();
 		let mut new_client = SubstrateClient::<T, C>::new(host, self.config.clone()).await?;
 		if let Some(nonce_provider) = nonce_provider {

@@ -11,6 +11,7 @@ tesseract-substrate = { path = "../substrate/common" }
 consensus = { package = "tesseract-consensus", path = "../consensus" }
 primitives = { package = "tesseract-primitives", path = "../primitives" }
 messaging = { package = "tesseract-messaging", path = "../messaging" }
+fisherman = { package = "tesseract-fisherman", path = "../fisherman" }
 tesseract-evm = { path = "../ethereum/evm" }
 tesseract-polygon-pos = { path = "../ethereum/polygon-pos" }
 tesseract-bnb-pos = { path = "../ethereum/bnb-pos" }
@@ -37,6 +38,3 @@ ethers = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 sp-core = { workspace = true }
 
-[features]
-sepolia = ["tesseract-sync-committee/sepolia", "tesseract-evm/sepolia"]
-mainnet = ["tesseract-sync-committee/mainnet", "tesseract-evm/mainnet"]

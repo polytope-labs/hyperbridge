@@ -1,61 +1,60 @@
+use crate::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, NonceProvider, Query, Reconnect};
 use anyhow::{anyhow, Error};
-use codec::Encode;
 use futures::stream;
 use ismp::{
-	consensus::{ConsensusStateId, StateMachineId},
-	events::Event,
+	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
+	events::{Event, StateMachineUpdated},
+	host::StateMachine,
 	messaging::{CreateConsensusState, Message},
 };
-use ismp_sync_committee::types::ConsensusState;
+use pallet_relayer_fees::withdrawal::Signature;
+use parity_scale_codec::Codec;
 use primitive_types::H256;
 use std::{
 	sync::{Arc, Mutex},
 	time::Duration,
 };
-use tesseract_primitives::{
-	BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, NonceProvider, Query, Reconnect,
-	Signature, StateMachineUpdated,
-};
 
-#[derive(Clone)]
-pub struct MockHost {
-	pub consensus_state: Arc<Mutex<ConsensusState>>,
+pub struct MockHost<C> {
+	pub consensus_state: Arc<Mutex<C>>,
 	pub latest_height: Arc<Mutex<u64>>,
+	pub state_machine: StateMachine,
 }
 
-impl MockHost {
-	pub fn new(consensus_state: ConsensusState, latest_height: u64) -> Self {
+impl<C> MockHost<C> {
+	pub fn new(consensus_state: C, latest_height: u64, state_machine: StateMachine) -> Self {
 		Self {
 			consensus_state: Arc::new(Mutex::new(consensus_state)),
 			latest_height: Arc::new(Mutex::new(latest_height)),
+			state_machine,
 		}
 	}
 }
 
 #[async_trait::async_trait]
-impl ByzantineHandler for MockHost {
+impl<C: Codec + Send + Sync> ByzantineHandler for MockHost<C> {
 	async fn query_consensus_message(
 		&self,
 		_challenge_event: StateMachineUpdated,
-	) -> Result<ismp::messaging::ConsensusMessage, anyhow::Error> {
+	) -> Result<ismp::messaging::ConsensusMessage, Error> {
 		Err(anyhow!("No consensus messages"))
 	}
 
-	async fn check_for_byzantine_attack<T: IsmpHost>(
+	async fn check_for_byzantine_attack<T: IsmpHost + IsmpProvider>(
 		&self,
 		_counterparty: &T,
 		_consensus_message: ismp::messaging::ConsensusMessage,
-	) -> Result<(), anyhow::Error> {
+	) -> Result<(), Error> {
 		Err(anyhow!("No byzantine faults"))
 	}
 }
 
 #[async_trait::async_trait]
-impl IsmpHost for MockHost {
+impl<C: Codec + Send + Sync> IsmpHost for MockHost<C> {
 	async fn consensus_notification<I>(
 		&self,
 		_counterparty: I,
-	) -> Result<BoxStream<ismp::messaging::ConsensusMessage>, anyhow::Error>
+	) -> Result<BoxStream<ismp::messaging::ConsensusMessage>, Error>
 	where
 		I: IsmpHost + IsmpProvider + Clone + 'static,
 	{
@@ -68,65 +67,47 @@ impl IsmpHost for MockHost {
 }
 
 #[async_trait::async_trait]
-impl IsmpProvider for MockHost {
+impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	async fn query_consensus_state(
 		&self,
 		_at: Option<u64>,
 		_id: ConsensusStateId,
-	) -> Result<Vec<u8>, anyhow::Error> {
+	) -> Result<Vec<u8>, Error> {
 		Ok(self.consensus_state.lock().unwrap().encode())
 	}
 
-	async fn query_latest_height(&self, _id: StateMachineId) -> Result<u32, anyhow::Error> {
+	async fn query_latest_height(&self, _id: StateMachineId) -> Result<u32, Error> {
 		Ok(*self.latest_height.lock().unwrap() as u32)
 	}
 
-	async fn query_latest_messaging_height(
+	async fn query_state_machine_commitment(
 		&self,
-		_id: StateMachineId,
-	) -> Result<u64, anyhow::Error> {
-		Ok(*self.latest_height.lock().unwrap() as u64)
+		_height: StateMachineHeight,
+	) -> Result<StateCommitment, Error> {
+		todo!()
 	}
 
-	async fn query_consensus_update_time(
-		&self,
-		_id: ConsensusStateId,
-	) -> Result<Duration, anyhow::Error> {
+	async fn query_consensus_update_time(&self, _id: ConsensusStateId) -> Result<Duration, Error> {
 		Ok(Duration::from_secs(0))
 	}
 
-	async fn query_challenge_period(
-		&self,
-		_id: ConsensusStateId,
-	) -> Result<Duration, anyhow::Error> {
+	async fn query_challenge_period(&self, _id: ConsensusStateId) -> Result<Duration, Error> {
 		Ok(Duration::from_secs(0))
 	}
 
-	async fn query_timestamp(&self) -> Result<Duration, anyhow::Error> {
+	async fn query_timestamp(&self) -> Result<Duration, Error> {
 		Ok(Duration::from_secs(0))
 	}
 
-	async fn query_requests_proof(
-		&self,
-		_at: u64,
-		_keys: Vec<Query>,
-	) -> Result<Vec<u8>, anyhow::Error> {
+	async fn query_requests_proof(&self, _at: u64, _keys: Vec<Query>) -> Result<Vec<u8>, Error> {
 		Ok(Default::default())
 	}
 
-	async fn query_responses_proof(
-		&self,
-		_at: u64,
-		_keys: Vec<Query>,
-	) -> Result<Vec<u8>, anyhow::Error> {
+	async fn query_responses_proof(&self, _at: u64, _keys: Vec<Query>) -> Result<Vec<u8>, Error> {
 		Ok(Default::default())
 	}
 
-	async fn query_state_proof(
-		&self,
-		_at: u64,
-		_keys: Vec<Vec<u8>>,
-	) -> Result<Vec<u8>, anyhow::Error> {
+	async fn query_state_proof(&self, _at: u64, _keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
 		Ok(Default::default())
 	}
 
@@ -134,7 +115,7 @@ impl IsmpProvider for MockHost {
 		&self,
 		_previous_height: u64,
 		_event: StateMachineUpdated,
-	) -> Result<Vec<Event>, anyhow::Error> {
+	) -> Result<Vec<Event>, Error> {
 		todo!()
 	}
 
@@ -143,7 +124,7 @@ impl IsmpProvider for MockHost {
 	}
 
 	fn state_machine_id(&self) -> StateMachineId {
-		todo!()
+		StateMachineId { state_id: self.state_machine, consensus_state_id: *b"Mock" }
 	}
 
 	fn block_max_gas(&self) -> u64 {
@@ -154,18 +135,18 @@ impl IsmpProvider for MockHost {
 		0
 	}
 
-	async fn estimate_gas(&self, _msg: Vec<Message>) -> Result<u64, anyhow::Error> {
+	async fn estimate_gas(&self, _msg: Vec<Message>) -> Result<u64, Error> {
 		todo!()
 	}
 
 	async fn state_machine_update_notification(
 		&self,
 		_counterparty_state_id: StateMachineId,
-	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
+	) -> Result<BoxStream<StateMachineUpdated>, Error> {
 		todo!()
 	}
 
-	async fn submit(&self, _messages: Vec<Message>) -> Result<(), anyhow::Error> {
+	async fn submit(&self, _messages: Vec<Message>) -> Result<(), Error> {
 		todo!()
 	}
 
@@ -207,11 +188,25 @@ impl IsmpProvider for MockHost {
 	) -> Result<(), Error> {
 		todo!()
 	}
+
+	async fn freeze_state_machine(&self, _id: StateMachineId) -> Result<(), Error> {
+		todo!()
+	}
+}
+
+impl<C: Send + Sync> Clone for MockHost<C> {
+	fn clone(&self) -> Self {
+		Self {
+			consensus_state: self.consensus_state.clone(),
+			latest_height: self.latest_height.clone(),
+			state_machine: self.state_machine.clone(),
+		}
+	}
 }
 
 #[async_trait::async_trait]
-impl Reconnect for MockHost {
-	async fn reconnect<C: IsmpProvider>(&mut self, _counterparty: &C) -> Result<(), anyhow::Error> {
+impl<C: Codec + Send + Sync> Reconnect for MockHost<C> {
+	async fn reconnect(&mut self) -> Result<(), Error> {
 		Ok(())
 	}
 }

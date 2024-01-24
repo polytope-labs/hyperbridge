@@ -26,12 +26,15 @@ sync-committee-prover.workspace = true
 sync-committee-verifier.workspace = true
 sync-committee-primitives.workspace = true
 ismp-sync-committee.workspace = true
+ethers = { workspace = true, features = ["ws"] }
+geth-primitives.workspace = true
 
 tesseract-primitives = { path = "../../primitives" }
 tesseract-evm = { path = "../evm"}
 
 [dev-dependencies]
 tesseract-evm = { path = "../evm", features = ["testing"] }
+tesseract-primitives = { path = "../../primitives", features = ["testing"] }
 sp-core = "22.0.0"
 ismp = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
@@ -39,7 +42,5 @@ dotenv = "0.15.0"
 anyhow = "1.0.75"
 
 [features]
-sepolia = ["ismp-sync-committee/sepolia", "sync-committee-prover/sepolia"]
-mainnet = ["ismp-sync-committee/mainnet"]
 finality-events = []
 testing = []

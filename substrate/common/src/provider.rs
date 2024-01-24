@@ -24,14 +24,16 @@ use crate::{
 	SubstrateClient,
 };
 
-use crate::extrinsic::send_unsigned_extrinsic;
+use crate::extrinsic::{send_extrinsic, send_unsigned_extrinsic, InMemorySigner};
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use debounced::Debounced;
 use futures::StreamExt;
 use hex_literal::hex;
 use ismp::{
-	consensus::{ConsensusClientId, ConsensusStateId, StateMachineId},
+	consensus::{
+		ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId,
+	},
 	events::Event,
 	messaging::CreateConsensusState,
 };
@@ -40,13 +42,14 @@ use pallet_ismp::primitives::{LeafIndexQuery, SubstrateStateProof};
 use pallet_relayer_fees::withdrawal::Signature;
 use primitives::{BoxStream, IsmpHost, IsmpProvider, NonceProvider, Query, StateMachineUpdated};
 use sp_core::{
+	blake2_128,
 	storage::{StorageChangeSet, StorageKey},
 	Pair, H256,
 };
 use std::{collections::HashMap, time::Duration};
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
-	ext::sp_runtime::MultiSignature,
+	ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
 	rpc::Subscription,
 	rpc_params,
 };
@@ -78,16 +81,6 @@ where
 		let params = rpc_params![id];
 		let response =
 			self.client.rpc().request("ismp_queryStateMachineLatestHeight", params).await?;
-
-		Ok(response)
-	}
-
-	async fn query_latest_messaging_height(
-		&self,
-		id: StateMachineId,
-	) -> Result<u64, anyhow::Error> {
-		let params = rpc_params![id];
-		let response = self.client.rpc().request("ismp_queryLatestMessagingHeight", params).await?;
 
 		Ok(response)
 	}
@@ -280,6 +273,37 @@ where
 		message: CreateConsensusState,
 	) -> Result<(), Error> {
 		self.create_consensus_state(message).await?;
+		Ok(())
+	}
+
+	async fn query_state_machine_commitment(
+		&self,
+		height: StateMachineHeight,
+	) -> Result<StateCommitment, Error> {
+		let mut partial_key =
+			hex!("103895530afb23bb607661426d55eb8bf0f16a60fa21b8baaa82ee16ed43643d").to_vec();
+		let encoded_height = blake2_128(&height.encode());
+		partial_key.extend_from_slice(&encoded_height);
+		let response = self
+			.client
+			.rpc()
+			.storage(&partial_key, None)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to fetch state commitment"))?;
+		let commitment: StateCommitment = codec::Decode::decode(&mut response.0.as_slice())?;
+		Ok(commitment)
+	}
+
+	async fn freeze_state_machine(&self, id: StateMachineId) -> Result<(), Error> {
+		let signer = InMemorySigner {
+			account_id: MultiSigner::Sr25519(self.signer.public()).into_account().into(),
+			signer: self.signer.clone(),
+		};
+
+		let call = id.encode();
+		let call = Extrinsic::new("StateMachineManager", "freeze_state_machine", call);
+		let nonce = self.get_nonce().await?;
+		send_extrinsic(&self.client, signer, call, nonce).await?;
 		Ok(())
 	}
 }

@@ -52,6 +52,4 @@ hex = "0.4.3"
 dotenv = "0.15.0"
 
 [features]
-sepolia = ["ismp-sync-committee/sepolia"]
-mainnet = ["ismp-sync-committee/mainnet"]
 testing = []

@@ -82,7 +82,7 @@ impl IsmpHost for BnbPosHost {
 
 #[async_trait::async_trait]
 impl Reconnect for BnbPosHost {
-	async fn reconnect<C: IsmpProvider>(&mut self, _counterparty: &C) -> Result<(), anyhow::Error> {
+	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
 		let new_host = BnbPosHost::new(&self.config).await?;
 		*self = new_host;
 		Ok(())

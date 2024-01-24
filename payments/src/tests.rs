@@ -1,10 +1,11 @@
-use crate::{mock::MockHost, TransactionPayment};
+use crate::TransactionPayment;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
 	messaging::{Message, Proof, RequestMessage, ResponseMessage},
 	router::{Post, PostResponse, RequestResponse, Response},
 };
+use tesseract_primitives::mocks::MockHost;
 
 #[tokio::test]
 async fn transaction_payments_flow() {
@@ -78,8 +79,8 @@ async fn transaction_payments_flow() {
 		.create_claim_proof(
 			0,
 			0,
-			&MockHost::new(StateMachine::Bsc),
-			&MockHost::new(StateMachine::Polygon),
+			&MockHost::new((), 0, StateMachine::Bsc),
+			&MockHost::new((), 0, StateMachine::Polygon),
 		)
 		.await
 		.unwrap();

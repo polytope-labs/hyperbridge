@@ -8,7 +8,9 @@ use ismp::{
 use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
 use std::collections::BTreeMap;
 use sync_committee_primitives::{
-	consensus_types::Checkpoint, constants::Root, util::compute_sync_committee_period,
+	consensus_types::Checkpoint,
+	constants::{Config, Root},
+	util::compute_sync_committee_period,
 };
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
@@ -20,8 +22,8 @@ pub struct EventResponse {
 	pub execution_optimistic: bool,
 }
 
-pub async fn consensus_notification<C>(
-	client: &SyncCommitteeHost,
+pub async fn consensus_notification<C, T: Config + Send + Sync + 'static>(
+	client: &SyncCommitteeHost<T>,
 	counterparty: C,
 	checkpoint: Checkpoint,
 ) -> Result<Option<BeaconClientUpdate>, anyhow::Error>
@@ -39,7 +41,7 @@ where
 	// Do a sync check before returning any updates
 	let state_period = light_client_state.state_period;
 
-	let checkpoint_period = compute_sync_committee_period(checkpoint.epoch);
+	let checkpoint_period = compute_sync_committee_period::<T>(checkpoint.epoch);
 	if !(state_period..=(state_period + 1)).contains(&checkpoint_period) {
 		let mut next_period = state_period + 1;
 		loop {
@@ -67,7 +69,7 @@ where
 		light_client_state = consensus_state.light_client_state;
 	}
 	let execution_layer_height = counterparty.query_latest_height(state_machine_id).await? as u64;
-	let consensus_update = if let Some(update) = client
+	let update = client
 		.prover
 		.fetch_light_client_update(
 			light_client_state.clone(),
@@ -75,12 +77,8 @@ where
 			None,
 			"tesseract",
 		)
-		.await?
-	{
-		update
-	} else {
-		return Ok(None)
-	};
+		.await?;
+	let consensus_update = if let Some(update) = update { update } else { return Ok(None) };
 
 	if consensus_update.execution_payload.block_number <= execution_layer_height &&
 		consensus_update.sync_committee_update.is_none()

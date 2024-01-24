@@ -24,7 +24,6 @@ use primitive_types::H160;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tesseract_evm::{EvmClient, EvmConfig};
-use tesseract_primitives::IsmpProvider;
 
 mod byzantine;
 mod host;
@@ -39,12 +38,9 @@ pub struct PolygonPosConfig {
 
 impl PolygonPosConfig {
 	/// Convert the config into a client.
-	pub async fn into_client<C: IsmpProvider>(
-		self,
-		counterparty: &C,
-	) -> anyhow::Result<EvmClient<PolygonPosHost>> {
+	pub async fn into_client(self) -> anyhow::Result<EvmClient<PolygonPosHost>> {
 		let host = PolygonPosHost::new(&self).await?;
-		let client = EvmClient::new(host, self.evm_config, counterparty).await?;
+		let client = EvmClient::new(host, self.evm_config).await?;
 
 		Ok(client)
 	}

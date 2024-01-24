@@ -25,7 +25,6 @@ use primitive_types::H160;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tesseract_evm::{EvmClient, EvmConfig};
-use tesseract_primitives::IsmpProvider;
 
 mod byzantine;
 mod host;
@@ -40,12 +39,9 @@ pub struct BnbPosConfig {
 
 impl BnbPosConfig {
 	/// Convert the config into a client.
-	pub async fn into_client<C: IsmpProvider>(
-		self,
-		counterparty: &C,
-	) -> anyhow::Result<EvmClient<BnbPosHost>> {
+	pub async fn into_client(self) -> anyhow::Result<EvmClient<BnbPosHost>> {
 		let host = BnbPosHost::new(&self).await?;
-		let client = EvmClient::new(host, self.evm_config, counterparty).await?;
+		let client = EvmClient::new(host, self.evm_config).await?;
 
 		Ok(client)
 	}

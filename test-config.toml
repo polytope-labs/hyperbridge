@@ -11,7 +11,7 @@ epoch_length = 600
 signer = "e5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a"
 
 [ethereum]
-type = "ethereum"
+type = "ethereum_sepolia"
 state_machine = { Ethereum = "ExecutionLayer" }
 beacon_http_url = "https://127.0.0.1:443"
 execution_ws = "wss://127.0.0.1:7000"
@@ -45,5 +45,6 @@ gas_limit = 10000000
 [relayer]
 consensus = false
 messaging = true
+fisherman = false
 router = { Kusama = 4296 }
 module_filter = []

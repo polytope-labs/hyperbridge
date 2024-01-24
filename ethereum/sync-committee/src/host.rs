@@ -18,6 +18,7 @@ use crate::SyncCommitteeHost;
 use codec::Encode;
 use ismp::messaging::{ConsensusMessage, CreateConsensusState};
 use primitive_types::H160;
+use sync_committee_primitives::constants::Config;
 
 use crate::notification::consensus_notification;
 use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider, Reconnect};
@@ -25,7 +26,7 @@ use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider, Reconnect};
 // todo: Figure out the issue with the stream
 #[cfg(feature = "finality-events")]
 #[async_trait::async_trait]
-impl IsmpHost for SyncCommitteeHost {
+impl<T: Config + Send + Sync> IsmpHost for SyncCommitteeHost<T> {
 	async fn consensus_notification<C>(
 		&self,
 		counterparty: C,
@@ -146,7 +147,7 @@ impl IsmpHost for SyncCommitteeHost {
 
 #[cfg(not(feature = "finality-events"))]
 #[async_trait::async_trait]
-impl IsmpHost for SyncCommitteeHost {
+impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 	async fn consensus_notification<C>(
 		&self,
 		counterparty: C,
@@ -226,17 +227,17 @@ impl IsmpHost for SyncCommitteeHost {
 }
 
 #[async_trait::async_trait]
-impl Reconnect for SyncCommitteeHost {
-	async fn reconnect<C: IsmpProvider>(&mut self, counterparty: &C) -> Result<(), anyhow::Error> {
+impl<T: Config + Send + Sync + 'static> Reconnect for SyncCommitteeHost<T> {
+	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
 		if let Some(arb_client) = self.arbitrum_client.as_mut() {
-			arb_client.reconnect(counterparty).await?;
+			arb_client.reconnect().await?;
 		}
 		if let Some(base_client) = self.base_client.as_mut() {
-			base_client.reconnect(counterparty).await?;
+			base_client.reconnect().await?;
 		}
 
 		if let Some(op_client) = self.optimism_client.as_mut() {
-			op_client.reconnect(counterparty).await?;
+			op_client.reconnect().await?;
 		}
 		Ok(())
 	}

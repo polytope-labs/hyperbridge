@@ -19,3 +19,7 @@ parity-scale-codec = "3.2.2"
 
 pallet-relayer-fees.workspace = true
 ismp.workspace = true
+
+
+[features]
+testing = []

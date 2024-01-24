@@ -1,24 +1,58 @@
 use crate::arbitrum::client::ArbHost;
 use anyhow::{anyhow, Error};
+use codec::{Decode, Encode};
+use ethers::prelude::Middleware;
 use futures::stream;
-use ismp::{events::StateMachineUpdated, messaging::CreateConsensusState};
+use geth_primitives::CodecHeader;
+use ismp::{
+	consensus::{StateMachineHeight, StateMachineId},
+	events::StateMachineUpdated,
+	messaging::{ConsensusMessage, CreateConsensusState},
+};
 use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, Reconnect};
 
 #[async_trait::async_trait]
 impl ByzantineHandler for ArbHost {
 	async fn query_consensus_message(
 		&self,
-		_challenge_event: StateMachineUpdated,
-	) -> Result<ismp::messaging::ConsensusMessage, anyhow::Error> {
-		Err(anyhow!("No consensus messages"))
+		event: StateMachineUpdated,
+	) -> Result<ConsensusMessage, anyhow::Error> {
+		let header: CodecHeader = self
+			.arb_execution_client
+			.get_block(event.latest_height)
+			.await?
+			.ok_or_else(|| anyhow!("Header should be available"))?
+			.into();
+		Ok(ConsensusMessage {
+			consensus_proof: header.encode(),
+			consensus_state_id: self.consensus_state_id,
+		})
 	}
 
-	async fn check_for_byzantine_attack<T: IsmpHost>(
+	async fn check_for_byzantine_attack<C: IsmpHost + IsmpProvider>(
 		&self,
-		_counterparty: &T,
-		_consensus_message: ismp::messaging::ConsensusMessage,
+		counterparty: &C,
+		consensus_message: ConsensusMessage,
 	) -> Result<(), anyhow::Error> {
-		Err(anyhow!("No byzantine faults"))
+		let header = CodecHeader::decode(&mut &*consensus_message.consensus_proof)?;
+		let height = StateMachineHeight {
+			id: StateMachineId {
+				state_id: self.config.state_machine(),
+				consensus_state_id: self.consensus_state_id,
+			},
+			height: header.number.low_u64(),
+		};
+		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
+		if state_machine_commitment.state_root != header.state_root {
+			// Submit Freeze message
+			log::info!(
+				"Freezing {:?} on {:?}",
+				self.config.state_machine(),
+				counterparty.state_machine_id().state_id
+			);
+			counterparty.freeze_state_machine(height.id).await?;
+		}
+		Ok(())
 	}
 }
 
@@ -41,7 +75,7 @@ impl IsmpHost for ArbHost {
 
 #[async_trait::async_trait]
 impl Reconnect for ArbHost {
-	async fn reconnect<C: IsmpProvider>(&mut self, _counterparty: &C) -> Result<(), anyhow::Error> {
+	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
 		let new_host = ArbHost::new(&self.config).await?;
 		*self = new_host;
 		Ok(())

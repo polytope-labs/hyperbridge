@@ -15,13 +15,15 @@
 
 //! Traits and types required to compose the tesseract relayer
 pub mod config;
+#[cfg(feature = "testing")]
+pub mod mocks;
 pub mod queue;
 
 use anyhow::anyhow;
 use futures::Stream;
 pub use ismp::events::StateMachineUpdated;
 use ismp::{
-	consensus::{ConsensusStateId, StateMachineId},
+	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::Event,
 	host::StateMachine,
 	messaging::{ConsensusMessage, CreateConsensusState, Message},
@@ -57,9 +59,11 @@ pub trait IsmpProvider: Reconnect {
 	/// Query the latest height at which some state machine was last updated
 	async fn query_latest_height(&self, id: StateMachineId) -> Result<u32, anyhow::Error>;
 
-	/// Query the height at which a message was last processed for the provided state machine
-	async fn query_latest_messaging_height(&self, id: StateMachineId)
-		-> Result<u64, anyhow::Error>;
+	/// Query the State machine commitment at the provided height
+	async fn query_state_machine_commitment(
+		&self,
+		height: StateMachineHeight,
+	) -> Result<StateCommitment, anyhow::Error>;
 
 	/// Query the timestamp at which the client was last updated
 	async fn query_consensus_update_time(
@@ -166,6 +170,9 @@ pub trait IsmpProvider: Reconnect {
 		&self,
 		message: CreateConsensusState,
 	) -> Result<(), anyhow::Error>;
+
+	/// Temporary: Submit a message to freeze the State Machine
+	async fn freeze_state_machine(&self, id: StateMachineId) -> Result<(), anyhow::Error>;
 }
 
 /// Provides an interface for handling byzantine behaviour. Implementations of this should watch for
@@ -180,7 +187,7 @@ pub trait ByzantineHandler {
 	) -> Result<ConsensusMessage, anyhow::Error>;
 
 	/// Check the client message for byzantine behaviour and submit it to the chain if any.
-	async fn check_for_byzantine_attack<C: IsmpHost>(
+	async fn check_for_byzantine_attack<C: IsmpHost + IsmpProvider>(
 		&self,
 		counterparty: &C,
 		consensus_message: ConsensusMessage,
@@ -208,7 +215,7 @@ pub trait IsmpHost: ByzantineHandler + Reconnect + Clone + Send + Sync {
 #[async_trait::async_trait]
 pub trait Reconnect: Clone + Send + Sync {
 	/// Recreate all underline network connections
-	async fn reconnect<C: IsmpProvider>(&mut self, counterparty: &C) -> Result<(), anyhow::Error>;
+	async fn reconnect(&mut self) -> Result<(), anyhow::Error>;
 }
 
 #[async_trait::async_trait]
@@ -266,7 +273,7 @@ pub async fn reconnect_with_exponential_back_off<
 	};
 	for _ in 0..reconnects {
 		// If backoff is more than 512 seconds reset backoff
-		if let Ok(()) = chain.reconnect(counterparty).await {
+		if let Ok(()) = chain.reconnect().await {
 			if let Some(old_stream) = state_machine_stream.as_mut() {
 				if let Ok(stream) =
 					chain.state_machine_update_notification(counterparty.state_machine_id()).await

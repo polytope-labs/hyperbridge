@@ -84,7 +84,7 @@ impl IsmpHost for PolygonPosHost {
 
 #[async_trait::async_trait]
 impl Reconnect for PolygonPosHost {
-	async fn reconnect<C: IsmpProvider>(&mut self, _counterparty: &C) -> Result<(), anyhow::Error> {
+	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
 		let new_host = PolygonPosHost::new(&self.config).await?;
 		*self = new_host;
 		Ok(())

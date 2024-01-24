@@ -20,8 +20,9 @@ use pallet_ismp::primitives::HashAlgorithm;
 use std::collections::HashMap;
 // use grandpa::{GrandpaConfig, GrandpaHost};
 use ismp::host::StateMachine;
+use ismp_sync_committee::constants::{mainnet::Mainnet, sepolia::Sepolia};
 use parachain::ParachainHost;
-use primitives::{config::RelayerConfig, IsmpProvider};
+use primitives::config::RelayerConfig;
 use serde::{Deserialize, Serialize};
 use tesseract_beefy::BeefyConfig;
 use tesseract_bnb_pos::{BnbPosConfig, BnbPosHost};
@@ -44,7 +45,8 @@ type Parachain<T> = SubstrateClient<ParachainHost, T>;
 crate::chain! {
 	KeccakParachain(SubstrateConfig, Parachain<KeccakSubstrateChain>),
 	Parachain(SubstrateConfig, Parachain<Blake2SubstrateChain>),
-	Ethereum(SyncCommitteeConfig, EvmClient<SyncCommitteeHost>),
+	EthereumSepolia(SyncCommitteeConfig, EvmClient<SyncCommitteeHost<Sepolia>>),
+	EthereumMainnet(SyncCommitteeConfig, EvmClient<SyncCommitteeHost<Mainnet>>),
 	Arbitrum(ArbConfig, EvmClient<ArbHost>),
 	Optimism(OpConfig, EvmClient<OpHost>),
 	Base(OpConfig, EvmClient<OpHost>),
@@ -100,10 +102,7 @@ impl HyperbridgeConfig {
 
 impl AnyConfig {
 	/// Convert the [`HyperbridgeConfig`] into an implementation of an [`IsmpHost`]
-	pub async fn into_client<C: IsmpProvider>(
-		self,
-		counterparty: &C,
-	) -> Result<AnyClient, anyhow::Error> {
+	pub async fn into_client(self) -> Result<AnyClient, anyhow::Error> {
 		let client = match self {
 			AnyConfig::KeccakParachain(config) | AnyConfig::Parachain(config) => {
 				match config.hashing {
@@ -117,34 +116,39 @@ impl AnyConfig {
 					},
 				}
 			},
-			AnyConfig::Ethereum(config) => {
+			AnyConfig::EthereumSepolia(config) => {
 				let host = SyncCommitteeHost::new(&config).await?;
-				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
-				AnyClient::Ethereum(client)
+				let client = EvmClient::new(host, config.evm_config).await?;
+				AnyClient::EthereumSepolia(client)
+			},
+			AnyConfig::EthereumMainnet(config) => {
+				let host = SyncCommitteeHost::new(&config).await?;
+				let client = EvmClient::new(host, config.evm_config).await?;
+				AnyClient::EthereumMainnet(client)
 			},
 			AnyConfig::Arbitrum(config) => {
 				let host = ArbHost::new(&config).await?;
-				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
+				let client = EvmClient::new(host, config.evm_config).await?;
 				AnyClient::Arbitrum(client)
 			},
 			AnyConfig::Optimism(config) => {
 				let host = OpHost::new(&config).await?;
-				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
+				let client = EvmClient::new(host, config.evm_config).await?;
 				AnyClient::Optimism(client)
 			},
 			AnyConfig::Base(config) => {
 				let host = OpHost::new(&config).await?;
-				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
+				let client = EvmClient::new(host, config.evm_config).await?;
 				AnyClient::Base(client)
 			},
 			AnyConfig::Polygon(config) => {
 				let host = PolygonPosHost::new(&config).await?;
-				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
+				let client = EvmClient::new(host, config.evm_config).await?;
 				AnyClient::Polygon(client)
 			},
 			AnyConfig::Bsc(config) => {
 				let host = BnbPosHost::new(&config).await?;
-				let client = EvmClient::new(host, config.evm_config, counterparty).await?;
+				let client = EvmClient::new(host, config.evm_config).await?;
 				AnyClient::Bsc(client)
 			}, /* AnyConfig::Polkadot(config) => {
 			    *     let naive = GrandpaHost::new(&config).await?;

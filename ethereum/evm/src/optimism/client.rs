@@ -6,12 +6,11 @@ use ethers::{
 	providers::{Middleware, Ws},
 	types::H160,
 };
-use ismp::host::StateMachine;
+use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use ismp_sync_committee::{optimism::OptimismPayloadProof, presets::L2_OUTPUTS_SLOT};
 use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
 use std::sync::Arc;
-use tesseract_primitives::IsmpProvider;
 
 use crate::abi::l2_output_oracle::*;
 
@@ -30,12 +29,9 @@ pub struct OpConfig {
 
 impl OpConfig {
 	/// Convert the config into a client.
-	pub async fn into_client<C: IsmpProvider>(
-		self,
-		counterparty: &C,
-	) -> anyhow::Result<EvmClient<OpHost>> {
+	pub async fn into_client(self) -> anyhow::Result<EvmClient<OpHost>> {
 		let host = OpHost::new(&self).await?;
-		let client = EvmClient::new(host, self.evm_config, counterparty).await?;
+		let client = EvmClient::new(host, self.evm_config).await?;
 
 		Ok(client)
 	}
@@ -57,6 +53,8 @@ pub struct OpHost {
 	pub(crate) message_parser: H160,
 	/// Config
 	pub config: OpConfig,
+	/// Consensus state id
+	pub consensus_state_id: ConsensusStateId,
 }
 
 pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
@@ -86,6 +84,11 @@ impl OpHost {
 			l2_oracle: config.l2_oracle,
 			message_parser: config.message_parser,
 			config: config.clone(),
+			consensus_state_id: {
+				let mut consensus_state_id: ConsensusStateId = Default::default();
+				consensus_state_id.copy_from_slice(config.evm_config.consensus_state_id.as_bytes());
+				consensus_state_id
+			},
 		})
 	}
 

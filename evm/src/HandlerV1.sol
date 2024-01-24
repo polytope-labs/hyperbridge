@@ -49,7 +49,6 @@ contract HandlerV1 is IHandler, Context {
      */
     function handleConsensus(IIsmpHost host, bytes memory proof) external notFrozen(host) {
         uint256 delay = host.timestamp() - host.consensusUpdateTime();
-        require(delay > host.challengePeriod(), "IHandler: still in challenge period");
 
         // not today, time traveling validators
         require(delay < host.unStakingPeriod() || _msgSender() == host.admin(), "IHandler: still in challenge period");

@@ -557,6 +557,7 @@ construct_runtime!(
         IsmpDemo: ismp_demo = 42,
         RelayerFees: pallet_relayer_fees = 43,
         IsmpPolygonPos: ismp_polygon_pos::pallet = 44,
+        StateMachineManager: state_machine_manager = 45,
     }
 );
 

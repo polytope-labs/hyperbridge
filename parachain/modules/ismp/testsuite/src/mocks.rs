@@ -163,8 +163,9 @@ impl IsmpHost for Host {
     }
 
     fn is_state_machine_frozen(&self, machine: StateMachineId) -> Result<(), Error> {
-        let val = self.frozen_state_machines.borrow().get(&machine.id).unwrap_or(&false);
-        if val {
+        let binding = self.frozen_state_machines.borrow();
+        let val = binding.get(&machine).unwrap_or(&false);
+        if *val {
             Err(Error::FrozenStateMachine { id: machine })?;
         }
 
@@ -255,13 +256,13 @@ impl IsmpHost for Host {
         Ok(())
     }
 
-    fn freeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error> {
-        self.frozen_state_machines.borrow_mut().insert(height.id, height);
+    fn freeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
+        self.frozen_state_machines.borrow_mut().insert(state_machine, true);
         Ok(())
     }
 
-    fn unfreeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error> {
-        self.frozen_state_machines.borrow_mut().remove(&height.id);
+    fn unfreeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
+        self.frozen_state_machines.borrow_mut().remove(&state_machine);
         Ok(())
     }
 

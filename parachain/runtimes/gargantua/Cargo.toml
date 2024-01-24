@@ -143,7 +143,8 @@ std = [
 	"sp-genesis-builder/std",
 	"ismp-bnb-pos/std",
 	"ismp-polygon-pos/std",
-	"pallet-relayer-fees/std"
+	"pallet-relayer-fees/std",
+	"state-machine-manager/std"
 ]
 
 runtime-benchmarks = [

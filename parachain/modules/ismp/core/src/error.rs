@@ -16,7 +16,7 @@
 //! ISMP error definitions
 
 use crate::{
-    consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight},
+    consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight, StateMachineId},
     host::StateMachine,
 };
 use alloc::{string::String, vec::Vec};
@@ -58,8 +58,8 @@ pub enum Error {
     },
     /// The given state machine has been frozen
     FrozenStateMachine {
-        /// The given state machine height
-        height: StateMachineHeight,
+        /// The given state machine id
+        id: StateMachineId,
     },
     /// The given request was not found
     RequestCommitmentNotFound {

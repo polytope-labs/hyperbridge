@@ -116,7 +116,7 @@ where
     host.is_consensus_client_frozen(proof_height.id.consensus_state_id)?;
 
     // Ensure state machine is not frozen
-    host.is_state_machine_frozen(proof_height)?;
+    host.is_state_machine_frozen(proof_height.id)?;
 
     // Ensure delay period has elapsed
     if !verify_delay_passed(host, &proof_height)? {

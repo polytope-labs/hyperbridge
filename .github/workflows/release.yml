@@ -38,13 +38,14 @@ permissions:
 # will be marked as a prerelease.
 on:
   push:
+    branches: ['seun/automated-releases']
     tags:
       - '**[0-9]+.[0-9]+.[0-9]+*'
 
 jobs:
   # Run 'cargo dist plan' to determine what tasks we need to do
   plan:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
       tag: ${{ !github.event.pull_request && github.ref_name || '' }}
@@ -187,7 +188,7 @@ jobs:
       - upload-local-artifacts
       - upload-global-artifacts
     if: ${{ needs.plan.outputs.publishing == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: print tag
         run: echo "ok we're publishing!"
@@ -229,7 +230,7 @@ jobs:
   # Create a Github Release with all the results once everything is done
   publish-release:
     needs: [plan, should-publish]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:

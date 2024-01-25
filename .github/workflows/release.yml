@@ -38,7 +38,6 @@ permissions:
 # will be marked as a prerelease.
 on:
   push:
-    branches: ['seun/automated-releases']
     tags:
       - '**[0-9]+.[0-9]+.[0-9]+*'
 

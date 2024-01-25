@@ -109,7 +109,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: swatinem/rust-cache@v2
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
+
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          rustup target add wasm32-unknown-unknown --toolchain nightly
+          rustup component add rust-src
+
       - name: Install cargo-dist
         run: ${{ matrix.install_dist }}
       # Get the dist-manifest
@@ -124,7 +134,7 @@ jobs:
       - name: Build artifacts
         run: |
           # Actually do builds and make zips and whatnot
-          cargo dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
+          ./scripts/ignore_plonk.sh "cargo dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json"
           echo "cargo dist ran successfully"
       - id: cargo-dist
         name: Post-build

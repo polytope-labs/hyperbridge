@@ -111,7 +111,7 @@ pub mod benchmarks {
             nonce: 0,
             from: MODULE_ID.to_bytes(),
             to: MODULE_ID.to_bytes(),
-            timeout_timestamp: 5000,
+            timeout_timestamp: 2_000_000_000,
             data: "handle_request_message".as_bytes().to_vec(),
             gas_limit: 0,
         };
@@ -140,7 +140,7 @@ pub mod benchmarks {
             nonce: 0,
             from: MODULE_ID.to_bytes(),
             to: MODULE_ID.to_bytes(),
-            timeout_timestamp: 5000,
+            timeout_timestamp: 2_000_000_0000,
             data: "handle_response_message".as_bytes().to_vec(),
             gas_limit: 0,
         };

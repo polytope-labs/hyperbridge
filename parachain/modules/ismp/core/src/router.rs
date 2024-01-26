@@ -76,6 +76,23 @@ pub struct Get {
     pub gas_limit: u64,
 }
 
+impl Get {
+    /// Get the timeout for this request
+    pub fn timeout(&self) -> Duration {
+        get_timeout(self.timeout_timestamp)
+    }
+}
+
+/// Get the timeout in seconds
+fn get_timeout(timeout_timestamp: u64) -> Duration {
+    // zero timeout means no timeout.
+    if timeout_timestamp == 0 {
+        Duration::from_secs(u64::MAX)
+    } else {
+        Duration::from_secs(timeout_timestamp)
+    }
+}
+
 /// The ISMP request.
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo, derive_more::From)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
@@ -151,13 +168,7 @@ impl Request {
             Request::Post(post) => post.timeout_timestamp,
             Request::Get(get) => get.timeout_timestamp,
         };
-
-        // zero timeout means no timeout.
-        if timeout == 0 {
-            Duration::from_secs(u64::MAX)
-        } else {
-            Duration::from_secs(timeout)
-        }
+        get_timeout(timeout)
     }
 
     /// Returns true if the destination chain timestamp has exceeded the request timeout timestamp
@@ -230,11 +241,12 @@ impl PostResponse {
 
     /// Get the request nonce
     pub fn timeout(&self) -> Duration {
-        if self.timeout_timestamp == 0 {
-            Duration::from_secs(u64::MAX)
-        } else {
-            Duration::from_secs(self.timeout_timestamp)
-        }
+        get_timeout(self.timeout_timestamp)
+    }
+
+    /// Returns true if the destination chain timestamp has exceeded the response timeout timestamp
+    pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
+        proof_timestamp >= self.timeout()
     }
 }
 
@@ -296,6 +308,14 @@ impl Response {
         match self {
             Response::Get(res) => res.get.nonce,
             Response::Post(res) => res.post.nonce,
+        }
+    }
+
+    /// Returns true if the destination chain timestamp has exceeded the response timeout timestamp
+    pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
+        match self {
+            Response::Get(res) => proof_timestamp >= res.get.timeout(),
+            Response::Post(res) => proof_timestamp >= res.timeout(),
         }
     }
 }

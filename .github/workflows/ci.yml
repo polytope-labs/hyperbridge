@@ -41,11 +41,11 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
+          toolchain: stable
 
       - uses: Swatinem/rust-cache@v2
       - run: |
-          rustup target add wasm32-unknown-unknown --toolchain nightly
+          rustup target add wasm32-unknown-unknown
           rustup component add rust-src
 
       - uses: webfactory/ssh-agent@v0.7.0
@@ -54,7 +54,7 @@ jobs:
 
       - name: check no-std
         run: |
-          cargo +nightly check -p ${{ matrix.crate }} --no-default-features --target=wasm32-unknown-unknown --locked
+          cargo check -p ${{ matrix.crate }} --no-default-features --target=wasm32-unknown-unknown --locked
 
   check-workspace:
     name: Check Workspace

@@ -45,7 +45,8 @@ where
                     let request = response.request();
                     let commitment = hash_request::<H>(&request);
                     host.request_commitment(commitment).is_ok() &&
-                        host.response_receipt(&response).is_none()
+                        host.response_receipt(&response).is_none() &&
+                        !response.timed_out(host.timestamp())
                 })
                 .cloned()
                 .collect::<Vec<_>>();
@@ -86,6 +87,7 @@ where
         RequestResponse::Request(requests) => {
             let requests = requests
                 .into_iter()
+                .filter(|req| !req.timed_out(host.timestamp()))
                 .filter_map(|req| match req {
                     Request::Post(_) => None,
                     Request::Get(get) => {

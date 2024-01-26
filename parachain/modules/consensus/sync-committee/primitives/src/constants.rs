@@ -139,7 +139,7 @@ pub mod devnet {
     pub struct Devnet;
 
     impl Config for Devnet {
-        const SLOTS_PER_EPOCH: Slot = 6;
+        const SLOTS_PER_EPOCH: Slot = 32;
         const GENESIS_VALIDATORS_ROOT: [u8; 32] =
             hex_literal::hex!("83431ec7fcf92cfc44947fc0418e831c25e1d0806590231c439830db7ad54fda");
         const BELLATRIX_FORK_VERSION: Version = hex!("52525502");

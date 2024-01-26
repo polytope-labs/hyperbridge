@@ -53,7 +53,7 @@ where
         .filter(|req| {
             let req = Request::Post(req.clone());
             host.request_receipt(&req).is_none() &&
-                !req.timed_out(state.timestamp()) &&
+                !req.timed_out(host.timestamp()) &&
                 check_source(req.source_chain())
         })
         .map(|request| {

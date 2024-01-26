@@ -40,7 +40,7 @@ impl PolygonPosConfig {
 	/// Convert the config into a client.
 	pub async fn into_client(self) -> anyhow::Result<EvmClient<PolygonPosHost>> {
 		let host = PolygonPosHost::new(&self).await?;
-		let client = EvmClient::new(host, self.evm_config).await?;
+		let client = EvmClient::new(Some(host), self.evm_config).await?;
 
 		Ok(client)
 	}

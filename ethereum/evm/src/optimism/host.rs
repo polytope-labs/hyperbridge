@@ -37,7 +37,7 @@ impl ByzantineHandler for OpHost {
 		let header = CodecHeader::decode(&mut &*consensus_message.consensus_proof)?;
 		let height = StateMachineHeight {
 			id: StateMachineId {
-				state_id: self.config.state_machine(),
+				state_id: self.evm.state_machine,
 				consensus_state_id: self.consensus_state_id,
 			},
 			height: header.number.low_u64(),
@@ -47,7 +47,7 @@ impl ByzantineHandler for OpHost {
 			// Submit Freeze message
 			log::info!(
 				"Freezing {:?} on {:?}",
-				self.config.state_machine(),
+				self.evm.state_machine,
 				counterparty.state_machine_id().state_id
 			);
 			counterparty.freeze_state_machine(height.id).await?;
@@ -76,7 +76,7 @@ impl IsmpHost for OpHost {
 #[async_trait::async_trait]
 impl Reconnect for OpHost {
 	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
-		let new_host = OpHost::new(&self.config).await?;
+		let new_host = OpHost::new(&self.host, &self.evm).await?;
 		*self = new_host;
 		Ok(())
 	}

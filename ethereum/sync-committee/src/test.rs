@@ -1,4 +1,4 @@
-use crate::{SyncCommitteeConfig, SyncCommitteeHost};
+use crate::{HostConfig, SyncCommitteeHost};
 use codec::Decode;
 use futures::StreamExt;
 use ismp::host::{Ethereum, StateMachine};
@@ -7,9 +7,9 @@ use ismp_sync_committee::{
 };
 use sync_committee_primitives::constants::sepolia::Sepolia;
 use tesseract_evm::{
-	arbitrum::client::{ArbConfig, ArbHost},
+	arbitrum::client::{ArbHost, HostConfig as ArbHostConfig},
 	mock::Host,
-	optimism::client::{OpConfig, OpHost},
+	optimism::client::{HostConfig as OpHostConfig, OpHost},
 	EvmClient, EvmConfig,
 };
 use tesseract_primitives::{mocks::MockHost, IsmpHost};
@@ -45,11 +45,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 			gas_limit: 30_000_000, // 30m
 		};
 
-		let sync_commitee_config = SyncCommitteeConfig {
-			beacon_http_url: beacon_url,
-			evm_config: config.clone(),
-			consensus_update_frequency: 180,
-		};
+		let host = HostConfig { beacon_http_url: beacon_url, consensus_update_frequency: 180 };
 		let arb_host = {
 			let config = EvmConfig {
 				execution_ws: arb_orl,
@@ -63,13 +59,15 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				gas_limit: 30_000_000, // 30m
 			};
 
-			ArbHost::new(&ArbConfig {
-				beacon_execution_ws: geth_url.clone(),
-				rollup_core: sp_core::H160::from(hex_literal::hex!(
-					"45e5cAea8768F42B385A366D3551Ad1e0cbFAb17"
-				)),
-				evm_config: config.clone(),
-			})
+			ArbHost::new(
+				&ArbHostConfig {
+					beacon_execution_ws: geth_url.clone(),
+					rollup_core: sp_core::H160::from(hex_literal::hex!(
+						"45e5cAea8768F42B385A366D3551Ad1e0cbFAb17"
+					)),
+				},
+				&config,
+			)
 			.await?
 		};
 
@@ -86,16 +84,18 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				gas_limit: 30_000_000, // 30m
 			};
 
-			OpHost::new(&OpConfig {
-				beacon_execution_ws: geth_url.clone(),
-				l2_oracle: sp_core::H160::from(hex_literal::hex!(
-					"E6Dfba0953616Bacab0c9A8ecb3a9BBa77FC15c0"
-				)),
-				message_parser: sp_core::H160::from(hex_literal::hex!(
-					"4200000000000000000000000000000000000016"
-				)),
-				evm_config: config.clone(),
-			})
+			OpHost::new(
+				&OpHostConfig {
+					beacon_execution_ws: geth_url.clone(),
+					l2_oracle: sp_core::H160::from(hex_literal::hex!(
+						"E6Dfba0953616Bacab0c9A8ecb3a9BBa77FC15c0"
+					)),
+					message_parser: sp_core::H160::from(hex_literal::hex!(
+						"4200000000000000000000000000000000000016"
+					)),
+				},
+				&config,
+			)
 			.await?
 		};
 
@@ -112,24 +112,26 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				gas_limit: 30_000_000, // 30m
 			};
 
-			OpHost::new(&OpConfig {
-				beacon_execution_ws: geth_url,
-				l2_oracle: sp_core::H160::from(hex_literal::hex!(
-					"2A35891ff30313CcFa6CE88dcf3858bb075A2298"
-				)),
-				message_parser: sp_core::H160::from(hex_literal::hex!(
-					"4200000000000000000000000000000000000016"
-				)),
-				evm_config: config.clone(),
-			})
+			OpHost::new(
+				&OpHostConfig {
+					beacon_execution_ws: geth_url,
+					l2_oracle: sp_core::H160::from(hex_literal::hex!(
+						"2A35891ff30313CcFa6CE88dcf3858bb075A2298"
+					)),
+					message_parser: sp_core::H160::from(hex_literal::hex!(
+						"4200000000000000000000000000000000000016"
+					)),
+				},
+				&config,
+			)
 			.await?
 		};
 
-		let mut host = SyncCommitteeHost::<Sepolia>::new(&sync_commitee_config).await?;
+		let mut host = SyncCommitteeHost::<Sepolia>::new(&host, &config).await?;
 		host.set_arb_host(arb_host);
 		host.set_op_host(op_host);
 		host.set_base_host(base_host);
-		EvmClient::new(host, config).await?
+		EvmClient::new(Some(host), config).await?
 	};
 
 	let mut consensus_stream = chain_b.consensus_notification(chain_a.clone()).await.unwrap();

@@ -1,6 +1,6 @@
 use crate::{
 	mock::Host,
-	optimism::client::{OpConfig, OpHost},
+	optimism::client::{HostConfig, OpConfig, OpHost},
 	EvmConfig,
 };
 use ethabi::ethereum_types::H160;
@@ -17,14 +17,17 @@ async fn test_payload_proof_verification() {
 	dotenv::dotenv().ok();
 	let op_orl = std::env::var("OP_URL").expect("OP_URL must be set.");
 	let geth_url = std::env::var("GETH_URL").expect("GETH_URL must be set.");
-	let config = OpConfig {
+	let host = HostConfig {
 		beacon_execution_ws: geth_url,
 		l2_oracle: H160::from(L2_ORACLE),
 		message_parser: H160::from(MESSAGE_PARSER),
+	};
+	let config = OpConfig {
+		host: Some(host.clone()),
 		evm_config: EvmConfig { execution_ws: op_orl, ..Default::default() },
 	};
 
-	let op_client = OpHost::new(&config).await.expect("Host creation failed");
+	let op_client = OpHost::new(&host, &config.evm_config).await.expect("Host creation failed");
 
 	let event = op_client
 		.latest_event(9779635, 9779635)

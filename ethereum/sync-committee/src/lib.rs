@@ -36,11 +36,18 @@ mod test;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncCommitteeConfig {
-	/// Http url for a beacon client
-	pub beacon_http_url: String,
+	/// Host config
+	pub host: Option<HostConfig>,
 	/// General ethereum config
 	#[serde[flatten]]
 	pub evm_config: EvmConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostConfig {
+	/// Http url for a beacon client
+	pub beacon_http_url: String,
+
 	/// Interval in seconds at which consensus updates should happen
 	pub consensus_update_frequency: u64,
 }
@@ -50,7 +57,11 @@ impl SyncCommitteeConfig {
 	pub async fn into_client<T: Config + Send + Sync + 'static>(
 		self,
 	) -> anyhow::Result<EvmClient<SyncCommitteeHost<T>>> {
-		let host = SyncCommitteeHost::new(&self).await?;
+		let host = if let Some(host) = self.host {
+			Some(SyncCommitteeHost::new(&host, &self.evm_config).await?)
+		} else {
+			None
+		};
 		let client = EvmClient::new(host, self.evm_config).await?;
 
 		Ok(client)
@@ -78,31 +89,30 @@ pub struct SyncCommitteeHost<C: Config> {
 	pub beacon_node_rpc: String,
 	/// Interval in seconds at which consensus updates should happen
 	pub consensus_update_frequency: Duration,
-	/// Config
-	pub config: SyncCommitteeConfig,
+
+	pub evm: EvmConfig,
 	/// Eth L1 execution client
 	pub el: Arc<Provider<Ws>>,
 }
 
 impl<C: Config> SyncCommitteeHost<C> {
-	pub async fn new(config: &SyncCommitteeConfig) -> Result<Self, anyhow::Error> {
-		let prover = SyncCommitteeProver::new(config.beacon_http_url.clone());
-		let el =
-			Provider::<Ws>::connect_with_reconnects(&config.evm_config.execution_ws, 1000).await?;
+	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
+		let prover = SyncCommitteeProver::new(host.beacon_http_url.clone());
+		let el = Provider::<Ws>::connect_with_reconnects(&evm.execution_ws, 1000).await?;
 		Ok(Self {
 			consensus_state_id: {
 				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(config.evm_config.consensus_state_id.as_bytes());
+				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
 				consensus_state_id
 			},
-			state_machine: config.evm_config.state_machine,
+			state_machine: evm.state_machine,
 			arbitrum_client: None,
 			optimism_client: None,
 			base_client: None,
 			prover,
-			beacon_node_rpc: config.beacon_http_url.clone(),
-			consensus_update_frequency: Duration::from_secs(config.consensus_update_frequency),
-			config: config.clone(),
+			evm: evm.clone(),
+			beacon_node_rpc: host.beacon_http_url.clone(),
+			consensus_update_frequency: Duration::from_secs(host.consensus_update_frequency),
 			el: Arc::new(el),
 		})
 	}
@@ -178,7 +188,7 @@ impl<C: Config> Clone for SyncCommitteeHost<C> {
 			prover: self.prover.clone(),
 			beacon_node_rpc: self.beacon_node_rpc.clone(),
 			consensus_update_frequency: self.consensus_update_frequency,
-			config: self.config.clone(),
+			evm: self.evm.clone(),
 			el: self.el.clone(),
 		}
 	}

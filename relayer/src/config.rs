@@ -108,47 +108,67 @@ impl AnyConfig {
 				match config.hashing {
 					HashAlgorithm::Keccak => {
 						let host = ParachainHost::default();
-						AnyClient::KeccakParachain(Parachain::new(host, config).await?)
+						AnyClient::KeccakParachain(Parachain::new(Some(host), config).await?)
 					},
 					HashAlgorithm::Blake2 => {
 						let host = ParachainHost::default();
-						AnyClient::Parachain(Parachain::new(host, config).await?)
+						AnyClient::Parachain(Parachain::new(Some(host), config).await?)
 					},
 				}
 			},
 			AnyConfig::EthereumSepolia(config) => {
-				let host = SyncCommitteeHost::new(&config).await?;
+				let host = if let Some(ref host) = config.host {
+					Some(SyncCommitteeHost::new(host, &config.evm_config).await?)
+				} else {
+					None
+				};
 				let client = EvmClient::new(host, config.evm_config).await?;
 				AnyClient::EthereumSepolia(client)
 			},
 			AnyConfig::EthereumMainnet(config) => {
-				let host = SyncCommitteeHost::new(&config).await?;
+				let host = if let Some(ref host) = config.host {
+					Some(SyncCommitteeHost::new(host, &config.evm_config).await?)
+				} else {
+					None
+				};
 				let client = EvmClient::new(host, config.evm_config).await?;
 				AnyClient::EthereumMainnet(client)
 			},
 			AnyConfig::Arbitrum(config) => {
-				let host = ArbHost::new(&config).await?;
+				let host = if let Some(ref host) = config.host {
+					Some(ArbHost::new(host, &config.evm_config).await?)
+				} else {
+					None
+				};
 				let client = EvmClient::new(host, config.evm_config).await?;
 				AnyClient::Arbitrum(client)
 			},
 			AnyConfig::Optimism(config) => {
-				let host = OpHost::new(&config).await?;
+				let host = if let Some(ref host) = config.host {
+					Some(OpHost::new(host, &config.evm_config).await?)
+				} else {
+					None
+				};
 				let client = EvmClient::new(host, config.evm_config).await?;
 				AnyClient::Optimism(client)
 			},
 			AnyConfig::Base(config) => {
-				let host = OpHost::new(&config).await?;
+				let host = if let Some(ref host) = config.host {
+					Some(OpHost::new(host, &config.evm_config).await?)
+				} else {
+					None
+				};
 				let client = EvmClient::new(host, config.evm_config).await?;
 				AnyClient::Base(client)
 			},
 			AnyConfig::Polygon(config) => {
 				let host = PolygonPosHost::new(&config).await?;
-				let client = EvmClient::new(host, config.evm_config).await?;
+				let client = EvmClient::new(Some(host), config.evm_config).await?;
 				AnyClient::Polygon(client)
 			},
 			AnyConfig::Bsc(config) => {
 				let host = BnbPosHost::new(&config).await?;
-				let client = EvmClient::new(host, config.evm_config).await?;
+				let client = EvmClient::new(Some(host), config.evm_config).await?;
 				AnyClient::Bsc(client)
 			}, /* AnyConfig::Polkadot(config) => {
 			    *     let naive = GrandpaHost::new(&config).await?;

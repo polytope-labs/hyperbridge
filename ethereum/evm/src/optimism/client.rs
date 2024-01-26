@@ -16,21 +16,31 @@ use crate::abi::l2_output_oracle::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpConfig {
+	/// Host config
+	pub host: Option<HostConfig>,
+	/// General Evm client config
+	#[serde[flatten]]
+	pub evm_config: EvmConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostConfig {
 	/// WS url for the beacon execution client
 	pub beacon_execution_ws: String,
 	/// L2Oracle contract address on L1
 	pub l2_oracle: H160,
 	/// Withdrawals Message Passer contract address on L2
 	pub message_parser: H160,
-	/// General Evm client config
-	#[serde[flatten]]
-	pub evm_config: EvmConfig,
 }
 
 impl OpConfig {
 	/// Convert the config into a client.
 	pub async fn into_client(self) -> anyhow::Result<EvmClient<OpHost>> {
-		let host = OpHost::new(&self).await?;
+		let host = if let Some(ref config) = self.host {
+			Some(OpHost::new(config, &self.evm_config).await?)
+		} else {
+			None
+		};
 		let client = EvmClient::new(host, self.evm_config).await?;
 
 		Ok(client)
@@ -51,8 +61,10 @@ pub struct OpHost {
 	pub(crate) l2_oracle: H160,
 	/// Withdrawals Message Passer contract address on L2
 	pub(crate) message_parser: H160,
-	/// Config
-	pub config: OpConfig,
+	/// Host config
+	pub host: HostConfig,
+	/// Evm Config
+	pub evm: EvmConfig,
 	/// Consensus state id
 	pub consensus_state_id: ConsensusStateId,
 }
@@ -73,20 +85,20 @@ pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
 }
 
 impl OpHost {
-	pub async fn new(config: &OpConfig) -> Result<Self, anyhow::Error> {
-		let provider =
-			Provider::<Ws>::connect_with_reconnects(&config.evm_config.execution_ws, 1000).await?;
+	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
+		let provider = Provider::<Ws>::connect_with_reconnects(&evm.execution_ws, 1000).await?;
 		let beacon_client =
-			Provider::<Ws>::connect_with_reconnects(&config.beacon_execution_ws, 1000).await?;
+			Provider::<Ws>::connect_with_reconnects(&host.beacon_execution_ws, 1000).await?;
 		Ok(Self {
 			op_execution_client: Arc::new(provider),
 			beacon_execution_client: Arc::new(beacon_client),
-			l2_oracle: config.l2_oracle,
-			message_parser: config.message_parser,
-			config: config.clone(),
+			l2_oracle: host.l2_oracle,
+			message_parser: host.message_parser,
+			evm: evm.clone(),
+			host: host.clone(),
 			consensus_state_id: {
 				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(config.evm_config.consensus_state_id.as_bytes());
+				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
 				consensus_state_id
 			},
 		})

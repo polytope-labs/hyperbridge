@@ -1,11 +1,10 @@
 use crate::{
-	abi::{EvmHost, PingModule},
+	abi::{to_ismp_event, EvmHost, PingModule},
 	consts::{
 		REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
 		RESPONSE_RECEIPTS_SLOT,
 	},
 };
-use abi::to_ismp_event;
 use ethabi::ethereum_types::{H256, U256};
 use ethers::{
 	core::k256::ecdsa::SigningKey,
@@ -73,7 +72,7 @@ impl Default for EvmConfig {
 /// Core EVM client.
 pub struct EvmClient<I> {
 	/// Ismp naive implementation
-	pub host: I,
+	pub host: Option<I>,
 	/// Execution Rpc client
 	pub client: Arc<Provider<Ws>>,
 	/// Transaction signer
@@ -105,7 +104,7 @@ impl<I> EvmClient<I>
 where
 	I: IsmpHost + Send + Sync,
 {
-	pub async fn new(host: I, config: EvmConfig) -> Result<Self, anyhow::Error> {
+	pub async fn new(host: Option<I>, config: EvmConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
 		let bytes = from_hex(config.signer.as_str())?;
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;

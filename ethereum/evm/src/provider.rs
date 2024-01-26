@@ -1,7 +1,5 @@
 use crate::{
-	abi::{
-		beefy::BeefyConsensusState, to_state_machine_updated, EvmHost, StateMachineUpdatedFilter,
-	},
+	abi::{beefy::BeefyConsensusState, EvmHost, StateMachineUpdatedFilter},
 	tx::submit_messages,
 	EvmClient,
 };
@@ -21,6 +19,7 @@ use jsonrpsee::{
 	rpc_params,
 };
 
+use crate::abi::to_state_machine_updated;
 use ethereum_trie::StorageProof;
 use ethers::middleware::MiddlewareBuilder;
 use ismp::{

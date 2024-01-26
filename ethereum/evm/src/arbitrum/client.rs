@@ -17,19 +17,29 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbConfig {
-	/// WS URL url for beacon execution client
-	pub beacon_execution_ws: String,
-	/// RollupCore contract address on L1
-	pub rollup_core: H160,
+	pub host: Option<HostConfig>,
+
 	/// General evm config
 	#[serde[flatten]]
 	pub evm_config: EvmConfig,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostConfig {
+	/// WS URL url for beacon execution client
+	pub beacon_execution_ws: String,
+	/// RollupCore contract address on L1
+	pub rollup_core: H160,
+}
+
 impl ArbConfig {
 	/// Convert the config into a client.
 	pub async fn into_client(self) -> anyhow::Result<EvmClient<ArbHost>> {
-		let host = ArbHost::new(&self).await?;
+		let host = if let Some(ref config) = self.host {
+			Some(ArbHost::new(config, &self.evm_config).await?)
+		} else {
+			None
+		};
 		let client = EvmClient::new(host, self.evm_config).await?;
 
 		Ok(client)
@@ -48,26 +58,28 @@ pub struct ArbHost {
 	pub(crate) beacon_execution_client: Arc<Provider<Ws>>,
 	/// Rollup core contract address
 	pub(crate) rollup_core: H160,
-	/// Config
-	pub config: ArbConfig,
+	/// Host config
+	pub host: HostConfig,
+	/// Evm Config
+	pub evm: EvmConfig,
 	/// Consensus State Id
 	pub consensus_state_id: ConsensusStateId,
 }
 
 impl ArbHost {
-	pub async fn new(config: &ArbConfig) -> Result<Self, anyhow::Error> {
-		let provider =
-			Provider::<Ws>::connect_with_reconnects(&config.evm_config.execution_ws, 1000).await?;
+	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
+		let provider = Provider::<Ws>::connect_with_reconnects(&evm.execution_ws, 1000).await?;
 		let beacon_client =
-			Provider::<Ws>::connect_with_reconnects(&config.beacon_execution_ws, 1000).await?;
+			Provider::<Ws>::connect_with_reconnects(&host.beacon_execution_ws, 1000).await?;
 		Ok(Self {
 			arb_execution_client: Arc::new(provider),
 			beacon_execution_client: Arc::new(beacon_client),
-			rollup_core: config.rollup_core,
-			config: config.clone(),
+			rollup_core: host.rollup_core,
+			host: host.clone(),
+			evm: evm.clone(),
 			consensus_state_id: {
 				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(config.evm_config.consensus_state_id.as_bytes());
+				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
 				consensus_state_id
 			},
 		})

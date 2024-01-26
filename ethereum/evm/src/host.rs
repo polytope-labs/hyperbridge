@@ -1,5 +1,5 @@
 use crate::EvmClient;
-use anyhow::Error;
+use anyhow::{anyhow, Error};
 use ismp::{events::StateMachineUpdated, messaging::CreateConsensusState};
 use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, Reconnect};
 
@@ -12,7 +12,11 @@ where
 		&self,
 		challenge_event: StateMachineUpdated,
 	) -> Result<ismp::messaging::ConsensusMessage, anyhow::Error> {
-		self.host.query_consensus_message(challenge_event).await
+		self.host
+			.as_ref()
+			.ok_or_else(|| anyhow!("Host not initialized"))?
+			.query_consensus_message(challenge_event)
+			.await
 	}
 
 	async fn check_for_byzantine_attack<T: IsmpHost + IsmpProvider>(
@@ -20,7 +24,11 @@ where
 		counterparty: &T,
 		consensus_message: ismp::messaging::ConsensusMessage,
 	) -> Result<(), anyhow::Error> {
-		self.host.check_for_byzantine_attack(counterparty, consensus_message).await
+		self.host
+			.as_ref()
+			.ok_or_else(|| anyhow!("Host not initialized"))?
+			.check_for_byzantine_attack(counterparty, consensus_message)
+			.await
 	}
 }
 
@@ -36,11 +44,19 @@ where
 	where
 		I: IsmpHost + IsmpProvider + Clone + 'static,
 	{
-		self.host.consensus_notification(counterparty).await
+		self.host
+			.as_ref()
+			.ok_or_else(|| anyhow!("Host not initialized"))?
+			.consensus_notification(counterparty)
+			.await
 	}
 
 	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
-		self.host.get_initial_consensus_state().await
+		self.host
+			.as_ref()
+			.ok_or_else(|| anyhow!("Host not initialized"))?
+			.get_initial_consensus_state()
+			.await
 	}
 }
 
@@ -51,7 +67,9 @@ where
 {
 	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
 		let nonce_provider = self.nonce_provider.clone();
-		self.host.reconnect().await?;
+		if let Some(ref mut host) = self.host {
+			host.reconnect().await?;
+		}
 		let host = self.host.clone();
 		let mut new_client = EvmClient::new(host, self.config.clone()).await?;
 		if let Some(nonce_provider) = nonce_provider {

@@ -62,7 +62,7 @@ impl SubstrateConfig {
 /// Core substrate client.
 pub struct SubstrateClient<I, C: subxt::Config> {
 	/// Ismp naive implementation
-	pub host: I,
+	pub host: Option<I>,
 	/// Subxt client for the substrate chain
 	pub client: OnlineClient<C>,
 	/// Consensus state Id
@@ -93,7 +93,7 @@ where
 	C::AccountId:
 		From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 {
-	pub async fn new(host: T, config: SubstrateConfig) -> Result<Self, anyhow::Error> {
+	pub async fn new(host: Option<T>, config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
 		let client = OnlineClient::<C>::from_url(&config.chain_rpc_ws).await?;
 		// If latest height of the state machine on the counterparty is not provided in config

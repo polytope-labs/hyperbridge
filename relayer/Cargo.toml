@@ -38,3 +38,5 @@ ethers = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 sp-core = { workspace = true }
 
+[features]
+consensus = []

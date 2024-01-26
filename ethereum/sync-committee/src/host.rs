@@ -114,23 +114,20 @@ impl<T: Config + Send + Sync> IsmpHost for SyncCommitteeHost<T> {
 		let mut l2_oracle = BTreeMap::new();
 		let mut rollup_core = H160::default();
 		if let Some(host) = &self.arbitrum_client {
-			ismp_contract_addresses
-				.insert(host.config.evm_config.state_machine, host.config.evm_config.ismp_host);
-			rollup_core = host.config.rollup_core;
+			ismp_contract_addresses.insert(host.evm.state_machine, host.evm.ismp_host);
+			rollup_core = host.host.rollup_core;
 		}
 
 		if let Some(host) = &self.optimism_client {
-			ismp_contract_addresses
-				.insert(host.config.evm_config.state_machine, host.config.evm_config.ismp_host);
-			l2_oracle.insert(host.config.evm_config.state_machine, host.config.l2_oracle);
+			ismp_contract_addresses.insert(host.evm.state_machine, host.evm.ismp_host);
+			l2_oracle.insert(host.evm.state_machine, host.host.l2_oracle);
 		}
 
 		if let Some(host) = &self.base_client {
-			ismp_contract_addresses
-				.insert(host.config.evm_config.state_machine, host.config.evm_config.ismp_host);
-			l2_oracle.insert(host.config.evm_config.state_machine, host.config.l2_oracle);
+			ismp_contract_addresses.insert(host.evm.state_machine, host.evm.ismp_host);
+			l2_oracle.insert(host.evm.state_machine, host.host.l2_oracle);
 		}
-		ismp_contract_addresses.insert(self.state_machine, self.config.evm_config.ismp_host);
+		ismp_contract_addresses.insert(self.state_machine, self.evm.ismp_host);
 		let initial_consensus_state = self
 			.get_consensus_state(ismp_contract_addresses, l2_oracle, rollup_core, None)
 			.await?;
@@ -195,23 +192,20 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 		let mut l2_oracle = BTreeMap::new();
 		let mut rollup_core = H160::default();
 		if let Some(host) = &self.arbitrum_client {
-			ismp_contract_addresses
-				.insert(host.config.evm_config.state_machine, host.config.evm_config.ismp_host);
-			rollup_core = host.config.rollup_core;
+			ismp_contract_addresses.insert(host.evm.state_machine, host.evm.ismp_host);
+			rollup_core = host.host.rollup_core;
 		}
 
 		if let Some(host) = &self.optimism_client {
-			ismp_contract_addresses
-				.insert(host.config.evm_config.state_machine, host.config.evm_config.ismp_host);
-			l2_oracle.insert(host.config.evm_config.state_machine, host.config.l2_oracle);
+			ismp_contract_addresses.insert(host.evm.state_machine, host.evm.ismp_host);
+			l2_oracle.insert(host.evm.state_machine, host.host.l2_oracle);
 		}
 
 		if let Some(host) = &self.base_client {
-			ismp_contract_addresses
-				.insert(host.config.evm_config.state_machine, host.config.evm_config.ismp_host);
-			l2_oracle.insert(host.config.evm_config.state_machine, host.config.l2_oracle);
+			ismp_contract_addresses.insert(host.evm.state_machine, host.evm.ismp_host);
+			l2_oracle.insert(host.evm.state_machine, host.host.l2_oracle);
 		}
-		ismp_contract_addresses.insert(self.state_machine, self.config.evm_config.ismp_host);
+		ismp_contract_addresses.insert(self.state_machine, self.evm.ismp_host);
 		let initial_consensus_state = self
 			.get_consensus_state(ismp_contract_addresses, l2_oracle, rollup_core, None)
 			.await?;

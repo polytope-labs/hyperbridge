@@ -23,13 +23,9 @@ use crate::{
 use anyhow::anyhow;
 use clap::Parser;
 use ismp::host::{Ethereum, StateMachine};
-use primitives::{IsmpHost, IsmpProvider, NonceProvider};
+use primitives::{IsmpProvider, NonceProvider};
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use tesseract_beefy::BeefyHost;
-use tesseract_substrate::{
-	config::{Blake2SubstrateChain, KeccakSubstrateChain},
-	SubstrateClient,
-};
+use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use tesseract_sync_committee::L2Host;
 use transaction_payment::TransactionPayment;
 
@@ -61,7 +57,6 @@ impl Cli {
 			let toml = tokio::fs::read_to_string(&self.config).await?;
 			HyperbridgeConfig::parse_conf(toml).await?
 		};
-
 		let tx_payment = Arc::new(TransactionPayment::initialize().await?);
 
 		let HyperbridgeConfig { hyperbridge: hyperbridge_config, relayer, .. } = config.clone();
@@ -73,58 +68,61 @@ impl Cli {
 		let hyperbridge_nonce_provider = hyperbridge.initialize_nonce().await?;
 		hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
 
-		let (client_map, nonce_providers) = create_client_map(config.clone()).await?;
-
-		// set up initial consensus states
-		if self.setup_eth || self.setup_para {
-			initialize_consensus_clients(
-				&hyperbridge,
-				&client_map,
-				self.setup_eth,
-				self.setup_para,
-			)
-			.await?;
-			log::info!("Initialized consensus states");
-		}
+		let (_client_map, nonce_providers) = create_client_map(config.clone()).await?;
 
 		let mut processes = vec![];
 
-		if relayer.consensus {
-			// consensus streams
-			for (_, client) in client_map {
-				processes.push(tokio::spawn(consensus::relay(
-					hyperbridge.clone(),
-					client,
-					true,
-					true,
-				)));
+		#[cfg(feature = "consensus")]
+		{
+			// set up initial consensus states
+			if self.setup_eth || self.setup_para {
+				crate::cli::initialize_consensus_clients(
+					&hyperbridge,
+					&_client_map,
+					self.setup_eth,
+					self.setup_para,
+				)
+				.await?;
+				log::info!("Initialized consensus states");
 			}
-			log::info!("Initialized consensus streams");
-		}
 
-		if relayer.fisherman {
-			let (clients, _) = create_client_map(config.clone()).await?;
-			for (state_machine, mut client) in clients {
-				let mut hyperbridge = hyperbridge_config
-					.clone()
-					.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
-					.await?;
-				hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
-				client.set_nonce_provider(
-					nonce_providers
-						.get(&state_machine)
-						.cloned()
-						.ok_or_else(|| anyhow!("Expected Nonce Provider"))?,
-				);
-				let wait_time_b = get_wait_time(state_machine);
-				processes.push(tokio::spawn(fisherman::fish(
-					hyperbridge,
-					client,
-					None,
-					wait_time_b,
-				)));
+			if relayer.consensus {
+				// consensus streams
+				for (_, client) in _client_map {
+					processes.push(tokio::spawn(consensus::relay(
+						hyperbridge.clone(),
+						client,
+						true,
+						true,
+					)));
+				}
+				log::info!("Initialized consensus streams");
 			}
-			log::info!("Initialized fishermen");
+
+			if relayer.fisherman {
+				let (clients, _) = create_client_map(config.clone()).await?;
+				for (state_machine, mut client) in clients {
+					let mut hyperbridge = hyperbridge_config
+						.clone()
+						.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
+						.await?;
+					hyperbridge.set_nonce_provider(hyperbridge_nonce_provider.clone());
+					client.set_nonce_provider(
+						nonce_providers
+							.get(&state_machine)
+							.cloned()
+							.ok_or_else(|| anyhow!("Expected Nonce Provider"))?,
+					);
+					let wait_time_b = get_wait_time(state_machine);
+					processes.push(tokio::spawn(fisherman::fish(
+						hyperbridge,
+						client,
+						None,
+						wait_time_b,
+					)));
+				}
+				log::info!("Initialized fishermen");
+			}
 		}
 
 		if relayer.messaging {
@@ -161,16 +159,19 @@ impl Cli {
 	}
 }
 
-type HyperbridgeChain =
-	SubstrateClient<BeefyHost<Blake2SubstrateChain, KeccakSubstrateChain>, KeccakSubstrateChain>;
-
+#[cfg(feature = "consensus")]
 /// Initializes the consensus state across all connected chains.
 async fn initialize_consensus_clients(
-	hyperbridge: &HyperbridgeChain,
+	hyperbridge: &tesseract_substrate::SubstrateClient<
+		tesseract_beefy::BeefyHost<Blake2SubstrateChain, KeccakSubstrateChain>,
+		KeccakSubstrateChain,
+	>,
 	chains: &HashMap<StateMachine, AnyClient>,
 	setup_eth: bool,
 	setup_para: bool,
 ) -> anyhow::Result<()> {
+	use primitives::IsmpHost;
+
 	if setup_eth {
 		let initial_state = hyperbridge
 			.get_initial_consensus_state()
@@ -205,9 +206,18 @@ pub async fn create_client_map(
 	for (state_machine, config) in chains {
 		let mut client = config.into_client().await?;
 		match &client {
-			AnyClient::Arbitrum(client) => l2_hosts.push(L2Host::Arb(client.host.clone())),
-			AnyClient::Base(client) => l2_hosts.push(L2Host::Base(client.host.clone())),
-			AnyClient::Optimism(client) => l2_hosts.push(L2Host::Op(client.host.clone())),
+			AnyClient::Arbitrum(client) =>
+				if let Some(ref host) = client.host {
+					l2_hosts.push(L2Host::Arb(host.clone()))
+				},
+			AnyClient::Base(client) =>
+				if let Some(ref host) = client.host {
+					l2_hosts.push(L2Host::Base(host.clone()))
+				},
+			AnyClient::Optimism(client) =>
+				if let Some(ref host) = client.host {
+					l2_hosts.push(L2Host::Op(host.clone()))
+				},
 			_ => {},
 		}
 		let nonce_provider = client.initialize_nonce().await?;
@@ -219,8 +229,14 @@ pub async fn create_client_map(
 	let execution_layer = clients.get_mut(&StateMachine::Ethereum(Ethereum::ExecutionLayer));
 	if let Some(exec_layer) = execution_layer {
 		match exec_layer {
-			AnyClient::EthereumSepolia(client) => client.host.set_l2_hosts(l2_hosts),
-			AnyClient::EthereumMainnet(client) => client.host.set_l2_hosts(l2_hosts),
+			AnyClient::EthereumSepolia(client) =>
+				if let Some(ref mut host) = client.host {
+					host.set_l2_hosts(l2_hosts);
+				},
+			AnyClient::EthereumMainnet(client) =>
+				if let Some(ref mut host) = client.host {
+					host.set_l2_hosts(l2_hosts);
+				},
 			_ => unreachable!(),
 		}
 	}

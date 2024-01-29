@@ -5,6 +5,13 @@ import {ERC20} from "openzeppelin/token/ERC20/extensions/ERC20Permit.sol";
 import "ismp/IIsmpModule.sol";
 import "../lib/ERC6160/src/tokens/ERC6160Ext20.sol";
 
+
+struct GovernableTokenOnAcceptBody {
+    address account; 
+    bytes32 role; 
+    bool grant;
+}
+
 contract GovernableToken is IIsmpModule, ERC6160Ext20 {
     bytes32 constant DEFAULT_ADMIN_ROLE = 0x0;
     bytes32 constant HOST_ROLE = keccak256("HOST_ROLE");
@@ -25,8 +32,8 @@ contract GovernableToken is IIsmpModule, ERC6160Ext20 {
     }
 
     function onAccept(PostRequest calldata request) external onlyRole(HOST_ROLE) {
-        (address account, bytes32 role, bool grant) = abi.decode(request.body, (address, bytes32, bool));
-        grant ? _grantRole(role, account) : _revokeRole(role, account);
+        GovernableTokenOnAcceptBody memory body = abi.decode(request.body, (GovernableTokenOnAcceptBody));
+        body.grant ? _grantRole(body.role, body.account) : _revokeRole(body.role, body.account);
     }
 
     function onPostResponse(PostResponse memory) external view onlyRole(HOST_ROLE) {

@@ -376,7 +376,7 @@ pub mod ping_module {
                             ),
                             inputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::string::String::new(),
+                                    name: ::std::borrow::ToOwned::to_owned("request"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
                                         ::std::vec![
                                             ::ethers::core::abi::ethabi::ParamType::Tuple(
@@ -403,7 +403,7 @@ pub mod ping_module {
                             ],
                             outputs: ::std::vec![],
                             constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
                         },
                     ],
                 ),
@@ -485,11 +485,15 @@ pub mod ping_module {
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("PostRequestTimeoutReceived"),
-                    ::std::vec![::ethers::core::abi::ethabi::Event {
-                        name: ::std::borrow::ToOwned::to_owned("PostRequestTimeoutReceived",),
-                        inputs: ::std::vec![],
-                        anonymous: false,
-                    },],
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "PostRequestTimeoutReceived",
+                            ),
+                            inputs: ::std::vec![],
+                            anonymous: false,
+                        },
+                    ],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("PostResponseReceived"),
@@ -504,11 +508,11 @@ pub mod ping_module {
                     ],
                 ),
                 (
-                    ::std::borrow::ToOwned::to_owned("PostTimeoutReceived"),
+                    ::std::borrow::ToOwned::to_owned("PostResponseTimeoutReceived"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Event {
                             name: ::std::borrow::ToOwned::to_owned(
-                                "PostTimeoutReceived",
+                                "PostResponseTimeoutReceived",
                             ),
                             inputs: ::std::vec![],
                             anonymous: false,
@@ -665,10 +669,10 @@ pub mod ping_module {
         ///Calls the contract's `onPostResponseTimeout` (0x12b2524f) function
         pub fn on_post_response_timeout(
             &self,
-            p0: PostResponse,
+            request: PostResponse,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([18, 178, 82, 79], (p0,))
+                .method_hash([18, 178, 82, 79], (request,))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `ping` (0x40ffb7bc) function
@@ -746,7 +750,7 @@ pub mod ping_module {
         ) -> ::ethers::contract::builders::Event<
             ::std::sync::Arc<M>,
             M,
-            PostTimeoutReceivedFilter,
+            PostResponseTimeoutReceivedFilter,
         > {
             self.0.event()
         }
@@ -936,7 +940,10 @@ pub mod ping_module {
         Eq,
         Hash
     )]
-    #[ethevent(name = "PostRequestTimeoutReceived", abi = "PostRequestTimeoutReceived()")]
+    #[ethevent(
+        name = "PostRequestTimeoutReceived",
+        abi = "PostRequestTimeoutReceived()"
+    )]
     pub struct PostRequestTimeoutReceivedFilter;
     #[derive(
         Clone,
@@ -946,7 +953,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethevent(name = "PostResponseReceived", abi = "PostResponseReceived()")]
     pub struct PostResponseReceivedFilter;
@@ -960,7 +967,10 @@ pub mod ping_module {
         Eq,
         Hash
     )]
-    #[ethevent(name = "PostResponseTimeoutReceived", abi = "PostResponseTimeoutReceived()")]
+    #[ethevent(
+        name = "PostResponseTimeoutReceived",
+        abi = "PostResponseTimeoutReceived()"
+    )]
     pub struct PostResponseTimeoutReceivedFilter;
     ///Container type for all of the contract's events
     #[derive(Clone, ::ethers::contract::EthAbiType, Debug, PartialEq, Eq, Hash)]
@@ -1016,10 +1026,13 @@ pub mod ping_module {
                 Self::PostReceivedFilter(element) => {
                     ::core::fmt::Display::fmt(element, f)
                 }
+                Self::PostRequestTimeoutReceivedFilter(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
                 Self::PostResponseReceivedFilter(element) => {
                     ::core::fmt::Display::fmt(element, f)
                 }
-                Self::PostTimeoutReceivedFilter(element) => {
+                Self::PostResponseTimeoutReceivedFilter(element) => {
                     ::core::fmt::Display::fmt(element, f)
                 }
             }
@@ -1226,7 +1239,9 @@ pub mod ping_module {
         name = "onPostResponseTimeout",
         abi = "onPostResponseTimeout(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))"
     )]
-    pub struct OnPostResponseTimeoutCall(pub PostResponse);
+    pub struct OnPostResponseTimeoutCall {
+        pub request: PostResponse,
+    }
     ///Container type for all input parameters for the `ping` function with signature `ping((bytes,address,uint64))` and selector `0x40ffb7bc`
     #[derive(
         Clone,

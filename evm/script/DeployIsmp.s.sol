@@ -65,19 +65,19 @@ contract DeployScript is Script {
         if (Strings.equal(host, "sepolia") || Strings.equal(host, "ethereum")) {
             EthereumHost h = new EthereumHost{salt: salt}(params);
             return address(h);
-        } else if (Strings.equal(host, "arbitrum-sepolia")) {
+        } else if (Strings.equal(host, "arbitrum")) {
             ArbitrumHost h = new ArbitrumHost{salt: salt}(params);
             return address(h);
-        } else if (Strings.equal(host, "optimism-sepolia")) {
+        } else if (Strings.equal(host, "optimism")) {
             OptimismHost h = new OptimismHost{salt: salt}(params);
             return address(h);
-        } else if (Strings.equal(host, "base-sepolia")) {
+        } else if (Strings.equal(host, "base")) {
             BaseHost h = new BaseHost{salt: salt}(params);
             return address(h);
         } else if (Strings.equal(host, "bsc")) {
             BscHost h = new BscHost{salt: salt}(params);
             return address(h);
-        } else {
+        } else if (Strings.equal(host, "polygon")) {
             PolygonHost h = new PolygonHost{salt: salt}(params);
             return address(h);
         }

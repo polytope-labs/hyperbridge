@@ -649,9 +649,9 @@ pub mod evm_host {
                             outputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::Param {
                                     name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bool,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Address,
                                     internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("bool"),
+                                        ::std::borrow::ToOwned::to_owned("address"),
                                     ),
                                 },
                             ],
@@ -716,9 +716,14 @@ pub mod evm_host {
                             outputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::Param {
                                     name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Bool,
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Address,
+                                        ],
+                                    ),
                                     internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("bool"),
+                                        ::std::borrow::ToOwned::to_owned("struct ResponseReceipt"),
                                     ),
                                 },
                             ],
@@ -3354,7 +3359,7 @@ pub mod evm_host {
         Eq,
         Hash
     )]
-    pub struct RequestReceiptsReturn(pub bool);
+    pub struct RequestReceiptsReturn(pub ::ethers::core::types::Address);
     ///Container type for all return fields from the `responseCommitments` function with signature `responseCommitments(bytes32)` and selector `0x2211f1dd`
     #[derive(
         Clone,
@@ -3378,7 +3383,7 @@ pub mod evm_host {
         Eq,
         Hash
     )]
-    pub struct ResponseReceiptsReturn(pub bool);
+    pub struct ResponseReceiptsReturn(pub ResponseReceipt);
     ///Container type for all return fields from the `stateMachineCommitment` function with signature `stateMachineCommitment((uint256,uint256))` and selector `0xa70a8c47`
     #[derive(
         Clone,

@@ -1,7 +1,7 @@
 use crate::EvmClient;
 use anyhow::{anyhow, Error};
 use ismp::{events::StateMachineUpdated, messaging::CreateConsensusState};
-use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, Reconnect};
+use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
 impl<I> ByzantineHandler for EvmClient<I>
@@ -57,26 +57,6 @@ where
 			.ok_or_else(|| anyhow!("Host not initialized"))?
 			.get_initial_consensus_state()
 			.await
-	}
-}
-
-#[async_trait::async_trait]
-impl<T> Reconnect for EvmClient<T>
-where
-	T: IsmpHost + Clone,
-{
-	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
-		let nonce_provider = self.nonce_provider.clone();
-		if let Some(ref mut host) = self.host {
-			host.reconnect().await?;
-		}
-		let host = self.host.clone();
-		let mut new_client = EvmClient::new(host, self.config.clone()).await?;
-		if let Some(nonce_provider) = nonce_provider {
-			new_client.set_nonce_provider(nonce_provider);
-		}
-		*self = new_client;
-		Ok(())
 	}
 }
 

@@ -43,7 +43,9 @@ trie-db = { version= "0.24.0", default-features = false }
 hash-db = { version = "0.15.2", default-features = false }
 
 merkle-mountain-range = { workspace = true }
-jsonrpsee = { version = "0.20.2", features = ["ws-client"]}
+reconnecting-jsonrpsee-ws-client = "0.2.0"
+jsonrpsee = { version = "0.21", features = ["ws-client"]}
+
 [dev-dependencies]
 alloy-rlp = "0.3.2"
 alloy-rlp-derive = "0.3.2"

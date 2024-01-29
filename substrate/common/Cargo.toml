@@ -24,6 +24,7 @@ pallet-relayer-fees.workspace = true
 ismp-demo.workspace = true
 ismp-rpc.workspace = true
 ismp.workspace = true
+reconnecting-jsonrpsee-ws-client = "0.2.0"
 
 [features]
 testing = []

@@ -1,4 +1,4 @@
-use crate::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, NonceProvider, Query, Reconnect};
+use crate::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, NonceProvider, Query};
 use anyhow::{anyhow, Error};
 use futures::stream;
 use ismp::{
@@ -201,12 +201,5 @@ impl<C: Send + Sync> Clone for MockHost<C> {
 			latest_height: self.latest_height.clone(),
 			state_machine: self.state_machine.clone(),
 		}
-	}
-}
-
-#[async_trait::async_trait]
-impl<C: Codec + Send + Sync> Reconnect for MockHost<C> {
-	async fn reconnect(&mut self) -> Result<(), Error> {
-		Ok(())
 	}
 }

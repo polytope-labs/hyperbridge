@@ -21,7 +21,7 @@ use primitive_types::H160;
 use sync_committee_primitives::constants::Config;
 
 use crate::notification::consensus_notification;
-use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider, Reconnect};
+use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider};
 
 // todo: Figure out the issue with the stream
 #[cfg(feature = "finality-events")]
@@ -217,22 +217,5 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 			challenge_period: 5 * 60,
 			state_machine_commitments: vec![],
 		}))
-	}
-}
-
-#[async_trait::async_trait]
-impl<T: Config + Send + Sync + 'static> Reconnect for SyncCommitteeHost<T> {
-	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
-		if let Some(arb_client) = self.arbitrum_client.as_mut() {
-			arb_client.reconnect().await?;
-		}
-		if let Some(base_client) = self.base_client.as_mut() {
-			base_client.reconnect().await?;
-		}
-
-		if let Some(op_client) = self.optimism_client.as_mut() {
-			op_client.reconnect().await?;
-		}
-		Ok(())
 	}
 }

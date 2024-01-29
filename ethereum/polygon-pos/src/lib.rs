@@ -17,12 +17,12 @@ use ethers::providers::{Provider, Ws};
 pub use geth_primitives::Header;
 use ismp::{consensus::ConsensusStateId, host::StateMachine, util::Keccak256};
 pub use ismp_polygon_pos::{ConsensusState, PolygonClientUpdate};
-use jsonrpsee::ws_client::WsClientBuilder;
 use polygon_pos_prover::PolygonPosProver;
 pub use polygon_pos_verifier::verify_polygon_header;
 use primitive_types::H160;
+use reconnecting_jsonrpsee_ws_client::{Client, ExponentialBackoff, PingConfig};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tesseract_evm::{EvmClient, EvmConfig};
 
 mod byzantine;
@@ -62,7 +62,7 @@ pub struct PolygonPosHost {
 	pub config: PolygonPosConfig,
 	/// Jsonrpsee client for event susbscription, ethers does not expose a Send and Sync stream for
 	/// susbcribing to contract logs
-	pub rpc_client: Arc<jsonrpsee::ws_client::WsClient>,
+	pub rpc_client: Arc<Client>,
 }
 
 impl PolygonPosHost {
@@ -72,7 +72,15 @@ impl PolygonPosHost {
 				.await
 				.unwrap();
 		let prover = PolygonPosProver::new(provider);
-		let rpc_client = WsClientBuilder::default().build(&config.evm_config.execution_ws).await?;
+		let rpc_client = Client::builder()
+			.retry_policy(ExponentialBackoff::from_millis(100))
+			.enable_ws_ping(
+				PingConfig::new()
+					.ping_interval(Duration::from_secs(6))
+					.inactive_limit(Duration::from_secs(30)),
+			)
+			.build(config.evm_config.execution_ws.clone())
+			.await?;
 		Ok(Self {
 			consensus_state_id: {
 				let mut consensus_state_id: ConsensusStateId = Default::default();

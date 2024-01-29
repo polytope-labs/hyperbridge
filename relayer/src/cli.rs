@@ -24,7 +24,7 @@ use anyhow::anyhow;
 use clap::Parser;
 use ismp::host::{Ethereum, StateMachine};
 use primitives::{IsmpProvider, NonceProvider};
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use tesseract_sync_committee::L2Host;
 use transaction_payment::TransactionPayment;
@@ -89,12 +89,7 @@ impl Cli {
 			if relayer.consensus {
 				// consensus streams
 				for (_, client) in _client_map {
-					processes.push(tokio::spawn(consensus::relay(
-						hyperbridge.clone(),
-						client,
-						true,
-						true,
-					)));
+					processes.push(tokio::spawn(consensus::relay(hyperbridge.clone(), client)));
 				}
 				log::info!("Initialized consensus streams");
 			}
@@ -113,13 +108,7 @@ impl Cli {
 							.cloned()
 							.ok_or_else(|| anyhow!("Expected Nonce Provider"))?,
 					);
-					let wait_time_b = get_wait_time(state_machine);
-					processes.push(tokio::spawn(fisherman::fish(
-						hyperbridge,
-						client,
-						None,
-						wait_time_b,
-					)));
+					processes.push(tokio::spawn(fisherman::fish(hyperbridge, client)));
 				}
 				log::info!("Initialized fishermen");
 			}
@@ -140,14 +129,11 @@ impl Cli {
 						.cloned()
 						.ok_or_else(|| anyhow!("Expected Nonce Provider"))?,
 				);
-				let wait_time_b = get_wait_time(state_machine);
 				processes.push(tokio::spawn(messaging::relay(
 					hyperbridge,
 					client,
 					Some(relayer.clone()),
 					tx_payment.clone(),
-					None,
-					wait_time_b,
 				)));
 			}
 			log::info!("Initialized messaging streams");
@@ -242,15 +228,4 @@ pub async fn create_client_map(
 	}
 
 	Ok((clients, nonce_providers))
-}
-
-/// Return the ideal interval between state machine updates time or return None to use the default
-/// wait time
-pub fn get_wait_time(state_machine: StateMachine) -> Option<Duration> {
-	match state_machine {
-		// Arbitrum has an interval of 60 mins on mainnet and testnet other chains can use the
-		// default value of 20 mins
-		StateMachine::Ethereum(Ethereum::Arbitrum) => Some(Duration::from_secs(65 * 60)),
-		_ => None,
-	}
 }

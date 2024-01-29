@@ -18,7 +18,7 @@
 use crate::SubstrateClient;
 use anyhow::{anyhow, Error};
 use ismp::{events::StateMachineUpdated, messaging::CreateConsensusState};
-use primitives::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, Reconnect};
+use primitives::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider};
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
 	ext::sp_runtime::MultiSignature,
@@ -85,32 +85,6 @@ where
 			.ok_or_else(|| anyhow!("Host not initialized"))?
 			.get_initial_consensus_state()
 			.await
-	}
-}
-
-#[async_trait::async_trait]
-impl<T, C> Reconnect for SubstrateClient<T, C>
-where
-	T: IsmpHost + Clone,
-	C: subxt::Config + Send + Sync + Clone,
-	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
-		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
-	C::Signature: From<MultiSignature> + Send + Sync,
-	C::AccountId:
-		From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
-{
-	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
-		let nonce_provider = self.nonce_provider.clone();
-		if let Some(ref mut host) = self.host {
-			host.reconnect().await?;
-		}
-		let host = self.host.clone();
-		let mut new_client = SubstrateClient::<T, C>::new(host, self.config.clone()).await?;
-		if let Some(nonce_provider) = nonce_provider {
-			new_client.set_nonce_provider(nonce_provider);
-		}
-		*self = new_client;
-		Ok(())
 	}
 }
 

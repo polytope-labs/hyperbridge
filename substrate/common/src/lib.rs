@@ -14,12 +14,15 @@
 // limitations under the License.
 
 pub use crate::provider::{filter_map_system_events, system_events_key};
+use crate::rpc_wrapper::ClientWrapper;
 use hex_literal::hex;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use pallet_ismp::primitives::HashAlgorithm;
 use primitives::{IsmpHost, NonceProvider};
+use reconnecting_jsonrpsee_ws_client::{Client, ExponentialBackoff, PingConfig};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, sr25519, Pair, H256};
+use std::{sync::Arc, time::Duration};
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
@@ -33,6 +36,7 @@ pub mod config;
 pub mod extrinsic;
 mod host;
 mod provider;
+pub mod rpc_wrapper;
 pub mod runtime;
 #[cfg(feature = "testing")]
 mod testing;
@@ -95,7 +99,17 @@ where
 {
 	pub async fn new(host: Option<T>, config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
-		let client = OnlineClient::<C>::from_url(&config.chain_rpc_ws).await?;
+		let raw_client = Client::builder()
+			.retry_policy(ExponentialBackoff::from_millis(100))
+			.enable_ws_ping(
+				PingConfig::new()
+					.ping_interval(Duration::from_secs(6))
+					.inactive_limit(Duration::from_secs(30)),
+			)
+			.build(config.chain_rpc_ws)
+			.await?;
+		let client =
+			OnlineClient::<C>::from_rpc_client(Arc::new(ClientWrapper(raw_client))).await?;
 		// If latest height of the state machine on the counterparty is not provided in config
 		// Set it to the latest parachain height
 		let latest_height = if let Some(latest_height) = config.latest_height {

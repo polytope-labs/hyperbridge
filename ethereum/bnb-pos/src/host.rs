@@ -14,14 +14,12 @@ use anyhow::Error;
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use codec::Encode;
-use ethers::types::Block;
 use futures::StreamExt;
 use ismp::messaging::{ConsensusMessage, CreateConsensusState};
-use jsonrpsee::{core::client::SubscriptionClientT, rpc_params};
-use primitive_types::H256;
+use jsonrpsee::rpc_params;
 
 use crate::{notification::consensus_notification, BnbPosHost, KeccakHasher};
-use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider, Reconnect};
+use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
 impl IsmpHost for BnbPosHost {
@@ -36,10 +34,10 @@ impl IsmpHost for BnbPosHost {
 
 		let sub = self
 			.rpc_client
-			.subscribe::<Block<H256>, _>(
-				"eth_subscribe",
+			.subscribe(
+				"eth_subscribe".to_string(),
 				rpc_params!("newHeads"),
-				"eth_unsubscribe",
+				"eth_unsubscribe".to_string(),
 			)
 			.await?;
 		let stream = sub.filter_map(move |res| {
@@ -47,16 +45,19 @@ impl IsmpHost for BnbPosHost {
 			let counterparty = counterparty.clone();
 			async move {
 				match res {
-					Ok(header) => consensus_notification(&client, counterparty, header)
-						.await
-						.ok()
-						.flatten()
-						.map(|update| {
-							Ok(ConsensusMessage {
-								consensus_proof: update.encode(),
-								consensus_state_id: client.consensus_state_id,
+					Ok(raw) => {
+						let header = serde_json::from_str(raw.get()).ok()?;
+						consensus_notification(&client, counterparty, header)
+							.await
+							.ok()
+							.flatten()
+							.map(|update| {
+								Ok(ConsensusMessage {
+									consensus_proof: update.encode(),
+									consensus_state_id: client.consensus_state_id,
+								})
 							})
-						}),
+					},
 					_ => None,
 				}
 			}
@@ -77,14 +78,5 @@ impl IsmpHost for BnbPosHost {
 			challenge_period: 5 * 60,
 			state_machine_commitments: vec![],
 		}))
-	}
-}
-
-#[async_trait::async_trait]
-impl Reconnect for BnbPosHost {
-	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
-		let new_host = BnbPosHost::new(&self.config).await?;
-		*self = new_host;
-		Ok(())
 	}
 }

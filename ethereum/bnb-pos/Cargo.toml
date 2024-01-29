@@ -31,7 +31,8 @@ sp-core = "22.0.0"
 
 tesseract-primitives = { path = "../../primitives" }
 tesseract-evm = { path = "../evm"}
-jsonrpsee = { version = "0.20.2", features = ["ws-client"]}
+reconnecting-jsonrpsee-ws-client = "0.2.0"
+jsonrpsee = { version = "0.21", features = ["ws-client"]}
 debounced = { git = "https://github.com/polytope-labs/debounced", branch = "main"}
 
 [dev-dependencies]

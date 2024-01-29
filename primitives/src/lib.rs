@@ -19,7 +19,6 @@ pub mod config;
 pub mod mocks;
 pub mod queue;
 
-use anyhow::anyhow;
 use futures::Stream;
 pub use ismp::events::StateMachineUpdated;
 use ismp::{
@@ -48,7 +47,7 @@ pub struct Query {
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>> + Send>>;
 
 #[async_trait::async_trait]
-pub trait IsmpProvider: Reconnect {
+pub trait IsmpProvider: Send + Sync {
 	/// Query the latest consensus state of a client
 	async fn query_consensus_state(
 		&self,
@@ -196,7 +195,7 @@ pub trait ByzantineHandler {
 
 /// Provides an interface for the chain to the relayer core for submitting Ismp messages as well as
 #[async_trait::async_trait]
-pub trait IsmpHost: ByzantineHandler + Reconnect + Clone + Send + Sync {
+pub trait IsmpHost: ByzantineHandler + Clone + Send + Sync {
 	/// Return a stream that yields [`ConsensusMessage`] when a new consensus update
 	/// can be sent to the counterparty
 	async fn consensus_notification<C>(
@@ -210,12 +209,6 @@ pub trait IsmpHost: ByzantineHandler + Reconnect + Clone + Send + Sync {
 	async fn get_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error>;
-}
-
-#[async_trait::async_trait]
-pub trait Reconnect: Clone + Send + Sync {
-	/// Recreate all underline network connections
-	async fn reconnect(&mut self) -> Result<(), anyhow::Error>;
 }
 
 #[async_trait::async_trait]
@@ -253,56 +246,6 @@ impl NonceProvider {
 		nonce
 	}
 }
-
-pub async fn reconnect_with_exponential_back_off<
-	A: IsmpProvider + IsmpHost + 'static,
-	B: IsmpProvider + IsmpHost + 'static,
->(
-	chain: &mut A,
-	counterparty: &B,
-	mut state_machine_stream: Option<&mut BoxStream<StateMachineUpdated>>,
-	mut consensus_stream: Option<&mut BoxStream<ConsensusMessage>>,
-	reconnects: u32,
-) -> Result<(), anyhow::Error> {
-	let mut initial_backoff = 1;
-	let set_sleep_duration = |initial_backoff: &mut u64| {
-		if *initial_backoff == 512 {
-			*initial_backoff = 1;
-		}
-		*initial_backoff = *initial_backoff * 2;
-	};
-	for _ in 0..reconnects {
-		// If backoff is more than 512 seconds reset backoff
-		if let Ok(()) = chain.reconnect().await {
-			if let Some(old_stream) = state_machine_stream.as_mut() {
-				if let Ok(stream) =
-					chain.state_machine_update_notification(counterparty.state_machine_id()).await
-				{
-					**old_stream = stream
-				} else {
-					set_sleep_duration(&mut initial_backoff);
-					tokio::time::sleep(Duration::from_secs(initial_backoff)).await;
-					continue
-				}
-			}
-
-			if let Some(old_stream) = consensus_stream.as_mut() {
-				if let Ok(stream) = chain.consensus_notification(counterparty.clone()).await {
-					**old_stream = stream
-				} else {
-					set_sleep_duration(&mut initial_backoff);
-					tokio::time::sleep(Duration::from_secs(initial_backoff)).await;
-					continue
-				}
-			}
-			return Ok(())
-		}
-		set_sleep_duration(&mut initial_backoff);
-		tokio::time::sleep(Duration::from_secs(initial_backoff)).await;
-	}
-	return Err(anyhow!("Failed to reconnect after {} tries", reconnects))
-}
-
 pub async fn wait_for_challenge_period<C: IsmpProvider>(
 	client: &C,
 	last_consensus_update: Duration,

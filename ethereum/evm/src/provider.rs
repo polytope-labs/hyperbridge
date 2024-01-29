@@ -15,7 +15,7 @@ use ismp::{
 };
 use ismp_sync_committee::types::EvmStateProof;
 use jsonrpsee::{
-	core::{client::SubscriptionClientT, params::ObjectParams, traits::ToRpcParams},
+	core::{params::ObjectParams, traits::ToRpcParams},
 	rpc_params,
 };
 
@@ -276,8 +276,8 @@ where
 	async fn state_machine_update_notification(
 		&self,
 		_counterparty_state_id: StateMachineId,
-	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
-		use ethers::{contract::parse_log, core::types::Log};
+	) -> Result<BoxStream<StateMachineUpdated>, Error> {
+		use ethers::contract::parse_log;
 		let mut obj = ObjectParams::new();
 		let address = format!("{:?}", self.handler);
 		obj.insert("address", address.as_str())
@@ -285,10 +285,15 @@ where
 		let param = obj.to_rpc_params().ok().flatten().expect("Failed to serialize rpc params");
 		let sub = self
 			.rpc_client
-			.subscribe::<Log, _>("eth_subscribe", rpc_params!("logs", param), "eth_unsubscribe")
+			.subscribe(
+				"eth_subscribe".to_string(),
+				rpc_params!("logs", param),
+				"eth_unsubscribe".to_string(),
+			)
 			.await?;
 		let stream = sub.filter_map(|log| async move {
-			log.ok().and_then(|log| {
+			log.ok().and_then(|raw| {
+				let log = serde_json::from_str(raw.get()).ok()?;
 				parse_log::<StateMachineUpdatedFilter>(log)
 					.ok()
 					.map(|ev| Ok(to_state_machine_updated(ev)))

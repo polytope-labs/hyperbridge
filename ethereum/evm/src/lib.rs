@@ -18,10 +18,10 @@ use ismp::{
 	events::Event,
 	host::{Ethereum, StateMachine},
 };
-use jsonrpsee::ws_client::WsClientBuilder;
+use reconnecting_jsonrpsee_ws_client::{Client, ExponentialBackoff, PingConfig};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tesseract_primitives::{IsmpHost, NonceProvider};
 
 pub mod abi;
@@ -97,7 +97,7 @@ pub struct EvmClient<I> {
 	nonce_provider: Option<NonceProvider>,
 	/// Jsonrpsee client for event susbscription, ethers does not expose a Send and Sync stream for
 	/// susbcribing to contract logs
-	pub rpc_client: Arc<jsonrpsee::ws_client::WsClient>,
+	pub rpc_client: Arc<Client>,
 }
 
 impl<I> EvmClient<I>
@@ -120,7 +120,15 @@ where
 			consensus_state_id.copy_from_slice(config.consensus_state_id.as_bytes());
 			consensus_state_id
 		};
-		let rpc_client = WsClientBuilder::default().build(&config.execution_ws).await?;
+		let rpc_client = Client::builder()
+			.retry_policy(ExponentialBackoff::from_millis(100))
+			.enable_ws_ping(
+				PingConfig::new()
+					.ping_interval(Duration::from_secs(6))
+					.inactive_limit(Duration::from_secs(30)),
+			)
+			.build(config.execution_ws)
+			.await?;
 
 		let latest_height = client.get_block_number().await?.as_u64();
 		Ok(Self {

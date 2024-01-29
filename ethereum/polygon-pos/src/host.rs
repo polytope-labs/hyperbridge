@@ -15,15 +15,13 @@
 use anyhow::Error;
 use codec::Encode;
 use debounced::Debounced;
-use ethers::types::Block;
 use futures::StreamExt;
 use ismp::messaging::{ConsensusMessage, CreateConsensusState};
-use jsonrpsee::{core::client::SubscriptionClientT, rpc_params};
-use primitive_types::H256;
+use jsonrpsee::rpc_params;
 use std::time::Duration;
 
 use crate::{notification::consensus_notification, PolygonPosHost};
-use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider, Reconnect};
+use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
 impl IsmpHost for PolygonPosHost {
@@ -38,10 +36,10 @@ impl IsmpHost for PolygonPosHost {
 
 		let sub = self
 			.rpc_client
-			.subscribe::<Block<H256>, _>(
-				"eth_subscribe",
+			.subscribe(
+				"eth_subscribe".to_string(),
 				rpc_params!("newHeads"),
-				"eth_unsubscribe",
+				"eth_unsubscribe".to_string(),
 			)
 			.await?;
 		let debounced_sub = Debounced::new(sub, Duration::from_secs(4));
@@ -50,16 +48,19 @@ impl IsmpHost for PolygonPosHost {
 			let counterparty = counterparty.clone();
 			async move {
 				match res {
-					Ok(header) => consensus_notification(&client, counterparty, header)
-						.await
-						.ok()
-						.flatten()
-						.map(|update| {
-							Ok(ConsensusMessage {
-								consensus_proof: update.encode(),
-								consensus_state_id: client.consensus_state_id,
+					Ok(raw) => {
+						let header = serde_json::from_str(raw.get()).ok()?;
+						consensus_notification(&client, counterparty, header)
+							.await
+							.ok()
+							.flatten()
+							.map(|update| {
+								Ok(ConsensusMessage {
+									consensus_proof: update.encode(),
+									consensus_state_id: client.consensus_state_id,
+								})
 							})
-						}),
+					},
 					_ => None,
 				}
 			}
@@ -79,14 +80,5 @@ impl IsmpHost for PolygonPosHost {
 			challenge_period: 5 * 60,
 			state_machine_commitments: vec![],
 		}))
-	}
-}
-
-#[async_trait::async_trait]
-impl Reconnect for PolygonPosHost {
-	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
-		let new_host = PolygonPosHost::new(&self.config).await?;
-		*self = new_host;
-		Ok(())
 	}
 }

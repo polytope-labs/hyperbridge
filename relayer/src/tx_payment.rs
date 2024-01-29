@@ -12,10 +12,9 @@ use ismp::{
 	util::hash_request,
 };
 use primitives::{
-	wait_for_challenge_period, HyperbridgeClaim, IsmpProvider, Query, Reconnect,
-	WithdrawFundsResult,
+	wait_for_challenge_period, HyperbridgeClaim, IsmpProvider, Query, WithdrawFundsResult,
 };
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, str::FromStr, time::Duration};
 use tesseract_bnb_pos::KeccakHasher;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use transaction_payment::TransactionPayment;
@@ -130,7 +129,7 @@ impl AccumulateFees {
 	}
 }
 
-async fn deliver_post_request<C: IsmpProvider + Reconnect, D: IsmpProvider>(
+async fn deliver_post_request<C: IsmpProvider, D: IsmpProvider>(
 	dest_chain: &mut C,
 	hyperbridge: &D,
 	result: WithdrawFundsResult,
@@ -139,6 +138,7 @@ async fn deliver_post_request<C: IsmpProvider + Reconnect, D: IsmpProvider>(
 		.state_machine_update_notification(hyperbridge.state_machine_id())
 		.await?;
 	let mut delivered = false;
+	let mut retries = 0;
 	loop {
 		while let Some(Ok(event)) = stream.next().await {
 			if event.latest_height >= result.block {
@@ -176,12 +176,10 @@ async fn deliver_post_request<C: IsmpProvider + Reconnect, D: IsmpProvider>(
 				break
 			}
 		}
-		if !delivered {
-			println!("Trying to resubmit withdrawal to destination");
-			dest_chain.reconnect().await?;
-			stream = dest_chain
-				.state_machine_update_notification(hyperbridge.state_machine_id())
-				.await?;
+		if !delivered && retries < 5 {
+			// Try again
+			tokio::time::sleep(Duration::from_secs(30)).await;
+			retries += 1;
 		} else {
 			break
 		}

@@ -97,7 +97,7 @@ where
 	) -> anyhow::Result<WithdrawFundsResult> {
 		let mut nonce_key =
 			hex!("0f58da11a3e360dcc90475225459bcf9718368a0ace36e2b1b8b6dbd7f8093c0").to_vec();
-		let hashed_key = sp_core::twox_64(&counterparty.address());
+		let hashed_key = twox_64(&counterparty.address());
 		nonce_key.extend_from_slice(&hashed_key);
 		let response = self
 			.client

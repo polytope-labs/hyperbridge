@@ -76,20 +76,6 @@ macro_rules! chain {
 			}
         }
 
-        #[async_trait::async_trait]
-        impl primitives::Reconnect for AnyClient {
-            async fn reconnect(
-                &mut self,
-            ) -> Result<(), anyhow::Error>
-            {
-                match self {
-					$(
-						$(#[$($meta)*])*
-						Self::$name(chain) => chain.reconnect().await,
-					)*
-				}
-            }
-        }
 
         #[async_trait::async_trait]
         impl primitives::IsmpProvider for AnyClient {

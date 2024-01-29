@@ -9,7 +9,7 @@ use ismp::{
 	events::StateMachineUpdated,
 	messaging::{ConsensusMessage, CreateConsensusState},
 };
-use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, Reconnect};
+use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
 impl ByzantineHandler for OpHost {
@@ -70,14 +70,5 @@ impl IsmpHost for OpHost {
 
 	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
 		Ok(None)
-	}
-}
-
-#[async_trait::async_trait]
-impl Reconnect for OpHost {
-	async fn reconnect(&mut self) -> Result<(), anyhow::Error> {
-		let new_host = OpHost::new(&self.host, &self.evm).await?;
-		*self = new_host;
-		Ok(())
 	}
 }

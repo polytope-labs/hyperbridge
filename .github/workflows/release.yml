@@ -133,7 +133,7 @@ jobs:
       - name: Build artifacts
         run: |
           # Actually do builds and make zips and whatnot
-          ./scripts/ignore_plonk.sh "cargo dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json"
+          cargo dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
           echo "cargo dist ran successfully"
       - id: cargo-dist
         name: Post-build

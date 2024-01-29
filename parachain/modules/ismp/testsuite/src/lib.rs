@@ -162,11 +162,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
         .unwrap();
     host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
         .unwrap();
-    let frozen_height = StateMachineHeight {
-        id: intermediate_state.height.id,
-        height: intermediate_state.height.height - 1,
-    };
-    host.freeze_state_machine(frozen_height).unwrap();
+    host.freeze_state_machine(intermediate_state.height.id).unwrap();
 
     let post = Post {
         source: host.host_state_machine(),
@@ -227,7 +223,7 @@ where
 {
     let intermediate_state = setup_mock_client(host);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
-    let previous_update_time = host.timestamp() - (challenge_period * 2);
+    let previous_update_time = host.timestamp().saturating_sub(challenge_period * 2);
     host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
         .unwrap();
     host.store_state_machine_update_time(intermediate_state.height, previous_update_time)

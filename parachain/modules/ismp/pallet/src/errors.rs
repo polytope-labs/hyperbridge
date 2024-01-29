@@ -16,7 +16,7 @@
 //! Ismp Errors conversions
 use codec::{Decode, Encode};
 use ismp::{
-    consensus::{ConsensusClientId, StateMachineHeight},
+    consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
     error::Error as IsmpError,
     host::StateMachine,
     module::DispatchResult,
@@ -42,7 +42,7 @@ pub enum HandlingError {
         id: ConsensusClientId,
     },
     FrozenStateMachine {
-        height: StateMachineHeight,
+        id: StateMachineId,
     },
     RequestCommitmentNotFound {
         nonce: u64,
@@ -123,8 +123,7 @@ impl From<ismp::error::Error> for HandlingError {
                 HandlingError::StateCommitmentNotFound { height },
             IsmpError::FrozenConsensusClient { consensus_state_id } =>
                 HandlingError::FrozenConsensusClient { id: consensus_state_id },
-            IsmpError::FrozenStateMachine { height } =>
-                HandlingError::FrozenStateMachine { height },
+            IsmpError::FrozenStateMachine { id } => HandlingError::FrozenStateMachine { id },
             IsmpError::RequestCommitmentNotFound { nonce, source, dest } =>
                 HandlingError::RequestCommitmentNotFound { nonce, source, dest },
             IsmpError::RequestVerificationFailed { nonce, source, dest } =>

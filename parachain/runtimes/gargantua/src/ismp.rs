@@ -29,6 +29,7 @@ use ismp::{
 };
 
 use ismp::router::Timeout;
+use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{
     dispatcher::FeeMetadata,
     host::Host,
@@ -53,8 +54,10 @@ impl ConsensusClientProvider for ConsensusProvider {
     fn consensus_client(id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
         match id {
             ismp_sync_committee::BEACON_CONSENSUS_ID => {
-                let sync_committee =
-                    ismp_sync_committee::SyncCommitteeConsensusClient::<Host<Runtime>>::default();
+                let sync_committee = ismp_sync_committee::SyncCommitteeConsensusClient::<
+                    Host<Runtime>,
+                    Sepolia,
+                >::default();
                 Ok(Box::new(sync_committee))
             },
             ismp_polygon_pos::POLYGON_CONSENSUS_ID => {
@@ -95,6 +98,12 @@ impl ismp_demo::Config for Runtime {
     type Balance = Balance;
     type NativeCurrency = Balances;
     type IsmpDispatcher = pallet_ismp::dispatcher::Dispatcher<Runtime>;
+}
+
+impl pallet_relayer_fees::Config for Runtime {}
+
+impl state_machine_manager::pallet::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
 }
 
 impl IsmpModule for ProxyModule {

@@ -32,7 +32,7 @@ contract PostResponseTest is BaseTest {
         handler.handlePostResponses(host, message);
 
         // assert that we acknowledge the response
-        assert(host.responseReceipts(message.responses[0].response.request.hash()));
+        assert(host.responseReceipts(message.responses[0].response.request.hash()).relayer != address(0));
     }
 
     function PostResponseTimeoutNoChallenge(

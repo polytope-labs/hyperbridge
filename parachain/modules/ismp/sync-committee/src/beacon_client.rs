@@ -34,6 +34,7 @@ use ismp::{
     messaging::{Proof, StateCommitmentHeight},
     router::RequestResponse,
 };
+use sync_committee_primitives::constants::Config;
 
 use crate::{
     arbitrum::verify_arbitrum_payload,
@@ -45,10 +46,12 @@ use crate::{
 pub const BEACON_CONSENSUS_ID: ConsensusClientId = *b"BEAC";
 
 #[derive(Default, Clone)]
-pub struct SyncCommitteeConsensusClient<H: IsmpHost>(core::marker::PhantomData<H>);
+pub struct SyncCommitteeConsensusClient<H: IsmpHost, C: Config>(core::marker::PhantomData<(H, C)>);
 
-impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
-    for SyncCommitteeConsensusClient<H>
+impl<
+        H: IsmpHost + Send + Sync + Default + 'static,
+        C: Config + Send + Sync + Default + 'static,
+    > ConsensusClient for SyncCommitteeConsensusClient<H, C>
 {
     fn verify_consensus(
         &self,
@@ -67,11 +70,12 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
             })?;
 
-        let new_light_client_state = sync_committee_verifier::verify_sync_committee_attestation(
-            consensus_state.light_client_state,
-            consensus_update.clone(),
-        )
-        .map_err(|e| Error::ImplementationSpecific(format!("{:?}", e)))?;
+        let new_light_client_state =
+            sync_committee_verifier::verify_sync_committee_attestation::<C>(
+                consensus_state.light_client_state,
+                consensus_update.clone(),
+            )
+            .map_err(|e| Error::ImplementationSpecific(format!("{:?}", e)))?;
 
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
             BTreeMap::new();
@@ -262,8 +266,11 @@ pub fn verify_state_proof<H: IsmpHost + Send + Sync>(
         // key
         let contract_address =
             if key.len() == 52 { H160::from_slice(&key[..20]) } else { ismp_address };
-        let slot_hash =
-            if key.len() == 52 { H::keccak256(&key[20..]).0.to_vec() } else { key.clone() };
+        let slot_hash = if key.len() == 52 {
+            H::keccak256(&key[20..]).0.to_vec()
+        } else {
+            H::keccak256(&key).0.to_vec()
+        };
 
         let contract_root = get_contract_storage_root::<H>(
             evm_state_proof.contract_proof.clone(),

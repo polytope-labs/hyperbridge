@@ -17,8 +17,8 @@
 use crate::{
     primitives::ConsensusClientProvider, AllowedProxies, ChallengePeriod, Config,
     ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
-    FrozenHeights, LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts, Responded,
-    ResponseCommitments, ResponseReceipts, ResponseReciept, StateCommitments,
+    FrozenStateMachine, LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts,
+    Responded, ResponseCommitments, ResponseReceipt, ResponseReceipts, StateCommitments,
     StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
@@ -102,10 +102,10 @@ impl<T: Config> IsmpHost for Host<T> {
         <T::TimeProvider as UnixTime>::now()
     }
 
-    fn is_state_machine_frozen(&self, machine: StateMachineHeight) -> Result<(), Error> {
-        if let Some(frozen_height) = FrozenHeights::<T>::get(machine.id) {
-            if machine.height >= frozen_height {
-                Err(Error::FrozenStateMachine { height: machine })?
+    fn is_state_machine_frozen(&self, machine: StateMachineId) -> Result<(), Error> {
+        if let Some(frozen) = FrozenStateMachine::<T>::get(machine) {
+            if frozen {
+                Err(Error::FrozenStateMachine { id: machine })?
             }
         }
         Ok(())
@@ -217,8 +217,13 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
-    fn freeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error> {
-        FrozenHeights::<T>::insert(height.id, height.height);
+    fn freeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
+        FrozenStateMachine::<T>::insert(state_machine, true);
+        Ok(())
+    }
+
+    fn unfreeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
+        FrozenStateMachine::<T>::remove(&state_machine);
         Ok(())
     }
 
@@ -258,7 +263,7 @@ impl<T: Config> IsmpHost for Host<T> {
     fn store_response_receipt(&self, res: &Response, signer: &Vec<u8>) -> Result<(), Error> {
         let hash = hash_request::<Self>(&res.request());
         let response = hash_response::<Self>(&res);
-        ResponseReceipts::<T>::insert(hash, ResponseReciept { response, relayer: signer.clone() });
+        ResponseReceipts::<T>::insert(hash, ResponseReceipt { response, relayer: signer.clone() });
         Ok(())
     }
 

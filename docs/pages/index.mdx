@@ -1,0 +1,20 @@
+---
+title: Hyperbridge
+description: Hyperbridge Protocol Specification
+---
+
+# Introduction
+
+Secure interoperability requires the verification of consensus proofs, consensus fault proofs, and state transition validity proofs. Blockchains that want to securely communicate with each other must perform these operations onchain, so that they can be convinced of the finalized (irreversible) state of their counterparty. Finally, through the use of state proofs, they are then able to read the outgoing message queue of their counter party.
+
+These operations are very expensive and do not scale when we especially want to facilitate the communication of multiple blockchains. This neccessitates the coprocessor model where we perform the computations offchain and report back onchain with cryptographic proofs of the correct execution.
+
+Hyperbrige is an instance of such a coprocessor. More specifically it is a [crypto-economic coprocessor](https://blog.polytope.technology/cryptoeconomic-coprocessors). Combined with high-economic security, Hyperbridge is able to scale secure cross-chain interoperability to all blockchains.
+
+<figure>
+  <img
+    src="/coprocessor.svg"
+    alt="An interoperability coprocessor for secure cross-chain communication"
+  />
+  <figcaption>An interoperability coprocessor for secure cross-chain communication</figcaption>
+</figure>

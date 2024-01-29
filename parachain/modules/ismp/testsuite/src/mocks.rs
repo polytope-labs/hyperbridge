@@ -95,7 +95,7 @@ pub struct Host {
     consensus_states: Rc<RefCell<HashMap<ConsensusStateId, Vec<u8>>>>,
     state_commitments: Rc<RefCell<HashMap<StateMachineHeight, StateCommitment>>>,
     consensus_update_time: Rc<RefCell<HashMap<ConsensusStateId, Duration>>>,
-    frozen_state_machines: Rc<RefCell<HashMap<StateMachineId, StateMachineHeight>>>,
+    frozen_state_machines: Rc<RefCell<HashMap<StateMachineId, bool>>>,
     latest_state_height: Rc<RefCell<HashMap<StateMachineId, u64>>>,
     nonce: Rc<RefCell<u64>>,
 }
@@ -162,15 +162,11 @@ impl IsmpHost for Host {
         SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
     }
 
-    fn is_state_machine_frozen(&self, machine: StateMachineHeight) -> Result<(), Error> {
-        let val = self
-            .frozen_state_machines
-            .borrow()
-            .get(&machine.id)
-            .map(|frozen_height| machine.height >= frozen_height.height)
-            .unwrap_or(false);
-        if val {
-            Err(Error::FrozenStateMachine { height: machine })?;
+    fn is_state_machine_frozen(&self, machine: StateMachineId) -> Result<(), Error> {
+        let binding = self.frozen_state_machines.borrow();
+        let val = binding.get(&machine).unwrap_or(&false);
+        if *val {
+            Err(Error::FrozenStateMachine { id: machine })?;
         }
 
         Ok(())
@@ -260,8 +256,13 @@ impl IsmpHost for Host {
         Ok(())
     }
 
-    fn freeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error> {
-        self.frozen_state_machines.borrow_mut().insert(height.id, height);
+    fn freeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
+        self.frozen_state_machines.borrow_mut().insert(state_machine, true);
+        Ok(())
+    }
+
+    fn unfreeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
+        self.frozen_state_machines.borrow_mut().remove(&state_machine);
         Ok(())
     }
 

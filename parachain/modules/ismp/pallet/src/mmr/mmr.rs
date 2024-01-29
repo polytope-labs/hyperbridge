@@ -19,10 +19,10 @@ use crate::{
         storage::{OffchainStorage, RuntimeStorage, Storage},
         utils::NodesUtils,
     },
+    mmr_primitives::{DataOrHash, Leaf, MmrHasher, NodeIndex},
     primitives::{Error, Proof},
     Config, Pallet,
 };
-use ismp::mmr::{DataOrHash, Leaf, MmrHasher, NodeIndex};
 use sp_core::H256;
 use sp_std::prelude::*;
 

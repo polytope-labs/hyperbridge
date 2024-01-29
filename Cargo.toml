@@ -33,11 +33,14 @@ members = [
     "parachain/modules/consensus/geth-primitives",
 
     "parachain/modules/consensus/bnb-pos/verifier",
-    "parachain/modules/consensus/bnb-pos/prover", "parachain/modules/ismp/bnb-pos",
+    "parachain/modules/consensus/bnb-pos/prover", 
+    "parachain/modules/ismp/bnb-pos",
+    "parachain/modules/state-machine-manager",
 
     # evm stuff
     "evm/integration-tests",
     "evm/abi",
+    "parachain/modules/relayer-fees",
 
 
     # hyper-client (sdk)
@@ -47,26 +50,21 @@ members = [
 # Config for 'cargo dist'
 [workspace.metadata.dist]
 # The preferred cargo-dist version to use in CI (Cargo.toml SemVer syntax)
-cargo-dist-version = "0.4.1"
+cargo-dist-version = "0.8.0"
 # CI backends to support
 ci = ["github"]
 # The installers to generate for each app
-installers = ["shell", "powershell", "npm"]
+installers = ["shell"]
 # A GitHub repo to push Homebrew formulas to
 tap = "polytope-labs/hyperbridge"
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin"]
-# The archive format to use for windows builds (defaults .zip)
-windows-archive = ".tar.gz"
+targets = ["x86_64-unknown-linux-gnu"]
 # The archive format to use for non-windows builds (defaults .tar.xz)
 unix-archive = ".tar.gz"
-# A namespace to use when publishing this package to the npm registry
-npm-scope = "@polytope-labs"
 # Publish jobs to run in CI
-publish-jobs = []
-# Publish jobs to run in CI
-pr-run-mode = "skip"
-allow-dirty = ["ci", "msi"]
+pr-run-mode = "upload"
+# Skip checking whether the specified configuration files are up to date
+allow-dirty = ["ci"]
 
 # The profile that 'cargo dist' will build with
 [profile.dist]
@@ -173,7 +171,7 @@ mmr-rpc = { version = "25.0.0" }
 ethers = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8", features = ["ethers-solc"] }
 ethers-contract-abigen = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8" }
 
-forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "82294cf1999c7b51c7a32cae77762b53c0955803" }
+forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "71701dc172efe46132a4e28654b6e8fa1aff88bc" }
 merkle-mountain-range = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr", default-features = false }
 
 trie-db = { version = "0.28.0", default-features = false }

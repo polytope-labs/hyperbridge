@@ -38,7 +38,9 @@ pub mod benchmarks {
     use crate::{
         dispatcher::{Dispatcher, FeeMetadata, RequestMetadata},
         host::Host,
+        mmr_primitives::Leaf,
         mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
+        primitives::LeafIndexQuery,
         Config, Event, Pallet, RequestCommitments, RequestReceipts, ResponseReceipts,
     };
     use frame_support::traits::{Get, Hooks};
@@ -50,13 +52,11 @@ pub mod benchmarks {
             CreateConsensusState, Message, Proof, RequestMessage, ResponseMessage,
             StateCommitmentHeight, TimeoutMessage,
         },
-        mmr::Leaf,
         router::{
             DispatchGet, DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse,
             Request, RequestResponse, Response,
         },
         util::hash_request,
-        LeafIndexQuery,
     };
 
     /// Verify the the last event emitted
@@ -111,7 +111,7 @@ pub mod benchmarks {
             nonce: 0,
             from: MODULE_ID.to_bytes(),
             to: MODULE_ID.to_bytes(),
-            timeout_timestamp: 5000,
+            timeout_timestamp: 2_000_000_000,
             data: "handle_request_message".as_bytes().to_vec(),
             gas_limit: 0,
         };
@@ -140,7 +140,7 @@ pub mod benchmarks {
             nonce: 0,
             from: MODULE_ID.to_bytes(),
             to: MODULE_ID.to_bytes(),
-            timeout_timestamp: 5000,
+            timeout_timestamp: 2_000_000_0000,
             data: "handle_response_message".as_bytes().to_vec(),
             gas_limit: 0,
         };

@@ -18,7 +18,7 @@ geth-primitives = { path = "../../consensus/geth-primitives", default-features =
 trie-db = { workspace = true }
 hash-db = { workspace = true }
 alloy-rlp = { version = "0.3.2", default-features = false }
-alloy-primitives = { version = "0.3.1", default-features = false, features = ["rlp"] }
+alloy-primitives = { version = "0.6.0", default-features = false, features = ["rlp"] }
 hex = { version = "0.4.3", default-features = false }
 hex-literal = "0.3.4"
 alloy-rlp-derive = "0.3.2"
@@ -62,5 +62,3 @@ std = [
     "geth-primitives/std"
 ]
 
-sepolia = ["sync-committee-verifier/sepolia", "sync-committee-primitives/sepolia"]
-mainnet = ["sync-committee-verifier/mainnet", "sync-committee-primitives/mainnet"]

@@ -1,11 +1,17 @@
 {
-  "name": "Hyperbridge",
+  "name": "Hyperbridge (Messier)",
   "id": "messier",
   "chainType": "Live",
-  "bootNodes": [],
+  "bootNodes": [
+    "/ip4/35.240.101.10/tcp/30333/p2p/12D3KooWKqypQcAhfyRdwug3rqFJpfT69kygzdGrHWFYB2Vg7C5e"
+  ],
   "telemetryEndpoints": null,
   "protocolId": "messier",
-  "properties": null,
+  "properties": {
+    "ss58Format": 42,
+    "tokenDecimals": 12,
+    "tokenSymbol": "CORE"
+  },
   "relay_chain": "kusama",
   "para_id": 3340,
   "codeSubstitutes": {},

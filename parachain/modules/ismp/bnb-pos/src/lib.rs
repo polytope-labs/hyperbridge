@@ -25,7 +25,7 @@ use sync_committee_primitives::constants::BlsPublicKey;
 
 pub const BNB_CONSENSUS_ID: ConsensusStateId = *b"BNBP";
 
-#[derive(codec::Encode, codec::Decode, Debug)]
+#[derive(codec::Encode, codec::Decode, Debug, Default)]
 pub struct ConsensusState {
     pub current_validators: Vec<BlsPublicKey>,
     pub next_validators: Option<NextValidators>,

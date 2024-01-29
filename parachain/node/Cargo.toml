@@ -3,11 +3,9 @@ name = "hyperbridge"
 version = "0.2.1"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "The Hyperbridge coprocessor node"
+repository = "https://github.com/polytope-labs/hyperbridge"
 edition = "2021"
 build = "build.rs"
-
-[package.metadata.dist]
-features = ["sepolia"]
 
 [dependencies]
 # crates.io
@@ -94,5 +92,3 @@ try-runtime = [
 	"try-runtime-cli/try-runtime",
 	"gargantua-runtime/try-runtime"
 ]
-sepolia = ["gargantua-runtime/sepolia", "messier-runtime/sepolia"]
-mainnet = ["gargantua-runtime/mainnet", "messier-runtime/mainnet"]

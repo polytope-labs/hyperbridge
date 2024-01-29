@@ -91,14 +91,14 @@ where
         },
     )?;
     let current_timestamp = host.timestamp();
-    Ok(current_timestamp - update_time > delay_period)
+    Ok(delay_period.as_secs() == 0 || current_timestamp.saturating_sub(update_time) > delay_period)
 }
 
 /// This function does the preliminary checks for a request or response message
 /// - It ensures the consensus client is not frozen
 /// - It ensures the state machine is not frozen
 /// - Checks that the delay period configured for the state machine has elaspsed.
-fn validate_state_machine<H>(
+pub fn validate_state_machine<H>(
     host: &H,
     proof_height: StateMachineHeight,
 ) -> Result<Box<dyn StateMachineClient>, Error>
@@ -116,7 +116,7 @@ where
     host.is_consensus_client_frozen(proof_height.id.consensus_state_id)?;
 
     // Ensure state machine is not frozen
-    host.is_state_machine_frozen(proof_height)?;
+    host.is_state_machine_frozen(proof_height.id)?;
 
     // Ensure delay period has elapsed
     if !verify_delay_passed(host, &proof_height)? {

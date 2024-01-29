@@ -34,6 +34,7 @@ ethers = { workspace = true }
 forge-testsuite = { workspace = true }
 merkle-mountain-range = { workspace = true, features = ["default"] }
 ismp = { path = "../../parachain/modules/ismp/core" }
+pallet-ismp = { path = "../../parachain/modules/ismp/pallet" }
 ismp-solidity-abi = { path = "../abi", features = ["build-abi"] }
 beefy-prover = { path = "../../parachain/modules/consensus/beefy/prover", default-features = false }
 beefy-verifier-primitives = { path = "../../parachain/modules/consensus/beefy/primitives" }

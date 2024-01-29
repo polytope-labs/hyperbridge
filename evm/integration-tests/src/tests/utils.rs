@@ -1,7 +1,7 @@
 use crate::{Keccak256, Mmr};
-use ismp::mmr::DataOrHash;
 use ismp_solidity_abi::{beefy::StateMachineHeight, handler::Proof};
 use merkle_mountain_range::mmr_position_to_k_index;
+use pallet_ismp::mmr_primitives::DataOrHash;
 use primitive_types::{H256, U256};
 use sp_core::KeccakHasher;
 use sp_trie::{LayoutV0, MemoryDB, StorageProof, TrieDBBuilder, EMPTY_PREFIX};

@@ -87,9 +87,12 @@ contract TokenGateway is IIsmpModule {
         host = _host;
     }
 
-    function setTokenIdentifierDetails(bytes32 _tokenId, address _erc20, address _erc6160) external onlyAdmin {
-        _erc6160s[_tokenId] = _erc6160;
+    function setTokenIdentifiersERC20(bytes32 _tokenId, address _erc20) external onlyAdmin {
         _erc20s[_tokenId] = _erc20;
+    }
+
+    function setTokenIdentifiersERC6160(bytes32 _tokenId, address _erc6160) external onlyAdmin {
+        _erc6160s[_tokenId] = _erc6160;
     }
 
     function setForeignTokenIdToLocalTokenId(bytes32 _foreignTokenId, bytes32 _localTokenId) external onlyAdmin {

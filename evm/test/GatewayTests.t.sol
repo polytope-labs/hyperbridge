@@ -134,23 +134,35 @@ contract TokenGatewayTest is Test {
         chain_b_usdc.mint(user2, 1_000_000_000e18);
 
         chain_a_gateway.setIsmpHost(address(chain_a_host));
-        chain_a_gateway.setTokenIdentifierDetails(
-            keccak256("USDC-A"), address(chain_a_usdc), address(chain_a_wrapped_usdc)
+        chain_a_gateway.setTokenIdentifiersERC20(
+            keccak256("USDC-A"), address(chain_a_usdc)
+        );
+         chain_a_gateway.setTokenIdentifiersERC6160(
+            keccak256("USDC-A"), address(chain_a_wrapped_usdc)
         );
         chain_a_gateway.setForeignTokenIdToLocalTokenId(keccak256("USDC-B"), keccak256("USDC-A"));
-        chain_a_gateway.setTokenIdentifierDetails(
-            keccak256("DAI-A"), address(chain_a_dai), address(chain_a_wrapped_dai)
+        chain_a_gateway.setTokenIdentifiersERC20(
+            keccak256("DAI-A"), address(chain_a_dai)
+        );
+        chain_a_gateway.setTokenIdentifiersERC6160(
+            keccak256("DAI-A"), address(chain_a_wrapped_dai)
         );
         chain_a_gateway.setForeignTokenIdToLocalTokenId(keccak256("DAI-B"), keccak256("DAI-A"));
         chain_a_gateway.setChainsGateway(chain_b, address(chain_b_gateway));
 
         chain_b_gateway.setIsmpHost(address(chain_b_host));
-        chain_b_gateway.setTokenIdentifierDetails(
-            keccak256("USDC-B"), address(chain_b_usdc), address(chain_b_wrapped_usdc)
+        chain_b_gateway.setTokenIdentifiersERC20(
+            keccak256("USDC-B"), address(chain_b_usdc)
+        );
+         chain_b_gateway.setTokenIdentifiersERC6160(
+            keccak256("USDC-B"), address(chain_b_wrapped_usdc)
         );
         chain_b_gateway.setForeignTokenIdToLocalTokenId(keccak256("USDC-A"), keccak256("USDC-B"));
-        chain_b_gateway.setTokenIdentifierDetails(
-            keccak256("DAI-B"), address(chain_b_dai), address(chain_b_wrapped_dai)
+        chain_b_gateway.setTokenIdentifiersERC20(
+            keccak256("DAI-B"), address(chain_b_dai)
+        );
+        chain_b_gateway.setTokenIdentifiersERC6160(
+            keccak256("DAI-B"), address(chain_b_wrapped_dai)
         );
         chain_b_gateway.setForeignTokenIdToLocalTokenId(keccak256("DAI-A"), keccak256("DAI-B"));
         chain_b_gateway.setChainsGateway(chain_a, address(chain_a_gateway));

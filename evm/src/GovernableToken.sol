@@ -24,36 +24,28 @@ contract GovernableToken is IIsmpModule, ERC6160Ext20 {
         _roles[role][account] = false;
     }
 
-    function mint(address account, uint256 amount, bytes calldata) external override onlyRole(MINTER_ROLE) {
-        _mint(account, amount);
-    }
-
-    function burn(address account, uint256 amount, bytes calldata) external override onlyRole(BURNER_ROLE)  {
-        _burn(account, amount);
-    }
-
     function onAccept(PostRequest calldata request) external onlyRole(HOST_ROLE) {
         (address account, bytes32 role, bool grant) = abi.decode(request.body, (address, bytes32, bool));
         grant ? _grantRole(role, account) : _revokeRole(role, account);
     }
 
     function onPostResponse(PostResponse memory) external view onlyRole(HOST_ROLE) {
-        revert("Token gateway doesn't emit Post responses");
+        revert("GovernableToken doesn't emit Post responses");
     }
 
     function onGetResponse(GetResponse memory) external view onlyRole(HOST_ROLE) {
-        revert("Token gateway doesn't emit Get responses");
+        revert("GovernableToken doesn't emit Get responses");
     }
 
     function onPostRequestTimeout(PostRequest memory) external view onlyRole(HOST_ROLE) {
-        revert("Token gateway doesn't emit Post responses");
+        revert("GovernableToken doesn't emit Post responses");
     }
 
     function onPostResponseTimeout(PostResponse memory) external view onlyRole(HOST_ROLE) {
-        revert("Token gateway doesn't emit Post responses");
+        revert("GovernableToken doesn't emit Post responses");
     }
 
     function onGetTimeout(GetRequest memory) external view onlyRole(HOST_ROLE) {
-        revert("Token gateway doesn't emit Get requests");
+        revert("GovernableToken doesn't emit Get requests");
     }
 }

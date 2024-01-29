@@ -13,9 +13,6 @@
 [submodule "evm/lib/openzeppelin-contracts"]
 	path = evm/lib/openzeppelin-contracts
 	url = https://github.com/openzeppelin/openzeppelin-contracts
-[submodule "lib/ERC6160"]
-	path = lib/ERC6160
-	url = https://github.com/polytope-labs/ERC6160
 [submodule "evm/lib/ERC6160"]
 	path = evm/lib/ERC6160
 	url = https://github.com/polytope-labs/ERC6160

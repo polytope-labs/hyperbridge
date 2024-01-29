@@ -32,7 +32,9 @@ jobs:
           toolchain: nightly
 
       - name: Add wasm toolchain
-        run: rustup target add wasm32-unknown-unknown
+        run: |
+          rustup target add wasm32-unknown-unknown --toolchain nightly
+          rustup component add rust-src
 
       - name: Build
         run:  |

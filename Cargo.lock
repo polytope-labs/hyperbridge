@@ -4052,9 +4052,10 @@ dependencies = [
 [[package]]
 name = "forge-testsuite"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/forge-testsuite?rev=82294cf1999c7b51c7a32cae77762b53c0955803#82294cf1999c7b51c7a32cae77762b53c0955803"
+source = "git+https://github.com/polytope-labs/forge-testsuite?rev=71701dc172efe46132a4e28654b6e8fa1aff88bc#71701dc172efe46132a4e28654b6e8fa1aff88bc"
 dependencies = [
  "ethers",
+ "ethers-solc",
  "forge",
  "foundry-common",
  "foundry-config",

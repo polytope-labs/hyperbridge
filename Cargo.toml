@@ -17,7 +17,8 @@ members = [
     "ethereum/bnb-pos",
     "payments",
     "payments/prisma-cli",
-    "fisherman"
+    "fisherman",
+    "telemetry"
 ]
 
 [profile.release]

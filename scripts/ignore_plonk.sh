@@ -1,3 +1,7 @@
+#!/bin/bash
+
+set -e
+
 # smh we need to ingore plonk because our statically linked foundry lib can't compile it
 mv ./evm/src/beefy/verifiers/KusamaVerifier.sol ./evm/src/beefy/verifiers/KusamaVerifier
 mv ./evm/src/beefy/verifiers/PolkadotVerifier.sol ./evm/src/beefy/verifiers/PolkadotVerifier

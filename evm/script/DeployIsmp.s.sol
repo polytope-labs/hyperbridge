@@ -13,12 +13,15 @@ import "../src/hosts/Ethereum.sol";
 import "../src/hosts/Arbitrum.sol";
 import "../src/hosts/Optimism.sol";
 import "../src/hosts/Base.sol";
-import "../examples/PingModule.sol";
+
+import {PingModule} from "../examples/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
+import {RococoVerifier} from "../src/beefy/verifiers/RococoVerifier.sol";
+import {ZkBeefyV1} from "../src/beefy/ZkBeefy.sol";
 
 contract DeployScript is Script {
-    bytes32 public salt = keccak256(bytes("gargantua-v0.0.1"));
+    bytes32 public salt = keccak256(bytes("gargantua-v2"));
 
     function run() external {
         address admin = vm.envAddress("ADMIN");
@@ -28,12 +31,16 @@ contract DeployScript is Script {
         vm.startBroadcast(uint256(privateKey));
 
         // consensus client
-        BeefyV1 consensusClient = new BeefyV1{salt: salt}(paraId);
+        RococoVerifier verifier = new RococoVerifier();
+        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
+
         // handler
         HandlerV1 handler = new HandlerV1{salt: salt}();
-        // cross-chain governor
+
+        // Host manager
         HostManagerParams memory gParams = HostManagerParams({admin: admin, host: address(0), paraId: paraId});
         HostManager governor = new HostManager{salt: salt}(gParams);
+
         // EvmHost
         HostParams memory params = HostParams({
             admin: admin,

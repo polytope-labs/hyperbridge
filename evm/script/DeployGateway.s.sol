@@ -3,11 +3,12 @@ pragma solidity 0.8.17;
 
 import "forge-std/Script.sol";
 import "multi-chain-tokens/tokens/ERC20.sol";
+import "openzeppelin/utils/Strings.sol";
 
 import "../src/modules/TokenGateway.sol";
 import "../src/modules/TokenFaucet.sol";
-import "../examples/PingModule.sol";
-import "../examples/CrossChainMessenger.sol";
+import {PingModule} from  "../examples/PingModule.sol";
+import {CrossChainMessenger} from "../examples/CrossChainMessenger.sol";
 
 contract DeployScript is Script {
     bytes32 public salt = keccak256(bytes("gargantua-v0.0.7"));

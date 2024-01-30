@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {TokenGateway, IIsmp} from "../../src/modules/TokenGateway.sol";
-import {HostParams} from "../../src/EVMHost.sol";
+import {HostParams} from "../../src/EvmHost.sol";
 import {ERC20Token} from "../mocks/ERC20Token.sol";
 import "openzeppelin/utils/math/Math.sol";
 import "ismp/IIsmp.sol";

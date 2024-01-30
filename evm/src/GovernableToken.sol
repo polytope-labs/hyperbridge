@@ -23,7 +23,7 @@ contract GovernableToken is IIsmpModule, ERC6160Ext20 {
         _;
     }
 
-    function onAccept(PostRequest calldata request) external onlyRole(HOST_ROLE) {
+    function onAccept(PostRequest calldata request) external {
         GovernableTokenOnAcceptBody memory body = abi.decode(request.body, (GovernableTokenOnAcceptBody));
         body.grant ? grantRole(body.role, body.account) : revokeRole(body.role, body.account);
     }

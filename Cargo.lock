@@ -9599,11 +9599,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48b3c9531f72da89c2eb9f54dcf79169d54e26b8c03438e395d0dd8e40167767"
 dependencies = [
  "adler32",
- "async-stream",
  "backoff",
  "base64 0.21.7",
  "bytes",
- "futures-util",
  "log",
  "native-tls",
  "rand 0.8.5",
@@ -9611,7 +9609,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "tokio",
  "url",
 ]
 
@@ -13708,8 +13705,11 @@ dependencies = [
  "log",
  "pallet-ismp",
  "parity-scale-codec",
+ "rust_socketio",
  "serde",
+ "serde_json",
  "sp-core 25.0.0",
+ "telemetry-server",
  "tesseract-beefy",
  "tesseract-bnb-pos",
  "tesseract-consensus",

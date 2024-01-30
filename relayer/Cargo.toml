@@ -18,6 +18,7 @@ tesseract-bnb-pos = { path = "../ethereum/bnb-pos" }
 tesseract-sync-committee = { path = "../ethereum/sync-committee" }
 tesseract-beefy = { path = "../substrate/beefy/naive" }
 transaction-payment = { path = "../payments" }
+telemetry-server = { path = "../telemetry" }
 
 # polytope labs
 ismp.workspace = true
@@ -30,13 +31,15 @@ env_logger = "0.10.0"
 anyhow = "1.0.71"
 futures = "0.3.28"
 serde = { version = "1.0.164", features = ["derive"] }
+json = { version = "1.0.112", package = "serde_json" }
 toml = "0.7.4"
 async-trait = "0.1.77"
 clap = { version = "4.3.5", features = ["derive"] }
 tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
 ethers = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
-sp-core = { workspace = true }
+rust_socketio = { version = "0.4.4" }
+sp-core = { workspace = true, features = ["full_crypto"] }
 
 [features]
 consensus = []

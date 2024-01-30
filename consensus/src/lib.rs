@@ -15,33 +15,41 @@
 
 //! Consensus message relay
 
-use futures::StreamExt;
+use anyhow::anyhow;
+use futures::{future::Either, StreamExt};
 use ismp::messaging::Message;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
+
 /// Relays [`ConsensusMessage`] updates.
 pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
 	B: IsmpHost + IsmpProvider + 'static,
 {
-	let task_a = tokio::spawn({
+	let task_a = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
-		async move {
-			handle_notification(chain_a, chain_b).await;
-		}
-	});
+		Box::pin(handle_notification(chain_a, chain_b))
+	};
 
-	let task_b = tokio::spawn({
+	let task_b = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
-		async move { handle_notification(chain_b, chain_a).await }
-	});
-	let _ = futures::future::join_all(vec![task_a, task_b]).await;
+		Box::pin(handle_notification(chain_b, chain_a))
+	};
+
+	// if one task completes, abort the other
+	let err = match futures::future::select(task_a, task_b).await {
+		Either::Left((res, _task)) => res,
+		Either::Right((res, _task)) => res,
+	};
+
+	log::error!("{:?}", err);
+
 	Ok(())
 }
 
-async fn handle_notification<A, B>(chain_a: A, chain_b: B)
+async fn handle_notification<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
 	B: IsmpHost + IsmpProvider + 'static,
@@ -49,27 +57,30 @@ where
 	let mut consensus_stream = chain_a
 		.consensus_notification(chain_b.clone())
 		.await
-		.expect("Fatal error, please restart relayer: Initial websocket connection failed");
-	loop {
-		match consensus_stream.next().await {
-			None => {
-				panic!(
-					"{}-{} consensus task has failed, Please restart relayer",
-					chain_a.name(),
-					chain_b.name()
-				)
-			},
-			Some(Ok(consensus_message)) => {
+		.map_err(|err| anyhow!("ConsensusMessage stream subscription failed: {err:?}"))?;
+
+	while let Some(item) = consensus_stream.next().await {
+		match item {
+			Ok(consensus_message) => {
 				log::info!(
 					target: "tesseract",
 					"🛰️ Transmitting consensus update message from {} to {}",
 					chain_a.name(), chain_b.name()
 				);
-				let _ = chain_b.submit(vec![Message::Consensus(consensus_message)]).await;
+				if let Err(err) = chain_b.submit(vec![Message::Consensus(consensus_message)]).await
+				{
+					log::error!("Failed to submit transaction to {}: {err:?}", chain_b.name())
+				}
 			},
-			Some(Err(e)) => {
-				log::error!(target: "tesseract","Consensus {}-{} {e:?}", chain_a.name(), chain_b.name())
+			Err(e) => {
+				log::error!(target: "tesseract","Consensus task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
 			},
-		};
+		}
 	}
+
+	Err(anyhow!(
+		"{}-{} consensus task has failed, Please restart relayer",
+		chain_a.name(),
+		chain_b.name()
+	))?
 }

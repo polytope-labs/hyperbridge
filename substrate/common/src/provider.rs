@@ -206,7 +206,10 @@ where
 			let extrinsic = Extrinsic::new("Ismp", "handle", call);
 			futs.push(send_unsigned_extrinsic(&self.client, extrinsic))
 		}
-		let _ = futures::future::join_all(futs).await;
+		futures::future::join_all(futs)
+			.await
+			.into_iter()
+			.collect::<Result<Vec<_>, _>>()?;
 		Ok(())
 	}
 

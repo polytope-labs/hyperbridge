@@ -22,9 +22,14 @@ use crate::{
 };
 use anyhow::anyhow;
 use clap::Parser;
+use codec::Encode;
+use ethers::prelude::H160;
 use ismp::host::{Ethereum, StateMachine};
 use primitives::{IsmpProvider, NonceProvider};
+use rust_socketio::ClientBuilder;
+use sp_core::{ecdsa, ByteArray, Pair};
 use std::{collections::HashMap, sync::Arc};
+use telemetry_server::{Message, SECRET_KEY};
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use tesseract_sync_committee::L2Host;
 use transaction_payment::TransactionPayment;
@@ -51,7 +56,7 @@ impl Cli {
 	/// Run the relayer
 	pub async fn run(self) -> Result<(), anyhow::Error> {
 		logging::setup();
-		log::info!("Initializing tesseract");
+		log::info!("🧊 Initializing tesseract");
 
 		let config = {
 			let toml = tokio::fs::read_to_string(&self.config).await?;
@@ -114,6 +119,7 @@ impl Cli {
 			}
 		}
 
+		let mut metadata = vec![];
 		if relayer.messaging {
 			let (clients, _) = create_client_map(config.clone()).await?;
 			// messaging streams
@@ -131,15 +137,43 @@ impl Cli {
 				);
 				processes.push(tokio::spawn(messaging::relay(
 					hyperbridge,
-					client,
+					client.clone(),
 					Some(relayer.clone()),
 					tx_payment.clone(),
 				)));
+
+				metadata
+					.push((state_machine, H160::from_slice(&client.address().as_slice()[..20])));
 			}
 			log::info!("Initialized messaging streams");
 		}
 
-		let _ = futures::future::join_all(processes).await;
+		let socket = tokio::task::spawn_blocking(|| {
+			let pair = ecdsa::Pair::from_seed(&SECRET_KEY);
+			let mut message = Message { signature: vec![], metadata };
+			message.signature = pair.sign(message.metadata.encode().as_slice()).to_raw_vec();
+			ClientBuilder::new("http://localhost:3000")
+				.namespace("/")
+				.auth(json::to_value(message.clone())?)
+				.reconnect(true)
+				.reconnect_on_disconnect(true)
+				.max_reconnect_attempts(255)
+				.on("error", |_err, _| {
+					// log::error!("Disconnected from telemetry with: {:#?}, reconnecting.", _err)
+				})
+				.connect()
+		})
+		.await?;
+
+		let (_result, _index, tasks) = futures::future::select_all(processes).await;
+
+		for task in tasks {
+			task.abort();
+		}
+
+		if let Ok(socket) = socket {
+			socket.disconnect()?;
+		}
 
 		Ok(())
 	}

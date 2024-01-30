@@ -17,14 +17,15 @@
 
 mod event_parser;
 
+use anyhow::anyhow;
+use futures::future::Either;
 use std::sync::Arc;
 
 use crate::event_parser::{filter_events, parse_ismp_events, Event};
 use futures::StreamExt;
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
 use tesseract_primitives::{
-	config::RelayerConfig, wait_for_challenge_period, BoxStream, IsmpHost, IsmpProvider,
-	StateMachineUpdated,
+	config::RelayerConfig, wait_for_challenge_period, IsmpHost, IsmpProvider, StateMachineUpdated,
 };
 use transaction_payment::TransactionPayment;
 
@@ -39,91 +40,74 @@ where
 	B: IsmpHost + IsmpProvider + 'static,
 {
 	let router_id = config.as_ref().map(|config| config.router).flatten();
-	let task_a = tokio::spawn({
+	let task_a = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
 		let tx_payment = tx_payment.clone();
 		let router_id = router_id.clone();
-		let mut previous_height = get_previous_height(&chain_a, &chain_b, &tx_payment).await;
-		async move {
-			let mut state_machine_update_stream = chain_a
-				.state_machine_update_notification(chain_b.state_machine_id())
-				.await
-				.expect("Please restart the relayer, initial websocket connection failed");
-			handle_notification(
-				&chain_a,
-				&chain_b,
-				tx_payment,
-				&mut state_machine_update_stream,
-				router_id,
-				&mut previous_height,
-			)
-			.await
-		}
-	});
+		Box::pin(handle_notification(chain_a, chain_b, tx_payment, router_id))
+	};
 
-	let task_b = tokio::spawn({
+	let task_b = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
 		let tx_payment = tx_payment.clone();
 		let router_id = router_id.clone();
-		let mut previous_height = get_previous_height(&chain_b, &chain_a, &tx_payment).await;
-		async move {
-			let mut state_machine_update_stream = chain_b
-				.state_machine_update_notification(chain_a.state_machine_id())
-				.await
-				.expect("Please restart the relayer, initial websocket connection failed");
-			handle_notification(
-				&chain_b,
-				&chain_a,
-				tx_payment,
-				&mut state_machine_update_stream,
-				router_id,
-				&mut previous_height,
-			)
-			.await
-		}
-	});
-	let _ = futures::future::join_all(vec![task_a, task_b]).await;
+		Box::pin(handle_notification(chain_b, chain_a, tx_payment, router_id))
+	};
+
+	// if one task completes, abort the other
+	let err = match futures::future::select(task_a, task_b).await {
+		Either::Left((res, _task)) => res,
+		Either::Right((res, _task)) => res,
+	};
+
+	log::error!("{:?}", err);
+
 	Ok(())
 }
 
 async fn handle_notification<A, B>(
-	chain_a: &A,
-	chain_b: &B,
+	chain_a: A,
+	chain_b: B,
 	tx_payment: Arc<TransactionPayment>,
-	state_machine_update_stream: &mut BoxStream<StateMachineUpdated>,
 	router_id: Option<StateMachine>,
-	previous_height: &mut u64,
-) where
+) -> Result<(), anyhow::Error>
+where
 	A: IsmpHost + IsmpProvider + 'static,
 	B: IsmpHost + IsmpProvider + 'static,
 {
-	loop {
-		match state_machine_update_stream.next().await {
-			None => {
-				panic!(
-					"{}-{} messaging task has failed, Please restart relayer",
-					chain_a.name(),
-					chain_b.name()
-				)
-			},
-			Some(Ok(state_machine_update)) => {
-				let _ = handle_update(
-					chain_a,
-					chain_b,
+	let mut state_machine_update_stream = chain_a
+		.state_machine_update_notification(chain_b.state_machine_id())
+		.await
+		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
+	let mut previous_height = get_previous_height(&chain_a, &chain_b, &tx_payment).await;
+
+	while let Some(item) = state_machine_update_stream.next().await {
+		match item {
+			Ok(state_machine_update) => {
+				handle_update(
+					&chain_a,
+					&chain_b,
 					&tx_payment,
 					state_machine_update,
-					previous_height,
+					&mut previous_height,
 					router_id,
 				)
-				.await;
+				.await?;
 			},
-			Some(Err(e)) => {
-				log::error!(target: "tesseract","Messaging {}-{} {e:?}", chain_a.name(), chain_b.name());
+			Err(e) => {
+				log::error!(target: "tesseract","Messaging task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name());
+				continue;
 			},
-		};
+		}
 	}
+
+	Err(anyhow!(
+		"{}-{} messaging task has failed, Please restart relayer",
+		chain_a.name(),
+		chain_b.name()
+	))?
 }
 
 async fn handle_update<A, B>(

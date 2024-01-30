@@ -1,4 +1,4 @@
-name: Docker Tesseract
+name: Docker Telemetry
 
 on:
   workflow_dispatch:
@@ -32,7 +32,7 @@ jobs:
           toolchain: nightly
 
       - name: Build
-        run:  cargo +nightly build --release -p tesseract
+        run:  cargo +nightly build --release -p telemetry-server
 
       - name: Install Cargo get
         run: cargo install cargo-get
@@ -44,9 +44,9 @@ jobs:
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
       - name: Build the Docker image
-        run: docker build -t polytopelabs/tesseract:v$(cargo get package.version --entry ./relayer) -t polytopelabs/tesseract:latest -f ./scripts/docker/slim.Dockerfile .
+        run: docker build -t polytopelabs/telemetry-server:v$(cargo get package.version --entry ./telemetry) -t polytopelabs/telemetry-server:latest -f ./scripts/docker/telemetry.Dockerfile .
 
       - name: Docker Push
         run: |
-          docker push polytopelabs/tesseract:v$(cargo get package.version --entry ./relayer)
-          docker push polytopelabs/tesseract:latest
+          docker push polytopelabs/telemetry-server:v$(cargo get package.version --entry ./telemetry)
+          docker push polytopelabs/telemetry-server:latest

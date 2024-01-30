@@ -21,4 +21,4 @@ ismp.workspace = true
 primitive-types = { version = "0.12.2", features = ["serde", "scale-info"] }
 
 [dev-dependencies]
-rust_socketio = { version = "0.4.4", features = ["async"] }
+rust_socketio = { version = "0.4.4" }

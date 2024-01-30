@@ -1,6 +1,6 @@
 FROM paritytech/ci-linux:production
 
-COPY ./ ./
+COPY ../.. ./
 
 RUN RUSTFLAGS="-C link-args=-Wl,--allow-multiple-definition" cargo build --release -p tesseract
 

@@ -130,7 +130,7 @@ contract PingModule is IIsmpModule {
         emit PostRequestTimeoutReceived();
     }
 
-    function onPostResponseTimeout(PostResponse memory request) external onlyIsmpHost {
+    function onPostResponseTimeout(PostResponse memory) external onlyIsmpHost {
         emit PostResponseTimeoutReceived();
     }
 }

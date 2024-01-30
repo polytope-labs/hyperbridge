@@ -88,5 +88,7 @@ contract DeployScript is Script {
             PolygonHost h = new PolygonHost{salt: salt}(params);
             return address(h);
         }
+
+        revert("Unknown host");
     }
 }

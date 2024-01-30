@@ -73,9 +73,10 @@ impl<T: IsmpHost + Clone> Clone for EvmClient<T> {
 			ismp_host: self.ismp_host,
 			handler: self.handler,
 			nonce_provider: self.nonce_provider.clone(),
-			gas_limit: self.gas_limit,
 			config: self.config.clone(),
 			rpc_client: self.rpc_client.clone(),
+			etherscan_keys: self.etherscan_keys.clone(),
+			chain_id: self.chain_id.clone(),
 		}
 	}
 }

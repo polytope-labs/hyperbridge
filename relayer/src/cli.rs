@@ -138,7 +138,7 @@ impl Cli {
 				processes.push(tokio::spawn(messaging::relay(
 					hyperbridge,
 					client.clone(),
-					Some(relayer.clone()),
+					relayer.clone(),
 					tx_payment.clone(),
 				)));
 

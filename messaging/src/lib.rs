@@ -23,7 +23,8 @@ use std::sync::Arc;
 
 use crate::event_parser::{filter_events, parse_ismp_events, Event};
 use futures::StreamExt;
-use ismp::{consensus::StateMachineHeight, host::StateMachine};
+use ismp::consensus::StateMachineHeight;
+
 use tesseract_primitives::{
 	config::RelayerConfig, wait_for_challenge_period, IsmpHost, IsmpProvider, StateMachineUpdated,
 };
@@ -32,28 +33,26 @@ use transaction_payment::TransactionPayment;
 pub async fn relay<A, B>(
 	chain_a: A,
 	chain_b: B,
-	config: Option<RelayerConfig>,
+	config: RelayerConfig,
 	tx_payment: Arc<TransactionPayment>,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
 	B: IsmpHost + IsmpProvider + 'static,
 {
-	let router_id = config.as_ref().map(|config| config.router).flatten();
 	let task_a = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
 		let tx_payment = tx_payment.clone();
-		let router_id = router_id.clone();
-		Box::pin(handle_notification(chain_a, chain_b, tx_payment, router_id))
+		let config = config.clone();
+		Box::pin(handle_notification(chain_a, chain_b, tx_payment, config))
 	};
 
 	let task_b = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
 		let tx_payment = tx_payment.clone();
-		let router_id = router_id.clone();
-		Box::pin(handle_notification(chain_b, chain_a, tx_payment, router_id))
+		Box::pin(handle_notification(chain_b, chain_a, tx_payment, config))
 	};
 
 	// if one task completes, abort the other
@@ -71,7 +70,7 @@ async fn handle_notification<A, B>(
 	chain_a: A,
 	chain_b: B,
 	tx_payment: Arc<TransactionPayment>,
-	router_id: Option<StateMachine>,
+	config: RelayerConfig,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
@@ -92,7 +91,7 @@ where
 					&tx_payment,
 					state_machine_update,
 					&mut previous_height,
-					router_id,
+					config.clone(),
 				)
 				.await?;
 			},
@@ -116,7 +115,7 @@ async fn handle_update<A, B>(
 	tx_payment: &Arc<TransactionPayment>,
 	state_machine_update: StateMachineUpdated,
 	previous_height: &mut u64,
-	router_id: Option<StateMachine>,
+	config: RelayerConfig,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider,
@@ -129,7 +128,9 @@ where
 		.query_ismp_events(*previous_height, state_machine_update.clone())
 		.await?
 		.into_iter()
-		.filter(|ev| filter_events(router_id, chain_a.state_machine_id().state_id, ev))
+		.filter(|ev| {
+			filter_events(config.chain.state_machine(), chain_a.state_machine_id().state_id, ev)
+		})
 		.collect::<Vec<_>>();
 
 	if events.is_empty() {
@@ -147,7 +148,8 @@ where
 		id: state_machine_update.state_machine_id,
 		height: state_machine_update.latest_height,
 	};
-	let messages = parse_ismp_events(chain_b, chain_a, events, state_machine_height).await?;
+	let messages =
+		parse_ismp_events(chain_b, chain_a, events, state_machine_height, config).await?;
 
 	if !messages.is_empty() {
 		log::info!(

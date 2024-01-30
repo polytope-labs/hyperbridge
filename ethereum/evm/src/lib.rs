@@ -48,10 +48,8 @@ pub struct EvmConfig {
 	pub handler: H160,
 	/// Relayer account private key
 	pub signer: String,
-	/// EVM chain Id.
-	pub chain_id: u64,
-	/// Block gas limit
-	pub gas_limit: u64,
+	/// Etherscan API keys
+	pub etherscan_api_keys: String,
 }
 
 impl Default for EvmConfig {
@@ -63,8 +61,7 @@ impl Default for EvmConfig {
 			ismp_host: Default::default(),
 			handler: Default::default(),
 			signer: Default::default(),
-			chain_id: Default::default(),
-			gas_limit: Default::default(),
+			etherscan_api_keys: Default::default(),
 		}
 	}
 }
@@ -89,8 +86,6 @@ pub struct EvmClient<I> {
 	ismp_host: H160,
 	/// Ismp Handler contract address
 	handler: H160,
-	/// Block gas limit
-	gas_limit: u64,
 	/// Config
 	config: EvmConfig,
 	/// Nonce Provider
@@ -98,6 +93,10 @@ pub struct EvmClient<I> {
 	/// Jsonrpsee client for event susbscription, ethers does not expose a Send and Sync stream for
 	/// susbcribing to contract logs
 	pub rpc_client: Arc<Client>,
+	/// etherscan api-keys, used for gas estimation
+	pub etherscan_keys: String,
+	/// EVM chain Id.
+	pub chain_id: u64,
 }
 
 impl<I> EvmClient<I>
@@ -109,11 +108,13 @@ where
 		let bytes = from_hex(config.signer.as_str())?;
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
 		let address = signer.public().to_eth_address().expect("Infallible").to_vec();
-		let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
-			.with_chain_id(config.chain_id);
+
 		let provider =
 			Provider::<Ws>::connect_with_reconnects(config.execution_ws.clone(), 1000).await?;
 		let client = Arc::new(provider.clone());
+		let chain_id = client.get_chainid().await?.low_u64();
+		let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
+			.with_chain_id(chain_id);
 		let signer = Arc::new(provider.with_signer(signer));
 		let consensus_state_id = {
 			let mut consensus_state_id: ConsensusStateId = Default::default();
@@ -141,10 +142,11 @@ where
 			initial_height: latest_height,
 			ismp_host: config.ismp_host,
 			handler: config.handler,
-			gas_limit: config.gas_limit,
 			config: config_clone,
 			nonce_provider: None,
 			rpc_client: Arc::new(rpc_client),
+			etherscan_keys: config.etherscan_api_keys,
+			chain_id,
 		})
 	}
 
@@ -218,6 +220,13 @@ where
 		}
 		Err(anyhow::anyhow!("Nonce provider not set on client"))
 	}
+
+	pub async fn read_nonce(&self) -> Result<u64, anyhow::Error> {
+		if let Some(nonce_provider) = self.nonce_provider.as_ref() {
+			return Ok(nonce_provider.read_nonce().await)
+		}
+		Err(anyhow::anyhow!("Nonce provider not set on client"))
+	}
 }
 
 fn derive_map_key(mut key: Vec<u8>, slot: u64) -> H256 {
@@ -225,4 +234,38 @@ fn derive_map_key(mut key: Vec<u8>, slot: u64) -> H256 {
 	U256::from(slot as u64).to_big_endian(&mut bytes);
 	key.extend_from_slice(&bytes);
 	keccak_256(&key).into()
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct GasResult {
+	pub safe_gas_price: String,
+	pub usd_price: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GasResultEthereum {
+	pub safe_gas_price: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub struct EthPriceResult {
+	pub ethusd: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct GasResponse {
+	pub result: GasResult,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GasResponseEthereum {
+	pub result: GasResultEthereum,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EthPriceResponse {
+	pub result: EthPriceResult,
 }

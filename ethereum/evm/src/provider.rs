@@ -6,30 +6,50 @@ use crate::{
 use anyhow::{anyhow, Error};
 use beefy_verifier_primitives::{BeefyNextAuthoritySet, ConsensusState};
 use codec::Encode;
-use ethers::{abi::AbiDecode, providers::Middleware};
+use ethers::{
+	abi::AbiDecode,
+	providers::Middleware,
+	types::{CallFrame, GethDebugTracingCallOptions, GethTrace, GethTraceFrame},
+};
 use futures::stream::StreamExt;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::Event,
 	messaging::Message,
 };
+use ismp_solidity_abi::evm_host::{PostRequestHandledFilter, PostResponseHandledFilter};
 use ismp_sync_committee::types::EvmStateProof;
 use jsonrpsee::{
 	core::{params::ObjectParams, traits::ToRpcParams},
 	rpc_params,
 };
 
-use crate::abi::to_state_machine_updated;
+use crate::{
+	abi::to_state_machine_updated,
+	tx::{
+		generate_contract_calls, get_chain_gas_limit, get_current_gas_cost_in_usd, get_l2_data_cost,
+	},
+};
 use ethereum_trie::StorageProof;
-use ethers::middleware::MiddlewareBuilder;
+use ethers::{
+	contract::parse_log,
+	middleware::MiddlewareBuilder,
+	types::{
+		CallConfig, GethDebugBuiltInTracerConfig, GethDebugBuiltInTracerType,
+		GethDebugTracerConfig, GethDebugTracerType, GethDebugTracingOptions, Log,
+	},
+};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight},
+	host::StateMachine,
 	messaging::CreateConsensusState,
 };
+use primitive_types::U256;
 use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
-	BoxStream, IsmpHost, IsmpProvider, NonceProvider, Query, Signature, StateMachineUpdated,
+	BoxStream, EstimateGasReturnParams, IsmpHost, IsmpProvider, NonceProvider, Query, Signature,
+	StateMachineUpdated,
 };
 
 #[async_trait::async_trait]
@@ -262,15 +282,129 @@ where
 	}
 
 	fn block_max_gas(&self) -> u64 {
-		self.gas_limit
+		get_chain_gas_limit(self.state_machine)
 	}
 
 	fn initial_height(&self) -> u64 {
 		self.initial_height
 	}
 
-	async fn estimate_gas(&self, _msg: Vec<Message>) -> Result<u64, Error> {
-		todo!()
+	/// Returns gas estimate for message excecution and it value in USD.
+	async fn estimate_gas(
+		&self,
+		_msg: Vec<Message>,
+	) -> Result<Vec<EstimateGasReturnParams>, Error> {
+		let messages = _msg.clone();
+
+		let debug_trace_option = GethDebugTracingOptions {
+			disable_storage: Some(true),
+			enable_memory: Some(false),
+			tracer: Some(GethDebugTracerType::BuiltInTracer(
+				GethDebugBuiltInTracerType::CallTracer,
+			)),
+			tracer_config: Some(GethDebugTracerConfig::BuiltInTracer(
+				GethDebugBuiltInTracerConfig::CallTracer(CallConfig {
+					only_top_call: Some(false),
+					with_log: Some(true),
+				}),
+			)),
+			..Default::default()
+		};
+
+		let debug_trace_call_option = GethDebugTracingCallOptions {
+			tracing_options: debug_trace_option,
+			..GethDebugTracingCallOptions::default()
+		};
+
+		let calls = generate_contract_calls(self, messages, true).await?;
+		let mut gas_estimates = Vec::new();
+		let (unit_gas_cost, _) = get_current_gas_cost_in_usd(
+			self.chain_id,
+			self.state_machine,
+			&self.etherscan_keys.clone(),
+			self.client.clone(),
+		)
+		.await?;
+		for (i_, call) in calls.clone().into_iter().enumerate() {
+			let call_debug = self
+				.client
+				.debug_trace_call(call.tx, call.block, debug_trace_call_option.clone())
+				.await?;
+			let mut gas_to_be_used = U256::zero();
+			let mut successful_execution = false;
+
+			match _msg[i_] {
+				Message::Request(_) | Message::Response(_) => match call_debug {
+					GethTrace::Known(geth_trace_frame) =>
+						match geth_trace_frame {
+							GethTraceFrame::CallTracer(call_frame) => {
+								match _msg[0] {
+									Message::Request(_) => {
+										successful_execution = check_trace_for_event(
+											call_frame.clone(),
+											CheckTraceForEventParams::Request,
+										);
+										log::debug!("estimate 'request' message success {successful_execution}");
+									},
+									Message::Response(_) => {
+										successful_execution = check_trace_for_event(
+											call_frame.clone(),
+											CheckTraceForEventParams::Response,
+										);
+										log::debug!("estimate 'response' message success {successful_execution}");
+									},
+									_ => {},
+								};
+
+								gas_to_be_used = call_frame.gas_used / U256::from(1_000_000_000u64);
+							},
+							_ => {},
+						},
+					GethTrace::Unknown(value) => {
+						log::error!("an unknown geth trace was reached {value}")
+					},
+				},
+				_ => {
+					gas_to_be_used = calls[0].estimate_gas().await? / U256::from(1_000_000_000u64);
+
+					if gas_to_be_used == U256::zero() {
+						log::error!("an error occurred while estimating this message submitting")
+					}
+				},
+			}
+
+			let mut gas_cost_for_data_in_gwei = U256::zero();
+
+			match self.state_machine {
+				StateMachine::Ethereum(_) => {
+					gas_cost_for_data_in_gwei = get_l2_data_cost(
+						calls[0].clone().tx.rlp(),
+						self.state_machine,
+						self.client.clone(),
+					)
+					.await?;
+				},
+				_ => {},
+			}
+
+			let execution_cost = (gas_to_be_used + gas_cost_for_data_in_gwei) * unit_gas_cost;
+
+			gas_estimates.push(EstimateGasReturnParams { execution_cost, successful_execution });
+		}
+
+		Ok(gas_estimates)
+	}
+
+	async fn get_message_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
+		let host_contract = EvmHost::new(self.ismp_host, self.signer.clone());
+		let fee_metadata = host_contract.request_commitments(hash.into()).call().await?;
+		return Ok(fee_metadata.fee);
+	}
+
+	async fn query_message_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
+		let host_contract = EvmHost::new(self.ismp_host, self.signer.clone());
+		let fee_metadata = host_contract.response_commitments(hash.into()).call().await?;
+		return Ok(fee_metadata.fee);
 	}
 
 	async fn state_machine_update_notification(
@@ -366,4 +500,44 @@ where
 		contract.set_frozen_state(true).nonce(self.get_nonce().await?).call().await?;
 		Ok(())
 	}
+}
+
+pub enum CheckTraceForEventParams {
+	Request,
+	Response,
+}
+
+pub fn check_trace_for_event(call_frame: CallFrame, event_in: CheckTraceForEventParams) -> bool {
+	if let Some(inner_call) = call_frame.calls {
+		if let Some(last_call_frame) = inner_call.last().cloned() {
+			if let Some(logs) = last_call_frame.logs {
+				for log in logs {
+					let log = Log {
+						topics: log.clone().topics.unwrap_or_default(),
+						data: log.clone().data.unwrap_or_default(),
+						..Default::default()
+					};
+
+					match event_in {
+						CheckTraceForEventParams::Request => {
+							let event = parse_log::<PostRequestHandledFilter>(log.clone());
+
+							if let Ok(_) = event {
+								return true;
+							}
+						},
+						CheckTraceForEventParams::Response => {
+							let event = parse_log::<PostResponseHandledFilter>(log.clone());
+
+							if let Ok(_) = event {
+								return true;
+							}
+						},
+					};
+				}
+			}
+		}
+	}
+
+	false
 }

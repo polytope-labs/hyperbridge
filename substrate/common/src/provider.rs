@@ -40,11 +40,14 @@ use ismp::{
 use ismp_rpc::{BlockNumberOrHash, MmrProof};
 use pallet_ismp::primitives::{LeafIndexQuery, SubstrateStateProof};
 use pallet_relayer_fees::withdrawal::Signature;
-use primitives::{BoxStream, IsmpHost, IsmpProvider, NonceProvider, Query, StateMachineUpdated};
+use primitives::{
+	BoxStream, EstimateGasReturnParams, IsmpHost, IsmpProvider, NonceProvider, Query,
+	StateMachineUpdated,
+};
 use sp_core::{
 	blake2_128,
 	storage::{StorageChangeSet, StorageKey},
-	Pair, H256,
+	Pair, H256, U256,
 };
 use std::{collections::HashMap, time::Duration};
 use subxt::{
@@ -166,7 +169,7 @@ where
 	}
 
 	fn block_max_gas(&self) -> u64 {
-		todo!()
+		Default::default()
 	}
 
 	fn initial_height(&self) -> u64 {
@@ -176,8 +179,19 @@ where
 	async fn estimate_gas(
 		&self,
 		_msg: Vec<ismp::messaging::Message>,
-	) -> Result<u64, anyhow::Error> {
-		todo!()
+	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error> {
+		Ok(Default::default())
+	}
+
+	async fn get_message_request_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
+		Ok(Default::default())
+	}
+
+	async fn query_message_response_fee_metadata(
+		&self,
+		_hash: H256,
+	) -> Result<U256, anyhow::Error> {
+		Ok(Default::default())
 	}
 
 	async fn state_machine_update_notification(

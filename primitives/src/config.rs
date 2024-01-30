@@ -19,7 +19,7 @@ use ismp::host::StateMachine;
 use serde::{Deserialize, Serialize};
 
 /// Configuration options for the relayer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RelayerConfig {
 	/// Modules we're interested in relaying
 	pub module_filter: Vec<Vec<u8>>,
@@ -30,5 +30,33 @@ pub struct RelayerConfig {
 	/// Fisherman protocol
 	pub fisherman: bool,
 	/// Routing state machine id
-	pub router: Option<StateMachine>,
+	pub chain: Chain,
+	/// Minimum profit percentage. e.g. 5 -> 5%, 10 -> 10%
+	pub minimum_profit_percentage: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Chain {
+	Gargantua,
+	Messier,
+	Dev,
+}
+impl Chain {
+	pub fn para_id(&self) -> u32 {
+		match self {
+			Chain::Gargantua => 4296,
+			Chain::Messier => 3340,
+			Chain::Dev => 2000,
+		}
+	}
+
+	pub fn state_machine(&self) -> StateMachine {
+		StateMachine::Kusama(self.para_id())
+	}
+}
+
+impl Default for Chain {
+	fn default() -> Self {
+		Self::Dev
+	}
 }

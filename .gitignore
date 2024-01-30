@@ -25,6 +25,7 @@
 # ignore user vscode sttings
 .vscode/*
 .env
+.uuid
 
 **/proofs/*
 /payments/prisma/dev.db

@@ -11,6 +11,7 @@ ethers-contract-abigen = { workspace = true }
 
 
 [dependencies]
+reqwest = { version = "0.11", features = ["json"] }
 serde = { version = "1.0.164", features = ["derive"] }
 anyhow = "1.0.75"
 primitive-types = "0.12.1"
@@ -52,6 +53,7 @@ alloy-rlp-derive = "0.3.2"
 alloy-primitives = { version = "0.3.1", features = ["rlp"] }
 hex = "0.4.3"
 dotenv = "0.15.0"
+
 
 [features]
 testing = []

@@ -21,7 +21,6 @@ handler = "0x577efa5c6184e10d54fda5eb195f7eca30644082"
 signer = "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 latest_height = "LastMessaging"
 consensus_update_frequency = 30 # seconds,
-chain_id = 11155111
 gas_limit = 20000000
 
 
@@ -37,7 +36,6 @@ ismp_host = "0x87825f839d95c6021c0e821917F93aDB299eD6F8"
 handler = "0x3cfb5eE8D00c2620e0A63FD25deAA2d7a671F449"
 signer = "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 latest_height = "LastMessaging"
-chain_id = 84532
 gas_limit = 10000000
 
 

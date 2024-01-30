@@ -1,15 +1,17 @@
-use crate::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, NonceProvider, Query};
+use crate::{
+	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpHost, IsmpProvider, NonceProvider,
+	Query, Signature, StateMachineUpdated,
+};
 use anyhow::{anyhow, Error};
 use futures::stream;
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
-	events::{Event, StateMachineUpdated},
+	events::Event,
 	host::StateMachine,
 	messaging::{CreateConsensusState, Message},
 };
-use pallet_relayer_fees::withdrawal::Signature;
 use parity_scale_codec::Codec;
-use primitive_types::H256;
+use primitive_types::{H256, U256};
 use std::{
 	sync::{Arc, Mutex},
 	time::Duration,
@@ -135,7 +137,14 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		0
 	}
 
-	async fn estimate_gas(&self, _msg: Vec<Message>) -> Result<u64, Error> {
+	async fn estimate_gas(
+		&self,
+		_msg: Vec<Message>,
+	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error> {
+		todo!()
+	}
+
+	async fn get_message_request_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
 		todo!()
 	}
 
@@ -186,6 +195,10 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		&self,
 		_message: CreateConsensusState,
 	) -> Result<(), Error> {
+		todo!()
+	}
+
+	async fn query_message_response_fee_metadata(&self, _hash: H256) -> Result<U256, Error> {
 		todo!()
 	}
 

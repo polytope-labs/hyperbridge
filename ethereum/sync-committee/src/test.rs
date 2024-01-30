@@ -33,6 +33,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 		0,
 		StateMachine::Polygon,
 	);
+
 	let chain_b = {
 		let config = EvmConfig {
 			execution_ws: geth_url.clone(),
@@ -41,8 +42,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 			ismp_host: Default::default(),
 			handler: Default::default(),
 			signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
-			chain_id: 32382,
-			gas_limit: 30_000_000, // 30m
+			etherscan_api_keys: Default::default(),
 		};
 
 		let host = HostConfig { beacon_http_url: beacon_url, consensus_update_frequency: 180 };
@@ -55,8 +55,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				handler: Default::default(),
 				signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 					.to_string(),
-				chain_id: 32382,
-				gas_limit: 30_000_000, // 30m
+				etherscan_api_keys: Default::default(),
 			};
 
 			ArbHost::new(
@@ -80,8 +79,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				handler: Default::default(),
 				signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 					.to_string(),
-				chain_id: 32382,
-				gas_limit: 30_000_000, // 30m
+				etherscan_api_keys: Default::default(),
 			};
 
 			OpHost::new(
@@ -108,8 +106,7 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 				handler: Default::default(),
 				signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 					.to_string(),
-				chain_id: 32382,
-				gas_limit: 30_000_000, // 30m
+				etherscan_api_keys: Default::default(),
 			};
 
 			OpHost::new(

@@ -240,7 +240,7 @@ macro_rules! chain {
 				}
             }
 
-			async fn estimate_gas(&self, msg: Vec<ismp::messaging::Message>) -> Result<u64, anyhow::Error> {
+            async fn estimate_gas(&self, msg: Vec<ismp::messaging::Message>) -> Result<Vec<primitives::EstimateGasReturnParams>, anyhow::Error> {
                 match self {
 					$(
 						$(#[$($meta)*])*
@@ -248,6 +248,15 @@ macro_rules! chain {
 					)*
 				}
             }
+
+            async fn get_message_request_fee_metadata(&self, hash: ethers::types::H256) -> Result<ethers::types::U256, anyhow::Error> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.get_message_request_fee_metadata(hash).await,
+					)*
+				}
+			}
 
             async fn initialize_nonce(&self) -> Result<primitives::NonceProvider, anyhow::Error> {
                 match self {
@@ -257,6 +266,15 @@ macro_rules! chain {
 					)*
 				}
             }
+
+            async fn query_message_response_fee_metadata(&self, hash: ethers::types::H256) -> Result<ethers::types::U256, anyhow::Error> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.query_message_response_fee_metadata(hash).await,
+					)*
+				}
+			}
 
 			 fn set_nonce_provider(&mut self, nonce_provider: primitives::NonceProvider) {
                 match self {

@@ -18,7 +18,7 @@ use crate::rpc_wrapper::ClientWrapper;
 use hex_literal::hex;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use pallet_ismp::primitives::HashAlgorithm;
-use primitives::{IsmpHost, NonceProvider};
+use primitives::{config::Chain, IsmpHost, NonceProvider};
 use reconnecting_jsonrpsee_ws_client::{Client, ExponentialBackoff, PingConfig};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, sr25519, Pair, H256};
@@ -43,8 +43,8 @@ mod testing;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubstrateConfig {
-	/// State machine Identifier for this client.
-	pub state_machine: StateMachine,
+	/// Hyperbridge network
+	pub chain: Chain,
 	/// The hashing algorithm that substrate chain uses.
 	pub hashing: HashAlgorithm,
 	/// Consensus state id
@@ -59,7 +59,7 @@ pub struct SubstrateConfig {
 
 impl SubstrateConfig {
 	pub fn state_machine(&self) -> StateMachine {
-		self.state_machine
+		self.chain.state_machine()
 	}
 }
 
@@ -132,7 +132,7 @@ where
 			host,
 			client,
 			consensus_state_id,
-			state_machine: config.state_machine,
+			state_machine: config.chain.state_machine(),
 			hashing: config.hashing,
 			signer,
 			address,

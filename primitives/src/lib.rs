@@ -29,8 +29,14 @@ use ismp::{
 	router::Post,
 };
 pub use pallet_relayer_fees::withdrawal::{Signature, WithdrawalProof};
-use primitive_types::H256;
+use primitive_types::{H256, U256};
 use std::{pin::Pin, sync::Arc, time::Duration};
+
+#[derive(Copy, Clone, Debug, Default)]
+pub struct EstimateGasReturnParams {
+	pub execution_cost: U256,
+	pub successful_execution: bool,
+}
 
 /// Provides an interface for accessing new events and ISMP data on the chain which must be
 /// relayed to the counterparty chain.
@@ -122,7 +128,18 @@ pub trait IsmpProvider: Send + Sync {
 	fn initial_height(&self) -> u64;
 
 	/// Should return a numerical estimate of the gas to be consumed for a batch of messages.
-	async fn estimate_gas(&self, msg: Vec<Message>) -> Result<u64, anyhow::Error>;
+	async fn estimate_gas(
+		&self,
+		msg: Vec<Message>,
+	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error>;
+
+	/// Should return fee relayer would be recieving to relay a request mesage giving a hash
+	/// (message commiment)
+	async fn get_message_request_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error>;
+
+	/// Should return fee relayer would be recieving to relay a responce mesage giving a hash
+	/// (message commiment)
+	async fn query_message_response_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error>;
 
 	/// Return a stream that watches for updates to [`counterparty_state_id`], yields when new
 	/// [`StateMachineUpdated`] event is observed for [`counterparty_state_id`]
@@ -243,6 +260,12 @@ impl NonceProvider {
 		let mut guard = self.nonce.lock().await;
 		let nonce = *guard;
 		*guard = nonce + 1;
+		nonce
+	}
+
+	pub async fn read_nonce(&self) -> u64 {
+		let guard = self.nonce.lock().await;
+		let nonce = *guard;
 		nonce
 	}
 }

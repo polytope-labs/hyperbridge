@@ -59,14 +59,12 @@ pub const DEPOSIT_PROOF_LENGTH: usize = 33;
 
 pub const DOMAIN_SYNC_COMMITTEE: DomainType = DomainType::SyncCommittee;
 pub const FINALIZED_ROOT_INDEX: u64 = 52;
-pub const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 18;
-pub const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 22;
 pub const EXECUTION_PAYLOAD_INDEX: u64 = 56;
 pub const NEXT_SYNC_COMMITTEE_INDEX: u64 = 55;
 pub const BLOCK_ROOTS_INDEX: u64 = 37;
 pub const HISTORICAL_ROOTS_INDEX: u64 = 39;
 pub const HISTORICAL_BATCH_BLOCK_ROOTS_INDEX: u64 = 2;
-pub const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 25;
+
 pub const FINALIZED_ROOT_INDEX_LOG2: u64 = 5;
 pub const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = 5;
 pub const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 5;
@@ -84,13 +82,19 @@ pub trait Config {
     const BELLATRIX_FORK_EPOCH: Epoch;
     const CAPELLA_FORK_EPOCH: Epoch;
     const CAPELLA_FORK_VERSION: Version;
+    const DENEB_FORK_EPOCH: Epoch;
+    const DENEB_FORK_VERSION: Version;
     const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch;
+    const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64;
+    const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64;
+    const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64;
 }
 
 use crate::ssz::ByteVector;
 
 pub mod sepolia {
     use super::*;
+    use hex_literal::hex;
 
     #[derive(Default)]
     pub struct Sepolia;
@@ -106,7 +110,12 @@ pub mod sepolia {
         const BELLATRIX_FORK_EPOCH: Epoch = 100;
         const CAPELLA_FORK_EPOCH: Epoch = 56832;
         const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("90000072");
+        const DENEB_FORK_EPOCH: Epoch = 132608;
+        const DENEB_FORK_VERSION: Version = hex!("90000073");
         const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
+        const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
+        const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
+        const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
     }
 }
 
@@ -127,7 +136,12 @@ pub mod mainnet {
         const BELLATRIX_FORK_EPOCH: Epoch = 144896;
         const CAPELLA_FORK_EPOCH: Epoch = 194048;
         const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("03000000");
+        const DENEB_FORK_EPOCH: Epoch = u64::MAX;
+        const DENEB_FORK_VERSION: Version = [0, 0, 0, 0];
         const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
+        const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 18;
+        const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 22;
+        const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 25;
     }
 }
 
@@ -149,6 +163,11 @@ pub mod devnet {
         const BELLATRIX_FORK_EPOCH: Epoch = 0;
         const CAPELLA_FORK_EPOCH: Epoch = 2;
         const CAPELLA_FORK_VERSION: Version = hex!("52525503");
+        const DENEB_FORK_EPOCH: Epoch = u64::MAX;
+        const DENEB_FORK_VERSION: Version = [0, 0, 0, 0];
         const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 4;
+        const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 18;
+        const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 22;
+        const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 25;
     }
 }

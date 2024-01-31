@@ -46,4 +46,4 @@ std = [
     "bls_on_arkworks/std",
     "ark-bls12-381/std"
 ]
-
+sepolia-deneb = ["sync-committee-primitives/sepolia-deneb"]

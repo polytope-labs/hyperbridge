@@ -23,6 +23,7 @@ bls_on_arkworks = { version = "0.2.2", default-features = false }
 default = ["std"]
 std = [
     "ssz-rs/default",
+    "ssz-rs/serde",
     'codec/std',
     "primitive-types/std",
     "anyhow/std",
@@ -32,4 +33,6 @@ std = [
     "primitive-types/std",
     "serde"
 ]
+
+sepolia-deneb = []
 

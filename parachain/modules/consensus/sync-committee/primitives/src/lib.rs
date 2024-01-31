@@ -7,6 +7,7 @@ extern crate alloc;
 
 pub mod consensus_types;
 pub mod constants;
+pub mod deneb;
 pub mod domains;
 pub mod error;
 #[cfg(feature = "std")]

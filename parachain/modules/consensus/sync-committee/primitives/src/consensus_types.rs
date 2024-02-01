@@ -219,8 +219,10 @@ pub struct ExecutionPayload<
     pub block_hash: Hash32,
     pub transactions: List<Transaction<MAX_BYTES_PER_TRANSACTION>, MAX_TRANSACTIONS_PER_PAYLOAD>,
     pub withdrawals: List<Withdrawal, MAX_WITHDRAWALS_PER_PAYLOAD>,
+    #[cfg(feature = "sepolia-deneb")]
     #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub blob_gas_used: u64,
+    #[cfg(feature = "sepolia-deneb")]
     #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub excess_blob_gas: u64,
 }

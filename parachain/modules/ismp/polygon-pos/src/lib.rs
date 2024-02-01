@@ -65,7 +65,7 @@ pub struct ConsensusState {
 #[derive(Encode, Decode, Debug)]
 pub struct PolygonClientUpdate {
     /// Headers sorted in ascending order
-    pub consensus_update: BoundedVec<CodecHeader, ConstU32<256>>,
+    pub consensus_update: BoundedVec<CodecHeader, ConstU32<1000>>,
     /// Parent hash of the first header in the list
     pub chain_head: H256,
 }

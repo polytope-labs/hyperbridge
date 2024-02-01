@@ -120,9 +120,9 @@ async fn test_execution_payload_proof() {
         ],
         &multi_proof_vec,
         &[
-            GeneralizedIndex(EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
-            GeneralizedIndex(EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
-            GeneralizedIndex(EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
+            GeneralizedIndex(Devnet::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
+            GeneralizedIndex(Devnet::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
+            GeneralizedIndex(Devnet::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
         ],
     );
 

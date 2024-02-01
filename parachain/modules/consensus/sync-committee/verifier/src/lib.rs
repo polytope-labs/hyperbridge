@@ -15,10 +15,9 @@ use ssz_rs::{
 use sync_committee_primitives::{
     consensus_types::Checkpoint,
     constants::{
-        Config, Root, DOMAIN_SYNC_COMMITTEE, EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX,
-        EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_INDEX_LOG2, EXECUTION_PAYLOAD_STATE_ROOT_INDEX,
-        EXECUTION_PAYLOAD_TIMESTAMP_INDEX, FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_LOG2,
-        NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_LOG2,
+        Config, Root, DOMAIN_SYNC_COMMITTEE, EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_INDEX_LOG2,
+        FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_LOG2, NEXT_SYNC_COMMITTEE_INDEX,
+        NEXT_SYNC_COMMITTEE_INDEX_LOG2,
     },
     types::{VerifierState, VerifierStateUpdate},
     util::{
@@ -146,9 +145,9 @@ pub fn verify_sync_committee_attestation<C: Config>(
         ],
         &execution_payload.multi_proof,
         &[
-            GeneralizedIndex(EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
-            GeneralizedIndex(EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
-            GeneralizedIndex(EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
+            GeneralizedIndex(C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize),
+            GeneralizedIndex(C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize),
+            GeneralizedIndex(C::EXECUTION_PAYLOAD_TIMESTAMP_INDEX as usize),
         ],
     );
 

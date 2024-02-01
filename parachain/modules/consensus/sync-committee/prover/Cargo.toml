@@ -28,7 +28,7 @@ hex = "0.4.3"
 
 [dev-dependencies]
 env_logger = "0.10.0"
-sync-committee-primitives = { path= "../primitives" }
+sync-committee-primitives = { path= "../primitives", features = ["sepolia-deneb"] }
 sync-committee-verifier = { path= "../verifier" }
 ethers = { workspace = true, features = ["ws"] }
 tokio = { version =  "1.32.0", features = ["macros", "rt-multi-thread"]}

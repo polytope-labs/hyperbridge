@@ -161,13 +161,13 @@ pub mod devnet {
         const GENESIS_FORK_VERSION: Version = hex!("52525500");
         const ALTAIR_FORK_EPOCH: Epoch = 0;
         const BELLATRIX_FORK_EPOCH: Epoch = 0;
-        const CAPELLA_FORK_EPOCH: Epoch = 2;
+        const CAPELLA_FORK_EPOCH: Epoch = 0;
         const CAPELLA_FORK_VERSION: Version = hex!("52525503");
-        const DENEB_FORK_EPOCH: Epoch = u64::MAX;
-        const DENEB_FORK_VERSION: Version = [0, 0, 0, 0];
+        const DENEB_FORK_EPOCH: Epoch = 0;
+        const DENEB_FORK_VERSION: Version = hex!("52525504");
         const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 4;
-        const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 18;
-        const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 22;
-        const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 25;
+        const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
+        const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
+        const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
     }
 }

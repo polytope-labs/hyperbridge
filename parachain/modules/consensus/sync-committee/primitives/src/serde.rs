@@ -84,12 +84,12 @@ pub mod as_string {
     }
 }
 
-pub mod collection_over_string {
-    use core::{fmt, marker::PhantomData, str::FromStr};
+pub mod seq_of_str {
     use serde::{
         de::{Deserializer, Error},
         ser::SerializeSeq,
     };
+    use std::{fmt, marker::PhantomData, str::FromStr};
 
     pub fn serialize<S, T, U>(data: T, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -111,7 +111,7 @@ pub mod collection_over_string {
         type Value = Vec<T>;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("array of string")
+            formatter.write_str("sequence of string")
         }
 
         fn visit_seq<S>(self, mut access: S) -> Result<Self::Value, S::Error>

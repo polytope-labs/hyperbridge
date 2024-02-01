@@ -1,3 +1,5 @@
+#[cfg(feature = "sepolia-deneb")]
+use crate::deneb::KzgCommitment;
 use crate::{
     constants::{
         BlsPublicKey, BlsSignature, Bytes32, Epoch, ExecutionAddress, Gwei, Hash32,
@@ -75,7 +77,7 @@ pub struct SignedBeaconBlockHeader {
 #[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct IndexedAttestation<const MAX_VALIDATORS_PER_COMMITTEE: usize> {
-    #[cfg_attr(feature = "std", serde(with = "crate::serde::collection_over_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::seq_of_str"))]
     pub attesting_indices: List<u64, MAX_VALIDATORS_PER_COMMITTEE>,
     pub data: AttestationData,
     pub signature: BlsSignature,
@@ -161,21 +163,21 @@ pub struct SyncCommittee<const SYNC_COMMITTEE_SIZE: usize> {
 #[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Withdrawal {
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub index: WithdrawalIndex,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub validator_index: ValidatorIndex,
     pub address: ExecutionAddress,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub amount: Gwei,
 }
 
 #[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BlsToExecutionChange {
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub validator_index: ValidatorIndex,
-    #[cfg_attr(feature = "serde", serde(rename = "from_bls_pubkey"))]
+    #[cfg_attr(feature = "std", serde(rename = "from_bls_pubkey"))]
     pub from_bls_public_key: BlsPublicKey,
     pub to_execution_address: ExecutionAddress,
 }
@@ -204,19 +206,25 @@ pub struct ExecutionPayload<
     pub receipts_root: Bytes32,
     pub logs_bloom: ByteVector<BYTES_PER_LOGS_BLOOM>,
     pub prev_randao: Bytes32,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub block_number: u64,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub gas_limit: u64,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub gas_used: u64,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub timestamp: u64,
     pub extra_data: ByteList<MAX_EXTRA_DATA_BYTES>,
     pub base_fee_per_gas: U256,
     pub block_hash: Hash32,
     pub transactions: List<Transaction<MAX_BYTES_PER_TRANSACTION>, MAX_TRANSACTIONS_PER_PAYLOAD>,
     pub withdrawals: List<Withdrawal, MAX_WITHDRAWALS_PER_PAYLOAD>,
+    #[cfg(feature = "sepolia-deneb")]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+    pub blob_gas_used: u64,
+    #[cfg(feature = "sepolia-deneb")]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+    pub excess_blob_gas: u64,
 }
 
 #[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
@@ -231,19 +239,25 @@ pub struct ExecutionPayloadHeader<
     pub receipts_root: Bytes32,
     pub logs_bloom: ByteVector<BYTES_PER_LOGS_BLOOM>,
     pub prev_randao: Bytes32,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub block_number: u64,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub gas_limit: u64,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub gas_used: u64,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub timestamp: u64,
     pub extra_data: ByteList<MAX_EXTRA_DATA_BYTES>,
     pub base_fee_per_gas: U256,
     pub block_hash: Hash32,
     pub transactions_root: Root,
     pub withdrawals_root: Root,
+    #[cfg(feature = "sepolia-deneb")]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+    pub blob_gas_used: u64,
+    #[cfg(feature = "sepolia-deneb")]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
+    pub excess_blob_gas: u64,
 }
 
 #[derive(Default, Debug, Clone, SimpleSerialize, PartialEq, Eq, codec::Encode, codec::Decode)]
@@ -262,6 +276,7 @@ pub struct BeaconBlockBody<
     const MAX_TRANSACTIONS_PER_PAYLOAD: usize,
     const MAX_WITHDRAWALS_PER_PAYLOAD: usize,
     const MAX_BLS_TO_EXECUTION_CHANGES: usize,
+    const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize,
 > {
     pub randao_reveal: BlsSignature,
     pub eth1_data: Eth1Data,
@@ -281,6 +296,8 @@ pub struct BeaconBlockBody<
         MAX_WITHDRAWALS_PER_PAYLOAD,
     >,
     pub bls_to_execution_changes: List<SignedBlsToExecutionChange, MAX_BLS_TO_EXECUTION_CHANGES>,
+    #[cfg(feature = "sepolia-deneb")]
+    pub blob_kzg_commitments: List<KzgCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, SimpleSerialize, codec::Encode, codec::Decode)]
@@ -299,10 +316,11 @@ pub struct BeaconBlock<
     const MAX_TRANSACTIONS_PER_PAYLOAD: usize,
     const MAX_WITHDRAWALS_PER_PAYLOAD: usize,
     const MAX_BLS_TO_EXECUTION_CHANGES: usize,
+    const MAX_BLOB_COMMITMENTS_PER_BLOCK: usize,
 > {
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub slot: Slot,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub proposer_index: ValidatorIndex,
     pub parent_root: Root,
     pub state_root: Root,
@@ -320,6 +338,7 @@ pub struct BeaconBlock<
         MAX_TRANSACTIONS_PER_PAYLOAD,
         MAX_WITHDRAWALS_PER_PAYLOAD,
         MAX_BLS_TO_EXECUTION_CHANGES,
+        MAX_BLOB_COMMITMENTS_PER_BLOCK,
     >,
 }
 #[derive(Default, Debug, SimpleSerialize, Clone, PartialEq, Eq, codec::Encode, codec::Decode)]
@@ -361,13 +380,11 @@ pub struct BeaconState<
     const SYNC_COMMITTEE_SIZE: usize,
     const BYTES_PER_LOGS_BLOOM: usize,
     const MAX_EXTRA_DATA_BYTES: usize,
-    const MAX_BYTES_PER_TRANSACTION: usize,
-    const MAX_TRANSACTIONS_PER_PAYLOAD: usize,
 > {
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub genesis_time: u64,
     pub genesis_validators_root: Root,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub slot: Slot,
     pub fork: Fork,
     pub latest_block_header: BeaconBlockHeader,
@@ -376,31 +393,31 @@ pub struct BeaconState<
     pub historical_roots: List<Root, HISTORICAL_ROOTS_LIMIT>,
     pub eth1_data: Eth1Data,
     pub eth1_data_votes: List<Eth1Data, ETH1_DATA_VOTES_BOUND>,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub eth1_deposit_index: u64,
     pub validators: List<Validator, VALIDATOR_REGISTRY_LIMIT>,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::collection_over_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::seq_of_str"))]
     pub balances: List<Gwei, VALIDATOR_REGISTRY_LIMIT>,
     pub randao_mixes: Vector<Bytes32, EPOCHS_PER_HISTORICAL_VECTOR>,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::collection_over_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::seq_of_str"))]
     pub slashings: Vector<Gwei, EPOCHS_PER_SLASHINGS_VECTOR>,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::collection_over_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::seq_of_str"))]
     pub previous_epoch_participation: List<ParticipationFlags, VALIDATOR_REGISTRY_LIMIT>,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::collection_over_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::seq_of_str"))]
     pub current_epoch_participation: List<ParticipationFlags, VALIDATOR_REGISTRY_LIMIT>,
     pub justification_bits: Bitvector<JUSTIFICATION_BITS_LENGTH>,
     pub previous_justified_checkpoint: Checkpoint,
     pub current_justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::collection_over_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::seq_of_str"))]
     pub inactivity_scores: List<u64, VALIDATOR_REGISTRY_LIMIT>,
     pub current_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
     pub next_sync_committee: SyncCommittee<SYNC_COMMITTEE_SIZE>,
     pub latest_execution_payload_header:
         ExecutionPayloadHeader<BYTES_PER_LOGS_BLOOM, MAX_EXTRA_DATA_BYTES>,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub next_withdrawal_index: WithdrawalIndex,
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_string"))]
+    #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub next_withdrawal_validator_index: ValidatorIndex,
     pub historical_summaries: List<HistoricalSummary, HISTORICAL_ROOTS_LIMIT>,
 }

@@ -7,6 +7,7 @@ use sync_committee_primitives::{
         MAX_VALIDATORS_PER_COMMITTEE, MAX_VOLUNTARY_EXITS, MAX_WITHDRAWALS_PER_PAYLOAD,
         SYNC_COMMITTEE_SIZE,
     },
+    deneb::MAX_BLOB_COMMITMENTS_PER_BLOCK,
 };
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -32,6 +33,7 @@ pub struct ResponseData {
         MAX_TRANSACTIONS_PER_PAYLOAD,
         MAX_WITHDRAWALS_PER_PAYLOAD,
         MAX_BLS_TO_EXECUTION_CHANGES,
+        MAX_BLOB_COMMITMENTS_PER_BLOCK,
     >,
     pub signature: String,
 }

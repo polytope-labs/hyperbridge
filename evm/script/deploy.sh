@@ -9,6 +9,8 @@ else
     echo "Deploying to $1"
     # load prod .env
     source "$(pwd)/.env.prod"
+    # remove existing sources
+    rm -rf out/ cache/
     # deploy
     HOST=$1 forge script "script/Deploy$2.s.sol:DeployScript" --rpc-url "$1" --broadcast -vvvv --sender="$ADMIN"
     # verify

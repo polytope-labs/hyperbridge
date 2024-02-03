@@ -20,6 +20,7 @@ import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 import {RococoVerifier} from "../src/beefy/verifiers/RococoVerifier.sol";
 import {ZkBeefyV1} from "../src/beefy/ZkBeefy.sol";
+import "multi-chain-tokens/interfaces/IERC6160Ext20.sol";
 
 contract DeployScript is Script {
     using strings for *;

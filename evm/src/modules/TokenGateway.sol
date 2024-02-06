@@ -3,7 +3,7 @@ pragma solidity 0.8.17;
 
 import "ismp/IIsmpModule.sol";
 import "ismp/IIsmp.sol";
-import "multi-chain-tokens/interfaces/IERC6160Ext20.sol";
+import "ERC6160/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import "../hosts/EvmHost.sol";
 import "../interfaces/IUniswapV2Router.sol";

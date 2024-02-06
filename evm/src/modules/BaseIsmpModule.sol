@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.17;
 
-import "ismp/IIsmpModule.sol";
+import {IIsmpModule} from "ismp/IIsmpModule.sol";
+import {PostRequest, PostResponse, GetResponse, GetRequest} from "ismp/IIsmp.sol";
 
 abstract contract BaseIsmpModule is IIsmpModule {
     function onAccept(PostRequest calldata request) external virtual {

@@ -4,9 +4,6 @@
 [submodule "evm/lib/solidity-merkle-trees"]
 	path = evm/lib/solidity-merkle-trees
 	url = https://github.com/polytope-labs/solidity-merkle-trees
-[submodule "evm/lib/multi-chain-tokens"]
-	path = evm/lib/multi-chain-tokens
-	url = https://github.com/polytope-labs/multi-chain-tokens
 [submodule "evm/lib/forge-std"]
 	path = evm/lib/forge-std
 	url = git@github.com:foundry-rs/forge-std

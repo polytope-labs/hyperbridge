@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {TokenGateway, SendParams, IUniswapV2Router} from "../src/modules/TokenGateway.sol";
-import {MultiChainNativeERC20} from "multi-chain-tokens/tokens/ERC20.sol";
+import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {ERC20Token} from "./mocks/ERC20Token.sol";
 import "openzeppelin/utils/math/Math.sol";
 import "ismp/StateMachine.sol";
@@ -63,10 +63,10 @@ contract TokenGatewayTest is Test {
     ERC20Token chain_b_dai;
     ERC20Token chain_a_usdc;
     ERC20Token chain_b_usdc;
-    MultiChainNativeERC20 chain_a_wrapped_usdc;
-    MultiChainNativeERC20 chain_b_wrapped_usdc;
-    MultiChainNativeERC20 chain_a_wrapped_dai;
-    MultiChainNativeERC20 chain_b_wrapped_dai;
+    ERC6160Ext20 chain_a_wrapped_usdc;
+    ERC6160Ext20 chain_b_wrapped_usdc;
+    ERC6160Ext20 chain_a_wrapped_dai;
+    ERC6160Ext20 chain_b_wrapped_dai;
 
     address owner = vm.addr(uint256(keccak256("owner")));
     address user1 = vm.addr(uint256(keccak256("user1")));
@@ -106,10 +106,10 @@ contract TokenGatewayTest is Test {
         chain_a_gateway = new TokenGateway(owner, address(uni_router));
         chain_b_gateway = new TokenGateway(owner, address(uni_router));
 
-        chain_a_wrapped_usdc = new MultiChainNativeERC20(address(chain_a_gateway), "USDC-A", "USDC");
-        chain_b_wrapped_usdc = new MultiChainNativeERC20(address(chain_b_gateway), "USDC-B", "USDC");
-        chain_a_wrapped_dai = new MultiChainNativeERC20(address(chain_a_gateway), "DAI-A", "DAI");
-        chain_b_wrapped_dai = new MultiChainNativeERC20(address(chain_b_gateway), "DAI-B", "DAI");
+        chain_a_wrapped_usdc = new ERC6160Ext20(address(chain_a_gateway), "USDC-A", "USDC");
+        chain_b_wrapped_usdc = new ERC6160Ext20(address(chain_b_gateway), "USDC-B", "USDC");
+        chain_a_wrapped_dai = new ERC6160Ext20(address(chain_a_gateway), "DAI-A", "DAI");
+        chain_b_wrapped_dai = new ERC6160Ext20(address(chain_b_gateway), "DAI-B", "DAI");
 
         relayer = new MockAutoRelayer();
 

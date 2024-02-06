@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.17;
 
-import {ERC20} from "openzeppelin/token/ERC20/extensions/ERC20Permit.sol";
 import {PostRequest} from "ismp/IIsmp.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {BaseIsmpModule} from "./BaseIsmpModule.sol";

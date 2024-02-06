@@ -15,7 +15,10 @@
 
 use crate::{
     prelude::*,
-    presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT},
+    presets::{
+        REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
+        RESPONSE_RECEIPTS_SLOT,
+    },
     types::{Account, EvmStateProof, KeccakHasher},
 };
 use alloc::{collections::BTreeMap, format, string::ToString};
@@ -73,13 +76,41 @@ pub fn req_res_to_key<H: IsmpHost>(item: RequestResponse) -> Vec<Vec<u8>> {
         RequestResponse::Request(requests) =>
             for req in requests {
                 let commitment = hash_request::<H>(&req);
-                let key = derive_map_key::<H>(commitment.0.to_vec(), REQUEST_COMMITMENTS_SLOT);
+                let key = derive_map_key_with_offset::<H>(
+                    commitment.0.to_vec(),
+                    REQUEST_COMMITMENTS_SLOT,
+                    1,
+                );
                 keys.push(key.0.to_vec())
             },
         RequestResponse::Response(responses) =>
             for res in responses {
                 let commitment = hash_response::<H>(&res);
-                let key = derive_map_key::<H>(commitment.0.to_vec(), RESPONSE_COMMITMENTS_SLOT);
+                let key = derive_map_key_with_offset::<H>(
+                    commitment.0.to_vec(),
+                    RESPONSE_COMMITMENTS_SLOT,
+                    1,
+                );
+                keys.push(key.0.to_vec())
+            },
+    }
+
+    keys
+}
+
+pub fn req_res_receipt_keys<H: IsmpHost>(item: RequestResponse) -> Vec<Vec<u8>> {
+    let mut keys = vec![];
+    match item {
+        RequestResponse::Request(requests) =>
+            for req in requests {
+                let commitment = hash_request::<H>(&req);
+                let key = derive_map_key::<H>(commitment.0.to_vec(), REQUEST_RECEIPTS_SLOT);
+                keys.push(key.0.to_vec())
+            },
+        RequestResponse::Response(responses) =>
+            for res in responses {
+                let commitment = hash_request::<H>(&res.request());
+                let key = derive_map_key::<H>(commitment.0.to_vec(), RESPONSE_RECEIPTS_SLOT);
                 keys.push(key.0.to_vec())
             },
     }
@@ -134,11 +165,29 @@ pub fn derive_map_key<H: IsmpHost>(mut key: Vec<u8>, slot: u64) -> H256 {
     H::keccak256(H::keccak256(&key).0.as_slice())
 }
 
+pub fn derive_map_key_with_offset<H: IsmpHost>(mut key: Vec<u8>, slot: u64, offset: u64) -> H256 {
+    let mut bytes = [0u8; 32];
+    U256::from(slot).to_big_endian(&mut bytes);
+    key.extend_from_slice(&bytes);
+    let root_key = H::keccak256(&key).0;
+    let number = U256::from_big_endian(root_key.as_slice()) + U256::from(offset);
+    let mut bytes = [0u8; 32];
+    number.to_big_endian(&mut bytes);
+    H::keccak256(&bytes)
+}
+
 pub fn derive_unhashed_map_key<H: IsmpHost>(mut key: Vec<u8>, slot: u64) -> H256 {
     let mut bytes = [0u8; 32];
     U256::from(slot).to_big_endian(&mut bytes);
     key.extend_from_slice(&bytes);
     H::keccak256(&key)
+}
+
+pub fn add_off_set_to_map_key(key: &[u8], offset: u64) -> H256 {
+    let number = U256::from_big_endian(key) + U256::from(offset);
+    let mut bytes = [0u8; 32];
+    number.to_big_endian(&mut bytes);
+    H256(bytes)
 }
 
 pub(super) fn derive_array_item_key<H: IsmpHost>(slot: u64, index: u64, offset: u64) -> Vec<u8> {

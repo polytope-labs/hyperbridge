@@ -40,7 +40,7 @@ use crate::{
     arbitrum::verify_arbitrum_payload,
     optimism::verify_optimism_payload,
     prelude::*,
-    utils::{get_value_from_proof, get_values_from_proof},
+    utils::{get_value_from_proof, get_values_from_proof, req_res_receipt_keys},
 };
 
 pub const BEACON_CONSENSUS_ID: ConsensusClientId = *b"BEAC";
@@ -203,7 +203,9 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
     }
 
     fn state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
-        req_res_to_key::<H>(items)
+        // State trie keys are used to process timeouts from EVM chains
+        // We return the trie keys for request or response receipts
+        req_res_receipt_keys::<H>(items)
     }
 
     fn verify_state_proof(

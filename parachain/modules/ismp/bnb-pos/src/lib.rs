@@ -53,7 +53,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
     fn verify_consensus(
         &self,
         _host: &dyn IsmpHost,
-        _consensus_state_id: ismp::consensus::ConsensusStateId,
+        _consensus_state_id: ConsensusStateId,
         trusted_consensus_state: Vec<u8>,
         proof: Vec<u8>,
     ) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), ismp::error::Error> {

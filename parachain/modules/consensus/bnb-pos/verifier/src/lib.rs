@@ -39,6 +39,11 @@ pub fn verify_bnb_header<H: Keccak256>(
 ) -> Result<VerificationResult, anyhow::Error> {
     let extra_data = parse_extra::<H>(&update.attested_header.extra_data)
         .map_err(|_| anyhow!("could not parse extra data from header"))?;
+    let source_hash = H256::from_slice(&extra_data.vote_data.source_hash.0);
+    let target_hash = H256::from_slice(&extra_data.vote_data.target_hash.0);
+    if source_hash == Default::default() || target_hash == Default::default() {
+        Err(anyhow!("Vote data is empty"))?
+    }
 
     let validators_bit_set = Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
         extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
@@ -71,13 +76,16 @@ pub fn verify_bnb_header<H: Keccak256>(
     let target_header_hash = Header::from(&update.target_header).hash::<H>();
 
     if source_header_hash.0 != extra_data.vote_data.source_hash.0 ||
-        target_header_hash.0 != target_header_hash.0
+        target_header_hash.0 != extra_data.vote_data.target_hash.0
     {
         Err(anyhow!("Target and Source headers do not match vote data"))?
     }
 
+    let source_extra_data = parse_extra::<H>(&update.source_header.extra_data)
+        .map_err(|_| anyhow!("could not parse extra data from header"))?;
+
     let next_validator_addresses: Option<NextValidators> = {
-        let validators = extra_data
+        let validators = source_extra_data
             .validators
             .into_iter()
             .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
@@ -86,7 +94,7 @@ pub fn verify_bnb_header<H: Keccak256>(
         if !validators.is_empty() {
             Some(NextValidators {
                 validators,
-                rotation_block: update.attested_header.number.low_u64() + 12,
+                rotation_block: update.source_header.number.low_u64() + 12,
             })
         } else {
             None

@@ -19,10 +19,7 @@ extern crate alloc;
 mod test;
 pub mod withdrawal;
 
-use crate::withdrawal::{
-    FeeMetadata, Key, ResponseReceipt, Signature, WithdrawalInputData, WithdrawalParams,
-    WithdrawalProof,
-};
+use crate::withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalParams, WithdrawalProof};
 use alloc::{collections::BTreeMap, vec::Vec};
 use alloy_primitives::Address;
 use codec::{Codec, Encode};
@@ -40,7 +37,7 @@ use ismp_sync_committee::{
         REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
         RESPONSE_RECEIPTS_SLOT,
     },
-    utils::derive_unhashed_map_key,
+    utils::{add_off_set_to_map_key, derive_unhashed_map_key},
 };
 pub use pallet::*;
 use pallet_ismp::{dispatcher::Dispatcher, host::Host};
@@ -331,11 +328,28 @@ where
         ensure!(!withdrawal_proof.commitments.is_empty(), Error::<T>::MissingCommitments);
         let source_keys = Self::get_commitment_keys(&withdrawal_proof);
         let dest_keys = Self::get_receipt_keys(&withdrawal_proof);
+        // For evm chains each response receipt occupies two slots
+        let mut slot_2_keys = alloc::vec![];
+        match &withdrawal_proof.dest_proof.height.id.state_id {
+            StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
+                for (key, commitment) in dest_keys.iter().zip(withdrawal_proof.commitments.iter()) {
+                    match commitment {
+                        Key::Response { .. } => {
+                            slot_2_keys.push(add_off_set_to_map_key(key, 1).0.to_vec());
+                        },
+                        _ => {},
+                    }
+                }
+            },
+            _ => {},
+        }
 
         let source_result =
             Self::verify_withdrawal_proof(&withdrawal_proof.source_proof, source_keys.clone())?;
-        let dest_result =
-            Self::verify_withdrawal_proof(&withdrawal_proof.dest_proof, dest_keys.clone())?;
+        let dest_result = Self::verify_withdrawal_proof(
+            &withdrawal_proof.dest_proof,
+            dest_keys.clone().into_iter().chain(slot_2_keys).collect(),
+        )?;
         let result = Self::validate_results(
             &withdrawal_proof,
             source_keys,
@@ -388,7 +402,10 @@ where
                             .to_vec(),
                         );
                     },
-                    _ =>
+                    StateMachine::Polkadot(_) |
+                    StateMachine::Kusama(_) |
+                    StateMachine::Grandpa(_) |
+                    StateMachine::Beefy(_) =>
                         keys.push(pallet_ismp::RequestCommitments::<T>::hashed_key_for(commitment)),
                 },
                 Key::Response { response_commitment, .. } => {
@@ -403,9 +420,13 @@ where
                                 .to_vec(),
                             );
                         },
-                        _ => keys.push(pallet_ismp::ResponseCommitments::<T>::hashed_key_for(
-                            response_commitment,
-                        )),
+                        StateMachine::Polkadot(_) |
+                        StateMachine::Kusama(_) |
+                        StateMachine::Grandpa(_) |
+                        StateMachine::Beefy(_) =>
+                            keys.push(pallet_ismp::ResponseCommitments::<T>::hashed_key_for(
+                                response_commitment,
+                            )),
                     }
                 },
             }
@@ -485,9 +506,8 @@ where
                             StateMachine::Polygon |
                             StateMachine::Bsc => {
                                 use alloy_rlp::Decodable;
-                                let fee = FeeMetadata::decode(&mut &*encoded_metadata)
-                                    .map_err(|_| Error::<T>::ProofValidationError)?
-                                    .fee;
+                                let fee = alloy_primitives::U256::decode(&mut &*encoded_metadata)
+                                    .map_err(|_| Error::<T>::ProofValidationError)?;
                                 U256::from_big_endian(&fee.to_be_bytes::<32>()).low_u32().into()
                             },
                             StateMachine::Beefy(_) |
@@ -544,9 +564,8 @@ where
                             StateMachine::Polygon |
                             StateMachine::Bsc => {
                                 use alloy_rlp::Decodable;
-                                let fee = FeeMetadata::decode(&mut &*encoded_metadata)
-                                    .map_err(|_| Error::<T>::ProofValidationError)?
-                                    .fee;
+                                let fee = alloy_primitives::U256::decode(&mut &*encoded_metadata)
+                                    .map_err(|_| Error::<T>::ProofValidationError)?;
                                 U256::from_big_endian(&fee.to_be_bytes::<32>()).low_u32().into()
                             },
                             StateMachine::Beefy(_) |
@@ -573,9 +592,20 @@ where
                             StateMachine::Polygon |
                             StateMachine::Bsc => {
                                 use alloy_rlp::Decodable;
-                                let receipt = ResponseReceipt::decode(&mut &*encoded_receipt)
-                                    .map_err(|_| Error::<T>::ProofValidationError)?;
-                                (receipt.relayer.0.to_vec(), receipt.response_commitment.0)
+                                let response_commitment =
+                                    alloy_primitives::B256::decode(&mut &*encoded_receipt)
+                                        .map_err(|_| Error::<T>::ProofValidationError)?;
+                                let slot_2_key = add_off_set_to_map_key(&dest_key, 1);
+                                let encoded_address = dest_result
+                                    .get(&slot_2_key.0.to_vec())
+                                    .cloned()
+                                    .flatten()
+                                    .ok_or_else(|| Error::<T>::ProofValidationError)?;
+                                let address = Address::decode(&mut &*encoded_address)
+                                    .map_err(|_| Error::<T>::ProofValidationError)?
+                                    .0
+                                    .to_vec();
+                                (address, response_commitment.0)
                             },
                             StateMachine::Beefy(_) |
                             StateMachine::Grandpa(_) |

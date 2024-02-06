@@ -3,8 +3,8 @@ pragma solidity 0.8.17;
 
 import "forge-std/Test.sol";
 
-import {ZkBeefyV1, BeefyConsensusState} from "../src/beefy/ZkBeefy.sol";
-import {RococoVerifier} from "../src/beefy/verifiers/RococoVerifier.sol";
+import {ZkBeefyV1, BeefyConsensusState} from "../src/consensus/ZkBeefy.sol";
+import {RococoVerifier} from "../src/consensus/verifiers/RococoVerifier.sol";
 
 contract BeefyConsensusClientTest is Test {
     ZkBeefyV1 internal beefy;

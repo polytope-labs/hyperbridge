@@ -2,12 +2,12 @@
 pragma solidity 0.8.17;
 
 import "forge-std/Script.sol";
-import "multi-chain-tokens/tokens/ERC20.sol";
 import "openzeppelin/utils/Strings.sol";
+import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 
-import "../src/modules/TokenGateway.sol";
-import "../src/modules/TokenFaucet.sol";
-import {PingModule} from  "../examples/PingModule.sol";
+import {TokenGateway} from "../src/modules/TokenGateway.sol";
+import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
+import {PingModule} from "../examples/PingModule.sol";
 import {CrossChainMessenger} from "../examples/CrossChainMessenger.sol";
 
 contract DeployScript is Script {
@@ -57,7 +57,7 @@ contract DeployScript is Script {
     }
 
     function deployGateway(address host, address admin, address uniRouter) public {
-        MultiChainNativeERC20 t = new MultiChainNativeERC20{salt: salt}(admin, "Hyperbridge Test Token", "CORE");
+        ERC6160Ext20 t = new ERC6160Ext20{salt: salt}(admin, "Hyperbridge Test Token", "CORE");
 
         TokenGateway gateway = new TokenGateway{salt: salt}(admin, uniRouter);
         gateway.setIsmpHost(host);

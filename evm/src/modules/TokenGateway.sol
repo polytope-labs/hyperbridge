@@ -5,7 +5,7 @@ import "ismp/IIsmpModule.sol";
 import "ismp/IIsmp.sol";
 import "multi-chain-tokens/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import "../EvmHost.sol";
+import "../hosts/EvmHost.sol";
 import "../interfaces/IUniswapV2Router.sol";
 
 struct SendParams {

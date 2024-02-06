@@ -5,11 +5,11 @@ import "forge-std/Script.sol";
 import "openzeppelin/utils/Strings.sol";
 import "stringutils/strings.sol";
 
-import "../src/HandlerV1.sol";
-import "../src/EvmHost.sol";
+import "../src/modules/HandlerV1.sol";
+import "../src/hosts/EvmHost.sol";
 import "../src/modules/HostManager.sol";
 
-import "../src/beefy/BeefyV1.sol";
+import "../src/consensus/BeefyV1.sol";
 import "../src/hosts/Ethereum.sol";
 import "../src/hosts/Arbitrum.sol";
 import "../src/hosts/Optimism.sol";
@@ -18,13 +18,14 @@ import "../src/hosts/Base.sol";
 import {PingModule} from "../examples/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
-import {RococoVerifier} from "../src/beefy/verifiers/RococoVerifier.sol";
-import {ZkBeefyV1} from "../src/beefy/ZkBeefy.sol";
-import "multi-chain-tokens/interfaces/IERC6160Ext20.sol";
+import {RococoVerifier} from "../src/consensus/verifiers/RococoVerifier.sol";
+import {ZkBeefyV1} from "../src/consensus/ZkBeefy.sol";
+import {GovernableToken} from "../src/modules/GovernableToken.sol";
 
 contract DeployScript is Script {
     using strings for *;
-    bytes32 public salt = keccak256(bytes("gargantua-v101"));
+
+    bytes32 public salt = keccak256(bytes("gargantua-v102"));
 
     function run() external {
         address admin = vm.envAddress("ADMIN");
@@ -32,6 +33,10 @@ contract DeployScript is Script {
         string memory host = vm.envString("HOST");
         bytes32 privateKey = vm.envBytes32("PRIVATE_KEY");
         vm.startBroadcast(uint256(privateKey));
+
+        GovernableToken feeToken = new GovernableToken{salt: salt}(admin, "Hyper USD", "USD.h");
+        // mint $1b to
+        feeToken.mint(0x276b41950829E5A7B179ba03B758FaaE9A8d7C41, 1000000000 * 1e18, "");
 
         // consensus client
         RococoVerifier verifier = new RococoVerifier();
@@ -42,12 +47,12 @@ contract DeployScript is Script {
 
         // Host manager
         HostManagerParams memory gParams = HostManagerParams({admin: admin, host: address(0), paraId: paraId});
-        HostManager governor = new HostManager{salt: salt}(gParams);
+        HostManager manager = new HostManager{salt: salt}(gParams);
 
         // EvmHost
         HostParams memory params = HostParams({
             admin: admin,
-            hostManager: address(governor),
+            hostManager: address(manager),
             handler: address(handler),
             // 45 mins
             defaultTimeout: 45 * 60,
@@ -58,14 +63,15 @@ contract DeployScript is Script {
             consensusClient: address(consensusClient),
             lastUpdated: 0,
             consensusState: new bytes(0),
-            baseGetRequestFee: 0,
-            perByteFee: 0,
-            feeTokenAddress: address(0),
+            baseGetRequestFee: 5 * 1e17, // $0.50
+            perByteFee: 3 * 1e16, // $0.003/byte
+            feeTokenAddress: address(feeToken),
             latestStateMachineHeight: 0
         });
         address hostAddress = initHost(host, params);
-        // set the ismphost on the cross-chain governor
-        governor.setIsmpHost(hostAddress);
+        // set the host address on the host manager
+        manager.setIsmpHost(hostAddress);
+        feeToken.setIsmpHost(hostAddress);
         // deploy the ping module as well
         new PingModule{salt: salt}(hostAddress);
         vm.stopBroadcast();

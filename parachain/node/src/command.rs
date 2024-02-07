@@ -215,12 +215,14 @@ pub fn run() -> Result<()> {
                 chain if chain.contains("gargantua") || chain.contains("dev") => {
                     let components =
                         new_partial::<gargantua_runtime::RuntimeApi, GargantuanExecutor>(&config)?;
-                    cmd.run(&*config.chain_spec, &*components.client)
+
+                    cmd.run(components.client.clone())
                 },
                 chain if chain.contains("messier") => {
                     let components =
                         new_partial::<messier_runtime::RuntimeApi, MessierExecutor>(&config)?;
-                    cmd.run(&*config.chain_spec, &*components.client)
+
+                    cmd.run(components.client.clone())
                 },
                 chain => panic!("Unknown chain with id: {}", chain),
             })

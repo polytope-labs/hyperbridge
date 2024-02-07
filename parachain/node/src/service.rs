@@ -109,7 +109,8 @@ where
     Runtime:
         ConstructRuntimeApi<opaque::Block, FullClient<Runtime, Executor>> + Send + Sync + 'static,
     Runtime::RuntimeApi: BaseHostRuntimeApis,
-    sc_client_api::StateBackendFor<FullBackend, opaque::Block>: sp_api::StateBackend<Keccak256>,
+    sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
+        sc_client_api::StateBackend<Keccak256>,
     Executor: sc_executor::NativeExecutionDispatch + 'static,
 {
     let telemetry = config
@@ -198,7 +199,8 @@ where
     Runtime:
         ConstructRuntimeApi<opaque::Block, FullClient<Runtime, Executor>> + Send + Sync + 'static,
     Runtime::RuntimeApi: BaseHostRuntimeApis,
-    sc_client_api::StateBackendFor<FullBackend, opaque::Block>: sp_api::StateBackend<Keccak256>,
+    sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
+        sc_client_api::StateBackend<Keccak256>,
     Executor: sc_executor::NativeExecutionDispatch + 'static,
 {
     let parachain_config = prepare_node_config(parachain_config);
@@ -311,10 +313,15 @@ where
         //     _ => {},
         // }
 
-        if !SUBSTRATE_REFERENCE_HARDWARE.check_hardware(&hwbench) && validator {
-            log::warn!(
-                "⚠️  The hardware does not meet the minimal requirements for role 'Authority'."
-            );
+        match SUBSTRATE_REFERENCE_HARDWARE.check_hardware(&hwbench) {
+            Err(err) if validator => {
+                log::warn!(
+				"⚠️  The hardware does not meet the minimal requirements {} for role 'Authority' find out more at:\n\
+				https://wiki.polkadot.network/docs/maintain-guides-how-to-validate-polkadot#reference-hardware",
+				err
+			);
+            },
+            _ => {},
         }
 
         if let Some(ref mut telemetry) = telemetry {
@@ -391,7 +398,8 @@ where
     Runtime:
         ConstructRuntimeApi<opaque::Block, FullClient<Runtime, Executor>> + Send + Sync + 'static,
     Runtime::RuntimeApi: BaseHostRuntimeApis,
-    sc_client_api::StateBackendFor<FullBackend, opaque::Block>: sp_api::StateBackend<Keccak256>,
+    sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
+        sc_client_api::StateBackend<Keccak256>,
     Executor: sc_executor::NativeExecutionDispatch + 'static,
 {
     let slot_duration = cumulus_client_consensus_aura::slot_duration(&*client)?;
@@ -438,7 +446,8 @@ where
     Runtime:
         ConstructRuntimeApi<opaque::Block, FullClient<Runtime, Executor>> + Send + Sync + 'static,
     Runtime::RuntimeApi: BaseHostRuntimeApis,
-    sc_client_api::StateBackendFor<FullBackend, opaque::Block>: sp_api::StateBackend<Keccak256>,
+    sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
+        sc_client_api::StateBackend<Keccak256>,
     Executor: sc_executor::NativeExecutionDispatch + 'static,
 {
     use cumulus_client_consensus_aura::collators::basic::{

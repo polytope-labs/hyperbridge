@@ -2,7 +2,10 @@ use codec::Encode;
 use frame_support::crypto::ecdsa::ECDSAExt;
 
 use crate::{ConsensusState, PolygonClient};
-use frame_support::traits::{ConstU32, ConstU64, Get};
+use frame_support::{
+    derive_impl,
+    traits::{ConstU32, ConstU64, Get},
+};
 use frame_system::EnsureRoot;
 use geth_primitives::{CodecHeader, Header};
 use ismp::{
@@ -51,7 +54,7 @@ impl ConsensusClientProvider for ConsensusProvider {
         Ok(Box::new(MockConsensusClient))
     }
 }
-
+#[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Test {
     type BaseCallFilter = frame_support::traits::Everything;
     type RuntimeOrigin = RuntimeOrigin;

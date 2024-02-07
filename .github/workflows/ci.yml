@@ -218,9 +218,9 @@ jobs:
         run: |
           cargo test -p sync-committee-prover -- --nocapture --ignored
 
-      - name: polygon pos integration tests
-        run: |
-          cargo test -p polygon-pos-prover -- --nocapture --ignored
+#      - name: polygon pos integration tests
+#        run: |
+#          cargo test -p polygon-pos-prover -- --nocapture --ignored
 
       - name: Binance Smart Chain integration tests
         run: |

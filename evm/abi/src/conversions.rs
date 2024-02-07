@@ -21,12 +21,13 @@ use crate::{
         IntermediateState, Node, Parachain, ParachainProof, Payload, RelayChainProof,
         SignedCommitment, Vote,
     },
-    shared_types::{PostRequest, PostResponse},
+    shared_types::{PostRequest, PostResponse, StateMachineHeight},
 };
+use anyhow::anyhow;
 use beefy_verifier_primitives::{
     BeefyNextAuthoritySet, ConsensusMessage, ConsensusState, MmrProof,
 };
-use ismp::router;
+use ismp::{host::StateMachine, router};
 use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos, mmr_position_to_k_index};
 use primitive_types::H256;
 
@@ -203,6 +204,19 @@ impl From<router::Post> for PostRequest {
             body: value.data.into(),
             gaslimit: value.gas_limit.into(),
         }
+    }
+}
+
+impl TryFrom<ismp::consensus::StateMachineHeight> for StateMachineHeight {
+    type Error = anyhow::Error;
+    fn try_from(value: ismp::consensus::StateMachineHeight) -> Result<Self, anyhow::Error> {
+        Ok(StateMachineHeight {
+            state_machine_id: match value.id.state_id {
+                StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
+                state_machine => Err(anyhow!("Unsupported state machine {state_machine:?}"))?,
+            },
+            height: value.height.into(),
+        })
     }
 }
 

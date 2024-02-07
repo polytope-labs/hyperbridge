@@ -18,6 +18,7 @@ merkle-mountain-range = { workspace = true, features = ["default"] }
 sp-consensus-beefy = { workspace =  true, features = ["default"] }
 ismp = { path = "../../parachain/modules/ismp/core" }
 beefy-verifier-primitives = { path = "../../parachain/modules/consensus/beefy/primitives" }
+anyhow = "1.0.79"
 
 
 [features]

@@ -25,6 +25,9 @@ struct SendParams {
     uint64 timeout;
     // if to burn wrapper or native
     bool redeem;
+    // this is an erc20 that a will select to be used for fee
+    address tokenIntendedForFee;
+    
     // amount for fee, if bridged token is feetoken require that amount or less is taken by host
     // else, swap the amount for fee into dai and use fee to limit slippage,
     // ideally minAmountOut should be the fees you expect to pay
@@ -108,38 +111,14 @@ contract TokenGateway is IIsmpModule {
         address from = msg.sender;
 
         address erc20 = _erc20s[params.tokenId];
+
         address erc6160 = _erc6160s[params.tokenId];
+
+        address intendedTokenForFee = params.tokenIntendedForFee;
+
         require(params.to != address(0), "Burn your funds some other way");
 
         uint256 toBridge = params.amount;
-
-        if (erc20 != address(0) && !params.redeem) {
-            address feeToken = EvmHost(host).dai();
-            // custody the user's funds
-            require(params.amountForFee <= toBridge, "fee greater than amount");
-            require(
-                IERC20(erc20).transferFrom(from, address(this), params.amount), "Gateway: Insufficient user balance"
-            );
-
-            // only swap if the fee token is not the token to bridge and if the amount the user chose to bridge is > 0
-            if (feeToken != erc20 && params.amountForFee > 0) {
-                require(IERC20(erc20).approve(address(uniswapV2Router), params.amountForFee), "approve failed.");
-                address[] memory path = new address[](2);
-                path[0] = erc20;
-                path[1] = feeToken;
-                uniswapV2Router.swapExactTokensForTokens(
-                    params.amountForFee, params.fee, path, tx.origin, block.timestamp
-                );
-                unchecked {
-                    toBridge -= params.amountForFee;
-                }
-            }
-        } else if (erc6160 != address(0) && params.redeem) {
-            // we're sending an erc6160 asset so we should redeem on the destination if we can.
-            IERC6160Ext20(erc6160).burn(from, params.amount, "");
-        } else {
-            revert("Gateway: Unknown Token Identifier");
-        }
 
         bytes memory data = abi.encode(
             Body({from: from, to: params.to, amount: toBridge, tokenId: params.tokenId, redeem: params.redeem})
@@ -156,6 +135,54 @@ contract TokenGateway is IIsmpModule {
             gaslimit: uint64(params.gaslimit),
             fee: params.fee
         });
+
+
+
+        if (erc20 != address(0) && !params.redeem && intendedTokenForFee != address(0)) {
+            address feeToken = EvmHost(host).dai();
+
+            // custody the user's funds
+            require(params.amountForFee <= toBridge, "fee greater than amount");
+
+            require(
+                IERC20(erc20).transferFrom(from, address(this), params.amount), "Gateway: Insufficient user balance"
+            );
+
+            // Calculate output fee in DAI here before swap: We can use swapTokensForExactTokens() on Uniswap since we know the output amount
+            HostParams memory _hostParams = EvmHost(host).hostParams();
+            uint256 _fee = (_hostParams.perByteFee * request.body.length) + request.fee;
+
+            // only swap if the fee token is not the token intended for fee and if the amount the user chose to bridge is > 0
+            if (feeToken != intendedTokenForFee && _fee > 0) {
+
+                address[] memory path = new address[](2);
+                path[0] = intendedTokenForFee;
+                path[1] = feeToken;
+
+                uint intendedFeeTokenAmountIn = uniswapV2Router.getAmountsIn(_fee, path)[0];
+
+                // How do we handle cases of slippage
+
+                require(IERC20(intendedTokenForFee).transferFrom(from, address(this), intendedFeeTokenAmountIn), "insufficient intended fee token");
+
+                require(IERC20(intendedTokenForFee).approve(address(uniswapV2Router), intendedFeeTokenAmountIn), "approve failed.");
+
+
+                uniswapV2Router.swapExactTokensForTokens(
+                    intendedFeeTokenAmountIn, _fee, path, tx.origin, block.timestamp
+                );
+
+                // unchecked {
+                //     toBridge -= params.amountForFee;
+                // }
+            }
+        } else if (erc6160 != address(0) && params.redeem) {
+            // we're sending an erc6160 asset so we should redeem on the destination if we can.
+            IERC6160Ext20(erc6160).burn(from, params.amount, "");
+        } else {
+            revert("Gateway: Unknown Token Identifier");
+        }
+
         IIsmp(host).dispatch(request);
     }
 

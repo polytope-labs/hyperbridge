@@ -513,6 +513,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchPost memory post) external {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
+        
         require(IERC20(dai()).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
 
         // adjust the timeout

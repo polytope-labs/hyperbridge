@@ -33,8 +33,6 @@ use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
 use codec::{Decode, Encode, MaxEncodedLen};
 use cumulus_pallet_parachain_system::RelayNumberStrictlyIncreases;
-// use cumulus_primitives_core::AggregateMessageOrigin;
-// use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 use scale_info::TypeInfo;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
@@ -77,7 +75,7 @@ use pallet_ismp::{
 };
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
-use xcm::{XcmConfig, XcmOriginToTransactDispatchOrigin};
+use xcm::XcmOriginToTransactDispatchOrigin;
 
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
@@ -92,7 +90,6 @@ use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
 use frame_support::traits::ConstBool;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
-use staging_xcm_executor::XcmExecutor;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -423,7 +420,6 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
     type OnSystemEvent = ();
     type SelfParaId = parachain_info::Pallet<Runtime>;
     type OutboundXcmpMessageSource = XcmpQueue;
-    // type DmpMessageHandler = DmpQueue;
     type ReservedDmpWeight = ReservedDmpWeight;
     type XcmpMessageHandler = XcmpQueue;
     type ReservedXcmpWeight = ReservedXcmpWeight;
@@ -439,9 +435,7 @@ impl cumulus_pallet_aura_ext::Config for Runtime {}
 impl cumulus_pallet_xcmp_queue::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type VersionWrapper = PolkadotXcm;
-    // type XcmExecutor = XcmExecutor<XcmConfig>;
     type ChannelInfo = ParachainSystem;
-    // type ExecuteOverweightOrigin = EnsureRoot<AccountId>;
     type ControllerOrigin = EnsureRoot<AccountId>;
     type ControllerOriginConverter = XcmOriginToTransactDispatchOrigin;
     type PriceForSiblingDelivery = NoPriceForMessageDelivery<ParaId>;
@@ -464,7 +458,7 @@ impl pallet_message_queue::Config for Runtime {
     #[cfg(not(feature = "runtime-benchmarks"))]
     type MessageProcessor = staging_xcm_builder::ProcessXcmMessage<
         AggregateMessageOrigin,
-        XcmExecutor<XcmConfig>,
+        staging_xcm_executor::XcmExecutor<xcm::XcmConfig>,
         RuntimeCall,
     >;
     type Size = u32;

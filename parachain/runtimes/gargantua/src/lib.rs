@@ -73,10 +73,9 @@ use pallet_ismp::{
     mmr_primitives::{Leaf, LeafIndex},
     primitives::Proof,
 };
-// use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
-use xcm::{XcmConfig, XcmOriginToTransactDispatchOrigin};
+use xcm::XcmOriginToTransactDispatchOrigin;
 
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
@@ -427,8 +426,6 @@ impl cumulus_pallet_xcmp_queue::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type ChannelInfo = ParachainSystem;
     type VersionWrapper = PolkadotXcm;
-    // type XcmExecutor = XcmExecutor<XcmConfig>;
-    // type ExecuteOverweightOrigin = EnsureRoot<AccountId>;
     type ControllerOrigin = EnsureRoot<AccountId>;
     type ControllerOriginConverter = XcmOriginToTransactDispatchOrigin;
     type PriceForSiblingDelivery = NoPriceForMessageDelivery<ParaId>;
@@ -451,7 +448,7 @@ impl pallet_message_queue::Config for Runtime {
     #[cfg(not(feature = "runtime-benchmarks"))]
     type MessageProcessor = staging_xcm_builder::ProcessXcmMessage<
         AggregateMessageOrigin,
-        XcmExecutor<XcmConfig>,
+        staging_xcm_executor::XcmExecutor<xcm::XcmConfig>,
         RuntimeCall,
     >;
     type Size = u32;

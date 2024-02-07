@@ -57,7 +57,6 @@ pub type Mmr = MemMMR<DataOrHash, MmrHasher<Keccak256>>;
 #[cfg(test)]
 mod mmr_tests {
     use super::*;
-    use crate::Mmr;
     use hex_literal::hex;
     use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos, MerkleProof};
     use pallet_ismp::mmr_primitives::DataOrHash;

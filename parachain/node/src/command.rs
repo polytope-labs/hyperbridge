@@ -35,7 +35,7 @@ use crate::{
 
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
     Ok(match id {
-        name if name.starts_with("gargantua-") || name.starts_with("dev-") => {
+        name if name.starts_with("gargantua-") => {
             let id = name.split('-').last().expect("dev chainspec should have chain id");
             let id = u32::from_str(id).expect("can't parse Id into u32");
             Box::new(chain_spec::gargantua_development_config(id))
@@ -45,11 +45,11 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
             let id = u32::from_str(id).expect("can't parse Id into u32");
             Box::new(chain_spec::messier_development_config(id))
         },
-        name if name.contains("gargantua") => Box::new(chain_spec::ChainSpec::<
-            gargantua_runtime::RuntimeGenesisConfig,
-        >::from_json_bytes(
-            include_bytes!("../../chainspec/gargantua.json").to_vec(),
-        )?),
+        "gargantua" => Box::new(
+            chain_spec::ChainSpec::<gargantua_runtime::RuntimeGenesisConfig>::from_json_bytes(
+                include_bytes!("../../chainspec/gargantua.json").to_vec(),
+            )?,
+        ),
         "messier" => Box::new(
             chain_spec::ChainSpec::<messier_runtime::RuntimeGenesisConfig>::from_json_bytes(
                 include_bytes!("../../chainspec/messier.json").to_vec(),

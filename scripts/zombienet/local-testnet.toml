@@ -35,7 +35,7 @@ args = []
 
 [[parachains]]
 id = 2000
-chain = "dev-2000"
+chain = "gargantua-2000"
 cumulus_based = true
 
 # run alice as parachain collator

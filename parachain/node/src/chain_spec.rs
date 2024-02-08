@@ -90,8 +90,8 @@ pub fn gargantua_development_config(id: u32) -> ChainSpec<gargantua_runtime::Run
             para_id: id,
         },
     )
-    .with_name("hyperbridge-dev")
-    .with_id("dev")
+    .with_name("gargantua-dev")
+    .with_id("gargantua")
     .with_chain_type(ChainType::Development)
     .with_genesis_config_patch(testnet_genesis(
         // initial collators.
@@ -140,7 +140,7 @@ pub fn messier_development_config(id: u32) -> ChainSpec<messier_runtime::Runtime
             para_id: id,
         },
     )
-    .with_name("hyperbridge-dev")
+    .with_name("messier-dev")
     .with_id("messier")
     .with_chain_type(ChainType::Development)
     .with_genesis_config_patch(testnet_genesis(

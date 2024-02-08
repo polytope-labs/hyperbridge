@@ -29,14 +29,16 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
+          toolchain: stable
 
       - name: Add wasm toolchain
-        run: rustup target add wasm32-unknown-unknown
+        run: |
+          rustup update nightly
+          rustup target add wasm32-unknown-unknown --toolchain nightly
 
       - name: Build
         run:  |
-          cargo +nightly build --release -p hyperbridge
+          cargo build --release -p hyperbridge
           mv ./target/release/hyperbridge ./
 
       - name: Install Cargo get

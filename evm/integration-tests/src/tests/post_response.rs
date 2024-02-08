@@ -22,7 +22,7 @@ use ismp_solidity_abi::{
     },
     shared_types::{PostRequest, PostResponse, StateCommitment, StateMachineHeight},
 };
-use merkle_mountain_range::mmr_position_to_k_index;
+
 use pallet_ismp::mmr_primitives::{DataOrHash, Leaf};
 use primitive_types::H256;
 use std::{env, path::PathBuf};
@@ -65,7 +65,7 @@ async fn test_post_response_proof() -> Result<(), anyhow::Error> {
     }
 
     let pos = mmr.push(response)?;
-    let k_index = mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
+    let k_index = mmr_utils::mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
 
     let proof = mmr.gen_proof(vec![pos])?;
     let overlay_root = mmr.get_root()?.hash::<Keccak256>().0;

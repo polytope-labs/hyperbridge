@@ -1,6 +1,6 @@
 [package]
 name = "hyperbridge"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "The Hyperbridge coprocessor node"
 repository = "https://github.com/polytope-labs/hyperbridge"
@@ -68,6 +68,7 @@ staging-xcm = { workspace = true, default-features = false }
 
 # Cumulus
 cumulus-client-cli = { workspace = true }
+cumulus-primitives-aura = { workspace = true }
 cumulus-client-consensus-aura = { workspace = true }
 cumulus-client-consensus-common = { workspace = true }
 cumulus-client-network = { workspace = true }

@@ -9,7 +9,7 @@ concurrency:
 
 jobs:
   build_and_publish:
-    runs-on: release-runner
+    runs-on: self-hosted
     steps:
       - name: Checkout sources
         uses: actions/checkout@v3

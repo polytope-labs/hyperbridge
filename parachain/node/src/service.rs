@@ -32,7 +32,7 @@ use cumulus_client_service::{
 };
 use cumulus_primitives_core::{relay_chain::CollatorPair, ParaId};
 use cumulus_relay_chain_interface::{OverseerHandle, RelayChainInterface};
-
+use polkadot_primitives::ValidationCode;
 // Substrate Imports
 use frame_benchmarking_cli::SUBSTRATE_REFERENCE_HARDWARE;
 use sc_client_api::Backend;
@@ -49,7 +49,6 @@ use sp_api::ConstructRuntimeApi;
 use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Keccak256;
 use substrate_prometheus_endpoint::Registry;
-// use crate::client::Client;
 
 /// Native executor type.
 pub struct GargantuanExecutor;
@@ -109,7 +108,8 @@ where
     Runtime:
         ConstructRuntimeApi<opaque::Block, FullClient<Runtime, Executor>> + Send + Sync + 'static,
     Runtime::RuntimeApi: BaseHostRuntimeApis,
-    sc_client_api::StateBackendFor<FullBackend, opaque::Block>: sp_api::StateBackend<Keccak256>,
+    sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
+        sc_client_api::StateBackend<Keccak256>,
     Executor: sc_executor::NativeExecutionDispatch + 'static,
 {
     let telemetry = config
@@ -198,7 +198,8 @@ where
     Runtime:
         ConstructRuntimeApi<opaque::Block, FullClient<Runtime, Executor>> + Send + Sync + 'static,
     Runtime::RuntimeApi: BaseHostRuntimeApis,
-    sc_client_api::StateBackendFor<FullBackend, opaque::Block>: sp_api::StateBackend<Keccak256>,
+    sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
+        sc_client_api::StateBackend<Keccak256>,
     Executor: sc_executor::NativeExecutionDispatch + 'static,
 {
     let parachain_config = prepare_node_config(parachain_config);
@@ -288,7 +289,7 @@ where
         task_manager: &mut task_manager,
         config: parachain_config,
         keystore: params.keystore_container.keystore(),
-        backend,
+        backend: backend.clone(),
         network: network.clone(),
         sync_service: sync_service.clone(),
         system_rpc_tx,
@@ -311,10 +312,15 @@ where
         //     _ => {},
         // }
 
-        if !SUBSTRATE_REFERENCE_HARDWARE.check_hardware(&hwbench) && validator {
-            log::warn!(
-                "⚠️  The hardware does not meet the minimal requirements for role 'Authority'."
-            );
+        match SUBSTRATE_REFERENCE_HARDWARE.check_hardware(&hwbench) {
+            Err(err) if validator => {
+                log::warn!(
+				"⚠️  The hardware does not meet the minimal requirements {} for role 'Authority' find out more at:\n\
+				https://wiki.polkadot.network/docs/maintain-guides-how-to-validate-polkadot#reference-hardware",
+				err
+			);
+            },
+            _ => {},
         }
 
         if let Some(ref mut telemetry) = telemetry {
@@ -358,6 +364,7 @@ where
     if validator {
         start_consensus::<Runtime, Executor>(
             client.clone(),
+            backend,
             block_import,
             prometheus_registry.as_ref(),
             telemetry.as_ref().map(|t| t.handle()),
@@ -391,7 +398,8 @@ where
     Runtime:
         ConstructRuntimeApi<opaque::Block, FullClient<Runtime, Executor>> + Send + Sync + 'static,
     Runtime::RuntimeApi: BaseHostRuntimeApis,
-    sc_client_api::StateBackendFor<FullBackend, opaque::Block>: sp_api::StateBackend<Keccak256>,
+    sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
+        sc_client_api::StateBackend<Keccak256>,
     Executor: sc_executor::NativeExecutionDispatch + 'static,
 {
     let slot_duration = cumulus_client_consensus_aura::slot_duration(&*client)?;
@@ -418,6 +426,7 @@ where
 
 fn start_consensus<Runtime, Executor>(
     client: Arc<FullClient<Runtime, Executor>>,
+    backend: Arc<FullBackend>,
     block_import: ParachainBlockImport<Runtime, Executor>,
     prometheus_registry: Option<&Registry>,
     telemetry: Option<TelemetryHandle>,
@@ -438,12 +447,11 @@ where
     Runtime:
         ConstructRuntimeApi<opaque::Block, FullClient<Runtime, Executor>> + Send + Sync + 'static,
     Runtime::RuntimeApi: BaseHostRuntimeApis,
-    sc_client_api::StateBackendFor<FullBackend, opaque::Block>: sp_api::StateBackend<Keccak256>,
+    sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
+        sc_client_api::StateBackend<Keccak256>,
     Executor: sc_executor::NativeExecutionDispatch + 'static,
 {
-    use cumulus_client_consensus_aura::collators::basic::{
-        self as basic_aura, Params as BasicAuraParams,
-    };
+    use cumulus_client_consensus_aura::collators::lookahead;
 
     // NOTE: because we use Aura here explicitly, we can use `CollatorSybilResistance::Resistant`
     // when starting the network.
@@ -467,11 +475,15 @@ where
         client.clone(),
     );
 
-    let params = BasicAuraParams {
+    let params = lookahead::Params {
         create_inherent_data_providers: move |_, ()| async move { Ok(()) },
         block_import,
-        para_client: client,
+        para_client: client.clone(),
+        para_backend: backend,
         relay_client: relay_chain_interface,
+        code_hash_provider: move |hash| {
+            client.code_at(hash).ok().map(ValidationCode).map(|c| c.hash())
+        },
         sync_oracle,
         keystore,
         collator_key,
@@ -482,13 +494,14 @@ where
         proposer,
         collator_service,
         // Very limited proposal time.
-        authoring_duration: Duration::from_millis(500),
-        collation_request_receiver: None,
+        authoring_duration: Duration::from_millis(1500),
     };
 
-    let fut = basic_aura::run::<
+    let fut = lookahead::run::<
         opaque::Block,
         sp_consensus_aura::sr25519::AuthorityPair,
+        _,
+        _,
         _,
         _,
         _,

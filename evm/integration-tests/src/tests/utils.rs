@@ -1,6 +1,5 @@
 use crate::{Keccak256, Mmr};
 use ismp_solidity_abi::{beefy::StateMachineHeight, handler::Proof};
-use merkle_mountain_range::mmr_position_to_k_index;
 use pallet_ismp::mmr_primitives::DataOrHash;
 use primitive_types::{H256, U256};
 use sp_core::KeccakHasher;
@@ -29,7 +28,7 @@ pub fn initialize_mmr_tree(
         mmr.push(DataOrHash::Hash(hash))?;
     }
 
-    let k_index = mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
+    let k_index = mmr_utils::mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
     let proof = mmr.gen_proof(vec![pos])?;
     let root = mmr.get_root()?.hash::<Keccak256>().0;
     let multiproof = proof.proof_items().iter().map(|h| h.hash::<Keccak256>().0).collect();

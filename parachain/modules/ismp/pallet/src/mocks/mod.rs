@@ -16,6 +16,7 @@
 //! Mock implementations for tests & benchmarks
 #![allow(missing_docs, dead_code, unused_imports)]
 pub mod mocks;
+use frame_support::derive_impl;
 
 use crate as pallet_ismp;
 use crate::*;
@@ -97,6 +98,7 @@ impl pallet_balances::Config for Test {
     type MaxFreezes = ();
 }
 
+#[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Test {
     type BaseCallFilter = frame_support::traits::Everything;
     type RuntimeOrigin = RuntimeOrigin;
@@ -109,6 +111,7 @@ impl frame_system::Config for Test {
     type BlockHashCount = ConstU64<250>;
     type DbWeight = ();
     type BlockWeights = ();
+    type RuntimeTask = ();
     type BlockLength = ();
     type Version = ();
     type Nonce = u64;

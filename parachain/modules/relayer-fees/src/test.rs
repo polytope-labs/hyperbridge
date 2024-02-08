@@ -102,6 +102,9 @@ impl ConsensusClientProvider for ConsensusProvider {
     }
 }
 
+use frame_support::derive_impl;
+
+#[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Test {
     type BaseCallFilter = frame_support::traits::Everything;
     type RuntimeOrigin = RuntimeOrigin;

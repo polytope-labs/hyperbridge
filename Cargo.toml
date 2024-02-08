@@ -40,7 +40,7 @@ members = [
      # evm stuff
      "evm/integration-tests",
      "evm/abi",
-     "parachain/modules/relayer-fees",
+     "parachain/modules/relayer-fees", "parachain/modules/tries/mmr",
 ]
 
 # Config for 'cargo dist'
@@ -169,7 +169,7 @@ ethers = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490b
 ethers-contract-abigen = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8" }
 
 forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "71701dc172efe46132a4e28654b6e8fa1aff88bc" }
-merkle-mountain-range = { package = "ckb-merkle-mountain-range", git = "https://github.com/polytope-labs/merkle-mountain-range", branch = "seun/simplified-mmr", default-features = false }
+merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2",  default-features = false }
 
 trie-db = { version = "0.28.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }

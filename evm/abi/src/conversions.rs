@@ -30,7 +30,7 @@ use beefy_verifier_primitives::{
     BeefyNextAuthoritySet, ConsensusMessage, ConsensusState, MmrProof,
 };
 use ismp::{host::StateMachine, router};
-use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos, mmr_position_to_k_index};
+use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
 use primitive_types::H256;
 use std::str::FromStr;
 
@@ -70,7 +70,7 @@ impl From<ConsensusMessage> for BeefyConsensusProof {
 impl From<MmrProof> for RelayChainProof {
     fn from(value: MmrProof) -> Self {
         let leaf_index = value.mmr_proof.leaf_indices[0];
-        let k_index = mmr_position_to_k_index(
+        let k_index = mmr_utils::mmr_position_to_k_index(
             vec![leaf_index_to_pos(leaf_index)],
             leaf_index_to_mmr_size(leaf_index),
         )[0]

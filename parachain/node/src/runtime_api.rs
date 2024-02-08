@@ -79,6 +79,7 @@ pub trait BaseHostRuntimeApis:
     + CollectCollationInfo<opaque::Block>
     + TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
     + ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
+    + cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
 {
 }
 
@@ -94,5 +95,6 @@ impl<Api> BaseHostRuntimeApis for Api where
         + CollectCollationInfo<opaque::Block>
         + TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
         + ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
+        + cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
 {
 }

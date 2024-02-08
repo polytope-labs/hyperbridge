@@ -76,7 +76,7 @@ frame-system = { version = "28.0.0", default-features = false }
 frame-system-benchmarking = { version = "28.0.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "26.0.0", default-features = false }
 frame-try-runtime = { version = "0.34.0", default-features = false }
-pallet-aura = { version = "27.0.0", default-features = false }
+pallet-aura = { version = "27.0.0", default-features = false, features = ["experimental"] }
 pallet-authorship = { version = "28.0.0", default-features = false }
 pallet-balances = { version = "28.0.0", default-features = false }
 pallet-session = { version = "28.0.0", default-features = false }
@@ -107,10 +107,11 @@ polkadot-runtime-common = { version = "7.0.0", default-features = false }
 staging-xcm = { version = "7.0.0", default-features = false }
 staging-xcm-builder = { version = "7.0.0", default-features = false }
 staging-xcm-executor = { version = "7.0.0", default-features = false }
+cumulus-primitives-aura = { version = "0.7.0", default-features = false }
 cumulus-pallet-session-benchmarking = { version = "9.0.0", default-features = false }
 cumulus-pallet-aura-ext = { version = "0.7.0", default-features = false }
 cumulus-pallet-dmp-queue = { version = "0.7.0", default-features = false }
-cumulus-pallet-parachain-system = { version = "0.7.0", default-features = false }
+cumulus-pallet-parachain-system = { version = "0.7.0", default-features = false, features = ["parameterized-consensus-hook"] }
 cumulus-pallet-xcm = { version = "0.7.0", default-features = false }
 cumulus-pallet-xcmp-queue = { version = "0.7.0", default-features = false }
 cumulus-primitives-core = { version = "0.7.0", default-features = false }

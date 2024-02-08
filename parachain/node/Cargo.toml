@@ -68,6 +68,7 @@ staging-xcm = { workspace = true, default-features = false }
 
 # Cumulus
 cumulus-client-cli = { workspace = true }
+cumulus-primitives-aura = { workspace = true }
 cumulus-client-consensus-aura = { workspace = true }
 cumulus-client-consensus-common = { workspace = true }
 cumulus-client-network = { workspace = true }

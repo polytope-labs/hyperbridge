@@ -200,7 +200,7 @@ impl From<router::Post> for PostRequest {
         PostRequest {
             source: value.source.to_string().as_bytes().to_vec().into(),
             dest: value.dest.to_string().as_bytes().to_vec().into(),
-            nonce: 0,
+            nonce: value.nonce.into(),
             from: value.from.into(),
             to: value.to.into(),
             timeout_timestamp: value.timeout_timestamp.into(),

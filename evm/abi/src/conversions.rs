@@ -280,7 +280,7 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
                         gas_limit: resp.gaslimit.low_u64(),
                     },
                     response: resp.response.0.into(),
-                    timeout_timestamp: resp.timeout_timestamp.low_u64(),
+                    timeout_timestamp: resp.res_timeout_timestamp.low_u64(),
                     gas_limit: resp.res_gaslimit.low_u64(),
                 })),
             event => Err(anyhow!("Unsupported event {event:?}")),

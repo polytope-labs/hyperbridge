@@ -88,8 +88,7 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 // XCM Imports
 use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
-use frame_support::traits::ConstBool;
-use staging_xcm_executor::XcmExecutor;
+use frame_support::{derive_impl, traits::ConstBool};
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -213,7 +212,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("gargantua"),
     impl_name: create_runtime_str!("gargantua"),
     authoring_version: 1,
-    spec_version: 202,
+    spec_version: 203,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -296,8 +295,6 @@ parameter_types! {
 }
 
 // Configure FRAME pallets to include in runtime.
-
-use frame_support::derive_impl;
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Runtime {

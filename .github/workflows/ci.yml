@@ -116,7 +116,7 @@ jobs:
 
   unit-tests:
     name: Unit Tests
-    runs-on: self-hosted
+    runs-on: arc-runner-set
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources
@@ -154,7 +154,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests
-    runs-on: self-hosted
+    runs-on: arc-runner-set
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout sources

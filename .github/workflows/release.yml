@@ -112,11 +112,12 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
+          toolchain: stable
 
       - uses: Swatinem/rust-cache@v2
       - run: |
           rustup target add wasm32-unknown-unknown --toolchain nightly
+          rustup target add wasm32-unknown-unknown
           rustup component add rust-src
 
       - name: Install cargo-dist

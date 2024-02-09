@@ -47,6 +47,7 @@ jobs:
         run: |
           rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
+          rustup target add wasm32-unknown-unknown
           rustup component add rust-src
 
       - uses: Swatinem/rust-cache@v2
@@ -89,6 +90,7 @@ jobs:
         run: |
           rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
+          rustup target add wasm32-unknown-unknown
           rustup component add rust-src
 
       - uses: Swatinem/rust-cache@v2
@@ -141,6 +143,7 @@ jobs:
         run: |
           rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
+          rustup target add wasm32-unknown-unknown
           rustup component add rust-src
 
       - uses: Swatinem/rust-cache@v2
@@ -174,6 +177,7 @@ jobs:
         run: |
           rustup update nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
+          rustup target add wasm32-unknown-unknown
           rustup component add rust-src
 
       - uses: webfactory/ssh-agent@v0.7.0

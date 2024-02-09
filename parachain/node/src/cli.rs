@@ -82,6 +82,10 @@ pub struct Cli {
     #[arg(long)]
     pub no_hardware_benchmarks: bool,
 
+    /// Should we enable async-backing?
+    #[arg(long)]
+    pub async_backing: bool,
+
     /// Relay chain arguments
     #[arg(raw = true)]
     pub relay_chain_args: Vec<String>,

@@ -10,22 +10,13 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 [dependencies]
 bnb-pos-verifier = { path= "../verifier" }
 anyhow = "1.0.68"
-primitive-types = { version = "0.12.1", features = ["serde_no_std", "impl-codec"] }
+primitive-types = { version = "0.12.1", features = ["serde", "impl-codec"] }
 ethers = { workspace = true, features = ["ws"] }
 ismp = { path = "../../../ismp/core" }
-sp-core = { workspace = true, default-features = true }
-sync-committee-primitives  = { path = "../../../consensus/sync-committee/primitives", default-features = false }
-geth-primitives = { path = "../../geth-primitives", default-features = false }
+sp-core = { workspace = true }
+sync-committee-primitives  = { path = "../../../consensus/sync-committee/primitives"}
+geth-primitives = { path = "../../geth-primitives" }
 
 [dev-dependencies]
 tokio = { version = "1.32.0", features = ["macros"] }
 dotenv = "0.15.0"
-
-[features]
-default = ["std"]
-std = [
-    "anyhow/std",
-    "ismp/std",
-    "sync-committee-primitives/std",
-    "geth-primitives/std"
-]

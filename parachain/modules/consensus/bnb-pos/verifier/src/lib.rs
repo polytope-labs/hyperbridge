@@ -90,7 +90,7 @@ pub fn verify_bnb_header<H: Keccak256>(
                 }
                 parent_hash = Header::from(header).hash::<H>()
             }
-            if parent_hash != source_header_hash {
+            if parent_hash != update.source_header.parent_hash {
                 Err(anyhow!("Epoch ancestry submitted is invalid"))?
             }
             let epoch_header = update.epoch_header_ancestry[0].clone();

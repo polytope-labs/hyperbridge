@@ -86,12 +86,17 @@ impl BnbPosProver {
 
         // If we are still in authority rotation period get the epoch header ancestry alongside
         // update
-        if source_header.number.low_u64().saturating_sub(epoch_header_number) <= 9 {
+        let diff = source_header.number.low_u64().saturating_sub(epoch_header_number);
+        // The maximum difference between the epoch header block number  and the source header
+        // number is 9 Since authority set rotation happens after the first 12 blocks in an
+        // epoch and we want the epoch header to be an immediate ancestor of our finalized
+        // header
+        if (1..=9).contains(&diff) {
             let mut header = self.fetch_header(source_header.parent_hash).await?;
-            epoch_header_ancestry.push(header.clone());
+            epoch_header_ancestry.insert(0, header.clone());
             while header.number.low_u64() > epoch_header_number {
                 header = self.fetch_header(header.parent_hash).await?;
-                epoch_header_ancestry.push(header.clone());
+                epoch_header_ancestry.insert(0, header.clone());
             }
         }
 
@@ -99,7 +104,7 @@ impl BnbPosProver {
             source_header,
             target_header,
             attested_header,
-            epoch_header_ancestry: epoch_header_ancestry.try_into()?,
+            epoch_header_ancestry: epoch_header_ancestry.try_into().expect("Infallible: Qed"),
         };
 
         Ok(Some(bnb_client_update))

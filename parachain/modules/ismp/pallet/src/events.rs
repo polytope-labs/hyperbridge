@@ -16,6 +16,7 @@
 
 use crate::{Config, Event as PalletEvent};
 use ismp::{consensus::StateMachineId, host::StateMachine};
+use sp_core::H256;
 
 /// Ismp Core Protocol Events
 #[derive(Clone, codec::Encode, codec::Decode, Debug, scale_info::TypeInfo)]
@@ -36,6 +37,8 @@ pub enum Event {
         source_chain: StateMachine,
         /// Nonce for the request which this response is for
         request_nonce: u64,
+        /// Commitment
+        commitment: H256,
     },
     /// Emitted for an outgoing request
     Request {
@@ -45,6 +48,8 @@ pub enum Event {
         source_chain: StateMachine,
         /// Request nonce
         request_nonce: u64,
+        /// Commitment
+        commitment: H256,
     },
 }
 
@@ -53,10 +58,10 @@ pub fn to_core_protocol_event<T: Config>(event: PalletEvent<T>) -> Option<Event>
     match event {
         PalletEvent::StateMachineUpdated { state_machine_id, latest_height } =>
             Some(Event::StateMachineUpdated { state_machine_id, latest_height }),
-        PalletEvent::Response { dest_chain, source_chain, request_nonce } =>
-            Some(Event::Response { dest_chain, source_chain, request_nonce }),
-        PalletEvent::Request { dest_chain, source_chain, request_nonce } =>
-            Some(Event::Request { dest_chain, source_chain, request_nonce }),
+        PalletEvent::Response { dest_chain, source_chain, request_nonce, commitment } =>
+            Some(Event::Response { dest_chain, source_chain, request_nonce, commitment }),
+        PalletEvent::Request { dest_chain, source_chain, request_nonce, commitment } =>
+            Some(Event::Request { dest_chain, source_chain, request_nonce, commitment }),
         _ => None,
     }
 }

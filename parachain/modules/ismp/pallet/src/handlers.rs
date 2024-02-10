@@ -33,11 +33,12 @@ impl<T: Config> Pallet<T> {
             request_nonce: nonce,
             source_chain,
             dest_chain,
+            commitment,
         });
 
         RequestCommitments::<T>::insert(
             commitment,
-            RequestMetadata { query: LeafIndexQuery { source_chain, dest_chain, nonce }, meta },
+            RequestMetadata { query: LeafIndexQuery { commitment }, meta },
         );
         Ok(())
     }
@@ -63,6 +64,7 @@ impl<T: Config> Pallet<T> {
             request_nonce: nonce,
             dest_chain,
             source_chain,
+            commitment,
         });
         ResponseCommitments::<T>::insert(commitment, meta);
         Responded::<T>::insert(req_commitment, true);

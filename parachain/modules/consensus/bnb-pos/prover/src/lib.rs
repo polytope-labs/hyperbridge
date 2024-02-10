@@ -68,7 +68,7 @@ impl BnbPosProver {
         attested_header: CodecHeader,
     ) -> Result<Option<BnbClientUpdate>, anyhow::Error> {
         let parse_extra_data = parse_extra::<I>(&attested_header.extra_data)
-            .map_err(|_| anyhow!("Extra data set not found in header"))?;
+            .map_err(|_| anyhow!("Extra data not found in header {:?}", attested_header.number))?;
         let source_hash = H256::from_slice(&parse_extra_data.vote_data.source_hash.0);
         let target_hash = H256::from_slice(&parse_extra_data.vote_data.target_hash.0);
 
@@ -79,7 +79,28 @@ impl BnbPosProver {
         let source_header = self.fetch_header(source_hash).await?;
         let target_header = self.fetch_header(target_hash).await?;
 
-        let bnb_client_update = BnbClientUpdate { source_header, target_header, attested_header };
+        let source_header_epoch = compute_epoch(source_header.number.low_u64());
+        let epoch_header_number = source_header_epoch * EPOCH_LENGTH;
+
+        let mut epoch_header_ancestry = vec![];
+
+        // If we are still in authority rotation period get the epoch header ancestry alongside
+        // update
+        if source_header.number.low_u64().saturating_sub(epoch_header_number) <= 9 {
+            let mut header = self.fetch_header(source_header.parent_hash).await?;
+            epoch_header_ancestry.push(header.clone());
+            while header.number.low_u64() > epoch_header_number {
+                header = self.fetch_header(header.parent_hash).await?;
+                epoch_header_ancestry.push(header.clone());
+            }
+        }
+
+        let bnb_client_update = BnbClientUpdate {
+            source_header,
+            target_header,
+            attested_header,
+            epoch_header_ancestry: epoch_header_ancestry.try_into()?,
+        };
 
         Ok(Some(bnb_client_update))
     }

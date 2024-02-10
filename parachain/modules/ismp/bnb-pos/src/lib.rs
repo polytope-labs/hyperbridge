@@ -78,8 +78,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
             }
         }
 
-        let attested_epoch = compute_epoch(bnb_client_update.attested_header.number.low_u64());
-
+        let epoch = compute_epoch(bnb_client_update.source_header.number.low_u64());
         let VerificationResult { hash, finalized_header, next_validators } =
             verify_bnb_header::<H>(&consensus_state.current_validators, bnb_client_update)
                 .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
@@ -96,9 +95,9 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
             height: finalized_header.number.low_u64(),
         };
         consensus_state.finalized_hash = hash;
+        consensus_state.current_epoch = epoch;
         if let Some(next_validators) = next_validators {
             consensus_state.next_validators = Some(next_validators);
-            consensus_state.current_epoch = attested_epoch;
         }
         consensus_state.finalized_height = finalized_header.number.low_u64();
         state_machine_map.insert(StateMachine::Bsc, vec![state_commitment]);

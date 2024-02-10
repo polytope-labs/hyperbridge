@@ -48,7 +48,6 @@ use frame_support::{
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     handlers::{handle_incoming_message, MessageResult},
-    host::StateMachine,
     messaging::CreateConsensusState,
     router::{Request, Response},
 };
@@ -59,11 +58,16 @@ use crate::{
     errors::{HandlingError, ModuleCallbackResult},
     mmr::mmr::Mmr,
     mmr_primitives::{DataOrHash, Leaf, LeafIndex, NodeIndex},
-    primitives::LeafIndexQuery,
+    primitives::{LeafIndexAndPos, LeafIndexQuery},
     weight_info::get_weight,
 };
 use frame_system::pallet_prelude::BlockNumberFor;
-use ismp::{consensus::StateMachineHeight, host::IsmpHost, messaging::Message};
+use ismp::{
+    consensus::StateMachineHeight,
+    host::IsmpHost,
+    messaging::Message,
+    util::{hash_request, hash_response},
+};
 pub use pallet::*;
 use sp_runtime::{
     traits::ValidateUnsigned,
@@ -416,6 +420,8 @@ pub mod pallet {
             source_chain: StateMachine,
             /// Nonce for the request which this response is for
             request_nonce: u64,
+            /// Commitment
+            commitment: H256,
         },
         /// An Outgoing Request has been deposited
         Request {
@@ -425,9 +431,11 @@ pub mod pallet {
             source_chain: StateMachine,
             /// Request nonce
             request_nonce: u64,
+            /// Commitment
+            commitment: H256,
         },
         /// Some errors handling some ismp messages
-        HandlingErrors {
+        Errors {
             /// Message handling errors
             errors: Vec<HandlingError>,
         },
@@ -568,7 +576,7 @@ impl<T: Config> Pallet<T> {
 
         if !errors.is_empty() {
             debug!(target: "pallet-ismp", "Handling Errors {:?}", errors);
-            Self::deposit_event(Event::<T>::HandlingErrors { errors })
+            Self::deposit_event(Event::<T>::Errors { errors })
         }
 
         Ok(PostDispatchInfo {
@@ -613,28 +621,15 @@ impl<T: Config> Pallet<T> {
     fn offchain_key(pos: NodeIndex) -> Vec<u8> {
         (T::INDEXING_PREFIX, "leaves", pos).encode()
     }
-    /// Returns the offchain key for a request leaf index
-    pub fn request_leaf_pos_and_index_offchain_key(
-        source_chain: StateMachine,
-        dest_chain: StateMachine,
-        nonce: u64,
-    ) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "requests_leaf_indices", source_chain, dest_chain, nonce).encode()
-    }
-
-    /// Returns the offchain key for a response leaf index
-    pub fn response_leaf_pos_and_index_offchain_key(
-        source_chain: StateMachine,
-        dest_chain: StateMachine,
-        nonce: u64,
-    ) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "responses_leaf_indices", source_chain, dest_chain, nonce).encode()
+    /// Returns the offchain key for a request or response leaf index
+    pub fn leaf_pos_and_index_offchain_key(commitment: H256) -> Vec<u8> {
+        (T::INDEXING_PREFIX, "requests_leaf_indices", commitment).encode()
     }
 
     /// Stores the position and leaf index  or the given key
     pub fn store_leaf_position_and_index_offchain(
         key: Vec<u8>,
-        leaf_pos_and_index: (LeafIndex, LeafIndex),
+        leaf_pos_and_index: LeafIndexAndPos,
     ) {
         sp_io::offchain_index::set(&key, &leaf_pos_and_index.encode());
     }
@@ -672,39 +667,13 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Gets the positon and leaf index for a request or response from the offchain storage
-    pub fn get_position_and_leaf_index(
-        source_chain: StateMachine,
-        dest_chain: StateMachine,
-        nonce: u64,
-        is_req: bool,
-    ) -> Option<(LeafIndex, LeafIndex)> {
-        let key = if is_req {
-            Self::request_leaf_pos_and_index_offchain_key(source_chain, dest_chain, nonce)
-        } else {
-            Self::response_leaf_pos_and_index_offchain_key(source_chain, dest_chain, nonce)
-        };
+    pub fn get_position_and_leaf_index(commitment: H256) -> Option<LeafIndexAndPos> {
+        let key = Self::leaf_pos_and_index_offchain_key(commitment);
+
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            return <(LeafIndex, LeafIndex)>::decode(&mut &*elem).ok();
+            return LeafIndexAndPos::decode(&mut &*elem).ok();
         }
         None
-    }
-
-    /// Get unfulfilled Get requests
-    pub fn pending_get_requests() -> Vec<ismp::router::Get> {
-        RequestCommitments::<T>::iter()
-            .filter_map(|(key, query)| {
-                let (position, _) = Self::get_position_and_leaf_index(
-                    query.query.source_chain,
-                    query.query.dest_chain,
-                    query.query.nonce,
-                    true,
-                )?;
-                let req = Self::get_request(position)?;
-                (req.is_type_get() && !ResponseReceipts::<T>::contains_key(key))
-                    .then(|| req.get_request().ok())
-                    .flatten()
-            })
-            .collect()
     }
 
     /// Return the scale encoded consensus state
@@ -733,36 +702,10 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Get Request Leaf positions and Indices
-    pub fn get_request_leaf_indices(
-        leaf_queries: Vec<LeafIndexQuery>,
-    ) -> Vec<(LeafIndex, LeafIndex)> {
+    pub fn get_leaf_indices_from_query(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndexAndPos> {
         leaf_queries
             .into_iter()
-            .filter_map(|query| {
-                Self::get_position_and_leaf_index(
-                    query.source_chain,
-                    query.dest_chain,
-                    query.nonce,
-                    true,
-                )
-            })
-            .collect()
-    }
-
-    /// Get Response Leaf positions and Indices
-    pub fn get_response_leaf_indices(
-        leaf_queries: Vec<LeafIndexQuery>,
-    ) -> Vec<(LeafIndex, LeafIndex)> {
-        leaf_queries
-            .into_iter()
-            .filter_map(|query| {
-                Self::get_position_and_leaf_index(
-                    query.source_chain,
-                    query.dest_chain,
-                    query.nonce,
-                    false,
-                )
-            })
+            .filter_map(|query| Self::get_position_and_leaf_index(query.commitment))
             .collect()
     }
 
@@ -785,21 +728,20 @@ impl<T: Config> Pallet<T> {
     /// Insert a leaf into the mmr and return the position and leaf index
     pub(crate) fn mmr_push(leaf: Leaf) -> Option<(NodeIndex, NodeIndex)> {
         let offchain_key = match &leaf {
-            Leaf::Request(req) => Pallet::<T>::request_leaf_pos_and_index_offchain_key(
-                req.source_chain(),
-                req.dest_chain(),
-                req.nonce(),
-            ),
-            Leaf::Response(res) => Pallet::<T>::response_leaf_pos_and_index_offchain_key(
-                res.source_chain(),
-                res.dest_chain(),
-                res.nonce(),
-            ),
+            Leaf::Request(req) => {
+                let commitment = hash_request::<Host<T>>(req);
+                Pallet::<T>::leaf_pos_and_index_offchain_key(commitment)
+            },
+            Leaf::Response(res) => {
+                let commitment = hash_response::<Host<T>>(res);
+                Pallet::<T>::leaf_pos_and_index_offchain_key(commitment)
+            },
         };
         let leaves = Self::number_of_leaves();
         let mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
         let (pos, leaf_index) = mmr.push(leaf)?;
-        Pallet::<T>::store_leaf_position_and_index_offchain(offchain_key, (pos, leaf_index));
+        let leaf_index_and_pos = LeafIndexAndPos { leaf_index, pos };
+        Pallet::<T>::store_leaf_position_and_index_offchain(offchain_key, leaf_index_and_pos);
         Some((pos, leaf_index))
     }
 }

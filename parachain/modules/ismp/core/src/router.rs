@@ -18,7 +18,7 @@
 use crate::{error::Error, host::StateMachine, module::IsmpModule, prelude::Vec};
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString};
 use codec::{Decode, Encode};
-use core::time::Duration;
+use core::{fmt::Formatter, time::Duration};
 
 /// The ISMP POST request.
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
@@ -41,6 +41,22 @@ pub struct Post {
     /// Gas limit for executing the request on destination
     /// This value should be zero if destination module is not a contract
     pub gas_limit: u64,
+}
+
+impl core::fmt::Display for Post {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        writeln!(f, "Post {{")?;
+        writeln!(f, "   source: {:?}", self.source)?;
+        writeln!(f, "   dest: {:?}", self.dest)?;
+        writeln!(f, "   nonce: {}", self.nonce)?;
+        writeln!(f, "   from: {}", hex::encode(&self.from))?;
+        writeln!(f, "   to: {}", hex::encode(&self.to))?;
+        writeln!(f, "   timeout_timestamp: {}", self.timeout_timestamp)?;
+        writeln!(f, "   data: {}", hex::encode(&self.data))?;
+        writeln!(f, "   gas_limit: {}", self.gas_limit)?;
+        writeln!(f, "}}")?;
+        Ok(())
+    }
 }
 
 /// The ISMP GET request.

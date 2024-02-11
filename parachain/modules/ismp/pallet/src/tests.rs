@@ -27,11 +27,12 @@ use crate::{
 use frame_support::traits::OnFinalize;
 use ismp::{
     consensus::StateMachineHeight,
-    host::Ethereum,
+    host::{Ethereum, StateMachine},
     messaging::{Proof, ResponseMessage, TimeoutMessage},
     router::{DispatchGet, DispatchRequest, GetResponse, IsmpDispatcher, Post, RequestResponse},
     util::hash_request,
 };
+
 use ismp_testsuite::{
     check_challenge_period, check_client_expiry, frozen_check, post_request_timeout_check,
     post_response_timeout_check, write_outgoing_commitments,

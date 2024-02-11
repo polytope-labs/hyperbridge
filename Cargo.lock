@@ -5656,6 +5656,7 @@ name = "ismp"
 version = "0.1.0"
 dependencies = [
  "derive_more",
+ "hex",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",

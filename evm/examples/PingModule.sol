@@ -12,6 +12,8 @@ struct PingMessage {
     bytes dest;
     address module;
     uint64 timeout;
+    uint256 count;
+    uint256 fee;
 }
 
 contract PingModule is IIsmpModule {
@@ -88,18 +90,20 @@ contract PingModule is IIsmpModule {
     }
 
     function ping(PingMessage memory pingMessage) public {
-        DispatchPost memory post = DispatchPost({
-            body: bytes.concat("hello from ", IIsmpHost(_host).host()),
-            dest: pingMessage.dest,
-            // one hour
-            timeout: pingMessage.timeout,
-            // instance of this pallet on another chain.
-            to: abi.encodePacked(address(pingMessage.module)),
-            // unused for now
-            gaslimit: 0,
-            fee: 0
-        });
-        IIsmp(_host).dispatch(post);
+        for (uint256 i = 0; i < pingMessage.count; i++) {
+            DispatchPost memory post = DispatchPost({
+                body: bytes.concat("hello from ", IIsmpHost(_host).host()),
+                dest: pingMessage.dest,
+                // one hour
+                timeout: pingMessage.timeout,
+                // instance of this pallet on another chain.
+                to: abi.encodePacked(address(pingMessage.module)),
+                // unused for now
+                gaslimit: 0,
+                fee: pingMessage.fee
+            });
+            IIsmp(_host).dispatch(post);
+        }
     }
 
     function dispatchToParachain(uint256 _paraId) public {

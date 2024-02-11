@@ -347,6 +347,8 @@ pub mod ping_module {
                                 ::ethers::core::abi::ethabi::ParamType::Bytes,
                                 ::ethers::core::abi::ethabi::ParamType::Address,
                                 ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
                             ],),
                             internal_type: ::core::option::Option::Some(
                                 ::std::borrow::ToOwned::to_owned("struct PingMessage"),
@@ -572,13 +574,13 @@ pub mod ping_module {
                 .method_hash([18, 178, 82, 79], (p0,))
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `ping` (0x40ffb7bc) function
+        ///Calls the contract's `ping` (0x4a692e06) function
         pub fn ping(
             &self,
             ping_message: PingMessage,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([64, 255, 183, 188], (ping_message,))
+                .method_hash([74, 105, 46, 6], (ping_message,))
                 .expect("method not found (this should never happen)")
         }
         ///Gets the contract's `GetResponseReceived` event
@@ -1121,7 +1123,7 @@ pub mod ping_module {
     )]
     pub struct OnPostResponseTimeoutCall(pub PostResponse);
     ///Container type for all input parameters for the `ping` function with signature
-    /// `ping((bytes,address,uint64))` and selector `0x40ffb7bc`
+    /// `ping((bytes,address,uint64,uint256,uint256))` and selector `0x4a692e06`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -1132,7 +1134,7 @@ pub mod ping_module {
         Eq,
         Hash,
     )]
-    #[ethcall(name = "ping", abi = "ping((bytes,address,uint64))")]
+    #[ethcall(name = "ping", abi = "ping((bytes,address,uint64,uint256,uint256))")]
     pub struct PingCall {
         pub ping_message: PingMessage,
     }
@@ -1365,7 +1367,7 @@ pub mod ping_module {
         Hash,
     )]
     pub struct HostReturn(pub ::ethers::core::types::Address);
-    ///`PingMessage(bytes,address,uint64)`
+    ///`PingMessage(bytes,address,uint64,uint256,uint256)`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -1380,5 +1382,7 @@ pub mod ping_module {
         pub dest: ::ethers::core::types::Bytes,
         pub module: ::ethers::core::types::Address,
         pub timeout: u64,
+        pub count: ::ethers::core::types::U256,
+        pub fee: ::ethers::core::types::U256,
     }
 }

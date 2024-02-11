@@ -20,6 +20,7 @@ import {
     PostResponseLeaf
 } from "ismp/IIsmp.sol";
 
+/// Entry point for the hyperbridge. Implementation of the ISMP handler protocol
 contract HandlerV1 is IHandler, Context {
     using Bytes for bytes;
     using Message for PostResponse;

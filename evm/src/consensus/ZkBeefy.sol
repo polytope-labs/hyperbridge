@@ -52,6 +52,7 @@ contract ZkBeefyV1 is IConsensusClient {
 
     function verifyConsensus(bytes memory encodedState, bytes memory encodedProof)
         external
+        view
         returns (bytes memory, IntermediateState memory)
     {
         BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
@@ -68,6 +69,7 @@ contract ZkBeefyV1 is IConsensusClient {
     /// by this consensus proof.
     function verifyConsensus(BeefyConsensusState memory trustedState, BeefyConsensusProof memory proof)
         internal
+        view
         returns (BeefyConsensusState memory, IntermediateState memory)
     {
         // verify mmr root proofs
@@ -85,6 +87,7 @@ contract ZkBeefyV1 is IConsensusClient {
     /// using a merkle multi proof and a merkle commitment to the total authorities.
     function verifyMmrUpdateProof(BeefyConsensusState memory trustedState, PlonkConsensusProof memory relayProof)
         internal
+        view
         returns (BeefyConsensusState memory, bytes32)
     {
         uint256 latestHeight = relayProof.commitment.blockNumber;
@@ -143,6 +146,7 @@ contract ZkBeefyV1 is IConsensusClient {
     /// Stack too deep, sigh solidity
     function verifyMmrLeaf(BeefyConsensusState memory trustedState, PlonkConsensusProof memory relay, bytes32 mmrRoot)
         internal
+        pure
     {
         bytes32 hash = keccak256(Codec.Encode(relay.latestMmrLeaf));
         uint256 leafCount = leafIndex(trustedState.beefyActivationBlock, relay.latestMmrLeaf.parentNumber) + 1;

@@ -296,7 +296,7 @@ pub mod ping_module {
                     ::std::vec![::ethers::core::abi::ethabi::Function {
                         name: ::std::borrow::ToOwned::to_owned("onPostResponseTimeout",),
                         inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                            name: ::std::borrow::ToOwned::to_owned("request"),
+                            name: ::std::string::String::new(),
                             kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
                                 ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
                                     ::ethers::core::abi::ethabi::ParamType::Bytes,
@@ -542,10 +542,10 @@ pub mod ping_module {
         ///Calls the contract's `onPostResponseTimeout` (0x12b2524f) function
         pub fn on_post_response_timeout(
             &self,
-            request: PostResponse,
+            p0: PostResponse,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([18, 178, 82, 79], (request,))
+                .method_hash([18, 178, 82, 79], (p0,))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `ping` (0x40ffb7bc) function
@@ -1081,9 +1081,7 @@ pub mod ping_module {
         name = "onPostResponseTimeout",
         abi = "onPostResponseTimeout(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))"
     )]
-    pub struct OnPostResponseTimeoutCall {
-        pub request: PostResponse,
-    }
+    pub struct OnPostResponseTimeoutCall(pub PostResponse);
     ///Container type for all input parameters for the `ping` function with signature
     /// `ping((bytes,address,uint64))` and selector `0x40ffb7bc`
     #[derive(

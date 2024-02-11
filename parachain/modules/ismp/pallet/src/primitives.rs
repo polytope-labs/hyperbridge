@@ -19,10 +19,7 @@ use alloc::format;
 use codec::{Decode, Encode};
 use core::time::Duration;
 use frame_support::{weights::Weight, PalletId};
-use ismp::{
-    consensus::{ConsensusClient, ConsensusClientId},
-    host::StateMachine,
-};
+use ismp::consensus::{ConsensusClient, ConsensusClientId};
 use scale_info::TypeInfo;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_core::{
@@ -121,12 +118,19 @@ pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";
 #[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct LeafIndexQuery {
-    /// The source of the request
-    pub source_chain: StateMachine,
-    /// the request destination
-    pub dest_chain: StateMachine,
-    /// The request nonce
-    pub nonce: u64,
+    /// Request or response commitment
+    pub commitment: H256,
+}
+
+/// Leaf index and position
+#[derive(
+    codec::Encode, codec::Decode, scale_info::TypeInfo, Ord, PartialOrd, Eq, PartialEq, Clone,
+)]
+pub struct LeafIndexAndPos {
+    /// Leaf index
+    pub leaf_index: u64,
+    /// Leaf position
+    pub pos: u64,
 }
 
 /// Hashing algorithm for the state proof

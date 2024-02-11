@@ -210,6 +210,24 @@ impl From<router::Post> for PostRequest {
     }
 }
 
+impl TryFrom<PostRequest> for router::Post {
+    type Error = anyhow::Error;
+    fn try_from(value: PostRequest) -> Result<Self, Self::Error> {
+        Ok(router::Post {
+            source: StateMachine::from_str(&String::from_utf8(value.source.to_vec())?)
+                .map_err(|err| anyhow!("{err}"))?,
+            dest: StateMachine::from_str(&String::from_utf8(value.dest.to_vec())?)
+                .map_err(|err| anyhow!("{err}"))?,
+            nonce: value.nonce,
+            from: value.from.to_vec(),
+            to: value.to.to_vec(),
+            timeout_timestamp: value.timeout_timestamp.into(),
+            data: value.body.to_vec(),
+            gas_limit: value.gaslimit.into(),
+        })
+    }
+}
+
 impl TryFrom<ismp::consensus::StateMachineHeight> for StateMachineHeight {
     type Error = anyhow::Error;
     fn try_from(value: ismp::consensus::StateMachineHeight) -> Result<Self, anyhow::Error> {

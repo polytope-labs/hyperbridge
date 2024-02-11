@@ -7,6 +7,7 @@ use codec::{Decode, Encode};
 use ethabi::ethereum_types::H160;
 use geth_primitives::CodecHeader;
 use ismp::util::Keccak256;
+use sp_core::ConstU32;
 
 pub const EPOCH_LENGTH: u64 = 200;
 const EXTRA_VANITY_LENGTH: usize = 32;
@@ -25,6 +26,9 @@ pub struct BnbClientUpdate {
     pub target_header: CodecHeader,
     /// Header that contains the attestation
     pub attested_header: CodecHeader,
+    /// Epoch header ancestry up to source header
+    /// The Epoch header should the first header in the vector
+    pub epoch_header_ancestry: sp_runtime::BoundedVec<CodecHeader, ConstU32<9>>,
 }
 
 #[derive(Debug, Clone)]

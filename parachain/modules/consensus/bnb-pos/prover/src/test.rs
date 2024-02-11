@@ -38,8 +38,8 @@ async fn verify_bnb_pos_header() {
     let prover = setup_prover().await;
     let latest_block = prover.latest_header().await.unwrap();
     let epoch_1 = compute_epoch(latest_block.number.low_u64()) - 1;
-    let epoch_1_header = prover.fetch_header(epoch_1 * EPOCH_LENGTH).await.unwrap();
-    let epoch_2_header = prover.fetch_header((epoch_1 + 1) * EPOCH_LENGTH).await.unwrap();
+    let epoch_1_header = prover.fetch_header(epoch_1 * EPOCH_LENGTH).await.unwrap().unwrap();
+    let epoch_2_header = prover.fetch_header((epoch_1 + 1) * EPOCH_LENGTH).await.unwrap().unwrap();
 
     let epoch_1_extra = parse_extra::<Host>(&epoch_1_header.extra_data).unwrap();
     let validators = epoch_1_extra
@@ -80,10 +80,13 @@ async fn verify_bnb_pos_headers() {
         let header: CodecHeader = block.into();
         let block_epoch = compute_epoch(header.number.low_u64());
 
-        if let Some(update) = prover.fetch_bnb_update::<Host>(header.clone()).await.unwrap() {
+        if let Some(mut update) = prover.fetch_bnb_update::<Host>(header.clone()).await.unwrap() {
             dbg!(block_epoch);
             dbg!(current_epoch);
             dbg!(header.number);
+            if next_validators.is_some() {
+                update.epoch_header_ancestry = Default::default();
+            }
             if next_validators.is_some() &&
                 update.attested_header.number.low_u64() >=
                     next_validators.as_ref().unwrap().rotation_block

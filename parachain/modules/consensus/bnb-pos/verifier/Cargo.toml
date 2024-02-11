@@ -22,7 +22,7 @@ ark-bls12-381 = { version = "0.4.0", default-features = false, features = ["curv
 bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
 ark-ec = { version = "0.4.2", default-features = false }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
-
+sp-runtime.workspace = true
 
 [features]
 default = ["std"]
@@ -42,4 +42,5 @@ std = [
     "geth-primitives/std",
     "ark-ec/std",
     "ssz-rs/std",
+    "sp-runtime/std"
 ]

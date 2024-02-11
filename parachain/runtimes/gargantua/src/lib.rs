@@ -51,7 +51,7 @@ use ::ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     router::{Request, Response},
 };
-use pallet_ismp::primitives::LeafIndexQuery;
+use pallet_ismp::primitives::{LeafIndexAndPos, LeafIndexQuery};
 
 use frame_support::{
     construct_runtime,
@@ -212,7 +212,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("gargantua"),
     impl_name: create_runtime_str!("gargantua"),
     authoring_version: 1,
-    spec_version: 206,
+    spec_version: 210,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -793,14 +793,9 @@ impl_runtime_apis! {
             Ismp::latest_messaging_heights(id)
         }
 
-        /// Get Request Leaf Indices
-        fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)> {
-            Ismp::get_request_leaf_indices(leaf_queries)
-        }
-
-        /// Get Response Leaf Indices
-        fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)> {
-            Ismp::get_response_leaf_indices(leaf_queries)
+        /// Get Leaf Indices
+        fn get_leaf_indices_from_query(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndexAndPos> {
+            Ismp::get_leaf_indices_from_query(leaf_queries)
         }
 
         /// Get actual requests
@@ -811,10 +806,6 @@ impl_runtime_apis! {
         /// Get actual requests
         fn get_responses(leaf_positions: Vec<LeafIndex>) -> Vec<Response> {
             Ismp::get_responses(leaf_positions)
-        }
-
-        fn pending_get_requests() -> Vec<::ismp::router::Get> {
-            Ismp::pending_get_requests()
         }
     }
 

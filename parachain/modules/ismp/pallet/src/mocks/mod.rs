@@ -28,6 +28,7 @@ use frame_system::EnsureRoot;
 use ismp::{consensus::ConsensusClient, module::IsmpModule, router::IsmpRouter};
 use sp_core::crypto::AccountId32;
 
+use ismp::host::StateMachine;
 use mocks::{MockConsensusClient, MockModule};
 use sp_core::H256;
 use sp_runtime::{

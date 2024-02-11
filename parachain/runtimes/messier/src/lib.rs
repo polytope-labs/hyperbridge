@@ -307,6 +307,7 @@ parameter_types! {
 // Configure FRAME pallets to include in runtime.
 
 use frame_support::derive_impl;
+use pallet_ismp::primitives::LeafIndexAndPos;
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Runtime {
@@ -816,14 +817,9 @@ impl_runtime_apis! {
             Ismp::latest_messaging_heights(id)
         }
 
-        /// Get Request Leaf Indices
-        fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)> {
-            Ismp::get_request_leaf_indices(leaf_queries)
-        }
-
-        /// Get Response Leaf Indices
-        fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)> {
-            Ismp::get_response_leaf_indices(leaf_queries)
+        /// Get  Leaf Indices
+        fn get_leaf_indices_from_query(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndexAndPos> {
+            Ismp::get_leaf_indices_from_query(leaf_queries)
         }
 
         /// Get actual requests
@@ -834,10 +830,6 @@ impl_runtime_apis! {
         /// Get actual requests
         fn get_responses(leaf_positions: Vec<LeafIndex>) -> Vec<Response> {
             Ismp::get_responses(leaf_positions)
-        }
-
-        fn pending_get_requests() -> Vec<::ismp::router::Get> {
-            Ismp::pending_get_requests()
         }
     }
 

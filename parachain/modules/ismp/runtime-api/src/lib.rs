@@ -20,11 +20,11 @@
 
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
-    router::{Get, Request, Response},
+    router::{Request, Response},
 };
 use pallet_ismp::{
     mmr_primitives::{Leaf, LeafIndex},
-    primitives::{Error, LeafIndexQuery, Proof},
+    primitives::{Error, LeafIndexAndPos, LeafIndexQuery, Proof},
 };
 #[cfg(not(feature = "std"))]
 use sp_std::vec::Vec;
@@ -61,17 +61,11 @@ sp_api::decl_runtime_apis! {
         /// Return the most recent height we've processed requests for a state machine
         fn latest_messaging_height(id: StateMachineId) -> Option<u64>;
 
-        /// Get Request Leaf Indices
-        fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)>;
-
-        /// Get Response Leaf Indices
-        fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)>;
+        /// Get the leaf indices
+        fn get_leaf_indices_from_query(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndexAndPos>;
 
         /// Get actual requests
         fn get_requests(leaf_positions: Vec<LeafIndex>) -> Vec<Request>;
-
-        /// Fetch all Get requests that have received no response
-        fn pending_get_requests() -> Vec<Get>;
 
         /// Get actual responses
         fn get_responses(leaf_positions: Vec<LeafIndex>) -> Vec<Response>;

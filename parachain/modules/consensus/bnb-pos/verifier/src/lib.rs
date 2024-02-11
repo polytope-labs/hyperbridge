@@ -81,25 +81,40 @@ pub fn verify_bnb_header<H: Keccak256>(
         Err(anyhow!("Target and Source headers do not match vote data"))?
     }
 
-    let source_extra_data = parse_extra::<H>(&update.source_header.extra_data)
-        .map_err(|_| anyhow!("could not parse extra data from header"))?;
+    let next_validator_addresses: Option<NextValidators> =
+        if !update.epoch_header_ancestry.is_empty() {
+            let mut parent_hash = Header::from(&update.epoch_header_ancestry[0]).hash::<H>();
+            for header in update.epoch_header_ancestry[1..].into_iter() {
+                if parent_hash != header.parent_hash {
+                    Err(anyhow!("Epoch ancestry submitted is invalid"))?
+                }
+                parent_hash = Header::from(header).hash::<H>()
+            }
+            if parent_hash != update.source_header.parent_hash {
+                Err(anyhow!("Epoch ancestry submitted is invalid"))?
+            }
+            let epoch_header = update.epoch_header_ancestry[0].clone();
+            let epoch_header_extra_data = parse_extra::<H>(&epoch_header.extra_data)
+                .map_err(|_| anyhow!("could not parse extra data from epoch header"))?;
+            let validators = epoch_header_extra_data
+                .validators
+                .into_iter()
+                .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
+                .collect::<Vec<BlsPublicKey>>();
 
-    let next_validator_addresses: Option<NextValidators> = {
-        let validators = source_extra_data
-            .validators
-            .into_iter()
-            .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
-            .collect::<Vec<BlsPublicKey>>();
-
-        if !validators.is_empty() {
-            Some(NextValidators {
-                validators,
-                rotation_block: update.source_header.number.low_u64() + 12,
-            })
+            if !validators.is_empty() {
+                Some(NextValidators {
+                    validators,
+                    rotation_block: update.source_header.number.low_u64() + 12,
+                })
+            } else {
+                Err(anyhow!(
+                    "Epoch header provided does not have a validator set present in its extra data"
+                ))?
+            }
         } else {
             None
-        }
-    };
+        };
 
     Ok(VerificationResult {
         hash: source_header_hash,

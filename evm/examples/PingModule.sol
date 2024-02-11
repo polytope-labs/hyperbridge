@@ -44,6 +44,11 @@ contract PingModule is IIsmpModule {
         _host = host;
     }
 
+    // returns the current ismp host set
+    function host() public view returns (address) {
+        return _host;
+    }
+
     function dispatchPostResponse(PostResponse memory response) public returns (bytes32) {
         DispatchPostResponse memory post = DispatchPostResponse({
             request: response.request,

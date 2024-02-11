@@ -27,12 +27,12 @@ use codec::Encode;
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     events::{Event, StateMachineUpdated},
-    router::{Get, Request, Response},
+    router::{Request, Response},
 };
 use ismp_runtime_api::IsmpRuntimeApi;
 use pallet_ismp::{
-    mmr_primitives::{Leaf, LeafIndex, NodeIndex},
-    primitives::LeafIndexQuery,
+    mmr_primitives::{Leaf, NodeIndex},
+    primitives::{LeafIndexAndPos, LeafIndexQuery},
 };
 use sc_client_api::{BlockBackend, ProofProvider};
 use serde::{Deserialize, Serialize};
@@ -65,7 +65,7 @@ impl<Hash: std::fmt::Debug> Display for BlockNumberOrHash<Hash> {
 #[derive(codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
 pub struct MmrProof<Hash> {
     /// The positions and leaf indices the proof is for.
-    pub leaf_positions_and_indices: Vec<(LeafIndex, LeafIndex)>,
+    pub leaf_positions_and_indices: Vec<LeafIndexAndPos>,
     /// Number of leaves in MMR, when the proof was generated.
     pub leaf_count: NodeIndex,
     /// Proof elements (hashes of siblings of inner nodes on the path to the leaf).
@@ -104,13 +104,9 @@ where
     #[method(name = "ismp_queryResponses")]
     fn query_responses(&self, query: Vec<LeafIndexQuery>) -> Result<Vec<Response>>;
 
-    /// Query mmr proof for some requests
-    #[method(name = "ismp_queryRequestsMmrProof")]
-    fn query_requests_mmr_proof(&self, height: u32, query: Vec<LeafIndexQuery>) -> Result<Proof>;
-
-    /// Query mmr proof for some responses
-    #[method(name = "ismp_queryResponsesMmrProof")]
-    fn query_responses_mmr_proof(&self, height: u32, query: Vec<LeafIndexQuery>) -> Result<Proof>;
+    /// Query mmr proof for some commitments
+    #[method(name = "ismp_queryMmrProof")]
+    fn query_mmr_proof(&self, height: u32, query: Vec<LeafIndexQuery>) -> Result<Proof>;
 
     /// Query membership or non-membership proof for some keys
     #[method(name = "ismp_queryStateProof")]
@@ -147,10 +143,6 @@ where
         &self,
         block_numbers: Vec<BlockNumberOrHash<Hash>>,
     ) -> Result<HashMap<String, Vec<Event>>>;
-
-    /// Query pending get requests that have a `state_machine_height` <=  `height`.
-    #[method(name = "ismp_pendingGetRequests")]
-    fn pending_get_requests(&self, height: u64) -> Result<Vec<Get>>;
 }
 
 /// An implementation of ISMP specific RPC methods.
@@ -184,14 +176,14 @@ where
         let mut api = self.client.runtime_api();
         api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
         let at = self.client.info().best_hash;
-        let request_pos_and_indices: Vec<(LeafIndex, LeafIndex)> =
-            api.get_request_leaf_indices(at, query).map_err(|e| {
+        let request_pos_and_indices: Vec<LeafIndexAndPos> =
+            api.get_leaf_indices_from_query(at, query).map_err(|e| {
                 runtime_error_into_rpc_error(format!(
                     "Error fetching request leaf indices, {:?}",
                     e
                 ))
             })?;
-        let request_positions = request_pos_and_indices.into_iter().map(|(pos, _)| pos).collect();
+        let request_positions = request_pos_and_indices.into_iter().map(|val| val.pos).collect();
 
         api.get_requests(at, request_positions)
             .map_err(|_| runtime_error_into_rpc_error("Error fetching requests"))
@@ -201,15 +193,15 @@ where
         let mut api = self.client.runtime_api();
         api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
         let at = self.client.info().best_hash;
-        let response_pos_and_indices: Vec<(LeafIndex, LeafIndex)> = api
-            .get_response_leaf_indices(at, query)
+        let response_pos_and_indices: Vec<LeafIndexAndPos> = api
+            .get_leaf_indices_from_query(at, query)
             .map_err(|_| runtime_error_into_rpc_error("Error fetching response leaf indices"))?;
-        let response_positions = response_pos_and_indices.into_iter().map(|(pos, _)| pos).collect();
+        let response_positions = response_pos_and_indices.into_iter().map(|val| val.pos).collect();
         api.get_responses(at, response_positions)
             .map_err(|_| runtime_error_into_rpc_error("Error fetching responses"))
     }
 
-    fn query_requests_mmr_proof(&self, height: u32, query: Vec<LeafIndexQuery>) -> Result<Proof> {
+    fn query_mmr_proof(&self, height: u32, query: Vec<LeafIndexQuery>) -> Result<Proof> {
         let mut api = self.client.runtime_api();
         api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
         let at = self
@@ -218,41 +210,16 @@ where
             .ok()
             .flatten()
             .ok_or_else(|| runtime_error_into_rpc_error("invalid block height provided"))?;
-        let request_pos_and_indices: Vec<(LeafIndex, LeafIndex)> = api
-            .get_request_leaf_indices(at, query)
+        let pos_and_indices: Vec<LeafIndexAndPos> = api
+            .get_leaf_indices_from_query(at, query)
             .map_err(|_| runtime_error_into_rpc_error("Error fetching response leaf indices"))?;
-        let request_positions = request_pos_and_indices.iter().map(|(pos, _)| *pos).collect();
+        let positions = pos_and_indices.iter().map(|val| val.pos).collect();
         let (_, proof): (Vec<Leaf>, pallet_ismp::primitives::Proof<Block::Hash>) = api
-            .generate_proof(at, request_positions)
+            .generate_proof(at, positions)
             .map_err(|_| runtime_error_into_rpc_error("Error calling runtime api"))?
             .map_err(|_| runtime_error_into_rpc_error("Error generating mmr proof"))?;
         let proof = MmrProof {
-            leaf_positions_and_indices: request_pos_and_indices,
-            leaf_count: proof.leaf_count,
-            items: proof.items,
-        };
-        Ok(Proof { proof: proof.encode(), height })
-    }
-
-    fn query_responses_mmr_proof(&self, height: u32, query: Vec<LeafIndexQuery>) -> Result<Proof> {
-        let mut api = self.client.runtime_api();
-        api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
-        let at = self
-            .client
-            .block_hash(height.into())
-            .ok()
-            .flatten()
-            .ok_or_else(|| runtime_error_into_rpc_error("invalid block height provided"))?;
-        let response_pos_and_indices: Vec<(LeafIndex, LeafIndex)> = api
-            .get_response_leaf_indices(at, query)
-            .map_err(|_| runtime_error_into_rpc_error("Error fetching response leaf indices"))?;
-        let response_positions = response_pos_and_indices.iter().map(|(pos, _)| *pos).collect();
-        let (_, proof): (Vec<Leaf>, pallet_ismp::primitives::Proof<Block::Hash>) = api
-            .generate_proof(at, response_positions)
-            .map_err(|_| runtime_error_into_rpc_error("Error calling runtime api"))?
-            .map_err(|_| runtime_error_into_rpc_error("Error generating mmr proof"))?;
-        let proof = MmrProof {
-            leaf_positions_and_indices: response_pos_and_indices,
+            leaf_positions_and_indices: pos_and_indices,
             leaf_count: proof.leaf_count,
             items: proof.items,
         };
@@ -312,16 +279,6 @@ where
         })
     }
 
-    fn pending_get_requests(&self, height: u64) -> Result<Vec<Get>> {
-        let mut api = self.client.runtime_api();
-        api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
-        let at = self.client.info().best_hash;
-
-        api.pending_get_requests(at)
-            .map(|reqs| reqs.into_iter().filter(|req| req.height <= height).collect())
-            .map_err(|_| runtime_error_into_rpc_error("Error fetching get requests"))
-    }
-
     fn query_events(
         &self,
         block_numbers: Vec<BlockNumberOrHash<Block::Hash>>,
@@ -347,29 +304,19 @@ where
                 })?
                 .into_iter()
                 .filter_map(|event| match event {
-                    pallet_ismp::events::Event::Request {
-                        source_chain,
-                        dest_chain,
-                        request_nonce,
-                    } => {
-                        let query =
-                            LeafIndexQuery { source_chain, dest_chain, nonce: request_nonce };
-                        let positions_and_indices: Vec<(LeafIndex, LeafIndex)> =
-                            api.get_request_leaf_indices(at, vec![query]).ok()?;
-                        let positions = positions_and_indices.into_iter().map(|(pos, _)| pos);
+                    pallet_ismp::events::Event::Request { commitment, .. } => {
+                        let query = LeafIndexQuery { commitment };
+                        let positions_and_indices: Vec<LeafIndexAndPos> =
+                            api.get_leaf_indices_from_query(at, vec![query]).ok()?;
+                        let positions = positions_and_indices.into_iter().map(|val| val.pos);
                         request_positions.extend(positions);
                         None
                     },
-                    pallet_ismp::events::Event::Response {
-                        source_chain,
-                        dest_chain,
-                        request_nonce,
-                    } => {
-                        let query =
-                            LeafIndexQuery { source_chain, dest_chain, nonce: request_nonce };
-                        let positions_and_indices: Vec<(LeafIndex, LeafIndex)> =
-                            api.get_response_leaf_indices(at, vec![query]).ok()?;
-                        let positions = positions_and_indices.into_iter().map(|(pos, _)| pos);
+                    pallet_ismp::events::Event::Response { commitment, .. } => {
+                        let query = LeafIndexQuery { commitment };
+                        let positions_and_indices: Vec<LeafIndexAndPos> =
+                            api.get_leaf_indices_from_query(at, vec![query]).ok()?;
+                        let positions = positions_and_indices.into_iter().map(|val| val.pos);
                         response_positions.extend(positions);
                         None
                     },

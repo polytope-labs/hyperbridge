@@ -1211,6 +1211,7 @@ dependencies = [
  "log",
  "parity-scale-codec",
  "sp-core 27.0.0",
+ "sp-runtime 31.0.1",
  "ssz-rs",
  "sync-committee-primitives",
  "sync-committee-verifier",
@@ -5655,6 +5656,7 @@ name = "ismp"
 version = "0.1.0"
 dependencies = [
  "derive_more",
+ "hex",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",

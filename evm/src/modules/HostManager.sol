@@ -2,11 +2,11 @@
 pragma solidity 0.8.17;
 
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
-
-import {IIsmpModule} from "ismp/IIsmpModule.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "ismp/IIsmp.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
-import {HostParams, IHostManager, WithdrawParams} from "../EvmHost.sol";
+
+import {HostParams, IHostManager, WithdrawParams} from "../hosts/EvmHost.sol";
+import {BaseIsmpModule} from "./BaseIsmpModule.sol";
 
 struct HostManagerParams {
     address admin;
@@ -14,8 +14,15 @@ struct HostManagerParams {
     uint256 paraId;
 }
 
-contract HostManager is IIsmpModule {
+/// Manages the IsmpHost, allows cross-chain governance to configure params
+/// and withdraw accrued revenue
+contract HostManager is BaseIsmpModule {
     using Bytes for bytes;
+
+    enum OnAcceptActions {
+        Withdraw,
+        SetHostParam
+    }
 
     HostManagerParams private _params;
 
@@ -40,38 +47,20 @@ contract HostManager is IIsmpModule {
         _params.admin = address(0);
     }
 
-    function onAccept(PostRequest memory request) external onlyIsmpHost {
+    function onAccept(PostRequest calldata request) external override onlyIsmpHost {
         // Only Hyperbridge can send requests to this module.
         require(request.source.equals(StateMachine.polkadot(_params.paraId)), "Unauthorized request");
 
-        // TODO: we should decode the payload based on the first byte in the request.body
-        if (false) {
+        // note, the below will revert with solidity error `Panic(0x21)`
+        OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
+        if (action == OnAcceptActions.Withdraw) {
             // This is where relayers can withdraw their fees.
-            WithdrawParams memory params = abi.decode(request.body, (WithdrawParams));
+            WithdrawParams memory params = abi.decode(request.body[1:], (WithdrawParams));
             IHostManager(_params.host).withdraw(params);
         } else {
-            HostParams memory params = abi.decode(request.body, (HostParams));
+            // i.e if (action == OnAcceptActions.SetHostParam)
+            HostParams memory params = abi.decode(request.body[1:], (HostParams));
             IHostManager(_params.host).setHostParams(params);
         }
-    }
-
-    function onPostResponse(PostResponse memory) external pure {
-        revert("Module doesn't emit requests");
-    }
-
-    function onGetResponse(GetResponse memory) external pure {
-        revert("Module doesn't emit requests");
-    }
-
-    function onPostRequestTimeout(PostRequest memory) external pure {
-        revert("Module doesn't emit requests");
-    }
-
-    function onPostResponseTimeout(PostResponse memory request) external view onlyIsmpHost {
-        revert("Token gateway doesn't emit Get Requests");
-    }
-
-    function onGetTimeout(GetRequest memory) external pure {
-        revert("Module doesn't emit requests");
     }
 }

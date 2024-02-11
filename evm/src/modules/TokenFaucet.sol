@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.17;
 
-import "multi-chain-tokens/interfaces/IERC6160Ext20.sol";
+import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
 
+/// Allows access to a fixed amount of tokens to users on a daily basis
 contract TokenFaucet {
     mapping(address => uint256) private consumers;
     address private token;
@@ -11,6 +12,7 @@ contract TokenFaucet {
         token = _token;
     }
 
+    /// Will only drip tokens, once per day
     function drip() public {
         uint256 lastDrip = consumers[msg.sender];
         uint256 delay = block.timestamp - lastDrip;
@@ -20,6 +22,6 @@ contract TokenFaucet {
         }
 
         consumers[msg.sender] = block.timestamp;
-        IERC5679Ext20(token).mint(msg.sender, 100 * 10e18, "");
+        IERC6160Ext20(token).mint(msg.sender, 1000 * 1e18, "");
     }
 }

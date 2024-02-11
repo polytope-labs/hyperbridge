@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.17;
 
-import "../EvmHost.sol";
+import "./EvmHost.sol";
 import "ismp/StateMachine.sol";
 
 contract OptimismHost is EvmHost {

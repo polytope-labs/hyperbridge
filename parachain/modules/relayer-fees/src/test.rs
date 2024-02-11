@@ -103,6 +103,7 @@ impl ConsensusClientProvider for ConsensusProvider {
 }
 
 use frame_support::derive_impl;
+use pallet_ismp::{dispatcher::LeafMetadata, primitives::LeafIndexAndPos};
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Test {
@@ -252,7 +253,9 @@ fn test_withdrawal_proof() {
             let request_commitment_key = RequestCommitments::<Test>::hashed_key_for(request);
             let request_receipt_key = RequestReceipts::<Test>::hashed_key_for(request);
             let fee_metadata = FeeMetadata::<Test> { origin: [0; 32].into(), fee: 1000u128.into() };
-            source_trie.insert(&request_commitment_key, &fee_metadata.encode()).unwrap();
+            let leaf_meta =
+                LeafMetadata { mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 }, meta: fee_metadata };
+            source_trie.insert(&request_commitment_key, &leaf_meta.encode()).unwrap();
             dest_trie.insert(&request_receipt_key, &vec![1u8; 32].encode()).unwrap();
         }
 
@@ -260,7 +263,9 @@ fn test_withdrawal_proof() {
             let response_commitment_key = ResponseCommitments::<Test>::hashed_key_for(response);
             let response_receipt_key = ResponseReceipts::<Test>::hashed_key_for(request);
             let fee_metadata = FeeMetadata::<Test> { origin: [0; 32].into(), fee: 1000u128.into() };
-            source_trie.insert(&response_commitment_key, &fee_metadata.encode()).unwrap();
+            let leaf_meta =
+                LeafMetadata { mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 }, meta: fee_metadata };
+            source_trie.insert(&response_commitment_key, &leaf_meta.encode()).unwrap();
             let receipt = ResponseReceipt { response: *response, relayer: vec![2; 32] };
             dest_trie.insert(&response_receipt_key, &receipt.encode()).unwrap();
         }

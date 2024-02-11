@@ -515,10 +515,11 @@ where
                             StateMachine::Kusama(_) |
                             StateMachine::Polkadot(_) => {
                                 use codec::Decode;
-                                pallet_ismp::dispatcher::FeeMetadata::<T>::decode(
+                                pallet_ismp::dispatcher::LeafMetadata::<T>::decode(
                                     &mut &*encoded_metadata,
                                 )
                                 .map_err(|_| Error::<T>::ProofValidationError)?
+                                .meta
                                 .fee
                             },
                         }
@@ -573,10 +574,11 @@ where
                             StateMachine::Kusama(_) |
                             StateMachine::Polkadot(_) => {
                                 use codec::Decode;
-                                pallet_ismp::dispatcher::FeeMetadata::<T>::decode(
+                                pallet_ismp::dispatcher::LeafMetadata::<T>::decode(
                                     &mut &*encoded_metadata,
                                 )
                                 .map_err(|_| Error::<T>::ProofValidationError)?
+                                .meta
                                 .fee
                             },
                         }

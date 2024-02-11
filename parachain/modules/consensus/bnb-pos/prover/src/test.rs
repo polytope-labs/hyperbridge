@@ -4,7 +4,7 @@ use bnb_pos_verifier::{
 };
 use ethers::{
     prelude::{Middleware, StreamExt},
-    providers::{Provider, Ws},
+    providers::{Http, Provider, Ws},
 };
 use geth_primitives::CodecHeader;
 use ismp::util::Keccak256;
@@ -27,7 +27,7 @@ impl Keccak256 for Host {
 async fn setup_prover() -> BnbPosProver {
     dotenv::dotenv().ok();
     let consensus_url = std::env::var("BNB_RPC").unwrap();
-    let provider = Provider::<Ws>::connect_with_reconnects(consensus_url, 1000).await.unwrap();
+    let provider = Provider::<Http>::connect_with_reconnects(consensus_url, 1000).await.unwrap();
 
     BnbPosProver::new(provider)
 }

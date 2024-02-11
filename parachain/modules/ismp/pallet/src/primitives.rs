@@ -14,7 +14,7 @@
 // limitations under the License.
 
 //! Pallet primitives
-use crate::mmr_primitives::{LeafIndex, NodeIndex};
+use crate::mmr_primitives::NodeIndex;
 use alloc::format;
 use codec::{Decode, Encode};
 use core::time::Duration;
@@ -33,7 +33,7 @@ use sp_std::prelude::*;
 #[derive(codec::Encode, codec::Decode, RuntimeDebug, Clone, PartialEq, Eq, TypeInfo)]
 pub struct Proof<Hash> {
     /// The positions of the leaves the proof is for.
-    pub leaf_positions: Vec<LeafIndex>,
+    pub leaf_positions: Vec<LeafIndexAndPos>,
     /// Number of leaves in MMR, when the proof was generated.
     pub leaf_count: NodeIndex,
     /// Proof elements (hashes of siblings of inner nodes on the path to the leaf).
@@ -124,8 +124,18 @@ pub struct LeafIndexQuery {
 
 /// Leaf index and position
 #[derive(
-    codec::Encode, codec::Decode, scale_info::TypeInfo, Ord, PartialOrd, Eq, PartialEq, Clone,
+    codec::Encode,
+    codec::Decode,
+    scale_info::TypeInfo,
+    Ord,
+    PartialOrd,
+    Eq,
+    PartialEq,
+    Clone,
+    Copy,
+    RuntimeDebug,
 )]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct LeafIndexAndPos {
     /// Leaf index
     pub leaf_index: u64,

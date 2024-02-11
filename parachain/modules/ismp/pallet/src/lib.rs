@@ -30,6 +30,8 @@ pub mod handlers;
 pub mod host;
 mod mmr;
 pub mod mmr_primitives;
+
+pub use mmr::mmr::ProofKeys;
 #[cfg(any(feature = "runtime-benchmarks", feature = "testing", test))]
 pub mod mocks;
 pub mod primitives;
@@ -43,7 +45,7 @@ use crate::host::Host;
 use codec::{Decode, Encode};
 use frame_support::{
     dispatch::{DispatchResult, DispatchResultWithPostInfo, Pays, PostDispatchInfo},
-    traits::{Get, UnixTime},
+    traits::Get,
 };
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
@@ -58,7 +60,7 @@ use crate::{
     errors::{HandlingError, ModuleCallbackResult},
     mmr::mmr::Mmr,
     mmr_primitives::{DataOrHash, Leaf, LeafIndex, NodeIndex},
-    primitives::{LeafIndexAndPos, LeafIndexQuery},
+    primitives::LeafIndexAndPos,
     weight_info::get_weight,
 };
 use frame_system::pallet_prelude::BlockNumberFor;
@@ -87,7 +89,7 @@ pub mod pallet {
     // Import various types used to declare pallet in scope.
     use super::*;
     use crate::{
-        dispatcher::{FeeMetadata, RequestMetadata},
+        dispatcher::LeafMetadata,
         errors::HandlingError,
         mmr_primitives::{LeafIndex, NodeIndex},
         primitives::{ConsensusClientProvider, WeightUsed, ISMP_ID},
@@ -237,7 +239,7 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn request_commitments)]
     pub type RequestCommitments<T: Config> =
-        StorageMap<_, Identity, H256, RequestMetadata<T>, OptionQuery>;
+        StorageMap<_, Identity, H256, LeafMetadata<T>, OptionQuery>;
 
     /// Tracks requests that have been responded to
     /// The key is the request commitment
@@ -250,7 +252,7 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn response_commitments)]
     pub type ResponseCommitments<T: Config> =
-        StorageMap<_, Identity, H256, FeeMetadata<T>, OptionQuery>;
+        StorageMap<_, Identity, H256, LeafMetadata<T>, OptionQuery>;
 
     /// Receipts for incoming requests
     /// The key is the request commitment
@@ -275,6 +277,12 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn weight_consumed)]
     pub type WeightConsumed<T: Config> = StorageValue<_, WeightUsed, ValueQuery>;
+
+    /// Mmr positions to commitments
+    #[pallet::storage]
+    #[pallet::getter(fn mmr_positions)]
+    pub type MmrPositions<T: Config> =
+        StorageMap<_, Blake2_128Concat, NodeIndex, H256, OptionQuery>;
 
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
@@ -515,11 +523,11 @@ impl<T: Config> Pallet<T> {
     /// all the leaves to be present.
     /// It may return an error or panic if used incorrectly.
     pub fn generate_proof(
-        leaf_positions: Vec<LeafIndex>,
+        commitments: ProofKeys,
     ) -> Result<(Vec<Leaf>, primitives::Proof<H256>), primitives::Error> {
         let leaves_count = NumberOfLeaves::<T>::get();
         let mmr = Mmr::<mmr::storage::OffchainStorage, T>::new(leaves_count);
-        mmr.generate_proof(leaf_positions)
+        mmr.generate_proof(commitments)
     }
 
     /// Provides a way to handle messages.
@@ -617,26 +625,19 @@ impl<T: Config> Pallet<T> {
         NumberOfLeaves::<T>::put(num_leaves)
     }
 
-    /// Returns the offchain key for a position in the mmr
-    fn offchain_key(pos: NodeIndex) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "leaves", pos).encode()
-    }
     /// Returns the offchain key for a request or response leaf index
-    pub fn leaf_pos_and_index_offchain_key(commitment: H256) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "requests_leaf_indices", commitment).encode()
+    pub fn full_leaf_offchain_key(commitment: H256) -> Vec<u8> {
+        (T::INDEXING_PREFIX, commitment).encode()
     }
 
-    /// Stores the position and leaf index  or the given key
-    pub fn store_leaf_position_and_index_offchain(
-        key: Vec<u8>,
-        leaf_pos_and_index: LeafIndexAndPos,
-    ) {
-        sp_io::offchain_index::set(&key, &leaf_pos_and_index.encode());
+    /// Returns the offchain key for a request or response leaf index
+    pub fn intermediate_node_offchain_key(position: NodeIndex) -> Vec<u8> {
+        (T::INDEXING_PREFIX, "intermediate_nodes", position).encode()
     }
 
     /// Gets the request from the offchain storage
-    pub fn get_request(leaf_position: LeafIndex) -> Option<Request> {
-        let key = Pallet::<T>::offchain_key(leaf_position);
+    pub fn get_request(commitment: H256) -> Option<Request> {
+        let key = Pallet::<T>::full_leaf_offchain_key(commitment);
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
             let data_or_hash = DataOrHash::decode(&mut &*elem).ok()?;
             return match data_or_hash {
@@ -651,8 +652,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Gets the response from the offchain storage
-    pub fn get_response(leaf_position: LeafIndex) -> Option<Response> {
-        let key = Pallet::<T>::offchain_key(leaf_position);
+    pub fn get_response(commitment: H256) -> Option<Response> {
+        let key = Pallet::<T>::full_leaf_offchain_key(commitment);
         if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
             let data_or_hash = DataOrHash::decode(&mut &*elem).ok()?;
             return match data_or_hash {
@@ -662,16 +663,6 @@ impl<T: Config> Pallet<T> {
                 },
                 _ => None,
             };
-        }
-        None
-    }
-
-    /// Gets the positon and leaf index for a request or response from the offchain storage
-    pub fn get_position_and_leaf_index(commitment: H256) -> Option<LeafIndexAndPos> {
-        let key = Self::leaf_pos_and_index_offchain_key(commitment);
-
-        if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            return LeafIndexAndPos::decode(&mut &*elem).ok();
         }
         None
     }
@@ -691,57 +682,31 @@ impl<T: Config> Pallet<T> {
         ChallengePeriod::<T>::get(id)
     }
 
-    /// Return latest timestamp on chain
-    pub fn get_timestamp() -> Option<u64> {
-        Some(<T::TimeProvider as UnixTime>::now().as_secs())
-    }
-
     /// Return the latest height of the state machine
     pub fn get_latest_state_machine_height(id: StateMachineId) -> Option<u64> {
         Some(LatestStateMachineHeight::<T>::get(id))
     }
 
-    /// Get Request Leaf positions and Indices
-    pub fn get_leaf_indices_from_query(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndexAndPos> {
-        leaf_queries
-            .into_iter()
-            .filter_map(|query| Self::get_position_and_leaf_index(query.commitment))
-            .collect()
+    /// Get actual requests
+    pub fn get_requests(commitments: Vec<H256>) -> Vec<Request> {
+        commitments.into_iter().filter_map(|cm| Self::get_request(cm)).collect()
     }
 
     /// Get actual requests
-    pub fn get_requests(leaf_positions: Vec<LeafIndex>) -> Vec<Request> {
-        leaf_positions
-            .into_iter()
-            .filter_map(|leaf_pos| Self::get_request(leaf_pos))
-            .collect()
-    }
-
-    /// Get actual requests
-    pub fn get_responses(leaf_positions: Vec<LeafIndex>) -> Vec<Response> {
-        leaf_positions
-            .into_iter()
-            .filter_map(|leaf_pos| Self::get_response(leaf_pos))
-            .collect()
+    pub fn get_responses(commitments: Vec<H256>) -> Vec<Response> {
+        commitments.into_iter().filter_map(|cm| Self::get_response(cm)).collect()
     }
 
     /// Insert a leaf into the mmr and return the position and leaf index
-    pub(crate) fn mmr_push(leaf: Leaf) -> Option<(NodeIndex, NodeIndex)> {
-        let offchain_key = match &leaf {
-            Leaf::Request(req) => {
-                let commitment = hash_request::<Host<T>>(req);
-                Pallet::<T>::leaf_pos_and_index_offchain_key(commitment)
-            },
-            Leaf::Response(res) => {
-                let commitment = hash_response::<Host<T>>(res);
-                Pallet::<T>::leaf_pos_and_index_offchain_key(commitment)
-            },
+    pub(crate) fn mmr_push(leaf: Leaf) -> Option<LeafIndexAndPos> {
+        let commitment = match &leaf {
+            Leaf::Request(req) => hash_request::<Host<T>>(req),
+            Leaf::Response(res) => hash_response::<Host<T>>(res),
         };
         let leaves = Self::number_of_leaves();
         let mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
-        let (pos, leaf_index) = mmr.push(leaf)?;
-        let leaf_index_and_pos = LeafIndexAndPos { leaf_index, pos };
-        Pallet::<T>::store_leaf_position_and_index_offchain(offchain_key, leaf_index_and_pos);
-        Some((pos, leaf_index))
+        let leaf_index_and_pos = mmr.push(leaf)?;
+        MmrPositions::<T>::insert(leaf_index_and_pos.pos, commitment);
+        Some(leaf_index_and_pos)
     }
 }

@@ -36,11 +36,10 @@ where
 pub mod benchmarks {
     use super::*;
     use crate::{
-        dispatcher::{Dispatcher, FeeMetadata, RequestMetadata},
+        dispatcher::{Dispatcher, FeeMetadata, LeafMetadata},
         host::Host,
         mmr_primitives::Leaf,
         mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
-        primitives::LeafIndexQuery,
         Config, Event, Pallet, RequestCommitments, RequestReceipts, ResponseReceipts,
     };
     use frame_support::traits::{Get, Hooks};
@@ -147,12 +146,8 @@ pub mod benchmarks {
         let request = Request::Post(post.clone());
 
         let commitment = hash_request::<Host<T>>(&request);
-        let meta = RequestMetadata {
-            query: LeafIndexQuery {
-                source_chain: post.source,
-                dest_chain: post.dest,
-                nonce: post.nonce,
-            },
+        let meta = LeafMetadata {
+            mmr: LeafIndexAndPos { pos: 0, leaf_index: 0 },
             meta: FeeMetadata { origin: [0u8; 32].into(), fee: 0.into() },
         };
         RequestCommitments::<T>::insert(commitment, meta);
@@ -194,12 +189,8 @@ pub mod benchmarks {
         let request = Request::Post(post.clone());
 
         let commitment = hash_request::<Host<T>>(&request);
-        let meta = RequestMetadata {
-            query: LeafIndexQuery {
-                source_chain: post.source,
-                dest_chain: post.dest,
-                nonce: post.nonce,
-            },
+        let meta = LeafMetadata {
+            mmr: LeafIndexAndPos { pos: 0, leaf_index: 0 },
             meta: FeeMetadata { origin: [0u8; 32].into(), fee: 0.into() },
         };
         RequestCommitments::<T>::insert(commitment, meta);

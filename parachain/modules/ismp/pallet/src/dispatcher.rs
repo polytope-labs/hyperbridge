@@ -14,7 +14,7 @@
 // limitations under the License.
 
 //! Implementation for the ISMP Router
-use crate::{host::Host, primitives::LeafIndexQuery, Pallet, RequestReceipts};
+use crate::{host::Host, primitives::LeafIndexAndPos, Pallet, RequestReceipts};
 use alloc::string::ToString;
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
@@ -37,9 +37,9 @@ pub enum Receipt {
 #[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 #[scale_info(skip_type_params(T))]
-pub struct RequestMetadata<T: crate::Config> {
+pub struct LeafMetadata<T: crate::Config> {
     /// Information about where it's stored in the offchain db
-    pub query: LeafIndexQuery,
+    pub mmr: LeafIndexAndPos,
     /// Other metadata about the request
     pub meta: FeeMetadata<T>,
 }

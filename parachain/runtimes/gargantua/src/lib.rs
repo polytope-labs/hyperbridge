@@ -34,7 +34,7 @@ use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
-use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
+use sp_core::{crypto::KeyTypeId, OpaqueMetadata, H256};
 use sp_runtime::{
     create_runtime_str, generic, impl_opaque_keys,
     traits::{AccountIdLookup, Block as BlockT, IdentifyAccount, Keccak256, Verify},
@@ -51,7 +51,6 @@ use ::ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     router::{Request, Response},
 };
-use pallet_ismp::primitives::{LeafIndexAndPos, LeafIndexQuery};
 
 use frame_support::{
     construct_runtime,
@@ -89,6 +88,7 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
 use frame_support::{derive_impl, traits::ConstBool};
+use pallet_ismp::ProofKeys;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -753,9 +753,9 @@ impl_runtime_apis! {
 
         /// Generate a proof for the provided leaf indices
         fn generate_proof(
-            leaf_positions: Vec<LeafIndex>
+            keys: ProofKeys
         ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), pallet_ismp::primitives::Error> {
-            Ismp::generate_proof(leaf_positions)
+            Ismp::generate_proof(keys)
         }
 
         /// Fetch all ISMP events
@@ -793,19 +793,15 @@ impl_runtime_apis! {
             Ismp::latest_messaging_heights(id)
         }
 
-        /// Get Leaf Indices
-        fn get_leaf_indices_from_query(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndexAndPos> {
-            Ismp::get_leaf_indices_from_query(leaf_queries)
+
+        /// Get actual requests
+        fn get_requests(commitments: Vec<H256>) -> Vec<Request> {
+            Ismp::get_requests(commitments)
         }
 
         /// Get actual requests
-        fn get_requests(leaf_positions: Vec<LeafIndex>) -> Vec<Request> {
-            Ismp::get_requests(leaf_positions)
-        }
-
-        /// Get actual requests
-        fn get_responses(leaf_positions: Vec<LeafIndex>) -> Vec<Response> {
-            Ismp::get_responses(leaf_positions)
+        fn get_responses(commitments: Vec<H256>) -> Vec<Response> {
+            Ismp::get_responses(commitments)
         }
     }
 

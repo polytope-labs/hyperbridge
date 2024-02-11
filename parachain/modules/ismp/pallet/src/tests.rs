@@ -33,12 +33,14 @@ use ismp::{
     util::hash_request,
 };
 
+use crate::dispatcher::{FeeMetadata, LeafMetadata};
 use ismp_testsuite::{
     check_challenge_period, check_client_expiry, frozen_check, post_request_timeout_check,
     post_response_timeout_check, write_outgoing_commitments,
 };
 use merkle_mountain_range::MerkleProof;
 use sp_core::{
+    crypto::AccountId32,
     offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
     H256,
 };
@@ -63,38 +65,51 @@ fn new_block() {
     Ismp::on_finalize(number)
 }
 
-fn push_leaves(range: Range<u64>) -> Vec<NodeIndex> {
+fn push_leaves(range: Range<u64>) -> (Vec<H256>, Vec<u64>) {
     // given
+    let mut commitments = vec![];
     let mut positions = vec![];
+    let mut leaves = vec![];
     for nonce in range {
-        let post = ismp::router::Post {
+        let post = Post {
             source: StateMachine::Kusama(2000),
             dest: StateMachine::Kusama(2001),
             nonce,
             from: vec![0u8; 32],
-            to: vec![1u8; 32],
+            to: vec![18; 32],
             timeout_timestamp: 100 * nonce,
             data: vec![2u8; 64],
             gas_limit: 0,
         };
 
         let request = Request::Post(post);
+        let commitment = hash_request::<Host<Test>>(&request);
         let leaf = Leaf::Request(request);
+        leaves.push(leaf.clone());
 
-        let pos = Pallet::<Test>::mmr_push(leaf.clone()).unwrap();
-        positions.push(pos.0)
+        let res = Pallet::<Test>::mmr_push(leaf).unwrap();
+        positions.push(res.pos);
+        RequestCommitments::<Test>::insert(
+            commitment,
+            LeafMetadata {
+                mmr: res,
+                meta: FeeMetadata { origin: AccountId32::new([0u8; 32]), fee: 10u128 },
+            },
+        );
+        commitments.push(commitment)
     }
 
-    positions
+    (commitments, positions)
 }
 
 #[test]
 fn should_generate_proofs_correctly_for_single_leaf_mmr() {
     let _ = env_logger::try_init();
     let mut ext = new_test_ext();
-    let (root, positions) = ext.execute_with(|| {
+    register_offchain_ext(&mut ext);
+    let (root, (commitments, positions)) = ext.execute_with(|| {
         // push some leaves into the mmr
-        let positions = push_leaves(0..1);
+        let positions = push_leaves(0..12);
         new_block();
         let root = Pallet::<Test>::mmr_root();
         (root, positions)
@@ -103,9 +118,10 @@ fn should_generate_proofs_correctly_for_single_leaf_mmr() {
 
     // Try to generate proofs now. This requires the offchain extensions to be present
     // to retrieve full leaf data.
-    register_offchain_ext(&mut ext);
+
     ext.execute_with(move || {
-        let (leaves, proof) = Pallet::<Test>::generate_proof(vec![positions[0]]).unwrap();
+        let (leaves, proof) =
+            Pallet::<Test>::generate_proof(ProofKeys::Requests(vec![commitments[0]])).unwrap();
 
         let mmr_size = NodesUtils::new(proof.leaf_count).size();
         let nodes = proof.items.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
@@ -122,7 +138,7 @@ fn should_generate_proofs_correctly_for_single_leaf_mmr() {
 fn should_generate_and_verify_batch_proof_correctly() {
     let _ = env_logger::try_init();
     let mut ext = new_test_ext();
-    let (root, positions) = ext.execute_with(|| {
+    let (root, (commitments, positions)) = ext.execute_with(|| {
         // push some leaves into the mmr
         let positions = push_leaves(0..12);
         new_block();
@@ -135,8 +151,15 @@ fn should_generate_and_verify_batch_proof_correctly() {
     // to retrieve full leaf data.
     register_offchain_ext(&mut ext);
     ext.execute_with(move || {
+        let proof_key = ProofKeys::Requests(vec![
+            commitments[0],
+            commitments[3],
+            commitments[2],
+            commitments[5],
+        ]);
         let indices = vec![positions[0], positions[3], positions[2], positions[5]];
-        let (leaves, proof) = Pallet::<Test>::generate_proof(indices.clone()).unwrap();
+        println!("{indices:?}");
+        let (leaves, proof) = Pallet::<Test>::generate_proof(proof_key).unwrap();
 
         let mmr_size = NodesUtils::new(proof.leaf_count).size();
         let nodes = proof.items.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
@@ -158,15 +181,16 @@ fn should_generate_and_verify_batch_proof_correctly() {
 fn should_generate_and_verify_batch_proof_for_leaves_inserted_across_multiple_blocks_correctly() {
     let _ = env_logger::try_init();
     let mut ext = new_test_ext();
-    let (root, positions) = ext.execute_with(|| {
+    let (root, (commitments, positions)) = ext.execute_with(|| {
         // push some leaves into the mmr
-        let mut positions = push_leaves(0..6);
+        let (mut commitments, mut positions) = push_leaves(0..6);
         new_block();
-        let positions_second = push_leaves(6..12);
+        let (commitments_second, positions_second) = push_leaves(6..12);
         new_block();
         let root = Pallet::<Test>::mmr_root();
         positions.extend_from_slice(&positions_second);
-        (root, positions)
+        commitments.extend_from_slice(&commitments_second);
+        (root, (commitments, positions))
     });
     ext.persist_offchain_overlay();
 
@@ -175,7 +199,13 @@ fn should_generate_and_verify_batch_proof_for_leaves_inserted_across_multiple_bl
     register_offchain_ext(&mut ext);
     ext.execute_with(move || {
         let indices = vec![positions[0], positions[9], positions[2], positions[8]];
-        let (leaves, proof) = Pallet::<Test>::generate_proof(indices.clone()).unwrap();
+        let proof_key = ProofKeys::Requests(vec![
+            commitments[0],
+            commitments[9],
+            commitments[2],
+            commitments[8],
+        ]);
+        let (leaves, proof) = Pallet::<Test>::generate_proof(proof_key).unwrap();
 
         let mmr_size = NodesUtils::new(proof.leaf_count).size();
         let nodes = proof.items.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();

@@ -58,14 +58,28 @@ where
     T: Config,
 {
     fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<DataOrHash>> {
-        let key = Pallet::<T>::offchain_key(pos);
-        debug!(
-            target: "runtime::mmr::offchain", "offchain db get {}: key {:?}",
-            pos, key
-        );
-        // Try to retrieve the element from Off-chain DB.
-        if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            return Ok(codec::Decode::decode(&mut &*elem).ok());
+        let commitment = Pallet::<T>::mmr_positions(pos);
+
+        if let Some(commitment) = commitment {
+            let key = Pallet::<T>::full_leaf_offchain_key(commitment);
+            debug!(
+                target: "runtime::mmr::offchain", "offchain db get {}: key {:?}",
+                pos, key
+            );
+            // Try to retrieve the element from Off-chain DB.
+            if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
+                return Ok(codec::Decode::decode(&mut &*elem).ok());
+            }
+        } else {
+            let key = Pallet::<T>::intermediate_node_offchain_key(pos);
+            debug!(
+                target: "runtime::mmr::offchain", "offchain db get {}: key {:?}",
+                pos, key
+            );
+            // Try to retrieve the element from Off-chain DB.
+            if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
+                return Ok(codec::Decode::decode(&mut &*elem).ok());
+            }
         }
 
         Ok(None)
@@ -149,8 +163,11 @@ where
     /// Store a node in the offchain db
     fn store_to_offchain(pos: NodeIndex, node: &DataOrHash) {
         let encoded_node = node.encode();
-
-        let key = Pallet::<T>::offchain_key(pos);
+        let commitment = node.hash::<Host<T>>();
+        let key = match node {
+            DataOrHash::Data(_) => Pallet::<T>::full_leaf_offchain_key(commitment),
+            DataOrHash::Hash(_) => Pallet::<T>::intermediate_node_offchain_key(pos),
+        };
         debug!(
             target: "runtime::mmr::offchain", "offchain db set: pos {} key {:?}",
             pos, key

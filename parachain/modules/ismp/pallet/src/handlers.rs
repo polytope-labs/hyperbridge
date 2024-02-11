@@ -1,10 +1,9 @@
 //! Some extra utilities for pallet-ismp
 
 use crate::{
-    dispatcher::{FeeMetadata, RequestMetadata},
+    dispatcher::{FeeMetadata, LeafMetadata},
     host::Host,
     mmr_primitives::Leaf,
-    primitives::LeafIndexQuery,
     Config, Event, Pallet, RequestCommitments, Responded, ResponseCommitments,
 };
 use alloc::string::ToString;
@@ -25,9 +24,10 @@ impl<T: Config> Pallet<T> {
 
         let (dest_chain, source_chain, nonce) =
             (request.dest_chain(), request.source_chain(), request.nonce());
-        Pallet::<T>::mmr_push(Leaf::Request(request)).ok_or_else(|| {
-            IsmpError::ImplementationSpecific("Failed to push request into mmr".to_string())
-        })?;
+        let leaf_index_and_pos =
+            Pallet::<T>::mmr_push(Leaf::Request(request)).ok_or_else(|| {
+                IsmpError::ImplementationSpecific("Failed to push request into mmr".to_string())
+            })?;
         // Deposit Event
         Pallet::<T>::deposit_event(Event::Request {
             request_nonce: nonce,
@@ -36,10 +36,7 @@ impl<T: Config> Pallet<T> {
             commitment,
         });
 
-        RequestCommitments::<T>::insert(
-            commitment,
-            RequestMetadata { query: LeafIndexQuery { commitment }, meta },
-        );
+        RequestCommitments::<T>::insert(commitment, LeafMetadata { mmr: leaf_index_and_pos, meta });
         Ok(())
     }
 
@@ -56,9 +53,10 @@ impl<T: Config> Pallet<T> {
         let (dest_chain, source_chain, nonce) =
             (response.dest_chain(), response.source_chain(), response.nonce());
 
-        Pallet::<T>::mmr_push(Leaf::Response(response)).ok_or_else(|| {
-            IsmpError::ImplementationSpecific("Failed to push response into mmr".to_string())
-        })?;
+        let leaf_index_and_pos =
+            Pallet::<T>::mmr_push(Leaf::Response(response)).ok_or_else(|| {
+                IsmpError::ImplementationSpecific("Failed to push response into mmr".to_string())
+            })?;
 
         Pallet::<T>::deposit_event(Event::Response {
             request_nonce: nonce,
@@ -66,7 +64,10 @@ impl<T: Config> Pallet<T> {
             source_chain,
             commitment,
         });
-        ResponseCommitments::<T>::insert(commitment, meta);
+        ResponseCommitments::<T>::insert(
+            commitment,
+            LeafMetadata { mmr: leaf_index_and_pos, meta },
+        );
         Responded::<T>::insert(req_commitment, true);
         Ok(())
     }

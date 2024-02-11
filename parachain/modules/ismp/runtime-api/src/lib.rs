@@ -24,8 +24,10 @@ use ismp::{
 };
 use pallet_ismp::{
     mmr_primitives::{Leaf, LeafIndex},
-    primitives::{Error, LeafIndexAndPos, LeafIndexQuery, Proof},
+    primitives::{Error, Proof},
+    ProofKeys,
 };
+use sp_core::H256;
 #[cfg(not(feature = "std"))]
 use sp_std::vec::Vec;
 
@@ -40,7 +42,7 @@ sp_api::decl_runtime_apis! {
 
         /// Generate a proof for the provided leaf indices
         fn generate_proof(
-            leaf_positions: Vec<LeafIndex>
+            commitments: ProofKeys
         ) -> Result<(Vec<Leaf>, Proof<Hash>), Error>;
 
         /// Fetch all ISMP events
@@ -61,13 +63,10 @@ sp_api::decl_runtime_apis! {
         /// Return the most recent height we've processed requests for a state machine
         fn latest_messaging_height(id: StateMachineId) -> Option<u64>;
 
-        /// Get the leaf indices
-        fn get_leaf_indices_from_query(leaf_queries: Vec<LeafIndexQuery>) -> Vec<LeafIndexAndPos>;
-
         /// Get actual requests
-        fn get_requests(leaf_positions: Vec<LeafIndex>) -> Vec<Request>;
+        fn get_requests(leaf_positions: Vec<H256>) -> Vec<Request>;
 
         /// Get actual responses
-        fn get_responses(leaf_positions: Vec<LeafIndex>) -> Vec<Response>;
+        fn get_responses(leaf_positions: Vec<H256>) -> Vec<Response>;
     }
 }

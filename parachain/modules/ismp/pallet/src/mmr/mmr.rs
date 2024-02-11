@@ -20,9 +20,11 @@ use crate::{
         utils::NodesUtils,
     },
     mmr_primitives::{DataOrHash, Leaf, MmrHasher, NodeIndex},
-    primitives::{Error, Proof},
+    primitives::{Error, LeafIndexAndPos, Proof},
     Config, Pallet,
 };
+use codec::{Decode, Encode};
+use scale_info::TypeInfo;
 use sp_core::H256;
 use sp_std::prelude::*;
 
@@ -58,12 +60,12 @@ where
     /// Push another item to the MMR and commit
     ///
     /// Returns the element position (index) and number of leaves in the MMR.
-    pub fn push(mut self, leaf: Leaf) -> Option<(NodeIndex, NodeIndex)> {
-        let position = self.mmr.push(DataOrHash::Data(leaf)).map_err(|_| Error::Push).ok()?;
+    pub fn push(mut self, leaf: Leaf) -> Option<LeafIndexAndPos> {
+        let pos = self.mmr.push(DataOrHash::Data(leaf)).map_err(|_| Error::Push).ok()?;
         // Leaf index for the new leaf is the previous number of leaves
         let leaf_index = Pallet::<T>::number_of_leaves();
         self.mmr.commit().ok()?;
-        Some((position, leaf_index))
+        Some(LeafIndexAndPos { pos, leaf_index })
     }
 
     /// Calculate the new MMR's root hash.
@@ -71,6 +73,16 @@ where
         let root = self.mmr.get_root().map_err(|_| Error::GetRoot)?;
         Ok(root.hash::<Host<T>>())
     }
+}
+
+/// Distinguish between requests and responses
+#[derive(TypeInfo, Encode, Decode)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+pub enum ProofKeys {
+    /// Request commitments
+    Requests(Vec<H256>),
+    /// Response commitments
+    Responses(Vec<H256>),
 }
 
 /// Off-chain specific MMR functions.
@@ -82,11 +94,29 @@ where
     ///
     /// Proof generation requires all the nodes (or their hashes) to be available in the storage.
     /// (i.e. you can't run the function in the pruned storage).
-    pub fn generate_proof(
-        &self,
-        positions: Vec<NodeIndex>,
-    ) -> Result<(Vec<Leaf>, Proof<H256>), Error> {
+    pub fn generate_proof(&self, keys: ProofKeys) -> Result<(Vec<Leaf>, Proof<H256>), Error> {
+        let leaf_indices_and_positions = match keys {
+            ProofKeys::Requests(commitments) => commitments
+                .into_iter()
+                .map(|commitment| {
+                    let val = Pallet::<T>::request_commitments(commitment)
+                        .ok_or_else(|| Error::LeafNotFound)?
+                        .mmr;
+                    Ok(val)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            ProofKeys::Responses(commitments) => commitments
+                .into_iter()
+                .map(|commitment| {
+                    let val = Pallet::<T>::response_commitments(commitment)
+                        .ok_or_else(|| Error::LeafNotFound)?
+                        .mmr;
+                    Ok(val)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        };
         let store = <Storage<OffchainStorage, T>>::default();
+        let positions = leaf_indices_and_positions.iter().map(|val| val.pos).collect::<Vec<_>>();
         let leaves = positions
             .iter()
             .map(|pos| match merkle_mountain_range::MMRStore::get_elem(&store, *pos) {
@@ -97,10 +127,10 @@ where
         log::trace!(target: "runtime::mmr", "Positions {:?}", positions);
         let leaf_count = Pallet::<T>::number_of_leaves();
         self.mmr
-            .gen_proof(positions.clone())
+            .gen_proof(positions)
             .map_err(|_| Error::GenerateProof)
             .map(|p| Proof {
-                leaf_positions: positions,
+                leaf_positions: leaf_indices_and_positions,
                 leaf_count,
                 items: p.proof_items().iter().map(|x| x.hash::<Host<T>>()).collect(),
             })

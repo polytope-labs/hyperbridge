@@ -28,38 +28,18 @@ impl BnbPosProver {
     pub async fn fetch_header<T: Into<BlockId> + Send + Sync + Debug + Copy>(
         &self,
         block: T,
-    ) -> Result<CodecHeader, anyhow::Error> {
-        let block = self
-            .client
-            .get_block(block)
-            .await?
-            .ok_or_else(|| anyhow!("Header not found for {:?}", block))?;
-        let header = CodecHeader {
-            parent_hash: block.parent_hash,
-            uncle_hash: block.uncles_hash,
-            coinbase: block.author.unwrap_or_default(),
-            state_root: block.state_root,
-            transactions_root: block.transactions_root,
-            receipts_root: block.receipts_root,
-            logs_bloom: block.logs_bloom.unwrap_or_default(),
-            difficulty: block.difficulty,
-            number: block.number.unwrap_or_default().as_u64().into(),
-            gas_limit: block.gas_limit.low_u64(),
-            gas_used: block.gas_used.low_u64(),
-            timestamp: block.timestamp.low_u64(),
-            extra_data: block.extra_data.0.into(),
-            mix_hash: block.mix_hash.unwrap_or_default(),
-            nonce: block.nonce.unwrap_or_default(),
-            base_fee_per_gas: block.base_fee_per_gas,
-            withdrawals_hash: None,
-        };
+    ) -> Result<Option<CodecHeader>, anyhow::Error> {
+        let block = self.client.get_block(block).await?.map(|header| header.into());
 
-        Ok(header)
+        Ok(block)
     }
 
     pub async fn latest_header(&self) -> Result<CodecHeader, anyhow::Error> {
         let block_number = self.client.get_block_number().await?;
-        let header = self.fetch_header(block_number.as_u64()).await?;
+        let header = self
+            .fetch_header(block_number.as_u64())
+            .await?
+            .ok_or_else(|| anyhow!("Latest header block could not be fetched {block_number}"))?;
         Ok(header)
     }
 
@@ -76,8 +56,14 @@ impl BnbPosProver {
             return Ok(None)
         }
 
-        let source_header = self.fetch_header(source_hash).await?;
-        let target_header = self.fetch_header(target_hash).await?;
+        let source_header = self
+            .fetch_header(source_hash)
+            .await?
+            .ok_or_else(|| anyhow!("header block could not be fetched {source_hash}"))?;
+        let target_header = self
+            .fetch_header(target_hash)
+            .await?
+            .ok_or_else(|| anyhow!("header block could not be fetched {target_hash}"))?;
 
         let source_header_epoch = compute_epoch(source_header.number.low_u64());
         let epoch_header_number = source_header_epoch * EPOCH_LENGTH;
@@ -87,15 +73,20 @@ impl BnbPosProver {
         // If we are still in authority rotation period get the epoch header ancestry alongside
         // update
         let diff = source_header.number.low_u64().saturating_sub(epoch_header_number);
-        // The maximum difference between the epoch header block number  and the source header
-        // number is 9 Since authority set rotation happens after the first 12 blocks in an
-        // epoch and we want the epoch header to be an immediate ancestor of our finalized
+        // The maximum difference between the epoch header block number and the source header
+        // number is 9 since authority set rotation happens after the first 12 blocks in an
+        // epoch, we want to show that the epoch header is in the ancestry of our finalized
         // header
         if (1..=9).contains(&diff) {
-            let mut header = self.fetch_header(source_header.parent_hash).await?;
+            let mut header =
+                self.fetch_header(source_header.parent_hash).await?.ok_or_else(|| {
+                    anyhow!("header block could not be fetched {}", source_header.parent_hash)
+                })?;
             epoch_header_ancestry.insert(0, header.clone());
             while header.number.low_u64() > epoch_header_number {
-                header = self.fetch_header(header.parent_hash).await?;
+                header = self.fetch_header(header.parent_hash).await?.ok_or_else(|| {
+                    anyhow!("header block could not be fetched {}", header.parent_hash)
+                })?;
                 epoch_header_ancestry.insert(0, header.clone());
             }
         }
@@ -118,7 +109,10 @@ impl BnbPosProver {
         let current_epoch = compute_epoch(latest_header.number.low_u64());
         let current_epoch_block_number = current_epoch * EPOCH_LENGTH;
 
-        let current_epoch_header = self.fetch_header(current_epoch_block_number).await?;
+        let current_epoch_header =
+            self.fetch_header(current_epoch_block_number).await?.ok_or_else(|| {
+                anyhow!("header block could not be fetched {current_epoch_block_number}")
+            })?;
         let current_epoch_extra_data = parse_extra::<I>(&current_epoch_header.extra_data)
             .map_err(|_| anyhow!("Extra data set not found in header"))?;
 

@@ -16,7 +16,7 @@ pub mod ping_module {
         ::ethers::core::abi::ethabi::Contract {
             constructor: ::core::option::Option::Some(::ethers::core::abi::ethabi::Constructor {
                 inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                    name: ::std::borrow::ToOwned::to_owned("hostAddr"),
+                    name: ::std::borrow::ToOwned::to_owned("admin"),
                     kind: ::ethers::core::abi::ethabi::ParamType::Address,
                     internal_type: ::core::option::Option::Some(::std::borrow::ToOwned::to_owned(
                         "address"
@@ -359,6 +359,22 @@ pub mod ping_module {
                         state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
                     },],
                 ),
+                (
+                    ::std::borrow::ToOwned::to_owned("setIsmpHost"),
+                    ::std::vec![::ethers::core::abi::ethabi::Function {
+                        name: ::std::borrow::ToOwned::to_owned("setIsmpHost"),
+                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::borrow::ToOwned::to_owned("hostAddr"),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Address,
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("address"),
+                            ),
+                        },],
+                        outputs: ::std::vec![],
+                        constant: ::core::option::Option::None,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                    },],
+                ),
             ]),
             events: ::core::convert::From::from([
                 (
@@ -581,6 +597,15 @@ pub mod ping_module {
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
                 .method_hash([74, 105, 46, 6], (ping_message,))
+                .expect("method not found (this should never happen)")
+        }
+        ///Calls the contract's `setIsmpHost` (0x0e8324a2) function
+        pub fn set_ismp_host(
+            &self,
+            host_addr: ::ethers::core::types::Address,
+        ) -> ::ethers::contract::builders::ContractCall<M, ()> {
+            self.0
+                .method_hash([14, 131, 36, 162], host_addr)
                 .expect("method not found (this should never happen)")
         }
         ///Gets the contract's `GetResponseReceived` event
@@ -1138,6 +1163,22 @@ pub mod ping_module {
     pub struct PingCall {
         pub ping_message: PingMessage,
     }
+    ///Container type for all input parameters for the `setIsmpHost` function with signature
+    /// `setIsmpHost(address)` and selector `0x0e8324a2`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(name = "setIsmpHost", abi = "setIsmpHost(address)")]
+    pub struct SetIsmpHostCall {
+        pub host_addr: ::ethers::core::types::Address,
+    }
     ///Container type for all of the contract's call
     #[derive(Clone, ::ethers::contract::EthAbiType, Debug, PartialEq, Eq, Hash)]
     pub enum PingModuleCalls {
@@ -1153,6 +1194,7 @@ pub mod ping_module {
         OnPostResponse(OnPostResponseCall),
         OnPostResponseTimeout(OnPostResponseTimeoutCall),
         Ping(PingCall),
+        SetIsmpHost(SetIsmpHostCall),
     }
     impl ::ethers::core::abi::AbiDecode for PingModuleCalls {
         fn decode(
@@ -1209,6 +1251,9 @@ pub mod ping_module {
             if let Ok(decoded) = <PingCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::Ping(decoded));
             }
+            if let Ok(decoded) = <SetIsmpHostCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+                return Ok(Self::SetIsmpHost(decoded));
+            }
             Err(::ethers::core::abi::Error::InvalidData.into())
         }
     }
@@ -1232,6 +1277,7 @@ pub mod ping_module {
                 Self::OnPostResponseTimeout(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Ping(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::SetIsmpHost(element) => ::ethers::core::abi::AbiEncode::encode(element),
             }
         }
     }
@@ -1250,6 +1296,7 @@ pub mod ping_module {
                 Self::OnPostResponse(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnPostResponseTimeout(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Ping(element) => ::core::fmt::Display::fmt(element, f),
+                Self::SetIsmpHost(element) => ::core::fmt::Display::fmt(element, f),
             }
         }
     }
@@ -1311,6 +1358,11 @@ pub mod ping_module {
     impl ::core::convert::From<PingCall> for PingModuleCalls {
         fn from(value: PingCall) -> Self {
             Self::Ping(value)
+        }
+    }
+    impl ::core::convert::From<SetIsmpHostCall> for PingModuleCalls {
+        fn from(value: SetIsmpHostCall) -> Self {
+            Self::SetIsmpHost(value)
         }
     }
     ///Container type for all return fields from the `dispatch` function with signature

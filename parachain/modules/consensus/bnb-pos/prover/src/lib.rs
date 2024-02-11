@@ -4,8 +4,8 @@ mod test;
 use anyhow::anyhow;
 use bnb_pos_verifier::primitives::{compute_epoch, parse_extra, BnbClientUpdate, EPOCH_LENGTH};
 use ethers::{
-    prelude::{Provider, Ws},
-    providers::Middleware,
+    prelude::Provider,
+    providers::{Http, Middleware},
     types::BlockId,
 };
 use geth_primitives::CodecHeader;
@@ -17,11 +17,11 @@ use sync_committee_primitives::constants::BlsPublicKey;
 #[derive(Clone)]
 pub struct BnbPosProver {
     /// Execution Rpc client
-    pub client: Arc<Provider<Ws>>,
+    pub client: Arc<Provider<Http>>,
 }
 
 impl BnbPosProver {
-    pub fn new(client: Provider<Ws>) -> Self {
+    pub fn new(client: Provider<Http>) -> Self {
         Self { client: Arc::new(client) }
     }
 

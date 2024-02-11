@@ -73,7 +73,8 @@ contract DeployScript is Script {
         manager.setIsmpHost(hostAddress);
         feeToken.setIsmpHost(hostAddress);
         // deploy the ping module as well
-        new PingModule{salt: salt}(hostAddress);
+        PingModule module = new PingModule{salt: salt}(admin);
+        module.setIsmpHost(hostAddress);
         vm.stopBroadcast();
     }
 

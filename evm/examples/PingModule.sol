@@ -40,9 +40,22 @@ contract PingModule is IIsmpModule {
         _;
     }
 
-    address internal _host;
+    // restricts call to `admin`
+    modifier onlyAdmin() {
+        if (msg.sender != _admin) {
+            revert NotIsmpHost();
+        }
+        _;
+    }
 
-    constructor(address hostAddr) {
+    address internal _host;
+    address internal _admin;
+
+    constructor(address admin) {
+        _admin = admin;
+    }
+
+    function setIsmpHost(address hostAddr) public onlyAdmin {
         _host = hostAddr;
     }
 

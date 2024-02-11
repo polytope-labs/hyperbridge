@@ -81,7 +81,6 @@ pub mod host_manager {
                                             ::ethers::core::abi::ethabi::ParamType::Bytes,
                                         ],),
                                     ),
-<<<<<<< Updated upstream
                                 ),
                             ],),
                             internal_type: ::core::option::Option::Some(
@@ -92,15 +91,6 @@ pub mod host_manager {
                         constant: ::core::option::Option::None,
                         state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
                     },],
-=======
-                                },
-                            ],
-                            outputs: ::std::vec![],
-                            constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
-                        },
-                    ],
->>>>>>> Stashed changes
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("onGetTimeout"),
@@ -118,7 +108,6 @@ pub mod host_manager {
                                     ::std::boxed::Box::new(
                                         ::ethers::core::abi::ethabi::ParamType::Bytes,
                                     ),
-<<<<<<< Updated upstream
                                 ),
                                 ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                 ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
@@ -131,15 +120,6 @@ pub mod host_manager {
                         constant: ::core::option::Option::None,
                         state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
                     },],
-=======
-                                },
-                            ],
-                            outputs: ::std::vec![],
-                            constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
-                        },
-                    ],
->>>>>>> Stashed changes
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("onPostRequestTimeout"),
@@ -160,7 +140,6 @@ pub mod host_manager {
                             internal_type: ::core::option::Option::Some(
                                 ::std::borrow::ToOwned::to_owned("struct PostRequest"),
                             ),
-<<<<<<< Updated upstream
                         },],
                         outputs: ::std::vec![],
                         constant: ::core::option::Option::None,
@@ -196,71 +175,6 @@ pub mod host_manager {
                         constant: ::core::option::Option::None,
                         state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
                     },],
-=======
-                            inputs: ::std::vec![
-                                ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
-                                        ::std::vec![
-                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                        ],
-                                    ),
-                                    internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("struct PostRequest"),
-                                    ),
-                                },
-                            ],
-                            outputs: ::std::vec![],
-                            constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
-                        },
-                    ],
-                ),
-                (
-                    ::std::borrow::ToOwned::to_owned("onPostResponse"),
-                    ::std::vec![
-                        ::ethers::core::abi::ethabi::Function {
-                            name: ::std::borrow::ToOwned::to_owned("onPostResponse"),
-                            inputs: ::std::vec![
-                                ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
-                                        ::std::vec![
-                                            ::ethers::core::abi::ethabi::ParamType::Tuple(
-                                                ::std::vec![
-                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                                    ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                                ],
-                                            ),
-                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                            ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                        ],
-                                    ),
-                                    internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("struct PostResponse"),
-                                    ),
-                                },
-                            ],
-                            outputs: ::std::vec![],
-                            constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
-                        },
-                    ],
->>>>>>> Stashed changes
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("onPostResponseTimeout"),

@@ -40,8 +40,8 @@ contract PingModule is IIsmpModule {
 
     address internal _host;
 
-    constructor(address host) {
-        _host = host;
+    constructor(address hostAddr) {
+        _host = hostAddr;
     }
 
     // returns the current ismp host set

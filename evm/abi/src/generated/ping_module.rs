@@ -16,7 +16,7 @@ pub mod ping_module {
         ::ethers::core::abi::ethabi::Contract {
             constructor: ::core::option::Option::Some(::ethers::core::abi::ethabi::Constructor {
                 inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                    name: ::std::borrow::ToOwned::to_owned("host"),
+                    name: ::std::borrow::ToOwned::to_owned("hostAddr"),
                     kind: ::ethers::core::abi::ethabi::ParamType::Address,
                     internal_type: ::core::option::Option::Some(::std::borrow::ToOwned::to_owned(
                         "address"
@@ -145,23 +145,19 @@ pub mod ping_module {
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("host"),
-                    ::std::vec![
-                        ::ethers::core::abi::ethabi::Function {
-                            name: ::std::borrow::ToOwned::to_owned("host"),
-                            inputs: ::std::vec![],
-                            outputs: ::std::vec![
-                                ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Address,
-                                    internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("address"),
-                                    ),
-                                },
-                            ],
-                            constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
-                        },
-                    ],
+                    ::std::vec![::ethers::core::abi::ethabi::Function {
+                        name: ::std::borrow::ToOwned::to_owned("host"),
+                        inputs: ::std::vec![],
+                        outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::string::String::new(),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Address,
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("address"),
+                            ),
+                        },],
+                        constant: ::core::option::Option::None,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                    },],
                 ),
                 (
                     ::std::borrow::ToOwned::to_owned("onAccept"),
@@ -517,10 +513,7 @@ pub mod ping_module {
         ///Calls the contract's `host` (0xf437bc59) function
         pub fn host(
             &self,
-        ) -> ::ethers::contract::builders::ContractCall<
-            M,
-            ::ethers::core::types::Address,
-        > {
+        ) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::Address> {
             self.0
                 .method_hash([244, 55, 188, 89], ())
                 .expect("method not found (this should never happen)")
@@ -1004,11 +997,8 @@ pub mod ping_module {
     pub struct DispatchToParachainCall {
         pub para_id: ::ethers::core::types::U256,
     }
-<<<<<<< Updated upstream
-    ///Container type for all input parameters for the `onAccept` function with signature
-    /// `onAccept((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector `0x4e87ba19`
-=======
-    ///Container type for all input parameters for the `host` function with signature `host()` and selector `0xf437bc59`
+    ///Container type for all input parameters for the `host` function with signature `host()` and
+    /// selector `0xf437bc59`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -1017,12 +1007,12 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash
+        Hash,
     )]
     #[ethcall(name = "host", abi = "host()")]
     pub struct HostCall;
-    ///Container type for all input parameters for the `onAccept` function with signature `onAccept((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector `0x4e87ba19`
->>>>>>> Stashed changes
+    ///Container type for all input parameters for the `onAccept` function with signature
+    /// `onAccept((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector `0x4e87ba19`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -1185,18 +1175,10 @@ pub mod ping_module {
             {
                 return Ok(Self::DispatchToParachain(decoded));
             }
-<<<<<<< Updated upstream
-            if let Ok(decoded) = <OnAcceptCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-=======
-            if let Ok(decoded) = <HostCall as ::ethers::core::abi::AbiDecode>::decode(
-                data,
-            ) {
+            if let Ok(decoded) = <HostCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::Host(decoded));
             }
-            if let Ok(decoded) = <OnAcceptCall as ::ethers::core::abi::AbiDecode>::decode(
-                data,
-            ) {
->>>>>>> Stashed changes
+            if let Ok(decoded) = <OnAcceptCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::OnAccept(decoded));
             }
             if let Ok(decoded) = <OnGetResponseCall as ::ethers::core::abi::AbiDecode>::decode(data)
@@ -1231,7 +1213,6 @@ pub mod ping_module {
     impl ::ethers::core::abi::AbiEncode for PingModuleCalls {
         fn encode(self) -> Vec<u8> {
             match self {
-<<<<<<< Updated upstream
                 Self::Dispatch(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::DispatchWithRequest(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
@@ -1239,6 +1220,7 @@ pub mod ping_module {
                     ::ethers::core::abi::AbiEncode::encode(element),
                 Self::DispatchToParachain(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
+                Self::Host(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::OnAccept(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::OnGetResponse(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::OnGetTimeout(element) => ::ethers::core::abi::AbiEncode::encode(element),
@@ -1247,39 +1229,6 @@ pub mod ping_module {
                 Self::OnPostResponse(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::OnPostResponseTimeout(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
-=======
-                Self::Dispatch(element) => {
-                    ::ethers::core::abi::AbiEncode::encode(element)
-                }
-                Self::DispatchWithRequest(element) => {
-                    ::ethers::core::abi::AbiEncode::encode(element)
-                }
-                Self::DispatchPostResponse(element) => {
-                    ::ethers::core::abi::AbiEncode::encode(element)
-                }
-                Self::DispatchToParachain(element) => {
-                    ::ethers::core::abi::AbiEncode::encode(element)
-                }
-                Self::Host(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::OnAccept(element) => {
-                    ::ethers::core::abi::AbiEncode::encode(element)
-                }
-                Self::OnGetResponse(element) => {
-                    ::ethers::core::abi::AbiEncode::encode(element)
-                }
-                Self::OnGetTimeout(element) => {
-                    ::ethers::core::abi::AbiEncode::encode(element)
-                }
-                Self::OnPostRequestTimeout(element) => {
-                    ::ethers::core::abi::AbiEncode::encode(element)
-                }
-                Self::OnPostResponse(element) => {
-                    ::ethers::core::abi::AbiEncode::encode(element)
-                }
-                Self::OnPostResponseTimeout(element) => {
-                    ::ethers::core::abi::AbiEncode::encode(element)
-                }
->>>>>>> Stashed changes
                 Self::Ping(element) => ::ethers::core::abi::AbiEncode::encode(element),
             }
         }
@@ -1288,22 +1237,10 @@ pub mod ping_module {
         fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
             match self {
                 Self::Dispatch(element) => ::core::fmt::Display::fmt(element, f),
-<<<<<<< Updated upstream
                 Self::DispatchWithRequest(element) => ::core::fmt::Display::fmt(element, f),
                 Self::DispatchPostResponse(element) => ::core::fmt::Display::fmt(element, f),
                 Self::DispatchToParachain(element) => ::core::fmt::Display::fmt(element, f),
-=======
-                Self::DispatchWithRequest(element) => {
-                    ::core::fmt::Display::fmt(element, f)
-                }
-                Self::DispatchPostResponse(element) => {
-                    ::core::fmt::Display::fmt(element, f)
-                }
-                Self::DispatchToParachain(element) => {
-                    ::core::fmt::Display::fmt(element, f)
-                }
                 Self::Host(element) => ::core::fmt::Display::fmt(element, f),
->>>>>>> Stashed changes
                 Self::OnAccept(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnGetResponse(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnGetTimeout(element) => ::core::fmt::Display::fmt(element, f),
@@ -1415,7 +1352,8 @@ pub mod ping_module {
         Hash,
     )]
     pub struct DispatchPostResponseReturn(pub [u8; 32]);
-    ///Container type for all return fields from the `host` function with signature `host()` and selector `0xf437bc59`
+    ///Container type for all return fields from the `host` function with signature `host()` and
+    /// selector `0xf437bc59`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -1424,7 +1362,7 @@ pub mod ping_module {
         Debug,
         PartialEq,
         Eq,
-        Hash
+        Hash,
     )]
     pub struct HostReturn(pub ::ethers::core::types::Address);
     ///`PingMessage(bytes,address,uint64)`

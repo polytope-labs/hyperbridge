@@ -70,6 +70,7 @@ use ismp::{
     messaging::Message,
     util::{hash_request, hash_response},
 };
+use merkle_mountain_range::leaf_index_to_pos;
 pub use pallet::*;
 use sp_runtime::{
     traits::ValidateUnsigned,
@@ -284,18 +285,59 @@ pub mod pallet {
     pub type MmrPositions<T: Config> =
         StorageMap<_, Blake2_128Concat, NodeIndex, H256, OptionQuery>;
 
+    /// Temporary mmr store
+    #[pallet::storage]
+    #[pallet::getter(fn intermediate_mmr)]
+    pub type IntermediateMmrStore<T: Config> =
+        CountedStorageMap<_, Blake2_128Concat, NodeIndex, Leaf, OptionQuery>;
+
+    /// Temporary store to increment the leaf index as the block is executed
+    #[pallet::storage]
+    #[pallet::getter(fn intermediate_number_of_leaves)]
+    pub type IntermediateNumberOfLeaves<T> = StorageValue<_, LeafIndex, ValueQuery>;
+
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
+            IntermediateNumberOfLeaves::<T>::put(Self::number_of_leaves());
             // todo: return correct Mmr finalization weight here
             <T as Config>::WeightInfo::on_finalize(Self::number_of_leaves() as u32)
         }
 
         fn on_finalize(_n: BlockNumberFor<T>) {
             // Only finalize if mmr was modified
-            let leaves = Self::number_of_leaves();
+            let leaves = Self::intermediate_number_of_leaves();
             let root = if leaves != 0 {
+                let mut mmr: Mmr<mmr::storage::RuntimeStorage, T> =
+                    Mmr::new(Self::number_of_leaves());
+                let range = Self::number_of_leaves()..leaves;
+                for index in range {
+                    let leaf = IntermediateMmrStore::<T>::get(index)
+                        .expect("Infallible: Leaf was inserted in this block");
+                    // Mmr push should never fail
+                    match mmr.push(leaf) {
+                        None => {
+                            log::error!(target: "runtime::mmr", "MMR push failed ");
+                        },
+                        Some(position) => {
+                            log::trace!(target: "runtime::mmr", "MMR push {position}");
+                        },
+                    }
+                }
+
+                // Update the size, `mmr.commit()` should also never fail.
+                match mmr.commit() {
+                    Ok(_) => {
+                        log::trace!(target: "runtime::mmr", "Committed to mmr, No of leaves: {leaves}");
+                    },
+                    Err(e) => {
+                        log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
+                        return;
+                    },
+                }
+
+                // Calculate the mmr's new root
                 let mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
                 // Update the size, `mmr.finalize()` should also never fail.
                 let root = match mmr.finalize() {
@@ -307,7 +349,10 @@ pub mod pallet {
                 };
 
                 <RootHash<T>>::put(root);
-
+                let total = IntermediateMmrStore::<T>::count();
+                // Clear intermediate values
+                let _ = IntermediateMmrStore::<T>::clear(total, None);
+                IntermediateNumberOfLeaves::<T>::kill();
                 root
             } else {
                 H256::default()
@@ -703,10 +748,11 @@ impl<T: Config> Pallet<T> {
             Leaf::Request(req) => hash_request::<Host<T>>(req),
             Leaf::Response(res) => hash_response::<Host<T>>(res),
         };
-        let leaves = Self::number_of_leaves();
-        let mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
-        let leaf_index_and_pos = mmr.push(leaf)?;
-        MmrPositions::<T>::insert(leaf_index_and_pos.pos, commitment);
-        Some(leaf_index_and_pos)
+        let leaf_index = Pallet::<T>::intermediate_number_of_leaves();
+        IntermediateMmrStore::<T>::insert(leaf_index, leaf);
+        let pos = leaf_index_to_pos(leaf_index);
+        IntermediateNumberOfLeaves::<T>::put(leaf_index + 1);
+        MmrPositions::<T>::insert(pos, commitment);
+        Some(LeafIndexAndPos { pos, leaf_index })
     }
 }

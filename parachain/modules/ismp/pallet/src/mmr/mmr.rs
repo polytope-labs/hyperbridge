@@ -20,7 +20,7 @@ use crate::{
         utils::NodesUtils,
     },
     mmr_primitives::{DataOrHash, Leaf, MmrHasher, NodeIndex},
-    primitives::{Error, LeafIndexAndPos, Proof},
+    primitives::{Error, Proof},
     Config, Pallet,
 };
 use codec::{Decode, Encode};
@@ -57,21 +57,23 @@ impl<T> Mmr<RuntimeStorage, T>
 where
     T: Config,
 {
-    /// Push another item to the MMR and commit
+    /// Push another item to the MMR
     ///
-    /// Returns the element position (index) and number of leaves in the MMR.
-    pub fn push(mut self, leaf: Leaf) -> Option<LeafIndexAndPos> {
+    /// Returns the element position (index).
+    pub fn push(&mut self, leaf: Leaf) -> Option<NodeIndex> {
         let pos = self.mmr.push(DataOrHash::Data(leaf)).map_err(|_| Error::Push).ok()?;
-        // Leaf index for the new leaf is the previous number of leaves
-        let leaf_index = Pallet::<T>::number_of_leaves();
-        self.mmr.commit().ok()?;
-        Some(LeafIndexAndPos { pos, leaf_index })
+        Some(pos)
     }
 
     /// Calculate the new MMR's root hash.
     pub fn finalize(self) -> Result<H256, Error> {
         let root = self.mmr.get_root().map_err(|_| Error::GetRoot)?;
         Ok(root.hash::<Host<T>>())
+    }
+
+    /// Commit the changes to the mmr
+    pub fn commit(self) -> Result<(), Error> {
+        self.mmr.commit().map_err(|_| Error::Commit)
     }
 }
 
@@ -121,7 +123,10 @@ where
             .iter()
             .map(|pos| match merkle_mountain_range::MMRStore::get_elem(&store, *pos) {
                 Ok(Some(DataOrHash::Data(leaf))) => Ok(leaf),
-                _ => Err(Error::LeafNotFound),
+                e => {
+                    println!("Error fetching {pos} {e:?}");
+                    Err(Error::LeafNotFound)
+                },
             })
             .collect::<Result<Vec<_>, Error>>()?;
         log::trace!(target: "runtime::mmr", "Positions {:?}", positions);

@@ -59,7 +59,6 @@ where
 {
     fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<DataOrHash>> {
         let commitment = Pallet::<T>::mmr_positions(pos);
-
         if let Some(commitment) = commitment {
             let key = Pallet::<T>::full_leaf_offchain_key(commitment);
             debug!(

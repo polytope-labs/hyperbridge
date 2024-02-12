@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use sp_api::{ApiExt, ProvideRuntimeApi};
 use sp_blockchain::HeaderBackend;
 use sp_core::offchain::{storage::OffchainDb, OffchainDbExt, OffchainStorage};
-use sp_runtime::traits::Block as BlockT;
+use sp_runtime::traits::{Block as BlockT, Header};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 /// A type that could be a block number or a block hash
@@ -142,7 +142,8 @@ where
     #[method(name = "ismp_queryEvents")]
     fn query_events(
         &self,
-        block_numbers: Vec<BlockNumberOrHash<Hash>>,
+        from: BlockNumberOrHash<Hash>,
+        to: BlockNumberOrHash<Hash>,
     ) -> Result<HashMap<String, Vec<Event>>>;
 }
 
@@ -265,19 +266,43 @@ where
 
     fn query_events(
         &self,
-        block_numbers: Vec<BlockNumberOrHash<Block::Hash>>,
+        from: BlockNumberOrHash<Block::Hash>,
+        to: BlockNumberOrHash<Block::Hash>,
     ) -> Result<HashMap<String, Vec<Event>>> {
         let mut events = HashMap::new();
-        for block_number_or_hash in block_numbers {
-            let mut api = self.client.runtime_api();
-            api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
-            let at = match block_number_or_hash {
+        let to =
+            match to {
                 BlockNumberOrHash::Hash(block_hash) => block_hash,
                 BlockNumberOrHash::Number(block_number) =>
                     self.client.block_hash(block_number.into()).ok().flatten().ok_or_else(|| {
                         runtime_error_into_rpc_error("Invalid block number provided")
                     })?,
             };
+
+        let from =
+            match from {
+                BlockNumberOrHash::Hash(block_hash) => block_hash,
+                BlockNumberOrHash::Number(block_number) =>
+                    self.client.block_hash(block_number.into()).ok().flatten().ok_or_else(|| {
+                        runtime_error_into_rpc_error("Invalid block number provided")
+                    })?,
+            };
+
+        let from_block = self
+            .client
+            .header(from)
+            .map_err(|e| runtime_error_into_rpc_error(e.to_string()))?
+            .ok_or_else(|| runtime_error_into_rpc_error("Invalid block number or hash provided"))?;
+
+        let mut header = self
+            .client
+            .header(to)
+            .map_err(|e| runtime_error_into_rpc_error(e.to_string()))?
+            .ok_or_else(|| runtime_error_into_rpc_error("Invalid block number or hash provided"))?;
+        while header.number() >= from_block.number() {
+            let mut api = self.client.runtime_api();
+            api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
+            let at = header.hash();
 
             let mut request_commitments = vec![];
             let mut response_commitments = vec![];
@@ -327,7 +352,14 @@ where
             temp.extend(request_events);
             temp.extend(response_events);
 
-            events.insert(block_number_or_hash.to_string(), temp);
+            events.insert(header.hash().to_string(), temp);
+            header = self
+                .client
+                .header(*header.parent_hash())
+                .map_err(|e| runtime_error_into_rpc_error(e.to_string()))?
+                .ok_or_else(|| {
+                    runtime_error_into_rpc_error("Invalid block number or hash provided")
+                })?;
         }
         Ok(events)
     }

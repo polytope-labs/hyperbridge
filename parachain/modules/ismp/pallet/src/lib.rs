@@ -348,6 +348,7 @@ pub mod pallet {
                     },
                 };
 
+                // Insert root in storage
                 <RootHash<T>>::put(root);
                 let total = IntermediateMmrStore::<T>::count();
                 // Clear intermediate values

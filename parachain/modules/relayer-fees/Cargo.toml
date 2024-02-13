@@ -34,7 +34,7 @@ pallet-balances = { workspace = true }
 ethereum-trie = { path = "../tries/ethereum" }
 trie-db = { workspace = true }
 hash-db = { workspace = true }
-ismp-bnb-pos = { path = "../ismp/bnb-pos" }
+ismp-bsc-pos = { path = "../ismp/bsc-pos" }
 ismp-polygon-pos = { path = "../ismp/polygon-pos" }
 sp-trie = { workspace = true }
 substrate-state-machine = { path = "../ismp/state-machine" }

@@ -66,9 +66,9 @@ impl ConsensusClientProvider for ConsensusProvider {
                 Ok(Box::new(polygon_client))
             },
 
-            ismp_bnb_pos::BNB_CONSENSUS_ID => {
-                let bnb_client = ismp_bnb_pos::BnbClient::<Host<Runtime>>::default();
-                Ok(Box::new(bnb_client))
+            ismp_bsc_pos::BSC_CONSENSUS_ID => {
+                let bsc_client = ismp_bsc_pos::BscClient::<Host<Runtime>>::default();
+                Ok(Box::new(bsc_client))
             },
             id => Err(Error::ImplementationSpecific(format!("Unknown consensus client: {id:?}")))?,
         }

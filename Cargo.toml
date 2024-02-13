@@ -32,9 +32,9 @@ members = [
      "parachain/modules/consensus/beefy/prover",
      "parachain/modules/consensus/geth-primitives",
 
-     "parachain/modules/consensus/bnb-pos/verifier",
-     "parachain/modules/consensus/bnb-pos/prover",
-     "parachain/modules/ismp/bnb-pos",
+     "parachain/modules/consensus/bsc-pos/verifier",
+     "parachain/modules/consensus/bsc-pos/prover",
+     "parachain/modules/ismp/bsc-pos",
      "parachain/modules/state-machine-manager",
 
      # evm stuff

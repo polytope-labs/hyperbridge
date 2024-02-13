@@ -19,7 +19,7 @@ const ADDRESS_LENGTH: usize = 20;
 pub const VALIDATOR_BIT_SET_SIZE: usize = 64;
 
 #[derive(Debug, Encode, Decode, Clone)]
-pub struct BnbClientUpdate {
+pub struct BscClientUpdate {
     /// Finalized header
     pub source_header: CodecHeader,
     /// Justified header

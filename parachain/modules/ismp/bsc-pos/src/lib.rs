@@ -6,9 +6,9 @@ extern crate alloc;
 use core::marker::PhantomData;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
-use bnb_pos_verifier::{
-    primitives::{compute_epoch, BnbClientUpdate},
-    verify_bnb_header, NextValidators, VerificationResult,
+use bsc_pos_verifier::{
+    primitives::{compute_epoch, BscClientUpdate},
+    verify_bsc_header, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
 use geth_primitives::Header;
@@ -23,7 +23,7 @@ use ismp_sync_committee::{utils::req_res_to_key, verify_membership, verify_state
 use sp_core::{H160, H256};
 use sync_committee_primitives::constants::BlsPublicKey;
 
-pub const BNB_CONSENSUS_ID: ConsensusStateId = *b"BNBP";
+pub const BSC_CONSENSUS_ID: ConsensusStateId = *b"BSCP";
 
 #[derive(codec::Encode, codec::Decode, Debug, Default)]
 pub struct ConsensusState {
@@ -35,21 +35,21 @@ pub struct ConsensusState {
     pub ismp_contract_address: H160,
 }
 
-pub struct BnbClient<H: IsmpHost>(PhantomData<H>);
+pub struct BscClient<H: IsmpHost>(PhantomData<H>);
 
-impl<H: IsmpHost> Default for BnbClient<H> {
+impl<H: IsmpHost> Default for BscClient<H> {
     fn default() -> Self {
         Self(PhantomData)
     }
 }
 
-impl<H: IsmpHost> Clone for BnbClient<H> {
+impl<H: IsmpHost> Clone for BscClient<H> {
     fn clone(&self) -> Self {
         Self(PhantomData)
     }
 }
 
-impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClient<H> {
+impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClient<H> {
     fn verify_consensus(
         &self,
         _host: &dyn IsmpHost,
@@ -57,8 +57,8 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
         trusted_consensus_state: Vec<u8>,
         proof: Vec<u8>,
     ) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), ismp::error::Error> {
-        let bnb_client_update = BnbClientUpdate::decode(&mut &proof[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode bnb client update".to_string())
+        let bsc_client_update = BscClientUpdate::decode(&mut &proof[..]).map_err(|_| {
+            Error::ImplementationSpecific("Cannot decode bsc client update".to_string())
         })?;
 
         let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
@@ -66,21 +66,21 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
             })?;
 
-        if consensus_state.finalized_height >= bnb_client_update.source_header.number.low_u64() {
+        if consensus_state.finalized_height >= bsc_client_update.source_header.number.low_u64() {
             Err(Error::ImplementationSpecific("Expired Update".to_string()))?
         }
 
         if let Some(next_validators) = consensus_state.next_validators.clone() {
-            if bnb_client_update.attested_header.number.low_u64() >= next_validators.rotation_block
+            if bsc_client_update.attested_header.number.low_u64() >= next_validators.rotation_block
             {
                 consensus_state.current_validators = next_validators.validators;
                 consensus_state.next_validators = None;
             }
         }
 
-        let epoch = compute_epoch(bnb_client_update.source_header.number.low_u64());
+        let epoch = compute_epoch(bsc_client_update.source_header.number.low_u64());
         let VerificationResult { hash, finalized_header, next_validators } =
-            verify_bnb_header::<H>(&consensus_state.current_validators, bnb_client_update)
+            verify_bsc_header::<H>(&consensus_state.current_validators, bsc_client_update)
                 .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
 
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
@@ -112,16 +112,16 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
         proof_1: Vec<u8>,
         proof_2: Vec<u8>,
     ) -> Result<(), ismp::error::Error> {
-        let bnb_client_update_1 = BnbClientUpdate::decode(&mut &proof_1[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode bnb client update for proof 1".to_string())
+        let bsc_client_update_1 = BscClientUpdate::decode(&mut &proof_1[..]).map_err(|_| {
+            Error::ImplementationSpecific("Cannot decode bsc client update for proof 1".to_string())
         })?;
 
-        let bnb_client_update_2 = BnbClientUpdate::decode(&mut &proof_2[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode bnb client update for proof 2".to_string())
+        let bsc_client_update_2 = BscClientUpdate::decode(&mut &proof_2[..]).map_err(|_| {
+            Error::ImplementationSpecific("Cannot decode bsc client update for proof 2".to_string())
         })?;
 
-        let header_1 = bnb_client_update_1.attested_header.clone();
-        let header_2 = bnb_client_update_2.attested_header.clone();
+        let header_1 = bsc_client_update_1.attested_header.clone();
+        let header_2 = bsc_client_update_2.attested_header.clone();
 
         if header_1.number != header_2.number {
             Err(Error::ImplementationSpecific("Invalid Fraud proof".to_string()))?
@@ -139,12 +139,12 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BnbClien
                 Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
             })?;
 
-        let _ = verify_bnb_header::<H>(&consensus_state.current_validators, bnb_client_update_1)
+        let _ = verify_bsc_header::<H>(&consensus_state.current_validators, bsc_client_update_1)
             .map_err(|_| {
                 Error::ImplementationSpecific("Failed to verify first header".to_string())
             })?;
 
-        let _ = verify_bnb_header::<H>(&consensus_state.current_validators, bnb_client_update_2)
+        let _ = verify_bsc_header::<H>(&consensus_state.current_validators, bsc_client_update_2)
             .map_err(|_| {
                 Error::ImplementationSpecific("Failed to verify second header".to_string())
             })?;

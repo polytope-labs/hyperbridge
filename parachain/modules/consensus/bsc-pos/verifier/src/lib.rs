@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use anyhow::anyhow;
 use ark_ec::AffineRepr;
 use ismp::util::Keccak256;
-use primitives::{parse_extra, BnbClientUpdate, VALIDATOR_BIT_SET_SIZE};
+use primitives::{parse_extra, BscClientUpdate, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
 use sync_committee_verifier::crypto::{pairing, pubkey_to_projective};
 pub mod primitives;
@@ -33,9 +33,9 @@ pub struct NextValidators {
     pub rotation_block: u64,
 }
 
-pub fn verify_bnb_header<H: Keccak256>(
+pub fn verify_bsc_header<H: Keccak256>(
     current_validators: &Vec<BlsPublicKey>,
-    update: BnbClientUpdate,
+    update: BscClientUpdate,
 ) -> Result<VerificationResult, anyhow::Error> {
     let extra_data = parse_extra::<H>(&update.attested_header.extra_data)
         .map_err(|_| anyhow!("could not parse extra data from header"))?;

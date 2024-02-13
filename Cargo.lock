@@ -1179,45 +1179,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bnb-pos-prover"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bnb-pos-verifier",
- "dotenv",
- "ethers",
- "geth-primitives",
- "ismp",
- "primitive-types",
- "sp-core 28.0.0",
- "sync-committee-primitives",
- "tokio",
-]
-
-[[package]]
-name = "bnb-pos-verifier"
-version = "0.1.0"
-dependencies = [
- "alloy-primitives",
- "alloy-rlp",
- "alloy-rlp-derive",
- "anyhow",
- "ark-bls12-381",
- "ark-ec",
- "bls_on_arkworks",
- "ethabi",
- "geth-primitives",
- "ismp",
- "log",
- "parity-scale-codec",
- "sp-core 27.0.0",
- "sp-runtime 31.0.1",
- "ssz-rs",
- "sync-committee-primitives",
- "sync-committee-verifier",
-]
-
-[[package]]
 name = "bounded-collections"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1264,6 +1225,45 @@ checksum = "f5353f36341f7451062466f0b755b96ac3a9547e4d7f6b70d603fc721a7d7896"
 dependencies = [
  "sha2 0.10.8",
  "tinyvec",
+]
+
+[[package]]
+name = "bsc-pos-prover"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bsc-pos-verifier",
+ "dotenv",
+ "ethers",
+ "geth-primitives",
+ "ismp",
+ "primitive-types",
+ "sp-core 28.0.0",
+ "sync-committee-primitives",
+ "tokio",
+]
+
+[[package]]
+name = "bsc-pos-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "anyhow",
+ "ark-bls12-381",
+ "ark-ec",
+ "bls_on_arkworks",
+ "ethabi",
+ "geth-primitives",
+ "ismp",
+ "log",
+ "parity-scale-codec",
+ "sp-core 27.0.0",
+ "sp-runtime 31.0.1",
+ "ssz-rs",
+ "sync-committee-primitives",
+ "sync-committee-verifier",
 ]
 
 [[package]]
@@ -4802,7 +4802,7 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bnb-pos",
+ "ismp-bsc-pos",
  "ismp-demo",
  "ismp-polygon-pos",
  "ismp-runtime-api",
@@ -5665,11 +5665,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "ismp-bnb-pos"
+name = "ismp-bsc-pos"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bnb-pos-verifier",
+ "bsc-pos-verifier",
  "frame-support",
  "frame-system",
  "geth-primitives",
@@ -7001,7 +7001,7 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bnb-pos",
+ "ismp-bsc-pos",
  "ismp-demo",
  "ismp-polygon-pos",
  "ismp-runtime-api",
@@ -8653,7 +8653,7 @@ dependencies = [
  "frame-system",
  "hash-db",
  "ismp",
- "ismp-bnb-pos",
+ "ismp-bsc-pos",
  "ismp-polygon-pos",
  "ismp-sync-committee",
  "log",

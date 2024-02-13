@@ -227,6 +227,8 @@ fn should_generate_and_verify_batch_proof_for_leaves_inserted_across_multiple_bl
 
         assert_eq!(root, calculated_root.hash::<Host<Test>>());
         assert_eq!(IntermediateLeaves::<Test>::count(), 0);
+
+        dbg!(NodesUtils::new(1_000_000_000).size() * 32);
     })
 }
 

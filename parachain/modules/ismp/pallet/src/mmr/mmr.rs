@@ -16,7 +16,7 @@
 use crate::{
     host::Host,
     mmr::{
-        storage::{OffchainStorage, RuntimeStorage, Storage},
+        storage::{RuntimeStorage, Storage},
         utils::NodesUtils,
     },
     mmr_primitives::{DataOrHash, Leaf, MmrHasher, NodeIndex},
@@ -87,8 +87,8 @@ pub enum ProofKeys {
     Responses(Vec<H256>),
 }
 
-/// Off-chain specific MMR functions.
-impl<T> Mmr<OffchainStorage, T>
+/// On-chain specific MMR functions.
+impl<T> Mmr<RuntimeStorage, T>
 where
     T: Config,
 {
@@ -117,16 +117,13 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         };
-        let store = <Storage<OffchainStorage, T>>::default();
+        let store = <Storage<RuntimeStorage, T>>::default();
         let positions = leaf_indices_and_positions.iter().map(|val| val.pos).collect::<Vec<_>>();
         let leaves = positions
             .iter()
             .map(|pos| match merkle_mountain_range::MMRStore::get_elem(&store, *pos) {
                 Ok(Some(DataOrHash::Data(leaf))) => Ok(leaf),
-                e => {
-                    println!("Error fetching {pos} {e:?}");
-                    Err(Error::LeafNotFound)
-                },
+                _ => Err(Error::LeafNotFound),
             })
             .collect::<Result<Vec<_>, Error>>()?;
         log::trace!(target: "runtime::mmr", "Positions {:?}", positions);

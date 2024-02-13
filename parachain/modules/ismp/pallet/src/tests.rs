@@ -133,7 +133,7 @@ fn should_generate_proofs_correctly_for_single_leaf_mmr() {
 
         assert_eq!(root, calculated_root.hash::<Host<Test>>());
 
-        assert_eq!(IntermediateMmrStore::<Test>::count(), 0);
+        assert_eq!(IntermediateLeaves::<Test>::count(), 0);
     })
 }
 
@@ -177,7 +177,7 @@ fn should_generate_and_verify_batch_proof_correctly() {
             .unwrap();
 
         assert_eq!(root, calculated_root.hash::<Host<Test>>());
-        assert_eq!(IntermediateMmrStore::<Test>::count(), 0);
+        assert_eq!(IntermediateLeaves::<Test>::count(), 0);
     })
 }
 
@@ -226,7 +226,7 @@ fn should_generate_and_verify_batch_proof_for_leaves_inserted_across_multiple_bl
             .unwrap();
 
         assert_eq!(root, calculated_root.hash::<Host<Test>>());
-        assert_eq!(IntermediateMmrStore::<Test>::count(), 0);
+        assert_eq!(IntermediateLeaves::<Test>::count(), 0);
     })
 }
 

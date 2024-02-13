@@ -285,10 +285,10 @@ pub mod pallet {
     pub type MmrPositions<T: Config> =
         StorageMap<_, Blake2_128Concat, NodeIndex, H256, OptionQuery>;
 
-    /// Temporary mmr store
+    /// Temporary leaf storage for when the block is still executing
     #[pallet::storage]
-    #[pallet::getter(fn intermediate_mmr)]
-    pub type IntermediateMmrStore<T: Config> =
+    #[pallet::getter(fn intermediate_leaves)]
+    pub type IntermediateLeaves<T: Config> =
         CountedStorageMap<_, Blake2_128Concat, NodeIndex, Leaf, OptionQuery>;
 
     /// Temporary store to increment the leaf index as the block is executed
@@ -313,7 +313,7 @@ pub mod pallet {
                     Mmr::new(Self::number_of_leaves());
                 let range = Self::number_of_leaves()..leaves;
                 for index in range {
-                    let leaf = IntermediateMmrStore::<T>::get(index)
+                    let leaf = IntermediateLeaves::<T>::get(index)
                         .expect("Infallible: Leaf was inserted in this block");
                     // Mmr push should never fail
                     match mmr.push(leaf) {
@@ -350,9 +350,9 @@ pub mod pallet {
 
                 // Insert root in storage
                 <RootHash<T>>::put(root);
-                let total = IntermediateMmrStore::<T>::count();
+                let total = IntermediateLeaves::<T>::count();
                 // Clear intermediate values
-                let _ = IntermediateMmrStore::<T>::clear(total, None);
+                let _ = IntermediateLeaves::<T>::clear(total, None);
                 IntermediateNumberOfLeaves::<T>::kill();
                 root
             } else {
@@ -572,7 +572,7 @@ impl<T: Config> Pallet<T> {
         commitments: ProofKeys,
     ) -> Result<(Vec<Leaf>, primitives::Proof<H256>), primitives::Error> {
         let leaves_count = NumberOfLeaves::<T>::get();
-        let mmr = Mmr::<mmr::storage::OffchainStorage, T>::new(leaves_count);
+        let mmr = Mmr::<mmr::storage::RuntimeStorage, T>::new(leaves_count);
         mmr.generate_proof(commitments)
     }
 
@@ -654,11 +654,6 @@ impl<T: Config> Pallet<T> {
     /// Get a node from runtime storage
     fn get_node(pos: NodeIndex) -> Option<DataOrHash> {
         Nodes::<T>::get(pos).map(DataOrHash::Hash)
-    }
-
-    /// Remove a node from storage
-    fn remove_node(pos: NodeIndex) {
-        Nodes::<T>::remove(pos);
     }
 
     /// Insert a node into storage
@@ -750,7 +745,7 @@ impl<T: Config> Pallet<T> {
             Leaf::Response(res) => hash_response::<Host<T>>(res),
         };
         let leaf_index = Pallet::<T>::intermediate_number_of_leaves();
-        IntermediateMmrStore::<T>::insert(leaf_index, leaf);
+        IntermediateLeaves::<T>::insert(leaf_index, leaf);
         let pos = leaf_index_to_pos(leaf_index);
         IntermediateNumberOfLeaves::<T>::put(leaf_index + 1);
         MmrPositions::<T>::insert(pos, commitment);

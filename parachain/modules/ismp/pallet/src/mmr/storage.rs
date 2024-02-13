@@ -94,7 +94,22 @@ where
     T: Config,
 {
     fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<DataOrHash>> {
-        Ok(Pallet::<T>::get_node(pos))
+        let commitment = Pallet::<T>::mmr_positions(pos);
+        if let Some(commitment) = commitment {
+            let key = Pallet::<T>::full_leaf_offchain_key(commitment);
+            debug!(
+                target: "runtime::mmr::offchain", "offchain db get {}: key {:?}",
+                pos, key
+            );
+            // Try to retrieve the element from Off-chain DB.
+            if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
+                return Ok(codec::Decode::decode(&mut &*elem).ok());
+            }
+        } else {
+            return Ok(Pallet::<T>::get_node(pos));
+        }
+
+        Ok(None)
     }
 
     fn append(
@@ -118,23 +133,14 @@ where
             return Err(merkle_mountain_range::Error::InconsistentStore);
         }
 
-        let new_size = size + elems.len() as NodeIndex;
-
-        // A sorted (ascending) iterator over peak indices to prune and persist.
-        let (peaks_to_prune, mut peaks_to_store) = peaks_to_prune_and_store(size, new_size);
-
         // Now we are going to iterate over elements to insert
         // and keep track of the current `node_index` and `leaf_index`.
         let mut leaf_index = leaves;
         let mut node_index = size;
 
         for elem in elems {
-            // On-chain we are going to only store new peaks.
-            if peaks_to_store.next_if_eq(&node_index).is_some() {
-                Pallet::<T>::insert_node(node_index, elem.hash::<Host<T>>());
-            }
-            // We are storing full node off-chain (using indexing API).
-            Self::store_to_offchain(node_index, &elem);
+            // Store element
+            Self::store_to_elem(node_index, &elem);
 
             // Increase the indices.
             if let DataOrHash::Data(..) = elem {
@@ -146,11 +152,6 @@ where
         // Update current number of leaves.
         Pallet::<T>::set_num_leaves(leaf_index);
 
-        // And remove all remaining items from `peaks_before` collection.
-        for pos in peaks_to_prune {
-            Pallet::<T>::remove_node(pos);
-        }
-
         Ok(())
     }
 }
@@ -159,25 +160,29 @@ impl<T> Storage<RuntimeStorage, T>
 where
     T: Config,
 {
-    /// Store a node in the offchain db
-    fn store_to_offchain(pos: NodeIndex, node: &DataOrHash) {
+    /// Store a node in the offchain db or runtime storage
+    fn store_to_elem(pos: NodeIndex, node: &DataOrHash) {
         let encoded_node = node.encode();
         let commitment = node.hash::<Host<T>>();
-        let key = match node {
-            DataOrHash::Data(_) => Pallet::<T>::full_leaf_offchain_key(commitment),
-            DataOrHash::Hash(_) => Pallet::<T>::intermediate_node_offchain_key(pos),
+        match node {
+            DataOrHash::Data(_) => {
+                let key = Pallet::<T>::full_leaf_offchain_key(commitment);
+                debug!(
+                    target: "runtime::mmr::offchain", "offchain db set: pos {} key {:?}",
+                    pos, key
+                );
+                // Indexing API is used to store the full node content.
+                sp_io::offchain_index::set(&key, &encoded_node);
+            },
+            DataOrHash::Hash(hash) => {
+                Pallet::<T>::insert_node(pos, *hash);
+            },
         };
-        debug!(
-            target: "runtime::mmr::offchain", "offchain db set: pos {} key {:?}",
-            pos, key
-        );
-        // Indexing API is used to store the full node content.
-        sp_io::offchain_index::set(&key, &encoded_node);
     }
 }
 
 /// Calculate peaks to prune and store
-fn peaks_to_prune_and_store(
+fn _peaks_to_prune_and_store(
     old_size: NodeIndex,
     new_size: NodeIndex,
 ) -> (impl Iterator<Item = NodeIndex>, Peekable<impl Iterator<Item = NodeIndex>>) {

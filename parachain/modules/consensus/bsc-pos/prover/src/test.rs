@@ -1,17 +1,17 @@
-use bnb_pos_verifier::{
+use bsc_pos_verifier::{
     primitives::{compute_epoch, parse_extra, EPOCH_LENGTH},
-    verify_bnb_header, NextValidators,
+    verify_bsc_header, NextValidators,
 };
 use ethers::{
-    prelude::{Middleware, StreamExt},
-    providers::{Http, Provider, Ws},
+    prelude::{Middleware, ProviderExt, StreamExt},
+    providers::{Http, Provider},
 };
 use geth_primitives::CodecHeader;
 use ismp::util::Keccak256;
 use std::time::Duration;
 use sync_committee_primitives::constants::BlsPublicKey;
 
-use crate::BnbPosProver;
+use crate::BscPosProver;
 
 pub struct Host;
 
@@ -24,17 +24,17 @@ impl Keccak256 for Host {
     }
 }
 
-async fn setup_prover() -> BnbPosProver {
+async fn setup_prover() -> BscPosProver {
     dotenv::dotenv().ok();
     let consensus_url = std::env::var("BNB_RPC").unwrap();
-    let provider = Provider::<Http>::connect_with_reconnects(consensus_url, 1000).await.unwrap();
+    let provider = Provider::<Http>::connect(&consensus_url).await;
 
-    BnbPosProver::new(provider)
+    BscPosProver::new(provider)
 }
 
 #[tokio::test]
 #[ignore]
-async fn verify_bnb_pos_header() {
+async fn verify_bsc_pos_header() {
     let prover = setup_prover().await;
     let latest_block = prover.latest_header().await.unwrap();
     let epoch_1 = compute_epoch(latest_block.number.low_u64()) - 1;
@@ -48,15 +48,15 @@ async fn verify_bnb_pos_header() {
         .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
         .collect::<Vec<BlsPublicKey>>();
 
-    let update = prover.fetch_bnb_update::<Host>(epoch_2_header.clone()).await.unwrap();
+    let update = prover.fetch_bsc_update::<Host>(epoch_2_header.clone()).await.unwrap();
 
-    let result = verify_bnb_header::<Host>(&validators, update.unwrap()).unwrap();
+    let result = verify_bsc_header::<Host>(&validators, update.unwrap()).unwrap();
     dbg!(result);
 }
 
 #[tokio::test]
 #[ignore]
-async fn verify_bnb_pos_headers() {
+async fn verify_bsc_pos_headers() {
     let prover = setup_prover().await;
     let latest_block = prover.latest_header().await.unwrap();
     let (epoch_header, mut validators) = prover.fetch_finalized_state::<Host>().await.unwrap();
@@ -70,17 +70,17 @@ async fn verify_bnb_pos_headers() {
     let mut next_validators: Option<NextValidators> = None;
     let mut current_epoch = compute_epoch(latest_block.number.low_u64());
     let mut done = false;
-    let mut sub = prover.client.subscribe_blocks().await.unwrap();
+    let mut sub = prover.client.watch_blocks().await.unwrap();
     // Verify at least an epoch change until validator set is rotated
     while let Some(block) = sub.next().await {
         if done {
             break
         }
 
-        let header: CodecHeader = block.into();
+        let header: CodecHeader = prover.fetch_header(block).await.unwrap().unwrap();
         let block_epoch = compute_epoch(header.number.low_u64());
 
-        if let Some(mut update) = prover.fetch_bnb_update::<Host>(header.clone()).await.unwrap() {
+        if let Some(mut update) = prover.fetch_bsc_update::<Host>(header.clone()).await.unwrap() {
             dbg!(block_epoch);
             dbg!(current_epoch);
             dbg!(header.number);
@@ -96,7 +96,7 @@ async fn verify_bnb_pos_headers() {
                 next_validators = None;
                 done = true;
             }
-            let result = verify_bnb_header::<Host>(&validators, update).unwrap();
+            let result = verify_bsc_header::<Host>(&validators, update).unwrap();
             dbg!(&result.hash);
             dbg!(result.next_validators.is_some());
             if let Some(validators) = result.next_validators {

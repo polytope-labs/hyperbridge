@@ -2,7 +2,7 @@
 mod test;
 
 use anyhow::anyhow;
-use bnb_pos_verifier::primitives::{compute_epoch, parse_extra, BnbClientUpdate, EPOCH_LENGTH};
+use bsc_pos_verifier::primitives::{compute_epoch, parse_extra, BscClientUpdate, EPOCH_LENGTH};
 use ethers::{
     prelude::Provider,
     providers::{Http, Middleware},
@@ -15,12 +15,12 @@ use std::{fmt::Debug, sync::Arc};
 use sync_committee_primitives::constants::BlsPublicKey;
 
 #[derive(Clone)]
-pub struct BnbPosProver {
+pub struct BscPosProver {
     /// Execution Rpc client
     pub client: Arc<Provider<Http>>,
 }
 
-impl BnbPosProver {
+impl BscPosProver {
     pub fn new(client: Provider<Http>) -> Self {
         Self { client: Arc::new(client) }
     }
@@ -43,10 +43,10 @@ impl BnbPosProver {
         Ok(header)
     }
 
-    pub async fn fetch_bnb_update<I: Keccak256>(
+    pub async fn fetch_bsc_update<I: Keccak256>(
         &self,
         attested_header: CodecHeader,
-    ) -> Result<Option<BnbClientUpdate>, anyhow::Error> {
+    ) -> Result<Option<BscClientUpdate>, anyhow::Error> {
         let parse_extra_data = parse_extra::<I>(&attested_header.extra_data)
             .map_err(|_| anyhow!("Extra data not found in header {:?}", attested_header.number))?;
         let source_hash = H256::from_slice(&parse_extra_data.vote_data.source_hash.0);
@@ -91,14 +91,14 @@ impl BnbPosProver {
             }
         }
 
-        let bnb_client_update = BnbClientUpdate {
+        let bsc_client_update = BscClientUpdate {
             source_header,
             target_header,
             attested_header,
             epoch_header_ancestry: epoch_header_ancestry.try_into().expect("Infallible: Qed"),
         };
 
-        Ok(Some(bnb_client_update))
+        Ok(Some(bsc_client_update))
     }
 
     pub async fn fetch_finalized_state<I: Keccak256>(

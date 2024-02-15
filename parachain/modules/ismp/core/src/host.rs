@@ -261,7 +261,7 @@ pub enum StateMachine {
     #[codec(index = 5)]
     /// Polygon Pos
     Polygon,
-    /// Bnb Pos
+    /// Bsc Pos
     #[codec(index = 6)]
     Bsc,
 }

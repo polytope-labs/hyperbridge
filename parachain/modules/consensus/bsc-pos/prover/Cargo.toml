@@ -1,5 +1,5 @@
 [package]
-name = "bnb-pos-prover"
+name = "bsc-pos-prover"
 version = "0.1.0"
 edition = "2021"
 description = "Prover for Binance Smart Chain Network's Consensus Protocol"
@@ -8,7 +8,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bnb-pos-verifier = { path= "../verifier" }
+bsc-pos-verifier = { path= "../verifier" }
 anyhow = "1.0.68"
 primitive-types = { version = "0.12.1", features = ["serde", "impl-codec"] }
 ethers = { workspace = true, features = ["ws"] }

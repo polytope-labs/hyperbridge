@@ -129,6 +129,7 @@ pub mod pallet {
 
         /// Configurable router that dispatches calls to modules
         type IsmpRouter: IsmpRouter + Default;
+
         /// Provides concrete implementations of consensus clients
         type ConsensusClientProvider: ConsensusClientProvider;
 

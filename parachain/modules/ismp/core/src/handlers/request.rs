@@ -42,7 +42,11 @@ where
     )?;
 
     let check_source = |source: StateMachine| -> bool {
-        msg.proof.height.id.state_id == source || host.is_allowed_proxy(&source)
+        host.is_allowed_proxy(&source) || msg.proof.height.id.state_id == source
+    };
+
+    let check_dest = |dest: StateMachine| -> bool {
+        host.is_router() || dest == host.host_state_machine()
     };
 
     let router = host.ismp_router();
@@ -54,7 +58,8 @@ where
             let req = Request::Post(req.clone());
             host.request_receipt(&req).is_none() &&
                 !req.timed_out(host.timestamp()) &&
-                check_source(req.source_chain())
+                check_source(req.source_chain()) &&
+                check_dest(req.dest_chain())
         })
         .map(|request| {
             let cb = router.module_for_id(request.to.clone())?;

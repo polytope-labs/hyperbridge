@@ -214,6 +214,11 @@ pub trait IsmpHost: Keccak256 {
 
     /// Return a handle to the router
     fn ismp_router(&self) -> Box<dyn IsmpRouter>;
+
+    /// Is the current host playing the role of router?
+    fn is_router(&self) -> bool {
+        false
+    }
 }
 
 /// Currently supported ethereum state machines.

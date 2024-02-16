@@ -64,7 +64,7 @@ contract DeployScript is Script {
             lastUpdated: 0,
             consensusState: new bytes(0),
             baseGetRequestFee: 5 * 1e17, // $0.50
-            perByteFee: 3 * 1e16, // $0.003/byte
+            perByteFee: 3 * 1e15, // $0.003/byte
             feeTokenAddress: address(feeToken),
             latestStateMachineHeight: 0
         });

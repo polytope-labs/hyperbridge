@@ -14,7 +14,7 @@ primitive-types = { version = "0.12.1", features = ["serde", "impl-codec"] }
 ethers = { workspace = true, features = ["ws"] }
 ismp = { path = "../../../ismp/core" }
 sp-core = { workspace = true }
-sync-committee-primitives  = { path = "../../../consensus/sync-committee/primitives"}
+sync-committee-primitives  = { path = "../../sync-committee/primitives" }
 geth-primitives = { path = "../../geth-primitives" }
 
 [dev-dependencies]

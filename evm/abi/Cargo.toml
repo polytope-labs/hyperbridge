@@ -15,10 +15,10 @@ primitive-types = "0.12.2"
 
 ethers = { workspace = true }
 merkle-mountain-range = { workspace = true, features = ["default"] }
-mmr-utils = { path = "../../parachain/modules/tries/mmr" }
+mmr-utils = { path = "../../modules/tries/mmr" }
 sp-consensus-beefy = { workspace =  true, features = ["default"] }
-ismp = { path = "../../parachain/modules/ismp/core" }
-beefy-verifier-primitives = { path = "../../parachain/modules/consensus/beefy/primitives" }
+ismp = { path = "../../modules/ismp/core" }
+beefy-verifier-primitives = { path = "../../modules/consensus/beefy/primitives" }
 anyhow = "1.0.79"
 
 

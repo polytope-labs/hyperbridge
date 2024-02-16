@@ -5354,7 +5354,7 @@ dependencies = [
  "sp-timestamp",
  "sp-transaction-pool",
  "staging-xcm",
- "substrate-build-script-utils 10.0.0",
+ "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "substrate-prometheus-endpoint",
  "try-runtime-cli",
@@ -9612,7 +9612,7 @@ dependencies = [
  "sp-io 30.0.0",
  "sp-keyring",
  "sp-maybe-compressed-blob",
- "substrate-build-script-utils 11.0.0",
+ "substrate-build-script-utils",
  "thiserror",
  "try-runtime-cli",
 ]
@@ -15683,12 +15683,6 @@ dependencies = [
  "rand 0.8.5",
  "rustc-hex",
 ]
-
-[[package]]
-name = "substrate-build-script-utils"
-version = "10.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d211fbdfa0ecd20577b61bfaaea72fbe6cdb34a689dc200337c4564761f37ceb"
 
 [[package]]
 name = "substrate-build-script-utils"

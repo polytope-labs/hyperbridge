@@ -16,8 +16,8 @@ codec = { package = "parity-scale-codec", version = "3.1.3", default-features = 
 ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
 ismp = { path = "../../../ismp/core", default-features = false }
 geth-primitives = { path = "../../geth-primitives", default-features = false }
-sync-committee-verifier = { path = "../../../consensus/sync-committee/verifier", default-features = false }
-sync-committee-primitives  = { path = "../../../consensus/sync-committee/primitives", default-features = false }
+sync-committee-verifier = { path = "../../sync-committee/verifier", default-features = false }
+sync-committee-primitives  = { path = "../../sync-committee/primitives", default-features = false }
 ark-bls12-381 = { version = "0.4.0", default-features = false, features = ["curve"] }
 bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
 ark-ec = { version = "0.4.2", default-features = false }

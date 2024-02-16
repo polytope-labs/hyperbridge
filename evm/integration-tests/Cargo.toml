@@ -33,7 +33,7 @@ sp-trie = { workspace = true }
 ethers = { workspace = true }
 forge-testsuite = { workspace = true }
 merkle-mountain-range = { workspace = true, features = ["default"] }
-mmr-utils = { path = "../../modules/tries/mmr" }
+mmr-utils = { path = "../../modules/trees/mmr" }
 ismp = { path = "../../modules/ismp/core" }
 pallet-ismp = { path = "../../modules/ismp/pallet" }
 ismp-solidity-abi = { path = "../abi", features = ["build-abi"] }

@@ -22,7 +22,7 @@ members = [
      "modules/ismp/state-machine",
 
      # modules
-     "modules/tries/ethereum",
+     "modules/trees/ethereum",
      "modules/consensus/sync-committee/prover",
      "modules/consensus/sync-committee/verifier",
      "modules/consensus/sync-committee/primitives",
@@ -40,7 +40,7 @@ members = [
      "evm/integration-tests",
      "evm/abi",
      "modules/relayer-fees",
-     "modules/tries/mmr",
+     "modules/trees/mmr",
 ]
 
 # Config for 'cargo dist'

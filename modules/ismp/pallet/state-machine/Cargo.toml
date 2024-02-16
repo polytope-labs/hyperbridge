@@ -10,8 +10,8 @@ frame-system = { workspace = true }
 sp-runtime = { workspace = true }
 
 # polytope labs
-ismp = { path = "../core", default-features = false }
-pallet-ismp = { path = "../pallet", default-features = false }
+ismp = { path = "../../core", default-features = false }
+pallet-ismp = { path = "..", default-features = false }
 
 # crates.io
 merkle-mountain-range = { workspace = true }

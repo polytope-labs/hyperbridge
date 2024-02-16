@@ -20,7 +20,7 @@ cumulus-primitives-core = {  workspace = true, default-features = true }
 cumulus-relay-chain-interface = {  workspace = true, default-features = true }
 
 # polytope-labs
-ismp = { path = "../../core" }
+ismp = { path = "../../../core" }
 
 # local
 ismp-parachain = { path = "../" }

@@ -12,7 +12,7 @@ sp-core = { workspace = true }
 sp-std = { workspace = true }
 sp-io = { workspace = true }
 pallet-ismp = { path = "../ismp/pallet", default-features = false }
-ismp-sync-committee = {path = "../ismp/sync-committee", default-features = false }
+ismp-sync-committee = {path = "../ismp/clients/sync-committee", default-features = false }
 
 # polytope labs
 ismp = { package = "ismp", path = "../ismp/core", default-features = false }
@@ -34,10 +34,10 @@ pallet-balances = { workspace = true }
 ethereum-trie = { path = "../trees/ethereum" }
 trie-db = { workspace = true }
 hash-db = { workspace = true }
-ismp-bsc-pos = { path = "../ismp/bsc-pos" }
-ismp-polygon-pos = { path = "../ismp/polygon-pos" }
+ismp-bsc-pos = { path = "../ismp/clients/bsc-pos" }
+ismp-polygon-pos = { path = "../ismp/clients/polygon-pos" }
 sp-trie = { workspace = true }
-substrate-state-machine = { path = "../ismp/state-machine" }
+substrate-state-machine = { path = "../ismp/pallet/state-machine" }
 
 [features]
 default = ["std"]

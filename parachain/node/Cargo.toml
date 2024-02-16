@@ -20,8 +20,8 @@ serde_json = "1.0.108"
 # local
 gargantua-runtime = { path = "../runtimes/gargantua" }
 messier-runtime = { path = "../runtimes/messier" }
-ismp-rpc = { path = "../../modules/ismp/rpc" }
-ismp-runtime-api = { path = "../../modules/ismp/runtime-api" }
+ismp-rpc = { path = "../../modules/ismp/pallet/rpc" }
+ismp-runtime-api = { path = "../../modules/ismp/pallet/runtime-api" }
 
 # Substrate
 frame-benchmarking = { workspace = true }

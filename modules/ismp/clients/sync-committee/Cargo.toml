@@ -7,12 +7,12 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 # polytope labs
-ismp = { path = "../core", default-features = false }
-sync-committee-primitives = { path = "../../consensus/sync-committee/primitives", default-features = false }
-sync-committee-verifier = { path = "../../consensus/sync-committee/verifier", default-features = false }
-ethereum-trie = { path = "../../trees/ethereum", default-features = false }
-pallet-ismp = { path = "../pallet", default-features = false }
-geth-primitives = { path = "../../consensus/geth-primitives", default-features = false }
+ismp = { path = "../../core", default-features = false }
+sync-committee-primitives = { path = "../../../consensus/sync-committee/primitives", default-features = false }
+sync-committee-verifier = { path = "../../../consensus/sync-committee/verifier", default-features = false }
+ethereum-trie = { path = "../../../trees/ethereum", default-features = false }
+pallet-ismp = { path = "../../pallet", default-features = false }
+geth-primitives = { path = "../../../consensus/geth-primitives", default-features = false }
 
 # crates.io
 trie-db = { workspace = true }

@@ -11,15 +11,15 @@ members = [
      # ismp
      "modules/ismp/pallet",
      "modules/ismp/core",
-     "modules/ismp/rpc",
-     "modules/ismp/runtime-api",
-     "modules/ismp/demo",
+     "modules/ismp/pallet/rpc",
+     "modules/ismp/pallet/runtime-api",
+     "modules/ismp/pallet/demo",
      "modules/ismp/core",
      "modules/ismp/testsuite",
-     "modules/ismp/sync-committee",
-     "modules/ismp/polygon-pos",
-     "modules/ismp/casper-ffg",
-     "modules/ismp/state-machine",
+     "modules/ismp/clients/sync-committee",
+     "modules/ismp/clients/polygon-pos",
+     "modules/ismp/clients/casper-ffg",
+     "modules/ismp/pallet/state-machine",
 
      # modules
      "modules/trees/ethereum",
@@ -33,7 +33,7 @@ members = [
      "modules/consensus/geth-primitives",
      "modules/consensus/bsc-pos/verifier",
      "modules/consensus/bsc-pos/prover",
-     "modules/ismp/bsc-pos",
+     "modules/ismp/clients/bsc-pos",
      "modules/state-machine-manager",
 
      # evm stuff

@@ -16,8 +16,8 @@ hex-literal = "0.4.1"
 primitive-types = { version = "0.12.1", default-features = false }
 
 # polytope labs
-ismp = { path = "../core", default-features = false }
-pallet-ismp = { path = "../pallet", default-features = false }
+ismp = { path = "../../core", default-features = false }
+pallet-ismp = { path = "..", default-features = false }
 
 # substrate
 frame-support = { workspace = true }

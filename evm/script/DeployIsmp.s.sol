@@ -26,7 +26,7 @@ import {GovernableToken} from "../src/modules/GovernableToken.sol";
 contract DeployScript is Script {
     using strings for *;
 
-    bytes32 public salt = keccak256(bytes("gargantua-v4400000"));
+    bytes32 public salt = keccak256(bytes("gargantua-v4600000"));
 
     function run() external {
         address admin = vm.envAddress("ADMIN");
@@ -56,8 +56,8 @@ contract DeployScript is Script {
             admin: admin,
             hostManager: address(manager),
             handler: address(handler),
-            // 45 mins
-            defaultTimeout: 45 * 60,
+            // 2hrs
+            defaultTimeout: 2 * 60 * 60,
             // 21 days
             unStakingPeriod: 21 * (60 * 60 * 24),
             // for this test

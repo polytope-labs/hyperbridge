@@ -60,9 +60,6 @@ sp_api::decl_runtime_apis! {
         /// Return the latest height of the state machine
         fn latest_state_machine_height(id: StateMachineId) -> Option<u64>;
 
-        /// Return the most recent height we've processed requests for a state machine
-        fn latest_messaging_height(id: StateMachineId) -> Option<u64>;
-
         /// Get actual requests
         fn get_requests(leaf_positions: Vec<H256>) -> Vec<Request>;
 

@@ -15,7 +15,7 @@
 
 //! Host implementation for ISMP
 use crate::{
-    primitives::ConsensusClientProvider, AllowedProxies, ChallengePeriod, Config,
+    primitives::ConsensusClientProvider, ChallengePeriod, Config,
     ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
     FrozenStateMachine, LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts,
     Responded, ResponseCommitments, ResponseReceipt, ResponseReceipts, StateCommitments,
@@ -50,7 +50,7 @@ impl<T: Config> Default for Host<T> {
 
 impl<T: Config> IsmpHost for Host<T> {
     fn host_state_machine(&self) -> StateMachine {
-        T::StateMachine::get()
+        T::HostStateMachine::get()
     }
 
     fn latest_commitment_height(&self, id: StateMachineId) -> Result<u64, Error> {
@@ -284,12 +284,8 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
-    fn allowed_proxies(&self) -> Vec<StateMachine> {
-        AllowedProxies::<T>::get()
-    }
-
-    fn store_allowed_proxies(&self, allowed: Vec<StateMachine>) {
-        AllowedProxies::<T>::set(allowed);
+    fn allowed_proxy(&self) -> Option<StateMachine> {
+        T::Coprocessor::get()
     }
 
     fn unbonding_period(&self, consensus_state_id: ConsensusStateId) -> Option<Duration> {

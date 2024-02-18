@@ -318,12 +318,8 @@ impl IsmpHost for Host {
         todo!()
     }
 
-    fn allowed_proxies(&self) -> Vec<StateMachine> {
-        vec![]
-    }
-
-    fn store_allowed_proxies(&self, _allowed: Vec<StateMachine>) {
-        todo!()
+    fn allowed_proxy(&self) -> Option<StateMachine> {
+        None
     }
 
     fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {

@@ -138,7 +138,7 @@ impl Config for Test {
     type RuntimeEvent = RuntimeEvent;
     const INDEXING_PREFIX: &'static [u8] = b"ISMP";
     type AdminOrigin = EnsureRoot<AccountId32>;
-    type StateMachine = StateMachineProvider;
+    type HostStateMachine = StateMachineProvider;
     type TimeProvider = Timestamp;
     type IsmpRouter = ModuleRouter;
     type ConsensusClientProvider = ConsensusProvider;

@@ -197,15 +197,12 @@ pub trait IsmpHost: Keccak256 {
         Ok(())
     }
 
-    /// return the state machines that are allowed to proxy requests.
-    fn allowed_proxies(&self) -> Vec<StateMachine>;
-
-    /// Store the whitelist of allowed proxies, this should overwrite the existing whitelist.
-    fn store_allowed_proxies(&self, allowed: Vec<StateMachine>);
+    /// return the coprocessor state machine that is allowed to proxy requests.
+    fn allowed_proxy(&self) -> Option<StateMachine>;
 
     /// Checks if the host allows this state machine to proxy requests.
     fn is_allowed_proxy(&self, source: &StateMachine) -> bool {
-        self.allowed_proxies().iter().any(|proxy| proxy == source)
+        self.allowed_proxy().map(|proxy| proxy == *source).unwrap_or(false)
     }
 
     /// Return the unbonding period (i.e the time it takes for a validator's deposit to be unstaked
@@ -217,7 +214,9 @@ pub trait IsmpHost: Keccak256 {
 
     /// Is the current host playing the role of router?
     fn is_router(&self) -> bool {
-        false
+        self.allowed_proxy()
+            .map(|proxy| proxy == self.host_state_machine())
+            .unwrap_or(false)
     }
 }
 

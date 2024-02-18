@@ -19,6 +19,7 @@ use crate::{
 };
 use alloc::format;
 use frame_support::pallet_prelude::Get;
+use frame_support::parameter_types;
 use frame_system::EnsureRoot;
 use ismp::{
     consensus::{ConsensusClient, ConsensusClientId},
@@ -81,11 +82,18 @@ impl ismp_sync_committee::pallet::Config for Runtime {
 
 impl ismp_polygon_pos::pallet::Config for Runtime {}
 
+
+parameter_types! {
+    /// Relay Chain `TransactionByteFee` / 10
+    pub const Coprocessor: Option<StateMachine> = None;
+}
+
 impl pallet_ismp::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     const INDEXING_PREFIX: &'static [u8] = b"ISMP";
     type AdminOrigin = EnsureRoot<AccountId>;
-    type StateMachine = StateMachineProvider;
+    type HostStateMachine = StateMachineProvider;
+    type Coprocessor = Coprocessor;
     type TimeProvider = Timestamp;
     type IsmpRouter = Router;
     type ConsensusClientProvider = ConsensusProvider;

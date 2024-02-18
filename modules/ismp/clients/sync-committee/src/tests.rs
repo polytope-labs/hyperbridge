@@ -202,11 +202,7 @@ impl IsmpHost for Host {
         todo!()
     }
 
-    fn allowed_proxies(&self) -> Vec<StateMachine> {
-        todo!()
-    }
-
-    fn store_allowed_proxies(&self, allowed: Vec<StateMachine>) {
+    fn allowed_proxy(&self) -> Option<StateMachine> {
         todo!()
     }
 

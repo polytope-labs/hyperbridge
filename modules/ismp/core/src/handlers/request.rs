@@ -45,9 +45,8 @@ where
         host.is_allowed_proxy(&source) || msg.proof.height.id.state_id == source
     };
 
-    let check_dest = |dest: StateMachine| -> bool {
-        host.is_router() || dest == host.host_state_machine()
-    };
+    let check_dest =
+        |dest: StateMachine| -> bool { host.is_router() || dest == host.host_state_machine() };
 
     let router = host.ismp_router();
     // If a receipt exists for any request then it's a duplicate and it is not dispatched

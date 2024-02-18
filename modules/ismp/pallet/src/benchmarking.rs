@@ -106,7 +106,7 @@ pub mod benchmarks {
         let height = setup_mock_client::<_, T>(&host);
         let post = Post {
             source: StateMachine::Ethereum(Ethereum::ExecutionLayer),
-            dest: <T as Config>::StateMachine::get(),
+            dest: <T as Config>::HostStateMachine::get(),
             nonce: 0,
             from: MODULE_ID.to_bytes(),
             to: MODULE_ID.to_bytes(),
@@ -134,7 +134,7 @@ pub mod benchmarks {
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 60 * 60).unwrap();
         let height = setup_mock_client::<_, T>(&host);
         let post = Post {
-            source: <T as Config>::StateMachine::get(),
+            source: <T as Config>::HostStateMachine::get(),
             dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
             nonce: 0,
             from: MODULE_ID.to_bytes(),
@@ -177,7 +177,7 @@ pub mod benchmarks {
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 60 * 60).unwrap();
         let height = setup_mock_client::<_, T>(&host);
         let post = Post {
-            source: <T as Config>::StateMachine::get(),
+            source: <T as Config>::HostStateMachine::get(),
             dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
             nonce: 0,
             from: MODULE_ID.to_bytes(),

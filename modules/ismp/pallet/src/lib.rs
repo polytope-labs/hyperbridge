@@ -65,7 +65,6 @@ use crate::{
 };
 use frame_system::pallet_prelude::BlockNumberFor;
 use ismp::{
-    consensus::StateMachineHeight,
     host::IsmpHost,
     messaging::Message,
     util::{hash_request, hash_response},
@@ -122,7 +121,10 @@ pub mod pallet {
         type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
         /// Host state machine identifier
-        type StateMachine: Get<StateMachine>;
+        type HostStateMachine: Get<StateMachine>;
+
+        /// The coprocessor state machine which proxies requests on our behalf
+        type Coprocessor: Get<Option<StateMachine>>;
 
         /// Timestamp provider
         type TimeProvider: UnixTime;
@@ -183,12 +185,6 @@ pub mod pallet {
     pub type FrozenStateMachine<T: Config> =
         StorageMap<_, Blake2_128Concat, StateMachineId, bool, OptionQuery>;
 
-    /// Holds a map of state machines to the latest height we've processed requests for
-    #[pallet::storage]
-    #[pallet::getter(fn latest_messaging_heights)]
-    pub type LatestMessagingHeight<T: Config> =
-        StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
-
     /// A mapping of ConsensusStateId to ConsensusClientId
     #[pallet::storage]
     pub type ConsensusStateClient<T: Config> =
@@ -216,11 +212,6 @@ pub mod pallet {
     #[pallet::getter(fn latest_state_height)]
     pub type LatestStateMachineHeight<T: Config> =
         StorageMap<_, Blake2_128Concat, StateMachineId, u64, ValueQuery>;
-
-    /// Bounded vec of allowed proxies
-    #[pallet::storage]
-    #[pallet::getter(fn allowed_proxies)]
-    pub type AllowedProxies<T: Config> = StorageValue<_, Vec<StateMachine>, ValueQuery>;
 
     /// Holds the timestamp at which a consensus client was recently updated.
     /// Used in ensuring that the configured challenge period elapses.
@@ -319,10 +310,10 @@ pub mod pallet {
                     // Mmr push should never fail
                     match mmr.push(leaf) {
                         None => {
-                            log::error!(target: "runtime::mmr", "MMR push failed ");
+                            log::error!(target: "ismp::mmr", "MMR push failed ");
                         },
                         Some(position) => {
-                            log::trace!(target: "runtime::mmr", "MMR push {position}");
+                            log::trace!(target: "ismp::mmr", "MMR push {position}");
                         },
                     }
                 }
@@ -330,10 +321,10 @@ pub mod pallet {
                 // Update the size, `mmr.commit()` should also never fail.
                 match mmr.commit() {
                     Ok(_) => {
-                        log::trace!(target: "runtime::mmr", "Committed to mmr, No of leaves: {leaves}");
+                        log::trace!(target: "ismp::mmr", "Committed to mmr, No of leaves: {leaves}");
                     },
                     Err(e) => {
-                        log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
+                        log::error!(target: "ismp::mmr", "MMR finalize failed: {:?}", e);
                         return;
                     },
                 }
@@ -344,7 +335,7 @@ pub mod pallet {
                 let root = match mmr.finalize() {
                     Ok(root) => root,
                     Err(e) => {
-                        log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
+                        log::error!(target: "ismp::mmr", "MMR finalize failed: {:?}", e);
                         return;
                     },
                 };
@@ -433,18 +424,6 @@ pub mod pallet {
 
             Ok(())
         }
-
-        /// Set the allowed proxies
-        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(1))]
-        #[pallet::call_index(3)]
-        pub fn set_config(origin: OriginFor<T>, allowed: Vec<StateMachine>) -> DispatchResult {
-            T::AdminOrigin::ensure_origin(origin)?;
-
-            let host = Host::<T>::default();
-            host.store_allowed_proxies(allowed);
-
-            Ok(())
-        }
     }
 
     #[pallet::event]
@@ -530,7 +509,7 @@ pub mod pallet {
                 .map(|msg| handle_incoming_message(&host, msg.clone()))
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|_err| {
-                    log::info!(target: "pallet-ismp", "Validation Errors: {:#?}", _err);
+                    log::info!(target: "ismp", "Validation Errors: {:#?}", _err);
                     TransactionValidityError::Invalid(InvalidTransaction::BadProof)
                 })?;
 
@@ -595,29 +574,13 @@ impl<T: Config> Pallet<T> {
                     }
                 },
                 Ok(MessageResult::Response(res)) => {
-                    let StateMachineHeight { id, height } = match message {
-                        Message::Response(ref response) => response.proof().height.clone(),
-                        _ => unreachable!(),
-                    };
-                    // update the messaging heights
-                    if LatestMessagingHeight::<T>::get(&id) < Some(height) {
-                        LatestMessagingHeight::<T>::insert(id, height);
-                    }
-                    debug!(target: "ismp-modules", "Module Callback Results {:?}", ModuleCallbackResult::Response(res));
+                    debug!(target: "ismp", "Module Callback Results {:?}", ModuleCallbackResult::Response(res));
                 },
                 Ok(MessageResult::Request(res)) => {
-                    let StateMachineHeight { id, height } = match message {
-                        Message::Request(ref request) => request.proof.height.clone(),
-                        _ => unreachable!(),
-                    };
-                    // update the messaging heights
-                    if LatestMessagingHeight::<T>::get(&id) < Some(height) {
-                        LatestMessagingHeight::<T>::insert(id, height);
-                    }
-                    debug!(target: "ismp-modules", "Module Callback Results {:?}", ModuleCallbackResult::Request(res));
+                    debug!(target: "ismp", "Module Callback Results {:?}", ModuleCallbackResult::Request(res));
                 },
                 Ok(MessageResult::Timeout(res)) => {
-                    debug!(target: "ismp-modules", "Module Callback Results {:?}", ModuleCallbackResult::Timeout(res));
+                    debug!(target: "ismp", "Module Callback Results {:?}", ModuleCallbackResult::Timeout(res));
                 },
                 Ok(MessageResult::FrozenClient(id)) =>
                     Self::deposit_event(Event::<T>::ConsensusClientFrozen {

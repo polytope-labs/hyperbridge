@@ -62,7 +62,7 @@ where
         if let Some(commitment) = commitment {
             let key = Pallet::<T>::full_leaf_offchain_key(commitment);
             debug!(
-                target: "runtime::mmr::offchain", "offchain db get {}: key {:?}",
+                target: "ismp::mmr", "offchain db get {}: key {:?}",
                 pos, key
             );
             // Try to retrieve the element from Off-chain DB.
@@ -72,7 +72,7 @@ where
         } else {
             let key = Pallet::<T>::intermediate_node_offchain_key(pos);
             debug!(
-                target: "runtime::mmr::offchain", "offchain db get {}: key {:?}",
+                target: "ismp::mmr", "offchain db get {}: key {:?}",
                 pos, key
             );
             // Try to retrieve the element from Off-chain DB.
@@ -98,7 +98,7 @@ where
         if let Some(commitment) = commitment {
             let key = Pallet::<T>::full_leaf_offchain_key(commitment);
             debug!(
-                target: "runtime::mmr::offchain", "offchain db get {}: key {:?}",
+                target: "ismp::mmr", "offchain db get {}: key {:?}",
                 pos, key
             );
             // Try to retrieve the element from Off-chain DB.
@@ -122,7 +122,7 @@ where
         }
 
         trace!(
-            target: "runtime::mmr", "elems: {:?}",
+            target: "ismp::mmr", "elems: {:?}",
             elems.iter().map(|elem| elem.hash::<Host<T>>()).collect::<Vec<_>>()
         );
 
@@ -168,7 +168,7 @@ where
             DataOrHash::Data(_) => {
                 let key = Pallet::<T>::full_leaf_offchain_key(commitment);
                 debug!(
-                    target: "runtime::mmr::offchain", "offchain db set: pos {} key {:?}",
+                    target: "ismp::mmr", "offchain db set: pos {} key {:?}",
                     pos, key
                 );
                 // Indexing API is used to store the full node content.
@@ -190,8 +190,8 @@ fn _peaks_to_prune_and_store(
     // both collections may share a common prefix.
     let peaks_before = if old_size == 0 { vec![] } else { helper::get_peaks(old_size) };
     let peaks_after = helper::get_peaks(new_size);
-    trace!(target: "runtime::mmr", "peaks_before: {:?}", peaks_before);
-    trace!(target: "runtime::mmr", "peaks_after: {:?}", peaks_after);
+    trace!(target: "ismp::mmr", "peaks_before: {:?}", peaks_before);
+    trace!(target: "ismp::mmr", "peaks_after: {:?}", peaks_after);
     let mut peaks_before = peaks_before.into_iter().peekable();
     let mut peaks_after = peaks_after.into_iter().peekable();
 

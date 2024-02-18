@@ -126,7 +126,7 @@ where
                 _ => Err(Error::LeafNotFound),
             })
             .collect::<Result<Vec<_>, Error>>()?;
-        log::trace!(target: "runtime::mmr", "Positions {:?}", positions);
+        log::trace!(target: "ismp::mmr", "Positions {:?}", positions);
         let leaf_count = Pallet::<T>::number_of_leaves();
         self.mmr
             .gen_proof(positions)

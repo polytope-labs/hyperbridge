@@ -147,7 +147,7 @@ pub mod pallet {
 
             // next, construct the request to be sent out
             let payload = Payload { to: params.to, from: origin.clone(), amount: params.amount };
-            let dest = match T::StateMachine::get() {
+            let dest = match T::HostStateMachine::get() {
                 StateMachine::Kusama(_) => StateMachine::Kusama(params.para_id),
                 StateMachine::Polkadot(_) => StateMachine::Polkadot(params.para_id),
                 _ => Err(DispatchError::Other("Pallet only supports parachain hosts"))?,
@@ -184,7 +184,7 @@ pub mod pallet {
         #[pallet::call_index(1)]
         pub fn get_request(origin: OriginFor<T>, params: GetRequest) -> DispatchResult {
             let origin = ensure_signed(origin)?;
-            let dest = match T::StateMachine::get() {
+            let dest = match T::HostStateMachine::get() {
                 StateMachine::Kusama(_) => StateMachine::Kusama(params.para_id),
                 StateMachine::Polkadot(_) => StateMachine::Polkadot(params.para_id),
                 _ => Err(DispatchError::Other("Pallet only supports parachain hosts"))?,

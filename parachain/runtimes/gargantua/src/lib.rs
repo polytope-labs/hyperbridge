@@ -788,11 +788,6 @@ impl_runtime_apis! {
             Ismp::get_latest_state_machine_height(id)
         }
 
-        /// Return the latest height of the state machine at which we've processed requests
-        fn latest_messaging_height(id: StateMachineId) -> Option<u64> {
-            Ismp::latest_messaging_heights(id)
-        }
-
 
         /// Get actual requests
         fn get_requests(commitments: Vec<H256>) -> Vec<Request> {

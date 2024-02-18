@@ -23,7 +23,7 @@
     "tokenSymbol": "CORE"
   },
   "relay_chain": "rococo",
-  "para_id": 4296,
+  "para_id": 4364,
   "codeSubstitutes": {},
   "genesis": {
     "runtimeGenesis": {
@@ -48,7 +48,7 @@
           ]
         },
         "parachainInfo": {
-          "parachainId": 4296
+          "parachainId": 4364
         },
         "polkadotXcm": {
           "safeXcmVersion": 3

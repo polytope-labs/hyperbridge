@@ -47,7 +47,7 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
         },
         "gargantua" => Box::new(
             chain_spec::ChainSpec::<gargantua_runtime::RuntimeGenesisConfig>::from_json_bytes(
-                include_bytes!("../../chainspec/gargantua.json").to_vec(),
+                include_bytes!("../../chainspec/gargantua.new.json").to_vec(),
             )?,
         ),
         "messier" => Box::new(

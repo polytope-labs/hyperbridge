@@ -111,7 +111,7 @@ impl pallet_ismp::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     const INDEXING_PREFIX: &'static [u8] = b"ISMP";
     type AdminOrigin = EnsureRoot<sp_core::sr25519::Public>;
-    type StateMachine = pallet_ismp::mocks::StateMachineProvider;
+    type HostStateMachine = pallet_ismp::mocks::StateMachineProvider;
     type TimeProvider = Timestamp;
     type IsmpRouter = pallet_ismp::mocks::ModuleRouter;
     type ConsensusClientProvider = pallet_ismp::mocks::ConsensusProvider;

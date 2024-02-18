@@ -20,12 +20,13 @@ import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 import {RococoVerifier} from "../src/consensus/verifiers/RococoVerifier.sol";
 import {ZkBeefyV1} from "../src/consensus/ZkBeefy.sol";
+import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {GovernableToken} from "../src/modules/GovernableToken.sol";
 
 contract DeployScript is Script {
     using strings for *;
 
-    bytes32 public salt = keccak256(bytes("gargantua-v1300000"));
+    bytes32 public salt = keccak256(bytes("gargantua-v4400000"));
 
     function run() external {
         address admin = vm.envAddress("ADMIN");
@@ -39,8 +40,9 @@ contract DeployScript is Script {
         feeToken.mint(0x276b41950829E5A7B179ba03B758FaaE9A8d7C41, 1000000000 * 1e18, "");
 
         // consensus client
-        RococoVerifier verifier = new RococoVerifier();
-        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
+//        RococoVerifier verifier = new RococoVerifier();
+//        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
+        BeefyV1 consensusClient = new BeefyV1{salt: salt}(paraId);
 
         // handler
         HandlerV1 handler = new HandlerV1{salt: salt}();

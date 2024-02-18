@@ -35,6 +35,15 @@ where
         TimeoutMessage::Post { requests, timeout_proof } => {
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
+            let requests = requests
+                .into_iter()
+                .filter(|req| {
+                    // check if the destination chain matches the proof metadata
+                    // or if the proof metadata refers to the configured proxy
+                    req.dest_chain() == timeout_proof.height.id.state_id ||
+                        host.is_allowed_proxy(&timeout_proof.height.id.state_id)
+                })
+                .collect::<Vec<_>>();
             for request in &requests {
                 // Ensure a commitment exists for all requests in the batch
                 let commitment = hash_request::<H>(request);
@@ -85,6 +94,13 @@ where
         TimeoutMessage::PostResponse { responses, timeout_proof } => {
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
+            let responses = responses
+                .into_iter()
+                .filter(|res| {
+                    res.dest_chain() == timeout_proof.height.id.state_id ||
+                        host.is_allowed_proxy(&timeout_proof.height.id.state_id)
+                })
+                .collect::<Vec<_>>();
             for response in &responses {
                 // Ensure a commitment exists for all responses in the batch
                 let commitment = hash_post_response::<H>(response);
@@ -136,6 +152,7 @@ where
         TimeoutMessage::Get { requests } => {
             for request in &requests {
                 let commitment = hash_request::<H>(request);
+                // if we have a commitment, it came from us
                 host.request_commitment(commitment)?;
 
                 // Ensure the get timeout has elapsed on the host

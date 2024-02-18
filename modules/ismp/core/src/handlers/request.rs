@@ -25,7 +25,7 @@ use crate::{
 };
 use alloc::{format, vec::Vec};
 
-/// Validate the state machine, verify the request message and dispatch the message to the router
+/// Validate the state machine, verify the request message and dispatch the message to the modules
 pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, Error>
 where
     H: IsmpHost,

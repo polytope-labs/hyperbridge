@@ -80,7 +80,8 @@ contract HandlerV1 is IHandler, Context {
      */
     function handlePostRequests(IIsmpHost host, PostRequestMessage memory request) external notFrozen(host) {
         uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(request.proof.height);
-        require(delay > host.challengePeriod(), "IHandler: still in challenge period");
+        uint256 challengePeriod = host.challengePeriod();
+        require(challengePeriod == 0 || delay > challengePeriod, "IHandler: still in challenge period");
 
         uint256 requestsLen = request.requests.length;
         MmrLeaf[] memory leaves = new MmrLeaf[](requestsLen);
@@ -118,7 +119,8 @@ contract HandlerV1 is IHandler, Context {
      */
     function handlePostResponses(IIsmpHost host, PostResponseMessage memory response) external notFrozen(host) {
         uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(response.proof.height);
-        require(delay > host.challengePeriod(), "IHandler: still in challenge period");
+        uint256 challengePeriod = host.challengePeriod();
+        require(challengePeriod == 0 || delay > challengePeriod, "IHandler: still in challenge period");
 
         uint256 responsesLength = response.responses.length;
         MmrLeaf[] memory leaves = new MmrLeaf[](responsesLength);
@@ -160,7 +162,8 @@ contract HandlerV1 is IHandler, Context {
         notFrozen(host)
     {
         uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(message.height);
-        require(delay > host.challengePeriod(), "IHandler: still in challenge period");
+        uint256 challengePeriod = host.challengePeriod();
+        require(challengePeriod == 0 || delay > challengePeriod, "IHandler: still in challenge period");
 
         // fetch the state commitment
         StateCommitment memory state = host.stateMachineCommitment(message.height);
@@ -198,7 +201,9 @@ contract HandlerV1 is IHandler, Context {
         notFrozen(host)
     {
         uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(message.height);
-        require(delay > host.challengePeriod(), "IHandler: still in challenge period");
+        uint256 challengePeriod = host.challengePeriod();
+        require(challengePeriod == 0 || delay > challengePeriod, "IHandler: still in challenge period");
+
         // fetch the state commitment
         StateCommitment memory state = host.stateMachineCommitment(message.height);
         require(state.stateRoot != bytes32(0), "IHandler: State Commitment doesn't exist");
@@ -232,7 +237,8 @@ contract HandlerV1 is IHandler, Context {
      */
     function handleGetResponses(IIsmpHost host, GetResponseMessage memory message) external notFrozen(host) {
         uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(message.height);
-        require(delay > host.challengePeriod(), "IHandler: still in challenge period");
+        uint256 challengePeriod = host.challengePeriod();
+        require(challengePeriod == 0 || delay > challengePeriod, "IHandler: still in challenge period");
 
         bytes32 root = host.stateMachineCommitment(message.height).stateRoot;
         require(root != bytes32(0), "IHandler: Proof height not found!");

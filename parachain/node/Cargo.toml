@@ -87,9 +87,15 @@ default = []
 runtime-benchmarks = [
 	"try-runtime-cli/try-runtime",
 	"gargantua-runtime/runtime-benchmarks",
+	"messier-runtime/runtime-benchmarks",
 	"polkadot-cli/runtime-benchmarks",
 ]
 try-runtime = [
 	"try-runtime-cli/try-runtime",
-	"gargantua-runtime/try-runtime"
+	"gargantua-runtime/try-runtime",
+	"messier-runtime/try-runtime"
+]
+async-backing = [
+	"gargantua-runtime/async-backing",
+	"messier-runtime/async-backing"
 ]

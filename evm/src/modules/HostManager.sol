@@ -57,10 +57,11 @@ contract HostManager is BaseIsmpModule {
             // This is where relayers can withdraw their fees.
             WithdrawParams memory params = abi.decode(request.body[1:], (WithdrawParams));
             IHostManager(_params.host).withdraw(params);
-        } else {
-            // i.e if (action == OnAcceptActions.SetHostParam)
+        } else if (action == OnAcceptActions.SetHostParam) {
             HostParams memory params = abi.decode(request.body[1:], (HostParams));
             IHostManager(_params.host).setHostParams(params);
+        } else {
+            revert("Unknown action");
         }
     }
 }

@@ -26,7 +26,7 @@ import {GovernableToken} from "../src/modules/GovernableToken.sol";
 contract DeployScript is Script {
     using strings for *;
 
-    bytes32 public salt = keccak256(bytes("gargantua-v4600000"));
+    bytes32 public salt = keccak256(bytes("gargantua-v4700000"));
 
     function run() external {
         address admin = vm.envAddress("ADMIN");
@@ -70,10 +70,13 @@ contract DeployScript is Script {
             feeTokenAddress: address(feeToken),
             latestStateMachineHeight: 0
         });
+
         address hostAddress = initHost(host, params);
+
         // set the host address on the host manager
         manager.setIsmpHost(hostAddress);
         feeToken.setIsmpHost(hostAddress);
+
         // deploy the ping module as well
         PingModule module = new PingModule{salt: salt}(admin);
         module.setIsmpHost(hostAddress);

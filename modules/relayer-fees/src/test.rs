@@ -8,6 +8,7 @@ use codec::Encode;
 use ethereum_trie::{keccak::KeccakHasher, MemoryDB};
 use frame_support::{
     crypto::ecdsa::ECDSAExt,
+    parameter_types,
     traits::{ConstU32, ConstU64, Get},
 };
 use frame_system::EnsureRoot;
@@ -158,12 +159,17 @@ impl pallet_balances::Config for Test {
     type MaxFreezes = ();
 }
 
+parameter_types! {
+    pub const Coprocessor: Option<StateMachine> = None;
+}
+
 impl pallet_ismp::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     const INDEXING_PREFIX: &'static [u8] = b"ISMP";
     type AdminOrigin = EnsureRoot<AccountId32>;
     type HostStateMachine = pallet_ismp::mocks::StateMachineProvider;
     type TimeProvider = Timestamp;
+    type Coprocessor = pallet_ismp::mocks::Coprocessor;
     type IsmpRouter = pallet_ismp::mocks::ModuleRouter;
     type ConsensusClientProvider = ConsensusProvider;
     type WeightInfo = ();

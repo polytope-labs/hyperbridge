@@ -134,11 +134,16 @@ impl pallet_timestamp::Config for Test {
     type WeightInfo = ();
 }
 
+parameter_types! {
+    pub const Coprocessor: Option<StateMachine> = None;
+}
+
 impl Config for Test {
     type RuntimeEvent = RuntimeEvent;
     const INDEXING_PREFIX: &'static [u8] = b"ISMP";
     type AdminOrigin = EnsureRoot<AccountId32>;
     type HostStateMachine = StateMachineProvider;
+    type Coprocessor = Coprocessor;
     type TimeProvider = Timestamp;
     type IsmpRouter = ModuleRouter;
     type ConsensusClientProvider = ConsensusProvider;

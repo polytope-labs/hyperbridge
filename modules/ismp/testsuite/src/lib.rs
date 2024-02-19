@@ -229,7 +229,7 @@ where
     host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
         .unwrap();
     let dispatch_post = DispatchPost {
-        dest: StateMachine::Kusama(2000),
+        dest: intermediate_state.height.id.state_id,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
         timeout_timestamp: intermediate_state.commitment.timestamp,

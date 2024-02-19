@@ -43,7 +43,8 @@ contract BaseTest is Test {
         host = new TestHost(params);
         // approve the host address to spend the fee token.
         feeToken.superApprove(tx.origin, address(host));
-        testModule = new PingModule(address(host));
+        testModule = new PingModule(address(this));
+        testModule.setIsmpHost(address(host));
     }
 
     function module() public view returns (address) {

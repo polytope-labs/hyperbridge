@@ -3,7 +3,7 @@ use frame_support::crypto::ecdsa::ECDSAExt;
 
 use crate::{ConsensusState, PolygonClient};
 use frame_support::{
-    derive_impl,
+    derive_impl, parameter_types,
     traits::{ConstU32, ConstU64, Get},
 };
 use frame_system::EnsureRoot;
@@ -107,12 +107,17 @@ impl pallet_balances::Config for Test {
     type MaxFreezes = ();
 }
 
+parameter_types! {
+    pub const Coprocessor: Option<StateMachine> = None;
+}
+
 impl pallet_ismp::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     const INDEXING_PREFIX: &'static [u8] = b"ISMP";
     type AdminOrigin = EnsureRoot<sp_core::sr25519::Public>;
     type HostStateMachine = pallet_ismp::mocks::StateMachineProvider;
     type TimeProvider = Timestamp;
+    type Coprocessor = pallet_ismp::mocks::Coprocessor;
     type IsmpRouter = pallet_ismp::mocks::ModuleRouter;
     type ConsensusClientProvider = pallet_ismp::mocks::ConsensusProvider;
     type WeightInfo = ();

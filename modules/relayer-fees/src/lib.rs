@@ -22,7 +22,7 @@ pub mod withdrawal;
 use crate::withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalParams, WithdrawalProof};
 use alloc::{collections::BTreeMap, vec::Vec};
 use alloy_primitives::Address;
-use codec::{Codec, Encode};
+use codec::Encode;
 use ethabi::ethereum_types::H256;
 use frame_support::{dispatch::DispatchResult, ensure};
 use frame_system::pallet_prelude::OriginFor;
@@ -42,7 +42,7 @@ use ismp_sync_committee::{
 pub use pallet::*;
 use pallet_ismp::{dispatcher::Dispatcher, host::Host};
 use sp_core::U256;
-use sp_runtime::{DispatchError, Saturating};
+use sp_runtime::DispatchError;
 use sp_std::prelude::*;
 
 pub const MODULE_ID: [u8; 32] = [1; 32];

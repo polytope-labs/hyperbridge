@@ -19,6 +19,8 @@ use sp_core::H256;
 /// Mock consensus state id
 pub const MOCK_CONSENSUS_STATE_ID: [u8; 4] = *b"mock";
 
+pub const MOCK_CONSENSUS_CLIENT_ID: [u8; 4] = [1u8; 4];
+
 /// module id for the mock benchmarking module
 pub const MODULE_ID: ModuleId = ModuleId::Pallet(PalletId(*b"__mock__"));
 
@@ -73,7 +75,7 @@ impl ConsensusClient for MockConsensusClient {
     }
 
     fn consensus_client_id(&self) -> ConsensusClientId {
-        MOCK_CONSENSUS_STATE_ID
+        MOCK_CONSENSUS_CLIENT_ID
     }
 
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, IsmpError> {
@@ -125,7 +127,7 @@ where
         host,
         CreateConsensusState {
             consensus_state: vec![],
-            consensus_client_id: MOCK_CONSENSUS_STATE_ID,
+            consensus_client_id: MOCK_CONSENSUS_CLIENT_ID,
             consensus_state_id: MOCK_CONSENSUS_STATE_ID,
             unbonding_period: 1_000_000,
             challenge_period: 0,

@@ -26,7 +26,7 @@ import {GovernableToken} from "../src/modules/GovernableToken.sol";
 contract DeployScript is Script {
     using strings for *;
 
-    bytes32 public salt = keccak256(bytes("gargantua-v4800000"));
+    bytes32 public salt = keccak256(bytes("gargantua-v4900000"));
 
     function run() external {
         address admin = vm.envAddress("ADMIN");

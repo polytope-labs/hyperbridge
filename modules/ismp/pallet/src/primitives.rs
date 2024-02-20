@@ -71,11 +71,9 @@ fortuples::fortuples! {
     {
 
         fn consensus_clients() -> Vec<Box<dyn ConsensusClient>> {
-            let clients = vec![
+            vec![
                 #( Box::new(#Member::default()) as Box<dyn ConsensusClient> ),*
-            ];
-
-            clients
+            ]
         }
     }
 }

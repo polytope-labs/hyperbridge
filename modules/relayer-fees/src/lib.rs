@@ -69,15 +69,8 @@ pub mod pallet {
     /// double map of address to source chain, which holds the amount of the relayer address
     #[pallet::storage]
     #[pallet::getter(fn relayer_fees)]
-    pub type RelayerFees<T: Config> = StorageDoubleMap<
-        _,
-        Twox64Concat,
-        StateMachine,
-        Twox64Concat,
-        Vec<u8>,
-        T::Balance,
-        ValueQuery,
-    >;
+    pub type RelayerFees<T: Config> =
+        StorageDoubleMap<_, Twox64Concat, StateMachine, Twox64Concat, Vec<u8>, U256, ValueQuery>;
 
     /// Latest nonce for each address when they withdraw
     #[pallet::storage]
@@ -133,7 +126,7 @@ pub mod pallet {
         #[pallet::weight({1_000_000})]
         pub fn withdraw_fees(
             origin: OriginFor<T>,
-            withdrawal_data: WithdrawalInputData<T::Balance>,
+            withdrawal_data: WithdrawalInputData,
         ) -> DispatchResult {
             ensure_none(origin)?;
             Self::withdraw(withdrawal_data)
@@ -207,18 +200,14 @@ where
     <T as frame_system::Config>::AccountId: From<[u8; 32]>,
     T::Balance: Into<u128>,
 {
-    pub fn withdraw(withdrawal_data: WithdrawalInputData<T::Balance>) -> DispatchResult {
+    pub fn withdraw(withdrawal_data: WithdrawalInputData) -> DispatchResult {
         let address = match withdrawal_data.signature.clone() {
             Signature::Ethereum { address, signature } => {
                 if signature.len() != 65 {
                     Err(Error::<T>::InvalidSignature)?
                 }
                 let nonce = Nonce::<T>::get(address.clone());
-                let msg = message::<T::Balance>(
-                    nonce,
-                    withdrawal_data.dest_chain,
-                    withdrawal_data.amount,
-                );
+                let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.amount);
                 let mut sig = [0u8; 65];
                 sig.copy_from_slice(&signature);
                 let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig, &msg)
@@ -238,11 +227,7 @@ where
                     Err(Error::<T>::InvalidPublicKey)?
                 }
                 let nonce = Nonce::<T>::get(public_key.clone());
-                let msg = message::<T::Balance>(
-                    nonce,
-                    withdrawal_data.dest_chain,
-                    withdrawal_data.amount,
-                );
+                let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.amount);
                 let signature = signature.as_slice().try_into().expect("Infallible");
                 let pub_key = public_key.as_slice().try_into().expect("Infallible");
                 if !sp_io::crypto::sr25519_verify(&signature, &msg, &pub_key) {
@@ -259,11 +244,7 @@ where
                     Err(Error::<T>::InvalidPublicKey)?
                 }
                 let nonce = Nonce::<T>::get(public_key.clone());
-                let msg = message::<T::Balance>(
-                    nonce,
-                    withdrawal_data.dest_chain,
-                    withdrawal_data.amount,
-                );
+                let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.amount);
                 let signature = signature.as_slice().try_into().expect("Infallible");
                 let pub_key = public_key.as_slice().try_into().expect("Infallible");
                 if !sp_io::crypto::ed25519_verify(&signature, &msg, &pub_key) {
@@ -488,7 +469,7 @@ where
         dest_keys: Vec<Vec<u8>>,
         source_result: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
         dest_result: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
-    ) -> Result<BTreeMap<Vec<u8>, T::Balance>, Error<T>> {
+    ) -> Result<BTreeMap<Vec<u8>, U256>, Error<T>> {
         let mut result = BTreeMap::new();
         for ((key, source_key), dest_key) in
             proof.commitments.clone().into_iter().zip(source_keys).zip(dest_keys)
@@ -508,19 +489,21 @@ where
                                 use alloy_rlp::Decodable;
                                 let fee = alloy_primitives::U256::decode(&mut &*encoded_metadata)
                                     .map_err(|_| Error::<T>::ProofValidationError)?;
-                                U256::from_big_endian(&fee.to_be_bytes::<32>()).low_u32().into()
+                                U256::from_big_endian(&fee.to_be_bytes::<32>())
                             },
                             StateMachine::Beefy(_) |
                             StateMachine::Grandpa(_) |
                             StateMachine::Kusama(_) |
                             StateMachine::Polkadot(_) => {
                                 use codec::Decode;
-                                pallet_ismp::dispatcher::LeafMetadata::<T>::decode(
+                                let fee: u128 = pallet_ismp::dispatcher::LeafMetadata::<T>::decode(
                                     &mut &*encoded_metadata,
                                 )
                                 .map_err(|_| Error::<T>::ProofValidationError)?
                                 .meta
                                 .fee
+                                .into();
+                                U256::from(fee)
                             },
                         }
                     };
@@ -550,7 +533,7 @@ where
                             },
                         }
                     };
-                    let entry = result.entry(address).or_insert(0u32.into());
+                    let entry = result.entry(address).or_insert(U256::zero());
                     *entry += fee;
                 },
                 Key::Response { response_commitment, .. } => {
@@ -567,19 +550,21 @@ where
                                 use alloy_rlp::Decodable;
                                 let fee = alloy_primitives::U256::decode(&mut &*encoded_metadata)
                                     .map_err(|_| Error::<T>::ProofValidationError)?;
-                                U256::from_big_endian(&fee.to_be_bytes::<32>()).low_u32().into()
+                                U256::from_big_endian(&fee.to_be_bytes::<32>())
                             },
                             StateMachine::Beefy(_) |
                             StateMachine::Grandpa(_) |
                             StateMachine::Kusama(_) |
                             StateMachine::Polkadot(_) => {
                                 use codec::Decode;
-                                pallet_ismp::dispatcher::LeafMetadata::<T>::decode(
+                                let fee: u128 = pallet_ismp::dispatcher::LeafMetadata::<T>::decode(
                                     &mut &*encoded_metadata,
                                 )
                                 .map_err(|_| Error::<T>::ProofValidationError)?
                                 .meta
                                 .fee
+                                .into();
+                                U256::from(fee)
                             },
                         }
                     };
@@ -635,6 +620,6 @@ where
     }
 }
 
-pub fn message<B: Codec + Copy>(nonce: u64, dest_chain: StateMachine, amount: B) -> [u8; 32] {
+pub fn message(nonce: u64, dest_chain: StateMachine, amount: U256) -> [u8; 32] {
     sp_io::hashing::keccak_256(&(nonce, dest_chain, amount).encode())
 }

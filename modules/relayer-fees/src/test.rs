@@ -34,7 +34,7 @@ use pallet_ismp::{
     primitives::{ConsensusClientProvider, HashAlgorithm, SubstrateStateProof},
     RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipt, ResponseReceipts,
 };
-use sp_core::{crypto::AccountId32, Pair, H256};
+use sp_core::{crypto::AccountId32, Pair, H256, U256};
 use sp_runtime::{
     traits::{IdentityLookup, Keccak256},
     BuildStorage,
@@ -405,8 +405,14 @@ fn test_withdrawal_proof() {
 
         Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), withdrawal_proof).unwrap();
 
-        assert_eq!(RelayerFees::<Test>::get(StateMachine::Kusama(2000), vec![1; 32]), 5_000u128);
-        assert_eq!(RelayerFees::<Test>::get(StateMachine::Kusama(2000), vec![2; 32]), 5_000u128);
+        assert_eq!(
+            RelayerFees::<Test>::get(StateMachine::Kusama(2000), vec![1; 32]),
+            U256::from(5000u128)
+        );
+        assert_eq!(
+            RelayerFees::<Test>::get(StateMachine::Kusama(2000), vec![2; 32]),
+            U256::from(5000u128)
+        );
     })
 }
 
@@ -416,21 +422,25 @@ fn test_withdrawal_fees() {
     ext.execute_with(|| {
         let pair = sp_core::ecdsa::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
         let address = pair.public().to_eth_address().unwrap();
-        RelayerFees::<Test>::insert(StateMachine::Kusama(2000), address.to_vec(), 5000u128);
-        let message = message(0, StateMachine::Kusama(2000), 2000u128);
+        RelayerFees::<Test>::insert(
+            StateMachine::Kusama(2000),
+            address.to_vec(),
+            U256::from(5000u128),
+        );
+        let message = message(0, StateMachine::Kusama(2000), 2000u128.into());
         let signature = pair.sign_prehashed(&message).0.to_vec();
 
         let withdrawal_input = WithdrawalInputData {
             signature: Signature::Ethereum { address: address.to_vec(), signature },
             dest_chain: StateMachine::Kusama(2000),
-            amount: 2000,
+            amount: U256::from(2000u128),
             gas_limit: 10_000_000,
         };
 
         Pallet::<Test>::withdraw_fees(RuntimeOrigin::none(), withdrawal_input).unwrap();
         assert_eq!(
             RelayerFees::<Test>::get(StateMachine::Kusama(2000), address.to_vec()),
-            3_000u128
+            3_000u128.into()
         );
 
         assert_eq!(Nonce::<Test>::get(address.to_vec()), 1);

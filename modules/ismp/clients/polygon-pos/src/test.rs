@@ -9,18 +9,11 @@ use frame_support::{
 use frame_system::EnsureRoot;
 use geth_primitives::{CodecHeader, Header};
 use ismp::{
-    consensus::{ConsensusClient, ConsensusClientId},
-    host::StateMachine,
-    module::IsmpModule,
-    router::IsmpRouter,
+    consensus::ConsensusClient, host::StateMachine, module::IsmpModule, router::IsmpRouter,
 };
 use pallet_ismp::{
     host::Host,
-    mocks::{
-        mocks::{MockConsensusClient, MockModule},
-        ExistentialDeposit,
-    },
-    primitives::ConsensusClientProvider,
+    mocks::{mocks::MockModule, ExistentialDeposit},
 };
 use sp_core::{Pair, H256};
 use sp_runtime::traits::{IdentityLookup, Keccak256};
@@ -45,15 +38,6 @@ impl Get<StateMachine> for StateMachineProvider {
     }
 }
 
-pub struct ConsensusProvider;
-
-impl ConsensusClientProvider for ConsensusProvider {
-    fn consensus_client(
-        _id: ConsensusClientId,
-    ) -> Result<Box<dyn ConsensusClient>, ismp::error::Error> {
-        Ok(Box::new(MockConsensusClient))
-    }
-}
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Test {
     type BaseCallFilter = frame_support::traits::Everything;
@@ -118,8 +102,8 @@ impl pallet_ismp::Config for Test {
     type HostStateMachine = pallet_ismp::mocks::StateMachineProvider;
     type TimeProvider = Timestamp;
     type Coprocessor = pallet_ismp::mocks::Coprocessor;
-    type IsmpRouter = pallet_ismp::mocks::ModuleRouter;
-    type ConsensusClientProvider = pallet_ismp::mocks::ConsensusProvider;
+    type Router = pallet_ismp::mocks::ModuleRouter;
+    type ConsensusClients = pallet_ismp::mocks::ConsensusProvider;
     type WeightInfo = ();
     type WeightProvider = ();
 }

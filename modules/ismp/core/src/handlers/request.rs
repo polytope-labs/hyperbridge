@@ -18,7 +18,7 @@
 use crate::{
     error::Error,
     handlers::{validate_state_machine, MessageResult},
-    host::IsmpHost,
+    host::{IsmpHost, StateMachine},
     messaging::RequestMessage,
     module::{DispatchError, DispatchSuccess},
     router::{Request, RequestResponse},
@@ -31,9 +31,9 @@ where
     H: IsmpHost,
 {
     let state_machine = validate_state_machine(host, msg.proof.height)?;
+
     // Verify membership proof
     let state = host.state_machine_commitment(msg.proof.height)?;
-
     state_machine.verify_membership(
         host,
         RequestResponse::Request(msg.requests.clone().into_iter().map(Request::Post).collect()),
@@ -41,10 +41,13 @@ where
         &msg.proof,
     )?;
 
-    let state_machine_client = host
-        .consensus_client_id(msg.proof.height.id.consensus_state_id)
-        .and_then(|id| host.consensus_client(id).ok())
-        .and_then(|client| client.state_machine(msg.proof.height.id.state_id).ok());
+    let consensus_clients = host.consensus_clients();
+    let check_for_consensus_client = |state_machine: StateMachine| {
+        consensus_clients
+            .iter()
+            .find_map(|client| client.state_machine(state_machine).ok())
+            .is_none()
+    };
 
     let router = host.ismp_router();
     let result = msg
@@ -64,7 +67,7 @@ where
                 // in which case, we must NOT have a configured state machine for the source
                 (req.source_chain() == msg.proof.height.id.state_id ||
                 host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-                    state_machine_client.is_none())
+                    check_for_consensus_client(req.source_chain()))
         })
         .map(|request| {
             let cb = router.module_for_id(request.to.clone())?;

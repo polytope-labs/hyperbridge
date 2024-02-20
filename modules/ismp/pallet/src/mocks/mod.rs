@@ -56,15 +56,7 @@ impl Get<StateMachine> for StateMachineProvider {
     }
 }
 
-pub struct ConsensusProvider;
-
-impl ConsensusClientProvider for ConsensusProvider {
-    fn consensus_client(
-        _id: ConsensusClientId,
-    ) -> Result<Box<dyn ConsensusClient>, ismp::error::Error> {
-        Ok(Box::new(MockConsensusClient))
-    }
-}
+pub type ConsensusProvider = (MockConsensusClient,);
 
 /// Balance of an account.
 pub type Balance = u128;
@@ -145,8 +137,8 @@ impl Config for Test {
     type HostStateMachine = StateMachineProvider;
     type Coprocessor = Coprocessor;
     type TimeProvider = Timestamp;
-    type IsmpRouter = ModuleRouter;
-    type ConsensusClientProvider = ConsensusProvider;
+    type Router = ModuleRouter;
+    type ConsensusClients = ConsensusProvider;
     type WeightInfo = ();
     type WeightProvider = ();
 }

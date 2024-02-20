@@ -385,6 +385,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             require(_hostParams.consensusState.equals(new bytes(0)), "Unauthorized action");
         }
 
+        _hostParams.latestStateMachineHeight = 0;
         _hostParams.consensusState = state;
     }
 

@@ -53,6 +53,10 @@ impl ConsensusClient for MockClient {
         Ok(())
     }
 
+    fn consensus_client_id(&self) -> ConsensusClientId {
+        MOCK_CONSENSUS_CLIENT_ID
+    }
+
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         Ok(Box::new(MockStateMachineClient))
     }
@@ -299,11 +303,8 @@ impl IsmpHost for Host {
         Ok(())
     }
 
-    fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
-        match id {
-            MOCK_CONSENSUS_CLIENT_ID => Ok(Box::new(MockClient)),
-            _ => Err(Error::ImplementationSpecific("Client not found".to_string())),
-        }
+    fn consensus_clients(&self) -> Vec<Box<dyn ConsensusClient>> {
+        vec![Box::new(MockClient)]
     }
 
     fn challenge_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {

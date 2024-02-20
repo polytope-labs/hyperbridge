@@ -4107,6 +4107,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fortuples"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87630a8087e9cac4b7edfb6ee5e250ddca9112b57b6b17d8f5107375a3a8eace"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "foundry-abi"
 version = "0.1.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=068ef4d82e8421f9f96fdc33b061dc4848b7019a#068ef4d82e8421f9f96fdc33b061dc4848b7019a"
@@ -5827,6 +5838,7 @@ dependencies = [
  "hex",
  "hex-literal 0.3.4",
  "ismp",
+ "ismp-testsuite",
  "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
@@ -8344,6 +8356,7 @@ dependencies = [
  "derive_more",
  "enum-as-inner",
  "env_logger",
+ "fortuples",
  "frame-benchmarking",
  "frame-support",
  "frame-system",

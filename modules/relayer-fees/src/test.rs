@@ -31,7 +31,7 @@ use pallet_ismp::{
         mocks::{set_timestamp, MockModule},
         ExistentialDeposit,
     },
-    primitives::{ConsensusClientProvider, HashAlgorithm, SubstrateStateProof},
+    primitives::{HashAlgorithm, SubstrateStateProof},
     RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipt, ResponseReceipts,
 };
 use sp_core::{crypto::AccountId32, Pair, H256, U256};
@@ -43,6 +43,11 @@ use sp_trie::LayoutV0;
 use std::time::Duration;
 use substrate_state_machine::SubstrateStateMachine;
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
+
+use frame_support::derive_impl;
+use pallet_ismp::{
+    dispatcher::LeafMetadata, mocks::mocks::MOCK_CONSENSUS_STATE_ID, primitives::LeafIndexAndPos,
+};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -88,23 +93,14 @@ impl ConsensusClient for MockConsensusClient {
         Ok(())
     }
 
+    fn consensus_client_id(&self) -> ConsensusClientId {
+        MOCK_CONSENSUS_STATE_ID
+    }
+
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         Ok(Box::new(SubstrateStateMachine::<Test>::default()))
     }
 }
-
-pub struct ConsensusProvider;
-
-impl ConsensusClientProvider for ConsensusProvider {
-    fn consensus_client(
-        _id: ConsensusClientId,
-    ) -> Result<Box<dyn ConsensusClient>, ismp::error::Error> {
-        Ok(Box::new(MockConsensusClient))
-    }
-}
-
-use frame_support::derive_impl;
-use pallet_ismp::{dispatcher::LeafMetadata, primitives::LeafIndexAndPos};
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Test {
@@ -170,8 +166,8 @@ impl pallet_ismp::Config for Test {
     type HostStateMachine = pallet_ismp::mocks::StateMachineProvider;
     type TimeProvider = Timestamp;
     type Coprocessor = pallet_ismp::mocks::Coprocessor;
-    type IsmpRouter = pallet_ismp::mocks::ModuleRouter;
-    type ConsensusClientProvider = ConsensusProvider;
+    type Router = pallet_ismp::mocks::ModuleRouter;
+    type ConsensusClients = (MockConsensusClient,);
     type WeightInfo = ();
     type WeightProvider = ();
 }

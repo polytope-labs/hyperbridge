@@ -17,11 +17,10 @@ use crate::{
     alloc::{boxed::Box, string::ToString},
     AccountId, Balance, Balances, Ismp, ParachainInfo, Runtime, RuntimeEvent, Timestamp,
 };
-use alloc::format;
+
 use frame_support::pallet_prelude::Get;
 use frame_system::EnsureRoot;
 use ismp::{
-    consensus::{ConsensusClient, ConsensusClientId},
     error::Error,
     host::StateMachine,
     module::IsmpModule,
@@ -30,11 +29,7 @@ use ismp::{
 
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::sepolia::Sepolia;
-use pallet_ismp::{
-    dispatcher::FeeMetadata,
-    host::Host,
-    primitives::{ConsensusClientProvider, ModuleId},
-};
+use pallet_ismp::{dispatcher::FeeMetadata, host::Host, primitives::ModuleId};
 use sp_std::prelude::*;
 
 #[derive(Default)]
@@ -45,33 +40,6 @@ pub struct HostStateMachine;
 impl Get<StateMachine> for HostStateMachine {
     fn get() -> StateMachine {
         StateMachine::Kusama(ParachainInfo::get().into())
-    }
-}
-
-pub struct ConsensusProvider;
-
-impl ConsensusClientProvider for ConsensusProvider {
-    fn consensus_client(id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
-        match id {
-            ismp_sync_committee::BEACON_CONSENSUS_ID => {
-                let sync_committee = ismp_sync_committee::SyncCommitteeConsensusClient::<
-                    Host<Runtime>,
-                    Sepolia,
-                >::default();
-                Ok(Box::new(sync_committee))
-            },
-            ismp_polygon_pos::POLYGON_CONSENSUS_ID => {
-                let polygon_client =
-                    ismp_polygon_pos::PolygonClient::<Runtime, Host<Runtime>>::default();
-                Ok(Box::new(polygon_client))
-            },
-
-            ismp_bsc_pos::BSC_CONSENSUS_ID => {
-                let bsc_client = ismp_bsc_pos::BscClient::<Host<Runtime>>::default();
-                Ok(Box::new(bsc_client))
-            },
-            id => Err(Error::ImplementationSpecific(format!("Unknown consensus client: {id:?}")))?,
-        }
     }
 }
 
@@ -95,8 +63,11 @@ impl pallet_ismp::Config for Runtime {
     type HostStateMachine = HostStateMachine;
     type Coprocessor = Coprocessor;
     type TimeProvider = Timestamp;
-    type IsmpRouter = Router;
-    type ConsensusClientProvider = ConsensusProvider;
+    type Router = Router;
+    type ConsensusClients = (
+        ismp_bsc_pos::BscClient<Host<Runtime>>,
+        ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Sepolia>,
+    );
     type WeightInfo = ();
     type WeightProvider = ();
 }

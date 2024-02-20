@@ -13,7 +13,9 @@ use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
 use geth_primitives::CodecHeader;
 use ismp::{
-    consensus::{ConsensusClient, ConsensusStateId, StateCommitment, StateMachineClient},
+    consensus::{
+        ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
+    },
     error::Error,
     host::{IsmpHost, StateMachine},
     messaging::{Proof, StateCommitmentHeight},
@@ -310,6 +312,10 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         Err(Error::ImplementationSpecific("Invalid Fraud Proof".to_string()))
     }
 
+    fn consensus_client_id(&self) -> ConsensusClientId {
+        POLYGON_CONSENSUS_ID
+    }
+
     fn state_machine(
         &self,
         id: ismp::host::StateMachine,
@@ -317,7 +323,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         match id {
             StateMachine::Bsc => Ok(Box::new(<EvmStateMachine<H>>::default())),
             state_machine =>
-                return Err(Error::ImplementationSpecific(format!(
+                return Err(Error::ImplementationSpecific(alloc::format!(
                     "Unsupported state machine: {state_machine:?}"
                 ))),
         }

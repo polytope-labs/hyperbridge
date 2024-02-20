@@ -37,6 +37,7 @@ sp-core = { workspace = true }
 [dev-dependencies]
 ethers = { workspace = true }
 tokio = { version = "1.27.0", features = ["full"] }
+ismp-testsuite = { path = "../../testsuite" }
 
 [features]
 default = ["std"]

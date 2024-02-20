@@ -114,6 +114,9 @@ pub trait ConsensusClient {
         proof_2: Vec<u8>,
     ) -> Result<(), Error>;
 
+    /// The consensus client Id provided by this client.
+    fn consensus_client_id(&self) -> ConsensusClientId;
+
     /// Return an implementation of a [`StateMachineClient`] for the given state machine.
     /// Return an error if the identifier is unknown.
     fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error>;

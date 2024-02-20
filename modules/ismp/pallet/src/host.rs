@@ -267,8 +267,8 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
-    fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
-        <T as Config>::ConsensusClientProvider::consensus_client(id)
+    fn consensus_clients(&self) -> Vec<Box<dyn ConsensusClient>> {
+        <T as Config>::ConsensusClients::consensus_clients()
     }
 
     fn challenge_period(&self, id: ConsensusStateId) -> Option<Duration> {
@@ -293,7 +293,7 @@ impl<T: Config> IsmpHost for Host<T> {
     }
 
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {
-        Box::new(T::IsmpRouter::default())
+        Box::new(T::Router::default())
     }
 }
 

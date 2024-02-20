@@ -13,7 +13,9 @@ use bsc_pos_verifier::{
 use codec::{Decode, Encode};
 use geth_primitives::Header;
 use ismp::{
-    consensus::{ConsensusClient, ConsensusStateId, StateCommitment, StateMachineClient},
+    consensus::{
+        ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
+    },
     error::Error,
     host::{IsmpHost, StateMachine},
     messaging::{Proof, StateCommitmentHeight},
@@ -152,6 +154,10 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
         Ok(())
     }
 
+    fn consensus_client_id(&self) -> ConsensusClientId {
+        BSC_CONSENSUS_ID
+    }
+
     fn state_machine(
         &self,
         id: ismp::host::StateMachine,
@@ -159,7 +165,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
         match id {
             StateMachine::Bsc => Ok(Box::new(<EvmStateMachine<H>>::default())),
             state_machine =>
-                return Err(Error::ImplementationSpecific(format!(
+                return Err(Error::ImplementationSpecific(alloc::format!(
                     "Unsupported state machine: {state_machine:?}"
                 ))),
         }

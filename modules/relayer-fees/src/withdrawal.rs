@@ -1,6 +1,6 @@
 use alloy_primitives::{Address, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
-use codec::{Codec, Decode, Encode};
+use codec::{Decode, Encode};
 use ismp::{host::StateMachine, messaging::Proof};
 use sp_core::{H256, U256};
 use sp_std::prelude::*;

@@ -130,10 +130,10 @@ pub mod pallet {
         type TimeProvider: UnixTime;
 
         /// Configurable router that dispatches calls to modules
-        type IsmpRouter: IsmpRouter + Default;
+        type Router: IsmpRouter + Default;
 
         /// Provides concrete implementations of consensus clients
-        type ConsensusClientProvider: ConsensusClientProvider;
+        type ConsensusClients: ConsensusClientProvider;
 
         /// Weight Info
         type WeightInfo: WeightInfo;

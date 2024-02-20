@@ -4,8 +4,8 @@ use alloc::collections::BTreeMap;
 use frame_support::PalletId;
 use ismp::{
     consensus::{
-        ConsensusClient, StateCommitment, StateMachineClient, StateMachineHeight, StateMachineId,
-        VerifiedCommitments,
+        ConsensusClient, ConsensusClientId, StateCommitment, StateMachineClient,
+        StateMachineHeight, StateMachineId, VerifiedCommitments,
     },
     error::Error as IsmpError,
     handlers,
@@ -70,6 +70,10 @@ impl ConsensusClient for MockConsensusClient {
         _proof_2: Vec<u8>,
     ) -> Result<(), IsmpError> {
         Ok(())
+    }
+
+    fn consensus_client_id(&self) -> ConsensusClientId {
+        MOCK_CONSENSUS_STATE_ID
     }
 
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, IsmpError> {

@@ -19,7 +19,7 @@ use alloc::format;
 use codec::{Decode, Encode};
 use core::time::Duration;
 use frame_support::{weights::Weight, PalletId};
-use ismp::consensus::{ConsensusClient, ConsensusClientId};
+use ismp::consensus::ConsensusClient;
 use scale_info::TypeInfo;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_core::{
@@ -56,13 +56,28 @@ pub enum Error {
     InvalidBestKnownBlock,
 }
 
-/// A trait that returns a reference to a consensus client based on its Id
+/// A trait that returns a list of all configured consensus clients
 /// This trait should be implemented in the runtime
 pub trait ConsensusClientProvider {
-    /// Returns a reference to a consensus client
-    fn consensus_client(
-        id: ConsensusClientId,
-    ) -> Result<Box<dyn ConsensusClient>, ismp::error::Error>;
+    /// Returns a list of all configured consensus clients
+    fn consensus_clients() -> Vec<Box<dyn ConsensusClient>>;
+}
+
+fortuples::fortuples! {
+    #[tuples::max_size(30)]
+    impl ConsensusClientProvider for #Tuple
+    where
+        #(#Member: ConsensusClient + Default + 'static),*
+    {
+
+        fn consensus_clients() -> Vec<Box<dyn ConsensusClient>> {
+            let clients = vec![
+                #( Box::new(#Member::default()) as Box<dyn ConsensusClient> ),*
+            ];
+
+            clients
+        }
+    }
 }
 
 /// Module identification types supported by ismp

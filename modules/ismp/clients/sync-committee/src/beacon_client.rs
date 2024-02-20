@@ -167,6 +167,10 @@ impl<
         Err(Error::ImplementationSpecific("fraud proof verification unimplemented".to_string()))
     }
 
+    fn consensus_client_id(&self) -> ConsensusClientId {
+        BEACON_CONSENSUS_ID
+    }
+
     fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         match id {
             StateMachine::Ethereum(_) => Ok(Box::new(<EvmStateMachine<H>>::default())),

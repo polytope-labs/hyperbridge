@@ -18,7 +18,7 @@
 use crate::{
     error::Error,
     handlers::{validate_state_machine, MessageResult},
-    host::IsmpHost,
+    host::{IsmpHost, StateMachine},
     messaging::TimeoutMessage,
     module::{DispatchError, DispatchSuccess},
     router::Response,
@@ -31,14 +31,19 @@ pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, Error>
 where
     H: IsmpHost,
 {
+    let consensus_clients = host.consensus_clients();
+
+    let check_for_consensus_client = |state_machine: StateMachine| {
+        consensus_clients
+            .iter()
+            .find_map(|client| client.state_machine(state_machine).ok())
+            .is_none()
+    };
+
     let results = match msg {
         TimeoutMessage::Post { requests, timeout_proof } => {
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
-            let state_machine_client = host
-                .consensus_client_id(timeout_proof.height.id.consensus_state_id)
-                .and_then(|id| host.consensus_client(id).ok())
-                .and_then(|client| client.state_machine(timeout_proof.height.id.state_id).ok());
 
             let requests = requests
                 .into_iter()
@@ -48,7 +53,7 @@ where
                     // and we don't have a configured state machine client for the destination
                     req.dest_chain() == timeout_proof.height.id.state_id ||
                         host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-                            state_machine_client.is_none()
+                            check_for_consensus_client(req.dest_chain())
                 })
                 .collect::<Vec<_>>();
 
@@ -102,10 +107,6 @@ where
         TimeoutMessage::PostResponse { responses, timeout_proof } => {
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
-            let state_machine_client = host
-                .consensus_client_id(timeout_proof.height.id.consensus_state_id)
-                .and_then(|id| host.consensus_client(id).ok())
-                .and_then(|client| client.state_machine(timeout_proof.height.id.state_id).ok());
 
             let responses = responses
                 .into_iter()
@@ -115,7 +116,7 @@ where
                     // and we don't have a configured state machine client for the destination
                     res.dest_chain() == timeout_proof.height.id.state_id ||
                         host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-                            state_machine_client.is_none()
+                            check_for_consensus_client(res.dest_chain())
                 })
                 .collect::<Vec<_>>();
 

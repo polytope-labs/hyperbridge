@@ -440,3 +440,10 @@ fn should_handle_get_request_responses_correctly() {
         }
     })
 }
+
+#[test]
+fn ensure_that_we_commit_requests_to_the_mmr_alongside_state() {
+    // this should prevent requests from being committed to the mmr without being committed to the
+    // state which would allow requests to be both delivered to the destination and
+    // simultaneosly time out on the host.
+}

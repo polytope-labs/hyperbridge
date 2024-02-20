@@ -195,6 +195,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function host() public virtual returns (bytes memory);
 
     /**
+     * @return the mainnet evm chainId for this host
+     */
+    function chainId() public virtual returns (uint256);
+
+    /**
      * @return the address of the DAI ERC-20 contract on this state machine
      */
     function dai() public view returns (address) {
@@ -375,7 +380,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param state initial consensus state
      */
     function setConsensusState(bytes memory state) public onlyAdmin {
-        require(_hostParams.consensusState.equals(new bytes(0)), "Unauthorized action");
+        if (chainId() == block.chainid) {
+            require(_hostParams.consensusState.equals(new bytes(0)), "Unauthorized action");
+        }
 
         _hostParams.consensusState = state;
     }
@@ -396,7 +403,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         (bool success,) = address(destination).call(abi.encodeWithSelector(IIsmpModule.onAccept.selector, request));
 
         if (success) {
-            // doesn't matter if it failed, if it failed once, it'll fail again
             bytes32 commitment = request.hash();
             _requestReceipts[commitment] = tx.origin;
 

@@ -272,11 +272,23 @@ contract TokenGatewayTest is Test {
         (, msgSender, txOrigin) = vm.readCallers();
         chain_a_gateway.send(sendParams);
 
-        assertEq(chain_a_dai.balanceOf(address(chain_a_host)), hostDaiAPreBalance + (perByteFee * BODY_BYTES_SIZE) + redeemFee);
-        assertEq(chain_a_dai.balanceOf(address(relayer)), relayerDaiAPreBalance - ((perByteFee * BODY_BYTES_SIZE) + redeemFee));
+        assertEq(
+            chain_a_dai.balanceOf(address(chain_a_host)),
+            hostDaiAPreBalance + (perByteFee * BODY_BYTES_SIZE) + redeemFee
+        );
+        assertEq(
+            chain_a_dai.balanceOf(address(relayer)),
+            relayerDaiAPreBalance - ((perByteFee * BODY_BYTES_SIZE) + redeemFee)
+        );
         assertEq(chain_a_wrapped_usdc.balanceOf(address(relayer)), relayerWrappedUsdcAPreBalance - amountToRedeem);
-        assertEq(chain_b_usdc.balanceOf(address(chain_b_gateway)), (gatewayUsdcBPreBalance - amountToRedeem) + calculateProtocolRedeemFee(amountToRedeem));
-        assertEq(chain_b_usdc.balanceOf(to), (toUsdcBPreBalance + amountToRedeem) - calculateProtocolRedeemFee(amountToRedeem));
+        assertEq(
+            chain_b_usdc.balanceOf(address(chain_b_gateway)),
+            (gatewayUsdcBPreBalance - amountToRedeem) + calculateProtocolRedeemFee(amountToRedeem)
+        );
+        assertEq(
+            chain_b_usdc.balanceOf(to),
+            (toUsdcBPreBalance + amountToRedeem) - calculateProtocolRedeemFee(amountToRedeem)
+        );
     }
 
     function test_bridge_non_feetoken() external {
@@ -284,7 +296,7 @@ contract TokenGatewayTest is Test {
         uint256 amount = 1_000_000e18;
         uint256 fee = 100e18;
         address to = user1;
-    
+
         SendParams memory sendParams;
         uint256 amountIn;
         {
@@ -317,12 +329,17 @@ contract TokenGatewayTest is Test {
         chain_a_gateway.send(sendParams);
         vm.startPrank(msgSender, txOrigin);
 
-        assertEq(chain_a_dai.balanceOf(address(chain_a_host)), hostDaiAPreBalance + (perByteFee * BODY_BYTES_SIZE) + fee);
+        assertEq(
+            chain_a_dai.balanceOf(address(chain_a_host)), hostDaiAPreBalance + (perByteFee * BODY_BYTES_SIZE) + fee
+        );
         assertEq(chain_a_usdc.balanceOf(user1), user1UsdcAPreBalance - (amount + amountIn));
         assertEq(chain_a_usdc.balanceOf(address(chain_a_gateway)), gatewayUsdcAPreBalance + amount);
         assertEq(chain_b_wrapped_usdc.balanceOf(address(relayer)), relayerWrappedUsdcBPreBalance + amount);
         assertEq(chain_b_usdc.balanceOf(to), toUsdcBPreBalance + (amount - calculateProtocolBridgeFee(amount)));
-        assertEq(chain_b_usdc.balanceOf(address(relayer)), relayerUsdcBPreBalance - (amount - calculateProtocolBridgeFee(amount)));
+        assertEq(
+            chain_b_usdc.balanceOf(address(relayer)),
+            relayerUsdcBPreBalance - (amount - calculateProtocolBridgeFee(amount))
+        );
     }
 
     function test_bridge_feetoken() external {
@@ -354,12 +371,17 @@ contract TokenGatewayTest is Test {
         chain_a_gateway.send(sendParams);
         vm.startPrank(msgSender, txOrigin);
 
-        assertEq(chain_a_dai.balanceOf(address(chain_a_host)), hostDaiAPreBalance + (perByteFee * BODY_BYTES_SIZE) + fee);
+        assertEq(
+            chain_a_dai.balanceOf(address(chain_a_host)), hostDaiAPreBalance + (perByteFee * BODY_BYTES_SIZE) + fee
+        );
         assertEq(chain_a_dai.balanceOf(user1), user1DaiAPreBalance - (amount + (perByteFee * BODY_BYTES_SIZE) + fee));
         assertEq(chain_a_dai.balanceOf(address(chain_a_gateway)), gatewayDaiAPreBalance + amount);
         assertEq(chain_b_wrapped_dai.balanceOf(address(relayer)), relayerWrappedDaiBPreBalance + amount);
         assertEq(chain_b_dai.balanceOf(to), toDaiBPreBalance + (amount - calculateProtocolBridgeFee(amount)));
-        assertEq(chain_b_dai.balanceOf(address(relayer)), relayerDaiBPreBalance - (amount - calculateProtocolBridgeFee(amount)));
+        assertEq(
+            chain_b_dai.balanceOf(address(relayer)),
+            relayerDaiBPreBalance - (amount - calculateProtocolBridgeFee(amount))
+        );
     }
 
     function mutateAddress(address addr) internal pure returns (address) {

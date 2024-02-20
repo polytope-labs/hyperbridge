@@ -35,15 +35,23 @@ where
         TimeoutMessage::Post { requests, timeout_proof } => {
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
+            let state_machine_client = host
+                .consensus_client_id(timeout_proof.height.id.consensus_state_id)
+                .and_then(|id| host.consensus_client(id).ok())
+                .and_then(|client| client.state_machine(timeout_proof.height.id.state_id).ok());
+
             let requests = requests
                 .into_iter()
                 .filter(|req| {
                     // check if the destination chain matches the proof metadata
                     // or if the proof metadata refers to the configured proxy
+                    // and we don't have a configured state machine client for the destination
                     req.dest_chain() == timeout_proof.height.id.state_id ||
-                        host.is_allowed_proxy(&timeout_proof.height.id.state_id)
+                        host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+                            state_machine_client.is_none()
                 })
                 .collect::<Vec<_>>();
+
             for request in &requests {
                 // Ensure a commitment exists for all requests in the batch
                 let commitment = hash_request::<H>(request);
@@ -60,8 +68,8 @@ where
                 }
             }
 
-            let key = state_machine.state_trie_key(requests.clone().into());
-            let values = state_machine.verify_state_proof(host, key, state, &timeout_proof)?;
+            let keys = state_machine.state_trie_key(requests.clone().into());
+            let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
             if values.into_iter().any(|(_key, val)| val.is_some()) {
                 Err(Error::ImplementationSpecific("Some Requests not timed out".into()))?
             }
@@ -94,13 +102,23 @@ where
         TimeoutMessage::PostResponse { responses, timeout_proof } => {
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
+            let state_machine_client = host
+                .consensus_client_id(timeout_proof.height.id.consensus_state_id)
+                .and_then(|id| host.consensus_client(id).ok())
+                .and_then(|client| client.state_machine(timeout_proof.height.id.state_id).ok());
+
             let responses = responses
                 .into_iter()
                 .filter(|res| {
+                    // check if the destination chain matches the proof metadata
+                    // or if the proof metadata refers to the configured proxy
+                    // and we don't have a configured state machine client for the destination
                     res.dest_chain() == timeout_proof.height.id.state_id ||
-                        host.is_allowed_proxy(&timeout_proof.height.id.state_id)
+                        host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+                            state_machine_client.is_none()
                 })
                 .collect::<Vec<_>>();
+
             for response in &responses {
                 // Ensure a commitment exists for all responses in the batch
                 let commitment = hash_post_response::<H>(response);

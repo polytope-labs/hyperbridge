@@ -386,3 +386,23 @@ where
 
     Ok(())
 }
+
+/// This should prevent a request from timing out on a proxy when there exists a consensus client
+/// for the request destination
+pub fn prevent_request_timeout_on_proxy_with_known_state_machine() {}
+
+/// This should prevent a response from timing out on a proxy when there exists a consensus client
+/// for the request destination
+pub fn prevent_response_timeout_on_proxy_with_known_state_machine() {}
+
+/// This should check that if a proxy isn't configured, requests are not valid if they don't come
+/// from the state machine claimed in the proof as well as check that the request destination
+/// matches the host state machine.
+pub fn check_request_source_and_destination() {}
+
+/// This should check that if a proxy isn't configured, responses are not valid if they don't come
+/// from the state machine claimed in the proof
+pub fn check_response_source() {}
+
+/// Check that proxies can dispatch requests & responses.
+pub fn sanity_check_for_proxies() {}

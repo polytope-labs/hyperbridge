@@ -22,7 +22,7 @@ contract DeployScript is Script {
         string memory host = vm.envString("HOST");
 
         vm.startBroadcast(uint256(privateKey));
-        PingModule ping = new PingModule{ salt: salt }(admin);
+        PingModule ping = new PingModule{salt: salt}(admin);
 
         if (Strings.equal(host, "sepolia") || Strings.equal(host, "ethereum")) {
             ping.setIsmpHost(SEPOLIA_HOST);

@@ -26,7 +26,7 @@ import {GovernableToken} from "../src/modules/GovernableToken.sol";
 contract DeployScript is Script {
     using strings for *;
 
-    bytes32 public salt = keccak256(bytes("gargantua-v4700000"));
+    bytes32 public salt = keccak256(bytes("gargantua-v4800000"));
 
     function run() external {
         address admin = vm.envAddress("ADMIN");
@@ -40,8 +40,8 @@ contract DeployScript is Script {
         feeToken.mint(0x276b41950829E5A7B179ba03B758FaaE9A8d7C41, 1000000000 * 1e18, "");
 
         // consensus client
-//        RococoVerifier verifier = new RococoVerifier();
-//        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
+        //        RococoVerifier verifier = new RococoVerifier();
+        //        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
         BeefyV1 consensusClient = new BeefyV1{salt: salt}(paraId);
 
         // handler

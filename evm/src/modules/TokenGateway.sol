@@ -107,7 +107,6 @@ contract TokenGateway is IIsmpModule {
 
     // The Gateway contract has to have the roles `MINTER` and `BURNER`.
     function send(SendParams memory params) public {
-
         ensureInitSetup();
 
         address from = msg.sender;
@@ -182,7 +181,8 @@ contract TokenGateway is IIsmpModule {
             uint256 _amountToTransfer = body.amount - _protocolLiquidityFee;
 
             require(
-                IERC20(erc20).transferFrom(tx.origin, body.to, _amountToTransfer), "Gateway: Insufficient relayer balance"
+                IERC20(erc20).transferFrom(tx.origin, body.to, _amountToTransfer),
+                "Gateway: Insufficient relayer balance"
             );
 
             // hand the relayer the erc6160, so they can redeem on the source chain
@@ -227,16 +227,22 @@ contract TokenGateway is IIsmpModule {
         revert("Token gateway doesn't emit Get Requests");
     }
 
-    function handleSwap(address _sender, address _fromToken, address _toToken, uint256 _toTokenAmountOut) private returns (bool) {
+    function handleSwap(address _sender, address _fromToken, address _toToken, uint256 _toTokenAmountOut)
+        private
+        returns (bool)
+    {
         address[] memory path = new address[](2);
         path[0] = _fromToken;
         path[1] = _toToken;
 
-        uint _fromTokenAmountIn = uniswapV2Router.getAmountsIn(_toTokenAmountOut, path)[0];
+        uint256 _fromTokenAmountIn = uniswapV2Router.getAmountsIn(_toTokenAmountOut, path)[0];
 
         // How do we handle cases of slippage - Todo: Handle Slippage
 
-        require(IERC20(_fromToken).transferFrom(_sender, address(this), _fromTokenAmountIn), "insufficient intended fee token");
+        require(
+            IERC20(_fromToken).transferFrom(_sender, address(this), _fromTokenAmountIn),
+            "insufficient intended fee token"
+        );
         require(IERC20(_fromToken).approve(address(uniswapV2Router), _fromTokenAmountIn), "approve failed.");
 
         uniswapV2Router.swapTokensForExactTokens(

@@ -2,7 +2,7 @@ use alloy_primitives::{Address, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use codec::{Codec, Decode, Encode};
 use ismp::{host::StateMachine, messaging::Proof};
-use sp_core::H256;
+use sp_core::{H256, U256};
 use sp_std::prelude::*;
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
@@ -36,13 +36,13 @@ pub struct FeeMetadata {
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub struct WithdrawalInputData<Balance: Codec + Copy> {
+pub struct WithdrawalInputData {
     /// Signature data to prove account ownership
     pub signature: Signature,
     /// Chain to withdraw funds from
     pub dest_chain: StateMachine,
     /// Amount to withdraw
-    pub amount: Balance,
+    pub amount: U256,
     /// gas limit for evm withdrawals
     pub gas_limit: u64,
 }
@@ -60,14 +60,16 @@ pub enum Signature {
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct WithdrawalParams {
     pub beneficiary_address: Vec<u8>,
-    pub amount: u128,
+    pub amount: U256,
 }
 
 impl WithdrawalParams {
     pub fn abi_encode(&self) -> Vec<u8> {
         let mut data = vec![];
         data.extend_from_slice(&self.beneficiary_address);
-        data.extend_from_slice(&self.amount.to_be_bytes());
+        let mut bytes = [0u8; 32];
+        self.amount.to_big_endian(&mut bytes);
+        data.extend_from_slice(&bytes);
         data
     }
 }

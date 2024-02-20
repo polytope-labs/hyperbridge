@@ -48,7 +48,9 @@ use sp_core::{
 use sp_runtime::BuildStorage;
 
 pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
-    frame_system::GenesisConfig::<Test>::default().build_storage().unwrap().into()
+    let mut ext = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap().into();
+    register_offchain_ext(&mut ext);
+    ext
 }
 
 fn register_offchain_ext(ext: &mut sp_io::TestExternalities) {
@@ -107,7 +109,6 @@ fn push_leaves(range: Range<u64>) -> (Vec<H256>, Vec<u64>) {
 fn should_generate_proofs_correctly_for_single_leaf_mmr() {
     let _ = env_logger::try_init();
     let mut ext = new_test_ext();
-    register_offchain_ext(&mut ext);
     let (root, (commitments, positions)) = ext.execute_with(|| {
         on_initialize();
         // push some leaves into the mmr
@@ -143,7 +144,6 @@ fn should_generate_and_verify_batch_proof_correctly() {
     let mut ext = new_test_ext();
     // Try to generate proofs now. This requires the offchain extensions to be present
     // to retrieve full leaf data.
-    register_offchain_ext(&mut ext);
     let (root, (commitments, positions)) = ext.execute_with(|| {
         on_initialize();
         // push some leaves into the mmr
@@ -187,7 +187,6 @@ fn should_generate_and_verify_batch_proof_for_leaves_inserted_across_multiple_bl
     let mut ext = new_test_ext();
     // Try to generate proofs now. This requires the offchain extensions to be present
     // to retrieve full leaf data.
-    register_offchain_ext(&mut ext);
     let (root, (commitments, positions)) = ext.execute_with(|| {
         on_initialize();
         // push some leaves into the mmr

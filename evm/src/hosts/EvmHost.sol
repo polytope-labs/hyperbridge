@@ -381,6 +381,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function setConsensusState(bytes memory state) public onlyAdmin {
         if (chainId() == block.chainid) {
+            // if we're on mainnet, then consensus state can only be initialized once.
             require(_hostParams.consensusState.equals(new bytes(0)), "Unauthorized action");
         }
 

@@ -33,6 +33,22 @@ pub mod evm_host {
                     },],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("chainId"),
+                    ::std::vec![::ethers::core::abi::ethabi::Function {
+                        name: ::std::borrow::ToOwned::to_owned("chainId"),
+                        inputs: ::std::vec![],
+                        outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::string::String::new(),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Uint(256usize,),
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("uint256"),
+                            ),
+                        },],
+                        constant: ::core::option::Option::None,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                    },],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("challengePeriod"),
                     ::std::vec![::ethers::core::abi::ethabi::Function {
                         name: ::std::borrow::ToOwned::to_owned("challengePeriod"),
@@ -1188,6 +1204,14 @@ pub mod evm_host {
                 .method_hash([248, 81, 164, 64], ())
                 .expect("method not found (this should never happen)")
         }
+        ///Calls the contract's `chainId` (0x9a8a0592) function
+        pub fn chain_id(
+            &self,
+        ) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::U256> {
+            self.0
+                .method_hash([154, 138, 5, 146], ())
+                .expect("method not found (this should never happen)")
+        }
         ///Calls the contract's `challengePeriod` (0xf3f480d9) function
         pub fn challenge_period(
             &self,
@@ -1767,6 +1791,20 @@ pub mod evm_host {
     )]
     #[ethcall(name = "admin", abi = "admin()")]
     pub struct AdminCall;
+    ///Container type for all input parameters for the `chainId` function with signature
+    /// `chainId()` and selector `0x9a8a0592`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(name = "chainId", abi = "chainId()")]
+    pub struct ChainIdCall;
     ///Container type for all input parameters for the `challengePeriod` function with signature
     /// `challengePeriod()` and selector `0xf3f480d9`
     #[derive(
@@ -2355,6 +2393,7 @@ pub mod evm_host {
     #[derive(Clone, ::ethers::contract::EthAbiType)]
     pub enum EvmHostCalls {
         Admin(AdminCall),
+        ChainId(ChainIdCall),
         ChallengePeriod(ChallengePeriodCall),
         ConsensusClient(ConsensusClientCall),
         ConsensusState(ConsensusStateCall),
@@ -2398,6 +2437,9 @@ pub mod evm_host {
             let data = data.as_ref();
             if let Ok(decoded) = <AdminCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::Admin(decoded));
+            }
+            if let Ok(decoded) = <ChainIdCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+                return Ok(Self::ChainId(decoded));
             }
             if let Ok(decoded) =
                 <ChallengePeriodCall as ::ethers::core::abi::AbiDecode>::decode(data)
@@ -2568,6 +2610,7 @@ pub mod evm_host {
         fn encode(self) -> Vec<u8> {
             match self {
                 Self::Admin(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::ChainId(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::ChallengePeriod(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::ConsensusClient(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::ConsensusState(element) => ::ethers::core::abi::AbiEncode::encode(element),
@@ -2621,6 +2664,7 @@ pub mod evm_host {
         fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
             match self {
                 Self::Admin(element) => ::core::fmt::Display::fmt(element, f),
+                Self::ChainId(element) => ::core::fmt::Display::fmt(element, f),
                 Self::ChallengePeriod(element) => ::core::fmt::Display::fmt(element, f),
                 Self::ConsensusClient(element) => ::core::fmt::Display::fmt(element, f),
                 Self::ConsensusState(element) => ::core::fmt::Display::fmt(element, f),
@@ -2665,6 +2709,11 @@ pub mod evm_host {
     impl ::core::convert::From<AdminCall> for EvmHostCalls {
         fn from(value: AdminCall) -> Self {
             Self::Admin(value)
+        }
+    }
+    impl ::core::convert::From<ChainIdCall> for EvmHostCalls {
+        fn from(value: ChainIdCall) -> Self {
+            Self::ChainId(value)
         }
     }
     impl ::core::convert::From<ChallengePeriodCall> for EvmHostCalls {
@@ -2855,6 +2904,19 @@ pub mod evm_host {
         Hash,
     )]
     pub struct AdminReturn(pub ::ethers::core::types::Address);
+    ///Container type for all return fields from the `chainId` function with signature `chainId()`
+    /// and selector `0x9a8a0592`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct ChainIdReturn(pub ::ethers::core::types::U256);
     ///Container type for all return fields from the `challengePeriod` function with signature
     /// `challengePeriod()` and selector `0xf3f480d9`
     #[derive(

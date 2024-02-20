@@ -18,7 +18,7 @@
 use crate::{
     error::Error,
     handlers::{validate_state_machine, MessageResult},
-    host::{IsmpHost, StateMachine},
+    host::IsmpHost,
     messaging::RequestMessage,
     module::{DispatchError, DispatchSuccess},
     router::{Request, RequestResponse},
@@ -41,24 +41,30 @@ where
         &msg.proof,
     )?;
 
-    let check_source = |source: StateMachine| -> bool {
-        host.is_allowed_proxy(&source) || msg.proof.height.id.state_id == source
-    };
-
-    let check_dest =
-        |dest: StateMachine| -> bool { host.is_router() || dest == host.host_state_machine() };
+    let state_machine_client = host
+        .consensus_client_id(msg.proof.height.id.consensus_state_id)
+        .and_then(|id| host.consensus_client(id).ok())
+        .and_then(|client| client.state_machine(msg.proof.height.id.state_id).ok());
 
     let router = host.ismp_router();
-    // If a receipt exists for any request then it's a duplicate and it is not dispatched
     let result = msg
         .requests
         .into_iter()
         .filter(|req| {
             let req = Request::Post(req.clone());
+            // If a receipt exists for any request then it's a duplicate and it is not dispatched
             host.request_receipt(&req).is_none() &&
+                // can't dispatch timed out requests
                 !req.timed_out(host.timestamp()) &&
-                check_source(req.source_chain()) &&
-                check_dest(req.dest_chain())
+                // either the host is a router and can accept requests on behalf of any chain
+                // or the request must be intended for this chain
+                (req.dest_chain() == host.host_state_machine() ||
+                host.is_router()) &&
+                // either the proof metadata matches the source chain, or it's coming from a proxy
+                // in which case, we must NOT have a configured state machine for the source
+                (req.source_chain() == msg.proof.height.id.state_id ||
+                host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+                    state_machine_client.is_none())
         })
         .map(|request| {
             let cb = router.module_for_id(request.to.clone())?;

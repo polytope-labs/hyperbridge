@@ -209,6 +209,7 @@ where
     }
 
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+        // todo: check the supported parachains from the runtime before returning.
         Ok(Box::new(SubstrateStateMachine::<T>::default()))
     }
 }

@@ -312,9 +312,15 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
 
     fn state_machine(
         &self,
-        _id: ismp::host::StateMachine,
+        id: ismp::host::StateMachine,
     ) -> Result<Box<dyn StateMachineClient>, ismp::error::Error> {
-        Ok(Box::new(<EvmStateMachine<H>>::default()))
+        match id {
+            StateMachine::Bsc => Ok(Box::new(<EvmStateMachine<H>>::default())),
+            state_machine =>
+                return Err(Error::ImplementationSpecific(format!(
+                    "Unsupported state machine: {state_machine:?}"
+                ))),
+        }
     }
 }
 

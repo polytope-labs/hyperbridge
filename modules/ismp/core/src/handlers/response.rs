@@ -35,6 +35,10 @@ where
     let state_machine = validate_state_machine(host, proof.height)?;
     let state = host.state_machine_commitment(proof.height)?;
 
+    let state_machine_client = host
+        .consensus_client_id(proof.height.id.consensus_state_id)
+        .and_then(|id| host.consensus_client(id).ok())
+        .and_then(|client| client.state_machine(proof.height.id.state_id).ok());
     let result = match &msg.datagram {
         RequestResponse::Response(responses) => {
             // For a response to be valid a request commitment must be present in storage
@@ -47,7 +51,11 @@ where
                     host.request_commitment(commitment).is_ok() &&
                         host.response_receipt(&response).is_none() &&
                         !response.timed_out(host.timestamp()) &&
-                        response.source_chain() == msg.proof.height.id.state_id
+                        // either the proof metadata matches the source chain, or it's coming from a proxy
+                        // in which case, we must NOT have a configured state machine for the source
+                        (response.source_chain() == msg.proof.height.id.state_id ||
+                            host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+                                state_machine_client.is_none())
                 })
                 .cloned()
                 .collect::<Vec<_>>();

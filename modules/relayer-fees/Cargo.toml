@@ -36,9 +36,11 @@ ethereum-trie = { path = "../trees/ethereum" }
 trie-db = { workspace = true }
 hash-db = { workspace = true }
 ismp-bsc-pos = { path = "../ismp/clients/bsc-pos" }
+ismp-sync-committee = { path = "../ismp/clients/sync-committee" }
 ismp-polygon-pos = { path = "../ismp/clients/polygon-pos" }
 sp-trie = { workspace = true }
 substrate-state-machine = { path = "../ismp/pallet/state-machine" }
+hex = "0.4.3"
 
 [features]
 default = ["std"]

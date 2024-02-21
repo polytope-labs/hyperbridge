@@ -8665,6 +8665,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "hash-db",
+ "hex",
  "ismp",
  "ismp-bsc-pos",
  "ismp-polygon-pos",

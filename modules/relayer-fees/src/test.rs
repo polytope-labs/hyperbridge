@@ -449,13 +449,17 @@ fn test_withdrawal_fees() {
             gas_limit: 10_000_000,
         };
 
-        Pallet::<Test>::withdraw_fees(RuntimeOrigin::none(), withdrawal_input).unwrap();
+        Pallet::<Test>::withdraw_fees(RuntimeOrigin::none(), withdrawal_input.clone()).unwrap();
         assert_eq!(
             RelayerFees::<Test>::get(StateMachine::Kusama(2000), address.to_vec()),
             3_000u128.into()
         );
 
         assert_eq!(Nonce::<Test>::get(address.to_vec()), 1);
+
+        assert!(
+            Pallet::<Test>::withdraw_fees(RuntimeOrigin::none(), withdrawal_input.clone()).is_err()
+        );
     })
 }
 
@@ -528,11 +532,13 @@ fn test_evm_accumulate_fees() {
 
         host.store_challenge_period(claim_proof.dest_proof.height.id.consensus_state_id, 0).unwrap();
 
-        Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof).unwrap();
+        Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).unwrap();
 
         assert_eq!(
             RelayerFees::<Test>::get(StateMachine::Bsc, vec![125, 114, 152, 63, 237, 193, 243, 50, 229, 80, 6, 254, 162, 162, 175, 193, 72, 246, 97, 66]),
             U256::from(50_000_000_000_000_000_000u128)
         );
+
+        assert!(Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).is_err());
     })
 }

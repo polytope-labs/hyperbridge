@@ -81,6 +81,11 @@ pub mod pallet {
     #[pallet::getter(fn nonce)]
     pub type Nonce<T: Config> = StorageMap<_, Twox64Concat, Vec<u8>, u64, ValueQuery>;
 
+    /// Request and response commitments that have been claimed
+    #[pallet::storage]
+    #[pallet::getter(fn claimed)]
+    pub type Claimed<T: Config> = StorageMap<_, Identity, H256, bool, ValueQuery>;
+
     #[pallet::error]
     pub enum Error<T> {
         /// Withdrawal Proof Validation Error
@@ -287,7 +292,17 @@ where
         Ok(())
     }
 
-    pub fn accumulate(withdrawal_proof: WithdrawalProof) -> DispatchResult {
+    pub fn accumulate(mut withdrawal_proof: WithdrawalProof) -> DispatchResult {
+        // Filter out duplicate commitments
+        withdrawal_proof.commitments = withdrawal_proof
+            .commitments
+            .into_iter()
+            .filter(|key| match key {
+                Key::Request(req) => !Claimed::<T>::contains_key(req),
+                Key::Response { response_commitment, .. } =>
+                    !Claimed::<T>::contains_key(&response_commitment),
+            })
+            .collect();
         ensure!(!withdrawal_proof.commitments.is_empty(), Error::<T>::MissingCommitments);
         let source_keys = Self::get_commitment_keys(&withdrawal_proof);
         let dest_keys = Self::get_receipt_keys(&withdrawal_proof);
@@ -329,6 +344,14 @@ where
                     Ok::<(), ()>(())
                 },
             );
+        }
+
+        for key in withdrawal_proof.commitments {
+            match key {
+                Key::Request(req) => Claimed::<T>::insert(req, true),
+                Key::Response { response_commitment, .. } =>
+                    Claimed::<T>::insert(response_commitment, true),
+            }
         }
 
         Ok(())

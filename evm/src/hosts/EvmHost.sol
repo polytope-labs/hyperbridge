@@ -309,16 +309,27 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Updates the HostParams
-     * @param params, the new host params. If any param is empty, they won't be set.
-     * `lastUpdated` param is exempted.
+     * @dev Updates the HostParams, can only be called by cross-chain governance
+     * @param params, the new host params.
      */
     function setHostParams(HostParams memory params) external onlyManager {
         _hostParams = params;
     }
 
     /**
-     * @dev withdraws bridge revenue to the given address
+     * @dev Updates the HostParams
+     * @param params, the new host params. Can only be called by admin on testnets.
+     */
+    function setHostParamsAdmin(HostParams memory params) external onlyAdmin {
+        if (chainId() == block.chainid) {
+            require("Cannot set params on mainnet");
+        }
+
+        _hostParams = params;
+    }
+
+    /**
+     * @dev withdraws host revenue to the given address,  can only be called by cross-chain governance
      * @param params, the parameters for withdrawal
      */
     function withdraw(WithdrawParams memory params) external onlyManager {

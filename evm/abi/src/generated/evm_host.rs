@@ -702,6 +702,36 @@ pub mod evm_host {
                     },],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("setHostParamsAdmin"),
+                    ::std::vec![::ethers::core::abi::ethabi::Function {
+                        name: ::std::borrow::ToOwned::to_owned("setHostParamsAdmin"),
+                        inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::borrow::ToOwned::to_owned("params"),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                                ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                            ],),
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("struct HostParams"),
+                            ),
+                        },],
+                        outputs: ::std::vec![],
+                        constant: ::core::option::Option::None,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                    },],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("stateMachineCommitment"),
                     ::std::vec![::ethers::core::abi::ethabi::Function {
                         name: ::std::borrow::ToOwned::to_owned("stateMachineCommitment",),
@@ -1428,6 +1458,15 @@ pub mod evm_host {
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
                 .method_hash([119, 114, 166, 27], (params,))
+                .expect("method not found (this should never happen)")
+        }
+        ///Calls the contract's `setHostParamsAdmin` (0x44febebd) function
+        pub fn set_host_params_admin(
+            &self,
+            params: HostParams,
+        ) -> ::ethers::contract::builders::ContractCall<M, ()> {
+            self.0
+                .method_hash([68, 254, 190, 189], (params,))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `stateMachineCommitment` (0xa70a8c47) function
@@ -2216,6 +2255,17 @@ pub mod evm_host {
     pub struct SetHostParamsCall {
         pub params: HostParams,
     }
+    ///Container type for all input parameters for the `setHostParamsAdmin` function with signature
+    /// `setHostParamsAdmin((uint256,uint256,uint256,address,address,address,address,uint256,
+    /// uint256,address,bytes,uint256,uint256))` and selector `0x44febebd`
+    #[derive(Clone, ::ethers::contract::EthCall, ::ethers::contract::EthDisplay)]
+    #[ethcall(
+        name = "setHostParamsAdmin",
+        abi = "setHostParamsAdmin((uint256,uint256,uint256,address,address,address,address,uint256,uint256,address,bytes,uint256,uint256))"
+    )]
+    pub struct SetHostParamsAdminCall {
+        pub params: HostParams,
+    }
     ///Container type for all input parameters for the `stateMachineCommitment` function with
     /// signature `stateMachineCommitment((uint256,uint256))` and selector `0xa70a8c47`
     #[derive(
@@ -2419,6 +2469,7 @@ pub mod evm_host {
         SetConsensusState(SetConsensusStateCall),
         SetFrozenState(SetFrozenStateCall),
         SetHostParams(SetHostParamsCall),
+        SetHostParamsAdmin(SetHostParamsAdminCall),
         StateMachineCommitment(StateMachineCommitmentCall),
         StateMachineCommitmentUpdateTime(StateMachineCommitmentUpdateTimeCall),
         StoreConsensusState(StoreConsensusStateCall),
@@ -2556,6 +2607,11 @@ pub mod evm_host {
                 return Ok(Self::SetHostParams(decoded));
             }
             if let Ok(decoded) =
+                <SetHostParamsAdminCall as ::ethers::core::abi::AbiDecode>::decode(data)
+            {
+                return Ok(Self::SetHostParamsAdmin(decoded));
+            }
+            if let Ok(decoded) =
                 <StateMachineCommitmentCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
                 return Ok(Self::StateMachineCommitment(decoded));
@@ -2640,6 +2696,8 @@ pub mod evm_host {
                 Self::SetConsensusState(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::SetFrozenState(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::SetHostParams(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::SetHostParamsAdmin(element) =>
+                    ::ethers::core::abi::AbiEncode::encode(element),
                 Self::StateMachineCommitment(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
                 Self::StateMachineCommitmentUpdateTime(element) =>
@@ -2690,6 +2748,7 @@ pub mod evm_host {
                 Self::SetConsensusState(element) => ::core::fmt::Display::fmt(element, f),
                 Self::SetFrozenState(element) => ::core::fmt::Display::fmt(element, f),
                 Self::SetHostParams(element) => ::core::fmt::Display::fmt(element, f),
+                Self::SetHostParamsAdmin(element) => ::core::fmt::Display::fmt(element, f),
                 Self::StateMachineCommitment(element) => ::core::fmt::Display::fmt(element, f),
                 Self::StateMachineCommitmentUpdateTime(element) =>
                     ::core::fmt::Display::fmt(element, f),
@@ -2839,6 +2898,11 @@ pub mod evm_host {
     impl ::core::convert::From<SetHostParamsCall> for EvmHostCalls {
         fn from(value: SetHostParamsCall) -> Self {
             Self::SetHostParams(value)
+        }
+    }
+    impl ::core::convert::From<SetHostParamsAdminCall> for EvmHostCalls {
+        fn from(value: SetHostParamsAdminCall) -> Self {
+            Self::SetHostParamsAdmin(value)
         }
     }
     impl ::core::convert::From<StateMachineCommitmentCall> for EvmHostCalls {

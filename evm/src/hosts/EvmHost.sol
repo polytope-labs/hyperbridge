@@ -309,6 +309,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @return the unstaking period
+     */
+    function unStakingPeriod() public view returns (uint256) {
+        return _hostParams.unStakingPeriod;
+    }
+
+    /**
      * @dev Updates the HostParams, can only be called by cross-chain governance
      * @param params, the new host params.
      */
@@ -321,9 +328,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the new host params. Can only be called by admin on testnets.
      */
     function setHostParamsAdmin(HostParams memory params) external onlyAdmin {
-        if (chainId() == block.chainid) {
-            require("Cannot set params on mainnet");
-        }
+        require(chainId() != block.chainid, "Cannot set params on mainnet");
 
         _hostParams = params;
     }
@@ -391,20 +396,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param state initial consensus state
      */
     function setConsensusState(bytes memory state) public onlyAdmin {
-        if (chainId() == block.chainid) {
-            // if we're on mainnet, then consensus state can only be initialized once.
-            require(_hostParams.consensusState.equals(new bytes(0)), "Unauthorized action");
-        }
+        // if we're on mainnet, then consensus state can only be initialized once.
+        require(
+            chainId() == block.chainid ? _hostParams.consensusState.equals(new bytes(0)) : true, "Unauthorized action"
+        );
 
         _hostParams.latestStateMachineHeight = 0;
         _hostParams.consensusState = state;
-    }
-
-    /**
-     * @return the unstaking period
-     */
-    function unStakingPeriod() public view returns (uint256) {
-        return _hostParams.unStakingPeriod;
     }
 
     /**

@@ -21,7 +21,7 @@ pub use pallet::*;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use alloc::collections::BTreeMap;
+    use alloc::{collections::BTreeMap, vec::Vec};
     use frame_support::pallet_prelude::{OptionQuery, *};
     use frame_system::pallet_prelude::*;
     use ismp::{

@@ -39,7 +39,9 @@ pub mod benchmarks {
         dispatcher::{Dispatcher, FeeMetadata, LeafMetadata},
         host::Host,
         mmr_primitives::Leaf,
-        mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID, MODULE_ID},
+        mocks::mocks::{
+            setup_mock_client, MOCK_CONSENSUS_CLIENT_ID, MOCK_CONSENSUS_STATE_ID, MODULE_ID,
+        },
         Config, Event, Pallet, RequestCommitments, RequestReceipts, ResponseReceipts,
     };
     use frame_support::traits::{Get, Hooks};
@@ -70,7 +72,7 @@ pub mod benchmarks {
     fn create_consensus_client() {
         let message = CreateConsensusState {
             consensus_state: Default::default(),
-            consensus_client_id: MOCK_CONSENSUS_STATE_ID,
+            consensus_client_id: MOCK_CONSENSUS_CLIENT_ID,
             consensus_state_id: MOCK_CONSENSUS_STATE_ID,
             unbonding_period: u64::MAX,
             challenge_period: 0,
@@ -94,7 +96,7 @@ pub mod benchmarks {
         _(RawOrigin::Root, message);
 
         assert_last_event::<T>(
-            Event::ConsensusClientCreated { consensus_client_id: MOCK_CONSENSUS_STATE_ID }.into(),
+            Event::ConsensusClientCreated { consensus_client_id: MOCK_CONSENSUS_CLIENT_ID }.into(),
         );
     }
 

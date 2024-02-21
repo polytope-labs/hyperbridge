@@ -46,7 +46,9 @@ use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 
 use frame_support::derive_impl;
 use pallet_ismp::{
-    dispatcher::LeafMetadata, mocks::mocks::MOCK_CONSENSUS_STATE_ID, primitives::LeafIndexAndPos,
+    dispatcher::LeafMetadata,
+    mocks::mocks::{MOCK_CONSENSUS_CLIENT_ID, MOCK_CONSENSUS_STATE_ID},
+    primitives::LeafIndexAndPos,
 };
 
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -94,7 +96,7 @@ impl ConsensusClient for MockConsensusClient {
     }
 
     fn consensus_client_id(&self) -> ConsensusClientId {
-        MOCK_CONSENSUS_STATE_ID
+        MOCK_CONSENSUS_CLIENT_ID
     }
 
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
@@ -324,7 +326,7 @@ fn test_withdrawal_proof() {
             StateMachineHeight {
                 id: StateMachineId {
                     state_id: StateMachine::Kusama(2000),
-                    consensus_state_id: *b"PARA",
+                    consensus_state_id: MOCK_CONSENSUS_STATE_ID,
                 },
                 height: 1,
             },
@@ -336,7 +338,7 @@ fn test_withdrawal_proof() {
             StateMachineHeight {
                 id: StateMachineId {
                     state_id: StateMachine::Kusama(2001),
-                    consensus_state_id: *b"PARA",
+                    consensus_state_id: MOCK_CONSENSUS_STATE_ID,
                 },
                 height: 1,
             },
@@ -348,7 +350,7 @@ fn test_withdrawal_proof() {
             StateMachineHeight {
                 id: StateMachineId {
                     state_id: StateMachine::Kusama(2000),
-                    consensus_state_id: *b"PARA",
+                    consensus_state_id: MOCK_CONSENSUS_STATE_ID,
                 },
                 height: 1,
             },
@@ -360,20 +362,21 @@ fn test_withdrawal_proof() {
             StateMachineHeight {
                 id: StateMachineId {
                     state_id: StateMachine::Kusama(2001),
-                    consensus_state_id: *b"PARA",
+                    consensus_state_id: MOCK_CONSENSUS_STATE_ID,
                 },
                 height: 1,
             },
             Duration::from_secs(100),
         )
         .unwrap();
-        host.store_consensus_state(*b"PARA", Default::default()).unwrap();
+        host.store_consensus_state(MOCK_CONSENSUS_STATE_ID, Default::default()).unwrap();
 
-        host.store_consensus_state_id(*b"PARA", *b"PARA").unwrap();
+        host.store_consensus_state_id(MOCK_CONSENSUS_STATE_ID, MOCK_CONSENSUS_CLIENT_ID)
+            .unwrap();
 
-        host.store_unbonding_period(*b"PARA", 10_000_000_000).unwrap();
+        host.store_unbonding_period(MOCK_CONSENSUS_STATE_ID, 10_000_000_000).unwrap();
 
-        host.store_challenge_period(*b"PARA", 0).unwrap();
+        host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 0).unwrap();
 
         let withdrawal_proof = WithdrawalProof {
             commitments: keys,
@@ -381,7 +384,7 @@ fn test_withdrawal_proof() {
                 height: StateMachineHeight {
                     id: StateMachineId {
                         state_id: StateMachine::Kusama(2000),
-                        consensus_state_id: *b"PARA",
+                        consensus_state_id: MOCK_CONSENSUS_STATE_ID,
                     },
                     height: 1,
                 },
@@ -391,7 +394,7 @@ fn test_withdrawal_proof() {
                 height: StateMachineHeight {
                     id: StateMachineId {
                         state_id: StateMachine::Kusama(2001),
-                        consensus_state_id: *b"PARA",
+                        consensus_state_id: MOCK_CONSENSUS_STATE_ID,
                     },
                     height: 1,
                 },

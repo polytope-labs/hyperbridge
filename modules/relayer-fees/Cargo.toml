@@ -13,6 +13,7 @@ sp-std = { workspace = true }
 sp-io = { workspace = true }
 pallet-ismp = { path = "../ismp/pallet", default-features = false }
 ismp-sync-committee = {path = "../ismp/clients/sync-committee", default-features = false }
+state-machine-manager = { path = "../state-machine-manager", default-features = false }
 
 # polytope labs
 ismp = { package = "ismp", path = "../ismp/core", default-features = false }
@@ -56,7 +57,8 @@ std = [
     "alloy-primitives/std",
     "alloy-rlp/std",
     "ethabi/std",
-    "ismp-sync-committee/std"
+    "ismp-sync-committee/std",
+    "state-machine-manager/std"
 ]
 
 

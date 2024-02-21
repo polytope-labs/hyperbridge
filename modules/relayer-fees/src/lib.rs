@@ -44,13 +44,14 @@ use pallet_ismp::{dispatcher::Dispatcher, host::Host};
 use sp_core::U256;
 use sp_runtime::DispatchError;
 use sp_std::prelude::*;
+use state_machine_manager::HostManager;
 
 pub const MODULE_ID: [u8; 32] = [1; 32];
 
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use frame_support::pallet_prelude::{OptionQuery, *};
+    use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use ismp::host::StateMachine;
 
@@ -64,7 +65,10 @@ pub mod pallet {
 
     /// The config trait
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_ismp::Config {}
+    pub trait Config:
+        frame_system::Config + pallet_ismp::Config + state_machine_manager::Config
+    {
+    }
 
     /// double map of address to source chain, which holds the amount of the relayer address
     #[pallet::storage]
@@ -76,12 +80,6 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn nonce)]
     pub type Nonce<T: Config> = StorageMap<_, Twox64Concat, Vec<u8>, u64, ValueQuery>;
-
-    /// Relayer Manager Address on different chains
-    #[pallet::storage]
-    #[pallet::getter(fn manager)]
-    pub type RelayerManager<T: Config> =
-        StorageMap<_, Twox64Concat, StateMachine, Vec<u8>, OptionQuery>;
 
     #[pallet::error]
     pub enum Error<T> {
@@ -130,22 +128,6 @@ pub mod pallet {
         ) -> DispatchResult {
             ensure_none(origin)?;
             Self::withdraw(withdrawal_data)
-        }
-
-        /// Set the relayer manager addresses for different state machines
-        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(addresses.len() as u64))]
-        #[pallet::call_index(2)]
-        pub fn set_relayer_manager_addresses(
-            origin: OriginFor<T>,
-            addresses: BTreeMap<StateMachine, Vec<u8>>,
-        ) -> DispatchResult {
-            <T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
-
-            for (state_machine, address) in addresses {
-                RelayerManager::<T>::insert(state_machine, address);
-            }
-
-            Ok(())
         }
     }
 
@@ -264,7 +246,7 @@ where
             StateMachine::Grandpa(_) |
             StateMachine::Kusama(_) |
             StateMachine::Polkadot(_) => MODULE_ID.to_vec(),
-            _ => RelayerManager::<T>::get(withdrawal_data.dest_chain)
+            _ => HostManager::<T>::get(withdrawal_data.dest_chain)
                 .ok_or_else(|| Error::<T>::MissingMangerAddress)?,
         };
         Nonce::<T>::try_mutate(address.clone(), |value| {

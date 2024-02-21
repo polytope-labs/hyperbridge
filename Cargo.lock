@@ -8680,6 +8680,7 @@ dependencies = [
  "sp-runtime 31.0.1",
  "sp-std 14.0.0",
  "sp-trie 29.0.0",
+ "state-machine-manager",
  "substrate-state-machine",
  "trie-db 0.28.0",
 ]

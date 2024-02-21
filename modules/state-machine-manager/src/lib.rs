@@ -21,9 +21,13 @@ pub use pallet::*;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
+    use alloc::collections::BTreeMap;
     use frame_support::pallet_prelude::{OptionQuery, *};
     use frame_system::pallet_prelude::*;
-    use ismp::{consensus::StateMachineId, host::IsmpHost};
+    use ismp::{
+        consensus::StateMachineId,
+        host::{IsmpHost, StateMachine},
+    };
     use pallet_ismp::host::Host;
 
     #[pallet::pallet]
@@ -39,9 +43,15 @@ pub mod pallet {
 
     /// Whitelisted Account allowed for freezing state machine
     #[pallet::storage]
-    #[pallet::getter(fn manager)]
+    #[pallet::getter(fn whitelist)]
     pub type WhitelistedAccount<T: Config> =
         StorageMap<_, Twox64Concat, T::AccountId, (), OptionQuery>;
+
+    /// Host Manager Address on different chains
+    #[pallet::storage]
+    #[pallet::getter(fn host_manager)]
+    pub type HostManager<T: Config> =
+        StorageMap<_, Twox64Concat, StateMachine, Vec<u8>, OptionQuery>;
 
     #[pallet::error]
     pub enum Error<T> {
@@ -153,6 +163,22 @@ pub mod pallet {
                 .map_err(|_| Error::<T>::ErrorUnFreezingStateMachine)?;
 
             Self::deposit_event(Event::StateMachineUnFrozen { state_machine });
+
+            Ok(())
+        }
+
+        /// Set the host manager addresses for different state machines
+        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(addresses.len() as u64))]
+        #[pallet::call_index(4)]
+        pub fn set_host_manger_addresses(
+            origin: OriginFor<T>,
+            addresses: BTreeMap<StateMachine, Vec<u8>>,
+        ) -> DispatchResult {
+            <T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
+
+            for (state_machine, address) in addresses {
+                HostManager::<T>::insert(state_machine, address);
+            }
 
             Ok(())
         }

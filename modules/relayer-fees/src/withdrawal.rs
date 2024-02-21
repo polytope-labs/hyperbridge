@@ -65,7 +65,7 @@ pub struct WithdrawalParams {
 
 impl WithdrawalParams {
     pub fn abi_encode(&self) -> Vec<u8> {
-        let mut data = vec![];
+        let mut data = vec![0];
         data.extend_from_slice(&self.beneficiary_address);
         let mut bytes = [0u8; 32];
         self.amount.to_big_endian(&mut bytes);

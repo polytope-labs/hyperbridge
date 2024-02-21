@@ -59,7 +59,8 @@ frame_support::construct_runtime!(
         Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
         Ismp: pallet_ismp::{Pallet, Storage, Call, Event<T>},
         Balances: pallet_balances,
-        PalletRelayerFees: pallet_relayer_fees
+        PalletRelayerFees: pallet_relayer_fees,
+        StateMachineManager: state_machine_manager
     }
 );
 
@@ -172,6 +173,10 @@ impl pallet_ismp::Config for Test {
     type ConsensusClients = (MockConsensusClient,);
     type WeightInfo = ();
     type WeightProvider = ();
+}
+
+impl state_machine_manager::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
 }
 
 impl pallet_relayer_fees::Config for Test {}

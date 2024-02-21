@@ -17,7 +17,7 @@ primitive-types = { version = "0.12.1", default-features = false }
 
 # polytope labs
 ismp = { path = "../../core", default-features = false }
-pallet-ismp = { path = "..", default-features = false }
+pallet-ismp = { path = "../../pallet", default-features = false }
 
 # substrate
 frame-support = { workspace = true }
@@ -33,7 +33,7 @@ parachain-system = { package = "cumulus-pallet-parachain-system", workspace = tr
 cumulus-primitives-core = { workspace = true, default-features = false }
 
 # local
-substrate-state-machine = { path = "../state-machine", default-features = false }
+substrate-state-machine = { path = "../../pallet/state-machine", default-features = false }
 
 [features]
 default = ["std"]

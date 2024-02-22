@@ -1,4 +1,4 @@
-name: Release
+name: Docker Release
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ concurrency:
 
 jobs:
   build_and_publish:
-    runs-on: arc-runner-set
+    runs-on: release-runner
     steps:
       - name: Checkout sources
         uses: actions/checkout@v3
@@ -33,9 +33,11 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
-          rustup update nightly
-          rustup component add rust-src
+          rustup install nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+          sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
 
       - name: Build
         run:  |

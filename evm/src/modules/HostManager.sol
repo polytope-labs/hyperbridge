@@ -49,7 +49,7 @@ contract HostManager is BaseIsmpModule {
 
     function onAccept(PostRequest calldata request) external override onlyIsmpHost {
         // Only Hyperbridge can send requests to this module.
-        require(request.source.equals(StateMachine.polkadot(_params.paraId)), "Unauthorized request");
+        require(request.source.equals(StateMachine.kusama(_params.paraId)), "Unauthorized request");
 
         // note, the below will revert with solidity error `Panic(0x21)`
         OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));

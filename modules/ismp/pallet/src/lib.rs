@@ -430,9 +430,9 @@ pub mod pallet {
 
             <Pallet<T> as ValidateUnsigned>::validate_unsigned(
                 TransactionSource::External,
-                messages,
+                &Call::handle { messages },
             )
-            .map_err(|_err| Error::InvalidMessage)?;
+            .map_err(|_err| Error::<T>::InvalidMessage)?;
 
             Ok(())
         }

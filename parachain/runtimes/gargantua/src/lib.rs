@@ -34,7 +34,7 @@ use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
-use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
+use sp_core::{crypto::KeyTypeId, OpaqueMetadata, H256};
 use sp_runtime::{
     create_runtime_str, generic, impl_opaque_keys,
     traits::{AccountIdLookup, Block as BlockT, IdentifyAccount, Keccak256, Verify},
@@ -51,7 +51,6 @@ use ::ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     router::{Request, Response},
 };
-use pallet_ismp::primitives::LeafIndexQuery;
 
 use frame_support::{
     construct_runtime,
@@ -89,6 +88,7 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
 use frame_support::{derive_impl, traits::ConstBool};
+use pallet_ismp::ProofKeys;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -212,7 +212,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("gargantua"),
     impl_name: create_runtime_str!("gargantua"),
     authoring_version: 1,
-    spec_version: 206,
+    spec_version: 201,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -261,9 +261,9 @@ const AVERAGE_ON_INITIALIZE_RATIO: Perbill = Perbill::from_percent(5);
 /// `Operational` extrinsics.
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
-/// We allow for 0.5 of a second of compute with a 12 second average block time.
+/// We allow for 2seconds of compute with a 6 second average block time.
 const MAXIMUM_BLOCK_WEIGHT: Weight = Weight::from_parts(
-    WEIGHT_REF_TIME_PER_SECOND,
+    WEIGHT_REF_TIME_PER_SECOND.saturating_mul(2),
     cumulus_primitives_core::relay_chain::MAX_POV_SIZE as u64,
 );
 
@@ -498,7 +498,7 @@ impl pallet_aura::Config for Runtime {
     type MaxAuthorities = ConstU32<100_000>;
     type AllowMultipleBlocksPerSlot = ConstBool<false>;
     #[cfg(feature = "async-backing")]
-    type SlotDuration = ConstU64<SLOT_DURATION>;
+    type SlotDuration = pallet_aura::MinimumPeriodTimesTwo<Self>;
 }
 
 parameter_types! {
@@ -753,9 +753,9 @@ impl_runtime_apis! {
 
         /// Generate a proof for the provided leaf indices
         fn generate_proof(
-            leaf_positions: Vec<LeafIndex>
+            keys: ProofKeys
         ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), pallet_ismp::primitives::Error> {
-            Ismp::generate_proof(leaf_positions)
+            Ismp::generate_proof(keys)
         }
 
         /// Fetch all ISMP events
@@ -788,33 +788,15 @@ impl_runtime_apis! {
             Ismp::get_latest_state_machine_height(id)
         }
 
-        /// Return the latest height of the state machine at which we've processed requests
-        fn latest_messaging_height(id: StateMachineId) -> Option<u64> {
-            Ismp::latest_messaging_heights(id)
-        }
 
-        /// Get Request Leaf Indices
-        fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)> {
-            Ismp::get_request_leaf_indices(leaf_queries)
-        }
-
-        /// Get Response Leaf Indices
-        fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)> {
-            Ismp::get_response_leaf_indices(leaf_queries)
+        /// Get actual requests
+        fn get_requests(commitments: Vec<H256>) -> Vec<Request> {
+            Ismp::get_requests(commitments)
         }
 
         /// Get actual requests
-        fn get_requests(leaf_positions: Vec<LeafIndex>) -> Vec<Request> {
-            Ismp::get_requests(leaf_positions)
-        }
-
-        /// Get actual requests
-        fn get_responses(leaf_positions: Vec<LeafIndex>) -> Vec<Response> {
-            Ismp::get_responses(leaf_positions)
-        }
-
-        fn pending_get_requests() -> Vec<::ismp::router::Get> {
-            Ismp::pending_get_requests()
+        fn get_responses(commitments: Vec<H256>) -> Vec<Response> {
+            Ismp::get_responses(commitments)
         }
     }
 

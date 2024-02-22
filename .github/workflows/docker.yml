@@ -34,6 +34,7 @@ jobs:
       - name: Add wasm toolchain
         run: |
           rustup update nightly
+          rustup component add rust-src
           rustup target add wasm32-unknown-unknown --toolchain nightly
 
       - name: Build

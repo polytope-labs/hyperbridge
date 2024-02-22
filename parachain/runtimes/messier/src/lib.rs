@@ -36,7 +36,7 @@ use cumulus_pallet_parachain_system::RelayNumberMonotonicallyIncreases;
 use scale_info::TypeInfo;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
-use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
+use sp_core::{crypto::KeyTypeId, OpaqueMetadata, H256};
 use sp_runtime::{
     create_runtime_str, generic, impl_opaque_keys,
     traits::{AccountIdLookup, Block as BlockT, IdentifyAccount, Keccak256, Verify},
@@ -71,7 +71,8 @@ use frame_system::{
 };
 use pallet_ismp::{
     mmr_primitives::{Leaf, LeafIndex},
-    primitives::{LeafIndexQuery, Proof},
+    primitives::Proof,
+    ProofKeys,
 };
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
@@ -774,11 +775,11 @@ impl_runtime_apis! {
             Ismp::get_challenge_period(consensus_state_id)
         }
 
-        /// Generate a proof for the provided leaf indices
+/// Generate a proof for the provided leaf indices
         fn generate_proof(
-            leaf_positions: Vec<LeafIndex>
+            keys: ProofKeys
         ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), pallet_ismp::primitives::Error> {
-            Ismp::generate_proof(leaf_positions)
+            Ismp::generate_proof(keys)
         }
 
         /// Fetch all ISMP events
@@ -811,33 +812,14 @@ impl_runtime_apis! {
             Ismp::get_latest_state_machine_height(id)
         }
 
-        /// Return the latest height of the state machine at which we've processed requests
-        fn latest_messaging_height(id: StateMachineId) -> Option<u64> {
-            Ismp::latest_messaging_heights(id)
-        }
-
-        /// Get Request Leaf Indices
-        fn get_request_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)> {
-            Ismp::get_request_leaf_indices(leaf_queries)
-        }
-
-        /// Get Response Leaf Indices
-        fn get_response_leaf_indices(leaf_queries: Vec<LeafIndexQuery>) -> Vec<(LeafIndex, LeafIndex)> {
-            Ismp::get_response_leaf_indices(leaf_queries)
+        /// Get actual requests
+        fn get_requests(commitments: Vec<H256>) -> Vec<Request> {
+            Ismp::get_requests(commitments)
         }
 
         /// Get actual requests
-        fn get_requests(leaf_positions: Vec<LeafIndex>) -> Vec<Request> {
-            Ismp::get_requests(leaf_positions)
-        }
-
-        /// Get actual requests
-        fn get_responses(leaf_positions: Vec<LeafIndex>) -> Vec<Response> {
-            Ismp::get_responses(leaf_positions)
-        }
-
-        fn pending_get_requests() -> Vec<::ismp::router::Get> {
-            Ismp::pending_get_requests()
+        fn get_responses(commitments: Vec<H256>) -> Vec<Response> {
+            Ismp::get_responses(commitments)
         }
     }
 

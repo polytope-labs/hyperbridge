@@ -1,0 +1,46 @@
+[package]
+name = "bsc-pos-verifier"
+version = "0.1.0"
+edition = "2021"
+description = "Verifier for the Binance Smart Chain Network's Consensus Proofs"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+log = { version = "0.4.17", default-features = false }
+anyhow = { version = "1.0.75", default-features = false }
+sp-core = {version = "27.0.0", default-features = false }
+alloy-rlp = { version = "0.3.2", default-features = false }
+alloy-primitives = { version = "0.6.0", default-features = false, features = ["rlp"] }
+alloy-rlp-derive = "0.3.2"
+codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
+ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
+ismp = { path = "../../../ismp/core", default-features = false }
+geth-primitives = { path = "../../geth-primitives", default-features = false }
+sync-committee-verifier = { path = "../../sync-committee/verifier", default-features = false }
+sync-committee-primitives  = { path = "../../sync-committee/primitives", default-features = false }
+ark-bls12-381 = { version = "0.4.0", default-features = false, features = ["curve"] }
+bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
+ark-ec = { version = "0.4.2", default-features = false }
+ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
+sp-runtime.workspace = true
+
+[features]
+default = ["std"]
+std = [
+    "log/std",
+    "anyhow/std",
+    "sp-core/std",
+    "codec/std",
+    "ismp/std",
+    "alloy-primitives/std",
+    "alloy-rlp/std",
+    "ethabi/std",
+    "ark-bls12-381/std",
+    "bls/std",
+    "sync-committee-verifier/std",
+    "sync-committee-primitives/std",
+    "geth-primitives/std",
+    "ark-ec/std",
+    "ssz-rs/std",
+    "sp-runtime/std"
+]

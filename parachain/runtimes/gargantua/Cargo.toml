@@ -74,17 +74,17 @@ parachain-info = { workspace = true }
 parachains-common = { workspace = true  }
 
 # polytope-labs
-ismp = { path = "../../modules/ismp/core", default-features = false }
+ismp = { path = "../../../modules/ismp/core", default-features = false }
 
 # ismp modules
-pallet-ismp = { path = "../../modules/ismp/pallet", default-features = false }
-ismp-demo = { path = "../../modules/ismp/demo", default-features = false }
-ismp-runtime-api = { path = "../../modules/ismp/runtime-api", default-features = false }
-ismp-sync-committee = { path = "../../modules/ismp/sync-committee", default-features = false }
-ismp-polygon-pos = { path = "../../modules/ismp/polygon-pos", default-features = false }
-ismp-bnb-pos = { path = "../../modules/ismp/bnb-pos", default-features = false }
-pallet-relayer-fees = { path = "../../modules/relayer-fees", default-features = false }
-state-machine-manager = { path = "../../modules/state-machine-manager", default-features = false }
+pallet-ismp = { path = "../../../modules/ismp/pallet", default-features = false }
+ismp-demo = { path = "../../../modules/ismp/pallet/demo", default-features = false }
+ismp-runtime-api = { path = "../../../modules/ismp/pallet/runtime-api", default-features = false }
+ismp-sync-committee = { path = "../../../modules/ismp/clients/sync-committee", default-features = false }
+ismp-polygon-pos = { path = "../../../modules/ismp/clients/polygon-pos", default-features = false }
+ismp-bsc-pos = { path = "../../../modules/ismp/clients/bsc-pos", default-features = false }
+pallet-relayer-fees = { path = "../../../modules/relayer-fees", default-features = false }
+state-machine-manager = { path = "../../../modules/state-machine-manager", default-features = false }
 
 [features]
 default = [
@@ -143,7 +143,7 @@ std = [
 	"pallet-message-queue/std",
 	"parachains-common/std",
 	"sp-genesis-builder/std",
-	"ismp-bnb-pos/std",
+	"ismp-bsc-pos/std",
 	"ismp-polygon-pos/std",
 	"pallet-relayer-fees/std",
 	"state-machine-manager/std"

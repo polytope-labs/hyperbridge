@@ -5,9 +5,9 @@ import "forge-std/Test.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
 import {PingModule} from "../examples/PingModule.sol";
-import {HandlerV1} from "../src/HandlerV1.sol";
+import {HandlerV1} from "../src/modules/HandlerV1.sol";
 import {FeeToken} from "./FeeToken.sol";
-import {HostParams} from "../src/EvmHost.sol";
+import {HostParams} from "../src/hosts/EvmHost.sol";
 
 contract BaseTest is Test {
     // needs a test method so that integration-tests can detect it
@@ -43,7 +43,8 @@ contract BaseTest is Test {
         host = new TestHost(params);
         // approve the host address to spend the fee token.
         feeToken.superApprove(tx.origin, address(host));
-        testModule = new PingModule(address(host));
+        testModule = new PingModule(address(this));
+        testModule.setIsmpHost(address(host));
     }
 
     function module() public view returns (address) {

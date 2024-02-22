@@ -9,38 +9,38 @@ members = [
      "parachain/node",
 
      # ismp
-     "parachain/modules/ismp/pallet",
-     "parachain/modules/ismp/core",
-     "parachain/modules/ismp/rpc",
-     "parachain/modules/ismp/runtime-api",
-     "parachain/modules/ismp/demo",
-     "parachain/modules/ismp/core",
-     "parachain/modules/ismp/testsuite",
-     "parachain/modules/ismp/sync-committee",
-     "parachain/modules/ismp/polygon-pos",
-     "parachain/modules/ismp/casper-ffg",
-     "parachain/modules/ismp/state-machine",
+     "modules/ismp/pallet",
+     "modules/ismp/core",
+     "modules/ismp/pallet/rpc",
+     "modules/ismp/pallet/runtime-api",
+     "modules/ismp/pallet/demo",
+     "modules/ismp/core",
+     "modules/ismp/testsuite",
+     "modules/ismp/clients/sync-committee",
+     "modules/ismp/clients/polygon-pos",
+     "modules/ismp/clients/casper-ffg",
+     "modules/ismp/pallet/state-machine",
 
      # modules
-     "parachain/modules/tries/ethereum",
-     "parachain/modules/consensus/sync-committee/prover",
-     "parachain/modules/consensus/sync-committee/verifier",
-     "parachain/modules/consensus/sync-committee/primitives",
-     "parachain/modules/consensus/polygon-pos/verifier",
-     "parachain/modules/consensus/polygon-pos/prover",
-     "parachain/modules/consensus/beefy/primitives",
-     "parachain/modules/consensus/beefy/prover",
-     "parachain/modules/consensus/geth-primitives",
-
-     "parachain/modules/consensus/bnb-pos/verifier",
-     "parachain/modules/consensus/bnb-pos/prover",
-     "parachain/modules/ismp/bnb-pos",
-     "parachain/modules/state-machine-manager",
+     "modules/trees/ethereum",
+     "modules/consensus/sync-committee/prover",
+     "modules/consensus/sync-committee/verifier",
+     "modules/consensus/sync-committee/primitives",
+     "modules/consensus/polygon-pos/verifier",
+     "modules/consensus/polygon-pos/prover",
+     "modules/consensus/beefy/primitives",
+     "modules/consensus/beefy/prover",
+     "modules/consensus/geth-primitives",
+     "modules/consensus/bsc-pos/verifier",
+     "modules/consensus/bsc-pos/prover",
+     "modules/ismp/clients/bsc-pos",
+     "modules/state-machine-manager",
 
      # evm stuff
      "evm/integration-tests",
      "evm/abi",
-     "parachain/modules/relayer-fees", "parachain/modules/tries/mmr",
+     "modules/relayer-fees",
+     "modules/trees/mmr",
 ]
 
 # Config for 'cargo dist'
@@ -165,10 +165,10 @@ cumulus-client-collator = "0.7.0"
 substrate-wasm-builder = { version = "17.0.0" }
 mmr-rpc = { version = "28.0.0" }
 
-ethers = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8", features = ["ethers-solc"] }
-ethers-contract-abigen = { git = "https://github.com/gakonst/ethers-rs", rev = "594627dc1c3b490ba8f513f8f5e23d11448cbcf8" }
+ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "f8ab49e1ca2d68e8bf1113e705ade38e5f30b850", features = ["ethers-solc"] }
+ethers-contract-abigen = { git = "https://github.com/polytope-labs/ethers-rs", rev = "f8ab49e1ca2d68e8bf1113e705ade38e5f30b850" }
 
-forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "71701dc172efe46132a4e28654b6e8fa1aff88bc" }
+forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "50c6686ddfe61c697013bd067ac5fae7a0d5723e" }
 merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2",  default-features = false }
 
 trie-db = { version = "0.28.0", default-features = false }

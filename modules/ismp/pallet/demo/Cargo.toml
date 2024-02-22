@@ -1,0 +1,41 @@
+[package]
+name = "ismp-demo"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+# crates.io
+codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = ["derive"] }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+
+# polytope labs
+ismp = {path = "../../core", default-features = false }
+
+# substrate
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+pallet-balances = { workspace = true }
+sp-runtime = { workspace = true }
+sp-core = { workspace = true }
+
+# local
+pallet-ismp = { path = "..", default-features = false }
+
+[dev-dependencies]
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-support/std",
+    "frame-system/std",
+    "sp-runtime/std",
+    "scale-info/std",
+    "ismp/std",
+    "pallet-ismp/std",
+    "pallet-balances/std"
+]

@@ -20,8 +20,8 @@ serde_json = "1.0.108"
 # local
 gargantua-runtime = { path = "../runtimes/gargantua" }
 messier-runtime = { path = "../runtimes/messier" }
-ismp-rpc = { path = "../modules/ismp/rpc" }
-ismp-runtime-api = { path = "../modules/ismp/runtime-api" }
+ismp-rpc = { path = "../../modules/ismp/pallet/rpc" }
+ismp-runtime-api = { path = "../../modules/ismp/pallet/runtime-api" }
 
 # Substrate
 frame-benchmarking = { workspace = true }
@@ -80,16 +80,22 @@ cumulus-client-consensus-proposer = { workspace = true }
 cumulus-client-collator = { workspace = true }
 
 [build-dependencies]
-substrate-build-script-utils = { version = "10.0.0" }
+substrate-build-script-utils = { version = "11.0.0" }
 
 [features]
 default = []
 runtime-benchmarks = [
 	"try-runtime-cli/try-runtime",
 	"gargantua-runtime/runtime-benchmarks",
+	"messier-runtime/runtime-benchmarks",
 	"polkadot-cli/runtime-benchmarks",
 ]
 try-runtime = [
 	"try-runtime-cli/try-runtime",
-	"gargantua-runtime/try-runtime"
+	"gargantua-runtime/try-runtime",
+	"messier-runtime/try-runtime"
+]
+async-backing = [
+	"gargantua-runtime/async-backing",
+	"messier-runtime/async-backing"
 ]

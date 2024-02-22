@@ -1179,44 +1179,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bnb-pos-prover"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bnb-pos-verifier",
- "dotenv",
- "ethers",
- "geth-primitives",
- "ismp",
- "primitive-types",
- "sp-core 28.0.0",
- "sync-committee-primitives",
- "tokio",
-]
-
-[[package]]
-name = "bnb-pos-verifier"
-version = "0.1.0"
-dependencies = [
- "alloy-primitives",
- "alloy-rlp",
- "alloy-rlp-derive",
- "anyhow",
- "ark-bls12-381",
- "ark-ec",
- "bls_on_arkworks",
- "ethabi",
- "geth-primitives",
- "ismp",
- "log",
- "parity-scale-codec",
- "sp-core 27.0.0",
- "ssz-rs",
- "sync-committee-primitives",
- "sync-committee-verifier",
-]
-
-[[package]]
 name = "bounded-collections"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1263,6 +1225,45 @@ checksum = "f5353f36341f7451062466f0b755b96ac3a9547e4d7f6b70d603fc721a7d7896"
 dependencies = [
  "sha2 0.10.8",
  "tinyvec",
+]
+
+[[package]]
+name = "bsc-pos-prover"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bsc-pos-verifier",
+ "dotenv",
+ "ethers",
+ "geth-primitives",
+ "ismp",
+ "primitive-types",
+ "sp-core 28.0.0",
+ "sync-committee-primitives",
+ "tokio",
+]
+
+[[package]]
+name = "bsc-pos-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "anyhow",
+ "ark-bls12-381",
+ "ark-ec",
+ "bls_on_arkworks",
+ "ethabi",
+ "geth-primitives",
+ "ismp",
+ "log",
+ "parity-scale-codec",
+ "sp-core 27.0.0",
+ "sp-runtime 31.0.1",
+ "ssz-rs",
+ "sync-committee-primitives",
+ "sync-committee-verifier",
 ]
 
 [[package]]
@@ -3498,7 +3499,7 @@ dependencies = [
 [[package]]
 name = "ethers"
 version = "2.0.8"
-source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=f8ab49e1ca2d68e8bf1113e705ade38e5f30b850#f8ab49e1ca2d68e8bf1113e705ade38e5f30b850"
 dependencies = [
  "ethers-addressbook",
  "ethers-contract",
@@ -3513,7 +3514,7 @@ dependencies = [
 [[package]]
 name = "ethers-addressbook"
 version = "2.0.8"
-source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=f8ab49e1ca2d68e8bf1113e705ade38e5f30b850#f8ab49e1ca2d68e8bf1113e705ade38e5f30b850"
 dependencies = [
  "ethers-core",
  "once_cell",
@@ -3524,7 +3525,7 @@ dependencies = [
 [[package]]
 name = "ethers-contract"
 version = "2.0.8"
-source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=f8ab49e1ca2d68e8bf1113e705ade38e5f30b850#f8ab49e1ca2d68e8bf1113e705ade38e5f30b850"
 dependencies = [
  "ethers-contract-abigen",
  "ethers-contract-derive",
@@ -3543,7 +3544,7 @@ dependencies = [
 [[package]]
 name = "ethers-contract-abigen"
 version = "2.0.8"
-source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=f8ab49e1ca2d68e8bf1113e705ade38e5f30b850#f8ab49e1ca2d68e8bf1113e705ade38e5f30b850"
 dependencies = [
  "Inflector",
  "dunce",
@@ -3566,7 +3567,7 @@ dependencies = [
 [[package]]
 name = "ethers-contract-derive"
 version = "2.0.8"
-source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=f8ab49e1ca2d68e8bf1113e705ade38e5f30b850#f8ab49e1ca2d68e8bf1113e705ade38e5f30b850"
 dependencies = [
  "Inflector",
  "ethers-contract-abigen",
@@ -3581,7 +3582,7 @@ dependencies = [
 [[package]]
 name = "ethers-core"
 version = "2.0.8"
-source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=f8ab49e1ca2d68e8bf1113e705ade38e5f30b850#f8ab49e1ca2d68e8bf1113e705ade38e5f30b850"
 dependencies = [
  "arrayvec 0.7.4",
  "bytes",
@@ -3610,7 +3611,7 @@ dependencies = [
 [[package]]
 name = "ethers-etherscan"
 version = "2.0.8"
-source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=f8ab49e1ca2d68e8bf1113e705ade38e5f30b850#f8ab49e1ca2d68e8bf1113e705ade38e5f30b850"
 dependencies = [
  "ethers-core",
  "ethers-solc",
@@ -3625,7 +3626,7 @@ dependencies = [
 [[package]]
 name = "ethers-middleware"
 version = "2.0.8"
-source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=f8ab49e1ca2d68e8bf1113e705ade38e5f30b850#f8ab49e1ca2d68e8bf1113e705ade38e5f30b850"
 dependencies = [
  "async-trait",
  "auto_impl",
@@ -3651,7 +3652,7 @@ dependencies = [
 [[package]]
 name = "ethers-providers"
 version = "2.0.8"
-source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=f8ab49e1ca2d68e8bf1113e705ade38e5f30b850#f8ab49e1ca2d68e8bf1113e705ade38e5f30b850"
 dependencies = [
  "async-trait",
  "auto_impl",
@@ -3687,7 +3688,7 @@ dependencies = [
 [[package]]
 name = "ethers-signers"
 version = "2.0.8"
-source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=f8ab49e1ca2d68e8bf1113e705ade38e5f30b850#f8ab49e1ca2d68e8bf1113e705ade38e5f30b850"
 dependencies = [
  "async-trait",
  "coins-bip32",
@@ -3705,7 +3706,7 @@ dependencies = [
 [[package]]
 name = "ethers-solc"
 version = "2.0.8"
-source = "git+https://github.com/gakonst/ethers-rs?rev=594627dc1c3b490ba8f513f8f5e23d11448cbcf8#594627dc1c3b490ba8f513f8f5e23d11448cbcf8"
+source = "git+https://github.com/polytope-labs/ethers-rs?rev=f8ab49e1ca2d68e8bf1113e705ade38e5f30b850#f8ab49e1ca2d68e8bf1113e705ade38e5f30b850"
 dependencies = [
  "cfg-if",
  "dirs",
@@ -4032,7 +4033,7 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 [[package]]
 name = "forge"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
+source = "git+https://github.com/polytope-labs/foundry?rev=068ef4d82e8421f9f96fdc33b061dc4848b7019a#068ef4d82e8421f9f96fdc33b061dc4848b7019a"
 dependencies = [
  "comfy-table 6.2.0",
  "ethers",
@@ -4061,7 +4062,7 @@ dependencies = [
 [[package]]
 name = "forge-fmt"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
+source = "git+https://github.com/polytope-labs/foundry?rev=068ef4d82e8421f9f96fdc33b061dc4848b7019a#068ef4d82e8421f9f96fdc33b061dc4848b7019a"
 dependencies = [
  "ariadne",
  "ethers-core",
@@ -4076,7 +4077,7 @@ dependencies = [
 [[package]]
 name = "forge-testsuite"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/forge-testsuite?rev=71701dc172efe46132a4e28654b6e8fa1aff88bc#71701dc172efe46132a4e28654b6e8fa1aff88bc"
+source = "git+https://github.com/polytope-labs/forge-testsuite?rev=50c6686ddfe61c697013bd067ac5fae7a0d5723e#50c6686ddfe61c697013bd067ac5fae7a0d5723e"
 dependencies = [
  "ethers",
  "ethers-solc",
@@ -4106,9 +4107,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "fortuples"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87630a8087e9cac4b7edfb6ee5e250ddca9112b57b6b17d8f5107375a3a8eace"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "foundry-abi"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
+source = "git+https://github.com/polytope-labs/foundry?rev=068ef4d82e8421f9f96fdc33b061dc4848b7019a#068ef4d82e8421f9f96fdc33b061dc4848b7019a"
 dependencies = [
  "ethers-contract",
  "ethers-contract-abigen",
@@ -4122,7 +4134,7 @@ dependencies = [
 [[package]]
 name = "foundry-common"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
+source = "git+https://github.com/polytope-labs/foundry?rev=068ef4d82e8421f9f96fdc33b061dc4848b7019a#068ef4d82e8421f9f96fdc33b061dc4848b7019a"
 dependencies = [
  "auto_impl",
  "clap",
@@ -4153,7 +4165,7 @@ dependencies = [
 [[package]]
 name = "foundry-config"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
+source = "git+https://github.com/polytope-labs/foundry?rev=068ef4d82e8421f9f96fdc33b061dc4848b7019a#068ef4d82e8421f9f96fdc33b061dc4848b7019a"
 dependencies = [
  "Inflector",
  "dirs-next",
@@ -4183,7 +4195,7 @@ dependencies = [
 [[package]]
 name = "foundry-evm"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
+source = "git+https://github.com/polytope-labs/foundry?rev=068ef4d82e8421f9f96fdc33b061dc4848b7019a#068ef4d82e8421f9f96fdc33b061dc4848b7019a"
 dependencies = [
  "auto_impl",
  "bytes",
@@ -4218,7 +4230,7 @@ dependencies = [
 [[package]]
 name = "foundry-macros"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
+source = "git+https://github.com/polytope-labs/foundry?rev=068ef4d82e8421f9f96fdc33b061dc4848b7019a#068ef4d82e8421f9f96fdc33b061dc4848b7019a"
 dependencies = [
  "ethers-core",
  "foundry-macros-impl",
@@ -4229,7 +4241,7 @@ dependencies = [
 [[package]]
 name = "foundry-macros-impl"
 version = "0.0.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
+source = "git+https://github.com/polytope-labs/foundry?rev=068ef4d82e8421f9f96fdc33b061dc4848b7019a#068ef4d82e8421f9f96fdc33b061dc4848b7019a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4239,7 +4251,7 @@ dependencies = [
 [[package]]
 name = "foundry-utils"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=acdfeeb24263903d5ab8135d67c42c8595f54192#acdfeeb24263903d5ab8135d67c42c8595f54192"
+source = "git+https://github.com/polytope-labs/foundry?rev=068ef4d82e8421f9f96fdc33b061dc4848b7019a#068ef4d82e8421f9f96fdc33b061dc4848b7019a"
 dependencies = [
  "dunce",
  "ethers-addressbook",
@@ -4801,7 +4813,7 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bnb-pos",
+ "ismp-bsc-pos",
  "ismp-demo",
  "ismp-polygon-pos",
  "ismp-runtime-api",
@@ -5353,7 +5365,7 @@ dependencies = [
  "sp-timestamp",
  "sp-transaction-pool",
  "staging-xcm",
- "substrate-build-script-utils 10.0.0",
+ "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "substrate-prometheus-endpoint",
  "try-runtime-cli",
@@ -5655,6 +5667,7 @@ name = "ismp"
 version = "0.1.0"
 dependencies = [
  "derive_more",
+ "hex",
  "parity-scale-codec",
  "primitive-types",
  "scale-info",
@@ -5663,11 +5676,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "ismp-bnb-pos"
+name = "ismp-bsc-pos"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bnb-pos-verifier",
+ "bsc-pos-verifier",
  "frame-support",
  "frame-system",
  "geth-primitives",
@@ -5751,6 +5764,7 @@ dependencies = [
  "parity-scale-codec",
  "serde",
  "sp-api",
+ "sp-core 28.0.0",
  "sp-std 14.0.0",
 ]
 
@@ -5824,6 +5838,7 @@ dependencies = [
  "hex",
  "hex-literal 0.3.4",
  "ismp",
+ "ismp-testsuite",
  "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
@@ -6998,7 +7013,7 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bnb-pos",
+ "ismp-bsc-pos",
  "ismp-demo",
  "ismp-polygon-pos",
  "ismp-runtime-api",
@@ -8341,6 +8356,7 @@ dependencies = [
  "derive_more",
  "enum-as-inner",
  "env_logger",
+ "fortuples",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
@@ -8649,8 +8665,9 @@ dependencies = [
  "frame-support",
  "frame-system",
  "hash-db",
+ "hex",
  "ismp",
- "ismp-bnb-pos",
+ "ismp-bsc-pos",
  "ismp-polygon-pos",
  "ismp-sync-committee",
  "log",
@@ -8664,6 +8681,7 @@ dependencies = [
  "sp-runtime 31.0.1",
  "sp-std 14.0.0",
  "sp-trie 29.0.0",
+ "state-machine-manager",
  "substrate-state-machine",
  "trie-db 0.28.0",
 ]
@@ -9609,7 +9627,7 @@ dependencies = [
  "sp-io 30.0.0",
  "sp-keyring",
  "sp-maybe-compressed-blob",
- "substrate-build-script-utils 11.0.0",
+ "substrate-build-script-utils",
  "thiserror",
  "try-runtime-cli",
 ]
@@ -15680,12 +15698,6 @@ dependencies = [
  "rand 0.8.5",
  "rustc-hex",
 ]
-
-[[package]]
-name = "substrate-build-script-utils"
-version = "10.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d211fbdfa0ecd20577b61bfaaea72fbe6cdb34a689dc200337c4564761f37ceb"
 
 [[package]]
 name = "substrate-build-script-utils"

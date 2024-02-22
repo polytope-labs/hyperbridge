@@ -33,11 +33,11 @@ sp-trie = { workspace = true }
 ethers = { workspace = true }
 forge-testsuite = { workspace = true }
 merkle-mountain-range = { workspace = true, features = ["default"] }
-mmr-utils = { path = "../../parachain/modules/tries/mmr" }
-ismp = { path = "../../parachain/modules/ismp/core" }
-pallet-ismp = { path = "../../parachain/modules/ismp/pallet" }
+mmr-utils = { path = "../../modules/trees/mmr" }
+ismp = { path = "../../modules/ismp/core" }
+pallet-ismp = { path = "../../modules/ismp/pallet" }
 ismp-solidity-abi = { path = "../abi", features = ["build-abi"] }
-beefy-prover = { path = "../../parachain/modules/consensus/beefy/prover", default-features = false }
-beefy-verifier-primitives = { path = "../../parachain/modules/consensus/beefy/primitives" }
+beefy-prover = { path = "../../modules/consensus/beefy/prover", default-features = false }
+beefy-verifier-primitives = { path = "../../modules/consensus/beefy/primitives" }
 
 rs_merkle = { git = "https://github.com/polytope-labs/rs-merkle", branch = "seun/2d-merkle-proofs" }

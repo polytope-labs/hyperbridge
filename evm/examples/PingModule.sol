@@ -12,6 +12,8 @@ struct PingMessage {
     bytes dest;
     address module;
     uint64 timeout;
+    uint256 count;
+    uint256 fee;
 }
 
 contract PingModule is IIsmpModule {
@@ -38,10 +40,28 @@ contract PingModule is IIsmpModule {
         _;
     }
 
-    address internal _host;
+    // restricts call to `admin`
+    modifier onlyAdmin() {
+        if (msg.sender != _admin) {
+            revert NotIsmpHost();
+        }
+        _;
+    }
 
-    constructor(address host) {
-        _host = host;
+    address internal _host;
+    address internal _admin;
+
+    constructor(address admin) {
+        _admin = admin;
+    }
+
+    function setIsmpHost(address hostAddr) public onlyAdmin {
+        _host = hostAddr;
+    }
+
+    // returns the current ismp host set
+    function host() public view returns (address) {
+        return _host;
     }
 
     function dispatchPostResponse(PostResponse memory response) public returns (bytes32) {
@@ -83,18 +103,20 @@ contract PingModule is IIsmpModule {
     }
 
     function ping(PingMessage memory pingMessage) public {
-        DispatchPost memory post = DispatchPost({
-            body: bytes.concat("hello from ", IIsmpHost(_host).host()),
-            dest: pingMessage.dest,
-            // one hour
-            timeout: pingMessage.timeout,
-            // instance of this pallet on another chain.
-            to: abi.encodePacked(address(pingMessage.module)),
-            // unused for now
-            gaslimit: 0,
-            fee: 0
-        });
-        IIsmp(_host).dispatch(post);
+        for (uint256 i = 0; i < pingMessage.count; i++) {
+            DispatchPost memory post = DispatchPost({
+                body: bytes.concat("hello from ", IIsmpHost(_host).host()),
+                dest: pingMessage.dest,
+                // one hour
+                timeout: pingMessage.timeout,
+                // instance of this pallet on another chain.
+                to: abi.encodePacked(address(pingMessage.module)),
+                // unused for now
+                gaslimit: 0,
+                fee: pingMessage.fee
+            });
+            IIsmp(_host).dispatch(post);
+        }
     }
 
     function dispatchToParachain(uint256 _paraId) public {
@@ -130,7 +152,7 @@ contract PingModule is IIsmpModule {
         emit PostRequestTimeoutReceived();
     }
 
-    function onPostResponseTimeout(PostResponse memory request) external onlyIsmpHost {
+    function onPostResponseTimeout(PostResponse memory) external onlyIsmpHost {
         emit PostResponseTimeoutReceived();
     }
 }

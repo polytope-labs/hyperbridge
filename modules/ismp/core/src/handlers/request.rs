@@ -70,26 +70,28 @@ where
                     check_for_consensus_client(req.source_chain()))
         })
         .map(|request| {
-            let cb = router.module_for_id(request.to.clone())?;
-            let res = cb
-                .on_accept(request.clone())
-                .map(|_| DispatchSuccess {
+            let lambda = || {
+                let cb = router.module_for_id(request.to.clone())?;
+                let res = cb.on_accept(request.clone()).map(|_| DispatchSuccess {
                     dest_chain: request.dest,
                     source_chain: request.source,
                     nonce: request.nonce,
-                })
-                .map_err(|e| DispatchError {
-                    msg: format!("{e:?}"),
-                    nonce: request.nonce,
-                    source_chain: request.source,
-                    dest_chain: request.dest,
                 });
-            if res.is_ok() {
-                host.store_request_receipt(&Request::Post(request), &msg.signer)?;
-            }
-            Ok(res)
+                if res.is_ok() {
+                    host.store_request_receipt(&Request::Post(request.clone()), &msg.signer)?;
+                }
+                Ok(res)
+            };
+
+            let res = lambda().and_then(|res| res).map_err(|e| DispatchError {
+                msg: format!("{e:?}"),
+                nonce: request.nonce,
+                source_chain: request.source,
+                dest_chain: request.dest,
+            });
+            res
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Vec<_>>();
 
     Ok(MessageResult::Request(result))
 }

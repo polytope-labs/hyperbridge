@@ -507,6 +507,23 @@ pub mod pallet {
                 .map_err(|_err| {
                     log::info!(target: "ismp", "Validation Errors: {:#?}", _err);
                     TransactionValidityError::Invalid(InvalidTransaction::BadProof)
+                })?
+                .into_iter()
+                // check that requests will be successfully dispatched
+                // so we can not be spammed with failing txs
+                .map(|result| match result {
+                    MessageResult::Request(results) |
+                    MessageResult::Response(results) |
+                    MessageResult::Timeout(results) =>
+                        results.into_iter().map(|result| result.map(|_| ())).collect::<Vec<_>>(),
+                    MessageResult::ConsensusMessage(_) | MessageResult::FrozenClient(_) =>
+                        vec![Ok(())],
+                })
+                .flatten()
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_err| {
+                    log::info!(target: "ismp", "Validation Errors: {:#?}", _err);
+                    TransactionValidityError::Invalid(InvalidTransaction::BadProof)
                 })?;
 
             let msg_hash = sp_io::hashing::keccak_256(&messages.encode()).to_vec();

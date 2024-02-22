@@ -26,13 +26,13 @@ import {GovernableToken} from "../src/modules/GovernableToken.sol";
 contract DeployScript is Script {
     using strings for *;
 
-    bytes32 public salt = keccak256(bytes("gargantua-v4900000"));
-
     function run() external {
         address admin = vm.envAddress("ADMIN");
         uint256 paraId = vm.envUint("PARA_ID");
         string memory host = vm.envString("HOST");
         bytes32 privateKey = vm.envBytes32("PRIVATE_KEY");
+        bytes32 salt = keccak256(bytes(vm.envString("VERSION")));
+
         vm.startBroadcast(uint256(privateKey));
 
         GovernableToken feeToken = new GovernableToken{salt: salt}(admin, "Hyper USD", "USD.h");
@@ -71,7 +71,7 @@ contract DeployScript is Script {
             latestStateMachineHeight: 0
         });
 
-        address hostAddress = initHost(host, params);
+        address hostAddress = initHost(host, params, salt);
 
         // set the host address on the host manager
         manager.setIsmpHost(hostAddress);
@@ -83,7 +83,7 @@ contract DeployScript is Script {
         vm.stopBroadcast();
     }
 
-    function initHost(string memory host, HostParams memory params) public returns (address) {
+    function initHost(string memory host, HostParams memory params, bytes32 salt) public returns (address) {
         if (Strings.equal(host, "sepolia") || host.toSlice().startsWith("eth".toSlice())) {
             EthereumHost h = new EthereumHost{salt: salt}(params);
             return address(h);

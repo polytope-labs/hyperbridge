@@ -1,5 +1,6 @@
 use ethers::abi::{AbiEncode, Tokenizable};
 use forge_testsuite::Runner;
+use foundry_evm::executor::EvmError;
 use ismp::{
     host::{Ethereum, StateMachine},
     router::Post,
@@ -40,6 +41,48 @@ async fn test_host_manager_withdraw() -> Result<(), anyhow::Error> {
 
     // execute the test
     contract.call::<_, ()>("HostManagerWithdraw", (request.into_token(),)).await?;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_host_manager_unauthorized_request() -> Result<(), anyhow::Error> {
+    let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
+    let mut runner = Runner::new(PathBuf::from(&base_dir));
+    let mut contract = runner.deploy("HostManagerTest").await;
+
+    let params = WithdrawParams {
+        beneficiary: H160::random(),
+        amount: U256::from(500_000_000_000_000_000_000u128),
+    };
+    let mut data = vec![0u8];
+    data.extend_from_slice(params.encode().as_slice());
+
+    // create post request object
+    let post = Post {
+        // wrong source
+        source: StateMachine::Polkadot(2000),
+        dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+        nonce: 0,
+        from: contract.runner.sender.as_bytes().to_vec(),
+        to: vec![],
+        timeout_timestamp: 100,
+        data,
+        gas_limit: 0,
+    };
+
+    let request: PostRequest = post.into();
+
+    // execute the test
+    let EvmError::Execution(error) = contract
+        .call::<_, ()>("HostManagerUnauthorizedRequest", (request.into_token(),))
+        .await
+        .unwrap_err()
+    else {
+        panic!("Call should revert")
+    };
+
+    assert_eq!(error.reason.as_str(), "Unauthorized request");
 
     Ok(())
 }

@@ -30,4 +30,10 @@ contract HostManagerTest is BaseTest {
 
         require(host.hostParams().challengePeriod == params.challengePeriod, "Failed to process request");
     }
+
+    function HostManagerUnauthorizedRequest(PostRequest calldata request) public {
+        vm.startPrank(address(host));
+
+        HostManager(host.hostParams().hostManager).onAccept(request);
+    }
 }

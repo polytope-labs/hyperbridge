@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "ismp/IIsmp.sol";
@@ -27,12 +27,12 @@ contract HostManager is BaseIsmpModule {
     HostManagerParams private _params;
 
     modifier onlyIsmpHost() {
-        require(msg.sender == _params.host, "CrossChainGovernor: Invalid caller");
+        require(msg.sender == _params.host, "HostManager: Unauthorized action");
         _;
     }
 
     modifier onlyAdmin() {
-        require(msg.sender == _params.admin, "CrossChainGovernor: Invalid caller");
+        require(msg.sender == _params.admin, "HostManager: Unauthorized action");
         _;
     }
 
@@ -51,7 +51,6 @@ contract HostManager is BaseIsmpModule {
         // Only Hyperbridge can send requests to this module.
         require(request.source.equals(StateMachine.kusama(_params.paraId)), "Unauthorized request");
 
-        // note, the below will revert with solidity error `Panic(0x21)`
         OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
         if (action == OnAcceptActions.Withdraw) {
             // This is where relayers can withdraw their fees.

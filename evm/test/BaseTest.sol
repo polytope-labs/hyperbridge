@@ -8,6 +8,7 @@ import {PingModule} from "../examples/PingModule.sol";
 import {HandlerV1} from "../src/modules/HandlerV1.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {HostParams} from "../src/hosts/EvmHost.sol";
+import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
 
 contract BaseTest is Test {
     // needs a test method so that integration-tests can detect it
@@ -24,9 +25,12 @@ contract BaseTest is Test {
         handler = new HandlerV1();
         feeToken = new FeeToken(1000000000000000000000000000000); // 1,000,000,000,000 FTK
 
+        HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0), paraId: 2000});
+        HostManager manager = new HostManager(gParams);
+
         HostParams memory params = HostParams({
             admin: address(0),
-            hostManager: address(0),
+            hostManager: address(manager),
             handler: address(handler),
             defaultTimeout: 0,
             unStakingPeriod: 5000,
@@ -45,6 +49,7 @@ contract BaseTest is Test {
         feeToken.superApprove(tx.origin, address(host));
         testModule = new PingModule(address(this));
         testModule.setIsmpHost(address(host));
+        manager.setIsmpHost(address(host));
     }
 
     function module() public view returns (address) {

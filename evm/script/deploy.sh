@@ -10,7 +10,7 @@ else
     # load prod .env
     source "$(pwd)/.env.prod"
     # remove existing sources
-    rm -rf out/ cache/
+    rm -rf out/ cache/ broadcast/
     # deploy
     HOST=$1 forge script "script/Deploy$2.s.sol:DeployScript" --rpc-url "$1" --broadcast -vvvv --sender="$ADMIN"
     # verify

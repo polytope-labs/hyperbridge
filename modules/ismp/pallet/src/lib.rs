@@ -420,6 +420,22 @@ pub mod pallet {
 
             Ok(())
         }
+
+        /// This is for validating if an ISMP message would succeed through dry_run, prefer to use
+        /// [`Call::handle`] over this.
+        #[pallet::weight(get_weight::<T>(&messages))]
+        #[pallet::call_index(3)]
+        pub fn validate_messages(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResult {
+            ensure_none(origin)?;
+
+            <Pallet<T> as ValidateUnsigned>::validate_unsigned(
+                TransactionSource::External,
+                messages,
+            )
+            .map_err(|_err| Error::InvalidMessage)?;
+
+            Ok(())
+        }
     }
 
     #[pallet::event]
@@ -495,8 +511,9 @@ pub mod pallet {
         }
 
         fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-            let Call::handle { messages } = call else {
-                Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?
+            let messages = match call {
+                Call::handle { messages } | Call::validate_messages { messages } => messages,
+                _ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
             };
 
             let host = Host::<T>::default();

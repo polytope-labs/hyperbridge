@@ -16,7 +16,7 @@
 use crate::{
     host::Host,
     mmr::{
-        storage::{RuntimeStorage, Storage},
+        storage::{OffchainStorage, RuntimeStorage, Storage},
         utils::NodesUtils,
     },
     mmr_primitives::{DataOrHash, Leaf, MmrHasher, NodeIndex},
@@ -88,7 +88,7 @@ pub enum ProofKeys {
 }
 
 /// On-chain specific MMR functions.
-impl<T> Mmr<RuntimeStorage, T>
+impl<T> Mmr<OffchainStorage, T>
 where
     T: Config,
 {
@@ -117,7 +117,7 @@ where
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         };
-        let store = <Storage<RuntimeStorage, T>>::default();
+        let store = <Storage<OffchainStorage, T>>::default();
         let positions = leaf_indices_and_positions.iter().map(|val| val.pos).collect::<Vec<_>>();
         let leaves = positions
             .iter()

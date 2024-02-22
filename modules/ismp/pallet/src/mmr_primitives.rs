@@ -42,7 +42,7 @@ pub enum Leaf {
 
 impl Leaf {
     /// Returns the hash of a leaf
-    fn hash<H: Keccak256>(&self) -> H256 {
+    pub fn hash<H: Keccak256>(&self) -> H256 {
         match self {
             Leaf::Request(req) => hash_request::<H>(req),
             Leaf::Response(res) => hash_response::<H>(res),

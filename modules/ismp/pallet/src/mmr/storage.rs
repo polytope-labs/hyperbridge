@@ -70,15 +70,7 @@ where
                 return Ok(codec::Decode::decode(&mut &*elem).ok());
             }
         } else {
-            let key = Pallet::<T>::intermediate_node_offchain_key(pos);
-            debug!(
-                target: "ismp::mmr", "offchain db get {}: key {:?}",
-                pos, key
-            );
-            // Try to retrieve the element from Off-chain DB.
-            if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-                return Ok(codec::Decode::decode(&mut &*elem).ok());
-            }
+            return Ok(Pallet::<T>::get_node(pos));
         }
 
         Ok(None)
@@ -94,22 +86,7 @@ where
     T: Config,
 {
     fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<DataOrHash>> {
-        let commitment = Pallet::<T>::mmr_positions(pos);
-        if let Some(commitment) = commitment {
-            let key = Pallet::<T>::full_leaf_offchain_key(commitment);
-            debug!(
-                target: "ismp::mmr", "offchain db get {}: key {:?}",
-                pos, key
-            );
-            // Try to retrieve the element from Off-chain DB.
-            if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-                return Ok(codec::Decode::decode(&mut &*elem).ok());
-            }
-        } else {
-            return Ok(Pallet::<T>::get_node(pos));
-        }
-
-        Ok(None)
+        Ok(Pallet::<T>::get_node(pos))
     }
 
     fn append(
@@ -173,6 +150,8 @@ where
                 );
                 // Indexing API is used to store the full node content.
                 sp_io::offchain_index::set(&key, &encoded_node);
+                // Store leaf hash on chain
+                Pallet::<T>::insert_node(pos, commitment);
             },
             DataOrHash::Hash(hash) => {
                 Pallet::<T>::insert_node(pos, *hash);

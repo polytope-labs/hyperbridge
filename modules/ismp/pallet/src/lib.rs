@@ -64,11 +64,7 @@ use crate::{
     weight_info::get_weight,
 };
 use frame_system::pallet_prelude::BlockNumberFor;
-use ismp::{
-    host::IsmpHost,
-    messaging::Message,
-    util::{hash_request, hash_response},
-};
+use ismp::{host::IsmpHost, messaging::Message};
 use merkle_mountain_range::leaf_index_to_pos;
 pub use pallet::*;
 use sp_runtime::{
@@ -552,7 +548,7 @@ impl<T: Config> Pallet<T> {
         commitments: ProofKeys,
     ) -> Result<(Vec<Leaf>, primitives::Proof<H256>), primitives::Error> {
         let leaves_count = NumberOfLeaves::<T>::get();
-        let mmr = Mmr::<mmr::storage::RuntimeStorage, T>::new(leaves_count);
+        let mmr = Mmr::<mmr::storage::OffchainStorage, T>::new(leaves_count);
         mmr.generate_proof(commitments)
     }
 
@@ -704,10 +700,7 @@ impl<T: Config> Pallet<T> {
 
     /// Insert a leaf into the mmr and return the position and leaf index
     pub(crate) fn mmr_push(leaf: Leaf) -> Option<LeafIndexAndPos> {
-        let commitment = match &leaf {
-            Leaf::Request(req) => hash_request::<Host<T>>(req),
-            Leaf::Response(res) => hash_response::<Host<T>>(res),
-        };
+        let commitment = leaf.hash::<Host<T>>();
         let leaf_index = Pallet::<T>::intermediate_number_of_leaves();
         IntermediateLeaves::<T>::insert(leaf_index, leaf);
         let pos = leaf_index_to_pos(leaf_index);

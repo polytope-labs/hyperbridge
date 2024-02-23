@@ -8,9 +8,13 @@ import {StateMachine} from "ismp/StateMachine.sol";
 import {HostParams, IHostManager, WithdrawParams} from "../hosts/EvmHost.sol";
 import {BaseIsmpModule} from "./BaseIsmpModule.sol";
 
+/// Host manager params
 struct HostManagerParams {
+    /// admin for setting the host address
     address admin;
+    /// Local ismp host
     address host;
+    /// Authorized hyperbridge para Id
     uint256 paraId;
 }
 
@@ -36,8 +40,13 @@ contract HostManager is BaseIsmpModule {
         _;
     }
 
-    constructor(HostManagerParams memory params) {
-        _params = params;
+    constructor(HostManagerParams memory managerParams) {
+        _params = managerParams;
+    }
+
+    // Getter method for reading the host manager's params
+    function params() public view returns (HostManagerParams memory) {
+        return _params;
     }
 
     // This function can only be called once by the admin to set the IsmpHost.
@@ -53,12 +62,12 @@ contract HostManager is BaseIsmpModule {
 
         OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
         if (action == OnAcceptActions.Withdraw) {
-            // This is where relayers can withdraw their fees.
-            WithdrawParams memory params = abi.decode(request.body[1:], (WithdrawParams));
-            IHostManager(_params.host).withdraw(params);
+            // This is where governance & relayers can withdraw their revenue.
+            WithdrawParams memory withdrawParams = abi.decode(request.body[1:], (WithdrawParams));
+            IHostManager(_params.host).withdraw(withdrawParams);
         } else if (action == OnAcceptActions.SetHostParam) {
-            HostParams memory params = abi.decode(request.body[1:], (HostParams));
-            IHostManager(_params.host).setHostParams(params);
+            HostParams memory hostParams = abi.decode(request.body[1:], (HostParams));
+            IHostManager(_params.host).setHostParams(hostParams);
         } else {
             revert("Unknown action");
         }

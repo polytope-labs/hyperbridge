@@ -5,7 +5,7 @@ import {IIsmpModule} from "ismp/IIsmpModule.sol";
 import {PostRequest, PostResponse, GetResponse, GetRequest} from "ismp/IIsmp.sol";
 
 abstract contract BaseIsmpModule is IIsmpModule {
-    function onAccept(PostRequest calldata request) external virtual {
+    function onAccept(PostRequest calldata) external virtual {
         revert("IsmpModule doesn't expect Post requests");
     }
 

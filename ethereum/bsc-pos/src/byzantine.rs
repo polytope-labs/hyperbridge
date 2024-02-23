@@ -22,15 +22,17 @@ use ismp::{
 };
 use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider};
 
-use crate::BnbPosHost;
+use crate::BscPosHost;
 
 #[async_trait::async_trait]
-impl ByzantineHandler for BnbPosHost {
+impl ByzantineHandler for BscPosHost {
 	async fn query_consensus_message(
 		&self,
 		event: StateMachineUpdated,
 	) -> Result<ConsensusMessage, anyhow::Error> {
-		let header = self.prover.fetch_header(event.latest_height).await?;
+		let header = self.prover.fetch_header(event.latest_height).await?.ok_or_else(|| {
+			anyhow::anyhow!("Header not found: Could not query consensus message")
+		})?;
 		let message = ConsensusMessage {
 			consensus_proof: header.encode(),
 			consensus_state_id: self.consensus_state_id,

@@ -1,6 +1,6 @@
 use crate::{
-	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpHost, IsmpProvider, NonceProvider,
-	Query, Signature, StateMachineUpdated,
+	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpHost, IsmpProvider, Query, Signature,
+	StateMachineUpdated, TxReceipt,
 };
 use anyhow::{anyhow, Error};
 use futures::stream;
@@ -63,7 +63,7 @@ impl<C: Codec + Send + Sync> IsmpHost for MockHost<C> {
 		Ok(Box::pin(stream::pending()))
 	}
 
-	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
 		todo!()
 	}
 }
@@ -89,7 +89,10 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		todo!()
 	}
 
-	async fn query_consensus_update_time(&self, _id: ConsensusStateId) -> Result<Duration, Error> {
+	async fn query_state_machine_update_time(
+		&self,
+		_height: StateMachineHeight,
+	) -> Result<Duration, Error> {
 		Ok(Duration::from_secs(0))
 	}
 
@@ -144,7 +147,7 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		todo!()
 	}
 
-	async fn get_message_request_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
+	async fn query_request_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
 		todo!()
 	}
 
@@ -155,23 +158,23 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		todo!()
 	}
 
-	async fn submit(&self, _messages: Vec<Message>) -> Result<(), Error> {
+	async fn submit(&self, _messages: Vec<Message>) -> Result<Vec<TxReceipt>, Error> {
 		todo!()
 	}
 
-	fn request_commitment_full_key(&self, _commitment: H256) -> Vec<u8> {
+	fn request_commitment_full_key(&self, _commitment: H256) -> Vec<Vec<u8>> {
 		Default::default()
 	}
 
-	fn request_receipt_full_key(&self, _commitment: H256) -> Vec<u8> {
+	fn request_receipt_full_key(&self, _commitment: H256) -> Vec<Vec<u8>> {
 		Default::default()
 	}
 
-	fn response_commitment_full_key(&self, _commitment: H256) -> Vec<u8> {
+	fn response_commitment_full_key(&self, _commitment: H256) -> Vec<Vec<u8>> {
 		Default::default()
 	}
 
-	fn response_receipt_full_key(&self, _commitment: H256) -> Vec<u8> {
+	fn response_receipt_full_key(&self, _commitment: H256) -> Vec<Vec<u8>> {
 		Default::default()
 	}
 
@@ -183,11 +186,10 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		todo!()
 	}
 
-	async fn initialize_nonce(&self) -> Result<NonceProvider, Error> {
-		todo!()
-	}
-
-	fn set_nonce_provider(&mut self, _nonce_provider: NonceProvider) {
+	async fn set_latest_finalized_height<P: IsmpProvider + 'static>(
+		&mut self,
+		_counterparty: &P,
+	) -> Result<(), anyhow::Error> {
 		todo!()
 	}
 
@@ -198,11 +200,15 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		todo!()
 	}
 
-	async fn query_message_response_fee_metadata(&self, _hash: H256) -> Result<U256, Error> {
+	async fn query_response_fee_metadata(&self, _hash: H256) -> Result<U256, Error> {
 		todo!()
 	}
 
 	async fn freeze_state_machine(&self, _id: StateMachineId) -> Result<(), Error> {
+		todo!()
+	}
+
+	async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error> {
 		todo!()
 	}
 }

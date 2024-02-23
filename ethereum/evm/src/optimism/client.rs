@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use ethabi::ethereum_types::{H256, U256};
 use ethers::{
 	prelude::Provider,
-	providers::{Middleware, Ws},
+	providers::{Http, Middleware},
 	types::H160,
 };
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
@@ -26,7 +26,7 @@ pub struct OpConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostConfig {
 	/// WS url for the beacon execution client
-	pub beacon_execution_ws: String,
+	pub beacon_rpc_url: String,
 	/// L2Oracle contract address on L1
 	pub l2_oracle: H160,
 	/// Withdrawals Message Passer contract address on L2
@@ -54,9 +54,9 @@ impl OpConfig {
 #[derive(Clone)]
 pub struct OpHost {
 	/// Optimism stack execution client
-	pub(crate) op_execution_client: Arc<Provider<Ws>>,
+	pub(crate) op_execution_client: Arc<Provider<Http>>,
 	/// Beacon execution client
-	pub(crate) beacon_execution_client: Arc<Provider<Ws>>,
+	pub(crate) beacon_execution_client: Arc<Provider<Http>>,
 	/// L2Oracle contract address on L1
 	pub(crate) l2_oracle: H160,
 	/// Withdrawals Message Passer contract address on L2
@@ -86,9 +86,8 @@ pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
 
 impl OpHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
-		let provider = Provider::<Ws>::connect_with_reconnects(&evm.execution_ws, 1000).await?;
-		let beacon_client =
-			Provider::<Ws>::connect_with_reconnects(&host.beacon_execution_ws, 1000).await?;
+		let provider = Provider::<Http>::try_from(&evm.rpc_url)?;
+		let beacon_client = Provider::<Http>::try_from(&host.beacon_rpc_url)?;
 		Ok(Self {
 			op_execution_client: Arc::new(provider),
 			beacon_execution_client: Arc::new(beacon_client),

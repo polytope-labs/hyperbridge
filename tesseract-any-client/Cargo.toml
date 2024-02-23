@@ -1,25 +1,19 @@
 [package]
-name = "tesseract"
-version = "0.1.4"
+name = "tesseract-any-client"
+version = "0.1.0"
 edition = "2021"
-description = "Chain agnostic relayer implementation for ISMP"
-authors = ["Polytope Labs <hello@polytope.technology>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 parachain = { package = "tesseract-parachain", path = "../substrate/parachain" }
 tesseract-substrate = { path = "../substrate/common" }
-consensus = { package = "tesseract-consensus", path = "../consensus" }
 primitives = { package = "tesseract-primitives", path = "../primitives" }
-messaging = { package = "tesseract-messaging", path = "../messaging" }
-fisherman = { package = "tesseract-fisherman", path = "../fisherman" }
 tesseract-evm = { path = "../ethereum/evm" }
 #tesseract-polygon-pos = { path = "../ethereum/polygon-pos" }
 tesseract-bsc-pos = { path = "../ethereum/bsc-pos" }
 tesseract-sync-committee = { path = "../ethereum/sync-committee" }
 tesseract-beefy = { path = "../substrate/beefy/naive" }
-transaction-payment = { path = "../payments" }
-telemetry-server = { path = "../telemetry" }
-tesseract-any-client = { path = "../tesseract-any-client" }
 
 # polytope labs
 ismp.workspace = true
@@ -38,13 +32,9 @@ serde = { version = "1.0.164", features = ["derive"] }
 json = { version = "1.0.112", package = "serde_json" }
 toml = "0.7.4"
 async-trait = "0.1.77"
-clap = { version = "4.3.5", features = ["derive"] }
-tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
 ethers = { workspace = true }
+tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
-rust_socketio = { version = "0.4.4" }
 sp-core = { workspace = true, features = ["full_crypto"] }
 
-[features]
-consensus = []
-sepolia = ["tesseract-sync-committee/sepolia"]
+

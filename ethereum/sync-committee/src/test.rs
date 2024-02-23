@@ -36,31 +36,33 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 
 	let chain_b = {
 		let config = EvmConfig {
-			execution_ws: geth_url.clone(),
+			rpc_url: geth_url.clone(),
 			state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 			consensus_state_id: "SYNC".to_string(),
 			ismp_host: Default::default(),
 			handler: Default::default(),
 			signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
-			etherscan_api_keys: Default::default(),
+			etherscan_api_key: Default::default(),
+			tracing_batch_size: None,
 		};
 
 		let host = HostConfig { beacon_http_url: beacon_url, consensus_update_frequency: 180 };
 		let arb_host = {
 			let config = EvmConfig {
-				execution_ws: arb_orl,
+				rpc_url: arb_orl,
 				state_machine: StateMachine::Ethereum(Ethereum::Arbitrum),
 				consensus_state_id: "SYNC".to_string(),
 				ismp_host: Default::default(),
 				handler: Default::default(),
 				signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 					.to_string(),
-				etherscan_api_keys: Default::default(),
+				etherscan_api_key: Default::default(),
+				tracing_batch_size: None,
 			};
 
 			ArbHost::new(
 				&ArbHostConfig {
-					beacon_execution_ws: geth_url.clone(),
+					beacon_rpc_url: geth_url.clone(),
 					rollup_core: sp_core::H160::from(hex_literal::hex!(
 						"45e5cAea8768F42B385A366D3551Ad1e0cbFAb17"
 					)),
@@ -72,19 +74,20 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 
 		let op_host = {
 			let config = EvmConfig {
-				execution_ws: op_orl,
+				rpc_url: op_orl,
 				state_machine: StateMachine::Ethereum(Ethereum::Optimism),
 				consensus_state_id: "SYNC".to_string(),
 				ismp_host: Default::default(),
 				handler: Default::default(),
 				signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 					.to_string(),
-				etherscan_api_keys: Default::default(),
+				etherscan_api_key: Default::default(),
+				tracing_batch_size: None,
 			};
 
 			OpHost::new(
 				&OpHostConfig {
-					beacon_execution_ws: geth_url.clone(),
+					beacon_rpc_url: geth_url.clone(),
 					l2_oracle: sp_core::H160::from(hex_literal::hex!(
 						"E6Dfba0953616Bacab0c9A8ecb3a9BBa77FC15c0"
 					)),
@@ -99,19 +102,20 @@ async fn check_consensus_notification() -> anyhow::Result<()> {
 
 		let base_host = {
 			let config = EvmConfig {
-				execution_ws: base_orl,
+				rpc_url: base_orl,
 				state_machine: StateMachine::Ethereum(Ethereum::Optimism),
 				consensus_state_id: "SYNC".to_string(),
 				ismp_host: Default::default(),
 				handler: Default::default(),
 				signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
 					.to_string(),
-				etherscan_api_keys: Default::default(),
+				etherscan_api_key: Default::default(),
+				tracing_batch_size: None,
 			};
 
 			OpHost::new(
 				&OpHostConfig {
-					beacon_execution_ws: geth_url,
+					beacon_rpc_url: geth_url,
 					l2_oracle: sp_core::H160::from(hex_literal::hex!(
 						"2A35891ff30313CcFa6CE88dcf3858bb075A2298"
 					)),

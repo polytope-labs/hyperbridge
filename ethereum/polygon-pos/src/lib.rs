@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ethers::providers::{Provider, Ws};
+use ethers::providers::{Http, Provider, Ws};
 pub use geth_primitives::Header;
 use ismp::{consensus::ConsensusStateId, host::StateMachine, util::Keccak256};
 pub use ismp_polygon_pos::{ConsensusState, PolygonClientUpdate};
@@ -68,9 +68,7 @@ pub struct PolygonPosHost {
 impl PolygonPosHost {
 	pub async fn new(config: &PolygonPosConfig) -> Result<Self, anyhow::Error> {
 		let provider =
-			Provider::<Ws>::connect_with_reconnects(config.evm_config.execution_ws.clone(), 1000)
-				.await
-				.unwrap();
+			Provider::<Http>::try_from(config.evm_config.rpc_url.clone())?;
 		let prover = PolygonPosProver::new(provider);
 		let rpc_client = Client::builder()
 			.retry_policy(ExponentialBackoff::from_millis(100))
@@ -79,7 +77,7 @@ impl PolygonPosHost {
 					.ping_interval(Duration::from_secs(6))
 					.inactive_limit(Duration::from_secs(30)),
 			)
-			.build(config.evm_config.execution_ws.clone())
+			.build(config.evm_config.rpc_url.clone())
 			.await?;
 		Ok(Self {
 			consensus_state_id: {

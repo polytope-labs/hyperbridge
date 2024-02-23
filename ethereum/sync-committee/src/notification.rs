@@ -1,16 +1,15 @@
 use crate::SyncCommitteeHost;
-use codec::{Decode, Encode};
+use codec::Decode;
 use ismp::{
 	consensus::StateMachineId,
 	host::{Ethereum, StateMachine},
-	messaging::{ConsensusMessage, Message},
 };
 use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
 use std::collections::BTreeMap;
 use sync_committee_primitives::{
 	consensus_types::Checkpoint,
 	constants::{Config, Root},
-	util::compute_sync_committee_period,
+	types::VerifierStateUpdate,
 };
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
@@ -22,70 +21,11 @@ pub struct EventResponse {
 	pub execution_optimistic: bool,
 }
 
-pub async fn consensus_notification<C, T: Config + Send + Sync + 'static>(
+pub async fn get_beacon_update<T: Config + Send + Sync + 'static>(
 	client: &SyncCommitteeHost<T>,
-	counterparty: C,
-	checkpoint: Checkpoint,
-) -> Result<Option<BeaconClientUpdate>, anyhow::Error>
-where
-	C: IsmpHost + IsmpProvider + 'static,
-{
-	let consensus_state =
-		counterparty.query_consensus_state(None, client.consensus_state_id).await?;
-	let mut consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
-	let mut light_client_state = consensus_state.light_client_state;
-	let state_machine_id = StateMachineId {
-		state_id: client.state_machine,
-		consensus_state_id: client.consensus_state_id,
-	};
-	// Do a sync check before returning any updates
-	let state_period = light_client_state.state_period;
-
-	let checkpoint_period = compute_sync_committee_period::<T>(checkpoint.epoch);
-	if !(state_period..=(state_period + 1)).contains(&checkpoint_period) {
-		let mut next_period = state_period + 1;
-		loop {
-			if next_period >= checkpoint_period {
-				break
-			}
-			let update = client.prover.latest_update_for_period(next_period).await?;
-			let beacon_message = BeaconClientUpdate {
-				consensus_update: update,
-				op_stack_payload: Default::default(),
-				arbitrum_payload: None,
-			};
-			let message = ConsensusMessage {
-				consensus_proof: beacon_message.encode(),
-				consensus_state_id: client.consensus_state_id,
-			};
-
-			counterparty.submit(vec![Message::Consensus(message)]).await?;
-			next_period += 1;
-		}
-		// Query the new consensus state so we can process the latest finality checkpoint
-		let new_consensus_state =
-			counterparty.query_consensus_state(None, client.consensus_state_id).await?;
-		consensus_state = ConsensusState::decode(&mut &*new_consensus_state)?;
-		light_client_state = consensus_state.light_client_state;
-	}
-	let execution_layer_height = counterparty.query_latest_height(state_machine_id).await? as u64;
-	let update = client
-		.prover
-		.fetch_light_client_update(
-			light_client_state.clone(),
-			checkpoint.clone(),
-			None,
-			"tesseract",
-		)
-		.await?;
-	let consensus_update = if let Some(update) = update { update } else { return Ok(None) };
-
-	if consensus_update.execution_payload.block_number <= execution_layer_height &&
-		consensus_update.sync_committee_update.is_none()
-	{
-		return Ok(None)
-	}
-
+	consensus_update: VerifierStateUpdate,
+	execution_layer_height: u64,
+) -> Result<BeaconClientUpdate, anyhow::Error> {
 	let latest_height = {
 		if execution_layer_height == 0 {
 			// Check the past 10 blocks behind latest execution layer block number
@@ -137,6 +77,46 @@ where
 	}
 
 	let message = BeaconClientUpdate { consensus_update, op_stack_payload, arbitrum_payload };
+	Ok(message)
+}
 
+pub async fn consensus_notification<C, T: Config + Send + Sync + 'static>(
+	client: &SyncCommitteeHost<T>,
+	counterparty: C,
+	checkpoint: Checkpoint,
+) -> Result<Option<BeaconClientUpdate>, anyhow::Error>
+where
+	C: IsmpHost + IsmpProvider + 'static,
+{
+	let consensus_state =
+		counterparty.query_consensus_state(None, client.consensus_state_id).await?;
+	let consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
+	let light_client_state = consensus_state.light_client_state;
+	let state_machine_id = StateMachineId {
+		state_id: client.state_machine,
+		consensus_state_id: client.consensus_state_id,
+	};
+	let update = client
+		.prover
+		.fetch_light_client_update(
+			light_client_state.clone(),
+			checkpoint.clone(),
+			None,
+			"tesseract",
+		)
+		.await?;
+
+	let execution_layer_height = counterparty.query_latest_height(state_machine_id).await? as u64;
+
+	let consensus_update = if let Some(update) = update { update } else { return Ok(None) };
+
+	if consensus_update.execution_payload.block_number <= execution_layer_height &&
+		consensus_update.sync_committee_update.is_none() ||
+		consensus_update.attested_header.slot <= light_client_state.finalized_header.slot
+	{
+		return Ok(None)
+	}
+
+	let message = get_beacon_update(client, consensus_update, execution_layer_height).await?;
 	Ok(Some(message))
 }

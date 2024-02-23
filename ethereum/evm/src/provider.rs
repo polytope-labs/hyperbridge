@@ -1,17 +1,16 @@
 use crate::{
-	abi::{beefy::BeefyConsensusState, EvmHost, StateMachineUpdatedFilter},
+	abi::{beefy::BeefyConsensusState, EvmHost},
 	tx::submit_messages,
 	EvmClient,
 };
-use anyhow::{anyhow, Error};
-use beefy_verifier_primitives::{BeefyNextAuthoritySet, ConsensusState};
+use anyhow::{anyhow, Context, Error};
+use beefy_verifier_primitives::ConsensusState;
 use codec::Encode;
 use ethers::{
 	abi::AbiDecode,
 	providers::Middleware,
 	types::{CallFrame, GethDebugTracingCallOptions, GethTrace, GethTraceFrame},
 };
-use futures::stream::StreamExt;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::Event,
@@ -19,50 +18,49 @@ use ismp::{
 };
 use ismp_solidity_abi::evm_host::{PostRequestHandledFilter, PostResponseHandledFilter};
 use ismp_sync_committee::types::EvmStateProof;
-use jsonrpsee::{
-	core::{params::ObjectParams, traits::ToRpcParams},
-	rpc_params,
-};
 
 use crate::{
-	abi::to_state_machine_updated,
-	tx::{
-		generate_contract_calls, get_chain_gas_limit, get_current_gas_cost_in_usd, get_l2_data_cost,
-	},
+	gas_oracle::{get_current_gas_cost_in_usd, get_l2_data_cost},
+	tx::{generate_contract_calls, get_chain_gas_limit},
 };
 use ethereum_trie::StorageProof;
 use ethers::{
 	contract::parse_log,
-	middleware::MiddlewareBuilder,
 	types::{
 		CallConfig, GethDebugBuiltInTracerConfig, GethDebugBuiltInTracerType,
 		GethDebugTracerConfig, GethDebugTracerType, GethDebugTracingOptions, Log,
 	},
 };
+use futures::{stream, stream::FuturesUnordered};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight},
-	host::StateMachine,
-	messaging::CreateConsensusState,
+	host::{Ethereum, StateMachine},
+	messaging::{CreateConsensusState, ResponseMessage},
+	router::{Request, RequestResponse},
+	util::{hash_request, hash_response},
 };
+use ismp_solidity_abi::handler::Handler;
 use primitive_types::U256;
 use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
-	BoxStream, EstimateGasReturnParams, IsmpHost, IsmpProvider, NonceProvider, Query, Signature,
-	StateMachineUpdated,
+	BoxStream, EstimateGasReturnParams, Hasher, IsmpHost, IsmpProvider, Query, Signature,
+	StateMachineUpdated, TxReceipt,
 };
+use tokio::time;
+use tokio_stream::StreamExt;
 
 #[async_trait::async_trait]
-impl<I: IsmpHost> IsmpProvider for EvmClient<I>
+impl<I> IsmpProvider for EvmClient<I>
 where
-	I: Send + Sync,
+	I: IsmpHost + Send + Sync + 'static,
 {
 	async fn query_consensus_state(
 		&self,
 		at: Option<u64>,
 		_: ConsensusStateId,
 	) -> Result<Vec<u8>, Error> {
-		let contract = EvmHost::new(self.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
 		let value = {
 			let call = if let Some(block) = at {
 				contract.consensus_state().block(block)
@@ -72,32 +70,13 @@ where
 			call.call().await?
 		};
 
-		let beefy_consensus_state = BeefyConsensusState::decode(&value.0)?;
 		// Convert this bytes into BeefyConsensusState for rust and scale encode
-		let consensus_state = ConsensusState {
-			latest_beefy_height: beefy_consensus_state.latest_height.as_u32(),
-			mmr_root_hash: Default::default(),
-			beefy_activation_block: beefy_consensus_state.beefy_activation_block.as_u32(),
-			current_authorities: BeefyNextAuthoritySet {
-				id: beefy_consensus_state.current_authority_set.id.as_u64(),
-				len: beefy_consensus_state.current_authority_set.len.as_u32(),
-				keyset_commitment: H256::from_slice(
-					beefy_consensus_state.current_authority_set.root.as_slice(),
-				),
-			},
-			next_authorities: BeefyNextAuthoritySet {
-				id: beefy_consensus_state.next_authority_set.id.as_u64(),
-				len: beefy_consensus_state.next_authority_set.len.as_u32(),
-				keyset_commitment: H256::from_slice(
-					beefy_consensus_state.next_authority_set.root.as_slice(),
-				),
-			},
-		};
+		let consensus_state: ConsensusState = BeefyConsensusState::decode(&value.0)?.into();
 		Ok(consensus_state.encode())
 	}
 
 	async fn query_latest_height(&self, _id: StateMachineId) -> Result<u32, Error> {
-		let contract = EvmHost::new(self.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
 		let value = contract.latest_state_machine_height().call().await?;
 		Ok(value.low_u64() as u32)
 	}
@@ -106,9 +85,17 @@ where
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		let contract = EvmHost::new(self.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		let id = match height.id.state_id {
+			StateMachine::Polkadot(para_id) => para_id,
+			StateMachine::Kusama(para_id) => para_id,
+			_ => Err(anyhow!(
+				"Unknown State Machine: {:?} Expected polkadot or kusama state machine",
+				height.id.state_id
+			))?,
+		};
 		let state_machine_height = ismp_solidity_abi::shared_types::StateMachineHeight {
-			state_machine_id: Default::default(),
+			state_machine_id: id.into(),
 			height: height.height.into(),
 		};
 		let commitment = contract.state_machine_commitment(state_machine_height).call().await?;
@@ -119,21 +106,25 @@ where
 		})
 	}
 
-	async fn query_consensus_update_time(&self, _id: ConsensusStateId) -> Result<Duration, Error> {
-		let contract = EvmHost::new(self.ismp_host, self.client.clone());
-		let value = contract.consensus_update_time().call().await?;
+	async fn query_state_machine_update_time(
+		&self,
+		height: StateMachineHeight,
+	) -> Result<Duration, Error> {
+		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		let value =
+			contract.state_machine_commitment_update_time(height.try_into()?).call().await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}
 
 	async fn query_challenge_period(&self, _id: ConsensusStateId) -> Result<Duration, Error> {
-		let contract = EvmHost::new(self.ismp_host, self.client.clone());
+		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
 		let value = contract.challenge_period().call().await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}
 
 	async fn query_timestamp(&self) -> Result<Duration, Error> {
 		let client = Arc::new(self.client.clone());
-		let contract = EvmHost::new(self.ismp_host, client);
+		let contract = EvmHost::new(self.config.ismp_host, client);
 		let value = contract.timestamp().call().await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}
@@ -141,10 +132,10 @@ where
 	async fn query_requests_proof(&self, at: u64, keys: Vec<Query>) -> Result<Vec<u8>, Error> {
 		let keys = keys
 			.into_iter()
-			.map(|query| self.request_commitment_key(query.commitment))
+			.map(|query| self.request_commitment_key(query.commitment).1)
 			.collect();
 
-		let proof = self.client.get_proof(self.ismp_host, keys, Some(at.into())).await?;
+		let proof = self.client.get_proof(self.config.ismp_host, keys, Some(at.into())).await?;
 		let proof = EvmStateProof {
 			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
 			storage_proof: proof
@@ -164,9 +155,9 @@ where
 	async fn query_responses_proof(&self, at: u64, keys: Vec<Query>) -> Result<Vec<u8>, Error> {
 		let keys = keys
 			.into_iter()
-			.map(|query| self.response_commitment_key(query.commitment))
+			.map(|query| self.response_commitment_key(query.commitment).1)
 			.collect();
-		let proof = self.client.get_proof(self.ismp_host, keys, Some(at.into())).await?;
+		let proof = self.client.get_proof(self.config.ismp_host, keys, Some(at.into())).await?;
 		let proof = EvmStateProof {
 			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
 			storage_proof: proof
@@ -188,7 +179,8 @@ where
 		let state_proof = if ismp_proof {
 			let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
 			let locations = keys.iter().map(|key| H256::from_slice(key)).collect();
-			let proof = self.client.get_proof(self.ismp_host, locations, Some(at.into())).await?;
+			let proof =
+				self.client.get_proof(self.config.ismp_host, locations, Some(at.into())).await?;
 			for (index, key) in keys.into_iter().enumerate() {
 				map.insert(
 					key,
@@ -269,12 +261,11 @@ where
 			return Ok(Default::default())
 		}
 		let events = self.events(previous_height + 1, event.latest_height).await?;
-		log::info!("querying: {range:?}");
 		Ok(events)
 	}
 
 	fn name(&self) -> String {
-		self.state_machine.to_string()
+		format!("{:?}", self.state_machine)
 	}
 
 	fn state_machine_id(&self) -> StateMachineId {
@@ -296,114 +287,150 @@ where
 	) -> Result<Vec<EstimateGasReturnParams>, Error> {
 		let messages = _msg.clone();
 
-		let debug_trace_option = GethDebugTracingOptions {
-			disable_storage: Some(true),
-			enable_memory: Some(false),
-			tracer: Some(GethDebugTracerType::BuiltInTracer(
-				GethDebugBuiltInTracerType::CallTracer,
-			)),
-			tracer_config: Some(GethDebugTracerConfig::BuiltInTracer(
-				GethDebugBuiltInTracerConfig::CallTracer(CallConfig {
-					only_top_call: Some(false),
-					with_log: Some(true),
-				}),
-			)),
-			..Default::default()
-		};
-
-		let debug_trace_call_option = GethDebugTracingCallOptions {
-			tracing_options: debug_trace_option,
+		let debug_trace_call_options = GethDebugTracingCallOptions {
+			tracing_options: GethDebugTracingOptions {
+				disable_storage: Some(true),
+				enable_memory: Some(false),
+				tracer: Some(GethDebugTracerType::BuiltInTracer(
+					GethDebugBuiltInTracerType::CallTracer,
+				)),
+				tracer_config: Some(GethDebugTracerConfig::BuiltInTracer(
+					GethDebugBuiltInTracerConfig::CallTracer(CallConfig {
+						only_top_call: Some(false),
+						with_log: Some(true),
+					}),
+				)),
+				..Default::default()
+			},
 			..GethDebugTracingCallOptions::default()
 		};
 
-		let calls = generate_contract_calls(self, messages, true).await?;
-		let mut gas_estimates = Vec::new();
-		let (unit_gas_cost, _) = get_current_gas_cost_in_usd(
+		let calls = generate_contract_calls(self, messages).await?;
+		let gas_breakdown = get_current_gas_cost_in_usd(
 			self.chain_id,
 			self.state_machine,
-			&self.etherscan_keys.clone(),
+			&self.config.etherscan_api_key.clone(),
 			self.client.clone(),
 		)
 		.await?;
-		for (i_, call) in calls.clone().into_iter().enumerate() {
-			let call_debug = self
-				.client
-				.debug_trace_call(call.tx, call.block, debug_trace_call_option.clone())
-				.await?;
-			let mut gas_to_be_used = U256::zero();
-			let mut successful_execution = false;
+		let mut gas_estimates = vec![];
+		let batch_size = self.config.tracing_batch_size.unwrap_or(10);
+		for (calls, msgs) in calls.chunks(batch_size).zip(_msg.chunks(batch_size)) {
+			let processes = calls
+				.into_iter()
+				.zip(msgs)
+				.map(|(call, _msg)| {
+					let client = self.clone();
+					let debug_trace_call_options = debug_trace_call_options.clone();
+					let mut call = call.clone();
+					let _msg = _msg.clone();
+					tokio::spawn(async move {
+						let address = H160::from_slice(client.address().as_slice());
+						call.tx.set_from(address);
 
-			match _msg[i_] {
-				Message::Request(_) | Message::Response(_) => match call_debug {
-					GethTrace::Known(geth_trace_frame) =>
-						match geth_trace_frame {
-							GethTraceFrame::CallTracer(call_frame) => {
-								match _msg[0] {
+						let call_debug = client
+							.client
+							.debug_trace_call(
+								call.tx.clone(),
+								call.block.clone(),
+								debug_trace_call_options,
+							)
+							.await?;
+						let mut gas_to_be_used = U256::zero();
+						let mut successful_execution = false;
+
+						match call_debug {
+							GethTrace::Known(GethTraceFrame::CallTracer(call_frame)) => {
+								match _msg {
 									Message::Request(_) => {
 										successful_execution = check_trace_for_event(
 											call_frame.clone(),
 											CheckTraceForEventParams::Request,
 										);
-										log::debug!("estimate 'request' message success {successful_execution}");
+										if !successful_execution {
+											log::trace!(
+												"debug_traceCall request message failed on {:?}",
+												client.state_machine
+											);
+										}
 									},
 									Message::Response(_) => {
 										successful_execution = check_trace_for_event(
 											call_frame.clone(),
 											CheckTraceForEventParams::Response,
 										);
-										log::debug!("estimate 'response' message success {successful_execution}");
+										if !successful_execution {
+											log::trace!(
+												"debug_traceCall response message failed on {:?}",
+												client.state_machine
+											);
+										}
 									},
-									_ => {},
+									_ => {
+										unreachable!("Only request/responses are estimated");
+									},
 								};
 
-								gas_to_be_used = call_frame.gas_used / U256::from(1_000_000_000u64);
+								if successful_execution &&
+									client.state_machine ==
+										StateMachine::Ethereum(Ethereum::Arbitrum)
+								{
+									gas_to_be_used =
+										client.client.estimate_gas(&call.tx, call.block).await?;
+								} else {
+									gas_to_be_used = call_frame.gas_used;
+								}
 							},
-							_ => {},
-						},
-					GethTrace::Unknown(value) => {
-						log::error!("an unknown geth trace was reached {value}")
-					},
-				},
-				_ => {
-					gas_to_be_used = calls[0].estimate_gas().await? / U256::from(1_000_000_000u64);
+							trace => {
+								log::error!("an unknown geth trace was reached {trace:?}")
+							},
+						};
 
-					if gas_to_be_used == U256::zero() {
-						log::error!("an error occurred while estimating this message submitting")
-					}
-				},
-			}
+						let gas_cost_for_data_in_usd = match client.state_machine {
+							StateMachine::Ethereum(_) =>
+								get_l2_data_cost(
+									call.tx.rlp(),
+									client.state_machine,
+									client.client.clone(),
+									gas_breakdown.unit_wei_cost,
+								)
+								.await?,
+							_ => U256::zero().into(),
+						};
 
-			let mut gas_cost_for_data_in_gwei = U256::zero();
+						let execution_cost = (gas_breakdown.gas_price_cost * gas_to_be_used) +
+							gas_cost_for_data_in_usd;
+						Ok::<_, Error>(EstimateGasReturnParams {
+							execution_cost,
+							successful_execution,
+						})
+					})
+				})
+				.collect::<FuturesUnordered<_>>();
 
-			match self.state_machine {
-				StateMachine::Ethereum(_) => {
-					gas_cost_for_data_in_gwei = get_l2_data_cost(
-						calls[0].clone().tx.rlp(),
-						self.state_machine,
-						self.client.clone(),
-					)
-					.await?;
-				},
-				_ => {},
-			}
+			let estimates = processes
+				.collect::<Result<Vec<_>, _>>()
+				.await?
+				.into_iter()
+				.collect::<Result<Vec<_>, _>>()?;
 
-			let execution_cost = (gas_to_be_used + gas_cost_for_data_in_gwei) * unit_gas_cost;
-
-			gas_estimates.push(EstimateGasReturnParams { execution_cost, successful_execution });
+			gas_estimates.extend(estimates);
 		}
 
 		Ok(gas_estimates)
 	}
 
-	async fn get_message_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		let host_contract = EvmHost::new(self.ismp_host, self.signer.clone());
+	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
+		let host_contract = EvmHost::new(self.config.ismp_host, self.signer.clone());
 		let fee_metadata = host_contract.request_commitments(hash.into()).call().await?;
+		// erc20 tokens are formatted in 18 decimals
 		return Ok(fee_metadata.fee);
 	}
 
-	async fn query_message_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		let host_contract = EvmHost::new(self.ismp_host, self.signer.clone());
+	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
+		let host_contract = EvmHost::new(self.config.ismp_host, self.signer.clone());
 		let fee_metadata = host_contract.response_commitments(hash.into()).call().await?;
+		// erc20 tokens are formatted in 18 decimals
 		return Ok(fee_metadata.fee);
 	}
 
@@ -411,51 +438,133 @@ where
 		&self,
 		_counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<StateMachineUpdated>, Error> {
-		use ethers::contract::parse_log;
-		let mut obj = ObjectParams::new();
-		let address = format!("{:?}", self.handler);
-		obj.insert("address", address.as_str())
-			.expect("handler address should be valid");
-		let param = obj.to_rpc_params().ok().flatten().expect("Failed to serialize rpc params");
-		let sub = self
-			.rpc_client
-			.subscribe(
-				"eth_subscribe".to_string(),
-				rpc_params!("logs", param),
-				"eth_unsubscribe".to_string(),
-			)
-			.await?;
-		let stream = sub.filter_map(|log| async move {
-			log.ok().and_then(|raw| {
-				let log = serde_json::from_str(raw.get()).ok()?;
-				parse_log::<StateMachineUpdatedFilter>(log)
-					.ok()
-					.map(|ev| Ok(to_state_machine_updated(ev)))
-			})
-		});
+		// todo: make it configurable?
+		let interval = time::interval(Duration::from_secs(10));
+
+		let stream = stream::unfold(
+			(self.initial_height, interval, self.clone()),
+			move |(mut latest_height, mut interval, client)| async move {
+				let state_machine = client.state_machine;
+				loop {
+					interval.tick().await;
+					let block_number = match client.client.get_block_number().await {
+						Ok(number) => number.low_u64(),
+						Err(err) =>
+							return Some((
+								Err(err).context(format!(
+								"Error encountered fetching latest block number for {state_machine:?}"
+							)),
+								(latest_height, interval, client),
+							)),
+					};
+
+					// in case we get old heights, best to ignore them
+					if block_number < latest_height {
+						continue;
+					}
+
+					let contract = Handler::new(client.config.handler, client.client.clone());
+					let results = match contract
+						.events()
+						.address(client.config.handler.into())
+						.from_block(latest_height)
+						.to_block(block_number)
+						.query()
+						.await
+					{
+						Ok(events) => events,
+						Err(err) =>
+							return Some((
+								Err(err).context(format!(
+									"Failed to query events on {state_machine:?}"
+								)),
+								(latest_height, interval, client),
+							)),
+					};
+					let mut events = results
+						.into_iter()
+						.map(|ev| ev.into())
+						.collect::<Vec<StateMachineUpdated>>();
+					// we only want the highest event
+					events.sort_by(|a, b| a.latest_height.cmp(&b.latest_height));
+					if let Some(event) = events.last() {
+						return Some((Ok(event.clone()), (block_number + 1, interval, client)))
+					} else {
+						latest_height = block_number + 1;
+					}
+				}
+			},
+		);
 
 		Ok(Box::pin(stream))
 	}
 
-	async fn submit(&self, messages: Vec<Message>) -> Result<(), Error> {
-		submit_messages(&self, messages).await?;
-		Ok(())
+	async fn submit(&self, messages: Vec<Message>) -> Result<Vec<TxReceipt>, Error> {
+		let receipts = submit_messages(&self, messages.clone()).await?;
+		let mut results = vec![];
+		for msg in messages {
+			match msg {
+				Message::Request(req_msg) =>
+					for post in req_msg.requests {
+						let req = Request::Post(post);
+						let commitment = hash_request::<Hasher>(&req);
+						if receipts.contains(&commitment) {
+							let tx_receipt = TxReceipt::Request(Query {
+								source_chain: req.source_chain(),
+								dest_chain: req.dest_chain(),
+								nonce: req.nonce(),
+								commitment,
+							});
+
+							results.push(tx_receipt);
+						}
+					},
+				Message::Response(ResponseMessage {
+					datagram: RequestResponse::Response(resp),
+					..
+				}) =>
+					for res in resp {
+						let commitment = hash_response::<Hasher>(&res);
+						let request_commitment = hash_request::<Hasher>(&res.request());
+						if receipts.contains(&commitment) {
+							let tx_receipt = TxReceipt::Response {
+								query: Query {
+									source_chain: res.source_chain(),
+									dest_chain: res.dest_chain(),
+									nonce: res.nonce(),
+									commitment,
+								},
+								request_commitment,
+							};
+
+							results.push(tx_receipt);
+						}
+					},
+				_ => {},
+			}
+		}
+
+		Ok(results)
 	}
 
-	fn request_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
-		self.request_commitment_key(commitment).0.to_vec()
+	fn request_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
+		let key_1 = self.request_commitment_key(commitment).0 .0.to_vec();
+		let key_2 = self.request_commitment_key(commitment).1 .0.to_vec();
+		vec![key_1, key_2]
 	}
 
-	fn request_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
-		self.request_receipt_key(commitment).0.to_vec()
+	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
+		vec![self.request_receipt_key(commitment).0.to_vec()]
 	}
 
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
-		self.response_commitment_key(commitment).0.to_vec()
+	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
+		let key_1 = self.response_commitment_key(commitment).0 .0.to_vec();
+		let key_2 = self.response_commitment_key(commitment).1 .0.to_vec();
+		vec![key_1, key_2]
 	}
 
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
-		self.response_receipt_key(commitment).0.to_vec()
+	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
+		self.response_receipt_key(commitment)
 	}
 
 	fn address(&self) -> Vec<u8> {
@@ -472,19 +581,11 @@ where
 		Signature::Ethereum { address: self.address.clone(), signature }
 	}
 
-	async fn initialize_nonce(&self) -> Result<NonceProvider, Error> {
-		let nonce = self
-			.client
-			.clone()
-			.nonce_manager(self.signer.address())
-			.initialize_nonce(None)
-			.await?
-			.as_u64();
-		Ok(NonceProvider::new(nonce))
-	}
-
-	fn set_nonce_provider(&mut self, nonce_provider: NonceProvider) {
-		self.nonce_provider = Some(nonce_provider);
+	async fn set_latest_finalized_height<P: IsmpProvider + 'static>(
+		&mut self,
+		counterparty: &P,
+	) -> Result<(), anyhow::Error> {
+		self.set_latest_finalized_height(counterparty).await
 	}
 
 	async fn set_initial_consensus_state(
@@ -496,9 +597,16 @@ where
 	}
 
 	async fn freeze_state_machine(&self, _id: StateMachineId) -> Result<(), Error> {
-		let contract = EvmHost::new(self.ismp_host, self.client.clone());
-		contract.set_frozen_state(true).nonce(self.get_nonce().await?).call().await?;
+		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		if let Some(_) = contract.set_frozen_state(true).send().await?.await? {
+			log::info!("Frozen consensus client on {:?}", self.state_machine);
+		}
 		Ok(())
+	}
+
+	async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error> {
+		let address = self.host_manager().await?;
+		Ok(address.0.to_vec())
 	}
 }
 
@@ -508,36 +616,50 @@ pub enum CheckTraceForEventParams {
 }
 
 pub fn check_trace_for_event(call_frame: CallFrame, event_in: CheckTraceForEventParams) -> bool {
-	if let Some(inner_call) = call_frame.calls {
-		if let Some(last_call_frame) = inner_call.last().cloned() {
-			if let Some(logs) = last_call_frame.logs {
-				for log in logs {
-					let log = Log {
-						topics: log.clone().topics.unwrap_or_default(),
-						data: log.clone().data.unwrap_or_default(),
-						..Default::default()
-					};
+	if let Some(error) = call_frame.revert_reason {
+		log::error!("Error in main call frame: {error}");
+	}
 
-					match event_in {
-						CheckTraceForEventParams::Request => {
-							let event = parse_log::<PostRequestHandledFilter>(log.clone());
+	if let Some((logs, frame)) = call_frame
+		.calls
+		.map(|inner| inner.last().cloned())
+		.flatten()
+		.map(|last_call_frame| last_call_frame.logs.clone().map(|logs| (logs, last_call_frame)))
+		.flatten()
+	{
+		if let Some(error) = frame.error {
+			log::error!("Error in inner call frame: {error}");
+		}
+		for log in logs {
+			let log = Log {
+				topics: log.clone().topics.unwrap_or_default(),
+				data: log.clone().data.unwrap_or_default(),
+				..Default::default()
+			};
 
-							if let Ok(_) = event {
-								return true;
-							}
-						},
-						CheckTraceForEventParams::Response => {
-							let event = parse_log::<PostResponseHandledFilter>(log.clone());
+			match event_in {
+				CheckTraceForEventParams::Request => {
+					let event = parse_log::<PostRequestHandledFilter>(log.clone());
+					match event {
+						Ok(_) => return true,
+						Err(err) =>
+							log::error!("Failed to parse {:?} trace log: {err:?}", frame.to),
+					}
+				},
+				CheckTraceForEventParams::Response => {
+					let event = parse_log::<PostResponseHandledFilter>(log.clone());
 
-							if let Ok(_) = event {
-								return true;
-							}
-						},
-					};
-				}
-			}
+					match event {
+						Ok(_) => return true,
+						Err(err) =>
+							log::error!("Failed to parse {:?} trace log: {err:?}", frame.to),
+					}
+				},
+			};
 		}
 	}
+
+	log::error!("Debug trace frame not found!");
 
 	false
 }

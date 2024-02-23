@@ -55,7 +55,7 @@ impl IsmpHost for MockHost {
 		Ok(Box::pin(stream::pending()))
 	}
 
-	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
 		todo!()
 	}
 }
@@ -81,7 +81,7 @@ impl IsmpProvider for MockHost {
 		unimplemented!()
 	}
 
-	async fn query_consensus_update_time(
+	async fn query_state_machine_update_time(
 		&self,
 		_id: ConsensusStateId,
 	) -> Result<Duration, anyhow::Error> {
@@ -154,7 +154,7 @@ impl IsmpProvider for MockHost {
 		todo!()
 	}
 
-	async fn get_message_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
+	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
 		todo!()
 	}
 
@@ -193,14 +193,6 @@ impl IsmpProvider for MockHost {
 		todo!()
 	}
 
-	async fn initialize_nonce(&self) -> Result<NonceProvider, Error> {
-		todo!()
-	}
-
-	fn set_nonce_provider(&mut self, nonce_provider: NonceProvider) {
-		todo!()
-	}
-
 	async fn set_initial_consensus_state(
 		&self,
 		message: CreateConsensusState,
@@ -208,7 +200,7 @@ impl IsmpProvider for MockHost {
 		todo!()
 	}
 
-	async fn query_message_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
+	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
 		todo!()
 	}
 }

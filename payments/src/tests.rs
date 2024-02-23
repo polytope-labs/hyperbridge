@@ -3,75 +3,68 @@ use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
 	messaging::{Message, Proof, RequestMessage, ResponseMessage},
-	router::{Post, PostResponse, RequestResponse, Response},
+	router::{Post, PostResponse, Request, RequestResponse, Response},
+	util::{hash_request, hash_response},
 };
-use tesseract_primitives::mocks::MockHost;
+use tesseract_primitives::{mocks::MockHost, Hasher, Query, TxReceipt};
 
 #[tokio::test]
 async fn transaction_payments_flow() {
 	let tx_payment = TransactionPayment::initialize().await.unwrap();
-	let request_message = Message::Request(RequestMessage {
-		requests: (0..500)
-			.into_iter()
-			.map(|i| Post {
-				source: StateMachine::Bsc,
-				dest: StateMachine::Polygon,
+	let receipts = (0..500).into_iter().map(|i| {
+		let post = Post {
+			source: StateMachine::Bsc,
+			dest: StateMachine::Polygon,
+			nonce: i,
+			from: vec![],
+			to: vec![],
+			timeout_timestamp: 0,
+			data: vec![],
+			gas_limit: i,
+		};
+		let req = Request::Post(post);
+		let commitment = hash_request::<Hasher>(&req);
+		TxReceipt::Request(Query {
+			source_chain: req.source_chain(),
+			dest_chain: req.dest_chain(),
+			nonce: req.nonce(),
+			commitment,
+		})
+	});
+
+	let response_receipts = (0..500).into_iter().map(|i| {
+		let resp = Response::Post(PostResponse {
+			post: Post {
+				source: StateMachine::Polygon,
+				dest: StateMachine::Bsc,
 				nonce: i,
 				from: vec![],
 				to: vec![],
 				timeout_timestamp: 0,
 				data: vec![],
 				gas_limit: i,
-			})
-			.collect(),
-		proof: Proof {
-			height: StateMachineHeight {
-				id: StateMachineId {
-					state_id: StateMachine::Polygon,
-					consensus_state_id: *b"POLY",
-				},
-				height: 0,
 			},
-			proof: vec![],
-		},
-		signer: vec![],
-	});
+			response: vec![0u8; 64],
+			timeout_timestamp: i,
+			gas_limit: i,
+		});
 
-	let response_message = Message::Response(ResponseMessage {
-		datagram: RequestResponse::Response(
-			(0..500)
-				.into_iter()
-				.map(|i| {
-					Response::Post(PostResponse {
-						post: Post {
-							source: StateMachine::Polygon,
-							dest: StateMachine::Bsc,
-							nonce: i,
-							from: vec![],
-							to: vec![],
-							timeout_timestamp: 0,
-							data: vec![],
-							gas_limit: i,
-						},
-						response: vec![0u8; 64],
-						timeout_timestamp: i,
-						gas_limit: i,
-					})
-				})
-				.collect(),
-		),
-		proof: Proof {
-			height: StateMachineHeight {
-				id: StateMachineId { state_id: StateMachine::Bsc, consensus_state_id: *b"POLY" },
-				height: 0,
+		let commitment = hash_response::<Hasher>(&resp);
+		let request_commitment = hash_request::<Hasher>(&resp.request());
+
+		TxReceipt::Response {
+			query: Query {
+				source_chain: resp.source_chain(),
+				dest_chain: resp.dest_chain(),
+				nonce: resp.nonce(),
+				commitment,
 			},
-			proof: vec![],
-		},
-		signer: vec![],
+			request_commitment,
+		}
 	});
 
 	tx_payment
-		.store_messages(vec![request_message, response_message])
+		.store_messages(receipts.chain(response_receipts).collect())
 		.await
 		.unwrap();
 

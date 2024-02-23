@@ -1,4 +1,3 @@
-mod any;
 mod cli;
 mod config;
 mod logging;

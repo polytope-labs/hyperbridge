@@ -13,17 +13,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bnb_pos_prover::BnbPosProver;
-use bnb_pos_verifier::primitives::compute_epoch;
-pub use bnb_pos_verifier::verify_bnb_header;
-use ethers::providers::{Provider, Ws};
+use bsc_pos_prover::BscPosProver;
+use bsc_pos_verifier::primitives::compute_epoch;
+pub use bsc_pos_verifier::verify_bsc_header;
+use ethers::providers::{Http, Provider};
 pub use geth_primitives::Header;
 use ismp::{consensus::ConsensusStateId, host::StateMachine, util::Keccak256};
-pub use ismp_bnb_pos::ConsensusState;
+pub use ismp_bsc_pos::ConsensusState;
 use primitive_types::H160;
-use reconnecting_jsonrpsee_ws_client::{Client, ExponentialBackoff, PingConfig};
+
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 use tesseract_evm::{EvmClient, EvmConfig};
 
 mod byzantine;
@@ -31,17 +31,28 @@ mod host;
 mod notification;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BnbPosConfig {
+pub struct BscPosConfig {
+	/// Host configuration options
+	pub host: Option<HostConfig>,
 	/// General ethereum config
 	#[serde[flatten]]
 	pub evm_config: EvmConfig,
 }
 
-impl BnbPosConfig {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostConfig {
+	pub consensus_update_frequency: Option<u64>,
+}
+
+impl BscPosConfig {
 	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<EvmClient<BnbPosHost>> {
-		let host = BnbPosHost::new(&self).await?;
-		let client = EvmClient::new(Some(host), self.evm_config).await?;
+	pub async fn into_client(self) -> anyhow::Result<EvmClient<BscPosHost>> {
+		let host = if let Some(ref host) = self.host {
+			Some(BscPosHost::new(host, &self.evm_config).await?)
+		} else {
+			None
+		};
+		let client = EvmClient::new(host, self.evm_config).await?;
 
 		Ok(client)
 	}
@@ -52,46 +63,34 @@ impl BnbPosConfig {
 }
 
 #[derive(Clone)]
-pub struct BnbPosHost {
+pub struct BscPosHost {
 	/// Consensus state id on counterparty chain
 	pub consensus_state_id: ConsensusStateId,
 	/// State machine Identifier for this chain.
 	pub state_machine: StateMachine,
 	/// Consensus prover
-	pub prover: BnbPosProver,
-	/// Config
-	pub config: BnbPosConfig,
-	/// Jsonrpsee client for event susbscription, ethers does not expose a Send and Sync stream for
-	/// susbcribing to contract logs
-	pub rpc_client: Arc<Client>,
+	pub prover: BscPosProver,
+	/// Host config options
+	pub host: HostConfig,
+	/// Evm config options
+	pub evm: EvmConfig,
 }
 
-impl BnbPosHost {
-	pub async fn new(config: &BnbPosConfig) -> Result<Self, anyhow::Error> {
-		let provider =
-			Provider::<Ws>::connect_with_reconnects(config.evm_config.execution_ws.clone(), 1000)
-				.await
-				.unwrap();
-		let prover = BnbPosProver::new(provider);
-		let rpc_client = Client::builder()
-			.retry_policy(ExponentialBackoff::from_millis(100))
-			.enable_ws_ping(
-				PingConfig::new()
-					.ping_interval(Duration::from_secs(6))
-					.inactive_limit(Duration::from_secs(30)),
-			)
-			.build(config.evm_config.execution_ws.clone())
-			.await?;
+impl BscPosHost {
+	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
+		let provider = Provider::<Http>::try_from(evm.rpc_url.clone())?;
+		let prover = BscPosProver::new(provider);
+
 		Ok(Self {
 			consensus_state_id: {
 				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(config.evm_config.consensus_state_id.as_bytes());
+				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
 				consensus_state_id
 			},
-			state_machine: config.evm_config.state_machine,
+			state_machine: evm.state_machine,
 			prover,
-			config: config.clone(),
-			rpc_client: Arc::new(rpc_client),
+			host: host.clone(),
+			evm: evm.clone(),
 		})
 	}
 

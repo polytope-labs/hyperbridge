@@ -69,7 +69,7 @@ impl IsmpHost for PolygonPosHost {
 		Ok(Box::pin(stream))
 	}
 
-	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
 		let initial_consensus_state =
 			self.get_consensus_state(self.config.evm_config.ismp_host).await?;
 		Ok(Some(CreateConsensusState {

@@ -68,7 +68,7 @@ impl IsmpHost for ArbHost {
 		Ok(Box::pin(stream::pending()))
 	}
 
-	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
 		Ok(None)
 	}
 }

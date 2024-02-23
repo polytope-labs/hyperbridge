@@ -6,7 +6,7 @@ use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpHost, IsmpProvider};
 #[async_trait::async_trait]
 impl<I> ByzantineHandler for EvmClient<I>
 where
-	I: IsmpHost,
+	I: IsmpHost + 'static,
 {
 	async fn query_consensus_message(
 		&self,
@@ -35,7 +35,7 @@ where
 #[async_trait::async_trait]
 impl<T> IsmpHost for EvmClient<T>
 where
-	T: IsmpHost + Clone,
+	T: IsmpHost + Clone + 'static,
 {
 	async fn consensus_notification<I>(
 		&self,
@@ -51,11 +51,11 @@ where
 			.await
 	}
 
-	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
 		self.host
 			.as_ref()
 			.ok_or_else(|| anyhow!("Host not initialized"))?
-			.get_initial_consensus_state()
+			.query_initial_consensus_state()
 			.await
 	}
 }
@@ -70,12 +70,7 @@ impl<T: IsmpHost + Clone> Clone for EvmClient<T> {
 			consensus_state_id: self.consensus_state_id,
 			state_machine: self.state_machine,
 			initial_height: self.initial_height,
-			ismp_host: self.ismp_host,
-			handler: self.handler,
-			nonce_provider: self.nonce_provider.clone(),
 			config: self.config.clone(),
-			rpc_client: self.rpc_client.clone(),
-			etherscan_keys: self.etherscan_keys.clone(),
 			chain_id: self.chain_id.clone(),
 		}
 	}

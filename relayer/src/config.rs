@@ -16,45 +16,13 @@
 //! Tesseract config utilities
 
 use anyhow::anyhow;
-use pallet_ismp::primitives::HashAlgorithm;
-use std::collections::HashMap;
-// use grandpa::{GrandpaConfig, GrandpaHost};
 use ismp::host::StateMachine;
-use ismp_sync_committee::constants::{mainnet::Mainnet, sepolia::Sepolia};
-use parachain::ParachainHost;
 use primitives::config::RelayerConfig;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use tesseract_any_client::AnyConfig;
 use tesseract_beefy::BeefyConfig;
-use tesseract_bnb_pos::{BnbPosConfig, BnbPosHost};
-use tesseract_evm::{
-	arbitrum::client::{ArbConfig, ArbHost},
-	optimism::client::{OpConfig, OpHost},
-	EvmClient,
-};
-use tesseract_polygon_pos::{PolygonPosConfig, PolygonPosHost};
-use tesseract_substrate::{
-	config::{Blake2SubstrateChain, KeccakSubstrateChain},
-	SubstrateClient, SubstrateConfig,
-};
-use tesseract_sync_committee::{SyncCommitteeConfig, SyncCommitteeHost};
 use toml::Table;
-
-type Parachain<T> = SubstrateClient<ParachainHost, T>;
-// type Grandpa<T> = SubstrateClient<GrandpaHost<T>, T>;
-
-crate::chain! {
-	KeccakParachain(SubstrateConfig, Parachain<KeccakSubstrateChain>),
-	Parachain(SubstrateConfig, Parachain<Blake2SubstrateChain>),
-	EthereumSepolia(SyncCommitteeConfig, EvmClient<SyncCommitteeHost<Sepolia>>),
-	EthereumMainnet(SyncCommitteeConfig, EvmClient<SyncCommitteeHost<Mainnet>>),
-	Arbitrum(ArbConfig, EvmClient<ArbHost>),
-	Optimism(OpConfig, EvmClient<OpHost>),
-	Base(OpConfig, EvmClient<OpHost>),
-	Polygon(PolygonPosConfig, EvmClient<PolygonPosHost>),
-	Bsc(BnbPosConfig, EvmClient<BnbPosHost>),
-	// Polkadot(GrandpaConfig, Grandpa<Blake2SubstrateChain>),
-	// Kusama(GrandpaConfig, Grandpa<Blake2SubstrateChain>),
-}
 
 /// Defines the format of the tesseract config.toml file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,8 +38,10 @@ const HYPERRIDGE: &'static str = "hyperbridge";
 const RELAYER: &'static str = "relayer";
 
 impl HyperbridgeConfig {
-	pub async fn parse_conf(config: String) -> Result<Self, anyhow::Error> {
-		let toml = tokio::fs::read_to_string(&config).await?;
+	pub async fn parse_conf(config: &str) -> Result<Self, anyhow::Error> {
+		let toml = tokio::fs::read_to_string(config)
+			.await
+			.map_err(|err| anyhow!("Error occured while reading config file: {err:?}"))?;
 		let table = toml.parse::<Table>()?;
 		let mut chains: HashMap<StateMachine, AnyConfig> = HashMap::new();
 		if !table.contains_key(HYPERRIDGE) || !table.contains_key(RELAYER) {
@@ -100,88 +70,8 @@ impl HyperbridgeConfig {
 	}
 }
 
-impl AnyConfig {
-	/// Convert the [`HyperbridgeConfig`] into an implementation of an [`IsmpHost`]
-	pub async fn into_client(self) -> Result<AnyClient, anyhow::Error> {
-		let client = match self {
-			AnyConfig::KeccakParachain(config) | AnyConfig::Parachain(config) => {
-				match config.hashing {
-					HashAlgorithm::Keccak => {
-						let host = ParachainHost::default();
-						AnyClient::KeccakParachain(Parachain::new(Some(host), config).await?)
-					},
-					HashAlgorithm::Blake2 => {
-						let host = ParachainHost::default();
-						AnyClient::Parachain(Parachain::new(Some(host), config).await?)
-					},
-				}
-			},
-			AnyConfig::EthereumSepolia(config) => {
-				let host = if let Some(ref host) = config.host {
-					Some(SyncCommitteeHost::new(host, &config.evm_config).await?)
-				} else {
-					None
-				};
-				let client = EvmClient::new(host, config.evm_config).await?;
-				AnyClient::EthereumSepolia(client)
-			},
-			AnyConfig::EthereumMainnet(config) => {
-				let host = if let Some(ref host) = config.host {
-					Some(SyncCommitteeHost::new(host, &config.evm_config).await?)
-				} else {
-					None
-				};
-				let client = EvmClient::new(host, config.evm_config).await?;
-				AnyClient::EthereumMainnet(client)
-			},
-			AnyConfig::Arbitrum(config) => {
-				let host = if let Some(ref host) = config.host {
-					Some(ArbHost::new(host, &config.evm_config).await?)
-				} else {
-					None
-				};
-				let client = EvmClient::new(host, config.evm_config).await?;
-				AnyClient::Arbitrum(client)
-			},
-			AnyConfig::Optimism(config) => {
-				let host = if let Some(ref host) = config.host {
-					Some(OpHost::new(host, &config.evm_config).await?)
-				} else {
-					None
-				};
-				let client = EvmClient::new(host, config.evm_config).await?;
-				AnyClient::Optimism(client)
-			},
-			AnyConfig::Base(config) => {
-				let host = if let Some(ref host) = config.host {
-					Some(OpHost::new(host, &config.evm_config).await?)
-				} else {
-					None
-				};
-				let client = EvmClient::new(host, config.evm_config).await?;
-				AnyClient::Base(client)
-			},
-			AnyConfig::Polygon(config) => {
-				let host = PolygonPosHost::new(&config).await?;
-				let client = EvmClient::new(Some(host), config.evm_config).await?;
-				AnyClient::Polygon(client)
-			},
-			AnyConfig::Bsc(config) => {
-				let host = BnbPosHost::new(&config).await?;
-				let client = EvmClient::new(Some(host), config.evm_config).await?;
-				AnyClient::Bsc(client)
-			}, /* AnyConfig::Polkadot(config) => {
-			    *     let naive = GrandpaHost::new(&config).await?;
-			    *     AnyClient::Grandpa(Grandpa::new(naive, config.substrate).await?)
-			    * } */
-		};
-
-		Ok(client)
-	}
-}
-
 #[tokio::test]
 async fn test_parsing() {
-	let config = HyperbridgeConfig::parse_conf("../test-config.toml".to_string()).await.unwrap();
+	let config = HyperbridgeConfig::parse_conf("../test-config.toml").await.unwrap();
 	dbg!(config);
 }

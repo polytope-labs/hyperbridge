@@ -21,7 +21,7 @@ async fn main() -> Result<(), anyhow::Error> {
 	let cli = Cli::parse();
 	if let Some(command) = cli.subcommand {
 		match command {
-			Subcommand::AccumulateFees(cmd) => cmd.accumulate_fees().await?,
+			Subcommand::AccumulateFees(cmd) => cmd.accumulate_fees(cli.config.clone()).await?,
 		}
 		return Ok(())
 	}

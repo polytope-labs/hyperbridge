@@ -8,6 +8,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 [dependencies]
 anyhow = "1.0.75"
 log = "0.4.17"
+percentage = "0.1.0"
 futures = "0.3.28"
 tokio = { version = "1.32.0", features = ["full"] }
 sp-core = { version = "21.0.0", features = ["full_crypto"] }
@@ -18,3 +19,4 @@ pallet-ismp.workspace = true
 transaction-payment = { path = "../payments" }
 tesseract-primitives = { path = "../primitives" }
 ismp-solidity-abi.workspace = true
+tesseract-any-client = { path = "../tesseract-any-client" }

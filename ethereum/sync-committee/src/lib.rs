@@ -13,7 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ethers::prelude::{Provider, Ws};
+use anyhow::Context;
+use ethers::{prelude::Provider, providers::Http};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 pub use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
 use primitive_types::H160;
@@ -92,13 +93,14 @@ pub struct SyncCommitteeHost<C: Config> {
 
 	pub evm: EvmConfig,
 	/// Eth L1 execution client
-	pub el: Arc<Provider<Ws>>,
+	pub el: Arc<Provider<Http>>,
 }
 
 impl<C: Config> SyncCommitteeHost<C> {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let prover = SyncCommitteeProver::new(host.beacon_http_url.clone());
-		let el = Provider::<Ws>::connect_with_reconnects(&evm.execution_ws, 1000).await?;
+		let el = Provider::<Http>::try_from(&evm.rpc_url)
+			.context("Failed to connect to beacon chain consensus client rpc")?;
 		Ok(Self {
 			consensus_state_id: {
 				let mut consensus_state_id: ConsensusStateId = Default::default();

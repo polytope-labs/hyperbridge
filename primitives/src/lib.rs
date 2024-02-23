@@ -27,14 +27,85 @@ use ismp::{
 	host::StateMachine,
 	messaging::{ConsensusMessage, CreateConsensusState, Message},
 	router::Post,
+	util::Keccak256,
 };
 pub use pallet_relayer_fees::withdrawal::{Signature, WithdrawalProof};
 use primitive_types::{H256, U256};
-use std::{pin::Pin, sync::Arc, time::Duration};
+use sp_core::keccak_256;
+use std::{
+	fmt::{Debug, Display, Formatter},
+	ops::{Add, Mul},
+	pin::Pin,
+	sync::Arc,
+	time::Duration,
+};
+
+/// Ideal Currency unit denominated in 18 decimals
+#[derive(Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq)]
+pub struct Cost(pub U256);
+
+impl Mul<U256> for Cost {
+	type Output = Cost;
+
+	fn mul(self, rhs: U256) -> Self::Output {
+		Cost(self.0 * rhs)
+	}
+}
+
+impl Add<Cost> for Cost {
+	type Output = Self;
+
+	fn add(self, rhs: Cost) -> Self::Output {
+		Cost(self.0 + rhs.0)
+	}
+}
+
+impl Add<U256> for Cost {
+	type Output = Self;
+
+	fn add(self, rhs: U256) -> Self::Output {
+		Cost(self.0 + rhs)
+	}
+}
+
+impl Cost {
+	pub fn display(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		let val_as_str = self.0.to_string();
+		let mut characters = val_as_str.chars().collect::<Vec<_>>();
+		// pad with zeros if length is less than 18
+		if characters.len() <= 18 {
+			let rem = 18 - characters.len();
+			(0..=rem).into_iter().for_each(|_| characters.insert(0, '0'));
+		}
+		// Insert decimal point
+		let pointer = characters.len().saturating_sub(18);
+		characters.insert(pointer, '.');
+		let value = characters.into_iter().collect::<String>();
+		f.write_str(&value)
+	}
+}
+
+impl Debug for Cost {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		self.display(f)
+	}
+}
+
+impl Display for Cost {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		self.display(f)
+	}
+}
+
+impl From<U256> for Cost {
+	fn from(value: U256) -> Self {
+		Cost(value)
+	}
+}
 
 #[derive(Copy, Clone, Debug, Default)]
 pub struct EstimateGasReturnParams {
-	pub execution_cost: U256,
+	pub execution_cost: Cost,
 	pub successful_execution: bool,
 }
 
@@ -49,8 +120,24 @@ pub struct Query {
 	pub commitment: H256,
 }
 
+/// A type tha should be returned when messages are submitted successfully
+pub enum TxReceipt {
+	/// Request variant
+	Request(Query),
+	/// Response variant
+	Response { query: Query, request_commitment: H256 },
+}
+
 /// Stream alias
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>> + Send>>;
+
+pub struct Hasher;
+
+impl Keccak256 for Hasher {
+	fn keccak256(bytes: &[u8]) -> H256 {
+		keccak_256(bytes).into()
+	}
+}
 
 #[async_trait::async_trait]
 pub trait IsmpProvider: Send + Sync {
@@ -71,9 +158,9 @@ pub trait IsmpProvider: Send + Sync {
 	) -> Result<StateCommitment, anyhow::Error>;
 
 	/// Query the timestamp at which the client was last updated
-	async fn query_consensus_update_time(
+	async fn query_state_machine_update_time(
 		&self,
-		id: ConsensusStateId,
+		height: StateMachineHeight,
 	) -> Result<Duration, anyhow::Error>;
 
 	/// Query the challenge period for client
@@ -135,11 +222,13 @@ pub trait IsmpProvider: Send + Sync {
 
 	/// Should return fee relayer would be recieving to relay a request mesage giving a hash
 	/// (message commiment)
-	async fn get_message_request_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error>;
+	/// Should return Erc20 standard type with 18 decimals value
+	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error>;
 
 	/// Should return fee relayer would be recieving to relay a responce mesage giving a hash
 	/// (message commiment)
-	async fn query_message_response_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error>;
+	/// Should return Erc20 standard type with 18 decimals value
+	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error>;
 
 	/// Return a stream that watches for updates to [`counterparty_state_id`], yields when new
 	/// [`StateMachineUpdated`] event is observed for [`counterparty_state_id`]
@@ -152,23 +241,24 @@ pub trait IsmpProvider: Send + Sync {
 	/// this chain.
 	///
 	/// Should only return Ok if the transaction was successfully inserted into a block.
-	async fn submit(&self, messages: Vec<Message>) -> Result<(), anyhow::Error>;
+	/// Should return a list of requests and responses that where successfully processed
+	async fn submit(&self, messages: Vec<Message>) -> Result<Vec<TxReceipt>, anyhow::Error>;
 
 	/// This method should return the key used to be used to query the state proof for the request
 	/// commitment
-	fn request_commitment_full_key(&self, commitment: H256) -> Vec<u8>;
+	fn request_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>>;
 
 	/// This method should return the key used to be used to query the state proof for the request
 	/// receipt
-	fn request_receipt_full_key(&self, commitment: H256) -> Vec<u8>;
+	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>>;
 
 	/// This method should return the key used to be used to query the state proof for the response
 	/// commitment
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<u8>;
+	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>>;
 
 	/// This method should return the key used to be used to query the state proof for the response
 	/// receipt
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<u8>;
+	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>>;
 
 	/// Relayer's address on this chain
 	fn address(&self) -> Vec<u8>;
@@ -176,10 +266,11 @@ pub trait IsmpProvider: Send + Sync {
 	/// Sign a prehashed message using the Relayer's private key
 	fn sign(&self, msg: &[u8]) -> Signature;
 
-	/// Initialize a nonce for the chain
-	async fn initialize_nonce(&self) -> Result<NonceProvider, anyhow::Error>;
-	/// Set the nonce provider for the chain
-	fn set_nonce_provider(&mut self, nonce_provider: NonceProvider);
+	/// Set the initial height with the finalized height on counterparty
+	async fn set_latest_finalized_height<P: IsmpProvider + 'static>(
+		&mut self,
+		counterparty: &P,
+	) -> Result<(), anyhow::Error>;
 
 	/// Set the initial consensus state for a given consensus state id on this chain
 	async fn set_initial_consensus_state(
@@ -189,6 +280,9 @@ pub trait IsmpProvider: Send + Sync {
 
 	/// Temporary: Submit a message to freeze the State Machine
 	async fn freeze_state_machine(&self, id: StateMachineId) -> Result<(), anyhow::Error>;
+
+	/// Fetch the host manager address for this chain
+	async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error>;
 }
 
 /// Provides an interface for handling byzantine behaviour. Implementations of this should watch for
@@ -222,8 +316,8 @@ pub trait IsmpHost: ByzantineHandler + Clone + Send + Sync {
 	where
 		C: IsmpHost + IsmpProvider + Clone + 'static;
 
-	/// Get a trusted consensus state for this host
-	async fn get_initial_consensus_state(
+	/// Query the trusted consensus state for this host
+	async fn query_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error>;
 }
@@ -274,14 +368,18 @@ pub async fn wait_for_challenge_period<C: IsmpProvider>(
 	last_consensus_update: Duration,
 	challenge_period: Duration,
 ) -> anyhow::Result<()> {
-	tokio::time::sleep(challenge_period + Duration::from_secs(60)).await;
-	loop {
+	if challenge_period != Duration::ZERO {
+		log::info!("Waiting for challenge period {challenge_period:?}");
+	}
+
+	tokio::time::sleep(challenge_period).await;
+	let current_timestamp = client.query_timestamp().await?;
+	let mut delay = current_timestamp.saturating_sub(last_consensus_update);
+
+	while delay <= challenge_period {
+		tokio::time::sleep(challenge_period - delay).await;
 		let current_timestamp = client.query_timestamp().await?;
-		if current_timestamp.saturating_sub(last_consensus_update) <= challenge_period {
-			tokio::time::sleep(Duration::from_secs(60)).await;
-		} else {
-			break
-		}
+		delay = current_timestamp.saturating_sub(last_consensus_update);
 	}
 	Ok(())
 }

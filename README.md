@@ -35,3 +35,19 @@ docker run polytopelabs/tesseract:latest --config ./integration-tests/config.tom
 ## License
 
 This software is licensed under the Apache 2.0 License, Copyright (c) 2023 Polytope Labs.
+
+## Notes
+
+We trace transactions in concurrently so it's necessary to increase the file open limit for the user session the process is running within.
+Your rpc provider must support processing requests well above 100 requests/second
+```markdown
+Edit /etc/security/limits.conf and add the following using the appropriate username
+
+@username soft nofile 100000
+@username hard nofile 100000
+
+Edit /etc/pam.d/common-session and add the following
+
+session required pam_limits.so
+```
+Reboot the machine after making these changes.

@@ -16,7 +16,7 @@
 //! Consensus message relay
 
 use anyhow::anyhow;
-use futures::{future::Either, StreamExt};
+use futures::StreamExt;
 use ismp::messaging::Message;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
@@ -39,12 +39,14 @@ where
 	};
 
 	// if one task completes, abort the other
-	let err = match futures::future::select(task_a, task_b).await {
-		Either::Left((res, _task)) => res,
-		Either::Right((res, _task)) => res,
+	tokio::select! {
+		result_a = task_a => {
+			result_a?
+		}
+		result_b = task_b => {
+			result_b?
+		}
 	};
-
-	log::error!("{:?}", err);
 
 	Ok(())
 }
@@ -64,7 +66,7 @@ where
 			Ok(consensus_message) => {
 				log::info!(
 					target: "tesseract",
-					"🛰️ Transmitting consensus update message from {} to {}",
+					"🛰️ Transmitting consensus message from {} to {}",
 					chain_a.name(), chain_b.name()
 				);
 				if let Err(err) = chain_b.submit(vec![Message::Consensus(consensus_message)]).await
@@ -73,7 +75,7 @@ where
 				}
 			},
 			Err(e) => {
-				log::error!(target: "tesseract","Consensus task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
+				log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
 			},
 		}
 	}

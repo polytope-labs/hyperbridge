@@ -15,12 +15,16 @@ use std::collections::BTreeMap;
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use crate::SyncCommitteeHost;
-use codec::Encode;
-use ismp::messaging::{ConsensusMessage, CreateConsensusState};
+use codec::{Decode, Encode};
+use ismp::{
+	consensus::StateMachineId,
+	messaging::{ConsensusMessage, CreateConsensusState},
+};
+use ismp_sync_committee::types::ConsensusState;
 use primitive_types::H160;
-use sync_committee_primitives::constants::Config;
+use sync_committee_primitives::{constants::Config, util::compute_sync_committee_period};
 
-use crate::notification::consensus_notification;
+use crate::notification::{consensus_notification, get_beacon_update};
 use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider};
 
 // todo: Figure out the issue with the stream
@@ -51,7 +55,7 @@ impl<T: Config + Send + Sync> IsmpHost for SyncCommitteeHost<T> {
 			let client = client.clone();
 			async move {
 				let last_consensus_update = counterparty
-					.query_consensus_update_time(client.consensus_state_id)
+					.query_state_machine_update_time(client.consensus_state_id)
 					.await
 					.ok()
 					.unwrap_or_else(|| {
@@ -109,7 +113,7 @@ impl<T: Config + Send + Sync> IsmpHost for SyncCommitteeHost<T> {
 		Ok(Box::pin(stream))
 	}
 
-	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
 		let mut ismp_contract_addresses = BTreeMap::new();
 		let mut l2_oracle = BTreeMap::new();
 		let mut rollup_core = H160::default();
@@ -148,7 +152,7 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 	async fn consensus_notification<C>(
 		&self,
 		counterparty: C,
-	) -> Result<BoxStream<ConsensusMessage>, anyhow::Error>
+	) -> Result<BoxStream<ConsensusMessage>, Error>
 	where
 		C: IsmpHost + IsmpProvider + 'static,
 	{
@@ -156,29 +160,90 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 
 		let interval = tokio::time::interval(self.consensus_update_frequency);
 
-		let interval_stream = futures::stream::try_unfold(interval, move |mut interval| {
+		let interval_stream = futures::stream::unfold(interval, move |mut interval| {
 			let client = client.clone();
 			let counterparty = counterparty.clone();
 
 			async move {
+				let sync = || async {
+					let checkpoint =
+						client.prover.fetch_finalized_checkpoint(Some("head")).await?.finalized;
+
+					let consensus_state =
+						counterparty.query_consensus_state(None, client.consensus_state_id).await?;
+					let consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
+					let light_client_state = consensus_state.light_client_state;
+					// Do a sync check before returning any updates
+					let state_period = light_client_state.state_period;
+
+					let checkpoint_period = compute_sync_committee_period::<T>(checkpoint.epoch);
+					if !(state_period..=(state_period + 1)).contains(&checkpoint_period) {
+						let next_period = state_period + 1;
+						let update = client.prover.latest_update_for_period(next_period).await?;
+						let state_machine_id = StateMachineId {
+							state_id: client.state_machine,
+							consensus_state_id: client.consensus_state_id,
+						};
+						let execution_layer_height =
+							counterparty.query_latest_height(state_machine_id).await? as u64;
+						let message =
+							get_beacon_update(&client, update, execution_layer_height).await?;
+						return Ok::<_, Error>(Some(message));
+					}
+					Ok(None)
+				};
 				loop {
+					match sync().await {
+						Ok(Some(beacon_message)) => {
+							let update = ConsensusMessage {
+								consensus_proof: beacon_message.encode(),
+								consensus_state_id: client.consensus_state_id,
+							};
+							return Some((Ok::<_, Error>(update), interval));
+						},
+						Ok(None) => {},
+						Err(err) =>
+							return Some((
+								Err::<_, Error>(err.context(format!(
+									"Error trying to fetch sync message for {:?}",
+									client.state_machine
+								))),
+								interval,
+							)),
+					};
+
 					// tick the interval
 					interval.tick().await;
 
 					let checkpoint =
-						client.prover.fetch_finalized_checkpoint(Some("head")).await?.finalized;
+						match client.prover.fetch_finalized_checkpoint(Some("head")).await {
+							Ok(head) => head.finalized,
+							Err(err) => {
+								log::error!(
+									"Failed to fetch latest finalized header for {:?}: {err:?}",
+									client.state_machine
+								);
+								continue;
+							},
+						};
 
-					let update = consensus_notification(&client, counterparty.clone(), checkpoint)
-						.await?
-						.map(|beacon_message| ConsensusMessage {
-							consensus_proof: beacon_message.encode(),
-							consensus_state_id: client.consensus_state_id,
-						});
-					if let Some(update) = update {
-						return Ok::<_, anyhow::Error>(Some((update, interval)))
-					} else {
-						// We continue the loop
-						continue
+					match consensus_notification(&client, counterparty.clone(), checkpoint).await {
+						Ok(Some(beacon_message)) => {
+							let update = ConsensusMessage {
+								consensus_proof: beacon_message.encode(),
+								consensus_state_id: client.consensus_state_id,
+							};
+							return Some((Ok::<_, Error>(update), interval))
+						},
+						Ok(None) => continue,
+						Err(err) =>
+							return Some((
+								Err::<_, Error>(err.context(format!(
+									"Failed to fetch consensus proof for {:?}",
+									client.state_machine
+								))),
+								interval,
+							)),
 					}
 				}
 			}
@@ -187,7 +252,7 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 		Ok(Box::pin(interval_stream))
 	}
 
-	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
 		let mut ismp_contract_addresses = BTreeMap::new();
 		let mut l2_oracle = BTreeMap::new();
 		let mut rollup_core = H160::default();
@@ -214,7 +279,7 @@ impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
 			consensus_client_id: ismp_sync_committee::BEACON_CONSENSUS_ID,
 			consensus_state_id: self.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,
-			challenge_period: 5 * 60,
+			challenge_period: 0,
 			state_machine_commitments: vec![],
 		}))
 	}

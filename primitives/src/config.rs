@@ -24,27 +24,36 @@ pub struct RelayerConfig {
 	/// Modules we're interested in relaying
 	pub module_filter: Vec<Vec<u8>>,
 	/// Relay consensus messages
-	pub consensus: bool,
+	pub consensus: Option<bool>,
 	/// Relay messages
-	pub messaging: bool,
+	pub messaging: Option<bool>,
 	/// Fisherman protocol
-	pub fisherman: bool,
+	pub fisherman: Option<bool>,
+	/// Challenege period to be set on consensus states
+	pub challenge_period: Option<u64>,
 	/// Routing state machine id
 	pub chain: Chain,
 	/// Minimum profit percentage. e.g. 5 -> 5%, 10 -> 10%
 	pub minimum_profit_percentage: u32,
+	/// Delivery endpoints: chains you intend to deliver messages to
+	pub delivery_endpoints: Vec<StateMachine>,
 }
 
+/// Hyperbridge's parachain runtimes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Chain {
+	/// Rococo parachain
 	Gargantua,
+	/// Kusama Parachain
 	Messier,
+	/// Local devnet
 	Dev,
 }
+
 impl Chain {
 	pub fn para_id(&self) -> u32 {
 		match self {
-			Chain::Gargantua => 4296,
+			Chain::Gargantua => 4374,
 			Chain::Messier => 3340,
 			Chain::Dev => 2000,
 		}

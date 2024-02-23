@@ -4,10 +4,12 @@ use ismp::{
 	host::StateMachine,
 	messaging::{Message, Proof, RequestMessage, ResponseMessage},
 	router::{Post, Request, RequestResponse, Response},
-	util::{hash_request, hash_response, Keccak256},
+	util::{hash_request, hash_response},
 };
-use sp_core::{keccak_256, H256};
-use tesseract_primitives::{config::RelayerConfig, IsmpHost, IsmpProvider, Query};
+use sp_core::U256;
+use std::collections::HashMap;
+use tesseract_any_client::AnyClient;
+use tesseract_primitives::{config::RelayerConfig, Cost, Hasher, IsmpHost, IsmpProvider, Query};
 
 /// Short description of a request/response event
 #[derive(Debug)]
@@ -50,17 +52,18 @@ impl From<IsmpEvent> for Event {
 	}
 }
 
-/// Parse events emitted from [`source`] into messages to be submitted to the counterparty
+/// Translates events emitted from [`source`] into messages to be submitted to the counterparty
 /// The [`state_machine_height`] parameter is the latest available height of [`source`] on
 /// the counterparty chain
 /// Returns a tuple where the first item are messages to be submitted to the sink
 /// and the second items are messages to be submitted to the source
-pub async fn parse_ismp_events<A, B>(
+pub async fn translate_events_to_messages<A, B>(
 	source: &A,
 	sink: &B,
 	events: Vec<IsmpEvent>,
 	state_machine_height: StateMachineHeight,
 	config: RelayerConfig,
+	client_map: &HashMap<StateMachine, AnyClient>,
 ) -> Result<Vec<Message>, anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider,
@@ -84,6 +87,11 @@ where
 				if post.timeout_timestamp != 0 &&
 					post.timeout_timestamp <= counterparty_timestamp.as_secs()
 				{
+					log::trace!(
+						"Found timed out request, request: {}, counterparty: {}",
+						post.timeout_timestamp,
+						counterparty_timestamp.as_secs()
+					);
 					continue
 				}
 				let req = Request::Post(post.clone());
@@ -95,6 +103,7 @@ where
 					nonce: req.nonce(),
 					commitment: hash,
 				};
+
 				let proof =
 					source.query_requests_proof(state_machine_height.height, vec![query]).await?;
 
@@ -103,10 +112,7 @@ where
 					proof: Proof { height: state_machine_height, proof },
 					signer: sink.address(),
 				};
-
-				if config.chain.state_machine() != sink.state_machine_id().state_id {
-					request_messages.push(Message::Request(_msg));
-				}
+				request_messages.push(Message::Request(_msg));
 				post_requests.push(post.clone());
 				post_request_queries.push(query);
 			},
@@ -115,6 +121,11 @@ where
 				if post_response.timeout_timestamp != 0 &&
 					post_response.timeout_timestamp <= counterparty_timestamp.as_secs()
 				{
+					log::trace!(
+						"Found timed out request, request: {}, counterparty: {}",
+						post_response.timeout_timestamp,
+						counterparty_timestamp.as_secs()
+					);
 					continue
 				}
 				let resp = Response::Post(post_response.clone());
@@ -135,10 +146,7 @@ where
 					proof: Proof { height: state_machine_height, proof },
 					signer: sink.address(),
 				};
-
-				if config.chain.state_machine() != sink.state_machine_id().state_id {
-					response_messages.push(Message::Response(_msg));
-				}
+				response_messages.push(Message::Response(_msg));
 				post_responses.push(resp);
 				response_queries.push(query);
 			},
@@ -146,76 +154,79 @@ where
 		}
 	}
 
-	let (post_requests, post_request_queries, post_responses, response_queries) =
-		if config.chain.state_machine() != sink.state_machine_id().state_id {
-			let post_request_queries_to_push_with_option = return_successful_queries(
-				source,
-				sink,
-				request_messages,
-				post_request_queries,
-				config.minimum_profit_percentage,
-				true,
+	let (post_requests, post_request_queries, post_responses, response_queries) = {
+		log::trace!(
+			"Tracing transactions to {:?}, from: {:?}",
+			sink.state_machine_id().state_id,
+			source.state_machine_id().state_id
+		);
+		let post_request_queries_to_push_with_option = return_successful_queries(
+			sink,
+			request_messages,
+			post_request_queries,
+			config.minimum_profit_percentage,
+			&config,
+			&client_map,
+		)
+		.await?;
+
+		let post_request_to_push: Vec<Post> = post_requests
+			.into_iter()
+			.zip(post_request_queries_to_push_with_option.iter())
+			.filter_map(
+				|(current_post, current_query)| {
+					if current_query.is_some() {
+						Some(current_post)
+					} else {
+						None
+					}
+				},
 			)
-			.await?;
+			.collect();
 
-			let post_request_to_push: Vec<Post> = post_requests
-				.into_iter()
-				.zip(post_request_queries_to_push_with_option.iter())
-				.filter_map(
-					|(current_post, current_query)| {
-						if current_query.is_some() {
-							Some(current_post)
-						} else {
-							None
-						}
-					},
-				)
-				.collect();
+		let post_request_queries_to_push: Vec<Query> = post_request_queries_to_push_with_option
+			.into_iter()
+			.filter_map(|query| query)
+			.collect();
 
-			let post_request_queries_to_push: Vec<Query> = post_request_queries_to_push_with_option
-				.into_iter()
-				.filter_map(|query| query)
-				.collect();
+		let post_response_successful_query = return_successful_queries(
+			sink,
+			response_messages,
+			response_queries,
+			config.minimum_profit_percentage,
+			&config,
+			&client_map,
+		)
+		.await?;
 
-			let post_response_successful_query = return_successful_queries(
-				source,
-				sink,
-				response_messages,
-				response_queries,
-				config.minimum_profit_percentage,
-				false,
+		let post_response_to_push: Vec<Response> = post_responses
+			.into_iter()
+			.zip(post_response_successful_query.iter())
+			.filter_map(
+				|(current_post, current_query)| {
+					if current_query.is_some() {
+						Some(current_post)
+					} else {
+						None
+					}
+				},
 			)
-			.await?;
+			.collect();
 
-			let post_response_to_push: Vec<Response> = post_responses
-				.into_iter()
-				.zip(post_response_successful_query.iter())
-				.filter_map(
-					|(current_post, current_query)| {
-						if current_query.is_some() {
-							Some(current_post)
-						} else {
-							None
-						}
-					},
-				)
-				.collect();
-
-			let post_response_queries_to_push: Vec<Query> =
-				post_response_successful_query.into_iter().filter_map(|query| query).collect();
-			(
-				post_request_to_push,
-				post_request_queries_to_push,
-				post_response_to_push,
-				post_response_queries_to_push,
-			)
-		} else {
-			(post_requests, post_request_queries, post_responses, response_queries)
-		};
+		let post_response_queries_to_push: Vec<Query> =
+			post_response_successful_query.into_iter().filter_map(|query| query).collect();
+		(
+			post_request_to_push,
+			post_request_queries_to_push,
+			post_response_to_push,
+			post_response_queries_to_push,
+		)
+	};
 
 	let mut messages = vec![];
 
 	if !post_request_queries.is_empty() {
+		log::trace!("Querying request proof for batch length {}", post_request_queries.len());
 		let chunks = chunk_size(sink.state_machine_id().state_id);
 		let query_chunks = post_request_queries.chunks(chunks);
 		let post_request_chunks = post_requests.chunks(chunks);
@@ -233,6 +244,7 @@ where
 	}
 
 	if !response_queries.is_empty() {
+		log::trace!("Querying response proof for batch length {}", response_queries.len());
 		let chunks = chunk_size(sink.state_machine_id().state_id);
 		let query_chunks = response_queries.chunks(chunks);
 		let post_request_chunks = post_responses.chunks(chunks);
@@ -266,60 +278,71 @@ pub fn filter_events(router_id: StateMachine, counterparty: StateMachine, ev: &I
 
 fn chunk_size(state_machine: StateMachine) -> usize {
 	match state_machine {
-		StateMachine::Ethereum(_) => 100,
+		StateMachine::Ethereum(_) | StateMachine::Bsc => 100,
 		_ => 200,
 	}
 }
 
-pub struct Hasher;
-
-impl Keccak256 for Hasher {
-	fn keccak256(bytes: &[u8]) -> H256 {
-		keccak_256(bytes).into()
-	}
-}
-
-pub async fn return_successful_queries<A, B>(
-	source: &A,
-	sink: &B,
+pub async fn return_successful_queries<A>(
+	sink: &A,
 	messages: Vec<Message>,
 	queries: Vec<Query>,
 	minimum_profit_percentage: u32,
-	request_batch: bool,
+	config: &RelayerConfig,
+	client_map: &HashMap<StateMachine, AnyClient>,
 ) -> Result<Vec<Option<Query>>, anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider,
-	B: IsmpHost + IsmpProvider,
 {
 	let mut queries_to_be_relayed = Vec::new();
+	let gas_estimates = sink.estimate_gas(messages.clone()).await?;
+	for (index, estimate) in gas_estimates.into_iter().enumerate() {
+		if estimate.successful_execution &&
+			config.chain.state_machine() != sink.state_machine_id().state_id
+		{
+			let total_gas_to_be_expended_in_usd = estimate.execution_cost;
+			// what kind of message is this?
+			let og_source = if let Some(client) = client_map.get(&queries[index].source_chain) {
+				client
+			} else {
+				log::info!("Skipping tx because fee metadata cannot be queried, client for {:?} was not provided in the client map", queries[index].source_chain);
+				queries_to_be_relayed.push(None);
+				continue
+			};
+			let mut fee_metadata: Cost = if matches!(messages[index], Message::Request(_)) {
+				og_source.query_request_fee_metadata(queries[index].commitment).await?.into()
+			} else {
+				og_source.query_response_fee_metadata(queries[index].commitment).await?.into()
+			};
 
-	match sink.state_machine_id().state_id {
-		StateMachine::Ethereum(_) => {
-			let gas_estimates = sink.estimate_gas(messages).await?;
-			for (index, estimate) in gas_estimates.into_iter().enumerate() {
-				if estimate.successful_execution {
-					let total_gas_to_be_expended_in_usd = estimate.execution_cost;
-					let fee_metadata = if request_batch {
-						source.get_message_request_fee_metadata(queries[index].commitment).await?
-					} else {
-						source
-							.query_message_response_fee_metadata(queries[index].commitment)
-							.await?
-					};
+			let profit = (U256::from(minimum_profit_percentage) / U256::from(100)) *
+				total_gas_to_be_expended_in_usd.0;
+			// 0 profit percentage means we want to relay all requests for free
+			let fee_with_profit: Cost = total_gas_to_be_expended_in_usd + profit;
 
-					if fee_metadata <
-						(total_gas_to_be_expended_in_usd * (minimum_profit_percentage + 100)) /
-							100
-					{
-						log::debug!("not pushing this message, relay is not profitable");
-						queries_to_be_relayed.push(None)
-					} else {
-						queries_to_be_relayed.push(Some(queries[index].clone()));
-					}
-				}
+			if minimum_profit_percentage == 0 {
+				fee_metadata = U256::MAX.into()
+			};
+			if fee_metadata < fee_with_profit {
+				log::info!("Skipping unprofitable tx. Expected ${fee_with_profit}, user provided ${fee_metadata}");
+				queries_to_be_relayed.push(None)
+			} else {
+				log::trace!(
+					"Pushing tx to {:?} with cost ${fee_with_profit}",
+					sink.state_machine_id().state_id
+				);
+				queries_to_be_relayed.push(Some(queries[index].clone()));
 			}
-		},
-		_ => {},
+		} else if estimate.successful_execution &&
+			config.chain.state_machine() == sink.state_machine_id().state_id
+		// We only deliver sucessful messages to hyperbridge
+		{
+			log::trace!("Pushing tx to {:?}", sink.state_machine_id().state_id);
+			queries_to_be_relayed.push(Some(queries[index].clone()));
+		} else {
+			log::info!("Skipping Failed tx");
+			queries_to_be_relayed.push(None)
+		}
 	}
 
 	Ok(queries_to_be_relayed)

@@ -13,13 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use crate::provider::{filter_map_system_events, system_events_key};
+pub use crate::provider::system_events_key;
 use crate::rpc_wrapper::ClientWrapper;
-use hex_literal::hex;
+use anyhow::Context;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use pallet_ismp::primitives::HashAlgorithm;
-use primitives::{config::Chain, IsmpHost, NonceProvider};
-use reconnecting_jsonrpsee_ws_client::{Client, ExponentialBackoff, PingConfig};
+use primitives::{config::Chain, IsmpHost, IsmpProvider};
+use reconnecting_jsonrpsee_ws_client::{Client, FixedInterval, PingConfig};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, sr25519, Pair, H256};
 use std::{sync::Arc, time::Duration};
@@ -83,13 +83,11 @@ pub struct SubstrateClient<I, C: subxt::Config> {
 	initial_height: u64,
 	/// Config
 	config: SubstrateConfig,
-	/// Nonce Provider
-	nonce_provider: Option<NonceProvider>,
 }
 
 impl<T, C> SubstrateClient<T, C>
 where
-	T: IsmpHost,
+	T: IsmpHost + 'static,
 	C: subxt::Config + Send + Sync + Clone,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
@@ -100,16 +98,19 @@ where
 	pub async fn new(host: Option<T>, config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
 		let raw_client = Client::builder()
-			.retry_policy(ExponentialBackoff::from_millis(100))
+			// retry every second
+			.retry_policy(FixedInterval::from_millis(1000))
 			.enable_ws_ping(
 				PingConfig::new()
 					.ping_interval(Duration::from_secs(6))
 					.inactive_limit(Duration::from_secs(30)),
 			)
-			.build(config.chain_rpc_ws)
-			.await?;
-		let client =
-			OnlineClient::<C>::from_rpc_client(Arc::new(ClientWrapper(raw_client))).await?;
+			.build(config.chain_rpc_ws.clone())
+			.await
+			.context(format!("Failed to connect to substrate rpc {}", config.chain_rpc_ws))?;
+		let client = OnlineClient::<C>::from_rpc_client(Arc::new(ClientWrapper(raw_client)))
+			.await
+			.context("Failed to query from substrate rpc")?;
 		// If latest height of the state machine on the counterparty is not provided in config
 		// Set it to the latest parachain height
 		let latest_height = if let Some(latest_height) = config.latest_height {
@@ -138,7 +139,6 @@ where
 			address,
 			initial_height: latest_height,
 			config: config_clone,
-			nonce_provider: None,
 		})
 	}
 
@@ -150,38 +150,33 @@ where
 		MultiSigner::Sr25519(self.signer.public()).into_account().into()
 	}
 
-	pub async fn get_nonce(&self) -> Result<u64, anyhow::Error> {
-		if let Some(nonce_provider) = self.nonce_provider.as_ref() {
-			return Ok(nonce_provider.get_nonce().await)
-		}
-		Err(anyhow::anyhow!("Nonce provider not set on client"))
+	pub async fn set_latest_finalized_height<P: IsmpProvider + 'static>(
+		&mut self,
+		counterparty: &P,
+	) -> Result<(), anyhow::Error> {
+		let id = self.state_machine_id();
+		self.initial_height = counterparty.query_latest_height(id).await?.into();
+
+		Ok(())
 	}
 
 	pub fn req_commitments_key(&self, commitment: H256) -> Vec<u8> {
-		let mut key =
-			hex!("103895530afb23bb607661426d55eb8bbd3caa596ab5c98b359f0ffc7d17e376").to_vec();
-		key.extend_from_slice(commitment.as_bytes());
-		key
+		let addr = runtime::api::storage().ismp().request_commitments(&commitment);
+		self.client.storage().address_bytes(&addr).expect("Infallible")
 	}
 
 	pub fn res_commitments_key(&self, commitment: H256) -> Vec<u8> {
-		let mut key =
-			hex!("103895530afb23bb607661426d55eb8b8fdfbc1b10c58ed36779810ffdba8e79").to_vec();
-		key.extend_from_slice(commitment.as_bytes());
-		key
+		let addr = runtime::api::storage().ismp().response_commitments(&commitment);
+		self.client.storage().address_bytes(&addr).expect("Infallible")
 	}
 
 	pub fn req_receipts_key(&self, commitment: H256) -> Vec<u8> {
-		let mut key =
-			hex!("103895530afb23bb607661426d55eb8b0484aecefe882c3ce64e6f82507f715a").to_vec();
-		key.extend_from_slice(commitment.as_bytes());
-		key
+		let addr = runtime::api::storage().ismp().request_receipts(&commitment);
+		self.client.storage().address_bytes(&addr).expect("Infallible")
 	}
 
 	pub fn res_receipt_key(&self, commitment: H256) -> Vec<u8> {
-		let mut key =
-			hex!("103895530afb23bb607661426d55eb8b554b72b7162725f9457d35ecafb8b02f").to_vec();
-		key.extend_from_slice(commitment.as_bytes());
-		key
+		let addr = runtime::api::storage().ismp().response_receipts(&commitment);
+		self.client.storage().address_bytes(&addr).expect("Infallible")
 	}
 }

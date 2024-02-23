@@ -15,15 +15,15 @@
 
 //! ISMP Message relay
 
-mod event_parser;
+mod events;
 
 use anyhow::anyhow;
-use futures::future::Either;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use crate::event_parser::{filter_events, parse_ismp_events, Event};
+use crate::events::{filter_events, translate_events_to_messages, Event};
 use futures::StreamExt;
-use ismp::consensus::StateMachineHeight;
+use ismp::{consensus::StateMachineHeight, host::StateMachine};
+use tesseract_any_client::AnyClient;
 
 use tesseract_primitives::{
 	config::RelayerConfig, wait_for_challenge_period, IsmpHost, IsmpProvider, StateMachineUpdated,
@@ -35,6 +35,7 @@ pub async fn relay<A, B>(
 	chain_b: B,
 	config: RelayerConfig,
 	tx_payment: Arc<TransactionPayment>,
+	client_map: HashMap<StateMachine, AnyClient>,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
@@ -43,25 +44,28 @@ where
 	let task_a = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
+		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
-		Box::pin(handle_notification(chain_a, chain_b, tx_payment, config))
+		Box::pin(handle_notification(chain_a, chain_b, tx_payment, config, client_map))
 	};
 
 	let task_b = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
 		let tx_payment = tx_payment.clone();
-		Box::pin(handle_notification(chain_b, chain_a, tx_payment, config))
+		Box::pin(handle_notification(chain_b, chain_a, tx_payment, config, client_map))
 	};
 
 	// if one task completes, abort the other
-	let err = match futures::future::select(task_a, task_b).await {
-		Either::Left((res, _task)) => res,
-		Either::Right((res, _task)) => res,
+	tokio::select! {
+		result_a = task_a => {
+			result_a?
+		}
+		result_b = task_b => {
+			result_b?
+		}
 	};
-
-	log::error!("{:?}", err);
 
 	Ok(())
 }
@@ -71,6 +75,7 @@ async fn handle_notification<A, B>(
 	chain_b: B,
 	tx_payment: Arc<TransactionPayment>,
 	config: RelayerConfig,
+	client_map: HashMap<StateMachine, AnyClient>,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
@@ -79,24 +84,36 @@ where
 	let mut state_machine_update_stream = chain_a
 		.state_machine_update_notification(chain_b.state_machine_id())
 		.await
-		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
-	let mut previous_height = get_previous_height(&chain_a, &chain_b, &tx_payment).await;
+		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?
+		// skipping the first event, because it yields the most recent event
+		// but we've already initialized our heights to that event.
+		// don't remove
+		.skip(1);
+	let mut previous_height = chain_b.initial_height();
 
 	while let Some(item) = state_machine_update_stream.next().await {
 		match item {
 			Ok(state_machine_update) => {
-				handle_update(
+				if let Err(err) = handle_update(
 					&chain_a,
 					&chain_b,
 					&tx_payment,
-					state_machine_update,
+					state_machine_update.clone(),
 					&mut previous_height,
 					config.clone(),
+					&client_map,
 				)
-				.await?;
+				.await
+				{
+					log::error!(
+						"Error while handling {:?} on {:?}: {err:?}",
+						state_machine_update.state_machine_id.state_id,
+						chain_a.state_machine_id().state_id
+					);
+				}
 			},
 			Err(e) => {
-				log::error!(target: "tesseract","Messaging task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name());
+				log::error!(target: "tesseract","Messaging task {}->{} encountered an error: {e:?}", chain_a.name(), chain_b.name());
 				continue;
 			},
 		}
@@ -116,6 +133,7 @@ async fn handle_update<A, B>(
 	state_machine_update: StateMachineUpdated,
 	previous_height: &mut u64,
 	config: RelayerConfig,
+	client_map: &HashMap<StateMachine, AnyClient>,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider,
@@ -132,8 +150,14 @@ where
 			filter_events(config.chain.state_machine(), chain_a.state_machine_id().state_id, ev)
 		})
 		.collect::<Vec<_>>();
-
+	let state_machine = state_machine_update.state_machine_id.state_id;
 	if events.is_empty() {
+		log::info!(
+			"Skipping latest finalized height {} on {}, no new messages from {state_machine:?} in range {:?}",
+			state_machine_update.latest_height,
+			chain_a.name(),
+			*previous_height..=state_machine_update.latest_height
+		);
 		*previous_height = state_machine_update.latest_height;
 		return Ok(())
 	}
@@ -148,76 +172,52 @@ where
 		id: state_machine_update.state_machine_id,
 		height: state_machine_update.latest_height,
 	};
-	let messages =
-		parse_ismp_events(chain_b, chain_a, events, state_machine_height, config).await?;
+
+	let last_consensus_update =
+		chain_a.query_state_machine_update_time(state_machine_height).await?;
+	let challenge_period = chain_a
+		.query_challenge_period(chain_b.state_machine_id().consensus_state_id)
+		.await?;
+	// Wait for the challenge period for the consensus update to elapse before submitting
+	// messages. This is so that calls to debug_traceCall can succeed
+	wait_for_challenge_period(chain_a, last_consensus_update, challenge_period).await?;
+
+	let messages = translate_events_to_messages(
+		chain_b,
+		chain_a,
+		events,
+		state_machine_height.clone(),
+		config.clone(),
+		&client_map,
+	)
+	.await?;
 
 	if !messages.is_empty() {
 		log::info!(
 			target: "tesseract",
-			"🛰️Submitting ismp messages from {} to {}",
+			"🛰️ Transmitting ismp messages from {} to {}",
 			chain_b.name(), chain_a.name()
 		);
-		let last_consensus_update = chain_a
-			.query_consensus_update_time(chain_b.state_machine_id().consensus_state_id)
-			.await?;
-		let challenge_period = chain_a
-			.query_challenge_period(chain_b.state_machine_id().consensus_state_id)
-			.await?;
-		// Wait for the challenge period for the consensus update to elapse before submitting
-		// messages
-		wait_for_challenge_period(chain_a, last_consensus_update, challenge_period).await?;
-		if let Err(err) = chain_a.submit(messages.clone()).await {
-			log::error!("Failed to submit transaction to {}: {err:?}", chain_a.name())
-		} else {
-			tx_payment.store_messages(messages).await?;
+
+		let res = chain_a.submit(messages.clone()).await;
+		match res {
+			Ok(receipts) => {
+				// We should not store messages when they are delivered to hyperbridge
+				if chain_a.state_machine_id().state_id != config.chain.state_machine() {
+					if !receipts.is_empty() {
+						log::info!(target: "tesseract", "Storing {} deliveries from {} to {} inside the database",receipts.len(), chain_b.name(), chain_a.name());
+						if let Err(err) = tx_payment.store_messages(receipts).await {
+							log::error!(
+								"Failed to store some delivered messages to database: {err:?}"
+							)
+						}
+					}
+				}
+			},
+			Err(err) => log::error!("Failed to submit transaction to {state_machine}: {err:?}"),
 		}
 	}
 
 	*previous_height = state_machine_update.latest_height;
-	tx_payment
-		.store_latest_height(
-			chain_b.state_machine_id().state_id,
-			chain_a.state_machine_id().state_id,
-			state_machine_update.latest_height,
-		)
-		.await?;
 	Ok(())
-}
-
-async fn get_previous_height<A: IsmpProvider, B: IsmpProvider>(
-	source: &A,
-	sink: &B,
-	tx_payment: &Arc<TransactionPayment>,
-) -> u64 {
-	let retrieve_latest_height = tx_payment
-		.retreive_latest_height(
-			sink.state_machine_id().state_id,
-			source.state_machine_id().state_id,
-		)
-		.await;
-	if retrieve_latest_height.is_err() {
-		log::error!(
-			"Error retrieving last relayed height from database; resuming from latest height"
-		)
-	}
-	if let Some(previous_height) = retrieve_latest_height.ok().flatten() {
-		// Try to query events at stored height to see if it exists,
-		// if the query returns an error we resume relaying from the latest height
-		let res = sink
-			.query_ismp_events(
-				previous_height,
-				StateMachineUpdated {
-					state_machine_id: sink.state_machine_id(),
-					latest_height: previous_height + 1,
-				},
-			)
-			.await;
-		if res.is_ok() {
-			previous_height
-		} else {
-			sink.initial_height()
-		}
-	} else {
-		sink.initial_height()
-	}
 }

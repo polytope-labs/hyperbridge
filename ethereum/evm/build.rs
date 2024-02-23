@@ -9,6 +9,7 @@ fn main() -> anyhow::Result<()> {
 		("IRollup", format!("{base_dir}/abis/IRollupCore.json")),
 		("OVM_gasPriceOracle", format!("{base_dir}/abis/OVM_gasPriceOracle.json")),
 		("ArbGasInfo", format!("{base_dir}/abis/ArbGasInfo.json")),
+		("Erc20", format!("{base_dir}/abis/ERC20.json")),
 	];
 
 	MultiAbigen::new(sources)

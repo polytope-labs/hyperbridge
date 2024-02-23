@@ -1,14 +1,14 @@
 [package]
-name = "tesseract-bnb-pos"
+name = "tesseract-bsc-pos"
 version = "0.1.0"
 edition = "2021"
-description = "Bnb consensus host for tesseract"
+description = "Bsc consensus host for tesseract"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
-bnb-pos-prover.workspace = true
-bnb-pos-verifier.workspace = true
-ismp-bnb-pos.workspace = true
+bsc-pos-prover.workspace = true
+bsc-pos-verifier.workspace = true
+ismp-bsc-pos.workspace = true
 geth-primitives.workspace = true
 ismp.workspace = true
 
@@ -25,13 +25,13 @@ tokio-stream = "0.1.14"
 hex-literal = "0.4.1"
 base2 = "0.3.1"
 primitive-types = { version = "0.12.1", features = ["impl-codec"] }
-ethers = { workspace = true, features = ["ws"] }
+ethers = { workspace = true, features = ["rustls"] }
 sp-core = "22.0.0"
 
 
 tesseract-primitives = { path = "../../primitives" }
 tesseract-evm = { path = "../evm"}
-reconnecting-jsonrpsee-ws-client = "0.2.0"
+reconnecting-jsonrpsee-ws-client.workspace = true
 jsonrpsee = { version = "0.21", features = ["ws-client"]}
 debounced = { git = "https://github.com/polytope-labs/debounced", branch = "main"}
 

@@ -26,7 +26,7 @@ sync-committee-prover.workspace = true
 sync-committee-verifier.workspace = true
 sync-committee-primitives.workspace = true
 ismp-sync-committee.workspace = true
-ethers = { workspace = true, features = ["ws"] }
+ethers = { workspace = true, features = ["rustls"] }
 geth-primitives.workspace = true
 
 tesseract-primitives = { path = "../../primitives" }
@@ -44,3 +44,4 @@ anyhow = "1.0.75"
 [features]
 finality-events = []
 testing = []
+sepolia = ["sync-committee-prover/sepolia-deneb", "sync-committee-primitives/sepolia-deneb"]

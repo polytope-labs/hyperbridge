@@ -16,44 +16,40 @@
 //! [`IsmpProvider`] implementation
 
 use crate::{
-	extrinsic::Extrinsic,
-	runtime::api::{
-		ismp::Event as Ev,
-		runtime_types::{frame_system::EventRecord, hyperbridge_runtime::RuntimeEvent},
-	},
+	extrinsic::{system_dry_run_unsigned, Extrinsic},
+	runtime::{self, api::runtime_types},
 	SubstrateClient,
 };
 
 use crate::extrinsic::{send_extrinsic, send_unsigned_extrinsic, InMemorySigner};
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
-use debounced::Debounced;
-use futures::StreamExt;
+
+use futures::stream::{self, FuturesUnordered};
 use hex_literal::hex;
 use ismp::{
 	consensus::{
 		ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId,
 	},
 	events::Event,
+	host::{Ethereum, StateMachine},
 	messaging::CreateConsensusState,
 };
 use ismp_rpc::{BlockNumberOrHash, MmrProof};
-use pallet_ismp::primitives::{LeafIndexQuery, SubstrateStateProof};
+use pallet_ismp::{primitives::SubstrateStateProof, ProofKeys};
 use pallet_relayer_fees::withdrawal::Signature;
 use primitives::{
-	BoxStream, EstimateGasReturnParams, IsmpHost, IsmpProvider, NonceProvider, Query,
-	StateMachineUpdated,
+	BoxStream, EstimateGasReturnParams, IsmpHost, IsmpProvider, Query, StateMachineUpdated,
+	TxReceipt,
 };
-use sp_core::{
-	blake2_128,
-	storage::{StorageChangeSet, StorageKey},
-	Pair, H256, U256,
-};
+use sp_core::{storage::StorageKey, Pair, H256, U256};
 use std::{collections::HashMap, time::Duration};
 use subxt::{
-	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
+	config::{
+		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
+	},
 	ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
-	rpc::Subscription,
+	rpc::types::DryRunResult,
 	rpc_params,
 };
 
@@ -67,7 +63,7 @@ where
 	C::AccountId:
 		From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	T: IsmpHost + Send + Sync,
+	T: IsmpHost + Send + Sync + 'static,
 {
 	async fn query_consensus_state(
 		&self,
@@ -88,15 +84,17 @@ where
 		Ok(response)
 	}
 
-	async fn query_consensus_update_time(
+	async fn query_state_machine_update_time(
 		&self,
-		id: ConsensusClientId,
+		height: StateMachineHeight,
 	) -> Result<Duration, anyhow::Error> {
-		let params = rpc_params![id];
-		let response: u64 =
-			self.client.rpc().request("ismp_queryConsensusUpdateTime", params).await?;
+		let block = self.client.blocks().at_latest().await?;
+		let key = runtime::api::storage().ismp().state_machine_update_time(&height.into());
+		let value = self.client.storage().at(block.hash()).fetch(&key).await?.ok_or_else(|| {
+			anyhow!("State machine update for {:?} not found at block {:?}", height, block.hash())
+		})?;
 
-		Ok(Duration::from_secs(response))
+		Ok(Duration::from_secs(value))
 	}
 
 	async fn query_requests_proof(
@@ -104,9 +102,10 @@ where
 		at: u64,
 		keys: Vec<Query>,
 	) -> Result<Vec<u8>, anyhow::Error> {
-		let params = rpc_params![at, convert_queries(keys)];
+		let keys = ProofKeys::Requests(keys.into_iter().map(|key| key.commitment).collect());
+		let params = rpc_params![at, keys];
 		let response: ismp_rpc::Proof =
-			self.client.rpc().request("ismp_queryRequestsMmrProof", params).await?;
+			self.client.rpc().request("ismp_queryMmrProof", params).await?;
 		let proof: MmrProof<H256> = Decode::decode(&mut &*response.proof)?;
 		Ok(proof.encode())
 	}
@@ -116,9 +115,10 @@ where
 		at: u64,
 		keys: Vec<Query>,
 	) -> Result<Vec<u8>, anyhow::Error> {
-		let params = rpc_params![at, convert_queries(keys)];
+		let keys = ProofKeys::Responses(keys.into_iter().map(|key| key.commitment).collect());
+		let params = rpc_params![at, keys];
 		let response: ismp_rpc::Proof =
-			self.client.rpc().request("ismp_queryResponsesMmrProof", params).await?;
+			self.client.rpc().request("ismp_queryMmrProof", params).await?;
 		let proof: MmrProof<H256> = Decode::decode(&mut &*response.proof)?;
 		Ok(proof.encode())
 	}
@@ -144,16 +144,13 @@ where
 	) -> Result<Vec<Event>, anyhow::Error> {
 		let range = (previous_height + 1)..=event.latest_height;
 		if range.is_empty() {
-			return Ok(Default::default())
+			return Ok(Default::default());
 		}
-		let block_numbers: Vec<BlockNumberOrHash<sp_core::H256>> = range
-			.clone()
-			.into_iter()
-			.map(|block_height| BlockNumberOrHash::Number(block_height as u32))
-			.collect();
-		log::info!("querying: {range:?}");
 
-		let params = rpc_params![block_numbers];
+		let params = rpc_params![
+			BlockNumberOrHash::<H256>::Number(previous_height.saturating_add(1) as u32),
+			BlockNumberOrHash::<H256>::Number(event.latest_height as u32)
+		];
 		let response: HashMap<String, Vec<Event>> =
 			self.client.rpc().request("ismp_queryEvents", params).await?;
 		let events = response.values().into_iter().cloned().flatten().collect();
@@ -161,7 +158,7 @@ where
 	}
 
 	fn name(&self) -> String {
-		self.state_machine.to_string()
+		format!("{:?}", self.state_machine)
 	}
 
 	fn state_machine_id(&self) -> StateMachineId {
@@ -178,19 +175,53 @@ where
 
 	async fn estimate_gas(
 		&self,
-		_msg: Vec<ismp::messaging::Message>,
+		messages: Vec<ismp::messaging::Message>,
 	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error> {
+		use tokio_stream::StreamExt;
+		let batch_size = 50;
+		let mut gas_estimates = vec![];
+		for chunk in messages.chunks(batch_size) {
+			let processes: FuturesUnordered<
+				tokio::task::JoinHandle<Result<EstimateGasReturnParams, Error>>,
+			> = chunk
+				.into_iter()
+				.map(|msg| {
+					let call = vec![msg].encode();
+					let extrinsic = Extrinsic::new("Ismp", "validate_messages", call);
+					let client = self.client.clone();
+					tokio::spawn(async move {
+						let result = system_dry_run_unsigned(&client, extrinsic).await?;
+						match result {
+							DryRunResult::Success => Ok::<_, Error>(EstimateGasReturnParams {
+								execution_cost: Default::default(),
+								successful_execution: true,
+							}),
+							_ => Ok(EstimateGasReturnParams {
+								execution_cost: Default::default(),
+								successful_execution: false,
+							}),
+						}
+					})
+				})
+				.collect::<FuturesUnordered<_>>();
+
+			let estimates = processes
+				.collect::<Result<Vec<_>, _>>()
+				.await?
+				.into_iter()
+				.collect::<Result<Vec<_>, _>>()?;
+
+			gas_estimates.extend(estimates);
+		}
+
+		Ok(gas_estimates)
+	}
+
+	async fn query_request_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
 		Ok(Default::default())
 	}
 
-	async fn get_message_request_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
-		Ok(Default::default())
-	}
-
-	async fn query_message_response_fee_metadata(
-		&self,
-		_hash: H256,
-	) -> Result<U256, anyhow::Error> {
+	async fn query_response_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
 		Ok(Default::default())
 	}
 
@@ -198,22 +229,67 @@ where
 		&self,
 		counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
-		let keys = vec![system_events_key()];
-		let subscription = self
-			.client
-			.rpc()
-			.subscribe::<StorageChangeSet<H256>>(
-				"state_subscribeStorage",
-				rpc_params![keys],
-				"state_unsubscribeStorage",
-			)
-			.await
-			.expect("Storage subscription failed");
+		let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
 
-		Ok(filter_map_system_events(subscription, counterparty_state_id))
+		let stream = stream::unfold(
+			(self.initial_height, subscription, self.clone()),
+			move |(mut latest_height, mut subscription, client)| async move {
+				loop {
+					let header = match subscription.next().await {
+						Some(Ok(header)) => header,
+						Some(Err(err)) => {
+							log::error!(
+								"Error encountered while watching finalized heads: {err:?}"
+							);
+							continue;
+						},
+						None => return None,
+					};
+
+					let event = StateMachineUpdated {
+						state_machine_id: client.state_machine_id(),
+						latest_height: header.number().into(),
+					};
+
+					let events = match client.query_ismp_events(latest_height, event).await {
+						Ok(e) => e,
+						Err(err) => {
+							log::error!("Error encountered while querying ismp events {err:?}");
+							continue;
+						},
+					};
+
+					let event = events
+						.into_iter()
+						.filter_map(|event| match event {
+							Event::StateMachineUpdated(e)
+								if e.state_machine_id == counterparty_state_id =>
+								Some(e),
+							_ => None,
+						})
+						.max_by(|x, y| x.latest_height.cmp(&y.latest_height));
+
+					let value = match event {
+						Some(event) =>
+							Some((Ok(event), (header.number().into(), subscription, client))),
+						None => {
+							latest_height = header.number().into();
+							continue;
+						},
+					};
+
+					return value;
+				}
+			},
+		);
+
+		Ok(Box::pin(stream))
 	}
 
-	async fn submit(&self, messages: Vec<ismp::messaging::Message>) -> Result<(), anyhow::Error> {
+	async fn submit(
+		&self,
+		messages: Vec<ismp::messaging::Message>,
+	) -> Result<Vec<TxReceipt>, anyhow::Error> {
 		let mut futs = vec![];
 		for msg in messages {
 			let call = vec![msg].encode();
@@ -224,7 +300,7 @@ where
 			.await
 			.into_iter()
 			.collect::<Result<Vec<_>, _>>()?;
-		Ok(())
+		Ok(Default::default())
 	}
 
 	async fn query_challenge_period(
@@ -251,20 +327,20 @@ where
 		Ok(Duration::from_millis(timestamp))
 	}
 
-	fn request_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
-		self.req_commitments_key(commitment)
+	fn request_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
+		vec![self.req_commitments_key(commitment)]
 	}
 
-	fn request_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
-		self.req_receipts_key(commitment)
+	fn request_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
+		vec![self.req_receipts_key(commitment)]
 	}
 
-	fn response_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
-		self.res_commitments_key(commitment)
+	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
+		vec![self.res_commitments_key(commitment)]
 	}
 
-	fn response_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
-		self.res_receipt_key(commitment)
+	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
+		vec![self.res_receipt_key(commitment)]
 	}
 
 	fn address(&self) -> Vec<u8> {
@@ -276,13 +352,11 @@ where
 		Signature::Sr25519 { public_key: self.address.clone(), signature }
 	}
 
-	async fn initialize_nonce(&self) -> Result<NonceProvider, anyhow::Error> {
-		let nonce = self.client.tx().account_nonce(&self.account()).await?;
-		Ok(NonceProvider::new(nonce))
-	}
-
-	fn set_nonce_provider(&mut self, nonce_provider: NonceProvider) {
-		self.nonce_provider = Some(nonce_provider);
+	async fn set_latest_finalized_height<P: IsmpProvider + 'static>(
+		&mut self,
+		counterparty: &P,
+	) -> Result<(), anyhow::Error> {
+		self.set_latest_finalized_height(counterparty).await
 	}
 
 	async fn set_initial_consensus_state(
@@ -297,17 +371,21 @@ where
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		let mut partial_key =
-			hex!("103895530afb23bb607661426d55eb8bf0f16a60fa21b8baaa82ee16ed43643d").to_vec();
-		let encoded_height = blake2_128(&height.encode());
-		partial_key.extend_from_slice(&encoded_height);
-		let response = self
+		let addr = runtime::api::storage().ismp().state_commitments(&height.into());
+		let commitment = self
 			.client
-			.rpc()
-			.storage(&partial_key, None)
+			.storage()
+			.at_latest()
 			.await?
-			.ok_or_else(|| anyhow!("Failed to fetch state commitment"))?;
-		let commitment: StateCommitment = codec::Decode::decode(&mut response.0.as_slice())?;
+			.fetch(&addr)
+			.await?
+			.ok_or_else(|| anyhow!("State commitment not present for state machine"))?;
+
+		let commitment = StateCommitment {
+			timestamp: commitment.timestamp,
+			overlay_root: commitment.overlay_root,
+			state_root: commitment.state_root,
+		};
 		Ok(commitment)
 	}
 
@@ -319,21 +397,13 @@ where
 
 		let call = id.encode();
 		let call = Extrinsic::new("StateMachineManager", "freeze_state_machine", call);
-		let nonce = self.get_nonce().await?;
-		send_extrinsic(&self.client, signer, call, nonce).await?;
+		send_extrinsic(&self.client, signer, call).await?;
 		Ok(())
 	}
-}
 
-fn convert_queries(queries: Vec<Query>) -> Vec<LeafIndexQuery> {
-	queries
-		.into_iter()
-		.map(|query| LeafIndexQuery {
-			source_chain: query.source_chain,
-			dest_chain: query.dest_chain,
-			nonce: query.nonce,
-		})
-		.collect()
+	async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error> {
+		Ok(pallet_relayer_fees::MODULE_ID.to_vec())
+	}
 }
 
 // The storage key needed to access events.
@@ -343,54 +413,74 @@ pub fn system_events_key() -> StorageKey {
 	StorageKey(storage_key)
 }
 
-pub fn filter_map_system_events(
-	subscription: Subscription<StorageChangeSet<H256>>,
-	counterparty_state_id: StateMachineId,
-) -> BoxStream<StateMachineUpdated> {
-	let debounced_sub = Debounced::new(subscription, Duration::from_secs(4));
-	let stream = debounced_sub.filter_map(move |change_set| {
-		if let Ok(change_set) = change_set {
-			let records = change_set
-				.changes
-				.into_iter()
-				.filter_map(|(_, change)| {
-					change.and_then(|data| {
-						<Vec<EventRecord<RuntimeEvent, H256>> as codec::Decode>::decode(
-							&mut data.0.as_slice(),
-						)
-						.ok()
-						.map(|records| {
-							records
-								.into_iter()
-								.filter_map(|record| match record.event {
-									RuntimeEvent::Ismp(Ev::StateMachineUpdated {
-										state_machine_id,
-										latest_height,
-									}) => {
-										if counterparty_state_id.encode() ==
-											state_machine_id.encode()
-										{
-											Some(StateMachineUpdated {
-												state_machine_id: counterparty_state_id,
-												latest_height,
-											})
-										} else {
-											None
-										}
-									},
-									_ => None,
-								})
-								.collect::<Vec<_>>()
-						})
-					})
-				})
-				.flatten()
-				.collect::<Vec<_>>();
-			return futures::future::ready(records.last().cloned().map(|ev| Ok(ev)))
+impl From<runtime_types::ismp::host::StateMachine> for StateMachine {
+	fn from(value: runtime_types::ismp::host::StateMachine) -> Self {
+		match value {
+			runtime_types::ismp::host::StateMachine::Ethereum(
+				runtime_types::ismp::host::Ethereum::ExecutionLayer,
+			) => StateMachine::Ethereum(Ethereum::ExecutionLayer),
+			runtime_types::ismp::host::StateMachine::Ethereum(
+				runtime_types::ismp::host::Ethereum::Base,
+			) => StateMachine::Ethereum(Ethereum::Base),
+			runtime_types::ismp::host::StateMachine::Ethereum(
+				runtime_types::ismp::host::Ethereum::Optimism,
+			) => StateMachine::Ethereum(Ethereum::Optimism),
+			runtime_types::ismp::host::StateMachine::Ethereum(
+				runtime_types::ismp::host::Ethereum::Arbitrum,
+			) => StateMachine::Ethereum(Ethereum::Arbitrum),
+			runtime_types::ismp::host::StateMachine::Kusama(id) => StateMachine::Kusama(id),
+			runtime_types::ismp::host::StateMachine::Polkadot(id) => StateMachine::Polkadot(id),
+			runtime_types::ismp::host::StateMachine::Polygon => StateMachine::Polygon,
+			runtime_types::ismp::host::StateMachine::Bsc => StateMachine::Bsc,
+			runtime_types::ismp::host::StateMachine::Beefy(id) => StateMachine::Beefy(id),
+			runtime_types::ismp::host::StateMachine::Grandpa(id) => StateMachine::Grandpa(id),
 		}
+	}
+}
 
-		futures::future::ready(None)
-	});
+impl From<StateMachine> for runtime_types::ismp::host::StateMachine {
+	fn from(value: StateMachine) -> Self {
+		match value {
+			StateMachine::Ethereum(Ethereum::ExecutionLayer) =>
+				runtime_types::ismp::host::StateMachine::Ethereum(
+					runtime_types::ismp::host::Ethereum::ExecutionLayer,
+				),
+			StateMachine::Ethereum(Ethereum::Base) =>
+				runtime_types::ismp::host::StateMachine::Ethereum(
+					runtime_types::ismp::host::Ethereum::Base,
+				),
+			StateMachine::Ethereum(Ethereum::Optimism) =>
+				runtime_types::ismp::host::StateMachine::Ethereum(
+					runtime_types::ismp::host::Ethereum::Optimism,
+				),
+			StateMachine::Ethereum(Ethereum::Arbitrum) =>
+				runtime_types::ismp::host::StateMachine::Ethereum(
+					runtime_types::ismp::host::Ethereum::Arbitrum,
+				),
+			StateMachine::Kusama(id) => runtime_types::ismp::host::StateMachine::Kusama(id),
+			StateMachine::Polkadot(id) => runtime_types::ismp::host::StateMachine::Polkadot(id),
+			StateMachine::Polygon => runtime_types::ismp::host::StateMachine::Polygon,
+			StateMachine::Bsc => runtime_types::ismp::host::StateMachine::Bsc,
+			StateMachine::Beefy(id) => runtime_types::ismp::host::StateMachine::Beefy(id),
+			StateMachine::Grandpa(id) => runtime_types::ismp::host::StateMachine::Grandpa(id),
+		}
+	}
+}
 
-	Box::pin(stream)
+impl From<StateMachineId> for runtime_types::ismp::consensus::StateMachineId {
+	fn from(value: StateMachineId) -> Self {
+		runtime_types::ismp::consensus::StateMachineId {
+			state_id: value.state_id.into(),
+			consensus_state_id: value.consensus_state_id,
+		}
+	}
+}
+
+impl From<StateMachineHeight> for runtime_types::ismp::consensus::StateMachineHeight {
+	fn from(value: StateMachineHeight) -> Self {
+		runtime_types::ismp::consensus::StateMachineHeight {
+			id: value.id.into(),
+			height: value.height.into(),
+		}
+	}
 }

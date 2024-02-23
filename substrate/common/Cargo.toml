@@ -15,6 +15,7 @@ codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive
 sp-core = { version = "21.0.0", features = ["full_crypto"] }
 log = "0.4.19"
 tokio = { version = "1.32.0" }
+tokio-stream = "0.1.14"
 
 debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
 
@@ -24,7 +25,7 @@ pallet-relayer-fees.workspace = true
 ismp-demo.workspace = true
 ismp-rpc.workspace = true
 ismp.workspace = true
-reconnecting-jsonrpsee-ws-client = "0.2.0"
+reconnecting-jsonrpsee-ws-client.workspace = true
 
 [features]
 testing = []

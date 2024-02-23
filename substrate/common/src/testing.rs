@@ -21,10 +21,8 @@ use crate::{
 };
 use codec::Encode;
 use futures::stream::StreamExt;
-use hex_literal::hex;
 use ismp_demo::{EvmParams, GetRequest, TransferParams};
 use primitives::IsmpHost;
-use std::time::Duration;
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
@@ -36,7 +34,7 @@ use subxt::{
 
 impl<T, C> SubstrateClient<T, C>
 where
-	T: IsmpHost + Send + Sync + Clone,
+	T: IsmpHost + Send + Sync + Clone + 'static,
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
@@ -50,14 +48,6 @@ where
 		+ Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 {
-	pub async fn timestamp(&self) -> Result<Duration, anyhow::Error> {
-		let addr: [u8; 32] =
-			hex!("f0c365c3cf59d671eb72da0e7a4113c49f1f0515f462cdcf84e0f1d6045dfcbb");
-		let timestamp = self.client.rpc().storage(&addr, None).await.unwrap().unwrap();
-		let timestamp: u64 = codec::Decode::decode(&mut &*timestamp.0).unwrap();
-		Ok(Duration::from_millis(timestamp))
-	}
-
 	pub fn latest_height(&self) -> u64 {
 		self.initial_height
 	}
@@ -69,9 +59,8 @@ where
 		let call = params.encode();
 		let tx = Extrinsic::new("IsmpDemo", "transfer", call);
 
-		let nonce = self.get_nonce().await?;
 		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx, nonce).await?;
+		send_extrinsic(&self.client, signer, tx).await?;
 
 		Ok(())
 	}
@@ -79,9 +68,8 @@ where
 	pub async fn dispatch_to_evm(&self, params: EvmParams) -> Result<(), anyhow::Error> {
 		let call = params.encode();
 		let tx = Extrinsic::new("IsmpDemo", "dispatch_to_evm", call);
-		let nonce = self.get_nonce().await?;
 		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx, nonce).await?;
+		send_extrinsic(&self.client, signer, tx).await?;
 
 		Ok(())
 	}
@@ -89,9 +77,8 @@ where
 	pub async fn get_request(&self, get_req: GetRequest) -> Result<(), anyhow::Error> {
 		let call = get_req.encode();
 		let tx = Extrinsic::new("IsmpDemo", "get_request", call);
-		let nonce = self.get_nonce().await?;
 		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx, nonce).await?;
+		send_extrinsic(&self.client, signer, tx).await?;
 
 		Ok(())
 	}
@@ -144,9 +131,8 @@ where
 		let encoded_call = Extrinsic::new("System", "set_code", code_blob.encode())
 			.encode_call_data(&self.client.metadata())?;
 		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
-		let nonce = self.get_nonce().await?;
 		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx, nonce).await?;
+		send_extrinsic(&self.client, signer, tx).await?;
 
 		Ok(())
 	}
@@ -156,9 +142,8 @@ where
 			Extrinsic::new("CollatorSelection", "set_invulnerables", accounts.encode())
 				.encode_call_data(&self.client.metadata())?;
 		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
-		let nonce = self.get_nonce().await?;
 		let signer = InMemorySigner::new(self.signer());
-		send_extrinsic(&self.client, signer, tx, nonce).await?;
+		send_extrinsic(&self.client, signer, tx).await?;
 
 		Ok(())
 	}

@@ -1,9 +1,10 @@
 use anyhow::anyhow;
-use codec::Decode;
+use codec::{Decode, Encode};
 use ismp_polygon_pos::{ConsensusState, PolygonClientUpdate};
 
 use ethers::types::Block;
 use geth_primitives::CodecHeader;
+use ismp::messaging::{ConsensusMessage, Message};
 use polygon_pos_prover::PolygonPosProver;
 use primitive_types::H256;
 
@@ -37,8 +38,20 @@ where
 	)
 	.await?;
 
-	if headers.len() > 256 {
-		headers = headers[..256].to_vec();
+	if headers.len() > 1000 {
+		for chunk in headers.chunks(1000) {
+			let chain_head = chunk[0].parent_hash;
+			let update = PolygonClientUpdate {
+				consensus_update: chunk.to_vec().try_into().expect("Infallible"),
+				chain_head,
+			};
+			let message = ConsensusMessage {
+				consensus_proof: update.encode(),
+				consensus_state_id: client.consensus_state_id,
+			};
+			let _ = counterparty.submit(vec![Message::Consensus(message)]).await;
+		}
+		headers = vec![];
 	}
 
 	if !headers.is_empty() {

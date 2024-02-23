@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
 use std::sync::Arc;
 use tesseract_evm::EvmConfig;
-use tesseract_primitives::IsmpProvider;
+use tesseract_primitives::{IsmpProvider, TxReceipt};
 use tesseract_substrate::SubstrateConfig;
 
 mod db;
@@ -97,53 +97,42 @@ impl TransactionPayment {
 	}
 
 	/// Store entries for delivered post requests and responses
-	pub async fn store_messages(&self, messages: Vec<Message>) -> anyhow::Result<()> {
-		for msg in messages {
-			match msg {
-				Message::Request(req) => {
-					let actions = req.requests.into_iter().map(|post| {
-						let req = Request::Post(post.clone());
-						let commitment = hash_request::<Hasher>(&req);
-						self.db.deliveries().create(
-							hex::encode(commitment.as_bytes()),
-							req.source_chain().to_string(),
-							req.dest_chain().to_string(),
-							DeliveryType::PostRequest as i32,
-							chrono::Utc::now().timestamp() as i32,
-							Default::default(),
-						)
-					});
+	pub async fn store_messages(&self, receipts: Vec<TxReceipt>) -> anyhow::Result<()> {
+		let mut actions = vec![];
+		for receipt in receipts {
+			match receipt {
+				TxReceipt::Request(query) => {
+					let action = self.db.deliveries().create(
+						hex::encode(query.commitment.as_bytes()),
+						query.source_chain.to_string(),
+						query.dest_chain.to_string(),
+						DeliveryType::PostRequest as i32,
+						chrono::Utc::now().timestamp() as i32,
+						Default::default(),
+					);
 
-					self.db._batch(actions).await?;
+					actions.push(action);
 				},
-				Message::Response(res) => match res.datagram {
-					RequestResponse::Request(_) => continue,
-					RequestResponse::Response(responses) => {
-						let actions = responses.into_iter().map(|response| {
-							let req = response.request();
-							let req_commitment = hash_request::<Hasher>(&req);
-							let res_commitment = hash_response::<Hasher>(&response);
-							// When inserting the hash for responses we concatenate the response
-							// commitment with the request commitment
-							let mut commitment = vec![];
-							commitment.extend_from_slice(res_commitment.as_bytes());
-							commitment.extend_from_slice(req_commitment.as_bytes());
-							self.db.deliveries().create(
-								hex::encode(commitment.as_slice()),
-								response.source_chain().to_string(),
-								response.dest_chain().to_string(),
-								DeliveryType::PostResponse as i32,
-								chrono::Utc::now().timestamp() as i32,
-								Default::default(),
-							)
-						});
 
-						self.db._batch(actions).await?;
-					},
+				TxReceipt::Response { query, request_commitment } => {
+					// When inserting the hash for responses we concatenate the response
+					// commitment with the request commitment
+					let mut commitment = vec![];
+					commitment.extend_from_slice(query.commitment.as_bytes());
+					commitment.extend_from_slice(request_commitment.as_bytes());
+					let action = self.db.deliveries().create(
+						hex::encode(commitment.as_slice()),
+						query.source_chain.to_string(),
+						query.dest_chain.to_string(),
+						DeliveryType::PostResponse as i32,
+						chrono::Utc::now().timestamp() as i32,
+						Default::default(),
+					);
+					actions.push(action);
 				},
-				_ => continue,
 			}
 		}
+		self.db._batch(actions).await?;
 		Ok(())
 	}
 
@@ -226,9 +215,15 @@ impl TransactionPayment {
 			request_response_commitments.push(key);
 		}
 
-		let source_proof =
-			source.query_state_proof(source_height, source_chain_storage_keys).await?;
-		let dest_proof = dest.query_state_proof(dest_height, dest_chain_storage_keys).await?;
+		let source_proof = source
+			.query_state_proof(
+				source_height,
+				source_chain_storage_keys.into_iter().flatten().collect(),
+			)
+			.await?;
+		let dest_proof = dest
+			.query_state_proof(dest_height, dest_chain_storage_keys.into_iter().flatten().collect())
+			.await?;
 
 		Ok(WithdrawalProof {
 			commitments: request_response_commitments,

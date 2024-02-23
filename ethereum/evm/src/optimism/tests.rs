@@ -18,13 +18,13 @@ async fn test_payload_proof_verification() {
 	let op_orl = std::env::var("OP_URL").expect("OP_URL must be set.");
 	let geth_url = std::env::var("GETH_URL").expect("GETH_URL must be set.");
 	let host = HostConfig {
-		beacon_execution_ws: geth_url,
+		beacon_rpc_url: geth_url,
 		l2_oracle: H160::from(L2_ORACLE),
 		message_parser: H160::from(MESSAGE_PARSER),
 	};
 	let config = OpConfig {
 		host: Some(host.clone()),
-		evm_config: EvmConfig { execution_ws: op_orl, ..Default::default() },
+		evm_config: EvmConfig { rpc_url: op_orl, ..Default::default() },
 	};
 
 	let op_client = OpHost::new(&host, &config.evm_config).await.expect("Host creation failed");

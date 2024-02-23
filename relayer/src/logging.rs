@@ -1,10 +1,11 @@
-// Copyright 2022 ComposableFi
-//
+// Copyright (C) 2023 Polytope Labs.
+// SPDX-License-Identifier: Apache-2.0
+
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//      http://www.apache.org/licenses/LICENSE-2.0
+// 	http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,11 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use log::LevelFilter;
+use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};
 
-pub fn setup() {
-	env_logger::builder()
-		.filter_module("tesseract", LevelFilter::Info)
-		.format_module_path(false)
-		.init();
+pub fn setup() -> Result<(), anyhow::Error> {
+	let filter =
+		tracing_subscriber::EnvFilter::from_default_env().add_directive(LevelFilter::INFO.into());
+	tracing_subscriber::fmt().with_env_filter(filter).finish().try_init()?;
+
+	Ok(())
 }

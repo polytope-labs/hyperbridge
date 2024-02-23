@@ -57,7 +57,7 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-	fn is_state_machine_frozen(&self, _machine: StateMachineHeight) -> Result<(), Error> {
+	fn is_state_machine_frozen(&self, _machine: StateMachineId) -> Result<(), Error> {
 		todo!()
 	}
 
@@ -136,7 +136,11 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-	fn freeze_state_machine(&self, _height: StateMachineHeight) -> Result<(), Error> {
+	fn freeze_state_machine(&self, _height: StateMachineId) -> Result<(), Error> {
+		todo!()
+	}
+
+	fn unfreeze_state_machine(&self, _state_machine: StateMachineId) -> Result<(), Error> {
 		todo!()
 	}
 
@@ -180,19 +184,19 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-	fn allowed_proxies(&self) -> Vec<StateMachine> {
-		todo!()
-	}
-
-	fn store_allowed_proxies(&self, _allowed: Vec<StateMachine>) {
-		todo!()
-	}
-
 	fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {
 		todo!()
 	}
 
 	fn ismp_router(&self) -> Box<dyn IsmpRouter> {
+		todo!()
+	}
+
+	fn allowed_proxy(&self) -> Option<StateMachine> {
+		todo!()
+	}
+
+	fn consensus_clients(&self) -> Vec<Box<dyn ConsensusClient>> {
 		todo!()
 	}
 }
@@ -209,16 +213,19 @@ impl ismp::util::Keccak256 for Host {
 #[cfg(test)]
 mod tests {
 	use crate::{
-		abi::{PingMessage, PingModule},
+		abi::{erc_20::Erc20, PingMessage, PingModule},
 		SecretKey,
 	};
+	use anyhow::Context;
 	use ethers::{
 		prelude::{LocalWallet, MiddlewareBuilder, Signer},
-		providers::{Provider, Ws},
+		providers::{Http, Middleware, Provider, ProviderExt},
 	};
+	use futures::TryStreamExt;
 	use hex_literal::hex;
 	use ismp::host::{Ethereum, StateMachine};
-	use primitive_types::H160;
+	use ismp_solidity_abi::evm_host::EvmHost;
+	use primitive_types::{H160, U256};
 	use sp_core::Pair;
 	use std::sync::Arc;
 
@@ -226,65 +233,106 @@ mod tests {
 	#[ignore]
 	async fn test_ping() -> anyhow::Result<()> {
 		dotenv::dotenv().ok();
-		let op_url = std::env::var("OP_URL").expect("OP_URL must be set.");
-		let base_url = std::env::var("BASE_URL").expect("OP_URL must be set.");
-		let arb_url = std::env::var("ARB_URL").expect("OP_URL must be set.");
-		let geth_url = std::env::var("GETH_URL").expect("OP_URL must be set.");
+		let op_url = std::env::var("OP_URL").unwrap_or(
+			"https://opt-sepolia.g.alchemy.com/v2/qzZKMgRJ7zHxeUPoEvjYCmuAsJnx0oVP".into(),
+		);
+		let base_url = std::env::var("BASE_URL").unwrap_or(
+			"https://base-sepolia.g.alchemy.com/v2/xLAACkUCNcEBquCQcsT7ypkaIfsTlQU3".into(),
+		);
+		let arb_url = std::env::var("ARB_URL").unwrap_or(
+			"https://arb-sepolia.g.alchemy.com/v2/xd9UmE2ItdzJQMzivURMW5jyhlKLE8Qi".into(),
+		);
+		let geth_url = std::env::var("GETH_URL").unwrap_or(
+			"https://eth-sepolia.g.alchemy.com/v2/tKtJs47xn9LPe8d99J0L06Ixg3bsHGIR".into(),
+		);
+		let bsc_url = std::env::var("BSC_URL").unwrap_or(
+			"https://clean-capable-dew.bsc-testnet.quiknode.pro/bed456956996abb801b7ab44fdb3f6f63cd1a4ec/".into(),
+		);
 
 		let chains = vec![
 			(
 				StateMachine::Ethereum(Ethereum::ExecutionLayer),
-				H160(hex!("be094ba30775301FDc5ABE6095e1457073825b40")),
+				H160(hex!("7596aB4f588fE6feFcE2D53feFC08E52afa4bc84")),
 				geth_url,
-				5u64,
 			),
 			(
 				StateMachine::Ethereum(Ethereum::Arbitrum),
-				H160(hex!("2Fc23c39Bd341ba467349725e6ab61B2DA9D49c1")),
+				H160(hex!("9d87A7F9Edf044Dd4ffbAF65dEdd6e073817ae04")),
 				arb_url,
-				421613,
 			),
 			(
 				StateMachine::Ethereum(Ethereum::Optimism),
-				H160(hex!("aA505C51C975ee19c5A2BB080245c20CCE6D3E51")),
+				H160(hex!("7C63cA6976B4e31dA2bC49C1B4F7a45b14085EF7")),
 				op_url,
-				420,
 			),
 			(
 				StateMachine::Ethereum(Ethereum::Base),
-				H160(hex!("02b20A2db3c97203Da489a53ed3316D37389a779")),
+				H160(hex!("9530B5fc67342C3c9dD6c4Ec659f89ADd499CF4c")),
 				base_url,
-				84531,
 			),
+			(StateMachine::Bsc, H160(hex!("4c1b6031d5BB8A52EF7A13b32852fbE070733FCA")), bsc_url),
 		];
 
-		let signer = sp_core::ecdsa::Pair::from_seed_slice(&hex!(
-			"2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622"
-		))?;
+		let stream = futures::stream::iter(chains.clone().into_iter().map(Ok::<_, anyhow::Error>));
 
-		for (chain, address, url, chain_id) in chains.iter() {
-			let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
-				.with_chain_id(*chain_id);
-			let provider = Arc::new(Provider::<Ws>::connect(url).await?);
-			let client = Arc::new(provider.with_signer(signer));
+		stream
+			.try_for_each_concurrent(None, |(chain, ping, url)| {
+				let chains_clone = chains.clone();
+				async move {
+					let signer = sp_core::ecdsa::Pair::from_seed_slice(&hex!(
+						"6456101e79abe59d2308d63314503446857d4f1f949468bf5627e86e3d6adebd"
+					))?;
+					let provider = Arc::new(Provider::<Http>::try_connect(&url).await?);
+					let signer =
+						LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
+							.with_chain_id(provider.get_chainid().await?.low_u64());
+					let client = Arc::new(provider.with_signer(signer));
+					let ping = PingModule::new(ping.clone(), client.clone());
 
-			let ping = PingModule::new(address.clone(), client);
+					let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
+					dbg!(&host_addr);
+					let host = EvmHost::new(host_addr, client.clone());
+					let erc_20 = Erc20::new(
+						host.dai().await.context(format!("Error in {chain:?}"))?,
+						client.clone(),
+					);
+					let call = erc_20.approve(host_addr, U256::max_value());
+					let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
+					call.gas(gas)
+						.send()
+						.await
+						.context(format!("Error in {chain:?}"))?
+						.await
+						.context(format!("Error in {chain:?}"))?;
 
-			for (chain, address, _, _) in chains.iter().filter(|(c, _, _, _)| *chain != *c) {
-				let receipt = ping
-					.ping(PingMessage {
-						dest: chain.to_string().as_bytes().to_vec().into(),
-						module: address.clone().into(),
-						timeout: 10 * 60 * 60,
-					})
-					.gas(10_000_000)
-					.send()
-					.await?
-					.await?;
+					for (chain, ping_addr, _) in chains_clone.iter().filter(|(c, _, _)| chain != *c)
+					{
+						for _ in 0..1 {
+							let call = ping.ping(PingMessage {
+								dest: chain.to_string().as_bytes().to_vec().into(),
+								module: ping_addr.clone().into(),
+								timeout: 10 * 60 * 60,
+								fee: U256::from(900_000_000_000_000_000u128),
+								count: U256::from(100),
+							});
+							let gas =
+								call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
+							let receipt = call
+								.gas(gas)
+								.send()
+								.await
+								.context(format!("Error in {chain:?}"))?
+								.await
+								.context(format!("Error in {chain:?}"))?;
 
-				dbg!(receipt);
-			}
-		}
+							assert!(receipt.is_some());
+						}
+					}
+
+					Ok(())
+				}
+			})
+			.await?;
 
 		Ok(())
 	}

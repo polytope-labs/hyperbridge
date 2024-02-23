@@ -1,12 +1,13 @@
 //! Functions for updating configuration on pallets
 
+use std::collections::BTreeMap;
+
 use crate::{
 	extrinsic::{send_extrinsic, send_unsigned_extrinsic, Extrinsic, InMemorySigner},
-	SubstrateClient,
+	runtime, SubstrateClient,
 };
 use anyhow::anyhow;
 use codec::{Decode, Encode};
-use hex_literal::hex;
 use ismp::{
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
@@ -17,7 +18,7 @@ use pallet_relayer_fees::{
 	withdrawal::{WithdrawalInputData, WithdrawalParams, WithdrawalProof},
 };
 use primitives::{HyperbridgeClaim, IsmpHost, IsmpProvider, WithdrawFundsResult};
-use sp_core::{twox_64, Pair};
+use sp_core::{Pair, U256};
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
@@ -29,7 +30,7 @@ use subxt::{
 
 impl<T, C> SubstrateClient<T, C>
 where
-	T: IsmpHost + Send + Sync + Clone,
+	T: IsmpHost + Send + Sync + Clone + 'static,
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
@@ -56,8 +57,21 @@ where
 		let call = Extrinsic::new("Ismp", "create_consensus_client", call)
 			.encode_call_data(&self.client.metadata())?;
 		let tx = Extrinsic::new("Sudo", "sudo", call);
-		let nonce = self.get_nonce().await?;
-		send_extrinsic(&self.client, signer, tx, nonce).await?;
+		send_extrinsic(&self.client, signer, tx).await?;
+
+		Ok(())
+	}
+
+	pub async fn set_host_manager_addresses(
+		&self,
+		addresses: BTreeMap<StateMachine, Vec<u8>>,
+	) -> anyhow::Result<()> {
+		let encoded_call =
+			Extrinsic::new("StateMachineManager", "set_host_manger_addresses", addresses.encode())
+				.encode_call_data(&self.client.metadata())?;
+		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
+		let signer = InMemorySigner::new(self.signer());
+		send_extrinsic(&self.client, signer, tx).await?;
 
 		Ok(())
 	}
@@ -66,7 +80,7 @@ where
 #[async_trait::async_trait]
 impl<T, C> HyperbridgeClaim for SubstrateClient<T, C>
 where
-	T: IsmpHost + Send + Sync + Clone,
+	T: IsmpHost + Send + Sync + Clone + 'static,
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
@@ -95,17 +109,10 @@ where
 		chain: StateMachine,
 		gas_limit: u64,
 	) -> anyhow::Result<WithdrawFundsResult> {
-		let mut nonce_key =
-			hex!("0f58da11a3e360dcc90475225459bcf9718368a0ace36e2b1b8b6dbd7f8093c0").to_vec();
-		let hashed_key = twox_64(&counterparty.address());
-		nonce_key.extend_from_slice(&hashed_key);
-		let response = self
-			.client
-			.rpc()
-			.storage(&nonce_key, None)
-			.await?
-			.ok_or_else(|| anyhow!("Failed to fetch Nonce"))?;
-		let nonce: u64 = codec::Decode::decode(&mut response.0.as_slice())?;
+		let addr = runtime::api::storage().relayer_fees().nonce(counterparty.address().as_slice());
+		let nonce =
+			self.client.storage().at_latest().await?.fetch(&addr).await?.unwrap_or_default();
+
 		let amount = relayer_account_balance(&self.client, chain, counterparty.address()).await?;
 		let signature = {
 			let message = message(nonce, chain, amount);
@@ -128,7 +135,7 @@ where
 			.into();
 		let mock_state_update = StateMachineUpdated {
 			state_machine_id: counterparty.state_machine_id(),
-			latest_height: block_number + 1,
+			latest_height: block_number,
 		};
 		let event = self
 			.query_ismp_events(block_number - 1, mock_state_update)
@@ -150,8 +157,11 @@ where
 								false
 							}
 						},
-						StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc =>
-							&post.data[..20] == &counterparty.address() && condition,
+						StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
+							let address = &post.data[1..33].to_vec();
+							// abi encoding will pad address with 12 bytes
+							address.ends_with(&counterparty.address()) && condition
+						},
 					}
 				},
 				_ => false,
@@ -168,18 +178,17 @@ async fn relayer_account_balance<C: subxt::Config>(
 	client: &OnlineClient<C>,
 	chain: StateMachine,
 	address: Vec<u8>,
-) -> anyhow::Result<u128> {
-	let mut relayer_fees =
-		hex!("0f58da11a3e360dcc90475225459bcf90f58da11a3e360dcc90475225459bcf9").to_vec();
-	let encoded_state_machine = twox_64(&chain.encode());
-	let encoded_relayer_address = twox_64(&address.encode());
-	relayer_fees.extend_from_slice(&encoded_state_machine);
-	relayer_fees.extend_from_slice(&encoded_relayer_address);
-	let response = client
-		.rpc()
-		.storage(&relayer_fees, None)
+) -> anyhow::Result<U256> {
+	let addr = runtime::api::storage()
+		.relayer_fees()
+		.relayer_fees(&chain.into(), address.as_slice());
+	let balance = client
+		.storage()
+		.at_latest()
+		.await?
+		.fetch(&addr)
 		.await?
 		.ok_or_else(|| anyhow!("Failed to fetch Relayer Balance"))?;
-	let balance: u128 = codec::Decode::decode(&mut response.0.as_slice())?;
-	Ok(balance)
+
+	Ok(U256(balance.0))
 }

@@ -15,12 +15,13 @@
 
 //! Extrinsic utilities
 
-use anyhow::anyhow;
+use anyhow::Context;
 use codec::Encode;
 use sp_core::{sr25519, Pair};
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
 	ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+	rpc::types::DryRunResult,
 	tx::{Signer, TxPayload},
 	Error, Metadata, OnlineClient,
 };
@@ -125,37 +126,31 @@ where
 	let ext = client.tx().create_unsigned(&payload)?;
 
 	let progress = match ext.submit_and_watch().await {
-		Ok(p) => p,
-		Err(err) => {
-			println!("\n\n\n{err:#?}\n\n\n");
-			return Err(err)?
+		Ok(p) => {
+			log::info!(
+				"Unsigned extrinsic successfully inserted into pool with hash: {:?}",
+				p.extrinsic_hash()
+			);
+
+			p
 		},
+		Err(err) => Err(err).context("Failed to submit unsigned extrinsic")?,
 	};
+	let ext_hash = progress.extrinsic_hash();
 
 	let extrinsic = match progress.wait_for_in_block().await {
 		Ok(p) => p,
-		Err(err) => {
-			println!("\n\n\n{err:#?}\n\n\n");
-			// If web socket has been disconnected return an error
-			if let subxt::Error::Io(e) = &err {
-				Err(anyhow!("{:?}", e))?
-			}
-			log::error!("Error waiting for extrinsic in_block {err:?}");
-			return Ok(None)
-		},
+		Err(err) => Err(err).context(format!(
+			"Error waiting for unsigned extrinsic in block with hash {ext_hash:?}"
+		))?,
 	};
 
 	let hash = match extrinsic.wait_for_success().await {
-		Ok(p) => p.block_hash(),
-		Err(err) => {
-			println!("\n\n\n{err:#?}\n\n\n");
-
-			if let subxt::Error::Io(e) = &err {
-				Err(anyhow!("{:?}", e))?
-			}
-			log::error!("Error executing extrinsic: {err:?}");
-			return Ok(None)
+		Ok(p) => {
+			log::info!("Successfully executed unsigned extrinsic {ext_hash:?}");
+			p.block_hash()
 		},
+		Err(err) => Err(err).context(format!("Error executing unsigned extrinsic {ext_hash:?}"))?,
 	};
 	Ok(Some(hash))
 }
@@ -165,7 +160,6 @@ pub async fn send_extrinsic<T: subxt::Config, Tx: TxPayload>(
 	client: &OnlineClient<T>,
 	signer: InMemorySigner<T>,
 	payload: Tx,
-	nonce: u64,
 ) -> Result<(), anyhow::Error>
 where
 	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
@@ -173,36 +167,35 @@ where
 	T::Signature: From<MultiSignature> + Send + Sync,
 {
 	let other_params = BaseExtrinsicParamsBuilder::new();
-	let ext =
-		client
-			.tx()
-			.create_signed_with_nonce(&payload, &signer, nonce, other_params.into())?;
-	let progress = ext.submit_and_watch().await?;
+	let ext = client.tx().create_signed(&payload, &signer, other_params.into()).await?;
+	let progress = ext.submit_and_watch().await.context("Failed to submit signed extrinsic")?;
+	let ext_hash = progress.extrinsic_hash();
 
 	let extrinsic = match progress.wait_for_in_block().await {
 		Ok(p) => p,
-		Err(err) => {
-			println!("\n\n\n{err:#?}\n\n\n");
-			// If web socket has been disconnected return an error
-			if let subxt::Error::Io(e) = &err {
-				Err(anyhow!("{:?}", e))?
-			}
-			log::error!("Error waiting for extrinsic in_block {err:?}");
-			return Ok(())
-		},
+		Err(err) => Err(err).context(format!(
+			"Error waiting for signed extrinsic in block with hash {ext_hash:?}"
+		))?,
 	};
 
 	match extrinsic.wait_for_success().await {
 		Ok(p) => p,
-		Err(err) => {
-			println!("\n\n\n{err:#?}\n\n\n");
-
-			if let subxt::Error::Io(e) = &err {
-				Err(anyhow!("{:?}", e))?
-			}
-			log::error!("Error executing extrinsic: {err:?}");
-			return Ok(())
-		},
+		Err(err) => Err(err).context(format!("Error executing signed extrinsic {ext_hash:?}"))?,
 	};
 	Ok(())
+}
+
+/// Dry run extrinsic
+pub async fn system_dry_run_unsigned<T: subxt::Config, Tx: TxPayload>(
+	client: &OnlineClient<T>,
+	payload: Tx,
+) -> Result<DryRunResult, anyhow::Error>
+where
+	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<T, PlainTip>>,
+	T::Signature: From<MultiSignature> + Send + Sync,
+{
+	let ext = client.tx().create_unsigned(&payload)?;
+	let result = ext.dry_run(None).await?;
+	Ok(result)
 }

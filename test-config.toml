@@ -27,7 +27,7 @@ gas_limit = 20000000
 [base]
 type = "base"
 state_machine = { Ethereum = "Base" }
-beacon_execution_ws = "wss://127.0.0.1:8565"
+beacon_rpc_url = "wss://127.0.0.1:8565"
 execution_ws = "wss://127.0.0.1:8000"
 l2_oracle = "0x84457ca9D0163FbC4bbfe4Dfbb20ba46e48DF254"
 message_parser = "0x4200000000000000000000000000000000000016"

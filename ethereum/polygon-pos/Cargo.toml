@@ -20,7 +20,7 @@ tokio-stream = "0.1.14"
 hex-literal = "0.4.1"
 base2 = "0.3.1"
 primitive-types = { version = "0.12.1", features = ["impl-codec"] }
-ethers = { workspace = true, features = ["ws"] }
+ethers = { workspace = true, features = ["rustls"] }
 sp-core = "22.0.0"
 
 ismp.workspace = true
@@ -31,7 +31,7 @@ geth-primitives.workspace = true
 
 tesseract-primitives = { path = "../../primitives" }
 tesseract-evm = { path = "../evm"}
-reconnecting-jsonrpsee-ws-client = "0.2.0"
+reconnecting-jsonrpsee-ws-client.workspace = true
 jsonrpsee = { version = "0.21", features = ["ws-client"]}
 debounced = { git = "https://github.com/polytope-labs/debounced", branch = "main"}
 

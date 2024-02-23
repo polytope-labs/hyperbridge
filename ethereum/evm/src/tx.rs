@@ -1,15 +1,14 @@
-use crate::{EthPriceResponse, EvmClient, GasResponse, GasResponseEthereum, GasResult};
+use crate::EvmClient;
 use anyhow::{anyhow, Error};
 use codec::Decode;
 use ethers::{
-	contract::FunctionCall,
+	contract::{parse_log, FunctionCall},
 	core::k256::ecdsa,
 	middleware::SignerMiddleware,
-	prelude::{Provider, Wallet, Ws},
-	providers::PendingTransaction,
-	types::Bytes,
+	prelude::{transaction::eip2718::TypedTransaction, Log, NameOrAddress, Provider, Wallet},
+	providers::{Http, Middleware, PendingTransaction},
+	types::{TransactionReceipt, TransactionRequest},
 };
-use hex_literal::hex;
 use ismp::{
 	host::{Ethereum, StateMachine},
 	messaging::{Message, ResponseMessage, TimeoutMessage},
@@ -18,18 +17,22 @@ use ismp::{
 use ismp_rpc::MmrProof;
 use ismp_solidity_abi::{
 	beefy::{GetRequest, StateMachineHeight},
+	evm_host::{PostRequestHandledFilter, PostResponseHandledFilter},
 	handler::{
 		GetResponseMessage, GetTimeoutMessage, Handler as IsmpHandler, PostRequestLeaf,
 		PostRequestMessage, PostRequestTimeoutMessage, PostResponseLeaf, PostResponseMessage,
 		PostResponseTimeoutMessage, Proof,
 	},
 };
-use merkle_mountain_range::mmr_position_to_k_index;
-use pallet_ismp::{primitives::SubstrateStateProof, NodesUtils};
+use mmr_utils::mmr_position_to_k_index;
+use pallet_ismp::{
+	primitives::{LeafIndexAndPos, SubstrateStateProof},
+	NodesUtils,
+};
 use primitive_types::{H160, H256, U256};
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
-use crate::abi::{arb_gas_info::ArbGasInfo, ovm_gas_price_oracle::OVM_gasPriceOracle};
+use crate::gas_oracle::get_current_gas_cost_in_usd;
 use tesseract_primitives::IsmpHost;
 
 /// Use this to initialize the transaction submit queue. This pipelines transaction submission
@@ -37,23 +40,111 @@ use tesseract_primitives::IsmpHost;
 pub async fn submit_messages<I: IsmpHost>(
 	client: &EvmClient<I>,
 	messages: Vec<Message>,
-) -> anyhow::Result<()> {
-	let calls = generate_contract_calls(client, messages, false).await?;
+) -> anyhow::Result<BTreeSet<H256>> {
+	let calls = generate_contract_calls(client, messages).await?;
+	let mut events = BTreeSet::new();
 	for call in calls {
+		let gas_price = call.tx.gas_price();
 		match call.send().await {
-			Ok(progress) => wait_for_success(progress, None).await,
+			Ok(progress) => {
+				let evs = wait_for_success(client, progress, gas_price).await?;
+				events.extend(evs);
+			},
 			Err(err) => {
-				log::error!("Error broadcasting transaction for  {err:?}");
+				log::error!(
+					"Error broadcasting transaction to {}:  {err:?}",
+					client.config.state_machine
+				);
 			},
 		}
 	}
 
-	Ok(())
-}
+	log::trace!("Got  {} receipts from executing on {:?}", events.len(), client.state_machine);
 
-async fn wait_for_success<'a>(tx: PendingTransaction<'a, Ws>, confirmations: Option<usize>) {
-	if let Err(err) = tx.confirmations(confirmations.unwrap_or(1)).await {
-		log::error!("Error broadcasting transaction for  {err:?}");
+	Ok(events)
+}
+async fn wait_for_success<'a, I: IsmpHost>(
+	client: &EvmClient<I>,
+	tx: PendingTransaction<'a, Http>,
+	gas_price: Option<U256>,
+) -> Result<BTreeSet<H256>, anyhow::Error> {
+	let log_receipt = |receipt: TransactionReceipt, cancelled: bool| {
+		let prelude = if cancelled { "Cancellation Tx" } else { "Tx" };
+		if matches!(receipt.status.as_ref().map(|f| f.low_u64()), Some(1)) {
+			log::info!("{prelude} for {:?} succeeded", client.state_machine);
+		} else {
+			log::info!(
+				"{prelude} for {:?} with hash {:?} reverted",
+				client.state_machine,
+				receipt.transaction_hash
+			);
+		}
+	};
+	let client_clone = client.clone();
+	let cancel_tx = move || async move {
+		// cancel the transaction here
+		log::info!("No receipt for transaction on {:?}, cancelling", client_clone.state_machine);
+		let pending = client_clone
+			.signer
+			.send_transaction(
+				TypedTransaction::Legacy(TransactionRequest {
+					to: Some(NameOrAddress::Address(H160::from_slice(&client_clone.address))),
+					value: Some(Default::default()),
+					gas_price: gas_price.map(|price| price * 10), // experiment with higher?
+					..Default::default()
+				}),
+				None,
+			)
+			.await;
+
+		if let Ok(pending) = pending {
+			if let Ok(Some(receipt)) = pending.await {
+				log_receipt(receipt, true);
+			}
+		}
+	};
+
+	// Race transaction submission by a five minute timer
+	let sleep = tokio::time::sleep(Duration::from_secs(5 * 60));
+
+	tokio::select! {
+			_ = sleep => {
+				cancel_tx().await;
+				Err(anyhow!("Transaction to {:?} was cancelled!", client.state_machine))?
+			},
+			result = tx => {
+				match result {
+					Ok(Some(receipt)) => {
+						let events =  receipt.logs.iter().filter_map(|l| {
+							let log = Log {
+								topics: l.clone().topics,
+								data: l.clone().data,
+								..Default::default()
+							};
+
+							if let Some(ev) = parse_log::<PostRequestHandledFilter>(log.clone()).ok() {
+								return Some(ev.commitment.into())
+							}
+
+							if let Some(ev) = parse_log::<PostResponseHandledFilter>(log.clone()).ok() {
+								return Some(ev.commitment.into())
+							}
+
+							None
+						}).collect();
+						log_receipt(receipt, false);
+						Ok(events)
+					},
+					Ok(None) => {
+						cancel_tx().await;
+						Err(anyhow!("Transaction to {:?} was cancelled!", client.state_machine))?
+					},
+					Err(err) => {
+						log::error!("Error broadcasting transaction to {:?}: {err:?}", client.state_machine);
+						Err(err)?
+					},
+				}
+			}
 	}
 }
 
@@ -61,48 +152,47 @@ async fn wait_for_success<'a>(tx: PendingTransaction<'a, Ws>, confirmations: Opt
 pub async fn generate_contract_calls<I: IsmpHost>(
 	client: &EvmClient<I>,
 	messages: Vec<Message>,
-	debug: bool,
 ) -> anyhow::Result<
 	Vec<
 		FunctionCall<
-			Arc<SignerMiddleware<Provider<Ws>, Wallet<ecdsa::SigningKey>>>,
-			SignerMiddleware<Provider<Ws>, Wallet<ecdsa::SigningKey>>,
+			Arc<SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>>,
+			SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>,
 			(),
 		>,
 	>,
 > {
-	let contract = IsmpHandler::new(client.handler, client.signer.clone());
-	let ismp_host = client.ismp_host;
+	let contract = IsmpHandler::new(client.config.handler, client.signer.clone());
+	let ismp_host = client.config.ismp_host;
 	let mut calls = Vec::new();
+	let gas_price = get_current_gas_cost_in_usd(
+		client.chain_id,
+		client.state_machine,
+		&client.config.etherscan_api_key.clone(),
+		client.client.clone(),
+	)
+	.await?
+	.gas_price;
 
 	for message in messages {
-		// If we are debugging we don't want to increase the client's nonce
-		let nonce = if debug { client.read_nonce().await? } else { client.get_nonce().await? };
-
 		match message {
 			Message::Consensus(msg) => {
-				let gas_limit = get_chain_gas_limit(client.state_machine);
-				let call = contract
-					.handle_consensus(ismp_host, msg.consensus_proof.into())
-					.nonce(nonce)
-					.gas(gas_limit);
+				let call = contract.handle_consensus(ismp_host, msg.consensus_proof.into());
+				let gas_limit = call
+					.estimate_gas()
+					.await
+					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
+
+				let call = call.gas_price(gas_price).gas(gas_limit);
 
 				calls.push(call);
 			},
 			Message::Request(msg) => {
-				let membership_proof =
-					match MmrProof::<H256>::decode(&mut msg.proof.proof.as_slice()) {
-						Ok(proof) => proof,
-						_ => {
-							log::error!("Failed to decode membership proof");
-							continue
-						},
-					};
+				let membership_proof = MmrProof::<H256>::decode(&mut msg.proof.proof.as_slice())?;
 				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
 				let k_and_leaf_indices = membership_proof
 					.leaf_positions_and_indices
 					.into_iter()
-					.map(|(pos, leaf_index)| {
+					.map(|LeafIndexAndPos { pos, leaf_index }| {
 						let k_index = mmr_position_to_k_index(vec![pos], mmr_size)[0].1;
 						(k_index, leaf_index)
 					})
@@ -142,24 +232,18 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 
 				let call = contract
 					.handle_post_requests(ismp_host, post_message)
-					.nonce(nonce)
+					.gas_price(gas_price)
 					.gas(gas_limit);
 
 				calls.push(call);
 			},
 			Message::Response(ResponseMessage { datagram, proof, .. }) => {
-				let membership_proof = match MmrProof::<H256>::decode(&mut proof.proof.as_slice()) {
-					Ok(proof) => proof,
-					_ => {
-						log::error!("Failed to decode membership proof");
-						continue
-					},
-				};
+				let membership_proof = MmrProof::<H256>::decode(&mut proof.proof.as_slice())?;
 				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
 				let k_and_leaf_indices = membership_proof
 					.leaf_positions_and_indices
 					.into_iter()
-					.map(|(pos, leaf_index)| {
+					.map(|LeafIndexAndPos { pos, leaf_index }| {
 						let k_index = mmr_position_to_k_index(vec![pos], mmr_size)[0].1;
 						(k_index, leaf_index)
 					})
@@ -209,7 +293,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 
 						contract
 							.handle_post_responses(ismp_host, message)
-							.nonce(nonce)
+							.gas_price(gas_price)
 							.gas(gas_limit)
 					},
 					RequestResponse::Request(requests) => {
@@ -275,7 +359,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 
 						contract
 							.handle_get_responses(ismp_host, message)
-							.nonce(nonce)
+							.gas_price(gas_price)
 							.gas(gas_limit)
 					},
 				};
@@ -318,7 +402,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 				let gas_limit = get_chain_gas_limit(client.state_machine);
 				let call = contract
 					.handle_post_request_timeouts(ismp_host, message)
-					.nonce(nonce)
+					.gas_price(gas_price)
 					.gas(gas_limit);
 
 				calls.push(call);
@@ -353,7 +437,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 				let gas_limit = get_chain_gas_limit(client.state_machine);
 				let call = contract
 					.handle_post_response_timeouts(ismp_host, message)
-					.nonce(nonce)
+					.gas_price(gas_price)
 					.gas(gas_limit);
 
 				calls.push(call);
@@ -380,13 +464,13 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 				let gas_limit = get_chain_gas_limit(client.state_machine);
 				let call = contract
 					.handle_get_request_timeouts(ismp_host, message)
-					.nonce(nonce)
+					.gas_price(gas_price)
 					.gas(gas_limit);
 
 				calls.push(call);
 			},
-			_ => {
-				log::debug!(target: "tesseract", "Message handler not implemented in solidity abi")
+			Message::FraudProof(_) => {
+				log::warn!(target: "tesseract", "Unexpected fraud proof message")
 			},
 		}
 	}
@@ -394,211 +478,14 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 	Ok(calls)
 }
 
-const TESTNET_CHAIN_IDS: [u64; 6] = [11155111u64, 421614, 84532, 11155420, 80001, 97];
-const ARB_GAS_INFO: [u8; 20] = hex!("000000000000000000000000000000000000006c");
-const OP_GAS_ORACLE: [u8; 20] = hex!("420000000000000000000000000000000000000F");
-
-/// Function gets current gas price (for execution) in Gwei and return the equivalent in USD,
-/// returns (gas_cost_in_usd, native_in_usd)
-pub async fn get_current_gas_cost_in_usd(
-	chain_id: u64,
-	chain: StateMachine,
-	api_keys: &String,
-	client: Arc<Provider<Ws>>,
-) -> Result<(U256, U256), Error> {
-	let mut gas_cost_in_usd = U256::zero();
-	let mut native_in_usd = U256::zero();
-
-	match chain {
-		StateMachine::Ethereum(inner_evm) => {
-			let (uri, eth_price_uri) = if TESTNET_CHAIN_IDS.contains(&chain_id) {
-				let api = "https://api-sepolia.etherscan.com/api";
-				// Sepolia chains
-				let uri = format!("{api}?module=gastracker&action=gasoracle&apikey={api_keys}");
-				let eth_price_uri = format!("{api}?module=stats&action=ethprice&apikey={api_keys}");
-				(uri, eth_price_uri)
-			} else {
-				let api = "https://api.etherscan.com/api";
-				// Mainnet
-				let uri = format!("{api}?module=gastracker&action=gasoracle&apikey={api_keys}");
-				let eth_price_uri = format!("{api}?module=stats&action=ethprice&apikey={api_keys}");
-				(uri, eth_price_uri)
-			};
-
-			match inner_evm {
-				Ethereum::Arbitrum => {
-					let arb_gas_info_contract = ArbGasInfo::new(H160(ARB_GAS_INFO), client);
-					let arb_gas_call = arb_gas_info_contract.get_prices_in_wei().await?;
-					let gas_cost_for_execution = arb_gas_call.0 / U256::from(10u64.pow(18));
-					let response_json = get_eth_to_usd_price(&eth_price_uri).await?;
-					native_in_usd = to_18_decimals(response_json.result.ethusd.parse::<f64>()?);
-					gas_cost_in_usd = gas_cost_for_execution * native_in_usd;
-				},
-				Ethereum::Optimism | Ethereum::Base => {
-					let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
-					let gas_cost =
-						ovm_gas_price_oracle.gas_price().await? / U256::from(10u64.pow(9));
-					let response_json = get_eth_to_usd_price(&eth_price_uri).await?;
-					native_in_usd = to_18_decimals(response_json.result.ethusd.parse::<f64>()?);
-					gas_cost_in_usd = gas_cost * native_in_usd;
-				},
-				Ethereum::ExecutionLayer => {
-					let response_json = get_eth_gas_and_price(&uri, &eth_price_uri).await?;
-					let gas_price = to_18_decimals(
-						response_json.result.safe_gas_price.parse::<f64>()? / 10f64.powf(9f64),
-					);
-					native_in_usd = to_18_decimals(response_json.result.usd_price.parse::<f64>()?);
-					gas_cost_in_usd = gas_price * native_in_usd;
-				},
-			}
-		},
-		StateMachine::Polygon => {
-			let uri = if TESTNET_CHAIN_IDS.contains(&chain_id) {
-				// Mumbai
-				format!(
-					"https://api-testnet.polygonscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
-				)
-			} else {
-				// Mainnet
-				format!(
-					"https://api.polygonscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
-				)
-			};
-			let response = reqwest::get(&uri).await?;
-			let response_json: GasResponse = response.json().await?;
-			let gas_price = to_18_decimals(
-				response_json.result.safe_gas_price.parse::<f64>()? / 10f64.powf(9f64),
-			);
-			native_in_usd = to_18_decimals(response_json.result.usd_price.parse::<f64>()?);
-			gas_cost_in_usd = gas_price * native_in_usd;
-		},
-		StateMachine::Bsc => {
-			let uri = if TESTNET_CHAIN_IDS.contains(&chain_id) {
-				// Testnet
-				format!(
-					"https://api-testnet.bscscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
-				)
-			} else {
-				// Mainnet
-				format!(
-					"https://api.bscscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
-				)
-			};
-			let response = reqwest::get(&uri).await?;
-			let response_json: GasResponse = response.json().await?;
-			let gas_price = to_18_decimals(
-				response_json.result.safe_gas_price.parse::<f64>()? / 10f64.powf(9f64),
-			);
-			native_in_usd = to_18_decimals(response_json.result.usd_price.parse::<f64>()?);
-			gas_cost_in_usd = gas_price * native_in_usd;
-		},
-		_ => {},
-	}
-
-	Ok((gas_cost_in_usd, native_in_usd))
-}
-
-fn to_18_decimals(value: f64) -> U256 {
-	((value * 10f64.powf(18f64)) as u64).into()
-}
-
-/// Returns the L2 data cost for a given transaction data in gwei
-pub async fn get_l2_data_cost(
-	rlp_tx: Bytes,
-	chain: StateMachine,
-	client: Arc<Provider<Ws>>,
-) -> Result<U256, anyhow::Error> {
-	let mut gas_cost_in_gwei = U256::zero();
-
-	match chain {
-		StateMachine::Ethereum(inner_evm) => {
-			match inner_evm {
-				Ethereum::Arbitrum => {
-					let arb_gas_info_contract = ArbGasInfo::new(H160(ARB_GAS_INFO), client);
-					let arb_gas_call = arb_gas_info_contract.get_prices_in_wei().await?;
-					let data_cost_per_byte = arb_gas_call.1; // this is in wei
-					let number_of_rlp_encoded_tx_bytes = rlp_tx.len();
-					let data_cost_for_tx = data_cost_per_byte * number_of_rlp_encoded_tx_bytes;
-					gas_cost_in_gwei = data_cost_for_tx / U256::from(1_000_000_000u64);
-				},
-				Ethereum::Optimism | Ethereum::Base => {
-					let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
-					let data_cost = ovm_gas_price_oracle.get_l1_fee(rlp_tx).await?; // this is in Gwei
-					gas_cost_in_gwei = data_cost
-				},
-				Ethereum::ExecutionLayer => {},
-			}
-		},
-		_ => {
-			log::debug!(target: "tesseract", "this chain is not a L2")
-		},
-	}
-
-	Ok(gas_cost_in_gwei)
-}
-
-pub async fn get_eth_gas_and_price(
-	uri: &String,
-	uri_eth_price: &String,
-) -> Result<GasResponse, Error> {
-	let response = reqwest::get(uri).await?;
-
-	let response_json: GasResponseEthereum = response.json().await?;
-	let eth_to_usd_response = get_eth_to_usd_price(uri_eth_price).await?;
-
-	Ok(GasResponse {
-		result: GasResult {
-			safe_gas_price: response_json.result.safe_gas_price,
-			usd_price: eth_to_usd_response.result.ethusd,
-		},
-	})
-}
-
-pub async fn get_eth_to_usd_price(uri_eth_price: &String) -> Result<EthPriceResponse, Error> {
-	let usd_response = reqwest::get(uri_eth_price).await?;
-	Ok(usd_response.json::<EthPriceResponse>().await?)
-}
-
 pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 	match state_machine {
-		StateMachine::Ethereum(Ethereum::ExecutionLayer) => 30_000_000,
-		StateMachine::Ethereum(Ethereum::Arbitrum) => 1_000_000_000,
-		StateMachine::Ethereum(Ethereum::Optimism) => 30_000_000,
-		StateMachine::Ethereum(Ethereum::Base) => 25_000_000,
-		StateMachine::Polygon => 30_000_000,
-		StateMachine::Bsc => 140_000_000,
+		StateMachine::Ethereum(Ethereum::ExecutionLayer) => 20_000_000,
+		StateMachine::Ethereum(Ethereum::Arbitrum) => 32_000_000,
+		StateMachine::Ethereum(Ethereum::Optimism) => 20_000_000,
+		StateMachine::Ethereum(Ethereum::Base) => 20_000_000,
+		StateMachine::Polygon => 20_000_000,
+		StateMachine::Bsc => 20_000_000,
 		_ => Default::default(),
-	}
-}
-
-#[cfg(test)]
-mod test {
-	use crate::tx::get_current_gas_cost_in_usd;
-	use ethers::prelude::{Provider, Ws};
-	use ismp::host::{Ethereum, StateMachine};
-	use std::sync::Arc;
-
-	#[tokio::test]
-	#[ignore]
-	async fn test_get_current_gas_cost_in_usd_should_return_correct_value() {
-		dotenv::dotenv().ok();
-		let ethereum_etherscan_api_key = std::env::var("ETHERSCAN_ETHEREUM_KEY")
-			.expect("Etherscan ethereum key is not set in .env.");
-		let ethereum_rpc_uri =
-			std::env::var("ETHEREUM_KEY_RPC").expect("Etherscan ethereum key is not set in .env.");
-		let provider =
-			Provider::<Ws>::connect_with_reconnects(ethereum_rpc_uri, 1000).await.unwrap();
-		let client = Arc::new(provider.clone());
-
-		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			11155111,
-			StateMachine::Ethereum(Ethereum::ExecutionLayer),
-			&ethereum_etherscan_api_key,
-			client.clone(),
-		)
-		.await
-		.unwrap();
-
-		println!("Ethereum Gas Cost: {:?}", ethereum_gas_cost_in_usd);
 	}
 }

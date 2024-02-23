@@ -12,7 +12,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 /// This will wrap the provided implementations into an [`AnyClient`] that implement the required
 /// traits [`IsmpHost`], [`IsmpProvider`] & [`ByzantineHandler`].
 #[macro_export]
@@ -66,11 +65,11 @@ macro_rules! chain {
 				}
             }
 
-			async fn get_initial_consensus_state(&self) -> Result<Option<ismp::messaging::CreateConsensusState>, anyhow::Error> {
+			async fn query_initial_consensus_state(&self) -> Result<Option<ismp::messaging::CreateConsensusState>, anyhow::Error> {
 				match self {
 					$(
 						$(#[$($meta)*])*
-						Self::$name(chain) => chain.get_initial_consensus_state().await,
+						Self::$name(chain) => chain.query_initial_consensus_state().await,
 					)*
 				}
 			}
@@ -116,14 +115,14 @@ macro_rules! chain {
 				}
             }
 
-            async fn query_consensus_update_time(
+            async fn query_state_machine_update_time(
                 &self,
-                id: ismp::consensus::ConsensusClientId,
+                height: ismp::consensus::StateMachineHeight,
             ) -> Result<core::time::Duration, anyhow::Error> {
                 match self {
 					$(
 						$(#[$($meta)*])*
-						Self::$name(chain) => chain.query_consensus_update_time(id).await,
+						Self::$name(chain) => chain.query_state_machine_update_time(height).await,
 					)*
 				}
             }
@@ -249,43 +248,32 @@ macro_rules! chain {
 				}
             }
 
-            async fn get_message_request_fee_metadata(&self, hash: ethers::types::H256) -> Result<ethers::types::U256, anyhow::Error> {
+            async fn query_request_fee_metadata(&self, hash: ethers::types::H256) -> Result<ethers::types::U256, anyhow::Error> {
                 match self {
 					$(
 						$(#[$($meta)*])*
-						Self::$name(chain) => chain.get_message_request_fee_metadata(hash).await,
+						Self::$name(chain) => chain.query_request_fee_metadata(hash).await,
 					)*
 				}
 			}
 
-            async fn initialize_nonce(&self) -> Result<primitives::NonceProvider, anyhow::Error> {
+			async fn set_latest_finalized_height<P: primitives::IsmpProvider + 'static>(&mut self, counterparty: &P) -> Result<(), anyhow::Error>  {
                 match self {
 					$(
 						$(#[$($meta)*])*
-						Self::$name(chain) => chain.initialize_nonce().await,
-					)*
-				}
-            }
-
-            async fn query_message_response_fee_metadata(&self, hash: ethers::types::H256) -> Result<ethers::types::U256, anyhow::Error> {
-                match self {
-					$(
-						$(#[$($meta)*])*
-						Self::$name(chain) => chain.query_message_response_fee_metadata(hash).await,
+						Self::$name(chain) => chain.set_latest_finalized_height(counterparty).await,
 					)*
 				}
 			}
 
-			 fn set_nonce_provider(&mut self, nonce_provider: primitives::NonceProvider) {
+            async fn query_response_fee_metadata(&self, hash: ethers::types::H256) -> Result<ethers::types::U256, anyhow::Error> {
                 match self {
 					$(
 						$(#[$($meta)*])*
-						Self::$name(chain) => chain.set_nonce_provider(nonce_provider),
+						Self::$name(chain) => chain.query_response_fee_metadata(hash).await,
 					)*
 				}
-            }
-
-
+			}
 
             async fn state_machine_update_notification(
                 &self,
@@ -299,7 +287,7 @@ macro_rules! chain {
 				}
             }
 
-            async fn submit(&self, messages: Vec<ismp::messaging::Message>) -> Result<(), anyhow::Error> {
+            async fn submit(&self, messages: Vec<ismp::messaging::Message>) -> Result<Vec<primitives::TxReceipt>, anyhow::Error> {
                 match self {
 					$(
 						$(#[$($meta)*])*
@@ -308,7 +296,7 @@ macro_rules! chain {
 				}
             }
 
-            fn request_commitment_full_key(&self, commitment: sp_core::H256) -> Vec<u8> {
+            fn request_commitment_full_key(&self, commitment: sp_core::H256) -> Vec<Vec<u8>> {
                 match self {
 					$(
 						$(#[$($meta)*])*
@@ -317,7 +305,7 @@ macro_rules! chain {
 				}
             }
 
-	        fn request_receipt_full_key(&self, commitment: sp_core::H256) -> Vec<u8> {
+	        fn request_receipt_full_key(&self, commitment: sp_core::H256) -> Vec<Vec<u8>> {
                 match self {
 					$(
 						$(#[$($meta)*])*
@@ -326,7 +314,7 @@ macro_rules! chain {
 				}
             }
 
-	        fn response_commitment_full_key(&self, commitment: sp_core::H256) -> Vec<u8> {
+	        fn response_commitment_full_key(&self, commitment: sp_core::H256) -> Vec<Vec<u8>> {
                 match self {
 					$(
 						$(#[$($meta)*])*
@@ -335,7 +323,7 @@ macro_rules! chain {
 				}
             }
 
-	        fn response_receipt_full_key(&self, commitment: sp_core::H256) -> Vec<u8> {
+	        fn response_receipt_full_key(&self, commitment: sp_core::H256) -> Vec<Vec<u8>> {
                 match self {
 					$(
 						$(#[$($meta)*])*
@@ -376,6 +364,15 @@ macro_rules! chain {
 					$(
 						$(#[$($meta)*])*
 						Self::$name(chain) => chain.freeze_state_machine(id).await,
+					)*
+				}
+			}
+
+			async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error> {
+				match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.query_host_manager_address().await,
 					)*
 				}
 			}

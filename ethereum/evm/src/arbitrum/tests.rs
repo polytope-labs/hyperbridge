@@ -1,10 +1,13 @@
-use crate::{mock::Host, EvmConfig};
+use crate::EvmConfig;
 use alloy_primitives::{Address, Bytes, U256};
 use alloy_rlp::Decodable;
 use geth_primitives::Header;
 use ismp_sync_committee::arbitrum::verify_arbitrum_payload;
 
-use crate::arbitrum::client::{ArbConfig, ArbHost, HostConfig};
+use crate::{
+	arbitrum::client::{ArbConfig, ArbHost, HostConfig},
+	mock::Host,
+};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use ethabi::ethereum_types::{H160, H256};
 use ethers::{providers::Middleware, utils::keccak256};
@@ -18,11 +21,10 @@ async fn test_payload_proof_verification() {
 	dotenv::dotenv().ok();
 	let arb_url = std::env::var("ARB_URL").expect("ARB_URL must be set.");
 	let geth_url = std::env::var("GETH_URL").expect("GETH_URL must be set.");
-	let host =
-		HostConfig { beacon_execution_ws: geth_url, rollup_core: H160::from_slice(&ROLLUP_CORE) };
+	let host = HostConfig { beacon_rpc_url: geth_url, rollup_core: H160::from_slice(&ROLLUP_CORE) };
 	let config = ArbConfig {
 		host: Some(host.clone()),
-		evm_config: EvmConfig { execution_ws: arb_url, ..Default::default() },
+		evm_config: EvmConfig { rpc_url: arb_url, ..Default::default() },
 	};
 
 	let arb_client = ArbHost::new(&host, &config.evm_config).await.expect("Host creation failed");

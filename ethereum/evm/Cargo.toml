@@ -23,11 +23,13 @@ hex-literal = { version ="0.4.1"}
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 sp-core = { workspace = true,  features = ["full_crypto"] }
 log = "0.4.19"
-ethers = { workspace = true, features = ["ws"] }
+ethers = { workspace = true, features = ["rustls"] }
 ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
 tokio = { version = "1.32.0", features = ["macros", "sync"] }
 tokio-stream = "0.1.14"
 frame-support = { workspace = true }
+reqwest-retry = "0.3.0"
+reqwest-middleware = "0.2.4"
 
 ismp-solidity-abi.workspace = true
 beefy-verifier-primitives.workspace = true
@@ -37,14 +39,16 @@ ismp-rpc.workspace = true
 geth-primitives.workspace = true
 ismp-sync-committee.workspace = true
 ethereum-trie.workspace = true
+mmr-utils.workspace = true
 
 tesseract-primitives = { path = "../../primitives" }
+debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
 
 trie-db = { version= "0.24.0", default-features = false }
 hash-db = { version = "0.15.2", default-features = false }
 
 merkle-mountain-range = { workspace = true }
-reconnecting-jsonrpsee-ws-client = "0.2.0"
+reconnecting-jsonrpsee-ws-client.workspace = true
 jsonrpsee = { version = "0.21", features = ["ws-client"]}
 
 [dev-dependencies]

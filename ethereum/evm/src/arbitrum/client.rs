@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use ethabi::ethereum_types::U256;
 use ethers::{
 	prelude::Provider,
-	providers::{Middleware, Ws},
+	providers::{Http, Middleware},
 	types::{H160, H256},
 };
 use geth_primitives::CodecHeader;
@@ -26,8 +26,8 @@ pub struct ArbConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostConfig {
-	/// WS URL url for beacon execution client
-	pub beacon_execution_ws: String,
+	/// RPC url for beacon execution client
+	pub beacon_rpc_url: String,
 	/// RollupCore contract address on L1
 	pub rollup_core: H160,
 }
@@ -53,9 +53,9 @@ impl ArbConfig {
 #[derive(Clone)]
 pub struct ArbHost {
 	/// Arbitrum execution client
-	pub(crate) arb_execution_client: Arc<Provider<Ws>>,
+	pub(crate) arb_execution_client: Arc<Provider<Http>>,
 	/// Beacon execution client
-	pub(crate) beacon_execution_client: Arc<Provider<Ws>>,
+	pub(crate) beacon_execution_client: Arc<Provider<Http>>,
 	/// Rollup core contract address
 	pub(crate) rollup_core: H160,
 	/// Host config
@@ -68,9 +68,9 @@ pub struct ArbHost {
 
 impl ArbHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
-		let provider = Provider::<Ws>::connect_with_reconnects(&evm.execution_ws, 1000).await?;
-		let beacon_client =
-			Provider::<Ws>::connect_with_reconnects(&host.beacon_execution_ws, 1000).await?;
+		let provider = Provider::<Http>::try_from(&evm.rpc_url)?;
+		let beacon_client = Provider::<Http>::try_from(&host.beacon_rpc_url)?;
+
 		Ok(Self {
 			arb_execution_client: Arc::new(provider),
 			beacon_execution_client: Arc::new(beacon_client),

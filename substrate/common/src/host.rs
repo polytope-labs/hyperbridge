@@ -79,11 +79,11 @@ where
 			.await
 	}
 
-	async fn get_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
 		self.host
 			.as_ref()
 			.ok_or_else(|| anyhow!("Host not initialized"))?
-			.get_initial_consensus_state()
+			.query_initial_consensus_state()
 			.await
 	}
 }
@@ -100,7 +100,6 @@ impl<T: IsmpHost + Clone, C: subxt::Config> Clone for SubstrateClient<T, C> {
 			address: self.address.clone(),
 			initial_height: self.initial_height,
 			config: self.config.clone(),
-			nonce_provider: self.nonce_provider.clone(),
 		}
 	}
 }

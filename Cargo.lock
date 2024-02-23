@@ -5796,6 +5796,7 @@ dependencies = [
  "envy",
  "ethers",
  "forge-testsuite",
+ "foundry-evm",
  "futures",
  "hex",
  "hex-literal 0.4.1",

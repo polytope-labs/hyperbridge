@@ -11,4 +11,8 @@ contract FeeToken is ERC20 {
     function superApprove(address owner, address spender) public {
         _approve(owner, spender, type(uint256).max);
     }
+
+    function mint(address beneficiary, uint256 amount) public {
+        _mint(beneficiary, amount);
+    }
 }

@@ -338,7 +338,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the parameters for withdrawal
      */
     function withdraw(WithdrawParams memory params) external onlyManager {
-        IERC20(dai()).transfer(params.beneficiary, params.amount);
+        require(IERC20(dai()).transfer(params.beneficiary, params.amount), "Host has an insufficient balance");
     }
 
     /**

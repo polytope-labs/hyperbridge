@@ -41,3 +41,4 @@ beefy-prover = { path = "../../modules/consensus/beefy/prover", default-features
 beefy-verifier-primitives = { path = "../../modules/consensus/beefy/primitives" }
 
 rs_merkle = { git = "https://github.com/polytope-labs/rs-merkle", branch = "seun/2d-merkle-proofs" }
+foundry-evm = { git = "https://github.com/polytope-labs/foundry", rev = "068ef4d82e8421f9f96fdc33b061dc4848b7019a" }

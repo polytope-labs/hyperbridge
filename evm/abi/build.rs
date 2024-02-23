@@ -3,9 +3,11 @@ use forge_testsuite::Runner;
 use std::{env, path::PathBuf};
 
 fn main() -> anyhow::Result<()> {
-    if cfg!(feature = "build-abi") {
+    let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
+
+    #[cfg(feature = "build-abi")]
+    {
         // first compile the project.
-        let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
 
         let _ = Runner::new(PathBuf::from(&base_dir));
 
@@ -23,9 +25,9 @@ fn main() -> anyhow::Result<()> {
             .unwrap()
             .write_to_module(format!("{base_dir}/abi/src/generated"), false)
             .unwrap();
-
-        println!("cargo:rerun-if-changed={base_dir}/out");
     }
+
+    println!("cargo:rerun-if-changed={base_dir}/out");
 
     Ok(())
 }

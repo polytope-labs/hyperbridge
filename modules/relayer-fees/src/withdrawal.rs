@@ -2,7 +2,7 @@ use alloy_primitives::{Address, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use codec::{Decode, Encode};
 use ismp::{host::StateMachine, messaging::Proof};
-use sp_core::{H256, U256};
+use sp_core::{H160, H256, U256};
 use sp_std::prelude::*;
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
@@ -66,10 +66,30 @@ pub struct WithdrawalParams {
 impl WithdrawalParams {
     pub fn abi_encode(&self) -> Vec<u8> {
         let mut data = vec![0];
-        data.extend_from_slice(&self.beneficiary_address);
-        let mut bytes = [0u8; 32];
-        self.amount.to_big_endian(&mut bytes);
-        data.extend_from_slice(&bytes);
+        let tokens = [
+            ethabi::Token::Address(H160::from_slice(&self.beneficiary_address)),
+            ethabi::Token::Uint(self.amount),
+        ];
+        let params = ethabi::encode(&tokens);
+        data.extend_from_slice(&params);
         data
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::withdrawal::WithdrawalParams;
+    use ethabi::ethereum_types::H160;
+    use sp_core::U256;
+    #[test]
+    fn check_decoding() {
+        let params = WithdrawalParams {
+            beneficiary_address: H160::random().0.to_vec(),
+            amount: U256::from(500_00_000_000u128),
+        };
+
+        let encoding = params.abi_encode();
+
+        assert_eq!(encoding.len(), 65);
     }
 }

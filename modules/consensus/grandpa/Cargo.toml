@@ -14,8 +14,8 @@ finality-grandpa = { version = "0.16.0", features = ["derive-codec"], default-fe
 
 # polytope labs
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main", default-features = false }
-primitives = { package = "ismp-grandpa-primitives", path = "./primitives", default-features = false }
-verifier = { package = "ismp-grandpa-verifier", path = "./verifier", default-features = false}
+primitives = { package = "ismp-grandpa-primitives", path = "primitives", default-features = false }
+verifier = { package = "ismp-grandpa-verifier", path = "verifier", default-features = false}
 pallet-ismp = { path = "../pallet-ismp", default-features = false }
 
 

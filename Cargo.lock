@@ -5305,7 +5305,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -5806,6 +5806,7 @@ dependencies = [
  "mmr-utils",
  "once_cell",
  "pallet-ismp",
+ "pallet-relayer-fees",
  "parity-scale-codec",
  "primitive-types",
  "rs_merkle",

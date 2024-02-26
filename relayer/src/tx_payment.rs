@@ -46,7 +46,7 @@ pub struct AccumulateFees {
 
 impl AccumulateFees {
 	/// Accumulate fees accrued through deliveries from source to dest and dest to source
-	pub async fn accumulate_fees(&self, config_path: String) -> anyhow::Result<()> {
+	pub async fn accumulate_fees(&self, config_path: String, db: String) -> anyhow::Result<()> {
 		logging::setup()?;
 		let config = HyperbridgeConfig::parse_conf(&config_path).await?;
 
@@ -62,7 +62,7 @@ impl AccumulateFees {
 
 		let clients = create_client_map(config).await?;
 
-		let tx_payment = TransactionPayment::initialize().await?;
+		let tx_payment = TransactionPayment::initialize(&db).await?;
 		log::info!("Initialized database");
 		let source_chain =
 			StateMachine::from_str(&self.source).expect("Invalid Source State Machine provided");

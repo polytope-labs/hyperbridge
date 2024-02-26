@@ -40,6 +40,11 @@ pub struct Cli {
 	#[arg(short, long)]
 	pub config: String,
 
+	/// Path to the relayer database file
+	/// e.g /home/root/dev.db
+	#[arg(short, long)]
+	pub db: String,
+
 	/// Should we initialize the relevant consensus states on Eth chains?
 	#[arg(short, long)]
 	setup_eth: bool,
@@ -122,7 +127,7 @@ impl Cli {
 				log::warn!("Setting the minimum_profit_percentage=0 is not reccomended in live environments!");
 			}
 			let tx_payment = Arc::new(
-				TransactionPayment::initialize()
+				TransactionPayment::initialize(&self.db)
 					.await
 					.map_err(|err| anyhow!("Error initializing database: {err:?}"))?,
 			);

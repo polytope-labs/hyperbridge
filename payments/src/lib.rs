@@ -4,9 +4,9 @@
 #![allow(unused)]
 use crate::db::{
 	deliveries::{Data, WhereParam},
-	new_client,
+	new_client_with_url,
 	read_filters::{IntFilter, StringFilter},
-	PrismaClient,
+	PrismaClient, PrismaClientBuilder,
 };
 use anyhow::anyhow;
 use codec::Encode;
@@ -38,8 +38,9 @@ pub struct TransactionPayment {
 
 impl TransactionPayment {
 	/// Create the local database if it does not exist
-	pub async fn initialize() -> anyhow::Result<Self> {
-		let client = new_client().await?;
+	pub async fn initialize(url: &str) -> anyhow::Result<Self> {
+		let url = format!("file:{}", url);
+		let client = new_client_with_url(&url).await?;
 		#[cfg(debug_assertions)]
 		client._db_push().await?;
 		#[cfg(not(debug_assertions))]

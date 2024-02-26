@@ -10,7 +10,7 @@ use tesseract_primitives::{mocks::MockHost, Hasher, Query, TxReceipt};
 
 #[tokio::test]
 async fn transaction_payments_flow() {
-	let tx_payment = TransactionPayment::initialize().await.unwrap();
+	let tx_payment = TransactionPayment::initialize("./dev.db").await.unwrap();
 	let receipts = (0..500).into_iter().map(|i| {
 		let post = Post {
 			source: StateMachine::Bsc,

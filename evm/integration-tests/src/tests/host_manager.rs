@@ -5,13 +5,10 @@ use ismp::{
     host::{Ethereum, StateMachine},
     router::Post,
 };
-use ismp_solidity_abi::{
-    evm_host::{HostParams},
-    shared_types::PostRequest,
-};
+use ismp_solidity_abi::{evm_host::HostParams, shared_types::PostRequest};
+use pallet_relayer_fees::withdrawal::WithdrawalParams;
 use primitive_types::{H160, U256};
 use std::{env, path::PathBuf};
-use pallet_relayer_fees::withdrawal::WithdrawalParams;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_host_manager_withdraw() -> Result<(), anyhow::Error> {

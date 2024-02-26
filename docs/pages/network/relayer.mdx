@@ -43,7 +43,7 @@ Unavailable at this time.
 Tesseract is available at the official docker repository [`polytopelabs/tesseract`](https://hub.docker.com/r/polytopelabs/tesseract)
 
 ```bash
-docker run polytopelabs/tesseract:latest --config=/path/to/config
+docker run polytopelabs/tesseract:latest --config=/path/to/config --db=/path/to/database
 ```
 
 ### Building from source?
@@ -58,11 +58,11 @@ At the minimum, the hyperbridge relayer should be run on a machine with at least
 
 ## Running the relayer
 
-The tesseract relayer command line interface expects only a single argument, which is the path to it's configuration file. Because it resides in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration file on your host into the docker conatiner.
+The tesseract relayer command line interface expects two arguments, which are the paths to it's configuration file and database file. Because it resides in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration and database files on your host into the docker conatiner.
 
 
 ```bash
-docker run -v /dir/to/config/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml
+docker run -v /dir/to/config_and_database/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db
 
 ```
 
@@ -188,3 +188,28 @@ delivery_endpoints = [
 You can find the up-to-date contract addresses for the handler & ismp_host contracts [here](/evm/integration#gargantua-v2)
 
 ### Withdrawing Fees
+
+The relayer software maintains a local sqlite database where it keeps track of successfully delivered messages. The withdrawal process happens in two phases, the first phase is the fee accumulation on hyperbridge, then withdrawal on any of the connected chains.
+The relayer can submit a withdrawal request from hyperbridge to any of the chains where they have unclaimed fees, an ISMP Post request with instructions to credit the relayer on the destination chain is dispatched, the request has a timeout of zero, allowing it to be submitted to the destination at any time in the future without any risk of timing out.
+
+#### Accumulating fees on Hyperbridge
+Stop any running relayer instances, run the following command in the terminal and wait for it to complete. The command will submit proofs for messages delivered in both directions.
+
+```bash
+    docker run -v /dir/to/config_and_database/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --source <CHAIN> --dest <CHAIN>
+```
+
+`<CHAIN>` can be anyone of `OPTI`, `BASE`, `ARBI`, `BSC`, `ETHE`
+
+#### Initiating withdrawal from hyperbridge
+To initiate a withdrawal from hyperbridge, a relayer needs to submit a `withdraw` transaction to hyperbridge, The transaction takes a `WithdrawalInputData`, this value contains, the amount to be withdrawn, the destination chain and a signature that proves ownership of the account that will be debited.
+
+It is possible to use the relayer software to accumulate fees and initiate the withdrawal process with one command, for this to work, the relayer account must have sufficient funds to pay the transaction delivery fees on both chains.
+To use this feature run the following command:
+
+```bash
+    docker run -v /dir/to/config_and_database/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --source <CHAIN> --dest <CHAIN> --withdraw
+```
+
+You can find the code that implements fee accumulation and withdrawals [here](https://github.com/polytope-labs/hyperbridge/blob/c3e940c60b718eaf5ac02a96c4801814a555dcf7/modules/relayer-fees/src/lib.rs#L120)
+

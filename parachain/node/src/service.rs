@@ -24,6 +24,7 @@ use crate::runtime_api::{opaque, BaseHostRuntimeApis};
 
 // Cumulus Imports
 use cumulus_client_collator::service::CollatorService;
+use cumulus_client_consensus_aura::collators::lookahead;
 use cumulus_client_consensus_common::ParachainBlockImport as TParachainBlockImport;
 use cumulus_client_consensus_proposer::Proposer;
 use cumulus_client_service::{
@@ -34,7 +35,6 @@ use cumulus_primitives_core::{relay_chain::CollatorPair, ParaId};
 use cumulus_relay_chain_interface::{OverseerHandle, RelayChainInterface};
 use polkadot_primitives::ValidationCode;
 // Substrate Imports
-use crate::cli::Cli;
 use frame_benchmarking_cli::SUBSTRATE_REFERENCE_HARDWARE;
 use sc_client_api::Backend;
 use sc_consensus::ImportQueue;
@@ -194,7 +194,6 @@ async fn start_node_impl<Runtime, Executor>(
     collator_options: CollatorOptions,
     para_id: ParaId,
     hwbench: Option<sc_sysinfo::HwBench>,
-    cli: Cli,
 ) -> sc_service::error::Result<TaskManager>
 where
     Runtime:
@@ -380,7 +379,6 @@ where
             collator_key.expect("Command line arguments do not allow this. qed"),
             overseer_handle,
             announce_block,
-            cli,
         )?;
     }
 
@@ -445,7 +443,6 @@ fn start_consensus<Runtime, Executor>(
     collator_key: CollatorPair,
     overseer_handle: OverseerHandle,
     announce_block: Arc<dyn Fn(opaque::Hash, Option<Vec<u8>>) + Send + Sync>,
-    cli: Cli,
 ) -> Result<(), sc_service::Error>
 where
     Runtime:
@@ -477,80 +474,42 @@ where
         client.clone(),
     );
 
-    if cli.async_backing {
-        use cumulus_client_consensus_aura::collators::lookahead;
+    let params = lookahead::Params {
+        create_inherent_data_providers: move |_, ()| async move { Ok(()) },
+        block_import,
+        para_client: client.clone(),
+        para_backend: backend,
+        relay_client: relay_chain_interface,
+        code_hash_provider: move |hash| {
+            client.code_at(hash).ok().map(ValidationCode).map(|c| c.hash())
+        },
+        sync_oracle,
+        keystore,
+        collator_key,
+        para_id,
+        overseer_handle,
+        slot_duration,
+        relay_chain_slot_duration,
+        proposer,
+        collator_service,
+        // Async backing time
+        authoring_duration: Duration::from_millis(1500),
+    };
 
-        let params = lookahead::Params {
-            create_inherent_data_providers: move |_, ()| async move { Ok(()) },
-            block_import,
-            para_client: client.clone(),
-            para_backend: backend,
-            relay_client: relay_chain_interface,
-            code_hash_provider: move |hash| {
-                client.code_at(hash).ok().map(ValidationCode).map(|c| c.hash())
-            },
-            sync_oracle,
-            keystore,
-            collator_key,
-            para_id,
-            overseer_handle,
-            slot_duration,
-            relay_chain_slot_duration,
-            proposer,
-            collator_service,
-            // Async backing time
-            authoring_duration: Duration::from_millis(1500),
-        };
-
-        let fut = lookahead::run::<
-            opaque::Block,
-            sp_consensus_aura::sr25519::AuthorityPair,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-        >(params);
-        task_manager.spawn_essential_handle().spawn("aura", None, fut);
-    } else {
-        use cumulus_client_consensus_aura::collators::basic;
-
-        let params = basic::Params {
-            create_inherent_data_providers: move |_, ()| async move { Ok(()) },
-            block_import,
-            para_client: client.clone(),
-            relay_client: relay_chain_interface,
-            sync_oracle,
-            keystore,
-            collator_key,
-            para_id,
-            overseer_handle,
-            slot_duration,
-            relay_chain_slot_duration,
-            proposer,
-            collator_service,
-            // Very limited proposal time.
-            authoring_duration: Duration::from_millis(500),
-            collation_request_receiver: None,
-        };
-
-        let fut = basic::run::<
-            opaque::Block,
-            sp_consensus_aura::sr25519::AuthorityPair,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-        >(params);
-        task_manager.spawn_essential_handle().spawn("aura", None, fut);
-    }
+    let fut = lookahead::run::<
+        opaque::Block,
+        sp_consensus_aura::sr25519::AuthorityPair,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+    >(params);
+    task_manager.spawn_essential_handle().spawn("aura", None, fut);
 
     Ok(())
 }
@@ -562,7 +521,6 @@ pub async fn start_parachain_node(
     collator_options: CollatorOptions,
     para_id: ParaId,
     hwbench: Option<sc_sysinfo::HwBench>,
-    cli: Cli,
 ) -> sc_service::error::Result<TaskManager> {
     match parachain_config.chain_spec.id() {
         chain if chain.contains("gargantua") =>
@@ -572,7 +530,6 @@ pub async fn start_parachain_node(
                 collator_options,
                 para_id,
                 hwbench,
-                cli,
             )
             .await,
         chain if chain.contains("messier") =>
@@ -582,7 +539,6 @@ pub async fn start_parachain_node(
                 collator_options,
                 para_id,
                 hwbench,
-                cli,
             )
             .await,
         chain => panic!("Unknown chain with id: {}", chain),

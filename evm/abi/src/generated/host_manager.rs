@@ -16,7 +16,7 @@ pub mod host_manager {
         ::ethers::core::abi::ethabi::Contract {
             constructor: ::core::option::Option::Some(::ethers::core::abi::ethabi::Constructor {
                 inputs: ::std::vec![::ethers::core::abi::ethabi::Param {
-                    name: ::std::borrow::ToOwned::to_owned("params"),
+                    name: ::std::borrow::ToOwned::to_owned("managerParams"),
                     kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
                         ::ethers::core::abi::ethabi::ParamType::Address,
                         ::ethers::core::abi::ethabi::ParamType::Address,
@@ -207,6 +207,26 @@ pub mod host_manager {
                     },],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("params"),
+                    ::std::vec![::ethers::core::abi::ethabi::Function {
+                        name: ::std::borrow::ToOwned::to_owned("params"),
+                        inputs: ::std::vec![],
+                        outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::string::String::new(),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Tuple(::std::vec![
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                                ::ethers::core::abi::ethabi::ParamType::Address,
+                                ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                            ],),
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("struct HostManagerParams"),
+                            ),
+                        },],
+                        constant: ::core::option::Option::None,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                    },],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("setIsmpHost"),
                     ::std::vec![::ethers::core::abi::ethabi::Function {
                         name: ::std::borrow::ToOwned::to_owned("setIsmpHost"),
@@ -315,6 +335,12 @@ pub mod host_manager {
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
                 .method_hash([18, 178, 82, 79], (p0,))
+                .expect("method not found (this should never happen)")
+        }
+        ///Calls the contract's `params` (0xcff0ab96) function
+        pub fn params(&self) -> ::ethers::contract::builders::ContractCall<M, HostManagerParams> {
+            self.0
+                .method_hash([207, 240, 171, 150], ())
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `setIsmpHost` (0x0e8324a2) function
@@ -441,6 +467,20 @@ pub mod host_manager {
         abi = "onPostResponseTimeout(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))"
     )]
     pub struct OnPostResponseTimeoutCall(pub PostResponse);
+    ///Container type for all input parameters for the `params` function with signature `params()`
+    /// and selector `0xcff0ab96`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(name = "params", abi = "params()")]
+    pub struct ParamsCall;
     ///Container type for all input parameters for the `setIsmpHost` function with signature
     /// `setIsmpHost(address)` and selector `0x0e8324a2`
     #[derive(
@@ -466,6 +506,7 @@ pub mod host_manager {
         OnPostRequestTimeout(OnPostRequestTimeoutCall),
         OnPostResponse(OnPostResponseCall),
         OnPostResponseTimeout(OnPostResponseTimeoutCall),
+        Params(ParamsCall),
         SetIsmpHost(SetIsmpHostCall),
     }
     impl ::ethers::core::abi::AbiDecode for HostManagerCalls {
@@ -499,6 +540,9 @@ pub mod host_manager {
             {
                 return Ok(Self::OnPostResponseTimeout(decoded));
             }
+            if let Ok(decoded) = <ParamsCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+                return Ok(Self::Params(decoded));
+            }
             if let Ok(decoded) = <SetIsmpHostCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::SetIsmpHost(decoded));
             }
@@ -516,6 +560,7 @@ pub mod host_manager {
                 Self::OnPostResponse(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::OnPostResponseTimeout(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
+                Self::Params(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::SetIsmpHost(element) => ::ethers::core::abi::AbiEncode::encode(element),
             }
         }
@@ -529,6 +574,7 @@ pub mod host_manager {
                 Self::OnPostRequestTimeout(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnPostResponse(element) => ::core::fmt::Display::fmt(element, f),
                 Self::OnPostResponseTimeout(element) => ::core::fmt::Display::fmt(element, f),
+                Self::Params(element) => ::core::fmt::Display::fmt(element, f),
                 Self::SetIsmpHost(element) => ::core::fmt::Display::fmt(element, f),
             }
         }
@@ -563,9 +609,43 @@ pub mod host_manager {
             Self::OnPostResponseTimeout(value)
         }
     }
+    impl ::core::convert::From<ParamsCall> for HostManagerCalls {
+        fn from(value: ParamsCall) -> Self {
+            Self::Params(value)
+        }
+    }
     impl ::core::convert::From<SetIsmpHostCall> for HostManagerCalls {
         fn from(value: SetIsmpHostCall) -> Self {
             Self::SetIsmpHost(value)
         }
+    }
+    ///Container type for all return fields from the `params` function with signature `params()`
+    /// and selector `0xcff0ab96`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct ParamsReturn(pub HostManagerParams);
+    ///`HostManagerParams(address,address,uint256)`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct HostManagerParams {
+        pub admin: ::ethers::core::types::Address,
+        pub host: ::ethers::core::types::Address,
+        pub para_id: ::ethers::core::types::U256,
     }
 }

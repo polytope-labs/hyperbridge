@@ -5,10 +5,8 @@ use ismp::{
     host::{Ethereum, StateMachine},
     router::Post,
 };
-use ismp_solidity_abi::{
-    evm_host::{HostParams, WithdrawParams},
-    shared_types::PostRequest,
-};
+use ismp_solidity_abi::{evm_host::HostParams, shared_types::PostRequest};
+use pallet_relayer_fees::withdrawal::WithdrawalParams;
 use primitive_types::{H160, U256};
 use std::{env, path::PathBuf};
 
@@ -18,12 +16,11 @@ async fn test_host_manager_withdraw() -> Result<(), anyhow::Error> {
     let mut runner = Runner::new(PathBuf::from(&base_dir));
     let mut contract = runner.deploy("HostManagerTest").await;
 
-    let params = WithdrawParams {
-        beneficiary: H160::random(),
+    let params = WithdrawalParams {
+        beneficiary_address: H160::random().as_bytes().to_vec(),
         amount: U256::from(500_000_000_000_000_000_000u128),
     };
-    let mut data = vec![0u8];
-    data.extend_from_slice(params.encode().as_slice());
+    let data = params.abi_encode();
 
     // create post request object
     let post = Post {
@@ -51,12 +48,11 @@ async fn test_host_manager_unauthorized_request() -> Result<(), anyhow::Error> {
     let mut runner = Runner::new(PathBuf::from(&base_dir));
     let mut contract = runner.deploy("HostManagerTest").await;
 
-    let params = WithdrawParams {
-        beneficiary: H160::random(),
+    let params = WithdrawalParams {
+        beneficiary_address: H160::random().as_bytes().to_vec(),
         amount: U256::from(500_000_000_000_000_000_000u128),
     };
-    let mut data = vec![0u8];
-    data.extend_from_slice(params.encode().as_slice());
+    let data = params.abi_encode();
 
     // create post request object
     let post = Post {
@@ -93,12 +89,11 @@ async fn test_host_manager_insufficient_balance() -> Result<(), anyhow::Error> {
     let mut runner = Runner::new(PathBuf::from(&base_dir));
     let mut contract = runner.deploy("HostManagerTest").await;
 
-    let params = WithdrawParams {
-        beneficiary: H160::random(),
+    let params = WithdrawalParams {
+        beneficiary_address: H160::random().as_bytes().to_vec(),
         amount: U256::from(500_000_000_000_000_000_000u128),
     };
-    let mut data = vec![0u8];
-    data.extend_from_slice(params.encode().as_slice());
+    let data = params.abi_encode();
 
     // create post request object
     let post = Post {

@@ -194,7 +194,8 @@ You can find the up-to-date contract addresses for the handler & ismp_host contr
 ### Withdrawing Fees
 
 The relayer software maintains a local sqlite database where it keeps track of successfully delivered messages. The withdrawal process happens in two phases, the first phase is the fee accumulation on hyperbridge, then withdrawal on any of the connected chains.
-The relayer can submit a withdrawal request from hyperbridge to any of the chains where they have unclaimed fees, an ISMP Post request with instructions to credit the relayer on the destination chain is dispatched, the request has a timeout of zero, allowing it to be submitted to the destination at any time in the future without any risk of timing out.
+<br />
+The relayer can submit a withdrawal request from hyperbridge to any of the chains where it has unclaimed fees, an ISMP Post request with instructions to credit the relayer on the destination chain is dispatched, the request has a timeout of zero allowing it to be submitted to the destination at any time in the future without any risk of timing out.
 
 #### Accumulating fees on Hyperbridge
 Stop any running relayer instances, run the following command in the terminal and wait for it to complete. The command will submit proofs for messages delivered in both directions.
@@ -207,8 +208,9 @@ Stop any running relayer instances, run the following command in the terminal an
 
 #### Initiating withdrawal from hyperbridge
 To initiate a withdrawal from hyperbridge, a relayer needs to submit a `withdraw_fees` transaction from the `RelayerFees` pallet on hyperbridge, The transaction takes a `WithdrawalInputData`, this value contains, the amount to be withdrawn, the destination chain and a signature that proves ownership of the account that will be debited.
-
+<br />
 It is possible to use the relayer software to accumulate fees and initiate the withdrawal process with one command, for this to work, the relayer account must have sufficient funds to pay the transaction delivery fees on both chains.
+<br />
 To use this feature run the following command:
 
 ```bash

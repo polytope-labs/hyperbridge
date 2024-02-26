@@ -202,7 +202,7 @@ Stop any running relayer instances, run the following command in the terminal an
 `<CHAIN>` can be anyone of `OPTI`, `BASE`, `ARBI`, `BSC`, `ETHE`
 
 #### Initiating withdrawal from hyperbridge
-To initiate a withdrawal from hyperbridge, a relayer needs to submit a `withdraw` transaction to hyperbridge, The transaction takes a `WithdrawalInputData`, this value contains, the amount to be withdrawn, the destination chain and a signature that proves ownership of the account that will be debited.
+To initiate a withdrawal from hyperbridge, a relayer needs to submit a `withdraw_fees` transaction from the `RelayerFees` pallet on hyperbridge, The transaction takes a `WithdrawalInputData`, this value contains, the amount to be withdrawn, the destination chain and a signature that proves ownership of the account that will be debited.
 
 It is possible to use the relayer software to accumulate fees and initiate the withdrawal process with one command, for this to work, the relayer account must have sufficient funds to pay the transaction delivery fees on both chains.
 To use this feature run the following command:

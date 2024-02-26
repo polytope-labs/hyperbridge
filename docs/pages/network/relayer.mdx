@@ -72,6 +72,7 @@ The configuration file is a toml file that at the moment expects the following c
 
 
 ```toml
+# Hyperbridge config, required
 [hyperbridge]
 # Hyperbridge chain spec, either one of Dev, Gargantua or Messier
 chain = "Dev"
@@ -168,6 +169,7 @@ ismp_host = ""
 # hex-encoded private key for the relayer
 signer = ""
 
+# Relayer config, required
 [relayer]
 # Hyperbridge chain spec, either one of Dev, Gargantua or Messier
 chain = "Dev"
@@ -184,6 +186,8 @@ delivery_endpoints = [
     "Bsc"
 ]
 ```
+
+It is optional to provide the configuration option for any of the connected chains, The only consequence is your relayer will not deliver requests from the ommitted chain as it has no way of querying the associated fees for requests originating from this chain.
 
 You can find the up-to-date contract addresses for the handler & ismp_host contracts [here](/evm/integration#gargantua-v2)
 

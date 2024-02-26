@@ -41,6 +41,10 @@ members = [
      "evm/abi",
      "modules/relayer-fees",
      "modules/trees/mmr",
+
+
+     # hyper-client 
+     "client"
 ]
 
 # Config for 'cargo dist'

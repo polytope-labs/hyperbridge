@@ -1,0 +1,30 @@
+[package]
+name = "hyperclient"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+wasm-bindgen = { version = "0.2.90", features = [] }
+ismp = { path = "../modules/ismp/core", default-features = true}
+subxt = { version = "0.30.1", default-features = false, features = ["web", "jsonrpsee"] }
+getrandom = { version = "0.2", features = ["js"] }
+ethers = { version = "2.0.11", features = ["ws"], default-features = false}
+anyhow = "1.0.75"
+hex-literal = { version = "0.3.3" }
+serde-wasm-bindgen = { version = "0.6.3", default-features = false }
+serde = { version = "1.0.196", features = ["derive"] }
+wasm-bindgen-futures = "0.4.40"
+sp-core = { version = "28.0.0", default-features = false, features = ["full_crypto", "serde"] }
+codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
+async-trait = { version = "0.1.53", features = [] }
+futures = "0.3.30"
+debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
+wasm-streams = "0.4.0"
+tokio = { version = "1.35.1"  }
+reqwest = { version = "0.11.23", features = ["json"] }
+wasm-bindgen-test = "0.3.41"
+js-sys = "0.3.68"
+web-sys = "0.3.67"
+gloo-timers = { version = "0.3.0", features = ["futures"] }

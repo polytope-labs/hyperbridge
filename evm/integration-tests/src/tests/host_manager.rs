@@ -145,7 +145,7 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
         last_updated: Default::default(),
         latest_state_machine_height: Default::default(),
     };
-    let data = vec![1u8];
+    let mut data = vec![1u8];
     data.extend_from_slice(params.encode().as_slice());
 
     // create post request object

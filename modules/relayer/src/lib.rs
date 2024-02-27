@@ -117,15 +117,16 @@ pub mod pallet {
         /// A relayer with the [`address`] has accumulated some fees on the [`state_machine`]
         AccumulateFees {
             /// relayer address
-            address: sp_runtime::BoundedVec<u8, ConstU32<32>>,
+            address: BoundedVec<u8, ConstU32<32>>,
             /// destination state machine
             state_machine: StateMachine,
             /// Amount accumulated
             amount: U256,
         },
+        /// A relayer with the the [`address`] has initiated a withdrawal on the [`state_machine`]
         Withdraw {
             /// relayer address
-            address: sp_runtime::BoundedVec<u8, ConstU32<32>>,
+            address: BoundedVec<u8, ConstU32<32>>,
             /// destination state machine
             state_machine: StateMachine,
             /// Amount withdrawn

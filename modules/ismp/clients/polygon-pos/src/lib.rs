@@ -354,7 +354,7 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
     }
 
     fn state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
-        req_res_receipt_key::<H>(items)
+        req_res_receipt_keys::<H>(items)
     }
 
     fn verify_state_proof(

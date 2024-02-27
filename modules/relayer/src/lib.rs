@@ -114,7 +114,7 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// A relayer with the [`address`] has accumulated some fees on the [`state_machine`]
+        /// A relayer with the `address` has accumulated some fees on the `state_machine`
         AccumulateFees {
             /// relayer address
             address: BoundedVec<u8, ConstU32<32>>,
@@ -123,7 +123,7 @@ pub mod pallet {
             /// Amount accumulated
             amount: U256,
         },
-        /// A relayer with the the [`address`] has initiated a withdrawal on the [`state_machine`]
+        /// A relayer with the the `address` has initiated a withdrawal on the `state_machine`
         Withdraw {
             /// relayer address
             address: BoundedVec<u8, ConstU32<32>>,
@@ -369,9 +369,12 @@ where
             source_result,
             dest_result,
         )?;
+        let mut total_fee = hashbrown::HashMap::<Vec<u8>, U256>::new();
         for (address, fee) in result.clone().into_iter() {
-            let _ = Fees::<T>::try_mutate(state_machine, address, |inner| {
+            let _ = Fees::<T>::try_mutate(state_machine, address.clone(), |inner| {
                 *inner += fee;
+                let inner_fee = total_fee.entry(address).or_insert(U256::zero());
+                *inner_fee += fee;
                 Ok::<(), ()>(())
             });
         }
@@ -388,7 +391,7 @@ where
             Self::deposit_event(Event::<T>::AccumulateFees {
                 address: sp_runtime::BoundedVec::truncate_from(address.to_vec()),
                 state_machine,
-                amount: Fees::<T>::get(state_machine, address),
+                amount: total_fee.remove(address).unwrap_or_default(),
             });
         }
 

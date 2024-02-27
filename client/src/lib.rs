@@ -3,6 +3,7 @@ mod runtime;
 mod types;
 mod internals;
 mod streams;
+mod mock;
 
 
 #[cfg(test)]
@@ -130,9 +131,7 @@ pub async fn timeout_response(
     })?;
 
     let hash = hash_post_response::<Keccak256>(&post_response);
-    let response_destination_timeout = dest_client.host_timestamp().await.unwrap();
-    let response_receipt_relayer =
-        dest_client.query_response_receipts(&hash).await.unwrap().relayer;
+
 
     let dest_state_machine_id = dest_client.state_machine_id().unwrap();
     let source_state_machine_id = source_client.state_machine_id().unwrap();

@@ -139,7 +139,7 @@ async fn test_state_machine_updated_stream_evm() -> Result<(), anyhow::Error> {
 
 #[wasm_bindgen_test]
 async fn test_state_machine_updated_stream_hyperbridge() -> Result<(), anyhow::Error> {
-    let hyper_bridge_client = HyperBridgeClient::new("https://hyperbridge-api.dev".into()).await?;
+    let hyper_bridge_client = HyperBridgeClient::new("ws://192.168.1.197:9988".into()).await?;
     let state_machine_raw = "OPTI";
     let state_machine: StateMachine = StateMachine::from_str(&state_machine_raw).unwrap();
 
@@ -165,6 +165,7 @@ async fn test_state_machine_updated_stream_hyperbridge() -> Result<(), anyhow::E
 #[wasm_bindgen_test]
 async fn test_query_request_status_stream() -> Result<(), anyhow::Error> {
     // create source chain instance 
+    
 
 
     // send post request to destination using source host
@@ -175,5 +176,38 @@ async fn test_query_request_status_stream() -> Result<(), anyhow::Error> {
 
     // assert <>::<>
     
+    Ok(())
+}
+
+
+#[wasm_bindgen_test]
+async fn test_query_request_status() -> Result<(), anyhow::Error> {
+
+    Ok(())
+}
+
+#[wasm_bindgen_test]
+async fn test_query_response_status() -> Result<(), anyhow::Error> {
+
+    Ok(())
+}
+
+
+#[wasm_bindgen_test]
+async fn test_timeout_request() -> Result<(), anyhow::Error> {
+
+    Ok(())
+}
+
+
+#[wasm_bindgen_test]
+async fn test_timeout_response() -> Result<(), anyhow::Error> {
+
+    Ok(())
+}
+
+#[wasm_bindgen_test]
+async fn test_subscribed_query_request_status() -> Result<(), anyhow::Error> {
+
     Ok(())
 }

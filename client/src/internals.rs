@@ -214,8 +214,6 @@ pub async fn timeout_request_internal(
                 Err(e) => {},
             }
         }
-
-        // Err(anyhow!("ErrorGettingSourceStateMachineUpdate"))
     }
 
     Err(anyhow!("ErrorGettingSourceStateMachineUpdate"))

@@ -10,7 +10,7 @@
   "properties": {
     "ss58Format": 42,
     "tokenDecimals": 12,
-    "tokenSymbol": "CORE"
+    "tokenSymbol": "NAND"
   },
   "relay_chain": "kusama",
   "para_id": 3340,

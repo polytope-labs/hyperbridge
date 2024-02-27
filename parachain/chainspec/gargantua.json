@@ -3,7 +3,6 @@
   "id": "gargantua",
   "chainType": "Live",
   "bootNodes": [
-    "/ip4/34.78.130.110/tcp/30333/p2p/12D3KooWMRRsnAgJ1hjxCj3uJXPkauHqhP2BbbP4M5XF8xVJpeLX",
     "/ip4/34.22.173.252/tcp/30333/p2p/12D3KooWGuMWMXSj7GUGMRdJAceRHoSuSkWW53b6nebzybUEoauB"
   ],
   "telemetryEndpoints": [
@@ -20,7 +19,7 @@
   "properties": {
     "ss58Format": 42,
     "tokenDecimals": 12,
-    "tokenSymbol": "XOR"
+    "tokenSymbol": "tNAND"
   },
   "relay_chain": "rococo",
   "para_id": 4374,

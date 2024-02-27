@@ -21,7 +21,7 @@ use ismp::{
     messaging::{Proof, StateCommitmentHeight},
     router::RequestResponse,
 };
-use ismp_sync_committee::{utils::req_res_to_key, verify_membership, verify_state_proof};
+use ismp_sync_committee::{utils::req_res_receipt_keys, verify_membership, verify_state_proof};
 use pallet::{Config, Headers};
 use polygon_pos_verifier::{
     primitives::{SPAN_LENGTH, SPRINT_LENGTH},
@@ -354,7 +354,7 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
     }
 
     fn state_trie_key(&self, items: RequestResponse) -> Vec<Vec<u8>> {
-        req_res_to_key::<H>(items)
+        req_res_receipt_keys::<H>(items)
     }
 
     fn verify_state_proof(

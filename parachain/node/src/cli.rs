@@ -83,6 +83,8 @@ pub struct Cli {
     pub no_hardware_benchmarks: bool,
 
     /// Should we enable async-backing?
+    ///
+    /// NOTE: DEPRECATED, async-backing is enabled by default.
     #[arg(long)]
     pub async_backing: bool,
 

@@ -5305,7 +5305,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -10666,21 +10666,6 @@ dependencies = [
  "cpufeatures",
  "opaque-debug 0.3.0",
  "universal-hash",
-]
-
-[[package]]
-name = "polygon-pos-prover"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dotenv",
- "ethers",
- "geth-primitives",
- "ismp",
- "polygon-pos-verifier",
- "primitive-types",
- "sp-core 28.0.0",
- "tokio",
 ]
 
 [[package]]

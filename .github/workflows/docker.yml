@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -25,6 +25,7 @@ jobs:
         uses: arduino/setup-protoc@v1
         with:
           version: '3.9.1'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly

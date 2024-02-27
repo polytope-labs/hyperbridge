@@ -79,7 +79,9 @@ impl ismp_demo::Config for Runtime {
     type IsmpDispatcher = pallet_ismp::dispatcher::Dispatcher<Runtime>;
 }
 
-impl pallet_relayer_fees::Config for Runtime {}
+impl pallet_ismp_relayer::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+}
 
 impl state_machine_manager::pallet::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;

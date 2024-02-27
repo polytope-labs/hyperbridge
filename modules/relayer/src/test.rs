@@ -1,8 +1,8 @@
-use crate as pallet_relayer_fees;
+use crate as pallet_ismp_relayer;
 use crate::{
     message,
     withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
-    Nonce, Pallet, RelayerFees,
+    Nonce, Pallet, Fees,
 };
 use alloy_primitives::hex;
 use codec::{Decode, Encode};
@@ -63,7 +63,7 @@ frame_support::construct_runtime!(
         Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
         Ismp: pallet_ismp::{Pallet, Storage, Call, Event<T>},
         Balances: pallet_balances,
-        PalletRelayerFees: pallet_relayer_fees,
+        PalletFees: pallet_ismp_relayer,
         StateMachineManager: state_machine_manager
     }
 );
@@ -187,7 +187,9 @@ impl state_machine_manager::Config for Test {
     type RuntimeEvent = RuntimeEvent;
 }
 
-impl pallet_relayer_fees::Config for Test {}
+impl pallet_ismp_relayer::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+}
 
 #[derive(Default)]
 pub struct ModuleRouter;
@@ -418,11 +420,11 @@ fn test_withdrawal_proof() {
         Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), withdrawal_proof).unwrap();
 
         assert_eq!(
-            RelayerFees::<Test>::get(StateMachine::Kusama(2000), vec![1; 32]),
+            Fees::<Test>::get(StateMachine::Kusama(2000), vec![1; 32]),
             U256::from(5000u128)
         );
         assert_eq!(
-            RelayerFees::<Test>::get(StateMachine::Kusama(2000), vec![2; 32]),
+            Fees::<Test>::get(StateMachine::Kusama(2000), vec![2; 32]),
             U256::from(5000u128)
         );
     })
@@ -434,7 +436,7 @@ fn test_withdrawal_fees() {
     ext.execute_with(|| {
         let pair = sp_core::ecdsa::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
         let address = pair.public().to_eth_address().unwrap();
-        RelayerFees::<Test>::insert(
+        Fees::<Test>::insert(
             StateMachine::Kusama(2000),
             address.to_vec(),
             U256::from(5000u128),
@@ -451,7 +453,7 @@ fn test_withdrawal_fees() {
 
         Pallet::<Test>::withdraw_fees(RuntimeOrigin::none(), withdrawal_input.clone()).unwrap();
         assert_eq!(
-            RelayerFees::<Test>::get(StateMachine::Kusama(2000), address.to_vec()),
+            Fees::<Test>::get(StateMachine::Kusama(2000), address.to_vec()),
             3_000u128.into()
         );
 
@@ -535,7 +537,7 @@ fn test_evm_accumulate_fees() {
         Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).unwrap();
 
         assert_eq!(
-            RelayerFees::<Test>::get(StateMachine::Bsc, vec![125, 114, 152, 63, 237, 193, 243, 50, 229, 80, 6, 254, 162, 162, 175, 193, 72, 246, 97, 66]),
+            Fees::<Test>::get(StateMachine::Bsc, vec![125, 114, 152, 63, 237, 193, 243, 50, 229, 80, 6, 254, 162, 162, 175, 193, 72, 246, 97, 66]),
             U256::from(50_000_000_000_000_000_000u128)
         );
 

@@ -6,7 +6,7 @@ use ismp::{
     router::Post,
 };
 use ismp_solidity_abi::{evm_host::HostParams, shared_types::PostRequest};
-use pallet_relayer_fees::withdrawal::WithdrawalParams;
+use pallet_ismp_relayer::withdrawal::WithdrawalParams;
 use primitive_types::{H160, U256};
 use std::{env, path::PathBuf};
 

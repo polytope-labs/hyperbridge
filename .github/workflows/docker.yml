@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -29,10 +29,10 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
+          toolchain: stable
 
       - name: Build
-        run:  cargo +nightly build --release -p tesseract
+        run:  cargo build --release -p tesseract --features=sepolia
 
       - name: Install Cargo get
         run: cargo install cargo-get

@@ -15,7 +15,7 @@ description: Running the tesseract relayer
 
 Critical to the function of Hyperbridge are the relayers who transmit requests & responses across it's connected chains. Unlike popular interoperability protocols, Hyperbridge relayers are fully permissionless. This means, relayers will not need to be staked or whitelisted in order to transmit cross-chain messages. This is as a result of it's first-of-it's kind, fully trust-free design. This service of-course, will not be for free. Hyperbridge permits the applications that leverage it’s secure message passing infrastructure to pay ahead of time for the message delivery & execution. They do so on the source chain of the initiating application. 
 <br />
-Fees for cross-chain requests are to be paid in stable coins, We’ve chosen the DAI stablecoin for it’s decentralized and censorship-resistant properties.  This means users will estimate the cost for message execution & provide what they believe to be a fair amount to the Hyperbridge contract. (More specifically, the [EvmHost](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol#L533)) at the time of dispatching a request. Once the request has been finalized by the originating chain and these finality proofs made available to the destination chain. The request becomes eligible for delivery & execution. A relayer will estimate the cost of request delivery and query the fee that has been put up for it’s delivery on the source chain. Depending on their profitability configuration, they’ll either choose to deliver the request or ignore it.
+Fees for cross-chain requests are to be paid in stable coins, We’ve chosen the DAI stablecoin for it’s decentralized and censorship-resistant properties.  This means users will estimate the cost for message execution & provide what they believe to be a fair amount in DAI to the Hyperbridge contract. (Specifically, the [EvmHost](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol#L533)) at the time of dispatching a request. Once the request has been finalized by the originating chain and these finality proofs made available to the destination chain. The request becomes eligible for delivery & execution. A relayer will estimate the cost of request delivery and query the fee that has been put up for it’s delivery on the source chain. Depending on their profitability configuration, they’ll either choose to deliver the request or ignore it.
 <br />
 If the relayers chooses to deliver the request, then this means they will cover the cost of message delivery and execution. This cost of message delivery is the cost of proof verification of requests & responses. The cost of message execution is the cost of executing the message on the destination module. In the current version of the protocol, relayers are tasked with both delivering and executing the messages. But it is entirely possible in future versions of the protocol that we unbundle message delivery and execution as this may enable more exotic applications.
 <br />
@@ -183,7 +183,7 @@ signer = ""
 chain = "Dev"
 # Define your profitability configuration. 0 -> 0% i.e relay all requests, even unprofitable ones. 1 -> 1%. ie fees provided for requests must be profitable by at least 1%. etc. 
 minimum_profit_percentage = 0
-# (Optional) If not empty, will filter requests to be delivered by originating module identifier (eg contract adress)
+# (Optional) If not empty, will filter requests to be delivered by originating module identifier (eg contract address)
 module_filter = []
 # (Optional) If not empty, only deliver to the specied state-machines
 delivery_endpoints = [
@@ -197,7 +197,7 @@ delivery_endpoints = [
 
 It is optional to provide the configuration option for any of the connected chains, The only consequence is your relayer will not deliver requests from the ommitted chain as it has no way of querying the associated fees for requests originating from this chain.
 
-You can find the up-to-date contract addresses for the handler & ismp_host contracts [here](/evm/integration#gargantua-v2)
+You can find the up-to-date contract addresses for the `Handler` & `IsmpHost` contracts [here](/evm/integration#gargantua-v2)
 
 ### Withdrawing Fees
 

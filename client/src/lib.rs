@@ -40,7 +40,7 @@ impl AnyConfig {
 	pub async fn into_client(self) -> Result<AnyClient, anyhow::Error> {
 		let client = match self {
 			AnyConfig::KeccakParachain(config) | AnyConfig::Parachain(config) => {
-				match config.hashing {
+				match config.hashing.clone().unwrap_or(HashAlgorithm::Keccak) {
 					HashAlgorithm::Keccak => {
 						let host = ParachainHost::default();
 						AnyClient::KeccakParachain(Parachain::new(Some(host), config).await?)

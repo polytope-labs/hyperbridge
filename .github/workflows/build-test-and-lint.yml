@@ -63,7 +63,7 @@ jobs:
         run: cargo test -p tesseract-evm --verbose
 
       - name: Run Transaction Payment Tests
-        run: cargo test -p transaction-payment --verbose
+        run: cargo test -p transaction-fees --verbose
 
   lint:
     if: github.event.pull_request.draft == false

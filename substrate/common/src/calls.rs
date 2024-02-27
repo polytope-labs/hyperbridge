@@ -94,9 +94,17 @@ where
 		+ Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 {
+	async fn available_amount<P: IsmpProvider>(
+		&self,
+		client: &P,
+		chain: &StateMachine,
+	) -> anyhow::Result<U256> {
+		Ok(relayer_account_balance(&self.client, chain.clone(), client.address()).await?)
+	}
+
 	/// Accumulate accrued fees on hyperbridge by submitting a claim proof
 	async fn accumulate_fees(&self, proof: WithdrawalProof) -> anyhow::Result<()> {
-		let tx = Extrinsic::new("RelayerFees", "accumulate_fees", proof.encode());
+		let tx = Extrinsic::new("Relayer", "accumulate_fees", proof.encode());
 		send_unsigned_extrinsic(&self.client, tx).await?;
 
 		Ok(())
@@ -109,7 +117,7 @@ where
 		chain: StateMachine,
 		gas_limit: u64,
 	) -> anyhow::Result<WithdrawFundsResult> {
-		let addr = runtime::api::storage().relayer_fees().nonce(counterparty.address().as_slice());
+		let addr = runtime::api::storage().relayer().nonce(counterparty.address().as_slice());
 		let nonce =
 			self.client.storage().at_latest().await?.fetch(&addr).await?.unwrap_or_default();
 
@@ -121,7 +129,7 @@ where
 
 		let input_data = WithdrawalInputData { signature, dest_chain: chain, amount, gas_limit };
 
-		let tx = Extrinsic::new("RelayerFees", "withdraw_fees", input_data.encode());
+		let tx = Extrinsic::new("Relayer", "withdraw_fees", input_data.encode());
 		let hash = send_unsigned_extrinsic(&self.client, tx)
 			.await?
 			.ok_or_else(|| anyhow!("Transaction submission failed"))?;
@@ -179,16 +187,15 @@ async fn relayer_account_balance<C: subxt::Config>(
 	chain: StateMachine,
 	address: Vec<u8>,
 ) -> anyhow::Result<U256> {
-	let addr = runtime::api::storage()
-		.relayer_fees()
-		.relayer_fees(&chain.into(), address.as_slice());
+	let addr = runtime::api::storage().relayer().fees(&chain.into(), address.as_slice());
 	let balance = client
 		.storage()
 		.at_latest()
 		.await?
 		.fetch(&addr)
 		.await?
-		.ok_or_else(|| anyhow!("Failed to fetch Relayer Balance"))?;
+		.map(|val| U256(val.0))
+		.unwrap_or(U256::zero());
 
-	Ok(U256(balance.0))
+	Ok(balance)
 }

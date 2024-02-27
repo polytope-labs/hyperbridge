@@ -20,8 +20,8 @@ use ismp::host::StateMachine;
 use primitives::config::RelayerConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tesseract_any_client::AnyConfig;
 use tesseract_beefy::BeefyConfig;
+use tesseract_client::AnyConfig;
 use toml::Table;
 
 /// Defines the format of the tesseract config.toml file.

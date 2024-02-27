@@ -13628,7 +13628,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -13647,9 +13647,9 @@ dependencies = [
  "serde_json",
  "sp-core 28.0.0",
  "telemetry-server",
- "tesseract-any-client",
  "tesseract-beefy",
  "tesseract-bsc-pos",
+ "tesseract-client",
  "tesseract-consensus",
  "tesseract-evm",
  "tesseract-fisherman",
@@ -13661,37 +13661,7 @@ dependencies = [
  "tokio",
  "toml 0.7.8",
  "tracing-subscriber 0.3.18",
- "transaction-payment",
-]
-
-[[package]]
-name = "tesseract-any-client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "env_logger",
- "ethers",
- "futures",
- "hex",
- "ismp",
- "ismp-sync-committee",
- "log",
- "pallet-ismp",
- "parity-scale-codec",
- "serde",
- "serde_json",
- "sp-core 28.0.0",
- "tesseract-beefy",
- "tesseract-bsc-pos",
- "tesseract-evm",
- "tesseract-parachain",
- "tesseract-primitives",
- "tesseract-substrate",
- "tesseract-sync-committee",
- "tokio",
- "toml 0.7.8",
- "tracing-subscriber 0.3.18",
+ "transaction-fees",
 ]
 
 [[package]]
@@ -13757,6 +13727,36 @@ dependencies = [
  "tesseract-primitives",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "tesseract-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "env_logger",
+ "ethers",
+ "futures",
+ "hex",
+ "ismp",
+ "ismp-sync-committee",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+ "sp-core 28.0.0",
+ "tesseract-beefy",
+ "tesseract-bsc-pos",
+ "tesseract-evm",
+ "tesseract-parachain",
+ "tesseract-primitives",
+ "tesseract-substrate",
+ "tesseract-sync-committee",
+ "tokio",
+ "toml 0.7.8",
+ "tracing-subscriber 0.3.18",
 ]
 
 [[package]]
@@ -13866,7 +13866,7 @@ dependencies = [
  "tesseract-substrate",
  "tesseract-sync-committee",
  "tokio",
- "transaction-payment",
+ "transaction-fees",
 ]
 
 [[package]]
@@ -13875,16 +13875,17 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures",
+ "hex",
  "ismp",
  "ismp-solidity-abi",
  "log",
  "pallet-ismp",
  "percentage",
  "sp-core 21.0.0",
- "tesseract-any-client",
+ "tesseract-client",
  "tesseract-primitives",
  "tokio",
- "transaction-payment",
+ "transaction-fees",
 ]
 
 [[package]]
@@ -14598,7 +14599,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "transaction-payment"
+name = "transaction-fees"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -14607,6 +14608,7 @@ dependencies = [
  "futures",
  "hex",
  "ismp",
+ "itertools 0.12.1",
  "pallet-ismp",
  "pallet-relayer-fees",
  "parity-scale-codec",

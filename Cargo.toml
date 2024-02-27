@@ -12,21 +12,19 @@ members = [
 
     "relayer",
     "integration-tests",
-    "ethereum/sync-committee",
-    "ethereum/evm",
-    "ethereum/bsc-pos",
-    "payments",
-    "payments/prisma-cli",
+    "evm/sync-committee",
+    "evm/common",
+    "evm/bsc-pos",
+    "fees",
+    "fees/prisma-cli",
     "fisherman",
     "telemetry",
-    "tesseract-any-client"
+    "client"
 ]
 
 [profile.release]
 panic = "unwind"
 opt-level = 3
-
-
 
 [workspace.dependencies]
 # wasm
@@ -89,7 +87,7 @@ pallet-mmr = { version = "27.0.0" }
 
 # client
 frame-benchmarking-cli = "32.0.0"
-pallet-transaction-payment-rpc = "30.0.0"
+pallet-transaction-fees-rpc = "30.0.0"
 sc-basic-authorship = "0.34.0"
 sc-chain-spec = "27.0.0"
 sc-cli = "0.36.0"

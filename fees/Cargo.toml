@@ -1,5 +1,5 @@
 [package]
-name = "transaction-payment"
+name = "transaction-fees"
 version = "0.1.0"
 edition = "2021"
 description = "Local tracking of relayer payments on all chains"
@@ -15,6 +15,7 @@ tokio = { version = "1.32.0", features = ["full"] }
 primitive-types = "0.12.2"
 prisma-client-rust = { git = "https://github.com/Brendonovich/prisma-client-rust.git", tag = "0.6.11", features = ["sqlite", "migrations"] }
 serde = { version = "1.0.195", features = ["derive"] }
+itertools = "0.12.1"
 
 sp-core = { workspace = true }
 hex = "0.4.3"
@@ -22,7 +23,7 @@ subxt = { version = "0.30.1", features = ["substrate-compat"] }
 chrono = "0.4.31"
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 
-tesseract-evm = { path = "../ethereum/evm" }
+tesseract-evm = { path = "../evm/common" }
 tesseract-substrate = { path = "../substrate/common" }
 tesseract-primitives = { path = "../primitives" }
 

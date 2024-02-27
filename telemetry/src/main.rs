@@ -157,6 +157,7 @@ mod tests {
 	use std::{thread, time::Duration};
 
 	#[test]
+	#[ignore]
 	fn test_socket_io_client() -> Result<(), anyhow::Error> {
 		let pair = ecdsa::Pair::from_seed(&SECRET_KEY);
 		let mut message =

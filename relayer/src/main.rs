@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use clap::Parser;
-use tesseract::{tx_payment::Subcommand, Cli};
+use tesseract::{fees::Subcommand, Cli};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {

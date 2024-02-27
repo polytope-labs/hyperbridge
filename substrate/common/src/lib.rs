@@ -46,13 +46,13 @@ pub struct SubstrateConfig {
 	/// Hyperbridge network
 	pub chain: Chain,
 	/// The hashing algorithm that substrate chain uses.
-	pub hashing: HashAlgorithm,
+	pub hashing: Option<HashAlgorithm>,
 	/// Consensus state id
-	pub consensus_state_id: String,
-	/// RPC url for the chain
-	pub chain_rpc_ws: String,
+	pub consensus_state_id: Option<String>,
+	/// Websocket RPC url for the chain
+	pub rpc_ws: String,
 	/// Relayer account seed
-	pub signer: String,
+	pub signer: Option<String>,
 	/// Latest state machine height
 	pub latest_height: Option<u64>,
 }
@@ -105,9 +105,9 @@ where
 					.ping_interval(Duration::from_secs(6))
 					.inactive_limit(Duration::from_secs(30)),
 			)
-			.build(config.chain_rpc_ws.clone())
+			.build(config.rpc_ws.clone())
 			.await
-			.context(format!("Failed to connect to substrate rpc {}", config.chain_rpc_ws))?;
+			.context(format!("Failed to connect to substrate rpc {}", config.rpc_ws))?;
 		let client = OnlineClient::<C>::from_rpc_client(Arc::new(ClientWrapper(raw_client)))
 			.await
 			.context("Failed to query from substrate rpc")?;
@@ -124,17 +124,21 @@ where
 				.number()
 				.into()
 		};
-		let bytes = from_hex(&config.signer)?;
+		let bytes = config
+			.signer
+			.and_then(|seed| from_hex(&seed).ok())
+			.unwrap_or(H256::random().0.to_vec());
 		let signer = sr25519::Pair::from_seed_slice(&bytes)?;
 		let mut consensus_state_id: ConsensusStateId = Default::default();
-		consensus_state_id.copy_from_slice(config.consensus_state_id.as_bytes());
+		consensus_state_id
+			.copy_from_slice(config.consensus_state_id.unwrap_or("PARA".into()).as_bytes());
 		let address = signer.public().0.to_vec();
 		Ok(Self {
 			host,
 			client,
 			consensus_state_id,
 			state_machine: config.chain.state_machine(),
-			hashing: config.hashing,
+			hashing: config.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
 			signer,
 			address,
 			initial_height: latest_height,

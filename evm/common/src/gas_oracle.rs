@@ -89,7 +89,6 @@ pub async fn get_current_gas_cost_in_usd(
 					let node_gas_price = client.get_gas_price().await?;
 					let arb_gas_info_contract = ArbGasInfo::new(H160(ARB_GAS_INFO), client);
 					let oracle_gas_price = arb_gas_info_contract.get_minimum_gas_price().await?;
-					log::trace!("Oracle gas price for {chain:?}: {oracle_gas_price}, node gas price {node_gas_price}");
 					gas_price = std::cmp::max(node_gas_price, oracle_gas_price); // minimum gas price is 0.1 Gwei
 					let response_json = get_eth_to_usd_price(&eth_price_uri).await?;
 					let eth_usd = parse_to_27_decimals(&response_json.result.ethusd)?;
@@ -100,7 +99,6 @@ pub async fn get_current_gas_cost_in_usd(
 					let node_gas_price: U256 = client.get_gas_price().await?;
 					let ovm_gas_price_oracle = OVM_gasPriceOracle::new(H160(OP_GAS_ORACLE), client);
 					let ovm_gas_price = ovm_gas_price_oracle.gas_price().await?;
-					log::trace!("Oracle gas price for {chain:?}: {ovm_gas_price}, node gas price {node_gas_price}");
 					gas_price = std::cmp::max(ovm_gas_price, node_gas_price); // minimum gas price is 0.1 Gwei
 					let response_json = get_eth_to_usd_price(&eth_price_uri).await?;
 					let eth_usd = parse_to_27_decimals(&response_json.result.ethusd)?;
@@ -133,7 +131,6 @@ pub async fn get_current_gas_cost_in_usd(
 						let price = data as f64 * 1.25f64;
 						let node_gas_price: U256 = client.get_gas_price().await?;
 						let oracle_gas_price = U256::from(price as u128);
-						log::trace!("Oracle gas price for {chain:?}: {oracle_gas_price}, node gas price {node_gas_price}");
 						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
 						let response_json = get_eth_gas_and_price(&uri, &eth_price_uri).await?;
 						let eth_usd = parse_to_27_decimals(&response_json.usd_price)?;
@@ -145,7 +142,6 @@ pub async fn get_current_gas_cost_in_usd(
 						let response_json = get_eth_gas_and_price(&uri, &eth_price_uri).await?;
 						let oracle_gas_price =
 							parse_units(response_json.safe_gas_price.to_string(), "gwei")?.into();
-						log::trace!("Oracle gas price for {chain:?}: {oracle_gas_price}, node gas price {node_gas_price}");
 						gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
 						let eth_usd = parse_to_27_decimals(&response_json.usd_price)?;
 						unit_wei = get_cost_of_one_wei(eth_usd);
@@ -182,7 +178,6 @@ pub async fn get_current_gas_cost_in_usd(
 				let node_gas_price: U256 = client.get_gas_price().await?;
 				let oracle_gas_price =
 					parse_units(response.standard.max_priority_fee.to_string(), "gwei")?.into();
-				log::trace!("Oracle gas price for {chain:?}: {oracle_gas_price}, node gas price {node_gas_price}");
 				gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
 				let response = make_request(&uri, Default::default()).await?;
 				let response_json: GasResponse = response.json().await?;
@@ -199,7 +194,6 @@ pub async fn get_current_gas_cost_in_usd(
 				let response_json: GasResponse = response.json().await?;
 				let oracle_gas_price =
 					parse_units(response_json.result.safe_gas_price.to_string(), "gwei")?.into();
-				log::trace!("Oracle gas price for {chain:?}: {oracle_gas_price}, node gas price {node_gas_price}");
 				gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
 				let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
 				unit_wei = get_cost_of_one_wei(eth_usd);
@@ -225,7 +219,6 @@ pub async fn get_current_gas_cost_in_usd(
 				let response_json: GasResponse = response.json().await?;
 				let oracle_gas_price =
 					parse_units(response_json.result.safe_gas_price.to_string(), "gwei")?.into();
-				log::trace!("Oracle gas price for {chain:?}: {oracle_gas_price}, node gas price {node_gas_price}");
 				gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
 				let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
 				unit_wei = get_cost_of_one_wei(eth_usd);

@@ -8,7 +8,7 @@ use ismp::{
 };
 use sp_core::U256;
 use std::collections::HashMap;
-use tesseract_any_client::AnyClient;
+use tesseract_client::AnyClient;
 use tesseract_primitives::{config::RelayerConfig, Cost, Hasher, IsmpHost, IsmpProvider, Query};
 
 /// Short description of a request/response event
@@ -79,6 +79,16 @@ where
 	let mut response_messages = vec![];
 
 	let counterparty_timestamp = sink.query_timestamp().await?;
+	let is_allowed_module = |module: &Vec<u8>| match config.module_filter {
+		Some(ref filters) =>
+			if !filters.is_empty() {
+				filters.iter().find(|filter| **filter == *module).is_some()
+			} else {
+				true
+			},
+		// if no filter is provided, allow all modules
+		None => true,
+	};
 
 	for event in events.iter() {
 		match event {
@@ -94,6 +104,15 @@ where
 					);
 					continue
 				}
+
+				if !is_allowed_module(&post.from) {
+					log::trace!(
+						"Request from module {}, filtered by module filter",
+						hex::encode(&post.from),
+					);
+					continue
+				}
+
 				let req = Request::Post(post.clone());
 				let hash = hash_request::<Hasher>(&req);
 
@@ -128,6 +147,15 @@ where
 					);
 					continue
 				}
+
+				if !is_allowed_module(&post_response.source_module()) {
+					log::trace!(
+						"Request from module {}, filtered by module filter",
+						hex::encode(&post_response.source_module()),
+					);
+					continue
+				}
+
 				let resp = Response::Post(post_response.clone());
 				let hash = hash_response::<Hasher>(&resp);
 
@@ -305,7 +333,7 @@ where
 			let og_source = if let Some(client) = client_map.get(&queries[index].source_chain) {
 				client
 			} else {
-				log::info!("Skipping tx because fee metadata cannot be queried, client for {:?} was not provided in the client map", queries[index].source_chain);
+				log::info!("Skipping tx because fee metadata cannot be queried, client for {:?} was not provided", queries[index].source_chain);
 				queries_to_be_relayed.push(None);
 				continue
 			};

@@ -1,5 +1,5 @@
 [package]
-name = "tesseract-any-client"
+name = "tesseract-client"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,10 +9,10 @@ edition = "2021"
 parachain = { package = "tesseract-parachain", path = "../substrate/parachain" }
 tesseract-substrate = { path = "../substrate/common" }
 primitives = { package = "tesseract-primitives", path = "../primitives" }
-tesseract-evm = { path = "../ethereum/evm" }
+tesseract-evm = { path = "../evm/common" }
 #tesseract-polygon-pos = { path = "../ethereum/polygon-pos" }
-tesseract-bsc-pos = { path = "../ethereum/bsc-pos" }
-tesseract-sync-committee = { path = "../ethereum/sync-committee" }
+tesseract-bsc-pos = { path = "../evm/bsc-pos" }
+tesseract-sync-committee = { path = "../evm/sync-committee" }
 tesseract-beefy = { path = "../substrate/beefy/naive" }
 
 # polytope labs

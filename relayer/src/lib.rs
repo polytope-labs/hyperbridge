@@ -2,6 +2,6 @@ mod cli;
 mod config;
 mod logging;
 
-pub mod tx_payment;
+pub mod fees;
 
 pub use cli::*;

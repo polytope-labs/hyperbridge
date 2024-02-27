@@ -23,12 +23,12 @@ use std::{collections::HashMap, sync::Arc};
 use crate::events::{filter_events, translate_events_to_messages, Event};
 use futures::StreamExt;
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
-use tesseract_any_client::AnyClient;
+use tesseract_client::AnyClient;
 
 use tesseract_primitives::{
 	config::RelayerConfig, wait_for_challenge_period, IsmpHost, IsmpProvider, StateMachineUpdated,
 };
-use transaction_payment::TransactionPayment;
+use transaction_fees::TransactionPayment;
 
 pub async fn relay<A, B>(
 	chain_a: A,

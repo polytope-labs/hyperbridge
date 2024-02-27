@@ -28,7 +28,7 @@
 .uuid
 
 **/proofs/*
-/payments/prisma/dev.db
-/payments/prisma/dev.db-journal
+/fees/prisma/dev.db
+/fees/prisma/dev.db-journal
 /
 dev.db

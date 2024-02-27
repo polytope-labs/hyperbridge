@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RelayerConfig {
 	/// Modules we're interested in relaying
-	pub module_filter: Vec<Vec<u8>>,
+	pub module_filter: Option<Vec<Vec<u8>>>,
 	/// Relay consensus messages
 	pub consensus: Option<bool>,
 	/// Relay messages

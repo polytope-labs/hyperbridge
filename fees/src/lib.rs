@@ -17,6 +17,7 @@ use ismp::{
 	router::{Post, Request, RequestResponse},
 	util::{hash_request, hash_response, Keccak256},
 };
+use itertools::Itertools;
 use pallet_relayer_fees::withdrawal::{Key, WithdrawalProof};
 use primitive_types::H256;
 use prisma_client_rust::BatchItem;
@@ -48,53 +49,19 @@ impl TransactionPayment {
 		Ok(Self { db: Arc::new(client) })
 	}
 
-	pub async fn store_latest_height(
-		&self,
-		source: StateMachine,
-		dest_chain: StateMachine,
-		height: u64,
-	) -> anyhow::Result<()> {
-		self.db
-			.latest_heights()
-			.delete_many(vec![
-				db::latest_heights::WhereParam::SourceChain(StringFilter::Equals(
-					source.to_string(),
-				)),
-				db::latest_heights::WhereParam::DestChain(StringFilter::Equals(
-					dest_chain.to_string(),
-				)),
-			])
-			.exec()
-			.await?;
-		self.db
-			.latest_heights()
-			.create(source.to_string(), dest_chain.to_string(), height as i32, Default::default())
-			.exec()
-			.await?;
-		Ok(())
-	}
+	/// Query all deliveries in the db and make them unique by the source & destination pair
+	pub async fn distinct_deliveries(&self) -> anyhow::Result<Vec<Data>> {
+		let deliveries = self.db.deliveries().find_many(vec![]).exec().await?;
+		let data = deliveries
+			.into_iter()
+			.unique_by(|data| {
+				let mut pair = vec![data.source_chain.clone(), data.dest_chain.clone()];
+				pair.sort();
+				pair.concat()
+			})
+			.collect();
 
-	pub async fn retreive_latest_height(
-		&self,
-		source: StateMachine,
-		dest_chain: StateMachine,
-	) -> anyhow::Result<Option<u64>> {
-		let res = self
-			.db
-			.latest_heights()
-			.find_first(vec![
-				db::latest_heights::WhereParam::SourceChain(StringFilter::Equals(
-					source.to_string(),
-				)),
-				db::latest_heights::WhereParam::DestChain(StringFilter::Equals(
-					dest_chain.to_string(),
-				)),
-			])
-			.exec()
-			.await?
-			.map(|data| data.latest_height as u64);
-
-		Ok(res)
+		Ok(data)
 	}
 
 	/// Store entries for delivered post requests and responses

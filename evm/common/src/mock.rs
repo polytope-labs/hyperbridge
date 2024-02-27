@@ -312,7 +312,7 @@ mod tests {
 								dest: chain.to_string().as_bytes().to_vec().into(),
 								module: ping_addr.clone().into(),
 								timeout: 10 * 60 * 60,
-								fee: U256::from(900_000_000_000_000_000u128),
+								fee: U256::from(9_000_000_000_000_000_000u128),
 								count: U256::from(100),
 							});
 							let gas =

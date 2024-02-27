@@ -15,7 +15,7 @@
 
 //! Tesseract CLI utilities
 
-use crate::{config::HyperbridgeConfig, logging, tx_payment::Subcommand};
+use crate::{config::HyperbridgeConfig, fees::Subcommand, logging};
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use codec::Encode;
@@ -26,10 +26,10 @@ use rust_socketio::ClientBuilder;
 use sp_core::{ecdsa, ByteArray, Pair};
 use std::{collections::HashMap, sync::Arc};
 use telemetry_server::{Message, SECRET_KEY};
-use tesseract_any_client::AnyClient;
+use tesseract_client::AnyClient;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use tesseract_sync_committee::L2Host;
-use transaction_payment::TransactionPayment;
+use transaction_fees::TransactionPayment;
 
 /// CLI interface for tesseract relayer.
 #[derive(Parser, Debug)]
@@ -133,14 +133,15 @@ impl Cli {
 			);
 			let clients = create_client_map(config.clone()).await?;
 			if config.relayer.delivery_endpoints.is_empty() {
-				log::warn!("Delivery endpoints not specified in relayer config");
+				log::warn!("Delivery endpoints not specified in relayer config, will deliver to all chains.");
 			}
 			// messaging streams
 			for (state_machine, mut client) in clients.clone() {
 				// If the delivery endpoint is not empty then we only spawn tasks for chains
 				// explicitly mentioned in the config
-
-				if !config.relayer.delivery_endpoints.contains(&state_machine) {
+				if !config.relayer.delivery_endpoints.is_empty() &&
+					!config.relayer.delivery_endpoints.contains(&state_machine)
+				{
 					continue
 				}
 

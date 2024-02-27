@@ -324,10 +324,17 @@ pub trait IsmpHost: ByzantineHandler + Clone + Send + Sync {
 
 #[async_trait::async_trait]
 pub trait HyperbridgeClaim {
+	async fn available_amount<C: IsmpProvider>(
+		&self,
+		_client: &C,
+		_chain: &StateMachine,
+	) -> anyhow::Result<U256> {
+		Ok(U256::from(0))
+	}
 	async fn accumulate_fees(&self, proof: WithdrawalProof) -> anyhow::Result<()>;
 	async fn withdraw_funds<C: IsmpProvider>(
 		&self,
-		counterparty: &C,
+		client: &C,
 		chain: StateMachine,
 		gas_limit: u64,
 	) -> anyhow::Result<WithdrawFundsResult>;

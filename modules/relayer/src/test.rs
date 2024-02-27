@@ -453,7 +453,7 @@ fn test_withdrawal_fees() {
             3_000u128.into()
         );
 
-        assert_eq!(Nonce::<Test>::get(address.to_vec()), 1);
+        assert_eq!(Nonce::<Test>::get(address.to_vec(), StateMachine::Kusama(2000)), 1);
 
         assert!(
             Pallet::<Test>::withdraw_fees(RuntimeOrigin::none(), withdrawal_input.clone()).is_err()

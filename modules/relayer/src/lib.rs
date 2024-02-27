@@ -78,10 +78,11 @@ pub mod pallet {
     pub type Fees<T: Config> =
         StorageDoubleMap<_, Twox64Concat, StateMachine, Twox64Concat, Vec<u8>, U256, ValueQuery>;
 
-    /// Latest nonce for each address when they withdraw
+    /// Latest nonce for each address and the state machine they want to withdraw from
     #[pallet::storage]
     #[pallet::getter(fn nonce)]
-    pub type Nonce<T: Config> = StorageMap<_, Twox64Concat, Vec<u8>, u64, ValueQuery>;
+    pub type Nonce<T: Config> =
+        StorageDoubleMap<_, Twox64Concat, Vec<u8>, Twox64Concat, StateMachine, u64, ValueQuery>;
 
     /// Request and response commitments that have been claimed
     #[pallet::storage]
@@ -219,7 +220,7 @@ where
                 if signature.len() != 65 {
                     Err(Error::<T>::InvalidSignature)?
                 }
-                let nonce = Nonce::<T>::get(address.clone());
+                let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
                 let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.amount);
                 let mut sig = [0u8; 65];
                 sig.copy_from_slice(&signature);
@@ -239,7 +240,7 @@ where
                 if public_key.len() != 32 {
                     Err(Error::<T>::InvalidPublicKey)?
                 }
-                let nonce = Nonce::<T>::get(public_key.clone());
+                let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
                 let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.amount);
                 let signature = signature.as_slice().try_into().expect("Infallible");
                 let pub_key = public_key.as_slice().try_into().expect("Infallible");
@@ -256,7 +257,7 @@ where
                 if public_key.len() != 32 {
                     Err(Error::<T>::InvalidPublicKey)?
                 }
-                let nonce = Nonce::<T>::get(public_key.clone());
+                let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
                 let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.amount);
                 let signature = signature.as_slice().try_into().expect("Infallible");
                 let pub_key = public_key.as_slice().try_into().expect("Infallible");
@@ -280,7 +281,7 @@ where
             _ => HostManager::<T>::get(withdrawal_data.dest_chain)
                 .ok_or_else(|| Error::<T>::MissingMangerAddress)?,
         };
-        Nonce::<T>::try_mutate(address.clone(), |value| {
+        Nonce::<T>::try_mutate(address.clone(), withdrawal_data.dest_chain, |value| {
             *value += 1;
             Ok::<(), ()>(())
         })

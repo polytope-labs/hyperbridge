@@ -68,18 +68,21 @@ pub mod pallet {
     pub trait Config:
         frame_system::Config + pallet_ismp::Config + state_machine_manager::Config
     {
+        /// The overarching event type.
+        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
     }
 
     /// double map of address to source chain, which holds the amount of the relayer address
     #[pallet::storage]
     #[pallet::getter(fn relayer_fees)]
-    pub type RelayerFees<T: Config> =
+    pub type Fees<T: Config> =
         StorageDoubleMap<_, Twox64Concat, StateMachine, Twox64Concat, Vec<u8>, U256, ValueQuery>;
 
-    /// Latest nonce for each address when they withdraw
+    /// Latest nonce for each address and the state machine they want to withdraw from
     #[pallet::storage]
     #[pallet::getter(fn nonce)]
-    pub type Nonce<T: Config> = StorageMap<_, Twox64Concat, Vec<u8>, u64, ValueQuery>;
+    pub type Nonce<T: Config> =
+        StorageDoubleMap<_, Twox64Concat, Vec<u8>, Twox64Concat, StateMachine, u64, ValueQuery>;
 
     /// Request and response commitments that have been claimed
     #[pallet::storage]
@@ -106,6 +109,30 @@ pub mod pallet {
         ErrorCompletingCall,
         /// Missing commitments
         MissingCommitments,
+    }
+
+    /// Events emiited by the relayer pallet
+    #[pallet::event]
+    #[pallet::generate_deposit(pub(super) fn deposit_event)]
+    pub enum Event<T: Config> {
+        /// A relayer with the `address` has accumulated some fees on the `state_machine`
+        AccumulateFees {
+            /// relayer address
+            address: BoundedVec<u8, ConstU32<32>>,
+            /// destination state machine
+            state_machine: StateMachine,
+            /// Amount accumulated
+            amount: U256,
+        },
+        /// A relayer with the the `address` has initiated a withdrawal on the `state_machine`
+        Withdraw {
+            /// relayer address
+            address: BoundedVec<u8, ConstU32<32>>,
+            /// destination state machine
+            state_machine: StateMachine,
+            /// Amount withdrawn
+            amount: U256,
+        },
     }
 
     #[pallet::call]
@@ -193,7 +220,7 @@ where
                 if signature.len() != 65 {
                     Err(Error::<T>::InvalidSignature)?
                 }
-                let nonce = Nonce::<T>::get(address.clone());
+                let nonce = Nonce::<T>::get(address.clone(), withdrawal_data.dest_chain);
                 let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.amount);
                 let mut sig = [0u8; 65];
                 sig.copy_from_slice(&signature);
@@ -213,7 +240,7 @@ where
                 if public_key.len() != 32 {
                     Err(Error::<T>::InvalidPublicKey)?
                 }
-                let nonce = Nonce::<T>::get(public_key.clone());
+                let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
                 let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.amount);
                 let signature = signature.as_slice().try_into().expect("Infallible");
                 let pub_key = public_key.as_slice().try_into().expect("Infallible");
@@ -230,7 +257,7 @@ where
                 if public_key.len() != 32 {
                     Err(Error::<T>::InvalidPublicKey)?
                 }
-                let nonce = Nonce::<T>::get(public_key.clone());
+                let nonce = Nonce::<T>::get(public_key.clone(), withdrawal_data.dest_chain);
                 let msg = message(nonce, withdrawal_data.dest_chain, withdrawal_data.amount);
                 let signature = signature.as_slice().try_into().expect("Infallible");
                 let pub_key = public_key.as_slice().try_into().expect("Infallible");
@@ -240,7 +267,7 @@ where
                 public_key
             },
         };
-        let available_amount = RelayerFees::<T>::get(withdrawal_data.dest_chain, address.clone());
+        let available_amount = Fees::<T>::get(withdrawal_data.dest_chain, address.clone());
 
         if available_amount < withdrawal_data.amount {
             Err(Error::<T>::InvalidAmount)?
@@ -254,7 +281,7 @@ where
             _ => HostManager::<T>::get(withdrawal_data.dest_chain)
                 .ok_or_else(|| Error::<T>::MissingMangerAddress)?,
         };
-        Nonce::<T>::try_mutate(address.clone(), |value| {
+        Nonce::<T>::try_mutate(address.clone(), withdrawal_data.dest_chain, |value| {
             *value += 1;
             Ok::<(), ()>(())
         })
@@ -284,11 +311,18 @@ where
             .dispatch_request(DispatchRequest::Post(post), H256::default().0.into(), 0u32.into())
             .map_err(|_| Error::<T>::DispatchFailed)?;
 
-        RelayerFees::<T>::insert(
+        Fees::<T>::insert(
             withdrawal_data.dest_chain,
-            address,
+            address.clone(),
             available_amount.saturating_sub(withdrawal_data.amount),
         );
+
+        Self::deposit_event(Event::<T>::Withdraw {
+            address: sp_runtime::BoundedVec::truncate_from(address),
+            state_machine: withdrawal_data.dest_chain,
+            amount: withdrawal_data.amount,
+        });
+
         Ok(())
     }
 
@@ -306,6 +340,7 @@ where
         ensure!(!withdrawal_proof.commitments.is_empty(), Error::<T>::MissingCommitments);
         let source_keys = Self::get_commitment_keys(&withdrawal_proof);
         let dest_keys = Self::get_receipt_keys(&withdrawal_proof);
+        let state_machine = withdrawal_proof.source_proof.height.id.state_id;
         // For evm chains each response receipt occupies two slots
         let mut slot_2_keys = alloc::vec![];
         match &withdrawal_proof.dest_proof.height.id.state_id {
@@ -335,15 +370,14 @@ where
             source_result,
             dest_result,
         )?;
-        for (address, fee) in result.into_iter() {
-            let _ = RelayerFees::<T>::try_mutate(
-                withdrawal_proof.source_proof.height.id.state_id,
-                address,
-                |inner| {
-                    *inner += fee;
-                    Ok::<(), ()>(())
-                },
-            );
+        let mut total_fee = hashbrown::HashMap::<Vec<u8>, U256>::new();
+        for (address, fee) in result.clone().into_iter() {
+            let _ = Fees::<T>::try_mutate(state_machine, address.clone(), |inner| {
+                *inner += fee;
+                let inner_fee = total_fee.entry(address).or_insert(U256::zero());
+                *inner_fee += fee;
+                Ok::<(), ()>(())
+            });
         }
 
         for key in withdrawal_proof.commitments {
@@ -352,6 +386,14 @@ where
                 Key::Response { response_commitment, .. } =>
                     Claimed::<T>::insert(response_commitment, true),
             }
+        }
+
+        for address in result.keys().collect::<hashbrown::HashSet<_>>().into_iter() {
+            Self::deposit_event(Event::<T>::AccumulateFees {
+                address: sp_runtime::BoundedVec::truncate_from(address.to_vec()),
+                state_machine,
+                amount: total_fee.remove(address).unwrap_or_default(),
+            });
         }
 
         Ok(())

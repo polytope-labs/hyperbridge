@@ -111,9 +111,9 @@ pub mod pallet {
     }
 
     /// Events emiited by the relayer pallet
-	#[pallet::event]
-	#[pallet::generate_deposit(pub(super) fn deposit_event)]
-	pub enum Event<T: Config> {
+    #[pallet::event]
+    #[pallet::generate_deposit(pub(super) fn deposit_event)]
+    pub enum Event<T: Config> {
         /// A relayer with the [`address`] has accumulated some fees on the [`state_machine`]
         AccumulateFees {
             /// relayer address
@@ -131,7 +131,7 @@ pub mod pallet {
             state_machine: StateMachine,
             /// Amount withdrawn
             amount: U256,
-        }
+        },
     }
 
     #[pallet::call]
@@ -319,7 +319,7 @@ where
         Self::deposit_event(Event::<T>::Withdraw {
             address: sp_runtime::BoundedVec::truncate_from(address),
             state_machine: withdrawal_data.dest_chain,
-            amount: withdrawal_data.amount
+            amount: withdrawal_data.amount,
         });
 
         Ok(())
@@ -370,14 +370,10 @@ where
             dest_result,
         )?;
         for (address, fee) in result.clone().into_iter() {
-            let _ = Fees::<T>::try_mutate(
-                state_machine,
-                address,
-                |inner| {
-                    *inner += fee;
-                    Ok::<(), ()>(())
-                },
-            );
+            let _ = Fees::<T>::try_mutate(state_machine, address, |inner| {
+                *inner += fee;
+                Ok::<(), ()>(())
+            });
         }
 
         for key in withdrawal_proof.commitments {
@@ -392,7 +388,7 @@ where
             Self::deposit_event(Event::<T>::AccumulateFees {
                 address: sp_runtime::BoundedVec::truncate_from(address.to_vec()),
                 state_machine,
-                amount: Fees::<T>::get(state_machine, address)
+                amount: Fees::<T>::get(state_machine, address),
             });
         }
 

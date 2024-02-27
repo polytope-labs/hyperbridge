@@ -2,7 +2,7 @@ use crate as pallet_ismp_relayer;
 use crate::{
     message,
     withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
-    Nonce, Pallet, Fees,
+    Fees, Nonce, Pallet,
 };
 use alloy_primitives::hex;
 use codec::{Decode, Encode};
@@ -188,7 +188,7 @@ impl state_machine_manager::Config for Test {
 }
 
 impl pallet_ismp_relayer::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
+    type RuntimeEvent = RuntimeEvent;
 }
 
 #[derive(Default)]
@@ -436,11 +436,7 @@ fn test_withdrawal_fees() {
     ext.execute_with(|| {
         let pair = sp_core::ecdsa::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
         let address = pair.public().to_eth_address().unwrap();
-        Fees::<Test>::insert(
-            StateMachine::Kusama(2000),
-            address.to_vec(),
-            U256::from(5000u128),
-        );
+        Fees::<Test>::insert(StateMachine::Kusama(2000), address.to_vec(), U256::from(5000u128));
         let message = message(0, StateMachine::Kusama(2000), 2000u128.into());
         let signature = pair.sign_prehashed(&message).0.to_vec();
 

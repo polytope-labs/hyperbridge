@@ -10669,21 +10669,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "polygon-pos-prover"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dotenv",
- "ethers",
- "geth-primitives",
- "ismp",
- "polygon-pos-verifier",
- "primitive-types",
- "sp-core 28.0.0",
- "tokio",
-]
-
-[[package]]
 name = "polygon-pos-verifier"
 version = "0.1.0"
 dependencies = [

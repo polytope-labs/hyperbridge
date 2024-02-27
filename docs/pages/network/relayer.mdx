@@ -5,6 +5,14 @@ description: Running the tesseract relayer
 
 # Relayers
 
+<figure>
+  <img
+    src="/relayer.webp"
+    alt="Hyperbridge relayers"
+  />
+  <figcaption style={{textAlign: "center"}}>Hyperbridge relayers</figcaption>
+</figure>
+
 Critical to the function of Hyperbridge are the relayers who transmit requests & responses across it's connected chains. Unlike popular interoperability protocols, Hyperbridge relayers are fully permissionless. This means, relayers will not need to be staked or whitelisted in order to transmit cross-chain messages. This is as a result of it's first-of-it's kind, fully trust-free design. This service of-course, will not be for free. Hyperbridge permits the applications that leverage it’s secure message passing infrastructure to pay ahead of time for the message delivery & execution. They do so on the source chain of the initiating application. 
 <br />
 Fees for cross-chain requests are to be paid in stable coins, We’ve chosen the DAI stablecoin for it’s decentralized and censorship-resistant properties.  This means users will estimate the cost for message execution & provide what they believe to be a fair amount to the Hyperbridge contract. (More specifically, the [EvmHost](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol#L533)) at the time of dispatching a request. Once the request has been finalized by the originating chain and these finality proofs made available to the destination chain. The request becomes eligible for delivery & execution. A relayer will estimate the cost of request delivery and query the fee that has been put up for it’s delivery on the source chain. Depending on their profitability configuration, they’ll either choose to deliver the request or ignore it.
@@ -58,17 +66,17 @@ At the minimum, the hyperbridge relayer should be run on a machine with at least
 
 ## Running the relayer
 
-The tesseract relayer command line interface expects two arguments, which are the paths to it's configuration file and database file. Because it resides in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration and database files on your host into the docker conatiner.
+The tesseract relayer command line interface expects two arguments, which are the paths to it's configuration file and database file. Because it resides in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration files on your host into the docker conatiner. Tesseract will write it's database to that directory once it's initialized.
 
 
 ```bash
-docker run -v /dir/to/config_and_database/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db
+docker run -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db
 
 ```
 
 ### Configuration
 
-The configuration file is a toml file that at the moment expects the following configuration options
+The configuration file is a toml file that at the moment, expects the following configuration options:
 
 
 ```toml
@@ -193,28 +201,28 @@ You can find the up-to-date contract addresses for the handler & ismp_host contr
 
 ### Withdrawing Fees
 
-The relayer software maintains a local sqlite database where it keeps track of successfully delivered messages. The withdrawal process happens in two phases, the first phase is the fee accumulation on hyperbridge, then withdrawal on any of the connected chains.
+Tesseract maintains a local sqlite database where it keeps track of successfully delivered messages. The withdrawal process happens in two phases, the first phase is the fee accumulation on hyperbridge, then withdrawal on any of the connected chains.
 <br />
-In the fee accumulation phase, the relayer submits state proofs of messages all delivered to hyperbridge using the `accumulate_fees` extrinsic on the `RelayerFees` pallet. If the proof verification is successful, the total amount of unclaimed fees for the relayer will be recorded.
+In the fee accumulation phase, tesseract submits state proofs of messages all delivered to hyperbridge using the `accumulate_fees` extrinsic on the `RelayerFees` pallet. If the proof verification is successful, the total amount of unclaimed fees for the relayer address will be recorded.
 <br />
-The relayer can submit a withdrawal request from hyperbridge to any of the chains where it has unclaimed fees, an ISMP Post request with instructions to credit the relayer on the destination chain is dispatched, the request has a timeout of zero allowing it to be submitted to the destination at any time in the future without any risk of timing out.
+The relayer can submit a withdrawal request from hyperbridge to any of the chains where it has unclaimed fees, an ISMP Post request with instructions to credit the relayer on the destination chain is dispatched, the request has a timeout of zero allowing it to be submitted to the destination at any time in the future without any risk of timing out. 
 
 #### Accumulating fees on Hyperbridge
 Stop any running relayer instances, run the following command in the terminal and wait for it to complete. The command will submit proofs for messages delivered to all chains present in the config file.
 
 ```bash
-    docker run -v /dir/to/config_and_database/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees
+    docker run -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees
 ```
 
 #### Initiating withdrawal from hyperbridge
 To initiate a withdrawal from hyperbridge, a relayer needs to submit a `withdraw_fees` extrinsic from the `RelayerFees` pallet on hyperbridge, The transaction takes a `WithdrawalInputData`, this value contains, the amount to be withdrawn, the destination chain and a signature that proves ownership of the account that will be debited.
 <br />
-It is possible to use the relayer software to accumulate fees and initiate the withdrawal process with one command, for this to work, the relayer account must have sufficient funds to pay the transaction delivery fees on both chains.
+It is possible to use the relayer software to accumulate fees and initiate the withdrawal process with one command, for this to work, the relayer account must have sufficient funds to pay the transaction delivery fees on the withdrawal destination chains.
 <br />
 To use this feature run the following command:
 
 ```bash
-    docker run -v /dir/to/config_and_database/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --withdraw
+    docker run -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --withdraw
 ```
 
 You can find the code that implements fee accumulation and withdrawals [here](https://github.com/polytope-labs/hyperbridge/blob/c3e940c60b718eaf5ac02a96c4801814a555dcf7/modules/relayer-fees/src/lib.rs#L120)

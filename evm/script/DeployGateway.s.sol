@@ -76,8 +76,8 @@ contract DeployScript is Script {
                 paraId: paraId,
                 host: host,
                 uniswapV2Router: uniRouter,
-                protocolFeePercentage: 100,
-                relayerFeePercentage: 300,
+                protocolFeePercentage: 100, // 0.1
+                relayerFeePercentage: 300, // 0.3
                 assets: assets
             })
         );

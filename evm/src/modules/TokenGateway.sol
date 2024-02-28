@@ -77,8 +77,8 @@ enum OnAcceptActions {
 }
 
 enum GovernanceActions {
-    /// A new asset is now supported by gateway
-    NewAsset,
+    /// Some new assets are now supported by gateway
+    NewAssets,
     /// Governance has decided to adjust liquidity fee paid to relayers
     AdjustLiquidityFee,
     ///  Governance has decided to adjust it's own protocol fee
@@ -144,13 +144,7 @@ contract TokenGateway is BaseIsmpModule {
         _relayerFeePercentage = initialParams.relayerFeePercentage;
         _uniswapV2Router = IUniswapV2Router(initialParams.uniswapV2Router);
 
-        for (uint256 i = 0; i < initialParams.assets.length; i++) {
-            Asset memory asset = initialParams.assets[i];
-
-            _erc20s[asset.localIdentifier] = asset.erc20;
-            _erc6160s[asset.localIdentifier] = asset.erc6160;
-            _assets[asset.foreignIdentifier] = asset.localIdentifier;
-        }
+        setAsset(initialParams.assets);
 
         _admin = address(0);
     }
@@ -270,17 +264,17 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetReceived(request.source, request.nonce);
     }
 
-    function handleGovernance(PostRequest calldata request) private view {
+    function handleGovernance(PostRequest calldata request) private {
         // only hyperbridge can do this
         require(request.source.equals(StateMachine.kusama(_paraId)), "Unauthorized request");
         GovernanceActions action = GovernanceActions(uint8(request.body[1]));
 
-        if (action == GovernanceActions.NewAsset) {
-            // do stuff
+        if (action == GovernanceActions.NewAssets) {
+            setAsset(abi.decode(request.body[2:], (Asset[])));
         } else if (action == GovernanceActions.AdjustLiquidityFee) {
-            // do stuff
+            _relayerFeePercentage = abi.decode(request.body[2:], (uint256));
         } else if (action == GovernanceActions.AdjustProtocolFee) {
-            // do more stuff
+            _protocolFeePercentage = abi.decode(request.body[2:], (uint256));
         } else {
             revert("Unknown Action");
         }
@@ -317,11 +311,22 @@ contract TokenGateway is BaseIsmpModule {
         return _fee;
     }
 
-    function calculateRelayerLiquidityFee(uint256 _amount) private view returns (uint256 bridgeFee_) {
-        bridgeFee_ = (_amount * _relayerFeePercentage) / 100_000;
+    function calculateRelayerLiquidityFee(uint256 _amount) private view returns (uint256 bridgeFee) {
+        bridgeFee = (_amount * _relayerFeePercentage) / 100_000;
     }
 
-    function calculateProtocolFee(uint256 _amount) private view returns (uint256 redeemFee_) {
-        redeemFee_ = (_amount * _protocolFeePercentage) / 100_000;
+    function calculateProtocolFee(uint256 _amount) private view returns (uint256 redeemFee) {
+        redeemFee = (_amount * _protocolFeePercentage) / 100_000;
+    }
+
+    function setAsset(Asset[] memory assets) private {
+        uint256 length = assets.length;
+        for (uint256 i = 0; i < length; i++) {
+            Asset memory asset = assets[i];
+
+            _erc20s[asset.localIdentifier] = asset.erc20;
+            _erc6160s[asset.localIdentifier] = asset.erc6160;
+            _assets[asset.foreignIdentifier] = asset.localIdentifier;
+        }
     }
 }

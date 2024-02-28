@@ -31,6 +31,8 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testCannotTeleportAssetsWithInsufficientBalance() public {
+        assert(feeToken.balanceOf(address(this)) == 0);
+
         vm.expectRevert(bytes("ERC20: burn amount exceeds balance"));
         gateway.teleport(
             TeleportParams({
@@ -44,8 +46,6 @@ contract TokenGatewayTest is BaseTest {
                 tokenId: keccak256("USD.h")
             })
         );
-
-        assert(feeToken.balanceOf(address(this)) == 0);
     }
 
     function testCanReceiveAssets() public {

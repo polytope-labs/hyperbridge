@@ -48,8 +48,8 @@ struct InitParams {
     address host;
     /// Address for the Uniswapv2 router contract
     address uniswapV2Router;
-    /// Hyperbridge ParaId
-    uint256 paraId;
+    /// Hyperbridge state machine identifier
+    bytes hyperbridge;
     /// Fee percentage paid to relayers
     uint256 relayerFeePercentage;
     /// Fee percentage paid to the protocol
@@ -90,8 +90,8 @@ enum GovernanceActions {
 contract TokenGateway is BaseIsmpModule {
     using Bytes for bytes;
 
-    /// ParaId of hyperbridge
-    uint256 private _paraId;
+    /// StateMachine identifier for hyperbridge
+    bytes private _hyperbridge;
     /// address of the IsmpHost contract on this chain
     address private _host;
     /// admin account
@@ -119,7 +119,7 @@ contract TokenGateway is BaseIsmpModule {
     // restricts call to `IIsmpHost`
     modifier onlyIsmpHost() {
         if (msg.sender != _host) {
-            revert("Unauthorized call");
+            revert("TokenGateway: Unauthorized action");
         }
         _;
     }
@@ -127,7 +127,7 @@ contract TokenGateway is BaseIsmpModule {
     // restricts call to `admin`
     modifier onlyAdmin() {
         if (msg.sender != _admin) {
-            revert("Unauthorized call");
+            revert("TokenGateway: Unauthorized action");
         }
         _;
     }
@@ -139,12 +139,12 @@ contract TokenGateway is BaseIsmpModule {
     // initialize required parameters
     function init(InitParams memory initialParams) public onlyAdmin {
         _host = initialParams.host;
-        _paraId = initialParams.paraId;
+        _hyperbridge = initialParams.hyperbridge;
         _protocolFeePercentage = initialParams.protocolFeePercentage;
         _relayerFeePercentage = initialParams.relayerFeePercentage;
         _uniswapV2Router = IUniswapV2Router(initialParams.uniswapV2Router);
 
-        setAsset(initialParams.assets);
+        setAssets(initialParams.assets);
 
         _admin = address(0);
     }
@@ -266,11 +266,11 @@ contract TokenGateway is BaseIsmpModule {
 
     function handleGovernance(PostRequest calldata request) private {
         // only hyperbridge can do this
-        require(request.source.equals(StateMachine.kusama(_paraId)), "Unauthorized request");
+        require(request.source.equals(_hyperbridge), "Unauthorized request");
         GovernanceActions action = GovernanceActions(uint8(request.body[1]));
 
         if (action == GovernanceActions.NewAssets) {
-            setAsset(abi.decode(request.body[2:], (Asset[])));
+            setAssets(abi.decode(request.body[2:], (Asset[])));
         } else if (action == GovernanceActions.AdjustLiquidityFee) {
             _relayerFeePercentage = abi.decode(request.body[2:], (uint256));
         } else if (action == GovernanceActions.AdjustProtocolFee) {
@@ -319,7 +319,7 @@ contract TokenGateway is BaseIsmpModule {
         redeemFee = (_amount * _protocolFeePercentage) / 100_000;
     }
 
-    function setAsset(Asset[] memory assets) private {
+    function setAssets(Asset[] memory assets) private {
         uint256 length = assets.length;
         for (uint256 i = 0; i < length; i++) {
             Asset memory asset = assets[i];

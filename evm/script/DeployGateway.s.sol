@@ -9,6 +9,7 @@ import {TokenGateway, Asset, InitParams} from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 import {PingModule} from "../examples/PingModule.sol";
 import {CrossChainMessenger} from "../examples/CrossChainMessenger.sol";
+import {StateMachine} from "ismp/StateMachine.sol";
 
 contract DeployScript is Script {
     bytes32 public salt = keccak256(bytes(vm.envString("VERSION")));
@@ -73,7 +74,7 @@ contract DeployScript is Script {
 
         gateway.init(
             InitParams({
-                paraId: paraId,
+                hyperbridge: StateMachine.kusama(paraId),
                 host: host,
                 uniswapV2Router: uniRouter,
                 protocolFeePercentage: 100, // 0.1

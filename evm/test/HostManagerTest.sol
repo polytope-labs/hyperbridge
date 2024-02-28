@@ -13,7 +13,7 @@ contract HostManagerTest is BaseTest {
         vm.startPrank(address(host));
 
         // add balance to the host
-        feeToken.mint(address(host), 1000e18);
+        feeToken.mint(address(host), 1000e18, "");
         require(feeToken.balanceOf(address(host)) == 1000e18, "Failed to mint user tokens");
 
         HostManager(host.hostParams().hostManager).onAccept(request);

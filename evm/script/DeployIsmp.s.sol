@@ -22,6 +22,7 @@ import {RococoVerifier} from "../src/consensus/verifiers/RococoVerifier.sol";
 import {ZkBeefyV1} from "../src/consensus/ZkBeefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {GovernableToken} from "../src/modules/GovernableToken.sol";
+import {StateMachine} from "ismp/StateMachine.sol";
 
 contract DeployScript is Script {
     using strings for *;
@@ -48,7 +49,8 @@ contract DeployScript is Script {
         HandlerV1 handler = new HandlerV1{salt: salt}();
 
         // Host manager
-        HostManagerParams memory gParams = HostManagerParams({admin: admin, host: address(0), paraId: paraId});
+        HostManagerParams memory gParams =
+            HostManagerParams({admin: admin, host: address(0), hyperbridge: StateMachine.kusama(paraId)});
         HostManager manager = new HostManager{salt: salt}(gParams);
 
         // EvmHost

@@ -6,7 +6,7 @@ use ismp::{
 	host::StateMachine,
 	messaging::{CreateConsensusState, Message},
 };
-use pallet_relayer_fees::withdrawal::Signature;
+use pallet_ismp_relayer::withdrawal::Signature;
 use primitive_types::{H256, U256};
 use std::time::Duration;
 use tesseract_primitives::{

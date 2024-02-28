@@ -3,7 +3,7 @@
 #![allow(unused_imports)]
 #![allow(unused)]
 use crate::db::{
-	deliveries::{Data, WhereParam},
+	deliveries::{Data, OrderByParam, UniqueWhereParam, WhereParam},
 	new_client_with_url,
 	read_filters::{IntFilter, StringFilter},
 	PrismaClient, PrismaClientBuilder,
@@ -18,9 +18,9 @@ use ismp::{
 	util::{hash_request, hash_response, Keccak256},
 };
 use itertools::Itertools;
-use pallet_relayer_fees::withdrawal::{Key, WithdrawalProof};
+use pallet_ismp_relayer::withdrawal::{Key, WithdrawalProof};
 use primitive_types::H256;
-use prisma_client_rust::BatchItem;
+use prisma_client_rust::{BatchItem, Direction};
 use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
 use std::sync::Arc;
@@ -69,20 +69,21 @@ impl TransactionPayment {
 		let mut actions = vec![];
 		for receipt in receipts {
 			match receipt {
-				TxReceipt::Request(query) => {
+				TxReceipt::Request { query, height } => {
 					let action = self.db.deliveries().create(
 						hex::encode(query.commitment.as_bytes()),
 						query.source_chain.to_string(),
 						query.dest_chain.to_string(),
 						DeliveryType::PostRequest as i32,
 						chrono::Utc::now().timestamp() as i32,
+						height as i32,
 						Default::default(),
 					);
 
 					actions.push(action);
 				},
 
-				TxReceipt::Response { query, request_commitment } => {
+				TxReceipt::Response { query, request_commitment, height } => {
 					// When inserting the hash for responses we concatenate the response
 					// commitment with the request commitment
 					let mut commitment = vec![];
@@ -94,6 +95,7 @@ impl TransactionPayment {
 						query.dest_chain.to_string(),
 						DeliveryType::PostResponse as i32,
 						chrono::Utc::now().timestamp() as i32,
+						height as i32,
 						Default::default(),
 					);
 					actions.push(action);
@@ -106,18 +108,63 @@ impl TransactionPayment {
 
 	/// Delete the requests with the provided hashes from the database
 	pub async fn delete_entries(&self, reqs: Vec<Vec<u8>>) -> anyhow::Result<()> {
-		self.db
+		let actions = reqs
+			.into_iter()
+			.map(|hash| {
+				self.db.deliveries().delete_many(vec![WhereParam::Hash(StringFilter::Equals(
+					hex::encode(hash.as_slice()),
+				))])
+			})
+			.collect::<Vec<_>>();
+		self.db._batch(actions).await?;
+		Ok(())
+	}
+
+	pub async fn highest_delivery_height(
+		&self,
+		source_chain: StateMachine,
+		dest_chain: StateMachine,
+	) -> Result<Option<u64>, anyhow::Error> {
+		let request_entries = self
+			.db
 			.deliveries()
-			.delete_many(
-				reqs.into_iter()
-					.map(|hash| {
-						WhereParam::Hash(StringFilter::Equals(hex::encode(hash.as_slice())))
-					})
-					.collect(),
-			)
+			.find_many(vec![
+				WhereParam::SourceChain(StringFilter::Equals(source_chain.to_string())),
+				WhereParam::DestChain(StringFilter::Equals(dest_chain.to_string())),
+				WhereParam::DeliveryType(IntFilter::Equals(DeliveryType::PostRequest as i32)),
+			])
+			.order_by(OrderByParam::Height(Direction::Asc))
 			.exec()
 			.await?;
-		Ok(())
+
+		let response_entries = self
+			.db
+			.deliveries()
+			.find_many(vec![
+				WhereParam::SourceChain(StringFilter::Equals(source_chain.to_string())),
+				WhereParam::DestChain(StringFilter::Equals(dest_chain.to_string())),
+				WhereParam::DeliveryType(IntFilter::Equals(DeliveryType::PostResponse as i32)),
+			])
+			.order_by(OrderByParam::Height(Direction::Asc))
+			.exec()
+			.await?;
+
+		let highest_request_delivery_height =
+			request_entries.get(request_entries.len() - 1).map(|data| data.height as u64);
+
+		let highest_response_delivery_height =
+			response_entries.get(response_entries.len() - 1).map(|data| data.height as u64);
+
+		let dest_height = std::cmp::max(
+			highest_request_delivery_height.unwrap_or_default(),
+			highest_response_delivery_height.unwrap_or_default(),
+		);
+
+		if dest_height == 0 {
+			Ok(None)
+		} else {
+			Ok(Some(dest_height))
+		}
 	}
 
 	/// Create payment claim proof for all deliveries of requests and responses from source to dest
@@ -128,10 +175,10 @@ impl TransactionPayment {
 		dest_height: u64,
 		source: &A,
 		dest: &B,
-	) -> anyhow::Result<WithdrawalProof> {
+	) -> anyhow::Result<Option<WithdrawalProof>> {
 		let source_chain = source.state_machine_id().state_id;
 		let dest_chain = dest.state_machine_id().state_id;
-		let entries = self
+		let request_entries = self
 			.db
 			.deliveries()
 			.find_many(vec![
@@ -142,16 +189,7 @@ impl TransactionPayment {
 			.exec()
 			.await?;
 
-		let requests = entries.iter().filter_map(|data| {
-			// Get request commitment keys on source chain
-			let hash = H256::from_slice(&hex::decode(data.hash.clone()).ok()?);
-			let source_key = source.request_commitment_full_key(hash);
-			//Get request receipt keys on dest chain
-			let dest_key = dest.request_receipt_full_key(hash);
-			Some((Key::Request(hash), source_key, dest_key))
-		});
-
-		let entries = self
+		let response_entries = self
 			.db
 			.deliveries()
 			.find_many(vec![
@@ -162,7 +200,20 @@ impl TransactionPayment {
 			.exec()
 			.await?;
 
-		let responses = entries.iter().filter_map(|data| {
+		if request_entries.is_empty() && response_entries.is_empty() {
+			return Ok(None)
+		}
+
+		let requests = request_entries.iter().filter_map(|data| {
+			// Get request commitment keys on source chain
+			let hash = H256::from_slice(&hex::decode(data.hash.clone()).ok()?);
+			let source_key = source.request_commitment_full_key(hash);
+			//Get request receipt keys on dest chain
+			let dest_key = dest.request_receipt_full_key(hash);
+			Some((Key::Request(hash), source_key, dest_key))
+		});
+
+		let responses = response_entries.iter().filter_map(|data| {
 			// Get response commitment keys on source chain
 			let concat_hash = hex::decode(data.hash.clone()).ok()?;
 			let response_commitment = H256::from_slice(&concat_hash[..32]);
@@ -189,11 +240,12 @@ impl TransactionPayment {
 				source_chain_storage_keys.into_iter().flatten().collect(),
 			)
 			.await?;
+
 		let dest_proof = dest
 			.query_state_proof(dest_height, dest_chain_storage_keys.into_iter().flatten().collect())
 			.await?;
 
-		Ok(WithdrawalProof {
+		Ok(Some(WithdrawalProof {
 			commitments: request_response_commitments,
 			source_proof: Proof {
 				height: StateMachineHeight { id: source.state_machine_id(), height: source_height },
@@ -203,7 +255,7 @@ impl TransactionPayment {
 				height: StateMachineHeight { id: dest.state_machine_id(), height: dest_height },
 				proof: dest_proof,
 			},
-		})
+		}))
 	}
 
 	pub async fn delete_claimed_entries(&self, proof: WithdrawalProof) -> anyhow::Result<()> {

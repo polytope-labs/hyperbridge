@@ -29,7 +29,7 @@ use ismp::{
 	router::Post,
 	util::Keccak256,
 };
-pub use pallet_relayer_fees::withdrawal::{Signature, WithdrawalProof};
+pub use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
 use primitive_types::{H256, U256};
 use sp_core::keccak_256;
 use std::{
@@ -123,9 +123,9 @@ pub struct Query {
 /// A type tha should be returned when messages are submitted successfully
 pub enum TxReceipt {
 	/// Request variant
-	Request(Query),
+	Request { query: Query, height: u64 },
 	/// Response variant
-	Response { query: Query, request_commitment: H256 },
+	Response { query: Query, request_commitment: H256, height: u64 },
 }
 
 /// Stream alias

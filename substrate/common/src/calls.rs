@@ -13,7 +13,7 @@ use ismp::{
 	host::StateMachine,
 	messaging::CreateConsensusState,
 };
-use pallet_relayer_fees::{
+use pallet_ismp_relayer::{
 	message,
 	withdrawal::{WithdrawalInputData, WithdrawalParams, WithdrawalProof},
 };
@@ -117,7 +117,9 @@ where
 		chain: StateMachine,
 		gas_limit: u64,
 	) -> anyhow::Result<WithdrawFundsResult> {
-		let addr = runtime::api::storage().relayer().nonce(counterparty.address().as_slice());
+		let addr = runtime::api::storage()
+			.relayer()
+			.nonce(counterparty.address().as_slice(), &chain.into());
 		let nonce =
 			self.client.storage().at_latest().await?.fetch(&addr).await?.unwrap_or_default();
 
@@ -152,7 +154,7 @@ where
 			.find(|event| match event {
 				Event::PostRequest(post) => {
 					let condition =
-						post.dest == chain && &post.from == &pallet_relayer_fees::MODULE_ID;
+						post.dest == chain && &post.from == &pallet_ismp_relayer::MODULE_ID;
 					match post.dest {
 						StateMachine::Kusama(_) |
 						StateMachine::Polkadot(_) |

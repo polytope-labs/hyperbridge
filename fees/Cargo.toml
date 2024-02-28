@@ -29,7 +29,7 @@ tesseract-primitives = { path = "../primitives" }
 
 pallet-ismp.workspace = true
 ismp.workspace = true
-pallet-relayer-fees.workspace = true
+pallet-ismp-relayer.workspace = true
 
 [dev-dependencies]
 tesseract-primitives = { path = "../primitives", features = ["testing"] }

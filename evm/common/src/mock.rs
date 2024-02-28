@@ -232,7 +232,7 @@ mod tests {
 	#[tokio::test]
 	#[ignore]
 	async fn test_ping() -> anyhow::Result<()> {
-		dotenv::dotenv().ok();
+		// dotenv::dotenv().ok();
 		let op_url = std::env::var("OP_URL").unwrap_or(
 			"https://opt-sepolia.g.alchemy.com/v2/qzZKMgRJ7zHxeUPoEvjYCmuAsJnx0oVP".into(),
 		);

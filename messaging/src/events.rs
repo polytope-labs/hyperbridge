@@ -343,8 +343,9 @@ where
 				og_source.query_response_fee_metadata(queries[index].commitment).await?.into()
 			};
 
-			let profit = (U256::from(minimum_profit_percentage) / U256::from(100)) *
-				total_gas_to_be_expended_in_usd.0;
+			let profit = (U256::from(minimum_profit_percentage) *
+				total_gas_to_be_expended_in_usd.0) /
+				U256::from(100);
 			// 0 profit percentage means we want to relay all requests for free
 			let fee_with_profit: Cost = total_gas_to_be_expended_in_usd + profit;
 

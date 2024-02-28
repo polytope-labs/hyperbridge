@@ -501,6 +501,7 @@ where
 
 	async fn submit(&self, messages: Vec<Message>) -> Result<Vec<TxReceipt>, Error> {
 		let receipts = submit_messages(&self, messages.clone()).await?;
+		let height = self.client.get_block_number().await?.low_u64();
 		let mut results = vec![];
 		for msg in messages {
 			match msg {
@@ -509,12 +510,15 @@ where
 						let req = Request::Post(post);
 						let commitment = hash_request::<Hasher>(&req);
 						if receipts.contains(&commitment) {
-							let tx_receipt = TxReceipt::Request(Query {
-								source_chain: req.source_chain(),
-								dest_chain: req.dest_chain(),
-								nonce: req.nonce(),
-								commitment,
-							});
+							let tx_receipt = TxReceipt::Request {
+								query: Query {
+									source_chain: req.source_chain(),
+									dest_chain: req.dest_chain(),
+									nonce: req.nonce(),
+									commitment,
+								},
+								height,
+							};
 
 							results.push(tx_receipt);
 						}
@@ -535,6 +539,7 @@ where
 									commitment,
 								},
 								request_commitment,
+								height,
 							};
 
 							results.push(tx_receipt);

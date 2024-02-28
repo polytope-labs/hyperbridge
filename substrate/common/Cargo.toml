@@ -21,7 +21,7 @@ debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"
 
 primitives = { package = "tesseract-primitives", path = "../../primitives" }
 pallet-ismp.workspace = true
-pallet-relayer-fees.workspace = true
+pallet-ismp-relayer.workspace = true
 ismp-demo.workspace = true
 ismp-rpc.workspace = true
 ismp.workspace = true

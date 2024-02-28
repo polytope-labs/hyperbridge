@@ -18,7 +18,7 @@ primitive-types = "0.12.1"
 parity-scale-codec = "3.2.2"
 ismp-solidity-abi.workspace = true
 
-pallet-relayer-fees.workspace = true
+pallet-ismp-relayer.workspace = true
 ismp.workspace = true
 sp-core.workspace = true
 

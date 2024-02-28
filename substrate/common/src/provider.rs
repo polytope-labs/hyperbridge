@@ -37,7 +37,7 @@ use ismp::{
 };
 use ismp_rpc::{BlockNumberOrHash, MmrProof};
 use pallet_ismp::{primitives::SubstrateStateProof, ProofKeys};
-use pallet_relayer_fees::withdrawal::Signature;
+use pallet_ismp_relayer::withdrawal::Signature;
 use primitives::{
 	BoxStream, EstimateGasReturnParams, IsmpHost, IsmpProvider, Query, StateMachineUpdated,
 	TxReceipt,
@@ -402,7 +402,7 @@ where
 	}
 
 	async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error> {
-		Ok(pallet_relayer_fees::MODULE_ID.to_vec())
+		Ok(pallet_ismp_relayer::MODULE_ID.to_vec())
 	}
 }
 

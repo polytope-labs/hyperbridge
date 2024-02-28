@@ -15,11 +15,5 @@ model Deliveries {
   dest_chain        String
   delivery_type     Int
   created_at        Int
-}
-
-model LatestHeights {
-  id              Int       @id @default(autoincrement())
-  source_chain    String
-  dest_chain      String
-  latest_height   Int
+  height            Int
 }

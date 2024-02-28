@@ -1696,9 +1696,9 @@ pub mod api {
 			.hash();
 		runtime_metadata_hash ==
 			[
-				223u8, 7u8, 142u8, 19u8, 216u8, 62u8, 232u8, 18u8, 136u8, 255u8, 3u8, 54u8, 210u8,
-				159u8, 189u8, 113u8, 33u8, 86u8, 224u8, 130u8, 206u8, 24u8, 58u8, 42u8, 69u8,
-				117u8, 193u8, 203u8, 239u8, 30u8, 75u8, 59u8,
+				155u8, 242u8, 159u8, 99u8, 207u8, 129u8, 237u8, 190u8, 76u8, 60u8, 63u8, 213u8,
+				101u8, 141u8, 152u8, 128u8, 121u8, 75u8, 237u8, 169u8, 80u8, 41u8, 244u8, 25u8,
+				121u8, 121u8, 8u8, 191u8, 123u8, 179u8, 142u8, 189u8,
 			]
 	}
 	pub mod system {
@@ -10435,7 +10435,7 @@ pub mod api {
 			# [codec (crate = :: subxt :: ext :: codec)]
 			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-			#[doc = "A relayer with the [`address`] has accumulated some fees on the [`state_machine`]"]
+			#[doc = "A relayer with the `address` has accumulated some fees on the `state_machine`"]
 			pub struct AccumulateFees {
 				pub address: runtime_types::bounded_collections::bounded_vec::BoundedVec<
 					::core::primitive::u8,
@@ -10457,7 +10457,7 @@ pub mod api {
 			# [codec (crate = :: subxt :: ext :: codec)]
 			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-			#[doc = "A relayer with the the [`address`] has initiated a withdrawal on the [`state_machine`]"]
+			#[doc = "A relayer with the the `address` has initiated a withdrawal on the `state_machine`"]
 			pub struct Withdraw {
 				pub address: runtime_types::bounded_collections::bounded_vec::BoundedVec<
 					::core::primitive::u8,
@@ -10523,10 +10523,11 @@ pub mod api {
 						],
 					)
 				}
-				#[doc = " Latest nonce for each address when they withdraw"]
+				#[doc = " Latest nonce for each address and the state machine they want to withdraw from"]
 				pub fn nonce(
 					&self,
 					_0: impl ::std::borrow::Borrow<[::core::primitive::u8]>,
+					_1: impl ::std::borrow::Borrow<runtime_types::ismp::host::StateMachine>,
 				) -> ::subxt::storage::address::Address<
 					::subxt::storage::address::StaticStorageMapKey,
 					::core::primitive::u64,
@@ -10537,16 +10538,18 @@ pub mod api {
 					::subxt::storage::address::Address::new_static(
 						"Relayer",
 						"Nonce",
-						vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
+						vec![
+							::subxt::storage::address::make_static_storage_map_key(_0.borrow()),
+							::subxt::storage::address::make_static_storage_map_key(_1.borrow()),
+						],
 						[
-							200u8, 47u8, 243u8, 221u8, 39u8, 158u8, 244u8, 11u8, 172u8, 100u8,
-							35u8, 236u8, 252u8, 107u8, 112u8, 136u8, 50u8, 202u8, 50u8, 42u8, 50u8,
-							166u8, 52u8, 173u8, 100u8, 146u8, 134u8, 103u8, 246u8, 244u8, 246u8,
-							91u8,
+							198u8, 35u8, 9u8, 55u8, 199u8, 245u8, 28u8, 184u8, 253u8, 16u8, 58u8,
+							174u8, 28u8, 28u8, 40u8, 185u8, 145u8, 16u8, 58u8, 80u8, 153u8, 151u8,
+							83u8, 232u8, 20u8, 219u8, 39u8, 88u8, 28u8, 152u8, 114u8, 204u8,
 						],
 					)
 				}
-				#[doc = " Latest nonce for each address when they withdraw"]
+				#[doc = " Latest nonce for each address and the state machine they want to withdraw from"]
 				pub fn nonce_root(
 					&self,
 				) -> ::subxt::storage::address::Address<
@@ -10561,10 +10564,9 @@ pub mod api {
 						"Nonce",
 						Vec::new(),
 						[
-							200u8, 47u8, 243u8, 221u8, 39u8, 158u8, 244u8, 11u8, 172u8, 100u8,
-							35u8, 236u8, 252u8, 107u8, 112u8, 136u8, 50u8, 202u8, 50u8, 42u8, 50u8,
-							166u8, 52u8, 173u8, 100u8, 146u8, 134u8, 103u8, 246u8, 244u8, 246u8,
-							91u8,
+							198u8, 35u8, 9u8, 55u8, 199u8, 245u8, 28u8, 184u8, 253u8, 16u8, 58u8,
+							174u8, 28u8, 28u8, 40u8, 185u8, 145u8, 16u8, 58u8, 80u8, 153u8, 151u8,
+							83u8, 232u8, 20u8, 219u8, 39u8, 88u8, 28u8, 152u8, 114u8, 204u8,
 						],
 					)
 				}
@@ -13649,7 +13651,7 @@ pub mod api {
 				#[doc = "Events emiited by the relayer pallet"]
 				pub enum Event {
 					#[codec(index = 0)]
-					#[doc = "A relayer with the [`address`] has accumulated some fees on the [`state_machine`]"]
+					#[doc = "A relayer with the `address` has accumulated some fees on the `state_machine`"]
 					AccumulateFees {
 						address: runtime_types::bounded_collections::bounded_vec::BoundedVec<
 							::core::primitive::u8,
@@ -13658,7 +13660,7 @@ pub mod api {
 						amount: runtime_types::primitive_types::U256,
 					},
 					#[codec(index = 1)]
-					#[doc = "A relayer with the the [`address`] has initiated a withdrawal on the [`state_machine`]"]
+					#[doc = "A relayer with the the `address` has initiated a withdrawal on the `state_machine`"]
 					Withdraw {
 						address: runtime_types::bounded_collections::bounded_vec::BoundedVec<
 							::core::primitive::u8,

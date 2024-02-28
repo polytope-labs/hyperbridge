@@ -45,12 +45,10 @@ impl HyperBridgeClient {
 
     pub async fn query_request(
         &self,
-        source_chain: &StateMachine,
-        dest_chain: &StateMachine,
-        nonce: u64,
+        commitment: &H256
     ) -> Result<Vec<Request>, anyhow::Error> {
         let build_leaf_index_query =
-            LeafIndexQuery { source_chain: *source_chain, dest_chain: *dest_chain, nonce };
+            LeafIndexQuery { commitment: *commitment};
 
         let leaf_index_query = rpc_params![build_leaf_index_query];
         let hyper_bridge_response: Vec<Request> =
@@ -61,12 +59,10 @@ impl HyperBridgeClient {
 
     pub async fn query_response(
         &self,
-        source_chain: &StateMachine,
-        dest_chain: &StateMachine,
-        nonce: u64,
+        commitment: &H256
     ) -> Result<Vec<Request>, anyhow::Error> {
         let build_leaf_index_query =
-            LeafIndexQuery { source_chain: *source_chain, dest_chain: *dest_chain, nonce };
+            LeafIndexQuery { commitment: *commitment};
 
         let leaf_index_query = rpc_params![build_leaf_index_query];
         let hyper_bridge_response: Vec<Request> =
@@ -86,6 +82,8 @@ impl HyperBridgeClient {
 
         let response = self.client.rpc().storage(&partial_key, None).await.unwrap().unwrap();
         let commitment: StateCommitment = codec::Decode::decode(&mut response.0.as_slice())?;
+
+
         Ok(commitment)
     }
 

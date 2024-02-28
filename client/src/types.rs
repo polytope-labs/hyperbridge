@@ -103,12 +103,8 @@ pub enum PostStreamState {
 
 #[derive(Serialize, Deserialize)]
 pub struct LeafIndexQuery {
-    /// The source of the request
-    pub source_chain: StateMachine,
-    /// the request destination
-    pub dest_chain: StateMachine,
-    /// The request nonce
-    pub nonce: u64,
+    /// Commitment of the request or response
+    pub commitment: H256,
 }
 
 /// Implements [`TxPayload`] for extrinsic encoding

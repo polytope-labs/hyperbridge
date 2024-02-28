@@ -90,7 +90,7 @@ pub async fn query_request_status_stream(
                         },
                         PostStreamState::HyperbridgeDelivered => {
                             let hyperbridge_request_response = hyperbridge_client
-                                .query_request(&post_inner.source, &post_inner.dest, post_inner.nonce)
+                                .query_request(&hash)
                                 .await?;
 
                             if let Some(_) = hyperbridge_request_response.get(0) {

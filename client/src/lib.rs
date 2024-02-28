@@ -138,9 +138,7 @@ pub async fn timeout_response(
 
     let hyper_bridge_response = hyperbridge_client
         .query_response(
-            &post_response.source_chain(),
-            &post_response.dest_chain(),
-            post_response.nonce(),
+            &hash
         )
         .await
         .unwrap();

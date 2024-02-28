@@ -13,10 +13,6 @@ pub trait Client: Clone + Send + Sync + 'static {
     #[allow(async_fn_in_trait)]
     async fn query_latest_block_height(&self) -> Result<u64, anyhow::Error>;
 
-    /// Query the timestamp on the latest block of a StateMachine
-    #[allow(async_fn_in_trait)]
-    async fn query_latest_block_timestamp(&self) -> Result<u64, anyhow::Error>;
-
     /// Returns the State Machine ID
     #[allow(async_fn_in_trait)]
     fn state_machine_id(&self) -> Result<StateMachineId, anyhow::Error>;

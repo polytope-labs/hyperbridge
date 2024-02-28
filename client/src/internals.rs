@@ -46,7 +46,7 @@ pub async fn query_request_status_internal(
 
     let hyperbridge_current_timestamp = hyperbridge_client.get_current_timestamp().await?;
     let hyperbridge_request_response =
-        hyperbridge_client.query_request(&post.source, &post.dest, post.nonce).await?;
+        hyperbridge_client.query_request(&hash).await?;
 
 
     if let Some(_) = hyperbridge_request_response.get(0) {
@@ -86,11 +86,7 @@ pub async fn query_response_status_internal(
     }
 
     let hyper_bridge_response = hyperbridge_client
-        .query_response(
-            &post_response.source_chain(),
-            &post_response.dest_chain(),
-            post_response.nonce(),
-        )
+        .query_response(&hash)
         .await
         .unwrap();
 
@@ -118,7 +114,7 @@ pub async fn timeout_request_internal(
     let source_state_machine_id = source_client.state_machine_id()?;
 
     let hyper_bridge_response = hyperbridge_client
-        .query_request(&post.source, &post.dest, post.nonce)
+        .query_request(&post_request_commitment)
         .await?;
 
     if let Some(request) = hyper_bridge_response.get(0) {

@@ -44,7 +44,7 @@ async fn test_block_timestamp_timeout_stream() -> Result<(), anyhow::Error> {
 
 
 
-    let current_time = evm_client.query_latest_block_timestamp().await?;
+    let current_time = evm_client.host_timestamp().await?;
     let timeout = 10u64;
 
     let mut timeout_stream = timeout_stream(current_time + timeout, evm_client).await;

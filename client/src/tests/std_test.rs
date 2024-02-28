@@ -38,7 +38,7 @@ async fn test_query_request_status_internal() -> Result<(), anyhow::Error> {
 
     let signer = sp_core::ecdsa::Pair::from_seed_slice(&hex!(
         "6456101e79abe59d2308d63314503446857d4f1f949468bf5627e86e3d6adebd"
-    ))?;
+    )).unwrap();
     let signer =
         LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
             .with_chain_id(ethereum_state_machine.client.clone().get_chainid().await?.low_u64());
@@ -55,52 +55,54 @@ async fn test_query_request_status_internal() -> Result<(), anyhow::Error> {
         fee: U256::from(900_000_000_000_000_000u128)
     };
 
-    let response = ping_module_instance.ping(ping_message).send().await?;
-    let ping_tx_event = 
-    let post: Post = Post { 
-        source: todo!(), 
-        dest: todo!(), 
-        nonce: todo!(), 
-        from: todo!(), 
-        to: todo!(), 
-        timeout_timestamp: todo!(), 
-        data: todo!(), 
-        gas_limit: todo!() 
-    };
+    let binding = ping_module_instance.ping(ping_message);
+    let response = binding.send().await?;
+
+    // let ping_tx_event =
+    // let post: Post = Post {
+    //     source: todo!(),
+    //     dest: todo!(),
+    //     nonce: todo!(),
+    //     from: todo!(),
+    //     to: todo!(),
+    //     timeout_timestamp: todo!(),
+    //     data: todo!(),
+    //     gas_limit: todo!()
+    // };
 
 
 
 
-    loop {
-        let current_ping_status = query_request_status_internal(
-            post, 
-            config
-        ).await?;
-
-
-        match current_ping_status {
-            MessageStatus::Destination => {
-                println!("Ping message has reached the destination chain [breaking -->]");
-                break;
-            },
-            MessageStatus::Hyperbridge => {
-                println!("Ping message has reached the hyperbridge");
-            },
-            MessageStatus::Timeout => {
-                println!("Ping message has timed out [breaking -->]");
-                break;
-            },
-            MessageStatus::Pending => {
-                println!("Ping message is still pending");
-            },
-            MessageStatus::HyperbridgeFinalized => {
-                println!("Ping message has been finalized on the hyperbridge");
-            },
-            MessageStatus::NotTimedOut => {
-                println!("Ping message has not timed out");
-            }
-        }
-    }
+    // loop {
+    //     let current_ping_status = query_request_status_internal(
+    //         post,
+    //         config
+    //     ).await?;
+    //
+    //
+    //     match current_ping_status {
+    //         MessageStatus::Destination => {
+    //             println!("Ping message has reached the destination chain [breaking -->]");
+    //             break;
+    //         },
+    //         MessageStatus::Hyperbridge => {
+    //             println!("Ping message has reached the hyperbridge");
+    //         },
+    //         MessageStatus::Timeout => {
+    //             println!("Ping message has timed out [breaking -->]");
+    //             break;
+    //         },
+    //         MessageStatus::Pending => {
+    //             println!("Ping message is still pending");
+    //         },
+    //         MessageStatus::HyperbridgeFinalized => {
+    //             println!("Ping message has been finalized on the hyperbridge");
+    //         },
+    //         MessageStatus::NotTimedOut => {
+    //             println!("Ping message has not timed out");
+    //         }
+    //     }
+    // }
 
 
     Ok(())

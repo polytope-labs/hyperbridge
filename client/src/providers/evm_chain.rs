@@ -80,17 +80,6 @@ impl Client for EvmClient {
         Ok(self.client.get_block_number().await?.as_u64())
     }
 
-    async fn query_latest_block_timestamp(&self) -> Result<u64, anyhow::Error> {
-        let latest_block_number = self.query_latest_block_height().await?;
-        let latest_block = self.client.get_block(latest_block_number).await?;
-
-        if let Some(block) = latest_block {
-            return Ok(block.timestamp.as_u64());
-        } else {
-            Ok(0u64)
-        }
-    }
-
     fn state_machine_id(&self) -> Result<StateMachineId, anyhow::Error> {
         Ok(StateMachineId {
             state_id: self.state_machine,

@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 import "openzeppelin/utils/Strings.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 
-import {TokenGateway} from "../src/modules/TokenGateway.sol";
+import {TokenGateway, Asset, InitParams} from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 import {PingModule} from "../examples/PingModule.sol";
 import {CrossChainMessenger} from "../examples/CrossChainMessenger.sol";
@@ -53,14 +53,33 @@ contract DeployScript is Script {
     }
 
     function deployGateway(address host, address admin, address uniRouter) public {
+        uint256 paraId = vm.envUint("PARA_ID");
         ERC6160Ext20 t = new ERC6160Ext20{salt: salt}(admin, "Hyperbridge USD", "USD.h");
 
         TokenGateway gateway = new TokenGateway{salt: salt}(admin);
-        gateway.initParams(host, uniRouter);
         t.grantRole(MINTER_ROLE, address(gateway));
         t.grantRole(BURNER_ROLE, address(gateway));
 
         TokenFaucet faucet = new TokenFaucet{salt: salt}(address(t));
         t.grantRole(MINTER_ROLE, address(faucet));
+
+        Asset[] memory assets = new Asset[](1);
+        assets[0] = Asset({
+            localIdentifier: keccak256("USD.h"),
+            foreignIdentifier: keccak256("USD.h"),
+            erc20: address(0),
+            erc6160: address(t)
+        });
+
+        gateway.init(
+            InitParams({
+                paraId: paraId,
+                host: host,
+                uniswapV2Router: uniRouter,
+                protocolFeePercentage: 100,
+                relayerFeePercentage: 300,
+                assets: assets
+            })
+        );
     }
 }

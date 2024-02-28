@@ -27,7 +27,7 @@ struct TeleportParams {
     // Redeem Erc20 on the destination?
     bool redeem;
     // The Erc20 token to be used to swap for a fee
-    address tokenIntendedForFee;
+    address feeToken;
 }
 
 struct Body {
@@ -43,6 +43,48 @@ struct Body {
     address to;
 }
 
+struct InitParams {
+    /// IsmpHost address
+    address host;
+    /// Address for the Uniswapv2 router contract
+    address uniswapV2Router;
+    /// Hyperbridge ParaId
+    uint256 paraId;
+    /// Fee percentage paid to relayers
+    uint256 relayerFeePercentage;
+    /// Fee percentage paid to the protocol
+    uint256 protocolFeePercentage;
+    /// List of supported assets
+    Asset[] assets;
+}
+
+struct Asset {
+    /// ERC20 token contract address for the asset
+    address erc20;
+    /// ERC6160 token contract address for the asset
+    address erc6160;
+    /// Asset's local identifier
+    bytes32 localIdentifier;
+    /// Asset's foreign identifier
+    bytes32 foreignIdentifier;
+}
+
+enum OnAcceptActions {
+    /// Incoming asset from a chain
+    IncomingAsset,
+    /// Governance actions
+    GovernanceAction
+}
+
+enum GovernanceActions {
+    /// A new asset is now supported by gateway
+    NewAsset,
+    /// Governance has decided to adjust liquidity fee paid to relayers
+    AdjustLiquidityFee,
+    ///  Governance has decided to adjust it's own protocol fee
+    AdjustProtocolFee
+}
+
 /// The TokenGateway allows users send either ERC20 or ERC6160 tokens
 /// using Hyperbridge as a message-passing layer.
 contract TokenGateway is BaseIsmpModule {
@@ -51,11 +93,15 @@ contract TokenGateway is BaseIsmpModule {
     /// ParaId of hyperbridge
     uint256 private _paraId;
     /// address of the IsmpHost contract on this chain
-    address private host;
+    address private _host;
     /// admin account
-    address private admin;
+    address private _admin;
+    /// Fee percentage paid to relayers
+    uint256 private _relayerFeePercentage;
+    /// Fee percentage paid to the protocol
+    uint256 private _protocolFeePercentage;
     /// local uniswap router
-    IUniswapV2Router private uniswapV2Router;
+    IUniswapV2Router private _uniswapV2Router;
 
     // Bytes size of Body struct
     uint256 private constant BODY_BYTES_SIZE = 160;
@@ -72,7 +118,7 @@ contract TokenGateway is BaseIsmpModule {
 
     // restricts call to `IIsmpHost`
     modifier onlyIsmpHost() {
-        if (msg.sender != host) {
+        if (msg.sender != _host) {
             revert("Unauthorized call");
         }
         _;
@@ -80,53 +126,47 @@ contract TokenGateway is BaseIsmpModule {
 
     // restricts call to `admin`
     modifier onlyAdmin() {
-        if (msg.sender != admin) {
+        if (msg.sender != _admin) {
             revert("Unauthorized call");
         }
         _;
     }
 
-    enum OnAcceptActions {
-        /// Incoming asset from a chain
-        IncomingAsset,
-        /// Governance actions
-        GovernanceAction
-    }
-
-    enum GovernanceActions {
-        /// A new asset is now supported by gateway
-        NewAsset,
-        /// Governance has decided to adjust liquidity fee paid to relayers
-        AdjustLiquidityFee,
-        ///  Governance has decided to adjust it's protocol fee
-        AdjustProtocolFee
-    }
-
-    constructor(address _admin) {
-        admin = _admin;
+    constructor(address admin) {
+        _admin = admin;
     }
 
     // initialize required parameters
-    function initParams(address _host, address _uniswapV2Router) public onlyAdmin {
-        host = _host;
-        uniswapV2Router = IUniswapV2Router(_uniswapV2Router);
+    function init(InitParams memory initialParams) public onlyAdmin {
+        _host = initialParams.host;
+        _paraId = initialParams.paraId;
+        _protocolFeePercentage = initialParams.protocolFeePercentage;
+        _relayerFeePercentage = initialParams.relayerFeePercentage;
+        _uniswapV2Router = IUniswapV2Router(initialParams.uniswapV2Router);
+
+        for (uint256 i = 0; i < initialParams.assets.length; i++) {
+            Asset memory asset = initialParams.assets[i];
+
+            _erc20s[asset.localIdentifier] = asset.erc20;
+            _erc6160s[asset.localIdentifier] = asset.erc6160;
+            _assets[asset.foreignIdentifier] = asset.localIdentifier;
+        }
+
+        _admin = address(0);
     }
 
     function teleport(TeleportParams memory params) public {
-        require(host != address(0), "Gateway: Host is not set");
-        require(address(uniswapV2Router) != address(0), "Gateway: Uniswap router not set");
+        require(_host != address(0), "Gateway: Host is not set");
+        require(address(_uniswapV2Router) != address(0), "Gateway: Uniswap router not set");
 
         address from = msg.sender;
         address erc20 = _erc20s[params.tokenId];
         address erc6160 = _erc6160s[params.tokenId];
-        address intendedTokenForFee = params.tokenIntendedForFee;
-        address feeToken = IIsmpHost(host).dai();
+        address feeToken = IIsmpHost(_host).dai();
 
         require(params.to != address(0), "Burn your funds some other way");
         require(params.amount > 0, "Gateway: Can't bridge zero value");
-        require(intendedTokenForFee != address(0), "Intended fee token not selected");
-
-        uint256 toBridge = params.amount;
+        require(params.feeToken != address(0), "Intended fee token not selected");
 
         if (erc20 != address(0) && !params.redeem) {
             require(
@@ -134,11 +174,11 @@ contract TokenGateway is BaseIsmpModule {
             );
 
             // Calculate output fee in DAI before swap: We can use swapTokensForExactTokens() on Uniswap since we know the output amount
-            uint256 _fee = calculateProtocolBridgeFee(params.fee);
+            uint256 _fee = calculateBridgeFee(params.fee);
 
             // only swap if the feeToken is not the token intended for fee and if fee > 0
-            if (feeToken != intendedTokenForFee && _fee > 0) {
-                require(handleSwap(from, intendedTokenForFee, feeToken, _fee), "Token swap failed");
+            if (feeToken != params.feeToken && _fee > 0) {
+                require(handleSwap(from, params.feeToken, feeToken, _fee), "Token swap failed");
             }
         } else if (erc6160 != address(0)) {
             // we're sending an erc6160 asset so we should redeem on the destination if we can.
@@ -148,7 +188,7 @@ contract TokenGateway is BaseIsmpModule {
         }
 
         bytes memory data = abi.encode(
-            Body({from: from, to: params.to, amount: toBridge, tokenId: params.tokenId, redeem: params.redeem})
+            Body({from: from, to: params.to, amount: params.amount, tokenId: params.tokenId, redeem: params.redeem})
         );
 
         DispatchPost memory request = DispatchPost({
@@ -162,7 +202,7 @@ contract TokenGateway is BaseIsmpModule {
         });
 
         // Your money is now on its way
-        IDispatcher(host).dispatch(request);
+        IDispatcher(_host).dispatch(request);
     }
 
     function onAccept(PostRequest calldata request) external override onlyIsmpHost {
@@ -194,7 +234,7 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     function handleIncomingAsset(PostRequest calldata request) private {
-        /// TokenGateway only accepts asset requests from it's instances on other chains.
+        /// TokenGateway only accepts incoming assets from it's instances on other chains.
         require(request.from.equals(abi.encodePacked(address(this))), "Unauthorized request");
         Body memory body = abi.decode(request.body[1:], (Body));
 
@@ -205,15 +245,13 @@ contract TokenGateway is BaseIsmpModule {
         // prefer to give the user erc20
         if (erc20 != address(0) && body.redeem) {
             // a relayer/user is redeeming the native asset
-            // Perform 0.1% calculation and deduction here
-            uint256 _protocolRedeemFee = calculateProtocolRedeemFee(body.amount);
+            uint256 _protocolRedeemFee = calculateProtocolFee(body.amount);
             uint256 _amountToTransfer = body.amount - _protocolRedeemFee;
 
             require(IERC20(erc20).transfer(body.to, _amountToTransfer), "Gateway: Insufficient Balance");
         } else if (erc20 != address(0) && erc6160 != address(0) && !body.redeem) {
             // relayers double as liquidity providers.
-            // Perform 0.3% calculation and deduction here
-            uint256 _protocolLiquidityFee = calculateProtocolLiquidityFee(body.amount);
+            uint256 _protocolLiquidityFee = calculateRelayerLiquidityFee(body.amount);
             uint256 _amountToTransfer = body.amount - _protocolLiquidityFee;
 
             require(
@@ -232,7 +270,7 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetReceived(request.source, request.nonce);
     }
 
-    function handleGovernance(PostRequest calldata request) private {
+    function handleGovernance(PostRequest calldata request) private view {
         // only hyperbridge can do this
         require(request.source.equals(StateMachine.kusama(_paraId)), "Unauthorized request");
         GovernanceActions action = GovernanceActions(uint8(request.body[1]));
@@ -256,46 +294,34 @@ contract TokenGateway is BaseIsmpModule {
         path[0] = _fromToken;
         path[1] = _toToken;
 
-        uint256 _fromTokenAmountIn = uniswapV2Router.getAmountsIn(_toTokenAmountOut, path)[0];
+        uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(_toTokenAmountOut, path)[0];
 
         // How do we handle cases of slippage - Todo: Handle Slippage
         require(
             IERC20(_fromToken).transferFrom(_sender, address(this), _fromTokenAmountIn),
             "insufficient intended fee token"
         );
-        require(IERC20(_fromToken).approve(address(uniswapV2Router), _fromTokenAmountIn), "approve failed.");
+        require(IERC20(_fromToken).approve(address(_uniswapV2Router), _fromTokenAmountIn), "approve failed.");
 
-        uniswapV2Router.swapTokensForExactTokens(
+        _uniswapV2Router.swapTokensForExactTokens(
             _toTokenAmountOut, _fromTokenAmountIn, path, tx.origin, block.timestamp
         );
 
         return true;
     }
 
-    function calculateProtocolBridgeFee(uint256 _relayerFee) private view returns (uint256) {
+    function calculateBridgeFee(uint256 _relayerFee) private view returns (uint256) {
         // Multiply the perByteFee by the byte size of the body struct, and sum with relayer fee
-        uint256 _fee = (IIsmpHost(host).perByteFee() * BODY_BYTES_SIZE) + _relayerFee;
+        uint256 _fee = (IIsmpHost(_host).perByteFee() * BODY_BYTES_SIZE) + _relayerFee;
 
         return _fee;
     }
 
-    function calculateProtocolLiquidityFee(uint256 _amount) private pure returns (uint256 bridgeFee_) {
-        bridgeFee_ = (_amount * 300) / 100_000;
+    function calculateRelayerLiquidityFee(uint256 _amount) private view returns (uint256 bridgeFee_) {
+        bridgeFee_ = (_amount * _relayerFeePercentage) / 100_000;
     }
 
-    function calculateProtocolRedeemFee(uint256 _amount) private pure returns (uint256 redeemFee_) {
-        redeemFee_ = (_amount * 100) / 100_000;
-    }
-
-    function setTokenIdentifiersERC20(bytes32 _tokenId, address _erc20) external onlyAdmin {
-        _erc20s[_tokenId] = _erc20;
-    }
-
-    function setTokenIdentifiersERC6160(bytes32 _tokenId, address _erc6160) external onlyAdmin {
-        _erc6160s[_tokenId] = _erc6160;
-    }
-
-    function setForeignTokenIdToLocalTokenId(bytes32 _foreignTokenId, bytes32 _localTokenId) external onlyAdmin {
-        _assets[_foreignTokenId] = _localTokenId;
+    function calculateProtocolFee(uint256 _amount) private view returns (uint256 redeemFee_) {
+        redeemFee_ = (_amount * _protocolFeePercentage) / 100_000;
     }
 }

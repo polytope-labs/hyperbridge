@@ -211,9 +211,9 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    function onPostRequestTimeout(PostRequest memory request) external override onlyIsmpHost {
+    function onPostRequestTimeout(PostRequest calldata request) external override onlyIsmpHost {
         // The money could not be sent, this would allow users to get their money back.
-        Body memory body = abi.decode(request.body, (Body));
+        Body memory body = abi.decode(request.body[1:], (Body));
 
         address erc20 = _erc20s[body.tokenId];
         address erc6160 = _erc6160s[body.tokenId];

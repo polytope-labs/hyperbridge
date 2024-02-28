@@ -75,6 +75,33 @@ contract TokenGatewayTest is BaseTest {
         assert(feeToken.balanceOf(address(this)) == 1_000 * 1e18);
     }
 
+    function testCanTimeoutRequest() public {
+        assert(feeToken.balanceOf(address(this)) == 0);
+
+        Body memory body = Body({
+            tokenId: keccak256("USD.h"),
+            to: address(this),
+            redeem: false,
+            amount: 1_000 * 1e18,
+            from: address(this)
+        });
+        vm.prank(address(host));
+        gateway.onPostRequestTimeout(
+            PostRequest({
+                to: abi.encodePacked(address(0)),
+                from: abi.encodePacked(address(gateway)),
+                dest: new bytes(0),
+                body: bytes.concat(hex"00", abi.encode(body)),
+                gaslimit: uint64(0),
+                nonce: 0,
+                source: new bytes(0),
+                timeoutTimestamp: 0
+            })
+        );
+
+        assert(feeToken.balanceOf(address(this)) == 1_000 * 1e18);
+    }
+
     function testOnlyHostCanCallOnAccept() public {
         Body memory body = Body({
             tokenId: keccak256("USD.h"),

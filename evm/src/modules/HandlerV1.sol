@@ -18,7 +18,7 @@ import {
     GetTimeoutMessage,
     PostRequestLeaf,
     PostResponseLeaf
-} from "ismp/IIsmp.sol";
+} from "ismp/Message.sol";
 
 /// Entry point for the hyperbridge. Implementation of the ISMP handler protocol
 contract HandlerV1 is IHandler, Context {

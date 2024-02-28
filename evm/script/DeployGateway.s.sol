@@ -11,12 +11,13 @@ import {PingModule} from "../examples/PingModule.sol";
 import {CrossChainMessenger} from "../examples/CrossChainMessenger.sol";
 
 contract DeployScript is Script {
-    bytes32 public salt = keccak256(bytes("gargantua-v0.0.7"));
+    bytes32 public salt = keccak256(bytes(vm.envString("VERSION")));
 
-    address public SEPOLIA_HOST = 0x5b5F63C8f3985CaFE1CE53E6374f42AB60dE5a6B;
-    address public ARB_SEPOLIA_HOST = 0x43E136611Cf74E165116a47e6F9C58AFCc80Ec54;
-    address public OP_SEPOLIA_HOST = 0x0124f458900FCd101c4CE31A9772fD2c5e6d65BF;
-    address public BASE_SEPOLIA_HOST = 0x87825f839d95c6021c0e821917F93aDB299eD6F8;
+    address public SEPOLIA_HOST = 0x9DF353352b469782AB1B0F2CbBFEC41bF1FDbDb3;
+    address public ARB_SEPOLIA_HOST = 0x424e6971EB1C693cf4296d4bdb42aa0F32a0dd9e;
+    address public OP_SEPOLIA_HOST = 0x1B58A47e61Ca7604b634CBB00b4e275cCd7c9E95;
+    address public BASE_SEPOLIA_HOST = 0x4c876500A13cc3825D343b5Ac791d3A4913bF14f;
+    address public BSC_TESTNET_HOST = 0x022DDE07A21d8c553978b006D93CDe68ac83e677;
 
     bytes32 public constant MINTER_ROLE = keccak256("MINTER ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER ROLE");
@@ -25,29 +26,24 @@ contract DeployScript is Script {
         address admin = vm.envAddress("ADMIN");
         bytes32 privateKey = vm.envBytes32("PRIVATE_KEY");
         string memory host = vm.envString("HOST");
-        address uniRouter = vm.envAddress("UNISWAP_V2_ROUTER_02");
-        if (uniRouter == address(0)) revert("UNISWAP_V2_ROUTER_02 unset");
+        // todo:
+        address uniRouter = address(0);
 
         if (Strings.equal(host, "sepolia") || Strings.equal(host, "ethereum")) {
-            vm.createSelectFork("sepolia");
             vm.startBroadcast(uint256(privateKey));
             deployGateway(SEPOLIA_HOST, admin, uniRouter);
-            vm.stopBroadcast();
         } else if (Strings.equal(host, "arbitrum-sepolia")) {
-            vm.createSelectFork("arbitrum-sepolia");
             vm.startBroadcast(uint256(privateKey));
             deployGateway(ARB_SEPOLIA_HOST, admin, uniRouter);
-            vm.stopBroadcast();
         } else if (Strings.equal(host, "optimism-sepolia")) {
-            vm.createSelectFork("optimism-sepolia");
             vm.startBroadcast(uint256(privateKey));
             deployGateway(OP_SEPOLIA_HOST, admin, uniRouter);
-            vm.stopBroadcast();
         } else if (Strings.equal(host, "base-sepolia")) {
-            vm.createSelectFork("base-sepolia");
             vm.startBroadcast(uint256(privateKey));
             deployGateway(BASE_SEPOLIA_HOST, admin, uniRouter);
-            vm.stopBroadcast();
+        } else if (Strings.equal(host, "bsc-testnet")) {
+            vm.startBroadcast(uint256(privateKey));
+            deployGateway(BSC_TESTNET_HOST, admin, uniRouter);
         }
     }
 
@@ -57,7 +53,7 @@ contract DeployScript is Script {
     }
 
     function deployGateway(address host, address admin, address uniRouter) public {
-        ERC6160Ext20 t = new ERC6160Ext20{salt: salt}(admin, "Hyperbridge Test Token", "CORE");
+        ERC6160Ext20 t = new ERC6160Ext20{salt: salt}(admin, "Hyperbridge USD", "USD.h");
 
         TokenGateway gateway = new TokenGateway{salt: salt}(admin);
         gateway.initParams(host, uniRouter);

@@ -2,11 +2,11 @@
 pragma solidity ^0.8.17;
 
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
-import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "ismp/IIsmp.sol";
+import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "ismp/Message.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 
 import {HostParams, IHostManager, WithdrawParams} from "../hosts/EvmHost.sol";
-import {BaseIsmpModule} from "./BaseIsmpModule.sol";
+import {BaseIsmpModule} from "ismp/IIsmpModule.sol";
 
 /// Host manager params
 struct HostManagerParams {

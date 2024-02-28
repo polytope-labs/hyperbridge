@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.17;
 
-import "ismp/IIsmpModule.sol";
-import "ismp/IIsmp.sol";
-import "ismp/IIsmpHost.sol";
-import "ERC6160/interfaces/IERC6160Ext20.sol";
+import {IDispatcher, DispatchPost} from "ismp/IDispatcher.sol";
+import {IIsmpHost} from "ismp/IIsmpHost.sol";
+import {StateMachine} from "ismp/StateMachine.sol";
+import {BaseIsmpModule, PostRequest} from "ismp/IIsmpModule.sol";
+import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
+import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import "../hosts/EvmHost.sol";
-import "../interfaces/IUniswapV2Router.sol";
-import {BaseIsmpModule} from "./BaseIsmpModule.sol";
 
-struct SendParams {
+import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
+
+struct TeleportParams {
     // amount to be sent
     uint256 amount;
     // Relayer fee
@@ -42,9 +43,18 @@ struct Body {
     address to;
 }
 
+/// The TokenGateway allows users send either ERC20 or ERC6160 tokens
+/// using Hyperbridge as a message-passing layer.
 contract TokenGateway is BaseIsmpModule {
+    using Bytes for bytes;
+
+    /// ParaId of hyperbridge
+    uint256 private _paraId;
+    /// address of the IsmpHost contract on this chain
     address private host;
+    /// admin account
     address private admin;
+    /// local uniswap router
     IUniswapV2Router private uniswapV2Router;
 
     // Bytes size of Body struct
@@ -56,8 +66,6 @@ contract TokenGateway is BaseIsmpModule {
     mapping(bytes32 => address) private _erc20s;
     // foreign to local asset identifier mapping
     mapping(bytes32 => bytes32) private _assets;
-    // chain to its gateway address
-    mapping(bytes => bytes) private _chainToGateway;
 
     // User has received some assets, source chain & nonce
     event AssetReceived(bytes source, uint256 nonce);
@@ -78,6 +86,22 @@ contract TokenGateway is BaseIsmpModule {
         _;
     }
 
+    enum OnAcceptActions {
+        /// Incoming asset from a chain
+        IncomingAsset,
+        /// Governance actions
+        GovernanceAction
+    }
+
+    enum GovernanceActions {
+        /// A new asset is now supported by gateway
+        NewAsset,
+        /// Governance has decided to adjust liquidity fee paid to relayers
+        AdjustLiquidityFee,
+        ///  Governance has decided to adjust it's protocol fee
+        AdjustProtocolFee
+    }
+
     constructor(address _admin) {
         admin = _admin;
     }
@@ -88,7 +112,7 @@ contract TokenGateway is BaseIsmpModule {
         uniswapV2Router = IUniswapV2Router(_uniswapV2Router);
     }
 
-    function send(SendParams memory params) public {
+    function teleport(TeleportParams memory params) public {
         require(host != address(0), "Gateway: Host is not set");
         require(address(uniswapV2Router) != address(0), "Gateway: Uniswap router not set");
 
@@ -127,24 +151,52 @@ contract TokenGateway is BaseIsmpModule {
             Body({from: from, to: params.to, amount: toBridge, tokenId: params.tokenId, redeem: params.redeem})
         );
 
-        bytes memory to = _chainToGateway[params.dest];
-        require(to.length > 0, "Unsupported chain");
-
         DispatchPost memory request = DispatchPost({
             dest: params.dest,
-            to: to,
-            body: data,
+            to: abi.encodePacked(address(this)),
+            // add enum variant for body
+            body: bytes.concat(hex"00", data),
             timeout: params.timeout,
-            gaslimit: uint64(0),
-            fee: params.fee
+            fee: params.fee,
+            gaslimit: uint64(0)
         });
 
         // Your money is now on its way
-        IIsmp(host).dispatch(request);
+        IDispatcher(host).dispatch(request);
     }
 
-    function onAccept(PostRequest memory request) public override onlyIsmpHost {
+    function onAccept(PostRequest calldata request) external override onlyIsmpHost {
+        OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
+
+        if (action == OnAcceptActions.IncomingAsset) {
+            handleIncomingAsset(request);
+        } else if (action == OnAcceptActions.GovernanceAction) {
+            handleGovernance(request);
+        } else {
+            revert("Unknown Action");
+        }
+    }
+
+    function onPostRequestTimeout(PostRequest memory request) external override onlyIsmpHost {
+        // The money could not be sent, this would allow users to get their money back.
         Body memory body = abi.decode(request.body, (Body));
+
+        address erc20 = _erc20s[body.tokenId];
+        address erc6160 = _erc6160s[body.tokenId];
+
+        if (erc20 != address(0) && !body.redeem) {
+            require(IERC20(erc20).transfer(body.from, body.amount), "Gateway: Insufficient Balance");
+        } else if (erc6160 != address(0)) {
+            IERC6160Ext20(erc6160).mint(body.from, body.amount, "");
+        } else {
+            revert("Gateway: Inconsistent State");
+        }
+    }
+
+    function handleIncomingAsset(PostRequest calldata request) private {
+        /// TokenGateway only accepts asset requests from it's instances on other chains.
+        require(request.from.equals(abi.encodePacked(address(this))), "Unauthorized request");
+        Body memory body = abi.decode(request.body[1:], (Body));
 
         bytes32 localAsset = _assets[body.tokenId];
         address erc20 = _erc20s[localAsset];
@@ -180,19 +232,19 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetReceived(request.source, request.nonce);
     }
 
-    function onPostRequestTimeout(PostRequest memory request) public override onlyIsmpHost {
-        // The money could not be sent, this allow users to get their money back.
-        Body memory body = abi.decode(request.body, (Body));
+    function handleGovernance(PostRequest calldata request) private {
+        // only hyperbridge can do this
+        require(request.source.equals(StateMachine.kusama(_paraId)), "Unauthorized request");
+        GovernanceActions action = GovernanceActions(uint8(request.body[1]));
 
-        address erc20 = _erc20s[body.tokenId];
-        address erc6160 = _erc6160s[body.tokenId];
-
-        if (erc20 != address(0) && !body.redeem) {
-            require(IERC20(erc20).transfer(body.from, body.amount), "Gateway: Insufficient Balance");
-        } else if (erc6160 != address(0)) {
-            IERC6160Ext20(erc6160).mint(body.from, body.amount, "");
+        if (action == GovernanceActions.NewAsset) {
+            // do stuff
+        } else if (action == GovernanceActions.AdjustLiquidityFee) {
+            // do stuff
+        } else if (action == GovernanceActions.AdjustProtocolFee) {
+            // do more stuff
         } else {
-            revert("Gateway: Inconsistent State");
+            revert("Unknown Action");
         }
     }
 
@@ -221,9 +273,8 @@ contract TokenGateway is BaseIsmpModule {
     }
 
     function calculateProtocolBridgeFee(uint256 _relayerFee) private view returns (uint256) {
-        // Multiply perByteFee by the byte size of the body struct, and sum with relayer fee
-        HostParams memory _hostParams = EvmHost(host).hostParams();
-        uint256 _fee = (_hostParams.perByteFee * BODY_BYTES_SIZE) + _relayerFee;
+        // Multiply the perByteFee by the byte size of the body struct, and sum with relayer fee
+        uint256 _fee = (IIsmpHost(host).perByteFee() * BODY_BYTES_SIZE) + _relayerFee;
 
         return _fee;
     }
@@ -246,9 +297,5 @@ contract TokenGateway is BaseIsmpModule {
 
     function setForeignTokenIdToLocalTokenId(bytes32 _foreignTokenId, bytes32 _localTokenId) external onlyAdmin {
         _assets[_foreignTokenId] = _localTokenId;
-    }
-
-    function setChainsGateway(bytes memory _chain, address _host) external onlyAdmin {
-        _chainToGateway[_chain] = abi.encodePacked(_host);
     }
 }

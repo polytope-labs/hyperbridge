@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import "openzeppelin/utils/math/Math.sol";
 import "ismp/StateMachine.sol";
 import {MockHost} from "./MockHost.sol";
-import {PostRequest} from "ismp/IIsmp.sol";
+import {PostRequest} from "ismp/Message.sol";
 
 contract MockAutoRelayer is Test {
     address chain_a_host;

@@ -28,7 +28,7 @@ contract DeployScript is Script {
         bytes32 privateKey = vm.envBytes32("PRIVATE_KEY");
         string memory host = vm.envString("HOST");
         // todo:
-        address uniRouter = address(0);
+        address uniRouter = address(1);
 
         if (Strings.equal(host, "sepolia") || Strings.equal(host, "ethereum")) {
             vm.startBroadcast(uint256(privateKey));

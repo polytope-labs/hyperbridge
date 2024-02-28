@@ -49,9 +49,9 @@ contract DeployScript is Script {
         HandlerV1 handler = new HandlerV1{salt: salt}();
 
         // Host manager
-        HostManagerParams memory gParams =
-            HostManagerParams({admin: admin, host: address(0), hyperbridge: StateMachine.kusama(paraId)});
-        HostManager manager = new HostManager{salt: salt}(gParams);
+        HostManager manager = new HostManager{salt: salt}(
+            HostManagerParams({admin: admin, host: address(0), hyperbridge: StateMachine.kusama(paraId)})
+        );
 
         // EvmHost
         HostParams memory params = HostParams({

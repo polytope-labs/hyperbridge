@@ -14,6 +14,8 @@ use ismp::{
 };
 use sp_core::{blake2_128, storage::StorageChangeSet};
 use subxt::{rpc_params, OnlineClient};
+use ismp::host::Ethereum;
+use crate::runtime;
 
 #[derive(Debug, Clone)]
 pub struct HyperBridgeClient {
@@ -77,14 +79,20 @@ impl HyperBridgeClient {
     ) -> Result<StateCommitment, anyhow::Error> {
         let mut partial_key =
             hex!("103895530afb23bb607661426d55eb8bf0f16a60fa21b8baaa82ee16ed43643d").to_vec();
-        let encoded_height = blake2_128(&height.encode());
-        partial_key.extend_from_slice(&encoded_height);
 
-        let response = self.client.rpc().storage(&partial_key, None).await.unwrap().unwrap();
-        let commitment: StateCommitment = codec::Decode::decode(&mut response.0.as_slice())?;
+        let mut state_commitment_address = runtime::api::storage()
+            .ismp()
+            .state_commitments(
+                <StateMachineHeight as Into<runtime::api::runtime_types::ismp::consensus::StateMachineHeight>>::into(height)
+            );
+        let commitment = self.client.storage()
+            .at_latest()
+            .await?.
+            fetch(&state_commitment_address)
+            .await?.expect("State commitment not found");
 
 
-        Ok(commitment)
+        Ok(commitment.into())
     }
 
     pub async fn state_machine_update_notification(
@@ -151,4 +159,94 @@ pub fn get_response_storage_key(response_commitment: Vec<u8>) -> Vec<u8> {
     key.extend_from_slice(&*response_commitment);
 
     key
+}
+
+
+
+impl From<runtime::api::runtime_types::ismp::consensus::StateCommitment> for StateCommitment {
+    fn from(commitment: runtime::api::runtime_types::ismp::consensus::StateCommitment) -> Self {
+        StateCommitment {
+            timestamp: commitment.timestamp,
+            overlay_root: commitment.overlay_root,
+            state_root: commitment.state_root,
+        }
+    }
+}
+
+impl From<runtime::api::runtime_types::ismp::consensus::StateMachineHeight> for StateMachineHeight {
+    fn from(state_machine_height: runtime::api::runtime_types::ismp::consensus::StateMachineHeight) -> Self {
+        StateMachineHeight {
+            id: state_machine_height.id.into(),
+            height: state_machine_height.height,
+        }
+    }
+}
+
+impl From<runtime::api::runtime_types::ismp::consensus::StateMachineId> for StateMachineId {
+    fn from(state_machine_id: runtime::api::runtime_types::ismp::consensus::StateMachineId) -> Self {
+        StateMachineId {
+            state_id: state_machine_id.state_id.into(),
+            consensus_state_id: state_machine_id.consensus_state_id,
+        }
+    }
+}
+
+impl From<runtime::api::runtime_types::ismp::host::StateMachine> for StateMachine {
+    fn from(state_machine_id: runtime::api::runtime_types::ismp::host::StateMachine) -> Self {
+        match state_machine_id {
+            runtime::api::runtime_types::ismp::host::StateMachine::Ethereum(ethereum) => {
+                match ethereum {
+                    runtime::api::runtime_types::ismp::host::StateMachine::Ethereum::ExecutionLayer => StateMachine::Ethereum(Ethereum::ExecutionLayer),
+                    runtime::api::runtime_types::ismp::host::StateMachine::Ethereum::Optimism => StateMachine::Ethereum(Ethereum::Optimism),
+                    runtime::api::runtime_types::ismp::host::StateMachine::Ethereum::Arbitrum => StateMachine::Ethereum(Ethereum::Arbitrum),
+                    runtime::api::runtime_types::ismp::host::StateMachine::Ethereum::Base => StateMachine::Ethereum(Ethereum::Base),
+                }
+            },
+            runtime::api::runtime_types::ismp::host::StateMachine::Polkadot(id) => StateMachine::Polkadot(id),
+            runtime::api::runtime_types::ismp::host::StateMachine::Kusama(id) => StateMachine::Kusama(id),
+            runtime::api::runtime_types::ismp::host::StateMachine::Grandpa(consensus_state_id) => StateMachine::Grandpa(consensus_state_id),
+            runtime::api::runtime_types::ismp::host::StateMachine::Beefy(consensus_state_id) => StateMachine::Beefy(consensus_state_id),
+        }
+    }
+}
+
+impl From<StateMachineHeight> for runtime::api::runtime_types::ismp::consensus::StateMachineHeight {
+    fn from(state_machine_height: StateMachineHeight) -> Self {
+        runtime::api::runtime_types::ismp::consensus::StateMachineHeight {
+            id: state_machine_height.id.into(),
+            height: state_machine_height.height,
+        }
+    }
+}
+
+impl From<StateMachineId> for runtime::api::runtime_types::ismp::consensus::StateMachineId  {
+    fn from(state_machine_id: StateMachineId) -> Self {
+        Self {
+            state_id: state_machine_id.state_id.into(),
+            consensus_state_id: state_machine_id.consensus_state_id,
+        }
+    }
+}
+
+
+impl From<StateMachine> for runtime::api::runtime_types::ismp::host::StateMachine {
+    fn from(state_machine_id: StateMachine) -> Self {
+        match state_machine_id {
+            StateMachine::Ethereum(ethereum) => {
+                match ethereum {
+                    StateMachine::Ethereum::ExecutionLayer => runtime::api::runtime_types::ismp::host::StateMachine::Ethereum(runtime::api::runtime_types::ismp::host::Ethereum::ExecutionLayer),
+                    StateMachine::Ethereum::Optimism => runtime::api::runtime_types::ismp::host::StateMachine::Ethereum(runtime::api::runtime_types::ismp::host::Ethereum::Optimism),
+                    StateMachine::Ethereum::Arbitrum => runtime::api::runtime_types::ismp::host::StateMachine::Ethereum(runtime::api::runtime_types::ismp::host::Ethereum::Arbitrum),
+                    StateMachine::Ethereum::Base => runtime::api::runtime_types::ismp::host::StateMachine::Ethereum(runtime::api::runtime_types::ismp::host::Ethereum::Base),
+                }
+            },
+            StateMachine::Polkadot(id) => runtime::api::runtime_types::ismp::host::StateMachine::Polkadot(id),
+            StateMachine::Kusama(id) => runtime::api::runtime_types::ismp::host::StateMachine::Kusama(id),
+            StateMachine::Grandpa(consensus_state_id) => runtime::api::runtime_types::ismp::host::StateMachine::Grandpa(consensus_state_id),
+            StateMachine::Beefy(consensus_state_id) => runtime::api::runtime_types::ismp::host::StateMachine::Beefy(consensus_state_id),
+
+            StateMachine::Polygon => {}
+            StateMachine::Bsc => {}
+        }
+    }
 }

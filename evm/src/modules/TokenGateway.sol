@@ -8,14 +8,13 @@ import "ERC6160/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import "../hosts/EvmHost.sol";
 import "../interfaces/IUniswapV2Router.sol";
+import {BaseIsmpModule} from "./BaseIsmpModule.sol";
 
 struct SendParams {
     // amount to be sent
     uint256 amount;
     // Relayer fee
     uint256 fee;
-    // Gas limit for the request
-    uint256 gaslimit;
     // The token identifier
     bytes32 tokenId;
     // recipient address
@@ -24,9 +23,9 @@ struct SendParams {
     bytes dest;
     // timeout in seconds
     uint64 timeout;
-    // if to burn wrapper or native
+    // Redeem Erc20 on the destination?
     bool redeem;
-    // this is an erc20 that a will select to be used for fee
+    // The Erc20 token to be used to swap for a fee
     address tokenIntendedForFee;
 }
 
@@ -43,13 +42,13 @@ struct Body {
     address to;
 }
 
-contract TokenGateway is IIsmpModule {
+contract TokenGateway is BaseIsmpModule {
     address private host;
     address private admin;
-    IUniswapV2Router uniswapV2Router;
+    IUniswapV2Router private uniswapV2Router;
 
     // Bytes size of Body struct
-    uint256 constant BODY_BYTES_SIZE = 160;
+    uint256 private constant BODY_BYTES_SIZE = 160;
 
     // mapping of token identifier to erc6160 contracts
     mapping(bytes32 => address) private _erc6160s;
@@ -89,25 +88,9 @@ contract TokenGateway is IIsmpModule {
         uniswapV2Router = IUniswapV2Router(_uniswapV2Router);
     }
 
-    function setTokenIdentifiersERC20(bytes32 _tokenId, address _erc20) external onlyAdmin {
-        _erc20s[_tokenId] = _erc20;
-    }
-
-    function setTokenIdentifiersERC6160(bytes32 _tokenId, address _erc6160) external onlyAdmin {
-        _erc6160s[_tokenId] = _erc6160;
-    }
-
-    function setForeignTokenIdToLocalTokenId(bytes32 _foreignTokenId, bytes32 _localTokenId) external onlyAdmin {
-        _assets[_foreignTokenId] = _localTokenId;
-    }
-
-    function setChainsGateway(bytes memory _chain, address _host) external onlyAdmin {
-        _chainToGateway[_chain] = abi.encodePacked(_host);
-    }
-
-    // The Gateway contract has to have the roles `MINTER` and `BURNER`.
     function send(SendParams memory params) public {
-        ensureInitSetup();
+        require(host != address(0), "Gateway: Host is not set");
+        require(address(uniswapV2Router) != address(0), "Gateway: Uniswap router not set");
 
         address from = msg.sender;
         address erc20 = _erc20s[params.tokenId];
@@ -133,7 +116,7 @@ contract TokenGateway is IIsmpModule {
             if (feeToken != intendedTokenForFee && _fee > 0) {
                 require(handleSwap(from, intendedTokenForFee, feeToken, _fee), "Token swap failed");
             }
-        } else if (erc6160 != address(0) && params.redeem) {
+        } else if (erc6160 != address(0)) {
             // we're sending an erc6160 asset so we should redeem on the destination if we can.
             IERC6160Ext20(erc6160).burn(from, params.amount, "");
         } else {
@@ -152,14 +135,15 @@ contract TokenGateway is IIsmpModule {
             to: to,
             body: data,
             timeout: params.timeout,
-            gaslimit: uint64(params.gaslimit),
+            gaslimit: uint64(0),
             fee: params.fee
         });
 
+        // Your money is now on its way
         IIsmp(host).dispatch(request);
     }
 
-    function onAccept(PostRequest memory request) public onlyIsmpHost {
+    function onAccept(PostRequest memory request) public override onlyIsmpHost {
         Body memory body = abi.decode(request.body, (Body));
 
         bytes32 localAsset = _assets[body.tokenId];
@@ -169,14 +153,14 @@ contract TokenGateway is IIsmpModule {
         // prefer to give the user erc20
         if (erc20 != address(0) && body.redeem) {
             // a relayer/user is redeeming the native asset
-            // Performing 0.1% calculation and deduction here
+            // Perform 0.1% calculation and deduction here
             uint256 _protocolRedeemFee = calculateProtocolRedeemFee(body.amount);
             uint256 _amountToTransfer = body.amount - _protocolRedeemFee;
 
             require(IERC20(erc20).transfer(body.to, _amountToTransfer), "Gateway: Insufficient Balance");
-        } else if (erc20 != address(0) && erc6160 != address(0)) {
-            // relayers double as liquidity providers, todo: protocol fees
-            // Perform 0.3% calculation  and deduction here
+        } else if (erc20 != address(0) && erc6160 != address(0) && !body.redeem) {
+            // relayers double as liquidity providers.
+            // Perform 0.3% calculation and deduction here
             uint256 _protocolLiquidityFee = calculateProtocolLiquidityFee(body.amount);
             uint256 _amountToTransfer = body.amount - _protocolLiquidityFee;
 
@@ -196,7 +180,8 @@ contract TokenGateway is IIsmpModule {
         emit AssetReceived(request.source, request.nonce);
     }
 
-    function onPostRequestTimeout(PostRequest memory request) public onlyIsmpHost {
+    function onPostRequestTimeout(PostRequest memory request) public override onlyIsmpHost {
+        // The money could not be sent, this allow users to get their money back.
         Body memory body = abi.decode(request.body, (Body));
 
         address erc20 = _erc20s[body.tokenId];
@@ -204,27 +189,11 @@ contract TokenGateway is IIsmpModule {
 
         if (erc20 != address(0) && !body.redeem) {
             require(IERC20(erc20).transfer(body.from, body.amount), "Gateway: Insufficient Balance");
-        } else if (erc6160 != address(0) && body.redeem) {
+        } else if (erc6160 != address(0)) {
             IERC6160Ext20(erc6160).mint(body.from, body.amount, "");
         } else {
             revert("Gateway: Inconsistent State");
         }
-    }
-
-    function onPostResponse(PostResponse memory) external view onlyIsmpHost {
-        revert("Token gateway doesn't emit Post responses");
-    }
-
-    function onPostResponseTimeout(PostResponse memory) external view onlyIsmpHost {
-        revert("Token gateway doesn't emit Post responses");
-    }
-
-    function onGetResponse(GetResponse memory) external view onlyIsmpHost {
-        revert("Token gateway doesn't emit Get requests");
-    }
-
-    function onGetTimeout(GetRequest memory) external view onlyIsmpHost {
-        revert("Token gateway doesn't emit Get Requests");
     }
 
     function handleSwap(address _sender, address _fromToken, address _toToken, uint256 _toTokenAmountOut)
@@ -238,7 +207,6 @@ contract TokenGateway is IIsmpModule {
         uint256 _fromTokenAmountIn = uniswapV2Router.getAmountsIn(_toTokenAmountOut, path)[0];
 
         // How do we handle cases of slippage - Todo: Handle Slippage
-
         require(
             IERC20(_fromToken).transferFrom(_sender, address(this), _fromTokenAmountIn),
             "insufficient intended fee token"
@@ -268,8 +236,19 @@ contract TokenGateway is IIsmpModule {
         redeemFee_ = (_amount * 100) / 100_000;
     }
 
-    function ensureInitSetup() private view {
-        require(host != address(0), "Gateway: Host is not set");
-        require(address(uniswapV2Router) != address(0), "Gateway: Uniswap router not set");
+    function setTokenIdentifiersERC20(bytes32 _tokenId, address _erc20) external onlyAdmin {
+        _erc20s[_tokenId] = _erc20;
+    }
+
+    function setTokenIdentifiersERC6160(bytes32 _tokenId, address _erc6160) external onlyAdmin {
+        _erc6160s[_tokenId] = _erc6160;
+    }
+
+    function setForeignTokenIdToLocalTokenId(bytes32 _foreignTokenId, bytes32 _localTokenId) external onlyAdmin {
+        _assets[_foreignTokenId] = _localTokenId;
+    }
+
+    function setChainsGateway(bytes memory _chain, address _host) external onlyAdmin {
+        _chainToGateway[_chain] = abi.encodePacked(_host);
     }
 }

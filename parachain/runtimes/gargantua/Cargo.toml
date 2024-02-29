@@ -83,7 +83,7 @@ ismp-runtime-api = { path = "../../../modules/ismp/pallet/runtime-api", default-
 ismp-sync-committee = { path = "../../../modules/ismp/clients/sync-committee", default-features = false }
 ismp-polygon-pos = { path = "../../../modules/ismp/clients/polygon-pos", default-features = false }
 ismp-bsc-pos = { path = "../../../modules/ismp/clients/bsc-pos", default-features = false }
-pallet-relayer-fees = { path = "../../../modules/relayer-fees", default-features = false }
+pallet-ismp-relayer = { path = "../../../modules/relayer", default-features = false }
 state-machine-manager = { path = "../../../modules/state-machine-manager", default-features = false }
 
 [features]
@@ -145,7 +145,7 @@ std = [
 	"sp-genesis-builder/std",
 	"ismp-bsc-pos/std",
 	"ismp-polygon-pos/std",
-	"pallet-relayer-fees/std",
+	"pallet-ismp-relayer/std",
 	"state-machine-manager/std"
 ]
 

@@ -17,7 +17,7 @@ members = [
      "modules/ismp/core",
      "modules/ismp/testsuite",
      "modules/ismp/clients/sync-committee",
-     "modules/ismp/clients/polygon-pos",
+#     "modules/ismp/clients/polygon-pos",
      "modules/ismp/clients/casper-ffg",
      "modules/ismp/pallet/state-machine",
 
@@ -26,8 +26,8 @@ members = [
      "modules/consensus/sync-committee/prover",
      "modules/consensus/sync-committee/verifier",
      "modules/consensus/sync-committee/primitives",
-     "modules/consensus/polygon-pos/verifier",
-     "modules/consensus/polygon-pos/prover",
+#     "modules/consensus/polygon-pos/verifier",
+#     "modules/consensus/polygon-pos/prover",
      "modules/consensus/beefy/primitives",
      "modules/consensus/beefy/prover",
      "modules/consensus/geth-primitives",
@@ -39,7 +39,7 @@ members = [
      # evm stuff
      "evm/integration-tests",
      "evm/abi",
-     "modules/relayer-fees",
+     "modules/relayer",
      "modules/trees/mmr",
 
 

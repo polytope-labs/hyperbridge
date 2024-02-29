@@ -564,10 +564,9 @@ construct_runtime!(
 
         // ISMP stuff
         Ismp: pallet_ismp = 40,
-        IsmpSyncCommittee: ismp_sync_committee::pallet::{Pallet, Call} = 41,
+        IsmpSyncCommittee: ismp_sync_committee::pallet = 41,
         IsmpDemo: ismp_demo = 42,
-        RelayerFees: pallet_relayer_fees = 43,
-        IsmpPolygonPos: ismp_polygon_pos::pallet = 44,
+        Relayer: pallet_ismp_relayer = 43,
         StateMachineManager: state_machine_manager = 45,
     }
 );

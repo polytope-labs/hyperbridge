@@ -5,7 +5,38 @@ description: Running the tesseract relayer
 
 # Relayers
 
-Critical to the function of Hyperbridge are relayers who transmit requests & responses across it's connected chains. These relayers much like node operators earn rewards for relaying requests. Since request execution fees are paid for ahead of time on the source chain by the initiating application. Relayers can relay and pay for the execution of these requests on the destination chain and redeem their fees on the source chain. This works by the relayer showing state proofs of request delivery to the hyperbridge parachain. Hyperbridge then authorizes the release of the fees to the relayer on the source chain through an ISMP request.
+<figure>
+  <img
+    src="/relayer.webp"
+    alt="Hyperbridge relayers"
+  />
+  <figcaption style={{textAlign: "center"}}>Hyperbridge relayers</figcaption>
+</figure>
+
+Critical to the function of Hyperbridge are the relayers who transmit requests & responses across it's connected chains. Unlike popular interoperability protocols, Hyperbridge relayers are fully permissionless. This means, relayers will not need to be staked or whitelisted in order to transmit cross-chain messages. This is as a result of it's first-of-it's kind, fully trust-free design. This service of-course, will not be for free. Hyperbridge permits the applications that leverage it’s secure message passing infrastructure to pay ahead of time for the message delivery & execution. They do so on the source chain of the initiating application. 
+<br />
+Fees for cross-chain requests are to be paid in stable coins, We’ve chosen the DAI stablecoin for it’s decentralized and censorship-resistant properties.  This means users will estimate the cost for message execution & provide what they believe to be a fair amount in DAI to the Hyperbridge contract. (Specifically, the [EvmHost](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol#L533)) at the time of dispatching a request. Once the request has been finalized by the originating chain and these finality proofs made available to the destination chain. The request becomes eligible for delivery & execution. A relayer will estimate the cost of request delivery and query the fee that has been put up for it’s delivery on the source chain. Depending on their profitability configuration, they’ll either choose to deliver the request or ignore it.
+<br />
+If the relayers chooses to deliver the request, then this means they will cover the cost of message delivery and execution. This cost of message delivery is the cost of proof verification of requests & responses. The cost of message execution is the cost of executing the message on the destination module. In the current version of the protocol, relayers are tasked with both delivering and executing the messages. But it is entirely possible in future versions of the protocol that we unbundle message delivery and execution as this may enable more exotic applications.
+<br />
+In our chosen design, relayers race to deliver a batch of cross-chain messages to their respective destination chains. This has a few benefits, this effectively mitigates any liveness issues that may arise as a result of some whitelisted relayers going down. This free market design presents a much better UX to end users and applications. The winning relayer, can be decided by a few factors. 
+<br />
+1. Block notification.
+
+Relayer are mostly idle, and will only check for new messages to be delivered when the chains they’re interested in receive new consensus messages. The consensus messages, contain proofs that finalizes a new set of block heights. The new block heights, may or may not contain new messages to be delivered from the hyperbridge parachain. Therefore, whichever relayer sees the block where these consensus messages were processed on the destination chain first, can begin the check before everyone else and as a result, deliver the new batch of requests before anyone else.
+
+2. Query throughput
+
+We can for the purposes of this criteria assume that every single relayer has received the block notification at the same time. Now they have to do a few things, first they’ll query for the new requests available, next they’ll need to query the fees associated with these requests, and finally query the cost of executing these requests by simulating them individually as a transaction on the full node for it’s destination chain.
+
+If the relayer is able to query high-performance nodes and has a very fast internet connection, or even better is colocated the nodes in question. You can already see how this provides an edge in being the first to deliver the requests.
+
+3. MEV
+
+An unfortunate development in blockchain protocols are validators who auction their blockspace. They do so in order to earn even more money than the underlying protocols already pay them. It’s not impossible that relayers may integrate with validators who auction their blockspace using proposer-builder networks in order to have their bundles always be first in the block. Of-course these relayers would have to pay high priority fees for such shenanigans. But we fully expect relayer competition to eventually reach these levels.
+<br/>
+
+Once a relayer successfully delivers a batch of requests, they can immediately start claiming the associated fees for these requests. They’ll do so by submitting state proofs of the messages delivered on the destination chain to hyperbridge. Once hyperbridge verifies these proofs, it will make the fees available to the relayer by issuing a request to it’s contracts on the source chain. The relayer will be responsible for delivering this request as it will have no fee attached and will hence be ignored by other relayers.
 
 ## Installation
 
@@ -13,20 +44,186 @@ The tesseract relayer is available through the following methods
 
 ### Prebuilt binaries
 
-Unavailable at this time
+Unavailable at this time.
 
 ### Docker
 
 Tesseract is available at the official docker repository [`polytopelabs/tesseract`](https://hub.docker.com/r/polytopelabs/tesseract)
 
 ```bash
-docker run polytopelabs/tesseract:latest --config=/path/to/config
+docker run polytopelabs/tesseract:latest --config=/path/to/config --db=/path/to/database
 ```
 
 ### Building from source?
 
-Unfortunately, tesseract is closed-souce for now.
+Unfortunately, tesseract is closed-souce for now. Tesseract source-code will be available on Hyperbridge mainnet launch.
+
+
+## System Requirements
+
+At the minimum, the hyperbridge relayer should be run on a machine with at least 4GB of RAM and a quad-core cpu. This relayer should also have at least a 100Mb/s connection if it is to query nodes over the internet.
+
 
 ## Running the relayer
 
-### Config
+The tesseract relayer command line interface expects two arguments, which are the paths to it's configuration file and database file. Because it resides in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration files on your host into the docker conatiner. Tesseract will write it's database to that directory once it's initialized.
+
+
+```bash
+docker run -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db
+
+```
+
+### Configuration
+
+The configuration file is a toml file that at the moment, expects the following configuration options:
+
+
+```toml
+# Hyperbridge config, required
+[hyperbridge]
+# Hyperbridge chain spec, either one of Dev, Gargantua or Messier
+chain = "Dev"
+# Hyperbidge node ws rpc endpoint.
+rpc_ws = "ws://127.0.0.1:9944" # example endpoint
+
+[ethereum]
+# configuration type
+type = "ethereum_sepolia"
+# State machine identifier
+state_machine = { Ethereum = "ExecutionLayer" }
+# http(s) rpc url for sepolia
+rpc_url = ""
+# consensus state identifier for sepolia on hyperbridge
+consensus_state_id = "ETH0"
+# etherscan api key for querying Ethereum token price
+etherscan_api_key = ""
+# Contract address of the HandlerV1 contract
+handler = ""
+# Contract address of the IsmpHost contract
+ismp_host = ""
+# hex-encoded private key for the relayer
+signer = ""
+
+[arbitrum]
+# configuration type
+type = "arbitrum"
+# State machine identifier
+state_machine = { Ethereum = "Arbitrum" }
+# http(s) rpc url for arbitrum
+rpc_url = ""
+# consensus state identifier for arbitrum on hyperbridge, L2s use ethereum as their consensus oracle
+consensus_state_id = "ETH0"
+# etherscan api key for querying Ethereum token price
+etherscan_api_key = ""
+# Contract address of the HandlerV1 contract
+handler = ""
+# Contract address of the IsmpHost contract
+ismp_host = ""
+# hex-encoded private key for the relayer
+signer = ""
+
+[optimism]
+# configuration type
+type = "optimism"
+# State machine identifier
+state_machine = { Ethereum = "Optimism" }
+# http(s) rpc url for optimism
+rpc_url = ""
+# consensus state identifier for optimism on hyperbridge, L2s use ethereum as their consensus oracle
+consensus_state_id = "ETH0"
+# etherscan api key for querying Ethereum token price
+etherscan_api_key = ""
+# Contract address of the HandlerV1 contract
+handler = ""
+# Contract address of the IsmpHost contract
+ismp_host = ""
+# hex-encoded private key for the relayer
+signer = ""
+
+[base]
+# configuration type
+type = "base"
+# State machine identifier
+state_machine = { Ethereum = "Base" }
+# http(s) rpc url for base
+rpc_url = ""
+# consensus state identifier for base on hyperbridge, L2s use ethereum as their consensus oracle
+consensus_state_id = "ETH0"
+# etherscan api key for querying Ethereum token price
+etherscan_api_key = ""
+# Contract address of the HandlerV1 contract
+handler = ""
+# Contract address of the IsmpHost contract
+ismp_host = ""
+# hex-encoded private key for the relayer
+signer = ""
+
+[bsc]
+# configuration type
+type = "bsc"
+# State machine identifier
+state_machine = "Bsc"
+# http(s) rpc url for binance smart chain
+rpc_url = ""
+# consensus state identifier for binance smart chain on hyperbridge
+consensus_state_id = "BSC0"
+# etherscan api key for querying BNB token price
+etherscan_api_key = ""
+# Contract address of the HandlerV1 contract
+handler = ""
+# Contract address of the IsmpHost contract
+ismp_host = ""
+# hex-encoded private key for the relayer
+signer = ""
+
+# Relayer config, required
+[relayer]
+# Hyperbridge chain spec, either one of Dev, Gargantua or Messier
+chain = "Dev"
+# Define your profitability configuration. 0 -> 0% i.e relay all requests, even unprofitable ones. 1 -> 1%. ie fees provided for requests must be profitable by at least 1%. etc. 
+minimum_profit_percentage = 0
+# (Optional) If not empty, will filter requests to be delivered by originating module identifier (eg contract address)
+module_filter = []
+# (Optional) If not empty, only deliver to the specied state-machines
+delivery_endpoints = [
+    { Ethereum = "ExecutionLayer" },
+    { Ethereum = "Arbitrum" },
+    { Ethereum = "Optimism" },
+    { Ethereum = "Base" },
+    "Bsc"
+]
+```
+
+It is optional to provide the configuration option for any of the connected chains, The only consequence is your relayer will not deliver requests from the ommitted chain as it has no way of querying the associated fees for requests originating from this chain.
+
+You can find the up-to-date contract addresses for the `Handler` & `IsmpHost` contracts [here](/evm/integration#gargantua-v2)
+
+### Withdrawing Fees
+
+Tesseract maintains a local sqlite database where it keeps track of successfully delivered messages. The withdrawal process happens in two phases, the first phase is the fee accumulation on hyperbridge, then withdrawal on any of the connected chains.
+<br />
+In the fee accumulation phase, tesseract submits state proofs of messages all delivered to hyperbridge using the `accumulate_fees` extrinsic on `pallet-ismp-relayer`. If the proof verification is successful, the total amount of unclaimed fees for the relayer address will be recorded.
+<br />
+The relayer can submit a withdrawal request from hyperbridge to any of the chains where it has unclaimed fees, an ISMP Post request with instructions to credit the relayer on the destination chain is dispatched, the request has a timeout of zero allowing it to be submitted to the destination at any time in the future without any risk of timing out. 
+
+#### Accumulating fees on Hyperbridge
+Stop any running relayer instances, run the following command in the terminal and wait for it to complete. The command will submit proofs for messages delivered to all chains present in the config file.
+
+```bash
+    docker run -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees
+```
+
+#### Initiating withdrawal from hyperbridge
+To initiate a withdrawal from hyperbridge, a relayer needs to submit a `withdraw_fees` extrinsic from `pallet-ismp-relayer` on hyperbridge, The transaction takes a `WithdrawalInputData`, this value contains, the amount to be withdrawn, the destination chain and a signature that proves ownership of the account that will be debited.
+<br />
+It is possible to use the relayer software to accumulate fees and initiate the withdrawal process with one command, for this to work, the relayer account must have sufficient funds to pay the transaction delivery fees on the withdrawal destination chains.
+<br />
+To use this feature run the following command:
+
+```bash
+    docker run -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --withdraw
+```
+
+You can find the code that implements fee accumulation and withdrawals [here](https://github.com/polytope-labs/hyperbridge/blob/c3e940c60b718eaf5ac02a96c4801814a555dcf7/modules/relayer-fees/src/lib.rs#L120)
+

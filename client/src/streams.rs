@@ -1,24 +1,25 @@
 use crate::{
     providers::global::{Client, RequestOrResponse},
-    types::{BoxStreamJs, ClientConfig, HyperClientErrors, MessageStatus, PostStreamState},
+    types::{
+        BoxStream, BoxStreamJs, ClientConfig, HyperClientErrors, MessageStatus, PostStreamState,
+    },
     Keccak256,
 };
 use anyhow::{anyhow, Error};
 use ethers::prelude::H160;
 use futures::{stream, StreamExt};
-use gloo_timers::future::TimeoutFuture;
 use ismp::{
     router::{Post, Request},
     util::hash_request,
 };
-use wasm_bindgen::{JsError, JsValue};
+use std::time::Duration;
 
 /// returns the query stream for a post
 pub async fn query_request_status_stream(
     post: Post,
     config: ClientConfig,
     post_request_height: u64,
-) -> BoxStreamJs<JsValue> {
+) -> BoxStream<MessageStatus> {
     let stream = stream::unfold(PostStreamState::Pending, move |post_request_status| {
         let config_inner = config.clone();
         let req = Request::Post(post.clone());
@@ -36,25 +37,16 @@ pub async fn query_request_status_stream(
                         let relayer_address = dest_client.query_request_receipt(hash).await?;
 
                         if relayer_address != H160::zero() {
-                            // This means the message has gotten the destination chain
-                            return Ok::<Option<(Result<JsValue, JsError>, PostStreamState)>, Error>(
-                                Some((
-                                    Ok(serde_wasm_bindgen::to_value(
-                                        &MessageStatus::DestinationDelivered,
-                                    )
-                                    .expect("Failed to serialize message status")),
-                                    PostStreamState::End,
-                                )),
-                            )
+                            // This means the message has gotten to the destination chain
+                            return Ok::<Option<(Result<_, Error>, PostStreamState)>, Error>(Some((
+                                Ok(MessageStatus::DestinationDelivered),
+                                PostStreamState::End,
+                            )))
                         }
 
                         if destination_current_timestamp.as_secs() >= post.timeout_timestamp {
                             // Checking to see if the message has timed-out
-                            return Ok(Some((
-                                Ok(serde_wasm_bindgen::to_value(&MessageStatus::Timeout)
-                                    .expect("Failed to serialize message status")),
-                                PostStreamState::End,
-                            )))
+                            return Ok(Some((Ok(MessageStatus::Timeout), PostStreamState::End)))
                         }
 
                         let mut state_machine_updated_stream = hyperbridge_client
@@ -69,17 +61,18 @@ pub async fn query_request_status_stream(
                                             post.source
                                     {
                                         return Ok(Some((
-                                            Ok(serde_wasm_bindgen::to_value(
-                                                &MessageStatus::SourceFinalized,
-                                            )
-                                            .expect("Failed to serialize message status")),
+                                            Ok(MessageStatus::SourceFinalized),
                                             PostStreamState::SourceFinalized,
                                         )))
                                     }
                                 },
-                                Err(_) =>
+                                Err(e) =>
                                     return Ok(Some((
-                                        Err(JsError::new("stream encountered an error")),
+                                        Err(anyhow!(
+                                            "Encountered an error {:?}: in {:?}",
+                                            PostStreamState::Pending,
+                                            e
+                                        )),
                                         post_request_status,
                                     ))),
                             };
@@ -96,10 +89,7 @@ pub async fn query_request_status_stream(
                                 hyperbridge_client.client.blocks().at_latest().await?.number();
 
                             return Ok(Some((
-                                Ok(serde_wasm_bindgen::to_value(
-                                    &MessageStatus::HyperbridgeDelivered,
-                                )
-                                .expect("Failed to serialize message status")),
+                                Ok(MessageStatus::HyperbridgeDelivered),
                                 PostStreamState::HyperbridgeDelivered(hyperbridge_height.into()),
                             )));
                         }
@@ -117,18 +107,19 @@ pub async fn query_request_status_stream(
                                         .await?
                                         .number();
                                     return Ok(Some((
-                                        Ok(serde_wasm_bindgen::to_value(
-                                            &MessageStatus::HyperbridgeDelivered,
-                                        )
-                                        .expect("Failed to serialize message status")),
+                                        Ok(MessageStatus::HyperbridgeDelivered),
                                         PostStreamState::HyperbridgeDelivered(
                                             hyperbridge_height.into(),
                                         ),
                                     )));
                                 },
-                                Err(_) =>
+                                Err(e) =>
                                     return Ok(Some((
-                                        Err(JsError::new("stream encountered an error")),
+                                        Err(anyhow!(
+                                            "Encountered an error {:?}: in {:?}",
+                                            PostStreamState::SourceFinalized,
+                                            e
+                                        )),
                                         post_request_status,
                                     ))),
                             }
@@ -140,10 +131,7 @@ pub async fn query_request_status_stream(
                         let res = dest_client.query_request_receipt(hash).await?;
                         if res != H160::zero() {
                             return Ok(Some((
-                                Ok(serde_wasm_bindgen::to_value(
-                                    &MessageStatus::DestinationDelivered,
-                                )
-                                .expect("Failed to serialize message status")),
+                                Ok(MessageStatus::DestinationDelivered),
                                 PostStreamState::End,
                             )));
                         }
@@ -158,18 +146,19 @@ pub async fn query_request_status_stream(
                                 Ok(event) =>
                                     if event.latest_height >= height {
                                         return Ok(Some((
-                                            Ok(serde_wasm_bindgen::to_value(
-                                                &MessageStatus::HyperbridgeFinalized,
-                                            )
-                                            .expect("Failed to serialize message status")),
+                                            Ok(MessageStatus::HyperbridgeFinalized),
                                             PostStreamState::HyperbridgeFinalized,
                                         )));
                                     } else {
                                         continue
                                     },
-                                Err(_) =>
+                                Err(e) =>
                                     return Ok(Some((
-                                        Err(JsError::new("stream encountered an error")),
+                                        Err(anyhow!(
+                                            "Encountered an error {:?}: in {:?}",
+                                            PostStreamState::HyperbridgeDelivered(height),
+                                            e
+                                        )),
                                         post_request_status,
                                     ))),
                             }
@@ -180,10 +169,7 @@ pub async fn query_request_status_stream(
                         let res = dest_client.query_request_receipt(hash).await?;
                         if res != H160::zero() {
                             return Ok(Some((
-                                Ok(serde_wasm_bindgen::to_value(
-                                    &MessageStatus::DestinationDelivered,
-                                )
-                                .expect("Failed to serialize message status")),
+                                Ok(MessageStatus::DestinationDelivered),
                                 PostStreamState::DestinationDelivered,
                             )));
                         }
@@ -193,16 +179,17 @@ pub async fn query_request_status_stream(
                             match event {
                                 Ok(_) => {
                                     return Ok(Some((
-                                        Ok(serde_wasm_bindgen::to_value(
-                                            &MessageStatus::DestinationDelivered,
-                                        )
-                                        .expect("Failed to serialize message status")),
+                                        Ok(MessageStatus::DestinationDelivered),
                                         PostStreamState::DestinationDelivered,
                                     )));
                                 },
-                                Err(_) =>
+                                Err(e) =>
                                     return Ok(Some((
-                                        Err(JsError::new("stream encountered an error")),
+                                        Err(anyhow!(
+                                            "Encountered an error {:?}: in {:?}",
+                                            PostStreamState::HyperbridgeFinalized,
+                                            e
+                                        )),
                                         post_request_status,
                                     ))),
                             }
@@ -211,15 +198,17 @@ pub async fn query_request_status_stream(
                     },
 
                     PostStreamState::DestinationDelivered | PostStreamState::End =>
-                        Ok::<Option<(Result<JsValue, JsError>, PostStreamState)>, Error>(None),
+                        Ok::<Option<(Result<_, _>, PostStreamState)>, Error>(None),
                 }
             };
 
             let response = lambda().await;
             match response {
                 Ok(res) => res,
-                Err(_) =>
-                    Some((Err(JsError::new("Encountered an error in stream")), post_request_status)),
+                Err(e) => Some((
+                    Err(anyhow!("Encountered an error in stream {e:?}")),
+                    post_request_status,
+                )),
             }
         }
     });
@@ -229,7 +218,7 @@ pub async fn query_request_status_stream(
 
 /// This function returns a stream that yields when the timeout
 /// time of a request is reached
-pub async fn timeout_stream(timeout: u64, client: impl Client + Clone) -> BoxStreamJs<JsValue> {
+pub async fn timeout_stream(timeout: u64, client: impl Client + Clone) -> BoxStream<MessageStatus> {
     let stream = stream::unfold((), move |_| {
         let client_moved = client.clone();
 
@@ -240,8 +229,8 @@ pub async fn timeout_stream(timeout: u64, client: impl Client + Clone) -> BoxStr
                 return if current_timestamp > timeout {
                     Ok(MessageStatus::Timeout)
                 } else {
-                    let sleep_time = (timeout - current_timestamp) * 1000;
-                    TimeoutFuture::new(sleep_time as u32).await;
+                    let sleep_time = timeout - current_timestamp;
+                    let _ = wasm_timer::Delay::new(Duration::from_secs(sleep_time)).await;
                     Ok::<_, Error>(MessageStatus::NotTimedOut)
                 };
             };
@@ -250,13 +239,11 @@ pub async fn timeout_stream(timeout: u64, client: impl Client + Clone) -> BoxStr
                 let response = lambda().await;
 
                 let value = match response {
-                    Ok(MessageStatus::Timeout) => Some((
-                        Ok(serde_wasm_bindgen::to_value(&MessageStatus::Timeout)
-                            .expect("Infallible")),
-                        (),
-                    )),
+                    Ok(MessageStatus::Timeout) => Some((Ok(MessageStatus::Timeout), ())),
                     Ok(MessageStatus::NotTimedOut) => continue,
-                    _ => Some((Err(JsError::new("stream encountered an error")), ())),
+                    Err(e) =>
+                        Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), ())),
+                    _ => unreachable!(),
                 };
 
                 return value

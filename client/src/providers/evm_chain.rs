@@ -1,27 +1,28 @@
 use crate::{
     providers::global::{Client, RequestOrResponse},
-    types::{
-        to_ismp_event, to_state_machine_updated, BoxStream, EvmHost, EvmHostEvents, EvmStateProof,
-        HandlerV1, PostRequestHandledFilter, ResponseReceipt, StateMachineUpdatedFilter,
-    },
+    types::{to_state_machine_updated, BoxStream, EvmStateProof},
 };
+use ethers::prelude::Middleware;
+
 use anyhow::{anyhow, Context, Error};
 use codec::Encode;
 use core::{str::FromStr, time::Duration};
 use ethers::{
-    middleware::Middleware,
     prelude::{ProviderExt, H160, H256, U256},
     providers::{Http, Provider, Ws},
     types::Address,
     utils::keccak256,
 };
-use futures::stream;
-use gloo_timers::future::TimeoutFuture;
+use futures::{stream, StreamExt};
 use ismp::{
     consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
     events::{Event, StateMachineUpdated},
     host::StateMachine,
     messaging::{Message, Proof},
+};
+use ismp_solidity_abi::{
+    evm_host::{EvmHost, EvmHostEvents, PostRequestHandledFilter},
+    handler::{Handler, StateMachineUpdatedFilter},
 };
 use std::sync::Arc;
 
@@ -151,14 +152,13 @@ impl Client for EvmClient {
     ) -> Result<BoxStream<PostRequestHandledFilter>, Error> {
         let initial_height = self.client.get_block_number().await?.as_u64();
         let client = self.clone();
-
+        let interval = wasm_timer::Interval::new(Duration::from_secs(30));
         let stream = stream::unfold(
-            (initial_height, client),
-            move |(mut latest_height, client)| async move {
+            (initial_height, interval, client),
+            move |(mut latest_height, mut interval, client)| async move {
                 let state_machine = client.state_machine;
                 loop {
-                    // Wait 30 seconds
-                    TimeoutFuture::new(30000).await;
+                    interval.next().await;
                     let block_number = match client.client.get_block_number().await {
                             Ok(number) => number.low_u64(),
                             Err(err) =>
@@ -166,7 +166,7 @@ impl Client for EvmClient {
                                     Err(err).context(format!(
                                         "Error encountered fetching latest block number for {state_machine:?}"
                                     )),
-                                    (latest_height, client),
+                                    (latest_height, interval, client),
                                 )),
                         };
 
@@ -190,7 +190,7 @@ impl Client for EvmClient {
                                 Err(err).context(format!(
                                     "Failed to query events on {state_machine:?}"
                                 )),
-                                (latest_height, client),
+                                (latest_height, interval, client),
                             )),
                     };
 
@@ -206,7 +206,7 @@ impl Client for EvmClient {
 
                     // we only want the highest event
                     if let Some(event) = events.last() {
-                        return Some((Ok(event.clone()), (block_number + 1, client)))
+                        return Some((Ok(event.clone()), (block_number + 1, interval, client)))
                     } else {
                         latest_height = block_number + 1;
                     }
@@ -222,14 +222,13 @@ impl Client for EvmClient {
         _counterparty_state_id: StateMachineId,
     ) -> Result<BoxStream<StateMachineUpdated>, Error> {
         let initial_height = self.client.get_block_number().await?.as_u64();
-
+        let interval = wasm_timer::Interval::new(Duration::from_secs(30));
         let stream = stream::unfold(
-            (initial_height, self.clone()),
-            move |(mut latest_height, client)| async move {
+            (initial_height, interval, self.clone()),
+            move |(mut latest_height, mut interval, client)| async move {
                 let state_machine = client.state_machine;
                 loop {
-                    // Wait 30 seconds
-                    TimeoutFuture::new(30000).await;
+                    interval.next().await;
                     let block_number = match client.client.get_block_number().await {
                         Ok(number) => number.low_u64(),
                         Err(err) =>
@@ -237,7 +236,7 @@ impl Client for EvmClient {
                                 Err(err).context(format!(
                                     "Error encountered fetching latest block number for {state_machine:?}"
                                 )),
-                                (latest_height, client),
+                                (latest_height,interval, client),
                             )),
                     };
 
@@ -246,7 +245,7 @@ impl Client for EvmClient {
                         continue;
                     }
 
-                    let contract = HandlerV1::new(client.ismp_handler, client.client.clone());
+                    let contract = Handler::new(client.ismp_handler, client.client.clone());
                     let results = match contract
                         .events()
                         .address(client.ismp_handler.into())
@@ -261,7 +260,7 @@ impl Client for EvmClient {
                                 Err(err).context(format!(
                                     "Failed to query events on {state_machine:?}"
                                 )),
-                                (latest_height, client),
+                                (latest_height, interval, client),
                             )),
                     };
                     let mut events = results
@@ -271,7 +270,7 @@ impl Client for EvmClient {
                     // we only want the highest event
                     events.sort_by(|a, b| a.latest_height.cmp(&b.latest_height));
                     if let Some(event) = events.last() {
-                        return Some((Ok(event.clone()), (block_number + 1, client)))
+                        return Some((Ok(event.clone()), (block_number + 1, interval, client)))
                     } else {
                         latest_height = block_number + 1;
                     }
@@ -295,7 +294,7 @@ impl Client for EvmClient {
                 height.id.state_id
             ))?,
         };
-        let state_machine_height = crate::types::evm_host::StateMachineHeight {
+        let state_machine_height = ismp_solidity_abi::shared_types::StateMachineHeight {
             state_machine_id: id.into(),
             height: height.height.into(),
         };
@@ -325,17 +324,5 @@ impl Client for EvmClient {
 
     async fn submit(&self, _msg: Message) -> Result<H256, Error> {
         todo!()
-    }
-}
-
-impl From<StateMachineUpdatedFilter> for StateMachineUpdated {
-    fn from(filter: StateMachineUpdatedFilter) -> Self {
-        StateMachineUpdated {
-            latest_height: filter.height.as_u64(),
-            state_machine_id: StateMachineId {
-                state_id: StateMachine::Kusama(filter.state_machine_id.as_u32()),
-                consensus_state_id: *b"PARA",
-            },
-        }
     }
 }

@@ -1,4 +1,4 @@
-use crate::types::{BoxStream, PostRequestHandledFilter, ResponseReceipt};
+use crate::types::BoxStream;
 use core::time::Duration;
 use ethers::{
     prelude::H256,
@@ -11,6 +11,7 @@ use ismp::{
     messaging::{Message, Proof},
     router::{Post, PostResponse},
 };
+use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 
 #[derive(Eq, PartialEq, Clone)]
 pub enum RequestOrResponse {

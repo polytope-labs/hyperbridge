@@ -1,10 +1,7 @@
 use crate::{
     providers::global::{Client, RequestOrResponse},
     runtime,
-    types::{
-        BoxStream, Extrinsic, HyperBridgeConfig, LeafIndexQuery, PostRequestHandledFilter,
-        ResponseReceipt,
-    },
+    types::{BoxStream, Extrinsic, HyperBridgeConfig, LeafIndexQuery},
 };
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
@@ -19,6 +16,7 @@ use ismp::{
     messaging::Message,
     router::{Request, Response},
 };
+use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use subxt::{config::Header, rpc_params, OnlineClient};
@@ -60,7 +58,7 @@ impl HyperBridgeClient {
     pub async fn query_request(&self, commitment: H256) -> Result<Option<Request>, anyhow::Error> {
         let build_leaf_index_query = LeafIndexQuery { commitment };
 
-        let leaf_index_query = rpc_params![build_leaf_index_query];
+        let leaf_index_query = rpc_params![alloc::vec![build_leaf_index_query]];
         let hyper_bridge_response: Vec<Request> =
             self.client.rpc().request("ismp_queryRequests", leaf_index_query).await?;
 
@@ -73,7 +71,7 @@ impl HyperBridgeClient {
     ) -> Result<Option<Response>, anyhow::Error> {
         let build_leaf_index_query = LeafIndexQuery { commitment };
 
-        let leaf_index_query = rpc_params![build_leaf_index_query];
+        let leaf_index_query = rpc_params![alloc::vec![build_leaf_index_query]];
         let hyper_bridge_response: Vec<Response> =
             self.client.rpc().request("ismp_queryResponses", leaf_index_query).await?;
 

@@ -13,14 +13,16 @@ forge-testsuite = { workspace = true }
 [dependencies]
 primitive-types = "0.12.2"
 
-ethers = { workspace = true }
-merkle-mountain-range = { workspace = true, features = ["default"] }
-mmr-utils = { path = "../../modules/trees/mmr" }
-sp-consensus-beefy = { workspace =  true, features = ["default"] }
+ethers = { workspace = true, default-features = false }
+merkle-mountain-range = { workspace = true, features = ["default"], optional = true }
+mmr-utils = { path = "../../modules/trees/mmr", optional = true }
+sp-consensus-beefy = { workspace =  true, features = ["default"], optional = true }
 ismp = { path = "../../modules/ismp/core" }
-beefy-verifier-primitives = { path = "../../modules/consensus/beefy/primitives" }
+beefy-verifier-primitives = { path = "../../modules/consensus/beefy/primitives", optional = true }
 anyhow = "1.0.79"
 
 
 [features]
+default = ["beefy"]
 build-abi = []
+beefy = ["merkle-mountain-range", "sp-consensus-beefy", "beefy-verifier-primitives", "mmr-utils"]

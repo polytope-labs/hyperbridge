@@ -1,15 +1,8 @@
-use crate::{
-    providers::{evm_chain::EvmClient, global::Client, hyperbridge::HyperBridgeClient},
-    runtime::api::{
-        ismp::Event as Ev,
-        runtime_types::{frame_system::EventRecord, gargantua_runtime::RuntimeEvent},
-    },
-};
+use crate::providers::{evm_chain::EvmClient, global::Client, hyperbridge::HyperBridgeClient};
 use anyhow::anyhow;
 use codec::Encode;
 use ethers::{
-    contract::abigen,
-    middleware::Middleware,
+    prelude::Middleware,
     types::{H160, U256},
     utils::keccak256,
 };
@@ -21,6 +14,7 @@ use ismp::{
     router,
     router::{Post, PostResponse},
 };
+use ismp_solidity_abi::{evm_host::EvmHostEvents, handler::StateMachineUpdatedFilter};
 use serde::{Deserialize, Serialize};
 use sp_core::storage::{StorageChangeSet, StorageKey};
 use std::{collections::BTreeMap, pin::Pin, str::FromStr, time::Duration};
@@ -38,7 +32,6 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
 // ========================================
 pub type HyperBridgeConfig = PolkadotConfig;
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>>>>;
-pub type BoxStreamJs<I> = Pin<Box<dyn Stream<Item = Result<I, JsError>>>>;
 
 // ====================================
 // ERRORS
@@ -53,13 +46,6 @@ pub enum HyperClientErrors {
     RequestIsNotDueForTimeOut,
     ResponseIsNotDueForTimeOut,
 }
-
-// =======================================
-// DTOs                            =
-// =======================================
-
-abigen!(HandlerV1, "./abi/Handler.json", derives(serde::Deserialize, serde::Serialize));
-abigen!(EvmHost, "./abi/EvmHost.json", derives(serde::Deserialize, serde::Serialize));
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
@@ -214,17 +200,7 @@ impl ClientConfig {
                 .await?;
                 Ok(evm_chain)
             },
-            _ => {
-                let evm_chain = EvmClient::new(
-                    self.dest_rpc_url.clone(),
-                    self.consensus_state_id_dest,
-                    self.destination_ismp_host_address,
-                    self.destination_ismp_handler,
-                    self.dest_state_machine.clone(),
-                )
-                .await?;
-                Ok(evm_chain)
-            },
+            _ => Err(anyhow!("Unknown chain")),
         };
     }
 
@@ -235,8 +211,8 @@ impl ClientConfig {
         return match source_state_machine {
             StateMachine::Bsc | StateMachine::Ethereum(_) | StateMachine::Polygon => {
                 let evm_chain = EvmClient::new(
-                    self.dest_rpc_url.clone(),
-                    self.consensus_state_id_dest,
+                    self.source_rpc_url.clone(),
+                    self.consensus_state_id_source,
                     self.source_ismp_host_address,
                     self.source_ismp_handler,
                     self.source_state_machine.clone(),
@@ -244,17 +220,7 @@ impl ClientConfig {
                 .await?;
                 Ok(evm_chain)
             },
-            _ => {
-                let evm_chain = EvmClient::new(
-                    self.dest_rpc_url.clone(),
-                    self.consensus_state_id_dest,
-                    self.source_ismp_host_address,
-                    self.source_ismp_handler,
-                    self.source_state_machine.clone(),
-                )
-                .await?;
-                Ok(evm_chain)
-            },
+            _ => Err(anyhow!("Unknown chain")),
         };
     }
 
@@ -270,54 +236,6 @@ impl ClientConfig {
                 consensus_state_id: *b"PARA",
             },
         })
-    }
-}
-
-pub fn to_ismp_event(event: EvmHostEvents) -> Result<Event, anyhow::Error> {
-    match event {
-        EvmHostEvents::GetRequestEventFilter(get) => Ok(Event::GetRequest(router::Get {
-            source: StateMachine::from_str(&String::from_utf8(get.source.0.into())?)
-                .map_err(|e| anyhow!("{}", e))?,
-            dest: StateMachine::from_str(&String::from_utf8(get.dest.0.into())?)
-                .map_err(|e| anyhow!("{}", e))?,
-            nonce: get.nonce.low_u64(),
-            from: get.from.0.into(),
-            keys: get.keys.into_iter().map(|key| key.0.into()).collect(),
-            height: get.height.low_u64(),
-            timeout_timestamp: get.timeout_timestamp.low_u64(),
-            gas_limit: get.gaslimit.low_u64(),
-        })),
-        EvmHostEvents::PostRequestEventFilter(post) => Ok(Event::PostRequest(router::Post {
-            source: StateMachine::from_str(&String::from_utf8(post.source.0.into())?)
-                .map_err(|e| anyhow!("{}", e))?,
-            dest: StateMachine::from_str(&String::from_utf8(post.dest.0.into())?)
-                .map_err(|e| anyhow!("{}", e))?,
-            nonce: post.nonce.low_u64(),
-            from: post.from.0.into(),
-            to: post.to.0.into(),
-            timeout_timestamp: post.timeout_timestamp.low_u64(),
-            data: post.data.0.into(),
-            gas_limit: post.gaslimit.low_u64(),
-        })),
-        EvmHostEvents::PostResponseEventFilter(resp) =>
-            Ok(Event::PostResponse(router::PostResponse {
-                post: router::Post {
-                    source: StateMachine::from_str(&String::from_utf8(resp.source.0.into())?)
-                        .map_err(|e| anyhow!("{}", e))?,
-                    dest: StateMachine::from_str(&String::from_utf8(resp.dest.0.into())?)
-                        .map_err(|e| anyhow!("{}", e))?,
-                    nonce: resp.nonce.low_u64(),
-                    from: resp.from.0.into(),
-                    to: resp.to.0.into(),
-                    timeout_timestamp: resp.timeout_timestamp.low_u64(),
-                    data: resp.data.0.into(),
-                    gas_limit: resp.gaslimit.low_u64(),
-                },
-                response: resp.response.0.into(),
-                timeout_timestamp: resp.timeout_timestamp.low_u64(),
-                gas_limit: resp.res_gaslimit.low_u64(),
-            })),
-        _ => Err(anyhow!("Unknown event")),
     }
 }
 

@@ -232,9 +232,20 @@ pub trait IsmpHost: Keccak256 {
 
 /// Currently supported ethereum state machines.
 #[derive(
-    Clone, Debug, Copy, Encode, Decode, PartialOrd, Ord, PartialEq, Eq, Hash, scale_info::TypeInfo,
+    Clone,
+    Debug,
+    Copy,
+    Encode,
+    Decode,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Hash,
+    scale_info::TypeInfo,
+    serde::Deserialize,
+    serde::Serialize,
 )]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub enum Ethereum {
     /// Ethereum Execution layer
     ExecutionLayer,
@@ -248,9 +259,20 @@ pub enum Ethereum {
 
 /// Currently supported state machines.
 #[derive(
-    Clone, Debug, Copy, Encode, Decode, PartialOrd, Ord, PartialEq, Eq, Hash, scale_info::TypeInfo,
+    Clone,
+    Debug,
+    Copy,
+    Encode,
+    Decode,
+    PartialOrd,
+    Ord,
+    PartialEq,
+    Eq,
+    Hash,
+    scale_info::TypeInfo,
+    serde::Deserialize,
+    serde::Serialize,
 )]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub enum StateMachine {
     /// Ethereum state machines
     #[codec(index = 0)]

@@ -158,7 +158,11 @@ macro_rules! construct_async_run {
 
 /// Parse command line arguments into service configuration.
 pub fn run() -> Result<()> {
-    let cli = Cli::from_args();
+    let mut cli = Cli::from_args();
+
+    // all full nodes should store request/responses, otherwise they'd basically be useless without
+    // it.
+    cli.run.base.offchain_worker_params.indexing_enabled = true;
 
     match &cli.subcommand {
         Some(Subcommand::BuildSpec(cmd)) => {

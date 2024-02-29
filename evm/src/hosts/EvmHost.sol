@@ -1,26 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.17;
 
-import "openzeppelin/utils/Context.sol";
-import "openzeppelin/utils/math/Math.sol";
+import {Context} from "openzeppelin/utils/Context.sol";
+import {Math} from "openzeppelin/utils/math/Math.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 
 import {IIsmpModule} from "ismp/IIsmpModule.sol";
+import {DispatchPost, DispatchPostResponse, DispatchGet} from "ismp/IDispatcher.sol";
 import {IIsmpHost, FeeMetadata, ResponseReceipt} from "ismp/IIsmpHost.sol";
 import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
 import {IHandler} from "ismp/IHandler.sol";
-import {
-    PostRequest,
-    PostResponse,
-    GetRequest,
-    GetResponse,
-    PostTimeout,
-    DispatchPost,
-    DispatchPostResponse,
-    DispatchGet,
-    Message
-} from "ismp/IIsmp.sol";
+import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "ismp/Message.sol";
 
 // The IsmpHost parameters
 struct HostParams {
@@ -192,7 +183,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @return the host state machine id
      */
-    function host() public virtual returns (bytes memory);
+    function host() public view virtual returns (bytes memory);
 
     /**
      * @return the mainnet evm chainId for this host
@@ -207,20 +198,27 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @return the per-byte fee for outgoing requests.
+     */
+    function perByteFee() external view returns (uint256) {
+        return _hostParams.perByteFee;
+    }
+
+    /**
      * @return the host timestamp
      */
-    function timestamp() public view returns (uint256) {
+    function timestamp() external view returns (uint256) {
         return block.timestamp;
     }
 
     /**
      * @return the `frozen` status
      */
-    function frozen() public view returns (bool) {
+    function frozen() external view returns (bool) {
         return _frozen;
     }
 
-    function hostParams() public view returns (HostParams memory) {
+    function hostParams() external view returns (HostParams memory) {
         return _hostParams;
     }
 
@@ -311,7 +309,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @return the unstaking period
      */
-    function unStakingPeriod() public view returns (uint256) {
+    function unStakingPeriod() external view returns (uint256) {
         return _hostParams.unStakingPeriod;
     }
 

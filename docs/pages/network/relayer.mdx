@@ -197,6 +197,8 @@ delivery_endpoints = [
 
 It is optional to provide the configuration option for any of the connected chains, The only consequence is your relayer will not deliver requests from the ommitted chain as it has no way of querying the associated fees for requests originating from this chain.
 
+You can get the etherscan API key by following [this guide](https://docs.etherscan.io/getting-started/viewing-api-usage-statistics) for the required network. Please note that since Ethereum and it's L2s all use Ether as the gas token. They can all share the same etherscan API key.
+
 You can find the up-to-date contract addresses for the `Handler` & `IsmpHost` contracts [here](/evm/integration#gargantua-v2)
 
 ### Withdrawing Fees

@@ -493,7 +493,7 @@ pub mod evm_host {
                             ),
                         },],
                         constant: ::core::option::Option::None,
-                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
                     },],
                 ),
                 (
@@ -530,6 +530,22 @@ pub mod evm_host {
                     ::std::borrow::ToOwned::to_owned("latestStateMachineHeight"),
                     ::std::vec![::ethers::core::abi::ethabi::Function {
                         name: ::std::borrow::ToOwned::to_owned("latestStateMachineHeight",),
+                        inputs: ::std::vec![],
+                        outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
+                            name: ::std::string::String::new(),
+                            kind: ::ethers::core::abi::ethabi::ParamType::Uint(256usize,),
+                            internal_type: ::core::option::Option::Some(
+                                ::std::borrow::ToOwned::to_owned("uint256"),
+                            ),
+                        },],
+                        constant: ::core::option::Option::None,
+                        state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                    },],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("perByteFee"),
+                    ::std::vec![::ethers::core::abi::ethabi::Function {
+                        name: ::std::borrow::ToOwned::to_owned("perByteFee"),
                         inputs: ::std::vec![],
                         outputs: ::std::vec![::ethers::core::abi::ethabi::Param {
                             name: ::std::string::String::new(),
@@ -1397,6 +1413,14 @@ pub mod evm_host {
                 .method_hash([86, 182, 85, 151], ())
                 .expect("method not found (this should never happen)")
         }
+        ///Calls the contract's `perByteFee` (0x641d729d) function
+        pub fn per_byte_fee(
+            &self,
+        ) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::U256> {
+            self.0
+                .method_hash([100, 29, 114, 157], ())
+                .expect("method not found (this should never happen)")
+        }
         ///Calls the contract's `requestCommitments` (0x368bf464) function
         pub fn request_commitments(
             &self,
@@ -2148,6 +2172,20 @@ pub mod evm_host {
     )]
     #[ethcall(name = "latestStateMachineHeight", abi = "latestStateMachineHeight()")]
     pub struct LatestStateMachineHeightCall;
+    ///Container type for all input parameters for the `perByteFee` function with signature
+    /// `perByteFee()` and selector `0x641d729d`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(name = "perByteFee", abi = "perByteFee()")]
+    pub struct PerByteFeeCall;
     ///Container type for all input parameters for the `requestCommitments` function with signature
     /// `requestCommitments(bytes32)` and selector `0x368bf464`
     #[derive(
@@ -2462,6 +2500,7 @@ pub mod evm_host {
         Host(HostCall),
         HostParams(HostParamsCall),
         LatestStateMachineHeight(LatestStateMachineHeightCall),
+        PerByteFee(PerByteFeeCall),
         RequestCommitments(RequestCommitmentsCall),
         RequestReceipts(RequestReceiptsCall),
         ResponseCommitments(ResponseCommitmentsCall),
@@ -2571,6 +2610,9 @@ pub mod evm_host {
                 <LatestStateMachineHeightCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
                 return Ok(Self::LatestStateMachineHeight(decoded));
+            }
+            if let Ok(decoded) = <PerByteFeeCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+                return Ok(Self::PerByteFee(decoded));
             }
             if let Ok(decoded) =
                 <RequestCommitmentsCall as ::ethers::core::abi::AbiDecode>::decode(data)
@@ -2687,6 +2729,7 @@ pub mod evm_host {
                 Self::HostParams(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::LatestStateMachineHeight(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
+                Self::PerByteFee(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::RequestCommitments(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
                 Self::RequestReceipts(element) => ::ethers::core::abi::AbiEncode::encode(element),
@@ -2741,6 +2784,7 @@ pub mod evm_host {
                 Self::Host(element) => ::core::fmt::Display::fmt(element, f),
                 Self::HostParams(element) => ::core::fmt::Display::fmt(element, f),
                 Self::LatestStateMachineHeight(element) => ::core::fmt::Display::fmt(element, f),
+                Self::PerByteFee(element) => ::core::fmt::Display::fmt(element, f),
                 Self::RequestCommitments(element) => ::core::fmt::Display::fmt(element, f),
                 Self::RequestReceipts(element) => ::core::fmt::Display::fmt(element, f),
                 Self::ResponseCommitments(element) => ::core::fmt::Display::fmt(element, f),
@@ -2863,6 +2907,11 @@ pub mod evm_host {
     impl ::core::convert::From<LatestStateMachineHeightCall> for EvmHostCalls {
         fn from(value: LatestStateMachineHeightCall) -> Self {
             Self::LatestStateMachineHeight(value)
+        }
+    }
+    impl ::core::convert::From<PerByteFeeCall> for EvmHostCalls {
+        fn from(value: PerByteFeeCall) -> Self {
+            Self::PerByteFee(value)
         }
     }
     impl ::core::convert::From<RequestCommitmentsCall> for EvmHostCalls {
@@ -3098,6 +3147,19 @@ pub mod evm_host {
         Hash,
     )]
     pub struct LatestStateMachineHeightReturn(pub ::ethers::core::types::U256);
+    ///Container type for all return fields from the `perByteFee` function with signature
+    /// `perByteFee()` and selector `0x641d729d`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct PerByteFeeReturn(pub ::ethers::core::types::U256);
     ///Container type for all return fields from the `requestCommitments` function with signature
     /// `requestCommitments(bytes32)` and selector `0x368bf464`
     #[derive(

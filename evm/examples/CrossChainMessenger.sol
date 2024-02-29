@@ -5,7 +5,8 @@ pragma solidity 0.8.17;
 
 import "ismp/IIsmpModule.sol";
 import "ismp/IIsmpHost.sol";
-import "ismp/IIsmp.sol";
+import "ismp/Message.sol";
+import "ismp/IDispatcher.sol";
 
 struct CrossChainMessage {
     bytes dest;
@@ -58,7 +59,7 @@ contract CrossChainMessenger is IIsmpModule {
             gaslimit: 0,
             fee: 0
         });
-        IIsmp(host).dispatch(post);
+        IDispatcher(host).dispatch(post);
     }
 
     function onAccept(PostRequest memory request) external onlyIsmpHost {

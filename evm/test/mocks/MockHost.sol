@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.13;
 
-import {TokenGateway, IIsmp} from "../../src/modules/TokenGateway.sol";
+import {TokenGateway, IDispatcher} from "../../src/modules/TokenGateway.sol";
 import {HostParams} from "../../src/hosts/EvmHost.sol";
 import {ERC20Token} from "../mocks/ERC20Token.sol";
 import "openzeppelin/utils/math/Math.sol";
-import "ismp/IIsmp.sol";
+import "ismp/Message.sol";
+import "ismp/IDispatcher.sol";
 import {MockAutoRelayer} from "./MockAutoRelayer.sol";
 
 contract MockHost {

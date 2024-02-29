@@ -6,7 +6,8 @@ pragma solidity 0.8.17;
 import "ismp/IIsmpModule.sol";
 import "ismp/IIsmpHost.sol";
 import "ismp/StateMachine.sol";
-import "ismp/IIsmp.sol";
+import "ismp/Message.sol";
+import "ismp/IDispatcher.sol";
 
 struct PingMessage {
     bytes dest;
@@ -72,7 +73,7 @@ contract PingModule is IIsmpModule {
             gaslimit: response.gaslimit,
             fee: 0
         });
-        IIsmp(_host).dispatch(post);
+        IDispatcher(_host).dispatch(post);
         return response.hash();
     }
 
@@ -85,7 +86,7 @@ contract PingModule is IIsmpModule {
             gaslimit: request.gaslimit,
             fee: 0
         });
-        IIsmp(_host).dispatch(post);
+        IDispatcher(_host).dispatch(post);
         return request.hash();
     }
 
@@ -98,7 +99,7 @@ contract PingModule is IIsmpModule {
             gaslimit: request.gaslimit,
             fee: 0
         });
-        IIsmp(_host).dispatch(get);
+        IDispatcher(_host).dispatch(get);
         return request.hash();
     }
 
@@ -115,7 +116,7 @@ contract PingModule is IIsmpModule {
                 gaslimit: 0,
                 fee: pingMessage.fee
             });
-            IIsmp(_host).dispatch(post);
+            IDispatcher(_host).dispatch(post);
         }
     }
 
@@ -129,7 +130,7 @@ contract PingModule is IIsmpModule {
             gaslimit: 0,
             fee: 0
         });
-        IIsmp(_host).dispatch(post);
+        IDispatcher(_host).dispatch(post);
     }
 
     function onAccept(PostRequest memory request) external onlyIsmpHost {

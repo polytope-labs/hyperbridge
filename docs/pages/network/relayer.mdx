@@ -70,8 +70,7 @@ The tesseract relayer command line interface expects two arguments, which are th
 
 
 ```bash
-docker run -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db
-
+docker --network=host run -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db
 ```
 
 ### Configuration
@@ -213,7 +212,7 @@ The relayer can submit a withdrawal request from hyperbridge to any of the chain
 Stop any running relayer instances, run the following command in the terminal and wait for it to complete. The command will submit proofs for messages delivered to all chains present in the config file.
 
 ```bash
-    docker run -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees
+    docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees
 ```
 
 #### Initiating withdrawal from hyperbridge
@@ -224,7 +223,7 @@ It is possible to use the relayer software to accumulate fees and initiate the w
 To use this feature run the following command:
 
 ```bash
-    docker run -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --withdraw
+    docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --withdraw
 ```
 
 You can find the code that implements fee accumulation and withdrawals [here](https://github.com/polytope-labs/hyperbridge/blob/c3e940c60b718eaf5ac02a96c4801814a555dcf7/modules/relayer-fees/src/lib.rs#L120)

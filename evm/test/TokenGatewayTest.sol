@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 
 import {BaseTest} from "./BaseTest.sol";
 import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
-import {TeleportParams, Body} from "../src/modules/TokenGateway.sol";
+import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 
 contract TokenGatewayTest is BaseTest {
@@ -13,6 +13,7 @@ contract TokenGatewayTest is BaseTest {
         feeToken.mint(address(this), 1_000 * 1e18, "");
 
         assert(feeToken.balanceOf(address(this)) == 1_000 * 1e18);
+        assert(feeToken.balanceOf(address(host)) == 0);
 
         gateway.teleport(
             TeleportParams({
@@ -28,6 +29,10 @@ contract TokenGatewayTest is BaseTest {
         );
 
         assert(feeToken.balanceOf(address(this)) == 0);
+
+        // relayer fe + per-byte fee
+        uint256 newBalance = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
+        assert(feeToken.balanceOf(address(host)) == newBalance);
     }
 
     function testCannotTeleportAssetsWithInsufficientBalance() public {

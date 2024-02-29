@@ -85,6 +85,9 @@ enum GovernanceActions {
     AdjustProtocolFee
 }
 
+// Abi-encoded size of Body struct
+uint256 constant BODY_BYTES_SIZE = 161;
+
 /// The TokenGateway allows users send either ERC20 or ERC6160 tokens
 /// using Hyperbridge as a message-passing layer.
 contract TokenGateway is BaseIsmpModule {
@@ -102,9 +105,6 @@ contract TokenGateway is BaseIsmpModule {
     uint256 private _protocolFeePercentage;
     /// local uniswap router
     IUniswapV2Router private _uniswapV2Router;
-
-    // Bytes size of Body struct
-    uint256 private constant BODY_BYTES_SIZE = 160;
 
     // mapping of token identifier to erc6160 contracts
     mapping(bytes32 => address) private _erc6160s;

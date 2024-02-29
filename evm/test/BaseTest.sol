@@ -81,6 +81,7 @@ contract BaseTest is Test {
             })
         );
 
+        feeToken.grantRole(MINTER_ROLE, address(this));
         feeToken.grantRole(MINTER_ROLE, address(gateway));
         feeToken.grantRole(BURNER_ROLE, address(gateway));
     }

@@ -409,6 +409,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(PostRequest memory request) external onlyHandler {
         address destination = _bytesToAddress(request.to);
+        uint256 size;
+        assembly { size := extcodesize(destination) }
+        if (size == 0) {
+            // instead of reverting the entire batch, early return here.
+            return;
+        }
+
         (bool success,) = address(destination).call(abi.encodeWithSelector(IIsmpModule.onAccept.selector, request));
 
         if (success) {

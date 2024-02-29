@@ -2,11 +2,11 @@
 pragma solidity ^0.8.17;
 
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
-import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "ismp/IIsmp.sol";
+import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "ismp/Message.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 
 import {HostParams, IHostManager, WithdrawParams} from "../hosts/EvmHost.sol";
-import {BaseIsmpModule} from "./BaseIsmpModule.sol";
+import {BaseIsmpModule} from "ismp/IIsmpModule.sol";
 
 /// Host manager params
 struct HostManagerParams {
@@ -14,8 +14,8 @@ struct HostManagerParams {
     address admin;
     /// Local ismp host
     address host;
-    /// Authorized hyperbridge para Id
-    uint256 paraId;
+    /// Hyperbridge state machine identifier
+    bytes hyperbridge;
 }
 
 /// Manages the IsmpHost, allows cross-chain governance to configure params
@@ -58,7 +58,7 @@ contract HostManager is BaseIsmpModule {
 
     function onAccept(PostRequest calldata request) external override onlyIsmpHost {
         // Only Hyperbridge can send requests to this module.
-        require(request.source.equals(StateMachine.kusama(_params.paraId)), "Unauthorized request");
+        require(request.source.equals(_params.hyperbridge), "Unauthorized request");
 
         OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
         if (action == OnAcceptActions.Withdraw) {

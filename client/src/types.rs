@@ -2,11 +2,11 @@ use crate::{
     providers::{evm_chain::EvmClient, global::Client, hyperbridge::HyperBridgeClient},
     runtime::api::{
         ismp::Event as Ev,
-        runtime_types::{frame_system::EventRecord, hyperbridge_runtime::RuntimeEvent},
+        runtime_types::{frame_system::EventRecord, gargantua_runtime::RuntimeEvent},
     },
 };
+use anyhow::anyhow;
 use codec::Encode;
-use debounced::Debounced;
 use ethers::{
     contract::abigen,
     middleware::Middleware,
@@ -14,11 +14,16 @@ use ethers::{
     utils::keccak256,
 };
 use futures::{Stream, StreamExt, TryFutureExt};
-use ismp::{consensus::{ConsensusStateId, StateMachineHeight, StateMachineId}, events::StateMachineUpdated, host::StateMachine, router::{Post, PostResponse}, router};
+use ismp::{
+    consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
+    events::{Event, StateMachineUpdated},
+    host::StateMachine,
+    router,
+    router::{Post, PostResponse},
+};
 use serde::{Deserialize, Serialize};
 use sp_core::storage::{StorageChangeSet, StorageKey};
 use std::{collections::BTreeMap, pin::Pin, str::FromStr, time::Duration};
-use anyhow::anyhow;
 use subxt::{
     ext::{codec, codec::Decode},
     rpc::Subscription,
@@ -26,22 +31,14 @@ use subxt::{
     utils::H256,
     Metadata, OnlineClient, PolkadotConfig,
 };
-use wasm_bindgen::JsValue;
-use wasm_bindgen::prelude::wasm_bindgen;
-use ismp::events::Event;
-
-// =======================================
-// CONSTANTS                            =
-// =======================================
-pub const REQUEST_COMMITMENTS_SLOT: u64 = 0;
-pub const RESPONSE_COMMITMENTS_SLOT: u64 = 1;
+use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
 
 // ========================================
 // TYPES
 // ========================================
 pub type HyperBridgeConfig = PolkadotConfig;
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>>>>;
-pub type BoxStreamJs<I> = Pin<Box<dyn Stream<Item = Result<I, JsValue>>>>;
+pub type BoxStreamJs<I> = Pin<Box<dyn Stream<Item = Result<I, JsError>>>>;
 
 // ====================================
 // ERRORS
@@ -64,7 +61,6 @@ pub enum HyperClientErrors {
 abigen!(HandlerV1, "./abi/Handler.json", derives(serde::Deserialize, serde::Serialize));
 abigen!(EvmHost, "./abi/EvmHost.json", derives(serde::Deserialize, serde::Serialize));
 
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
     pub source_state_machine: String,
@@ -81,24 +77,37 @@ pub struct ClientConfig {
 }
 
 #[wasm_bindgen]
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Copy)]
 pub enum MessageStatus {
     Pending,
-    Hyperbridge,
+    /// Source state machine has been finalized on hyperbridge
+    SourceFinalized,
+    /// Message has been delivered to hyperbridge
+    HyperbridgeDelivered,
+    /// Messaged has been finalized on hyperbridge
     HyperbridgeFinalized,
-    Destination,
+    /// Delivered to destination
+    DestinationDelivered,
+    /// Message has timed out
     Timeout,
+    /// Message has not timed out
     NotTimedOut,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PostStreamState {
+    /// Message has been finalized on source chain
     Pending,
+    /// Source state machine has been updated on hyperbridge
     SourceFinalized,
-    HyperbridgeDelivered,
-    HyperbridgeFinalized(u64),
+    /// Message has been delivered to hyperbridge
+    HyperbridgeDelivered(u64),
+    /// Message has been finalized by hyperbridge
+    HyperbridgeFinalized,
+    /// Message has been delivered to destination
     DestinationDelivered,
-    DestinationFinalized,
+    /// Stream has ended, check the message status
+    End,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -253,88 +262,16 @@ impl ClientConfig {
         let api =
             OnlineClient::<HyperBridgeConfig>::from_url(self.hyper_bridge_url.clone()).await?;
 
-        Ok(HyperBridgeClient { client: api, rpc_url: self.hyper_bridge_url.clone() })
+        Ok(HyperBridgeClient {
+            client: api,
+            rpc_url: self.hyper_bridge_url.clone(),
+            state_machine: StateMachineId {
+                state_id: StateMachine::Kusama(4634),
+                consensus_state_id: *b"PARA",
+            },
+        })
     }
 }
-
-// =======================================
-// Util FNs                               =
-// =======================================
-pub fn request_commitment_key(key: &H256) -> H256 {
-    derive_map_key(key.0.to_vec(), REQUEST_COMMITMENTS_SLOT)
-}
-
-pub fn response_commitment_key(key: &H256) -> H256 {
-    derive_map_key(key.0.to_vec(), RESPONSE_COMMITMENTS_SLOT)
-}
-
-fn derive_map_key(mut key: Vec<u8>, slot: u64) -> H256 {
-    let mut bytes = [0u8; 32];
-    U256::from(slot as u64).to_big_endian(&mut bytes);
-    key.extend_from_slice(&bytes);
-    keccak256(&key).into()
-}
-
-pub fn system_events_key() -> StorageKey {
-    let mut storage_key = sp_core::twox_128(b"System").to_vec();
-    storage_key.extend(sp_core::twox_128(b"Events").to_vec());
-    StorageKey(storage_key)
-}
-
-pub fn filter_map_system_events(
-    subscription: Subscription<StorageChangeSet<H256>>,
-    counterparty_state_id: StateMachineId,
-) -> BoxStream<StateMachineUpdated> {
-    let debounced_sub = Debounced::new(subscription, Duration::from_secs(4));
-    let stream = debounced_sub.filter_map(move |change_set| {
-        if let Ok(change_set) = change_set {
-            let records = change_set
-                .changes
-                .into_iter()
-                .filter_map(|(_, change)| {
-                    change.and_then(|data| {
-                        <Vec<EventRecord<RuntimeEvent, H256>> as codec::Decode>::decode(
-                            &mut data.0.as_slice(),
-                        )
-                        .ok()
-                        .map(|records| {
-                            records
-                                .into_iter()
-                                .filter_map(|record| match record.event {
-                                    RuntimeEvent::Ismp(Ev::StateMachineUpdated {
-                                        state_machine_id,
-                                        latest_height,
-                                    }) => {
-                                        if counterparty_state_id.encode() ==
-                                            state_machine_id.encode()
-                                        {
-                                            Some(StateMachineUpdated {
-                                                state_machine_id: counterparty_state_id,
-                                                latest_height,
-                                            })
-                                        } else {
-                                            None
-                                        }
-                                    },
-                                    _ => None,
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                    })
-                })
-                .flatten()
-                .collect::<Vec<_>>();
-            return futures::future::ready(records.last().cloned().map(|ev| Ok(ev)));
-        }
-
-        futures::future::ready(None)
-    });
-
-    Box::pin(stream)
-}
-
-
-
 
 pub fn to_ismp_event(event: EvmHostEvents) -> Result<Event, anyhow::Error> {
     match event {

@@ -57,7 +57,8 @@ contract CrossChainMessenger is IIsmpModule {
             to: abi.encodePacked(address(this)),
             // unused for now
             gaslimit: 0,
-            fee: 0
+            fee: 0,
+            payee: address(this)
         });
         IDispatcher(host).dispatch(post);
     }

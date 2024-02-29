@@ -1,7 +1,7 @@
 use crate::{
     providers::global::{Client, RequestOrResponse},
     types::{
-        BoxStream, BoxStreamJs, ClientConfig, HyperClientErrors, MessageStatus, PostStreamState,
+        BoxStream, ClientConfig, MessageStatus, PostStreamState,
     },
     Keccak256,
 };

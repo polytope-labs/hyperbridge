@@ -72,7 +72,7 @@ contract PingModule is IIsmpModule {
             timeout: response.timeoutTimestamp,
             gaslimit: response.gaslimit,
             fee: 0,
-            payee: tx.origin
+            payer: tx.origin
         });
         IDispatcher(_host).dispatch(post);
         return response.hash();
@@ -86,7 +86,7 @@ contract PingModule is IIsmpModule {
             to: request.to,
             gaslimit: request.gaslimit,
             fee: 0,
-            payee: tx.origin
+            payer: tx.origin
         });
         IDispatcher(_host).dispatch(post);
         return request.hash();
@@ -100,7 +100,7 @@ contract PingModule is IIsmpModule {
             timeout: request.timeoutTimestamp,
             gaslimit: request.gaslimit,
             fee: 0,
-            payee: tx.origin
+            payer: tx.origin
         });
         IDispatcher(_host).dispatch(get);
         return request.hash();
@@ -118,7 +118,7 @@ contract PingModule is IIsmpModule {
                 // unused for now
                 gaslimit: 0,
                 fee: pingMessage.fee,
-                payee: tx.origin
+                payer: tx.origin
             });
             IDispatcher(_host).dispatch(post);
         }
@@ -133,7 +133,7 @@ contract PingModule is IIsmpModule {
             to: bytes("ismp-ast"), // ismp demo pallet
             gaslimit: 0,
             fee: 0,
-            payee: tx.origin
+            payer: tx.origin
         });
         IDispatcher(_host).dispatch(post);
     }

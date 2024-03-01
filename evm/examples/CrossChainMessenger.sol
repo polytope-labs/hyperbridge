@@ -58,7 +58,7 @@ contract CrossChainMessenger is IIsmpModule {
             // unused for now
             gaslimit: 0,
             fee: 0,
-            payee: address(this)
+            payer: address(this)
         });
         IDispatcher(host).dispatch(post);
     }

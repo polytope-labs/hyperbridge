@@ -193,7 +193,7 @@ contract TokenGateway is BaseIsmpModule {
             timeout: params.timeout,
             fee: params.fee,
             gaslimit: uint64(0),
-            payee: msg.sender
+            payer: msg.sender
         });
 
         // Your money is now on its way

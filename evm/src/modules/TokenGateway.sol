@@ -146,6 +146,7 @@ contract TokenGateway is BaseIsmpModule {
 
         setAssets(initialParams.assets);
 
+        // admin can only call this once
         _admin = address(0);
     }
 
@@ -237,7 +238,7 @@ contract TokenGateway is BaseIsmpModule {
         address erc20 = _erc20s[localAsset];
         address erc6160 = _erc6160s[localAsset];
 
-        // prefer to give the user erc20
+        // user is redeeming erc20
         if (erc20 != address(0) && body.redeem) {
             // a relayer/user is redeeming the native asset
             uint256 _protocolRedeemFee = calculateProtocolFee(body.amount);

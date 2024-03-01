@@ -261,7 +261,7 @@ impl<T: Config> IsmpHost for Host<T> {
     }
 
     fn delete_response_receipt(&self, res: &PostResponse) -> Result<(), Error> {
-        let hash = hash_post_response::<Self>(res);
+        let hash = hash_request::<Self>(&res.request());
         ResponseReceipts::<T>::remove(hash);
         Ok(())
     }

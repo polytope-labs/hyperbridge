@@ -1,14 +1,10 @@
 use crate::types::BoxStream;
 use core::time::Duration;
-use ethers::{
-    prelude::H256,
-    providers::{SubscriptionStream, Ws},
-    types::{Block, H160},
-};
+use ethers::{prelude::H256, types::H160};
 use ismp::{
-    consensus::{StateCommitment, StateMachineHeight, StateMachineId},
+    consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
     events::{Event, StateMachineUpdated},
-    messaging::{Message, Proof},
+    messaging::Message,
     router::{Post, PostResponse},
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
@@ -97,4 +93,33 @@ pub trait Client: Clone + Send + Sync + 'static {
     /// Submit message to chain
     #[allow(async_fn_in_trait)]
     async fn submit(&self, msg: Message) -> Result<(), anyhow::Error>;
+
+    /// Query the timestamp at which the client was last updated
+    #[allow(async_fn_in_trait)]
+    async fn query_state_machine_update_time(
+        &self,
+        height: StateMachineHeight,
+    ) -> Result<Duration, anyhow::Error>;
+
+    /// Query the challenge period for client
+    #[allow(async_fn_in_trait)]
+    async fn query_challenge_period(&self, id: ConsensusStateId)
+        -> Result<Duration, anyhow::Error>;
+}
+
+pub async fn wait_for_challenge_period<C: Client>(
+    client: &C,
+    last_consensus_update: Duration,
+    challenge_period: Duration,
+) -> anyhow::Result<()> {
+    wasm_timer::Delay::new(challenge_period).await?;
+    let current_timestamp = client.query_timestamp().await?;
+    let mut delay = current_timestamp.saturating_sub(last_consensus_update);
+
+    while delay <= challenge_period {
+        wasm_timer::Delay::new(challenge_period.saturating_sub(delay)).await?;
+        let current_timestamp = client.query_timestamp().await?;
+        delay = current_timestamp.saturating_sub(last_consensus_update);
+    }
+    Ok(())
 }

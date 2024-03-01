@@ -1,7 +1,7 @@
 use crate::{
     providers::global::{Client, RequestOrResponse},
     runtime,
-    types::{BoxStream, Extrinsic, HyperBridgeConfig, LeafIndexQuery},
+    types::{BoxStream, Extrinsic, LeafIndexQuery},
 };
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
@@ -10,7 +10,7 @@ use ethers::prelude::{H160, H256};
 use futures::stream;
 use hex_literal::hex;
 use ismp::{
-    consensus::{StateCommitment, StateMachineHeight, StateMachineId},
+    consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
     events::{Event, StateMachineUpdated},
     host::{Ethereum, StateMachine},
     messaging::Message,
@@ -33,13 +33,13 @@ pub struct SubstrateClient<C: subxt::Config + Clone> {
 }
 
 impl<C: subxt::Config + Clone> SubstrateClient<C> {
-    pub async fn new(
+    pub async fn _new(
         rpc_url: String,
         state_machine: StateMachineId,
     ) -> Result<Self, anyhow::Error> {
         let client = OnlineClient::<C>::from_url(rpc_url.clone()).await?;
 
-        Ok(Self { rpc_url, client, state_machine })
+        Ok(Self { rpc_url, client, state_machine, hashing: HashAlgorithm::Keccak })
     }
 
     pub async fn latest_timestamp(&self) -> Result<Duration, anyhow::Error> {
@@ -123,7 +123,13 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     }
 
     async fn query_request_receipt(&self, request_hash: H256) -> Result<H160, Error> {
-        todo!()
+        let addr = runtime::api::storage().ismp().request_receipts(&request_hash);
+        let receipt = self.client.storage().at_latest().await?.fetch(&addr).await?;
+        if let Some(receipt) = receipt {
+            Ok(H160::from_slice(&receipt[..20]))
+        } else {
+            Ok(H160::zero())
+        }
     }
 
     async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
@@ -140,11 +146,17 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let response: RpcProof = self.client.rpc().request("ismp_queryStateProof", params).await?;
         let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
         let proof = SubstrateStateProof { hasher: self.hashing.clone(), storage_proof };
-        Ok(response.proof)
+        Ok(proof.encode())
     }
 
     async fn query_response_receipt(&self, request_commitment: H256) -> Result<H160, Error> {
-        todo!()
+        let addr = runtime::api::storage().ismp().response_receipts(&request_commitment);
+        let receipt = self.client.storage().at_latest().await?.fetch(&addr).await?;
+        if let Some(receipt) = receipt {
+            Ok(H160::from_slice(&receipt.relayer[..20]))
+        } else {
+            Ok(H160::zero())
+        }
     }
 
     async fn ismp_events_stream(&self, item: RequestOrResponse) -> Result<BoxStream<Event>, Error> {
@@ -158,7 +170,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                     loop {
                         let header = match subscription.next().await {
                             Some(Ok(header)) => header,
-                            Some(Err(err)) => {
+                            Some(Err(_err)) => {
                                 // log::error!(
                                 // 	"Error encountered while watching finalized heads: {err:?}"
                                 // );
@@ -172,7 +184,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                             .await
                         {
                             Ok(e) => e,
-                            Err(err) => {
+                            Err(_err) => {
                                 // log::error!("Error encountered while querying ismp events
                                 // {err:?}");
                                 continue;
@@ -253,7 +265,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                 loop {
                     let header = match subscription.next().await {
                         Some(Ok(header)) => header,
-                        Some(Err(err)) => {
+                        Some(Err(_err)) => {
                             // log::error!(
                             // 	"Error encountered while watching finalized heads: {err:?}"
                             // );
@@ -267,7 +279,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                         .await
                     {
                         Ok(e) => e,
-                        Err(err) => {
+                        Err(_err) => {
                             // log::error!("Error encountered while querying ismp events {err:?}");
                             continue;
                         },
@@ -333,6 +345,26 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
         let _ = ext.submit_and_watch().await?.wait_for_in_block().await?;
         Ok(())
+    }
+
+    async fn query_state_machine_update_time(
+        &self,
+        height: StateMachineHeight,
+    ) -> Result<Duration, Error> {
+        let block = self.client.blocks().at_latest().await?;
+        let key = runtime::api::storage().ismp().state_machine_update_time(&height.into());
+        let value = self.client.storage().at(block.hash()).fetch(&key).await?.ok_or_else(|| {
+            anyhow!("State machine update for {:?} not found at block {:?}", height, block.hash())
+        })?;
+
+        Ok(Duration::from_secs(value))
+    }
+
+    async fn query_challenge_period(&self, id: ConsensusStateId) -> Result<Duration, Error> {
+        let params = rpc_params![id];
+        let response: u64 = self.client.rpc().request("ismp_queryChallengePeriod", params).await?;
+
+        Ok(Duration::from_secs(response))
     }
 }
 

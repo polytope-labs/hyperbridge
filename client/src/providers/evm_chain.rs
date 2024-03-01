@@ -4,7 +4,7 @@ use crate::{
 };
 use ethers::prelude::Middleware;
 
-use crate::providers::substrate::SubstrateStateProof;
+use crate::{providers::substrate::SubstrateStateProof, types::EvmStateProof};
 use anyhow::{anyhow, Context, Error};
 use core::{str::FromStr, time::Duration};
 use ethers::{
@@ -24,7 +24,7 @@ use ismp_solidity_abi::{
     evm_host::{EvmHost, EvmHostEvents, GetRequest, PostRequestHandledFilter},
     handler::{GetTimeoutMessage, Handler, PostRequestTimeoutMessage, PostResponseTimeoutMessage},
 };
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 // =======================================
 // CONSTANTS                            =
@@ -129,7 +129,32 @@ impl Client for EvmClient {
     }
 
     async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
-        todo!()
+        use codec::Encode;
+        let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
+        let locations = keys.iter().map(|key| H256::from_slice(key)).collect();
+        let proof = self.client.get_proof(self.host_address, locations, Some(at.into())).await?;
+        for (index, key) in keys.into_iter().enumerate() {
+            map.insert(
+                key,
+                proof
+                    .storage_proof
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(|| {
+                        anyhow!("Invalid key supplied, storage proof could not be retrieved")
+                    })?
+                    .proof
+                    .into_iter()
+                    .map(|bytes| bytes.0.into())
+                    .collect(),
+            );
+        }
+
+        let state_proof = EvmStateProof {
+            contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
+            storage_proof: map,
+        };
+        Ok(state_proof.encode())
     }
 
     async fn query_response_receipt(&self, request_commitment: H256) -> Result<H160, Error> {
@@ -354,7 +379,7 @@ impl Client for EvmClient {
                 };
                 let call = contract.handle_post_request_timeouts(self.host_address, message);
 
-                Ok(call.tx.rlp().to_vec())
+                Ok(call.tx.data().cloned().expect("Infallible").to_vec())
             },
             Message::Timeout(TimeoutMessage::PostResponse { timeout_proof, responses }) => {
                 let post_responses = responses.into_iter().map(|res| res.into()).collect();
@@ -378,7 +403,7 @@ impl Client for EvmClient {
                     proof: state_proof.storage_proof.into_iter().map(|key| key.into()).collect(),
                 };
                 let call = contract.handle_post_response_timeouts(self.host_address, message);
-                Ok(call.tx.rlp().to_vec())
+                Ok(call.tx.data().cloned().expect("Infallible").to_vec())
             },
             Message::Timeout(TimeoutMessage::Get { requests }) => {
                 let get_requests = requests
@@ -401,13 +426,29 @@ impl Client for EvmClient {
                 let message = GetTimeoutMessage { timeouts: get_requests };
                 let call = contract.handle_get_request_timeouts(self.host_address, message);
 
-                Ok(call.tx.rlp().to_vec())
+                Ok(call.tx.data().cloned().expect("Infallible").to_vec())
             },
             _ => Err(anyhow!("Only timeout messages are suported"))?,
         }
     }
 
-    async fn submit(&self, msg: Message) -> Result<(), Error> {
+    async fn submit(&self, _msg: Message) -> Result<(), Error> {
         Err(anyhow!("Client cannot submit messages"))
+    }
+
+    async fn query_state_machine_update_time(
+        &self,
+        height: StateMachineHeight,
+    ) -> Result<Duration, Error> {
+        let contract = EvmHost::new(self.host_address, self.client.clone());
+        let value =
+            contract.state_machine_commitment_update_time(height.try_into()?).call().await?;
+        Ok(Duration::from_secs(value.low_u64()))
+    }
+
+    async fn query_challenge_period(&self, _id: ConsensusStateId) -> Result<Duration, Error> {
+        let contract = EvmHost::new(self.host_address, self.client.clone());
+        let value = contract.challenge_period().call().await?;
+        Ok(Duration::from_secs(value.low_u64()))
     }
 }

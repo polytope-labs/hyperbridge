@@ -1,5 +1,5 @@
 use crate::{
-    providers::global::Client,
+    providers::global::{wait_for_challenge_period, Client},
     types::{ClientConfig, MessageStatus},
     Keccak256,
 };
@@ -40,9 +40,9 @@ pub async fn query_request_status_internal(
     }
 
     let hyperbridge_current_timestamp = hyperbridge_client.query_timestamp().await?;
-    let request = hyperbridge_client.query_request(hash).await?;
+    let relayer = hyperbridge_client.query_request_receipt(hash).await?;
 
-    if let Some(_) = request {
+    if relayer_address != H160::zero() {
         return Ok(MessageStatus::HyperbridgeDelivered);
     }
 
@@ -64,8 +64,8 @@ pub async fn query_response_status_internal(
 
     let response_destination_timeout = dest_client.query_timestamp().await?;
     let res = Response::Post(post_response.clone());
-    let res_hash = hash_response::<Keccak256>(&res);
-    let response_receipt_relayer = dest_client.query_response_receipt(res_hash).await?;
+    let req_hash = hash_request::<Keccak256>(&res.request());
+    let response_receipt_relayer = dest_client.query_response_receipt(req_hash).await?;
 
     if response_receipt_relayer != H160::zero() {
         return Ok(MessageStatus::DestinationDelivered);
@@ -76,9 +76,9 @@ pub async fn query_response_status_internal(
         return Ok(MessageStatus::Timeout);
     }
 
-    let hyper_bridge_response = hyperbridge_client.query_response(res_hash).await?;
+    let relayer = hyperbridge_client.query_response_receipt(req_hash).await?;
 
-    if let Some(_) = hyper_bridge_response {
+    if relayer != H160::zero() {
         return Ok(MessageStatus::HyperbridgeDelivered);
     }
 
@@ -101,9 +101,9 @@ pub async fn timeout_request(post: Post, config: ClientConfig) -> Result<Vec<u8>
     let source_client = config.source_chain().await?;
     let req = Request::Post(post.clone());
     let hash = hash_request::<Keccak256>(&req);
-    let hyper_bridge_response = hyperbridge_client.query_response(hash).await?;
+    let relayer = hyperbridge_client.query_request_receipt(hash).await?;
 
-    let timeout_height = if hyper_bridge_response.is_some() {
+    let timeout_height = if relayer != H160::zero() {
         let mut stream = hyperbridge_client
             .state_machine_update_notification(dest_client.state_machine_id())
             .await?;
@@ -128,17 +128,17 @@ pub async fn timeout_request(post: Post, config: ClientConfig) -> Result<Vec<u8>
         if let Some(proof_height) = valid_proof_height {
             let storage_key = dest_client.request_receipt_full_key(hash);
             let proof = dest_client.query_state_proof(proof_height, vec![storage_key]).await?;
+            let height =
+                StateMachineHeight { id: dest_client.state_machine_id(), height: proof_height };
             let message = Message::Timeout(TimeoutMessage::Post {
-                requests: vec![req],
-                timeout_proof: Proof {
-                    height: StateMachineHeight {
-                        id: dest_client.state_machine_id(),
-                        height: proof_height,
-                    },
-                    proof,
-                },
+                requests: vec![req.clone()],
+                timeout_proof: Proof { height, proof },
             });
-
+            let challenge_period = hyperbridge_client
+                .query_challenge_period(dest_client.state_machine_id().consensus_state_id)
+                .await?;
+            let update_time = hyperbridge_client.query_state_machine_update_time(height).await?;
+            wait_for_challenge_period(&hyperbridge_client, update_time, challenge_period).await?;
             hyperbridge_client.submit(message).await?;
             hyperbridge_client.query_latest_block_height().await?
         } else {
@@ -159,7 +159,7 @@ pub async fn timeout_request(post: Post, config: ClientConfig) -> Result<Vec<u8>
                 let state_machine_height =
                     StateMachineHeight { id: ev.state_machine_id, height: ev.latest_height };
                 let commitment =
-                    dest_client.query_state_machine_commitment(state_machine_height).await?;
+                    source_client.query_state_machine_commitment(state_machine_height).await?;
                 if commitment.timestamp > post.timeout_timestamp &&
                     ev.latest_height >= timeout_height
                 {
@@ -174,19 +174,19 @@ pub async fn timeout_request(post: Post, config: ClientConfig) -> Result<Vec<u8>
     }
 
     let message = if let Some(proof_height) = valid_proof_height {
-        let storage_key = source_client.request_receipt_full_key(hash);
+        let storage_key = hyperbridge_client.request_receipt_full_key(hash);
         let proof = hyperbridge_client.query_state_proof(proof_height, vec![storage_key]).await?;
+        let height =
+            StateMachineHeight { id: hyperbridge_client.state_machine, height: proof_height };
         let message = Message::Timeout(TimeoutMessage::Post {
             requests: vec![req],
-            timeout_proof: Proof {
-                height: StateMachineHeight {
-                    id: hyperbridge_client.state_machine,
-                    height: proof_height,
-                },
-                proof,
-            },
+            timeout_proof: Proof { height, proof },
         });
-
+        let challenge_period = source_client
+            .query_challenge_period(hyperbridge_client.state_machine_id().consensus_state_id)
+            .await?;
+        let update_time = source_client.query_state_machine_update_time(height).await?;
+        wait_for_challenge_period(&source_client, update_time, challenge_period).await?;
         source_client.encode(message)?
     } else {
         Err(anyhow!(

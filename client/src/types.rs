@@ -7,34 +7,58 @@ use alloc::collections::BTreeMap;
 use anyhow::anyhow;
 use codec::Encode;
 use core::{pin::Pin, str::FromStr};
-use ethers::{prelude::Middleware, types::H160};
-use futures::{Stream, StreamExt};
+use ethers::types::H160;
+use futures::Stream;
 use ismp::{
-    consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
-    events::{Event, StateMachineUpdated},
-    host::{Ethereum, StateMachine},
-    router::{Post, PostResponse},
+    consensus::{ConsensusStateId, StateMachineId},
+    host::StateMachine,
 };
-use ismp_solidity_abi::handler::StateMachineUpdatedFilter;
 use serde::{Deserialize, Serialize};
 use subxt::{
+    config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
     ext::{codec, codec::Decode},
     tx::TxPayload,
-    utils::H256,
-    Metadata, OnlineClient, PolkadotConfig,
+    utils::{AccountId32, MultiAddress, MultiSignature, H256},
+    Config, Metadata, OnlineClient,
 };
 use wasm_bindgen::prelude::wasm_bindgen;
 
 // ========================================
 // TYPES
 // ========================================
-pub type HyperBridgeConfig = PolkadotConfig;
+
+/// Implements [`subxt::Config`] for substrate chains with keccak as their hashing algorithm
+#[derive(Clone)]
+pub struct HyperBridgeConfig;
+
+/// A type that can hash values using the keccak_256 algorithm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode)]
+pub struct KeccakHasher;
+
+impl Hasher for KeccakHasher {
+    type Output = H256;
+    fn hash(s: &[u8]) -> Self::Output {
+        sp_core::keccak_256(s).into()
+    }
+}
+
+impl Config for HyperBridgeConfig {
+    type Hash = H256;
+    type AccountId = AccountId32;
+    type Address = MultiAddress<Self::AccountId, u32>;
+    type Signature = MultiSignature;
+    type Hasher = KeccakHasher;
+    type Header = SubstrateHeader<u32, KeccakHasher>;
+    type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
+}
+
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>>>>;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
     pub source_state_machine: String,
     pub dest_state_machine: String,
+    pub hyperbridge_state_machine: String,
     pub source_rpc_url: String,
     pub dest_rpc_url: String,
     pub hyper_bridge_url: String,
@@ -187,27 +211,16 @@ impl ClientConfig {
     ) -> Result<SubstrateClient<HyperBridgeConfig>, anyhow::Error> {
         let api =
             OnlineClient::<HyperBridgeConfig>::from_url(self.hyper_bridge_url.clone()).await?;
-
+        let hyperbridge_state_machine: StateMachine =
+            StateMachine::from_str(&self.hyperbridge_state_machine).unwrap();
         Ok(SubstrateClient {
             client: api,
             rpc_url: self.hyper_bridge_url.clone(),
             state_machine: StateMachineId {
-                state_id: StateMachine::Kusama(4634),
+                state_id: hyperbridge_state_machine,
                 consensus_state_id: *b"PARA",
             },
             hashing: HashAlgorithm::Keccak,
         })
     }
-}
-
-pub fn to_state_machine_updated(event: StateMachineUpdatedFilter) -> Event {
-    let state_machine_updated = StateMachineUpdated {
-        state_machine_id: StateMachineId {
-            state_id: StateMachine::Kusama(event.state_machine_id.low_u64() as u32),
-            consensus_state_id: Default::default(),
-        },
-        latest_height: event.height.low_u64(),
-    };
-
-    Event::StateMachineUpdated(state_machine_updated)
 }

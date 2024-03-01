@@ -13,7 +13,7 @@ forge-testsuite = { workspace = true }
 [dependencies]
 primitive-types = "0.12.2"
 
-ethers = { workspace = true, default-features = false }
+ethers = { workspace = true }
 merkle-mountain-range = { workspace = true, features = ["default"], optional = true }
 mmr-utils = { path = "../../modules/trees/mmr", optional = true }
 sp-consensus-beefy = { workspace =  true, features = ["default"], optional = true }

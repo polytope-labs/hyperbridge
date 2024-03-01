@@ -10,7 +10,7 @@ wasm-bindgen = { version = "0.2.90", features = [] }
 ismp = { path = "../modules/ismp/core", default-features = false }
 subxt = { version = "0.30.1", default-features = false }
 getrandom = { version = "0.2", features = ["js"] }
-ethers = { workspace = true, features = ["ws"], default-features = false}
+ethers = { workspace = true, features = ["ws"] }
 anyhow = "1.0.75"
 hex-literal = { version = "0.3.3" }
 serde-wasm-bindgen = { version = "0.6.3", default-features = false }

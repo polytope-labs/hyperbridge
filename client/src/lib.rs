@@ -55,47 +55,12 @@ pub async fn query_response_status(
         .map_err(|_| JsError::new("deserialization error"))?;
     let config: ClientConfig = serde_wasm_bindgen::from_value(config_js)
         .map_err(|_| JsError::new("deserialization error"))?;
-    let dest_client = config
-        .dest_chain()
-        .await
-        .map_err(|_| JsError::new("Failed to create destination client"))?;
-    let hyperbridge_client = config
-        .hyperbridge_client()
-        .await
-        .map_err(|_| JsError::new("Failed to create hyperbridge client"))?;
-    let response = query_response_status_internal(dest_client, hyperbridge_client, post_response)
+    let response = query_response_status_internal(config, post_response)
         .await
         .map_err(|e| JsError::new(e.to_string().as_str()))?;
 
     serde_wasm_bindgen::to_value(&response).map_err(|_| JsError::new("deserialization error"))
 }
-
-// #[wasm_bindgen]
-// pub async fn timeout_request(
-//     post_request: JsValue,
-//     config_js: JsValue,
-// ) -> Result<JsValue, JsValue> {
-//     let post: Post = serde_wasm_bindgen::from_value(post_request)?;
-//     let config: ClientConfig = serde_wasm_bindgen::from_value(config_js)?;
-//
-//     // setting up the clients
-//     let dest_client = config.dest_chain().await.map_err(|_| {
-//         serde_wasm_bindgen::to_value(&HyperClientErrors::FailedToCreateDestClient).unwrap()
-//     })?;
-//     let hyperbridge_client = config.hyperbridge_client().await.map_err(|_| {
-//         serde_wasm_bindgen::to_value(&HyperClientErrors::FailedToCreateHyperbridgeClient).
-// unwrap()     })?;
-//     let source_client = config.source_chain().await.map_err(|_| {
-//         serde_wasm_bindgen::to_value(&HyperClientErrors::FailedToCreateSourceClient).unwrap()
-//     })?;
-//
-//     let response =
-//         timeout_request_internal(post, source_client, dest_client, hyperbridge_client, config)
-//             .await
-//             .expect("Could not get request status");
-//
-//     Ok(serde_wasm_bindgen::to_value(&response)?)
-// }
 
 // =====================================
 // Stream Functions

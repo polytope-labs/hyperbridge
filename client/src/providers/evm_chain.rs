@@ -1,16 +1,15 @@
 use crate::{
     providers::global::{Client, RequestOrResponse},
-    types::{to_state_machine_updated, BoxStream, EvmStateProof},
+    types::BoxStream,
 };
 use ethers::prelude::Middleware;
 
+use crate::providers::substrate::SubstrateStateProof;
 use anyhow::{anyhow, Context, Error};
-use codec::Encode;
 use core::{str::FromStr, time::Duration};
 use ethers::{
     prelude::{ProviderExt, H160, H256, U256},
-    providers::{Http, Provider, Ws},
-    types::Address,
+    providers::{Http, Provider},
     utils::keccak256,
 };
 use futures::{stream, StreamExt};
@@ -18,11 +17,12 @@ use ismp::{
     consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
     events::{Event, StateMachineUpdated},
     host::StateMachine,
-    messaging::{Message, Proof},
+    messaging::{Message, TimeoutMessage},
+    router::Request,
 };
 use ismp_solidity_abi::{
-    evm_host::{EvmHost, EvmHostEvents, PostRequestHandledFilter},
-    handler::{Handler, StateMachineUpdatedFilter},
+    evm_host::{EvmHost, EvmHostEvents, GetRequest, PostRequestHandledFilter},
+    handler::{GetTimeoutMessage, Handler, PostRequestTimeoutMessage, PostResponseTimeoutMessage},
 };
 use std::sync::Arc;
 
@@ -322,7 +322,92 @@ impl Client for EvmClient {
         self.response_receipt_key(commitment).0.to_vec()
     }
 
-    async fn submit(&self, _msg: Message) -> Result<H256, Error> {
-        todo!()
+    fn encode(&self, msg: Message) -> Result<Vec<u8>, Error> {
+        let contract = Handler::new(self.ismp_handler, self.client.clone());
+        match msg {
+            Message::Timeout(TimeoutMessage::Post { timeout_proof, requests }) => {
+                let post_requests = requests
+                    .into_iter()
+                    .filter_map(|req| match req {
+                        Request::Post(post) => Some(post.into()),
+                        Request::Get(_) => None,
+                    })
+                    .collect();
+
+                let state_proof: SubstrateStateProof =
+                    match codec::Decode::decode(&mut timeout_proof.proof.as_slice()) {
+                        Ok(proof) => proof,
+                        _ => Err(anyhow!("Error decoding proof"))?,
+                    };
+                let message = PostRequestTimeoutMessage {
+                    timeouts: post_requests,
+                    height: ismp_solidity_abi::shared_types::StateMachineHeight {
+                        state_machine_id: {
+                            match timeout_proof.height.id.state_id {
+                                StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
+                                _ => Err(anyhow!("Expected polkadot or kusama state machines"))?,
+                            }
+                        },
+                        height: timeout_proof.height.height.into(),
+                    },
+                    proof: state_proof.storage_proof.into_iter().map(|key| key.into()).collect(),
+                };
+                let call = contract.handle_post_request_timeouts(self.host_address, message);
+
+                Ok(call.tx.rlp().to_vec())
+            },
+            Message::Timeout(TimeoutMessage::PostResponse { timeout_proof, responses }) => {
+                let post_responses = responses.into_iter().map(|res| res.into()).collect();
+
+                let state_proof: SubstrateStateProof =
+                    match codec::Decode::decode(&mut timeout_proof.proof.as_slice()) {
+                        Ok(proof) => proof,
+                        _ => Err(anyhow!("Expected polkadot or kusama state machines"))?,
+                    };
+                let message = PostResponseTimeoutMessage {
+                    timeouts: post_responses,
+                    height: ismp_solidity_abi::shared_types::StateMachineHeight {
+                        state_machine_id: {
+                            match timeout_proof.height.id.state_id {
+                                StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
+                                _ => Err(anyhow!("Expected polkadot or kusama state machines"))?,
+                            }
+                        },
+                        height: timeout_proof.height.height.into(),
+                    },
+                    proof: state_proof.storage_proof.into_iter().map(|key| key.into()).collect(),
+                };
+                let call = contract.handle_post_response_timeouts(self.host_address, message);
+                Ok(call.tx.rlp().to_vec())
+            },
+            Message::Timeout(TimeoutMessage::Get { requests }) => {
+                let get_requests = requests
+                    .into_iter()
+                    .filter_map(|req| match req {
+                        Request::Get(get) => Some(GetRequest {
+                            source: get.source.to_string().as_bytes().to_vec().into(),
+                            dest: get.dest.to_string().as_bytes().to_vec().into(),
+                            nonce: get.nonce,
+                            from: get.from.into(),
+                            keys: get.keys.into_iter().map(|key| key.into()).collect(),
+                            timeout_timestamp: get.timeout_timestamp,
+                            gaslimit: get.gas_limit.into(),
+                            height: get.height.into(),
+                        }),
+                        _ => None,
+                    })
+                    .collect();
+
+                let message = GetTimeoutMessage { timeouts: get_requests };
+                let call = contract.handle_get_request_timeouts(self.host_address, message);
+
+                Ok(call.tx.rlp().to_vec())
+            },
+            _ => Err(anyhow!("Only timeout messages are suported"))?,
+        }
+    }
+
+    async fn submit(&self, msg: Message) -> Result<(), Error> {
+        Err(anyhow!("Client cannot submit messages"))
     }
 }

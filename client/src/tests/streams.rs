@@ -1,10 +1,4 @@
-use crate::{
-    mock::erc_20::Erc20,
-    providers::{evm_chain::EvmClient, global::Client, hyperbridge::HyperBridgeClient},
-    streams::{query_request_status_stream, timeout_stream},
-    subscribed_query_request_status,
-    types::{ClientConfig, MessageStatus},
-};
+use crate::{mock::erc_20::Erc20, streams::query_request_status_stream, types::ClientConfig};
 use anyhow::Context;
 use ethers::{
     core::k256::SecretKey,
@@ -16,11 +10,11 @@ use futures::StreamExt;
 use hex_literal::hex;
 use ismp::host::{Ethereum, StateMachine};
 use ismp_solidity_abi::{
-    evm_host::{EvmHost, EvmHostEvents},
+    evm_host::EvmHost,
     ping_module::{PingMessage, PingModule},
 };
 use sp_core::Pair;
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 const OP_HOST: H160 = H160(hex!("1B58A47e61Ca7604b634CBB00b4e275cCd7c9E95"));
 const BSC_HOST: H160 = H160(hex!("022DDE07A21d8c553978b006D93CDe68ac83e677"));

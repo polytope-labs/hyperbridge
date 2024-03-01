@@ -90,6 +90,11 @@ pub trait Client: Clone + Send + Sync + 'static {
     /// receipt
     fn response_receipt_full_key(&self, commitment: H256) -> Vec<u8>;
 
+    /// Return the encoded unsigned transaction bytes for this message
     #[allow(async_fn_in_trait)]
-    async fn submit(&self, msg: Message) -> Result<H256, anyhow::Error>;
+    fn encode(&self, msg: Message) -> Result<Vec<u8>, anyhow::Error>;
+
+    /// Submit message to chain
+    #[allow(async_fn_in_trait)]
+    async fn submit(&self, msg: Message) -> Result<(), anyhow::Error>;
 }

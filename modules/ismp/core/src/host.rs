@@ -161,6 +161,14 @@ pub trait IsmpHost: Keccak256 {
     /// Also delete the request from the responded map.
     fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error>;
 
+    /// Delete a request receipt from storage, used when a request is timed out.
+    /// Should only ever be called by a routing state machine
+    fn delete_request_receipt(&self, req: &Request) -> Result<(), Error>;
+
+    /// Delete a request commitment from storage, used when a response is timed out.
+    /// Should only ever be called by a routing state machine
+    fn delete_response_receipt(&self, res: &PostResponse) -> Result<(), Error>;
+
     /// Stores a receipt for an incoming request after it is successfully routed to a module.
     /// Prevents duplicate incoming requests from being processed. Includes the relayer account
     fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error>;

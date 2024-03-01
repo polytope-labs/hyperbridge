@@ -22,21 +22,22 @@ use std::collections::HashMap;
 use subxt::{config::Header, rpc_params, OnlineClient};
 
 #[derive(Debug, Clone)]
-pub struct HyperBridgeClient {
+pub struct SubstrateClient<C: subxt::Config + Clone> {
     /// RPC url of a hyperbridge node
     pub rpc_url: String,
     /// State machine
     pub state_machine: StateMachineId,
     /// An instance of Hyper bridge client using the default config
-    pub client: OnlineClient<HyperBridgeConfig>,
+    pub client: OnlineClient<C>,
+    pub hashing: HashAlgorithm,
 }
 
-impl HyperBridgeClient {
+impl<C: subxt::Config + Clone> SubstrateClient<C> {
     pub async fn new(
         rpc_url: String,
         state_machine: StateMachineId,
     ) -> Result<Self, anyhow::Error> {
-        let client = OnlineClient::<HyperBridgeConfig>::from_url(rpc_url.clone()).await?;
+        let client = OnlineClient::<C>::from_url(rpc_url.clone()).await?;
 
         Ok(Self { rpc_url, client, state_machine })
     }
@@ -108,7 +109,7 @@ impl HyperBridgeClient {
     }
 }
 
-impl Client for HyperBridgeClient {
+impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     async fn query_latest_block_height(&self) -> Result<u64, Error> {
         Ok(self.client.blocks().at_latest().await?.number().into())
     }
@@ -137,7 +138,8 @@ impl Client for HyperBridgeClient {
 
         let params = rpc_params![at, keys];
         let response: RpcProof = self.client.rpc().request("ismp_queryStateProof", params).await?;
-
+        let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
+        let proof = SubstrateStateProof { hasher: self.hashing.clone(), storage_proof };
         Ok(response.proof)
     }
 
@@ -318,15 +320,19 @@ impl Client for HyperBridgeClient {
         self.client.storage().address_bytes(&addr).expect("Infallible")
     }
 
-    async fn submit(&self, msg: Message) -> Result<H256, Error> {
+    fn encode(&self, msg: Message) -> Result<Vec<u8>, Error> {
         let call = vec![msg].encode();
         let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle", call);
         let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
-        let timeout_progress = ext.submit_and_watch().await?;
-        let timeout_outcome = timeout_progress.wait_for_in_block().await?;
-        let block_hash = timeout_outcome.wait_for_success().await?.block_hash();
+        Ok(ext.into_encoded())
+    }
 
-        Ok(block_hash)
+    async fn submit(&self, msg: Message) -> Result<(), Error> {
+        let call = vec![msg].encode();
+        let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle", call);
+        let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
+        let _ = ext.submit_and_watch().await?.wait_for_in_block().await?;
+        Ok(())
     }
 }
 
@@ -441,4 +447,23 @@ impl From<StateMachine> for runtime::api::runtime_types::ismp::host::StateMachin
             StateMachine::Bsc => runtime::api::runtime_types::ismp::host::StateMachine::Bsc,
         }
     }
+}
+
+/// Hashing algorithm for the state proof
+#[derive(Debug, Encode, Decode, Clone)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+pub enum HashAlgorithm {
+    /// For chains that use keccak as their hashing algo
+    Keccak,
+    /// For chains that use blake2 as their hashing algo
+    Blake2,
+}
+
+/// Holds the relevant data needed for state proof verification
+#[derive(Debug, Encode, Decode, Clone)]
+pub struct SubstrateStateProof {
+    /// Algorithm to use for state proof verification
+    pub hasher: HashAlgorithm,
+    /// Storage proof for the parachain headers
+    pub storage_proof: Vec<Vec<u8>>,
 }

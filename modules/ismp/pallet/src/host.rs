@@ -254,6 +254,18 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
+    fn delete_request_receipt(&self, req: &Request) -> Result<(), Error> {
+        let req_commitment = hash_request::<Self>(req);
+        RequestReceipts::<T>::remove(req_commitment);
+        Ok(())
+    }
+
+    fn delete_response_receipt(&self, res: &PostResponse) -> Result<(), Error> {
+        let hash = hash_post_response::<Self>(res);
+        ResponseReceipts::<T>::remove(hash);
+        Ok(())
+    }
+
     fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
         RequestReceipts::<T>::insert(hash, signer);

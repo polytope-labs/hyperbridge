@@ -1,51 +1,35 @@
-use crate::providers::{evm_chain::EvmClient, global::Client, hyperbridge::HyperBridgeClient};
+use crate::providers::{
+    evm_chain::EvmClient,
+    global::Client,
+    substrate::{HashAlgorithm, SubstrateClient},
+};
+use alloc::collections::BTreeMap;
 use anyhow::anyhow;
 use codec::Encode;
-use ethers::{
-    prelude::Middleware,
-    types::{H160, U256},
-    utils::keccak256,
-};
-use futures::{Stream, StreamExt, TryFutureExt};
+use core::{pin::Pin, str::FromStr};
+use ethers::{prelude::Middleware, types::H160};
+use futures::{Stream, StreamExt};
 use ismp::{
     consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
     events::{Event, StateMachineUpdated},
-    host::StateMachine,
-    router,
+    host::{Ethereum, StateMachine},
     router::{Post, PostResponse},
 };
-use ismp_solidity_abi::{evm_host::EvmHostEvents, handler::StateMachineUpdatedFilter};
+use ismp_solidity_abi::handler::StateMachineUpdatedFilter;
 use serde::{Deserialize, Serialize};
-use sp_core::storage::{StorageChangeSet, StorageKey};
-use std::{collections::BTreeMap, pin::Pin, str::FromStr, time::Duration};
 use subxt::{
     ext::{codec, codec::Decode},
-    rpc::Subscription,
     tx::TxPayload,
     utils::H256,
     Metadata, OnlineClient, PolkadotConfig,
 };
-use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
+use wasm_bindgen::prelude::wasm_bindgen;
 
 // ========================================
 // TYPES
 // ========================================
 pub type HyperBridgeConfig = PolkadotConfig;
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>>>>;
-
-// ====================================
-// ERRORS
-// ====================================
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub enum HyperClientErrors {
-    FailedToCreateDestClient,
-    FailedToCreateHyperbridgeClient,
-    FailedToCreateSourceClient,
-    FailedToReadHyperbridgeTimestamp,
-    FailedToGetRequestResponseFromHyperbridge,
-    RequestIsNotDueForTimeOut,
-    ResponseIsNotDueForTimeOut,
-}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
@@ -110,32 +94,6 @@ pub struct Extrinsic {
     call_name: String,
     /// The encoded pallet call. Note that this should be the pallet call. Not runtime call
     encoded: Vec<u8>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct ReturnRequestTimeoutMessage {
-    pub timeouts: Vec<Post>,
-    pub height: StateMachineHeight,
-    pub proof: Vec<Vec<u8>>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct ReturnRequestTimeoutData {
-    pub host: H160,
-    pub post_request_timeout_message: ReturnRequestTimeoutMessage,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct ReturnResponseTimeoutMessage {
-    pub timeouts: Vec<PostResponse>,
-    pub height: StateMachineHeight,
-    pub proof: Vec<Vec<u8>>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct ReturnResponseTimeoutData {
-    pub host: H160,
-    pub post_response_timeout_message: ReturnResponseTimeoutMessage,
 }
 
 #[derive(Encode, Decode, Clone)]
@@ -224,17 +182,20 @@ impl ClientConfig {
         };
     }
 
-    pub async fn hyperbridge_client(&self) -> Result<HyperBridgeClient, anyhow::Error> {
+    pub async fn hyperbridge_client(
+        &self,
+    ) -> Result<SubstrateClient<HyperBridgeConfig>, anyhow::Error> {
         let api =
             OnlineClient::<HyperBridgeConfig>::from_url(self.hyper_bridge_url.clone()).await?;
 
-        Ok(HyperBridgeClient {
+        Ok(SubstrateClient {
             client: api,
             rpc_url: self.hyper_bridge_url.clone(),
             state_machine: StateMachineId {
                 state_id: StateMachine::Kusama(4634),
                 consensus_state_id: *b"PARA",
             },
+            hashing: HashAlgorithm::Keccak,
         })
     }
 }

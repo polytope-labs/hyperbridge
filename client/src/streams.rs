@@ -1,8 +1,6 @@
 use crate::{
     providers::global::{Client, RequestOrResponse},
-    types::{
-        BoxStream, ClientConfig, MessageStatus, PostStreamState,
-    },
+    types::{BoxStream, ClientConfig, MessageStatus, PostStreamState},
     Keccak256,
 };
 use anyhow::{anyhow, Error};

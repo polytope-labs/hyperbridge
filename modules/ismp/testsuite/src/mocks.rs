@@ -291,6 +291,18 @@ impl IsmpHost for Host {
         Ok(())
     }
 
+    fn delete_request_receipt(&self, req: &Request) -> Result<(), Error> {
+        let hash = hash_request::<Self>(req);
+        self.receipts.borrow_mut().remove(&hash);
+        Ok(())
+    }
+
+    fn delete_response_receipt(&self, res: &PostResponse) -> Result<(), Error> {
+        let hash = hash_post_response::<Self>(res);
+        self.receipts.borrow_mut().remove(&hash);
+        Ok(())
+    }
+
     fn store_request_receipt(&self, req: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
         self.receipts.borrow_mut().insert(hash, ());
@@ -298,7 +310,7 @@ impl IsmpHost for Host {
     }
 
     fn store_response_receipt(&self, res: &Response, _signer: &Vec<u8>) -> Result<(), Error> {
-        let hash = hash_request::<Self>(&res.request());
+        let hash = hash_response::<Self>(res);
         self.receipts.borrow_mut().insert(hash, ());
         Ok(())
     }

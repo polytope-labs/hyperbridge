@@ -1,6 +1,6 @@
 use crate::{
     providers::global::{Client, RequestOrResponse},
-    types::{BoxStream, ClientConfig, MessageStatus, PostStreamState},
+    types::{BoxStream, MessageStatus, PostStreamState},
     Keccak256,
 };
 use anyhow::{anyhow, Error};
@@ -15,20 +15,20 @@ use std::time::Duration;
 /// returns the query stream for a post
 pub async fn query_request_status_stream(
     post: Post,
-    config: ClientConfig,
+    source_client: impl Client,
+    dest_client: impl Client,
+    hyperbridge_client: impl Client,
     post_request_height: u64,
 ) -> BoxStream<MessageStatus> {
     let stream = stream::unfold(PostStreamState::Pending, move |post_request_status| {
-        let config_inner = config.clone();
+        let dest_client = dest_client.clone();
+        let hyperbridge_client = hyperbridge_client.clone();
+        let source_client = source_client.clone();
         let req = Request::Post(post.clone());
         let hash = hash_request::<Keccak256>(&req);
         let post = post.clone();
         async move {
             let lambda = || async {
-                let source_client = config_inner.source_chain().await?;
-                let dest_client = config_inner.dest_chain().await?;
-                let hyperbridge_client = config_inner.hyperbridge_client().await?;
-
                 match post_request_status {
                     PostStreamState::Pending => {
                         let destination_current_timestamp = dest_client.query_timestamp().await?;
@@ -43,6 +43,25 @@ pub async fn query_request_status_stream(
                         }
 
                         if destination_current_timestamp.as_secs() >= post.timeout_timestamp {
+                            // Checking to see if the message has timed-out
+                            return Ok(Some((Ok(MessageStatus::Timeout), PostStreamState::End)))
+                        }
+
+                        let hyperbridge_current_timestamp =
+                            hyperbridge_client.query_timestamp().await?;
+                        let relayer = hyperbridge_client.query_request_receipt(hash).await?;
+
+                        if relayer != H160::zero() {
+                            // This means the message has gotten to the destination chain
+                            return Ok::<Option<(Result<_, Error>, PostStreamState)>, Error>(Some((
+                                Ok(MessageStatus::HyperbridgeDelivered),
+                                PostStreamState::HyperbridgeDelivered(
+                                    hyperbridge_client.query_latest_block_height().await?,
+                                ),
+                            )))
+                        }
+
+                        if hyperbridge_current_timestamp.as_secs() >= post.timeout_timestamp {
                             // Checking to see if the message has timed-out
                             return Ok(Some((Ok(MessageStatus::Timeout), PostStreamState::End)))
                         }
@@ -84,7 +103,7 @@ pub async fn query_request_status_stream(
                             hyperbridge_client.query_request_receipt(hash).await?;
                         if hyperbridge_request_response != H160::zero() {
                             let hyperbridge_height =
-                                hyperbridge_client.client.blocks().at_latest().await?.number();
+                                hyperbridge_client.query_latest_block_height().await?;
 
                             return Ok(Some((
                                 Ok(MessageStatus::HyperbridgeDelivered),
@@ -98,12 +117,8 @@ pub async fn query_request_status_stream(
                         while let Some(event) = stream.next().await {
                             match event {
                                 Ok(_) => {
-                                    let hyperbridge_height = hyperbridge_client
-                                        .client
-                                        .blocks()
-                                        .at_latest()
-                                        .await?
-                                        .number();
+                                    let hyperbridge_height =
+                                        hyperbridge_client.query_latest_block_height().await?;
                                     return Ok(Some((
                                         Ok(MessageStatus::HyperbridgeDelivered),
                                         PostStreamState::HyperbridgeDelivered(

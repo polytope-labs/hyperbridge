@@ -1,12 +1,12 @@
 use crate::{
     providers::global::{wait_for_challenge_period, Client},
-    types::{ClientConfig, MessageStatus},
+    types::{BoxStream, ClientConfig, MessageStatus, TimeoutStatus},
     Keccak256,
 };
 use anyhow::anyhow;
 ///! This module contains the internal implementation of HyperClient.
 use ethers::prelude::H160;
-use futures::StreamExt;
+use futures::{stream, StreamExt};
 use ismp::{
     consensus::StateMachineHeight,
     messaging::{Message, Proof, TimeoutMessage},
@@ -92,108 +92,193 @@ pub async fn query_response_status_internal(
     Ok(MessageStatus::Pending)
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum TimeoutStreamState {
+    Pending,
+    /// Destination state machine has been finalized on hyperbridge
+    DestinationFinalized(u64),
+    /// Message has been timed out on hyperbridge
+    HyperbridgeTimedout(u64),
+    /// Hyperbridge has been finalized on source chain
+    HyperbridgeFinalized(u64),
+    /// Stream has ended
+    End,
+}
+
 /// Handles the timeout process internally and yields the encoded transaction data to be submitted
 /// to the source chain This future does not check the request timeout status, only call it after
 /// you have confirmed the request timeout status using `query_request_status`
-pub async fn timeout_request(post: Post, config: ClientConfig) -> Result<Vec<u8>, anyhow::Error> {
+pub async fn timeout_request_stream(
+    post: Post,
+    config: ClientConfig,
+) -> Result<BoxStream<TimeoutStatus>, anyhow::Error> {
     let dest_client = config.dest_chain().await?;
     let hyperbridge_client = config.hyperbridge_client().await?;
     let source_client = config.source_chain().await?;
-    let req = Request::Post(post.clone());
-    let hash = hash_request::<Keccak256>(&req);
-    let relayer = hyperbridge_client.query_request_receipt(hash).await?;
-
-    let timeout_height = if relayer != H160::zero() {
-        let mut stream = hyperbridge_client
-            .state_machine_update_notification(dest_client.state_machine_id())
-            .await?;
-        let mut valid_proof_height = None;
-        while let Some(event) = stream.next().await {
-            match event {
-                Ok(ev) => {
-                    let state_machine_height =
-                        StateMachineHeight { id: ev.state_machine_id, height: ev.latest_height };
-                    let commitment = hyperbridge_client
-                        .query_state_machine_commitment(state_machine_height)
+    let stream = stream::unfold(TimeoutStreamState::Pending, move |state| {
+        let dest_client = dest_client.clone();
+        let hyperbridge_client = hyperbridge_client.clone();
+        let source_client = source_client.clone();
+        let req = Request::Post(post.clone());
+        let hash = hash_request::<Keccak256>(&req);
+        async move {
+            let lambda = || async {
+                match state {
+                    TimeoutStreamState::Pending => {
+                        let relayer = hyperbridge_client.query_request_receipt(hash).await?;
+                        if relayer != H160::zero() {
+                            let mut stream = hyperbridge_client
+                                .state_machine_update_notification(dest_client.state_machine_id())
+                                .await?;
+                            let mut valid_proof_height = None;
+                            while let Some(event) = stream.next().await {
+                                match event {
+                                    Ok(ev) => {
+                                        let state_machine_height = StateMachineHeight {
+                                            id: ev.state_machine_id,
+                                            height: ev.latest_height,
+                                        };
+                                        let commitment = hyperbridge_client
+                                            .query_state_machine_commitment(state_machine_height)
+                                            .await?;
+                                        if commitment.timestamp > post.timeout_timestamp {
+                                            valid_proof_height = Some(ev.latest_height);
+                                            break
+                                        }
+                                    },
+                                    Err(e) =>
+                                        return Ok(Some((
+                                            Err(anyhow!(
+                                                "Encountered error in time out stream {e:?}"
+                                            )),
+                                            state,
+                                        ))),
+                                }
+                            }
+                            Ok(valid_proof_height.map(|height| {
+                                (
+                                    Ok(TimeoutStatus::DestinationFinalized),
+                                    TimeoutStreamState::DestinationFinalized(height),
+                                )
+                            }))
+                        } else {
+                            let height = hyperbridge_client.query_latest_block_height().await?;
+                            Ok(Some((
+                                Ok(TimeoutStatus::HyperbridgeTimedout),
+                                TimeoutStreamState::HyperbridgeTimedout(height),
+                            )))
+                        }
+                    },
+                    TimeoutStreamState::DestinationFinalized(proof_height) => {
+                        let storage_key = dest_client.request_receipt_full_key(hash);
+                        let proof =
+                            dest_client.query_state_proof(proof_height, vec![storage_key]).await?;
+                        let height = StateMachineHeight {
+                            id: dest_client.state_machine_id(),
+                            height: proof_height,
+                        };
+                        let message = Message::Timeout(TimeoutMessage::Post {
+                            requests: vec![req.clone()],
+                            timeout_proof: Proof { height, proof },
+                        });
+                        let challenge_period = hyperbridge_client
+                            .query_challenge_period(
+                                dest_client.state_machine_id().consensus_state_id,
+                            )
+                            .await?;
+                        let update_time =
+                            hyperbridge_client.query_state_machine_update_time(height).await?;
+                        wait_for_challenge_period(
+                            &hyperbridge_client,
+                            update_time,
+                            challenge_period,
+                        )
                         .await?;
-                    if commitment.timestamp > post.timeout_timestamp {
-                        valid_proof_height = Some(ev.latest_height);
-                        break
-                    }
-                },
-                Err(_) => {},
+                        hyperbridge_client.submit(message).await?;
+                        let next_height = hyperbridge_client.query_latest_block_height().await?;
+                        Ok(Some((
+                            Ok(TimeoutStatus::HyperbridgeTimedout),
+                            TimeoutStreamState::HyperbridgeTimedout(next_height),
+                        )))
+                    },
+                    TimeoutStreamState::HyperbridgeTimedout(hyperbridge_height) => {
+                        let mut state_machine_update_stream = source_client
+                            .state_machine_update_notification(
+                                hyperbridge_client.state_machine_id(),
+                            )
+                            .await?;
+
+                        let mut valid_proof_height = None;
+                        while let Some(event) = state_machine_update_stream.next().await {
+                            match event {
+                                Ok(ev) => {
+                                    let state_machine_height = StateMachineHeight {
+                                        id: ev.state_machine_id,
+                                        height: ev.latest_height,
+                                    };
+                                    let commitment = source_client
+                                        .query_state_machine_commitment(state_machine_height)
+                                        .await?;
+                                    if commitment.timestamp > post.timeout_timestamp &&
+                                        ev.latest_height >= hyperbridge_height
+                                    {
+                                        valid_proof_height = Some(ev.latest_height);
+                                        break
+                                    }
+                                },
+                                Err(e) =>
+                                    return Ok(Some((
+                                        Err(anyhow!("Encountered error in time out stream {e:?}")),
+                                        state,
+                                    ))),
+                            }
+                        }
+                        Ok(valid_proof_height.map(|height| {
+                            (
+                                Ok(TimeoutStatus::HyperbridgeFinalized),
+                                TimeoutStreamState::HyperbridgeFinalized(height),
+                            )
+                        }))
+                    },
+                    TimeoutStreamState::HyperbridgeFinalized(proof_height) => {
+                        let storage_key = hyperbridge_client.request_receipt_full_key(hash);
+                        let proof = hyperbridge_client
+                            .query_state_proof(proof_height, vec![storage_key])
+                            .await?;
+                        let height = StateMachineHeight {
+                            id: hyperbridge_client.state_machine,
+                            height: proof_height,
+                        };
+                        let message = Message::Timeout(TimeoutMessage::Post {
+                            requests: vec![req],
+                            timeout_proof: Proof { height, proof },
+                        });
+                        let challenge_period = source_client
+                            .query_challenge_period(
+                                hyperbridge_client.state_machine_id().consensus_state_id,
+                            )
+                            .await?;
+                        let update_time =
+                            source_client.query_state_machine_update_time(height).await?;
+                        wait_for_challenge_period(&source_client, update_time, challenge_period)
+                            .await?;
+                        let message = source_client.encode(message)?;
+                        Ok(Some((
+                            Ok(TimeoutStatus::TimeoutMessage(message)),
+                            TimeoutStreamState::End,
+                        )))
+                    },
+                    TimeoutStreamState::End => Ok::<_, anyhow::Error>(None),
+                }
+            };
+
+            let response = lambda().await;
+            match response {
+                Ok(res) => res,
+                Err(e) => Some((Err(anyhow!("Encountered an error in stream {e:?}")), state)),
             }
         }
+    });
 
-        if let Some(proof_height) = valid_proof_height {
-            let storage_key = dest_client.request_receipt_full_key(hash);
-            let proof = dest_client.query_state_proof(proof_height, vec![storage_key]).await?;
-            let height =
-                StateMachineHeight { id: dest_client.state_machine_id(), height: proof_height };
-            let message = Message::Timeout(TimeoutMessage::Post {
-                requests: vec![req.clone()],
-                timeout_proof: Proof { height, proof },
-            });
-            let challenge_period = hyperbridge_client
-                .query_challenge_period(dest_client.state_machine_id().consensus_state_id)
-                .await?;
-            let update_time = hyperbridge_client.query_state_machine_update_time(height).await?;
-            wait_for_challenge_period(&hyperbridge_client, update_time, challenge_period).await?;
-            hyperbridge_client.submit(message).await?;
-            hyperbridge_client.query_latest_block_height().await?
-        } else {
-            Err(anyhow!("Encountered an error wile trying to timeout request on hyperbridge"))?
-        }
-    } else {
-        hyperbridge_client.query_latest_block_height().await?
-    };
-
-    let mut state_machine_update_stream = source_client
-        .state_machine_update_notification(hyperbridge_client.state_machine)
-        .await?;
-
-    let mut valid_proof_height = None;
-    while let Some(event) = state_machine_update_stream.next().await {
-        match event {
-            Ok(ev) => {
-                let state_machine_height =
-                    StateMachineHeight { id: ev.state_machine_id, height: ev.latest_height };
-                let commitment =
-                    source_client.query_state_machine_commitment(state_machine_height).await?;
-                if commitment.timestamp > post.timeout_timestamp &&
-                    ev.latest_height >= timeout_height
-                {
-                    valid_proof_height = Some(ev.latest_height);
-                    break
-                }
-            },
-            Err(_) => {
-                // An error occured in stream
-            },
-        }
-    }
-
-    let message = if let Some(proof_height) = valid_proof_height {
-        let storage_key = hyperbridge_client.request_receipt_full_key(hash);
-        let proof = hyperbridge_client.query_state_proof(proof_height, vec![storage_key]).await?;
-        let height =
-            StateMachineHeight { id: hyperbridge_client.state_machine, height: proof_height };
-        let message = Message::Timeout(TimeoutMessage::Post {
-            requests: vec![req],
-            timeout_proof: Proof { height, proof },
-        });
-        let challenge_period = source_client
-            .query_challenge_period(hyperbridge_client.state_machine_id().consensus_state_id)
-            .await?;
-        let update_time = source_client.query_state_machine_update_time(height).await?;
-        wait_for_challenge_period(&source_client, update_time, challenge_period).await?;
-        source_client.encode(message)?
-    } else {
-        Err(anyhow!(
-            "Failed to complete timeout request successfully on {:?}",
-            source_client.state_machine_id().state_id
-        ))?
-    };
-
-    Ok(message)
+    Ok(Box::pin(stream))
 }

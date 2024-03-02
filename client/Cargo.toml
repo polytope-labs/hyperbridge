@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 
 [dependencies]
 wasm-bindgen = { version = "0.2.90", features = [] }
@@ -39,5 +42,6 @@ std = ["subxt/native", "subxt/jsonrpsee"]
 
 [dev-dependencies]
 tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread"]  }
+frame-support = { workspace = true, features = ["default"]}
 dotenv = "0.15.0"
 hex = "0.4.3"

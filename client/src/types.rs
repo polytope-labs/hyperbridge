@@ -17,7 +17,6 @@ use subxt::{
     utils::{AccountId32, MultiAddress, MultiSignature, H256},
     Config, Metadata,
 };
-use wasm_bindgen::prelude::wasm_bindgen;
 
 // ========================================
 // TYPES
@@ -110,7 +109,6 @@ pub struct ClientConfig {
     pub hyperbridge: SubstrateConfig,
 }
 
-#[wasm_bindgen]
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Copy)]
 pub enum MessageStatus {
     Pending,
@@ -142,6 +140,21 @@ pub enum PostStreamState {
     DestinationDelivered,
     /// Stream has ended, check the message status
     End,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub enum TimeoutStatus {
+    Pending,
+    /// Destination state machine has been finalized on hyperbridge
+    DestinationFinalized,
+    /// Message has been timed out on hyperbridge
+    HyperbridgeTimedout,
+    /// Hyperbridge has been finalized on source state machine
+    HyperbridgeFinalized,
+    /// Encoded call data to be submitted to source chain
+    TimeoutMessage(Vec<u8>),
+    /// Message has not timed out
+    NotTimedOut,
 }
 
 /// Implements [`TxPayload`] for extrinsic encoding

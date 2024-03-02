@@ -1,27 +1,27 @@
 use crate::{
-    internals::timeout_request, mock::erc_20::Erc20, streams::query_request_status_stream,
-    types::ClientConfig, Keccak256,
+    internals::timeout_request_stream, mock::erc_20::Erc20, streams::query_request_status_stream,
+    types::ClientConfig,
 };
 use anyhow::Context;
 use ethers::{
     core::k256::SecretKey,
-    prelude::{LocalWallet, Middleware, MiddlewareBuilder, Provider, Signer, Ws, U256},
+    prelude::{LocalWallet, Middleware, MiddlewareBuilder, Provider, Signer, U256},
     providers::{Http, ProviderExt},
     types::H160,
 };
 
 use crate::{
     internals::query_request_status_internal,
-    types::{ChainConfig, EvmConfig, HashAlgorithm, MessageStatus, SubstrateConfig},
+    types::{ChainConfig, EvmConfig, HashAlgorithm, MessageStatus, SubstrateConfig, TimeoutStatus},
 };
-use ethers::utils::hex;
+use ethers::{
+    prelude::{transaction::eip2718::TypedTransaction, NameOrAddress, TransactionRequest},
+    utils::hex,
+};
+use frame_support::crypto::ecdsa::ECDSAExt;
 use futures::StreamExt;
 use hex_literal::hex;
-use ismp::{
-    host::{Ethereum, StateMachine},
-    router::Request,
-    util::hash_request,
-};
+use ismp::host::{Ethereum, StateMachine};
 use ismp_solidity_abi::{
     evm_host::EvmHost,
     ping_module::{PingMessage, PingModule},
@@ -41,11 +41,11 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     let bsc_url = std::env::var("BSC_URL").unwrap();
     let op_url = std::env::var("OP_URL").unwrap();
     let source_chain = EvmConfig {
-        rpc_url: bsc_url,
+        rpc_url: bsc_url.clone(),
         state_machine: StateMachine::Bsc,
         host_address: BSC_HOST,
         handler_address: BSC_HANDLER,
-        consensus_state_id: *b"ETH0",
+        consensus_state_id: *b"BSC0",
     };
 
     let dest_chain = EvmConfig {
@@ -111,7 +111,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     let block = receipt.unwrap().block_number.unwrap();
     let events = host
         .events()
-        .address(source_chain.host_address)
+        .address(source_chain.host_address.into())
         .from_block(block)
         .to_block(block)
         .query()
@@ -129,8 +129,18 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     });
 
     let post = event.expect("Post request event should be available");
-
-    let mut stream = query_request_status_stream(post, config, block.low_u64()).await;
+    dbg!(&post.timeout_timestamp);
+    let source_client = config.source_chain().await?;
+    let dest_client = config.dest_chain().await?;
+    let hyperbridge_client = config.hyperbridge_client().await?;
+    let mut stream = query_request_status_stream(
+        post,
+        source_client,
+        dest_client,
+        hyperbridge_client,
+        block.low_u64(),
+    )
+    .await;
 
     while let Some(res) = stream.next().await {
         match res {
@@ -152,11 +162,11 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     let bsc_url = std::env::var("BSC_URL").unwrap();
     let op_url = std::env::var("OP_URL").unwrap();
     let source_chain = EvmConfig {
-        rpc_url: bsc_url,
+        rpc_url: bsc_url.clone(),
         state_machine: StateMachine::Bsc,
         host_address: BSC_HOST,
         handler_address: BSC_HANDLER,
-        consensus_state_id: *b"ETH0",
+        consensus_state_id: *b"BSC0",
     };
 
     let dest_chain = EvmConfig {
@@ -242,7 +252,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     });
 
     let post = event.expect("Post request event should be available");
-    let req_hash = hash_request::<Keccak256>(&Request::Post(post.clone()));
+    dbg!(&post.timeout_timestamp);
     loop {
         let status = query_request_status_internal(post.clone(), config.clone()).await?;
         if status == MessageStatus::Timeout {
@@ -253,10 +263,40 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
         }
     }
 
-    dbg!(&post.timeout_timestamp);
+    let mut stream = timeout_request_stream(post, config).await?;
 
-    let message = timeout_request(post, config).await?;
-
-    dbg!(message);
+    while let Some(res) = stream.next().await {
+        match res {
+            Ok(status) => {
+                println!("Got Status {:?}", status);
+                match status {
+                    TimeoutStatus::TimeoutMessage(call_data) => {
+                        let gas_price = client.get_gas_price().await?;
+                        println!("Sending timeout to BSC");
+                        let receipt = client
+                            .clone()
+                            .send_transaction(
+                                TypedTransaction::Legacy(TransactionRequest {
+                                    from: Some(H160::from(pair.public().to_eth_address().unwrap())),
+                                    to: Some(NameOrAddress::Address(source_chain.handler_address)),
+                                    value: Some(Default::default()),
+                                    gas_price: Some(gas_price * 5), // experiment with higher?
+                                    data: Some(call_data.into()),
+                                    ..Default::default()
+                                }),
+                                None,
+                            )
+                            .await?
+                            .await?;
+                        dbg!(receipt.unwrap().transaction_hash);
+                    },
+                    _ => {},
+                }
+            },
+            Err(e) => {
+                println!("{e:?}")
+            },
+        }
+    }
     Ok(())
 }

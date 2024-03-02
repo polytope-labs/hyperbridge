@@ -5424,6 +5424,7 @@ dependencies = [
  "async-trait",
  "dotenv",
  "ethers",
+ "frame-support",
  "futures",
  "getrandom 0.2.12",
  "hashbrown 0.14.3",

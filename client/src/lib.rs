@@ -17,7 +17,7 @@ use crate::{
     types::ClientConfig,
 };
 
-use crate::internals::timeout_request;
+use crate::internals::timeout_request_stream;
 use ethers::{types::H256, utils::keccak256};
 use futures::{stream, StreamExt};
 use ismp::router::{Post, PostResponse};
@@ -59,33 +59,37 @@ pub async fn query_response_status(
     serde_wasm_bindgen::to_value(&response).map_err(|_| JsError::new("deserialization error"))
 }
 
-/// Accepts a post request that has timed out returns an encoded(rlp encoded transaction for evm
-/// chains or scale encoded extrinsic for substrate chains) transaction that should be submitted
-/// to the source chain
+/// Accepts a post request that has timed out returns a stream that yields `TimeoutStatus`
 /// This function will not check if request has timed out, only call it when sure that the request
 /// has timed out after using `query_request_status`
 #[wasm_bindgen]
 pub async fn timeout_post_request(
     request: JsValue,
     config_js: JsValue,
-) -> Result<JsValue, JsError> {
+) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
     let post: Post = serde_wasm_bindgen::from_value(request)
         .map_err(|_| JsError::new("deserialization error"))?;
     let config: ClientConfig = serde_wasm_bindgen::from_value(config_js)
         .map_err(|_| JsError::new("deserialization error"))?;
 
-    let response = timeout_request(post, config)
+    let stream = timeout_request_stream(post, config)
         .await
-        .map_err(|e| JsError::new(e.to_string().as_str()))?;
+        .map_err(|e| JsError::new(e.to_string().as_str()))?
+        .map(|value| {
+            value
+                .map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
+                .map_err(|e| JsValue::from_str(alloc::format!("{e:?}").as_str()))
+        });
 
-    serde_wasm_bindgen::to_value(&response).map_err(|_| JsError::new("deserialization error"))
+    let js_stream = ReadableStream::from_stream(stream);
+    Ok(js_stream.into_raw())
 }
 
 // =====================================
 // Stream Functions
 // =====================================
 
-/// Races between a timeout stream and request processing stream, and yields the message status
+/// Races between a timeout stream and request processing stream, and yields `MessageStatus`
 /// If it yields `MessageStatus::Timeout`, the consumer of the stream should handle it appropriately
 #[wasm_bindgen]
 pub async fn subscribe_to_request_status(
@@ -97,18 +101,31 @@ pub async fn subscribe_to_request_status(
         .map_err(|_| JsError::new("deserialization error"))?;
     let config: ClientConfig = serde_wasm_bindgen::from_value(config_js)
         .map_err(|_| JsError::new("deserialization error"))?;
-    let source_chain =
+    let source_client =
         config.source_chain().await.map_err(|e| JsError::new(e.to_string().as_str()))?;
+    let dest_client =
+        config.dest_chain().await.map_err(|e| JsError::new(e.to_string().as_str()))?;
+    let hyperbridge_client = config
+        .hyperbridge_client()
+        .await
+        .map_err(|e| JsError::new(e.to_string().as_str()))?;
 
     let stream = stream::unfold((), move |_| {
-        let source_chain = source_chain.clone();
+        let dest_client = dest_client.clone();
+        let hyperbridge_client = hyperbridge_client.clone();
+        let source_client = source_client.clone();
         let post = post.clone();
-        let config = config.clone();
         async move {
             // Obtaining the request stream and the timeout stream
-            let mut timed_out = timeout_stream(post.timeout_timestamp, source_chain).await;
-            let mut request_status =
-                query_request_status_stream(post, config, post_request_height).await;
+            let mut timed_out = timeout_stream(post.timeout_timestamp, source_client.clone()).await;
+            let mut request_status = query_request_status_stream(
+                post,
+                source_client.clone(),
+                dest_client,
+                hyperbridge_client,
+                post_request_height,
+            )
+            .await;
 
             tokio::select! {
                 result = timed_out.next() => {

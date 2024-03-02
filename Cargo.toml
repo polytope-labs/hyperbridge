@@ -4,6 +4,7 @@ members = [
     # runtime
      "parachain/runtimes/gargantua",
      "parachain/runtimes/messier",
+     "parachain/runtimes/nexus",
 
      # node
      "parachain/node",

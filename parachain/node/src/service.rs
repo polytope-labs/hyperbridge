@@ -80,6 +80,20 @@ impl sc_executor::NativeExecutionDispatch for MessierExecutor {
     }
 }
 
+pub struct NexusExecutor;
+
+impl sc_executor::NativeExecutionDispatch for crate::service::NexusExecutor {
+    type ExtendHostFunctions = frame_benchmarking::benchmarking::HostFunctions;
+
+    fn dispatch(method: &str, data: &[u8]) -> Option<Vec<u8>> {
+        nexus_runtime::api::dispatch(method, data)
+    }
+
+    fn native_version() -> sc_executor::NativeVersion {
+        nexus_runtime::native_version()
+    }
+}
+
 pub type FullClient<Runtime, Executor> =
     TFullClient<opaque::Block, Runtime, NativeElseWasmExecutor<Executor>>;
 
@@ -534,6 +548,15 @@ pub async fn start_parachain_node(
             .await,
         chain if chain.contains("messier") =>
             start_node_impl::<messier_runtime::RuntimeApi, MessierExecutor>(
+                parachain_config,
+                polkadot_config,
+                collator_options,
+                para_id,
+                hwbench,
+            )
+            .await,
+        chain if chain.contains("nexus") =>
+            start_node_impl::<nexus_runtime::RuntimeApi, NexusExecutor>(
                 parachain_config,
                 polkadot_config,
                 collator_options,

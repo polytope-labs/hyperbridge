@@ -30,7 +30,7 @@ use std::net::SocketAddr;
 use crate::{
     chain_spec,
     cli::{Cli, RelayChainCli, Subcommand},
-    service::{new_partial, GargantuanExecutor, MessierExecutor},
+    service::{new_partial, GargantuanExecutor, MessierExecutor, NexusExecutor},
 };
 
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
@@ -236,6 +236,12 @@ pub fn run() -> Result<()> {
                 chain if chain.contains("messier") => {
                     let components =
                         new_partial::<messier_runtime::RuntimeApi, MessierExecutor>(&config)?;
+
+                    cmd.run(components.client.clone())
+                },
+                chain if chain.contains("nexus") => {
+                    let components =
+                        new_partial::<nexus_runtime::RuntimeApi, NexusExecutor>(&config)?;
 
                     cmd.run(components.client.clone())
                 },

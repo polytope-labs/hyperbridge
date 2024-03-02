@@ -1,37 +1,44 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
-* Functions takes in a post request and returns a `MessageStatus`
-* @param {any} request
-* @param {any} config_js
+* Functions takes in a post request and returns one of the following json strings variants
+* Status variants: `Pending`, `SourceFinalized`, `HyperbridgeDelivered`, `HyperbridgeFinalized`,
+* `DestinationDelivered`, `Timeout`
+* @param {JsPost} request
+* @param {JsClientConfig} config_js
 * @returns {Promise<any>}
 */
-export function query_request_status(request: any, config_js: any): Promise<any>;
+export function query_request_status(request: JsPost, config_js: JsClientConfig): Promise<any>;
 /**
-* Function takes in a post response and returns a `MessageStatus`
-* @param {any} response
-* @param {any} config_js
+* Function takes in a post response and returns one of the following json strings variants
+* Status Variants: `Pending`, `SourceFinalized`, `HyperbridgeDelivered`, `HyperbridgeFinalized`,
+* `DestinationDelivered`, `Timeout`
+* @param {JsResponse} response
+* @param {JsClientConfig} config_js
 * @returns {Promise<any>}
 */
-export function query_response_status(response: any, config_js: any): Promise<any>;
+export function query_response_status(response: JsResponse, config_js: JsClientConfig): Promise<any>;
 /**
-* Accepts a post request that has timed out returns a stream that yields `TimeoutStatus`
-* This function will not check if request has timed out, only call it when sure that the request
-* has timed out after using `query_request_status`
-* @param {any} request
-* @param {any} config_js
+* Accepts a post request that has timed out returns a stream that yields the following json
+* strings variants Status Variants: `Pending`, `DestinationFinalized`, `HyperbridgeTimedout`,
+* `HyperbridgeFinalized`, `{ "TimeoutMessage": [...] }`. This function will not check if the
+* request has timed out, only call it when sure that the request has timed out after calling
+* `query_request_status`
+* @param {JsPost} request
+* @param {JsClientConfig} config_js
 * @returns {Promise<ReadableStream>}
 */
-export function timeout_post_request(request: any, config_js: any): Promise<ReadableStream>;
+export function timeout_post_request(request: JsPost, config_js: JsClientConfig): Promise<ReadableStream>;
 /**
-* Races between a timeout stream and request processing stream, and yields `MessageStatus`
-* If it yields `MessageStatus::Timeout`, the consumer of the stream should handle it appropriately
-* @param {any} request
-* @param {any} config_js
+* Races between a timeout stream and request processing stream, and yields the following json
+* strings variants Status Variants: `Pending`, `SourceFinalized`, `HyperbridgeDelivered`,
+* `HyperbridgeFinalized`, `DestinationDelivered`, `Timeout`
+* @param {JsPost} request
+* @param {JsClientConfig} config_js
 * @param {bigint} post_request_height
 * @returns {Promise<ReadableStream>}
 */
-export function subscribe_to_request_status(request: any, config_js: any, post_request_height: bigint): Promise<ReadableStream>;
+export function subscribe_to_request_status(request: JsPost, config_js: JsClientConfig, post_request_height: bigint): Promise<ReadableStream>;
 /**
 */
 export class IntoUnderlyingByteSource {
@@ -86,4 +93,101 @@ export class IntoUnderlyingSource {
 /**
 */
   cancel(): void;
+}
+/**
+*/
+export class JsChainConfig {
+  free(): void;
+/**
+*/
+  consensus_state_id: Uint8Array;
+/**
+*/
+  handler_address: Uint8Array;
+/**
+* Keccak = 1, Blake2 = 2
+*/
+  hash_algo: number;
+/**
+*/
+  host_address: Uint8Array;
+/**
+*/
+  rpc_url: string;
+/**
+*/
+  state_machine: string;
+}
+/**
+*/
+export class JsClientConfig {
+  free(): void;
+/**
+*/
+  dest: JsChainConfig;
+/**
+*/
+  hyperbridge: JsChainConfig;
+/**
+*/
+  source: JsChainConfig;
+}
+/**
+*/
+export class JsPost {
+  free(): void;
+/**
+* Encoded Request.
+*/
+  data: Uint8Array;
+/**
+* The destination state machine of this request.
+*/
+  dest: string;
+/**
+* Module Id of the sending module
+*/
+  from: Uint8Array;
+/**
+* Gas limit for executing the request on destination
+* This value should be zero if destination module is not a contract
+*/
+  gas_limit: bigint;
+/**
+* The nonce of this request on the source chain
+*/
+  nonce: bigint;
+/**
+* The source state machine of this request.
+*/
+  source: string;
+/**
+* Timestamp which this request expires in seconds.
+*/
+  timeout_timestamp: bigint;
+/**
+* Module ID of the receiving module
+*/
+  to: Uint8Array;
+}
+/**
+*/
+export class JsResponse {
+  free(): void;
+/**
+* Gas limit for executing the response on destination, only used for solidity modules.
+*/
+  gas_limit: bigint;
+/**
+* The request that triggered this response.
+*/
+  post: JsPost;
+/**
+* The response message.
+*/
+  response: Uint8Array;
+/**
+* Timestamp at which this response expires in seconds.
+*/
+  timeout_timestamp: bigint;
 }

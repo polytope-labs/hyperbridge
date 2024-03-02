@@ -240,11 +240,11 @@ pub async fn timeout_stream(timeout: u64, client: impl Client + Clone) -> BoxStr
                 let current_timestamp = client_moved.query_timestamp().await?.as_secs();
 
                 return if current_timestamp > timeout {
-                    Ok(MessageStatus::Timeout)
+                    Ok(true)
                 } else {
                     let sleep_time = timeout - current_timestamp;
                     let _ = wasm_timer::Delay::new(Duration::from_secs(sleep_time)).await;
-                    Ok::<_, Error>(MessageStatus::NotTimedOut)
+                    Ok::<_, Error>(false)
                 };
             };
 
@@ -252,11 +252,11 @@ pub async fn timeout_stream(timeout: u64, client: impl Client + Clone) -> BoxStr
                 let response = lambda().await;
 
                 let value = match response {
-                    Ok(MessageStatus::Timeout) => Some((Ok(MessageStatus::Timeout), ())),
-                    Ok(MessageStatus::NotTimedOut) => continue,
+                    Ok(val) if val => Some((Ok(MessageStatus::Timeout), ())),
+                    Ok(val) if !val => continue,
                     Err(e) =>
                         Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), ())),
-                    _ => unreachable!(),
+                    _ => None,
                 };
 
                 return value

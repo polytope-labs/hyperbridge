@@ -14,7 +14,7 @@
 // limitations under the License.
 
 //! Convenient type conversions
-#[allow(unused_imports)]
+#![allow(unused_imports)]
 use crate::{
     beefy::IntermediateState,
     evm_host::EvmHostEvents,

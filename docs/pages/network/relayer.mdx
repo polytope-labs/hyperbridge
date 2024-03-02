@@ -70,8 +70,27 @@ The tesseract relayer command line interface expects two arguments, which are th
 
 
 ```bash
-docker --network=host run -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db
+docker run -d \
+  --name=tesseract \
+  --network=host \
+  --restart=always \
+  --volume=/dir/on/host:/home/root \
+  polytopelabs/tesseract:latest \
+  --config=/home/root/config.toml \
+  --db=/home/root/dev.db
 ```
+
+Access it's logs using
+
+```bash
+docker logs -f tesseract
+```
+
+## Ansible Playbooks
+
+A community member has graciously provided their ansible playbook for running the hyperbridge relayer. You can find it here:
+
+https://github.com/schmiatz/hyperbridge-relayer
 
 ### Configuration
 
@@ -81,8 +100,8 @@ The configuration file is a toml file that at the moment, expects the following 
 ```toml
 # Hyperbridge config, required
 [hyperbridge]
-# Hyperbridge chain spec, either one of Dev, Gargantua or Messier
-chain = "Dev"
+# Hyperbridge chain spec, either one of Dev, Gargantua, Messier or Nexus
+chain = "Gargantua" # testnet
 # Hyperbidge node ws rpc endpoint.
 rpc_ws = "ws://127.0.0.1:9944" # example endpoint
 
@@ -178,8 +197,8 @@ signer = ""
 
 # Relayer config, required
 [relayer]
-# Hyperbridge chain spec, either one of Dev, Gargantua or Messier
-chain = "Dev"
+# Hyperbridge chain spec, either one of Dev, Gargantua, Messier or Nexus
+chain = "Gargantua" # testnet
 # Define your profitability configuration. 0 -> 0% i.e relay all requests, even unprofitable ones. 1 -> 1%. ie fees provided for requests must be profitable by at least 1%. etc. 
 minimum_profit_percentage = 0
 # (Optional) If not empty, will filter requests to be delivered by originating module identifier (eg contract address)
@@ -216,15 +235,12 @@ Stop any running relayer instances, run the following command in the terminal an
 ```
 
 #### Initiating withdrawal from hyperbridge
-To initiate a withdrawal from hyperbridge, a relayer needs to submit a `withdraw_fees` extrinsic from `pallet-ismp-relayer` on hyperbridge, The transaction takes a `WithdrawalInputData`, this value contains, the amount to be withdrawn, the destination chain and a signature that proves ownership of the account that will be debited.
+To initiate a withdrawal from hyperbridge, a relayer needs to submit a `relayer.withdraw_fees` extrinsic to hyperbridge. This extrinsic is unsigned and will not require any native tokens for execution fees.
 <br />
-It is possible to use the relayer software to accumulate fees and initiate the withdrawal process with one command, for this to work, the relayer account must have sufficient funds to pay the transaction delivery fees on the withdrawal destination chains.
+Once the extrinsic is executed, hyperbridge dispatches a POST request that when executed on it's destination, will provide the relayer with the fees they've accrued. The relayer account must have sufficient funds to pay the request delivery on the withdrawal destination chain.
 <br />
 To use this feature run the following command:
 
 ```bash
     docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --withdraw
 ```
-
-You can find the code that implements fee accumulation and withdrawals [here](https://github.com/polytope-labs/hyperbridge/blob/c3e940c60b718eaf5ac02a96c4801814a555dcf7/modules/relayer-fees/src/lib.rs#L120)
-

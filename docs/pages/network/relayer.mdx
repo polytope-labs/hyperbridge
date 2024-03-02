@@ -235,9 +235,9 @@ Stop any running relayer instances, run the following command in the terminal an
 ```
 
 #### Initiating withdrawal from hyperbridge
-To initiate a withdrawal from hyperbridge, a relayer needs to submit a `withdraw_fees` extrinsic from `pallet-ismp-relayer` on hyperbridge, The transaction takes a `WithdrawalInputData`, this value contains, the amount to be withdrawn, the destination chain and a signature that proves ownership of the account that will be debited.
+To initiate a withdrawal from hyperbridge, a relayer needs to submit a `relayer.withdraw_fees` extrinsic to hyperbridge. This extrinsic is unsigned and will not require any native tokens for execution fees.
 <br />
-It is possible to use the relayer software to accumulate fees and initiate the withdrawal process with one command, for this to work, the relayer account must have sufficient funds to pay the transaction delivery fees on the withdrawal destination chains.
+Once the extrinsic is executed, hyperbridge dispatches a POST request that when executed on it's destination, will provide the relayer with the fees they've accrued. The relayer account must have sufficient funds to pay the request delivery on the withdrawal destination chain.
 <br />
 To use this feature run the following command:
 

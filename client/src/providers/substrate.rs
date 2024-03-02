@@ -1,24 +1,23 @@
 use crate::{
     providers::global::{Client, RequestOrResponse},
     runtime,
-    types::{BoxStream, Extrinsic, LeafIndexQuery},
+    types::{BoxStream, Extrinsic, HashAlgorithm, SubstrateStateProof},
 };
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use core::time::Duration;
 use ethers::prelude::{H160, H256};
 use futures::stream;
+use hashbrown::HashMap;
 use hex_literal::hex;
 use ismp::{
     consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
     events::{Event, StateMachineUpdated},
     host::{Ethereum, StateMachine},
     messaging::Message,
-    router::{Request, Response},
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use subxt::{config::Header, rpc_params, OnlineClient};
 
 #[derive(Debug, Clone)]
@@ -33,16 +32,17 @@ pub struct SubstrateClient<C: subxt::Config + Clone> {
 }
 
 impl<C: subxt::Config + Clone> SubstrateClient<C> {
-    pub async fn _new(
+    pub async fn new(
         rpc_url: String,
         state_machine: StateMachineId,
-    ) -> Result<Self, anyhow::Error> {
+        hashing: HashAlgorithm,
+    ) -> Result<Self, Error> {
         let client = OnlineClient::<C>::from_url(rpc_url.clone()).await?;
 
-        Ok(Self { rpc_url, client, state_machine, hashing: HashAlgorithm::Keccak })
+        Ok(Self { rpc_url, client, state_machine, hashing })
     }
 
-    pub async fn latest_timestamp(&self) -> Result<Duration, anyhow::Error> {
+    pub async fn latest_timestamp(&self) -> Result<Duration, Error> {
         let timestamp_key =
             hex!("f0c365c3cf59d671eb72da0e7a4113c49f1f0515f462cdcf84e0f1d6045dfcbb").to_vec();
         let response = self
@@ -56,34 +56,11 @@ impl<C: subxt::Config + Clone> SubstrateClient<C> {
         Ok(Duration::from_millis(timestamp))
     }
 
-    pub async fn query_request(&self, commitment: H256) -> Result<Option<Request>, anyhow::Error> {
-        let build_leaf_index_query = LeafIndexQuery { commitment };
-
-        let leaf_index_query = rpc_params![alloc::vec![build_leaf_index_query]];
-        let hyper_bridge_response: Vec<Request> =
-            self.client.rpc().request("ismp_queryRequests", leaf_index_query).await?;
-
-        Ok(hyper_bridge_response.get(0).cloned())
-    }
-
-    pub async fn query_response(
-        &self,
-        commitment: H256,
-    ) -> Result<Option<Response>, anyhow::Error> {
-        let build_leaf_index_query = LeafIndexQuery { commitment };
-
-        let leaf_index_query = rpc_params![alloc::vec![build_leaf_index_query]];
-        let hyper_bridge_response: Vec<Response> =
-            self.client.rpc().request("ismp_queryResponses", leaf_index_query).await?;
-
-        Ok(hyper_bridge_response.get(0).cloned())
-    }
-
     async fn query_ismp_events(
         &self,
         previous_height: u64,
         latest_height: u64,
-    ) -> Result<Vec<Event>, anyhow::Error> {
+    ) -> Result<Vec<Event>, Error> {
         let range = (previous_height + 1)..=latest_height;
         if range.is_empty() {
             return Ok(Default::default());
@@ -479,23 +456,4 @@ impl From<StateMachine> for runtime::api::runtime_types::ismp::host::StateMachin
             StateMachine::Bsc => runtime::api::runtime_types::ismp::host::StateMachine::Bsc,
         }
     }
-}
-
-/// Hashing algorithm for the state proof
-#[derive(Debug, Encode, Decode, Clone)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
-pub enum HashAlgorithm {
-    /// For chains that use keccak as their hashing algo
-    Keccak,
-    /// For chains that use blake2 as their hashing algo
-    Blake2,
-}
-
-/// Holds the relevant data needed for state proof verification
-#[derive(Debug, Encode, Decode, Clone)]
-pub struct SubstrateStateProof {
-    /// Algorithm to use for state proof verification
-    pub hasher: HashAlgorithm,
-    /// Storage proof for the parachain headers
-    pub storage_proof: Vec<Vec<u8>>,
 }

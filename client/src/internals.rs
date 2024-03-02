@@ -11,7 +11,7 @@ use ismp::{
     consensus::StateMachineHeight,
     messaging::{Message, Proof, TimeoutMessage},
     router::{Post, PostResponse, Request, Response},
-    util::{hash_request, hash_response},
+    util::hash_request,
 };
 
 /// `query_request_status_internal` is an internal function that
@@ -42,7 +42,7 @@ pub async fn query_request_status_internal(
     let hyperbridge_current_timestamp = hyperbridge_client.query_timestamp().await?;
     let relayer = hyperbridge_client.query_request_receipt(hash).await?;
 
-    if relayer_address != H160::zero() {
+    if relayer != H160::zero() {
         return Ok(MessageStatus::HyperbridgeDelivered);
     }
 

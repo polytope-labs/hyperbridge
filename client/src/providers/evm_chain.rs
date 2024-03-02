@@ -4,9 +4,9 @@ use crate::{
 };
 use ethers::prelude::Middleware;
 
-use crate::{providers::substrate::SubstrateStateProof, types::EvmStateProof};
+use crate::types::{EvmStateProof, SubstrateStateProof};
 use anyhow::{anyhow, Context, Error};
-use core::{str::FromStr, time::Duration};
+use core::time::Duration;
 use ethers::{
     prelude::{ProviderExt, H160, H256, U256},
     providers::{Http, Provider},
@@ -60,11 +60,9 @@ impl EvmClient {
         consensus_state_id: ConsensusStateId,
         host_address: H160,
         handler_address: H160,
-        state_machine: String,
+        state_machine: StateMachine,
     ) -> Result<Self, anyhow::Error> {
         let client = Arc::new(Provider::<Http>::connect(&rpc_url.clone()).await);
-        let state_machine: StateMachine =
-            StateMachine::from_str(&state_machine).map_err(|e| anyhow!("{e:?}"))?;
         Ok(Self {
             rpc_url,
             client,

@@ -81,8 +81,8 @@ pub async fn query_request_status_stream(
 
                     PostStreamState::SourceFinalized => {
                         let hyperbridge_request_response =
-                            hyperbridge_client.query_request(hash).await?;
-                        if let Some(_) = hyperbridge_request_response {
+                            hyperbridge_client.query_request_receipt(hash).await?;
+                        if hyperbridge_request_response != H160::zero() {
                             let hyperbridge_height =
                                 hyperbridge_client.client.blocks().at_latest().await?.number();
 

@@ -1,6 +1,6 @@
 use crate::{
     internals::timeout_request, mock::erc_20::Erc20, streams::query_request_status_stream,
-    types::ClientConfig,
+    types::ClientConfig, Keccak256,
 };
 use anyhow::Context;
 use ethers::{
@@ -10,9 +10,18 @@ use ethers::{
     types::H160,
 };
 
+use crate::{
+    internals::query_request_status_internal,
+    types::{ChainConfig, EvmConfig, HashAlgorithm, MessageStatus, SubstrateConfig},
+};
+use ethers::utils::hex;
 use futures::StreamExt;
 use hex_literal::hex;
-use ismp::host::{Ethereum, StateMachine};
+use ismp::{
+    host::{Ethereum, StateMachine},
+    router::Request,
+    util::hash_request,
+};
 use ismp_solidity_abi::{
     evm_host::EvmHost,
     ping_module::{PingMessage, PingModule},
@@ -27,28 +36,40 @@ const BSC_HANDLER: H160 = H160(hex!("43a0BcC347894303f93905cE137CB3b804bE990d"))
 
 #[tokio::test]
 async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
-    let bsc_url = "https://clean-capable-dew.bsc-testnet.quiknode.pro/bed456956996abb801b7ab44fdb3f6f63cd1a4ec";
+    dotenv::dotenv().ok();
+    let signing_key = std::env::var("SIGNING_KEY").unwrap();
+    let bsc_url = std::env::var("BSC_URL").unwrap();
+    let op_url = std::env::var("OP_URL").unwrap();
+    let source_chain = EvmConfig {
+        rpc_url: bsc_url,
+        state_machine: StateMachine::Bsc,
+        host_address: BSC_HOST,
+        handler_address: BSC_HANDLER,
+        consensus_state_id: *b"ETH0",
+    };
+
+    let dest_chain = EvmConfig {
+        rpc_url: op_url,
+        state_machine: StateMachine::Ethereum(Ethereum::Optimism),
+        host_address: OP_HOST,
+        handler_address: OP_HANDLER,
+        consensus_state_id: *b"ETH0",
+    };
+
+    let hyperbrige_config = SubstrateConfig {
+        rpc_url: "ws://127.0.0.1:9990".to_string(),
+        state_machine: StateMachine::Kusama(2000),
+        consensus_state_id: *b"PARA",
+        hash_algo: HashAlgorithm::Keccak,
+    };
     let config = ClientConfig {
-        source_state_machine: StateMachine::Bsc.to_string(),
-        dest_state_machine: StateMachine::Ethereum(Ethereum::Optimism).to_string(),
-        hyperbridge_state_machine: StateMachine::Kusama(2000).to_string(),
-        source_rpc_url: bsc_url.to_string(),
-        dest_rpc_url: "https://opt-sepolia.g.alchemy.com/v2/qzZKMgRJ7zHxeUPoEvjYCmuAsJnx0oVP"
-            .to_string(),
-        hyper_bridge_url: "ws://127.0.0.1:9990".to_string(),
-        destination_ismp_host_address: OP_HOST,
-        source_ismp_host_address: BSC_HOST,
-        consensus_state_id_source: *b"BSC0",
-        consensus_state_id_dest: *b"ETH0",
-        destination_ismp_handler: OP_HANDLER,
-        source_ismp_handler: BSC_HANDLER,
+        source: ChainConfig::Evm(source_chain.clone()),
+        dest: ChainConfig::Evm(dest_chain.clone()),
+        hyperbridge: hyperbrige_config,
     };
 
     // Send Ping Message
-    let signer = sp_core::ecdsa::Pair::from_seed_slice(&hex!(
-        "6456101e79abe59d2308d63314503446857d4f1f949468bf5627e86e3d6adebd"
-    ))
-    .unwrap();
+    let signer = sp_core::ecdsa::Pair::from_seed_slice(&hex::decode(signing_key).unwrap()).unwrap();
     let provider = Arc::new(Provider::<Http>::try_connect(&bsc_url).await?);
     let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
         .with_chain_id(provider.get_chainid().await?.low_u64());
@@ -71,7 +92,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
         .await
         .context(format!("Error in {chain:?}"))?;
     let call = ping.ping(PingMessage {
-        dest: config.dest_state_machine.as_bytes().to_vec().into(),
+        dest: dest_chain.state_machine.to_string().as_bytes().to_vec().into(),
         module: ping_addr.clone().into(),
         timeout: 10 * 60 * 60,
         fee: U256::from(9_000_000_000_000_000_000u128),
@@ -90,7 +111,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     let block = receipt.unwrap().block_number.unwrap();
     let events = host
         .events()
-        .address(config.source_ismp_host_address.into())
+        .address(source_chain.host_address)
         .from_block(block)
         .to_block(block)
         .query()
@@ -126,28 +147,40 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 
 #[tokio::test]
 async fn test_timeout_request() -> Result<(), anyhow::Error> {
-    let bsc_url = "https://clean-capable-dew.bsc-testnet.quiknode.pro/bed456956996abb801b7ab44fdb3f6f63cd1a4ec";
+    dotenv::dotenv().ok();
+    let signing_key = std::env::var("SIGNING_KEY").unwrap();
+    let bsc_url = std::env::var("BSC_URL").unwrap();
+    let op_url = std::env::var("OP_URL").unwrap();
+    let source_chain = EvmConfig {
+        rpc_url: bsc_url,
+        state_machine: StateMachine::Bsc,
+        host_address: BSC_HOST,
+        handler_address: BSC_HANDLER,
+        consensus_state_id: *b"ETH0",
+    };
+
+    let dest_chain = EvmConfig {
+        rpc_url: op_url,
+        state_machine: StateMachine::Ethereum(Ethereum::Optimism),
+        host_address: OP_HOST,
+        handler_address: OP_HANDLER,
+        consensus_state_id: *b"ETH0",
+    };
+
+    let hyperbrige_config = SubstrateConfig {
+        rpc_url: "ws://127.0.0.1:9990".to_string(),
+        state_machine: StateMachine::Kusama(2000),
+        consensus_state_id: *b"PARA",
+        hash_algo: HashAlgorithm::Keccak,
+    };
     let config = ClientConfig {
-        source_state_machine: StateMachine::Bsc.to_string(),
-        dest_state_machine: StateMachine::Ethereum(Ethereum::Optimism).to_string(),
-        hyperbridge_state_machine: StateMachine::Kusama(2000).to_string(),
-        source_rpc_url: bsc_url.to_string(),
-        dest_rpc_url: "https://opt-sepolia.g.alchemy.com/v2/qzZKMgRJ7zHxeUPoEvjYCmuAsJnx0oVP"
-            .to_string(),
-        hyper_bridge_url: "ws://127.0.0.1:9990".to_string(),
-        destination_ismp_host_address: OP_HOST,
-        source_ismp_host_address: BSC_HOST,
-        consensus_state_id_source: *b"BSC0",
-        consensus_state_id_dest: *b"ETH0",
-        destination_ismp_handler: OP_HANDLER,
-        source_ismp_handler: BSC_HANDLER,
+        source: ChainConfig::Evm(source_chain.clone()),
+        dest: ChainConfig::Evm(dest_chain.clone()),
+        hyperbridge: hyperbrige_config,
     };
 
     // Send Ping Message
-    let pair = sp_core::ecdsa::Pair::from_seed_slice(&hex!(
-        "6456101e79abe59d2308d63314503446857d4f1f949468bf5627e86e3d6adebd"
-    ))
-    .unwrap();
+    let pair = sp_core::ecdsa::Pair::from_seed_slice(&hex::decode(signing_key).unwrap()).unwrap();
 
     let provider = Arc::new(Provider::<Http>::try_connect(&bsc_url).await?);
     let chain_id = provider.get_chainid().await?.low_u64();
@@ -172,7 +205,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
         .await
         .context(format!("Error in {chain:?}"))?;
     let call = ping.ping(PingMessage {
-        dest: config.dest_state_machine.as_bytes().to_vec().into(),
+        dest: dest_chain.state_machine.to_string().as_bytes().to_vec().into(),
         module: ping_addr.clone().into(),
         timeout: 5 * 60,
         fee: U256::from(0u128),
@@ -191,7 +224,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     let block = receipt.unwrap().block_number.unwrap();
     let events = host
         .events()
-        .address(config.source_ismp_host_address.into())
+        .address(source_chain.host_address.into())
         .from_block(block)
         .to_block(block)
         .query()
@@ -209,9 +242,19 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     });
 
     let post = event.expect("Post request event should be available");
+    let req_hash = hash_request::<Keccak256>(&Request::Post(post.clone()));
+    loop {
+        let status = query_request_status_internal(post.clone(), config.clone()).await?;
+        if status == MessageStatus::Timeout {
+            break
+        } else {
+            println!("{status:?}");
+            tokio::time::sleep(Duration::from_secs(2 * 60)).await;
+        }
+    }
 
     dbg!(&post.timeout_timestamp);
-    tokio::time::sleep(Duration::from_secs(12 * 60)).await;
+
     let message = timeout_request(post, config).await?;
 
     dbg!(message);

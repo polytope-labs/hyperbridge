@@ -1,4 +1,5 @@
 mod internals;
+#[cfg(test)]
 mod mock;
 mod providers;
 mod runtime;

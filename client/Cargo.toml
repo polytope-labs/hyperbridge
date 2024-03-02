@@ -28,6 +28,7 @@ js-sys = "0.3.68"
 web-sys = "0.3.68"
 wasm-timer = "0.2.5"
 ismp-solidity-abi = { path = "../evm/abi", default-features = false }
+hashbrown = { version = "0.14.3", features = ["serde"] }
 
 
 [features]
@@ -38,3 +39,5 @@ std = ["subxt/native", "subxt/jsonrpsee"]
 
 [dev-dependencies]
 tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread"]  }
+dotenv = "0.15.0"
+hex = "0.4.3"

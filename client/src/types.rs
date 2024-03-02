@@ -1,12 +1,8 @@
-use crate::providers::{
-    evm_chain::EvmClient,
-    global::Client,
-    substrate::{HashAlgorithm, SubstrateClient},
-};
+use crate::providers::{evm_chain::EvmClient, global::Client, substrate::SubstrateClient};
 use alloc::collections::BTreeMap;
 use anyhow::anyhow;
 use codec::Encode;
-use core::{pin::Pin, str::FromStr};
+use core::pin::Pin;
 use ethers::types::H160;
 use futures::Stream;
 use ismp::{
@@ -19,7 +15,7 @@ use subxt::{
     ext::{codec, codec::Decode},
     tx::TxPayload,
     utils::{AccountId32, MultiAddress, MultiSignature, H256},
-    Config, Metadata, OnlineClient,
+    Config, Metadata,
 };
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -55,19 +51,63 @@ impl Config for HyperBridgeConfig {
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>>>>;
 
 #[derive(Clone, Serialize, Deserialize)]
+pub struct EvmConfig {
+    pub rpc_url: String,
+    pub state_machine: StateMachine,
+    pub host_address: H160,
+    pub handler_address: H160,
+    pub consensus_state_id: ConsensusStateId,
+}
+
+impl EvmConfig {
+    async fn into_client(&self) -> Result<EvmClient, anyhow::Error> {
+        let client = EvmClient::new(
+            self.rpc_url.clone(),
+            self.consensus_state_id,
+            self.host_address,
+            self.handler_address,
+            self.state_machine,
+        )
+        .await?;
+
+        Ok(client)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SubstrateConfig {
+    pub rpc_url: String,
+    pub state_machine: StateMachine,
+    pub consensus_state_id: ConsensusStateId,
+    pub hash_algo: HashAlgorithm,
+}
+
+impl SubstrateConfig {
+    async fn into_client<C: Config + Clone>(&self) -> Result<SubstrateClient<C>, anyhow::Error> {
+        let client = SubstrateClient::<C>::new(
+            self.rpc_url.clone(),
+            StateMachineId {
+                state_id: self.state_machine,
+                consensus_state_id: self.consensus_state_id,
+            },
+            self.hash_algo,
+        )
+        .await?;
+        Ok(client)
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum ChainConfig {
+    Evm(EvmConfig),
+    Substrate(SubstrateConfig),
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
-    pub source_state_machine: String,
-    pub dest_state_machine: String,
-    pub hyperbridge_state_machine: String,
-    pub source_rpc_url: String,
-    pub dest_rpc_url: String,
-    pub hyper_bridge_url: String,
-    pub destination_ismp_host_address: H160,
-    pub source_ismp_host_address: H160,
-    pub consensus_state_id_source: ConsensusStateId,
-    pub consensus_state_id_dest: ConsensusStateId,
-    pub destination_ismp_handler: H160,
-    pub source_ismp_handler: H160,
+    pub source: ChainConfig,
+    pub dest: ChainConfig,
+    pub hyperbridge: SubstrateConfig,
 }
 
 #[wasm_bindgen]
@@ -104,12 +144,6 @@ pub enum PostStreamState {
     End,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct LeafIndexQuery {
-    /// Commitment of the request or response
-    pub commitment: H256,
-}
-
 /// Implements [`TxPayload`] for extrinsic encoding
 pub struct Extrinsic {
     /// The pallet name, used to query the metadata
@@ -126,6 +160,24 @@ pub struct EvmStateProof {
     pub contract_proof: Vec<Vec<u8>>,
     /// A map of storage key to the associated storage proof
     pub storage_proof: BTreeMap<Vec<u8>, Vec<Vec<u8>>>,
+}
+
+/// Hashing algorithm for the state proof
+#[derive(Debug, Encode, Decode, Clone, Copy, serde::Deserialize, serde::Serialize)]
+pub enum HashAlgorithm {
+    /// For chains that use keccak as their hashing algo
+    Keccak,
+    /// For chains that use blake2 as their hashing algo
+    Blake2,
+}
+
+/// Holds the relevant data needed for state proof verification
+#[derive(Debug, Encode, Decode, Clone)]
+pub struct SubstrateStateProof {
+    /// Algorithm to use for state proof verification
+    pub hasher: HashAlgorithm,
+    /// Storage proof for the parachain headers
+    pub storage_proof: Vec<Vec<u8>>,
 }
 
 // =======================================
@@ -168,59 +220,22 @@ impl TxPayload for Extrinsic {
 
 impl ClientConfig {
     pub async fn dest_chain(&self) -> Result<impl Client, anyhow::Error> {
-        let dest_state_machine = StateMachine::from_str(&self.dest_state_machine).unwrap();
-
-        return match dest_state_machine {
-            StateMachine::Bsc | StateMachine::Ethereum(_) | StateMachine::Polygon => {
-                let evm_chain = EvmClient::new(
-                    self.dest_rpc_url.clone(),
-                    self.consensus_state_id_dest,
-                    self.destination_ismp_host_address,
-                    self.destination_ismp_handler.clone(),
-                    self.dest_state_machine.clone(),
-                )
-                .await?;
-                Ok(evm_chain)
-            },
-            _ => Err(anyhow!("Unknown chain")),
-        };
+        match &self.dest {
+            ChainConfig::Evm(config) => config.into_client().await,
+            _ => Err(anyhow!("Support for substrate coming: requires an AnyClient implementation")),
+        }
     }
 
     pub async fn source_chain(&self) -> Result<impl Client, anyhow::Error> {
-        let source_state_machine: StateMachine =
-            StateMachine::from_str(&self.source_state_machine).unwrap();
-
-        return match source_state_machine {
-            StateMachine::Bsc | StateMachine::Ethereum(_) | StateMachine::Polygon => {
-                let evm_chain = EvmClient::new(
-                    self.source_rpc_url.clone(),
-                    self.consensus_state_id_source,
-                    self.source_ismp_host_address,
-                    self.source_ismp_handler,
-                    self.source_state_machine.clone(),
-                )
-                .await?;
-                Ok(evm_chain)
-            },
-            _ => Err(anyhow!("Unknown chain")),
-        };
+        match &self.source {
+            ChainConfig::Evm(config) => config.into_client().await,
+            _ => Err(anyhow!("Support for substrate coming: requires an AnyClient implementation")),
+        }
     }
 
     pub async fn hyperbridge_client(
         &self,
     ) -> Result<SubstrateClient<HyperBridgeConfig>, anyhow::Error> {
-        let api =
-            OnlineClient::<HyperBridgeConfig>::from_url(self.hyper_bridge_url.clone()).await?;
-        let hyperbridge_state_machine: StateMachine =
-            StateMachine::from_str(&self.hyperbridge_state_machine).unwrap();
-        Ok(SubstrateClient {
-            client: api,
-            rpc_url: self.hyper_bridge_url.clone(),
-            state_machine: StateMachineId {
-                state_id: hyperbridge_state_machine,
-                consensus_state_id: *b"PARA",
-            },
-            hashing: HashAlgorithm::Keccak,
-        })
+        self.hyperbridge.into_client::<HyperBridgeConfig>().await
     }
 }

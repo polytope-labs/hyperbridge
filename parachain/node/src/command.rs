@@ -30,9 +30,8 @@ use std::net::SocketAddr;
 use crate::{
     chain_spec,
     cli::{Cli, RelayChainCli, Subcommand},
-    service::{new_partial, GargantuanExecutor, MessierExecutor},
+    service::{new_partial, GargantuanExecutor, MessierExecutor, NexusExecutor},
 };
-use crate::service::NexusExecutor;
 
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
     Ok(match id {

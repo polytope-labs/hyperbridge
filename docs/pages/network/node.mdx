@@ -24,7 +24,7 @@ docker run polytopelabs/hyperbridge:latest --chain={messier|gargantua|nexus}
 You can install a prebuilt binary for the hyperbridge node with the following bash script
 
 ```bash
-wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.3.4/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
+wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.3.5/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
 tar -xvzf hyperbridge-x86_64-unknown-linux-gnu.tar.gz
 # copy to $PATH
 cp hyperbridge-x86_64-unknown-linux-gnu/hyperbridge $HOME/.local/bin/
@@ -33,7 +33,7 @@ cp hyperbridge-x86_64-unknown-linux-gnu/hyperbridge $HOME/.local/bin/
 or a 1-liner shell script
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/v0.3.4/hyperbridge-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/v0.3.5/hyperbridge-installer.sh | sh
 ```
 
 ## Building from source
@@ -101,7 +101,7 @@ Download a local copy of the repo and checkout the latest release tag
 ```bash
 git clone https://github.com/polytope-labs/hyperbridge.git
 cd ./hyperbidge
-git checkout v0.3.4
+git checkout v0.3.5
 ```
 
 ### Build the node
@@ -114,7 +114,7 @@ cargo build --release -p hyperbridge
 
 ## Running the node (Rococo)
 
-Hyperbridge currently exists on the rococo testnet, with a chainId of `gargantua` and paraId of `4374`. You can sync the rococo relay chain in a few hours by appending a relay chain argument `--sync=fast-unsafe`. This tells the relay chain node to simply download it's blocks and not execute them. It'll also download the full latest state.
+Hyperbridge is available on the rococo testnet, with a chainId of `gargantua` and paraId of `4374`. You can sync the rococo relay chain in a few hours by appending a relay chain argument `--sync=fast-unsafe`. This tells the relay chain node to simply download it's blocks and not execute them. It'll also download the full latest state.
 This is fine because the rococo testnet has no economic value.
 
 ```bash
@@ -137,7 +137,7 @@ hyperbridge \
 
 ## Running the node (Kusama)
 
-Hyperbridge also currently exists on Kusama with a chainId of `messier` and paraId of `3340`
+Hyperbridge is live on Kusama with a chainId of `messier` and ParaId of `3340`
 
 ```bash
 hyperbridge \
@@ -157,7 +157,7 @@ hyperbridge \
 
 ## Running the node (Polkadot)
 
-Hyperbridge also currently exists on Polkadot with a chainId of `messier` and paraId of `3367`
+Hyperbridge is also live on Polkadot with a chainId of `nexus` and ParaId of `3367`
 
 ```bash
 hyperbridge \

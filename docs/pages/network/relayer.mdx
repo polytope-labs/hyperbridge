@@ -70,7 +70,20 @@ The tesseract relayer command line interface expects two arguments, which are th
 
 
 ```bash
-docker --network=host run -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db
+docker run -d \
+  --name=tesseract \
+  --network=host \
+  --restart=always \
+  --volume=/dir/on/host:/home/root \
+  polytopelabs/tesseract:latest \
+  --config=/home/root/config.toml \
+  --db=/home/root/dev.db
+```
+
+Access it's logs using
+
+```bash
+docker logs -f tesseract
 ```
 
 ### Configuration
@@ -225,6 +238,3 @@ To use this feature run the following command:
 ```bash
     docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --withdraw
 ```
-
-You can find the code that implements fee accumulation and withdrawals [here](https://github.com/polytope-labs/hyperbridge/blob/c3e940c60b718eaf5ac02a96c4801814a555dcf7/modules/relayer-fees/src/lib.rs#L120)
-

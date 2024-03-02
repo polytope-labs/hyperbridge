@@ -211,8 +211,8 @@ impl_opaque_keys! {
 
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-    spec_name: create_runtime_str!("sagittarius"),
-    impl_name: create_runtime_str!("sagittarius"),
+    spec_name: create_runtime_str!("nexus"),
+    impl_name: create_runtime_str!("nexus"),
     authoring_version: 1,
     spec_version: 100,
     impl_version: 0,

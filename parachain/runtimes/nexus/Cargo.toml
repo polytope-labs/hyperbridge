@@ -1,5 +1,5 @@
 [package]
-name = "sagittarius-runtime"
+name = "nexus-runtime"
 version = "0.1.0"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "Parachain runtime implementation of the hyperbridge protocol (Kusama)"

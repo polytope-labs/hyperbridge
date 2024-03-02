@@ -45,10 +45,10 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
             let id = u32::from_str(id).expect("can't parse Id into u32");
             Box::new(chain_spec::messier_development_config(id))
         },
-        name if name.starts_with("sagittarius-") => {
+        name if name.starts_with("nexus-") => {
             let id = name.split('-').last().expect("dev chainspec should have chain id");
             let id = u32::from_str(id).expect("can't parse Id into u32");
-            Box::new(chain_spec::sagittarius_development_config(id))
+            Box::new(chain_spec::nexus_development_config(id))
         },
 
         "gargantua" => Box::new(
@@ -61,9 +61,9 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
                 include_bytes!("../../chainspec/messier.json").to_vec(),
             )?,
         ),
-        "sagittarius" => Box::new(
+        "nexus" => Box::new(
             chain_spec::ChainSpec::<messier_runtime::RuntimeGenesisConfig>::from_json_bytes(
-                include_bytes!("../../chainspec/sagittarius.json").to_vec(),
+                include_bytes!("../../chainspec/nexus.json").to_vec(),
             )?,
         ),
         path => Box::new(

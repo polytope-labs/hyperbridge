@@ -80,17 +80,17 @@ impl sc_executor::NativeExecutionDispatch for MessierExecutor {
     }
 }
 
-pub struct SagittariusExecutor;
+pub struct NexusExecutor;
 
-impl sc_executor::NativeExecutionDispatch for crate::service::SagittariusExecutor {
+impl sc_executor::NativeExecutionDispatch for crate::service::NexusExecutor {
     type ExtendHostFunctions = frame_benchmarking::benchmarking::HostFunctions;
 
     fn dispatch(method: &str, data: &[u8]) -> Option<Vec<u8>> {
-        sagittarius_runtime::api::dispatch(method, data)
+        nexus_runtime::api::dispatch(method, data)
     }
 
     fn native_version() -> sc_executor::NativeVersion {
-        sagittarius_runtime::native_version()
+        nexus_runtime::native_version()
     }
 }
 
@@ -555,8 +555,8 @@ pub async fn start_parachain_node(
                 hwbench,
             )
             .await,
-        chain if chain.contains("sagittarius") =>
-            start_node_impl::<sagittarius_runtime::RuntimeApi, SagittariusExecutor>(
+        chain if chain.contains("nexus") =>
+            start_node_impl::<nexus_runtime::RuntimeApi, NexusExecutor>(
                 parachain_config,
                 polkadot_config,
                 collator_options,

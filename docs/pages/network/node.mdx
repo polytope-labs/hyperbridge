@@ -16,7 +16,7 @@ Since hyperbridge is a substrate-based blockchain, it has the same hardware requ
 Hyperbridge is available at the official docker repository [`polytopelabs/hyperbridge`](https://hub.docker.com/r/polytopelabs/hyperbridge)
 
 ```bash
-docker run polytopelabs/hyperbridge:latest --chain={messier|gargantua}
+docker run polytopelabs/hyperbridge:latest --chain={messier|gargantua|nexus}
 ```
 
 ## Prebuilt Binaries
@@ -154,6 +154,27 @@ hyperbridge \
     --public-addr=/ip4/your-node-ip-address/tcp/30333 \
     --out-peers=32
 ```
+
+## Running the node (Polkadot)
+
+Hyperbridge also currently exists on Polkadot with a chainId of `messier` and paraId of `3367`
+
+```bash
+hyperbridge \
+    --base-path=$HOME/.hyperbridge \
+    --pruning=archive \
+    --name="Your node name here"  \
+    --rpc-cors=all \
+    --rpc-port=9944 \
+    --rpc-methods=unsafe \
+    --chain=nexus \
+    --no-mdns \
+    --listen-addr=/ip4/0.0.0.0/tcp/30333 \
+    --listen-addr=/ip6/::/tcp/30333 \
+    --public-addr=/ip4/your-node-ip-address/tcp/30333 \
+    --out-peers=32
+```
+
 ## Ansible Playbooks
 
 A community member has graciously provided their ansible playbook for running the hyperbridge node. You can find it here:

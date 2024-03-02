@@ -100,8 +100,8 @@ The configuration file is a toml file that at the moment, expects the following 
 ```toml
 # Hyperbridge config, required
 [hyperbridge]
-# Hyperbridge chain spec, either one of Dev, Gargantua or Messier
-chain = "Dev"
+# Hyperbridge chain spec, either one of Dev, Gargantua, Messier or Nexus
+chain = "Gargantua" # testnet
 # Hyperbidge node ws rpc endpoint.
 rpc_ws = "ws://127.0.0.1:9944" # example endpoint
 
@@ -197,8 +197,8 @@ signer = ""
 
 # Relayer config, required
 [relayer]
-# Hyperbridge chain spec, either one of Dev, Gargantua or Messier
-chain = "Dev"
+# Hyperbridge chain spec, either one of Dev, Gargantua, Messier or Nexus
+chain = "Gargantua" # testnet
 # Define your profitability configuration. 0 -> 0% i.e relay all requests, even unprofitable ones. 1 -> 1%. ie fees provided for requests must be profitable by at least 1%. etc. 
 minimum_profit_percentage = 0
 # (Optional) If not empty, will filter requests to be delivered by originating module identifier (eg contract address)

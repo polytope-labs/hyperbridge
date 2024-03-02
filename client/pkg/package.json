@@ -1,5 +1,5 @@
 {
-  "name": "hyperclient",
+  "name": "@polytope-labs/hyperclient",
   "version": "0.1.0",
   "files": [
     "hyperclient_bg.wasm",

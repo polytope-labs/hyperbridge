@@ -1,4 +1,4 @@
-name: Publish Package to npmjs
+name: Publish hyperclient to npmjs
 
 on:
   release:
@@ -18,8 +18,9 @@ jobs:
         with:
           node-version: '20.x'
           registry-url: 'https://registry.npmjs.org'
+          scope: '@polytope-labs'
       - run: |
           cd client/pkg
-          npm publish
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

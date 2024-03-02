@@ -5553,7 +5553,7 @@ pub mod evm_host {
         pub timeout: u64,
         pub gaslimit: u64,
         pub fee: ::ethers::core::types::U256,
-        pub payee: ::ethers::core::types::Address,
+        pub payer: ::ethers::core::types::Address,
     }
     ///`DispatchPost(bytes,bytes,bytes,uint64,uint64,uint256,address)`
     #[derive(
@@ -5573,7 +5573,7 @@ pub mod evm_host {
         pub timeout: u64,
         pub gaslimit: u64,
         pub fee: ::ethers::core::types::U256,
-        pub payee: ::ethers::core::types::Address,
+        pub payer: ::ethers::core::types::Address,
     }
     ///`DispatchPostResponse((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,
     /// uint64,uint256,address)`
@@ -5593,7 +5593,7 @@ pub mod evm_host {
         pub timeout: u64,
         pub gaslimit: u64,
         pub fee: ::ethers::core::types::U256,
-        pub payee: ::ethers::core::types::Address,
+        pub payer: ::ethers::core::types::Address,
     }
     ///`FeeMetadata(uint256,address)`
     #[derive(

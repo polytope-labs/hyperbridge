@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.17;
 
-import {PostRequest} from "ismp/IIsmp.sol";
+import {PostRequest} from "ismp/Message.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
-import {BaseIsmpModule} from "./BaseIsmpModule.sol";
+import {BaseIsmpModule} from "ismp/IIsmpModule.sol";
 
 // This action is dispatched by hyperbridge's governance to modify the token's permitted minters & burners.
 struct GovernableTokenAction {

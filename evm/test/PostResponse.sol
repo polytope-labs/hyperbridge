@@ -10,7 +10,7 @@ import {
     PostResponseMessage,
     Message,
     PostResponseTimeoutMessage
-} from "ismp/IIsmp.sol";
+} from "ismp/Message.sol";
 import {IHandler} from "ismp/IHandler.sol";
 import {BaseTest} from "./BaseTest.sol";
 

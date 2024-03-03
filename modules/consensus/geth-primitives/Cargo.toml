@@ -14,7 +14,7 @@ codec = { package = "parity-scale-codec", version = "3.1.3", default-features = 
 ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
 ismp = { path = "../../ismp/core", default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
-ethers = { workspace = true, optional = true }
+ethers = { workspace = true, optional = true, features = ["default"] }
 
 [features]
 default = ["std"]

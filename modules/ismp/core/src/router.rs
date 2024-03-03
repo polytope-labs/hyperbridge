@@ -21,8 +21,17 @@ use codec::{Decode, Encode};
 use core::{fmt::Formatter, time::Duration};
 
 /// The ISMP POST request.
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[derive(
+    Debug,
+    Clone,
+    Encode,
+    Decode,
+    PartialEq,
+    Eq,
+    scale_info::TypeInfo,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub struct Post {
     /// The source state machine of this request.
     pub source: StateMachine,
@@ -60,8 +69,17 @@ impl core::fmt::Display for Post {
 }
 
 /// The ISMP GET request.
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[derive(
+    Debug,
+    Clone,
+    Encode,
+    Decode,
+    PartialEq,
+    Eq,
+    scale_info::TypeInfo,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub struct Get {
     /// The source state machine of this request.
     pub source: StateMachine,
@@ -110,8 +128,18 @@ fn get_timeout(timeout_timestamp: u64) -> Duration {
 }
 
 /// The ISMP request.
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo, derive_more::From)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[derive(
+    Debug,
+    Clone,
+    Encode,
+    Decode,
+    PartialEq,
+    Eq,
+    scale_info::TypeInfo,
+    derive_more::From,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub enum Request {
     /// A post request allows a module on a state machine to send arbitrary bytes to another module
     /// living in another state machine.
@@ -211,8 +239,17 @@ impl Request {
 }
 
 /// The response to a POST request
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[derive(
+    Debug,
+    Clone,
+    Encode,
+    Decode,
+    PartialEq,
+    Eq,
+    scale_info::TypeInfo,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub struct PostResponse {
     /// The request that triggered this response.
     pub post: Post,
@@ -267,8 +304,17 @@ impl PostResponse {
 }
 
 /// The response to a POST request
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[derive(
+    Debug,
+    Clone,
+    Encode,
+    Decode,
+    PartialEq,
+    Eq,
+    scale_info::TypeInfo,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub struct GetResponse {
     /// The Get request that triggered this response.
     pub get: Get,
@@ -277,8 +323,18 @@ pub struct GetResponse {
 }
 
 /// The ISMP response
-#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo, derive_more::From)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[derive(
+    Debug,
+    Clone,
+    Encode,
+    Decode,
+    PartialEq,
+    Eq,
+    scale_info::TypeInfo,
+    derive_more::From,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub enum Response {
     /// The response to a POST request
     Post(PostResponse),

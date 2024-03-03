@@ -121,3 +121,11 @@ docker build -t hyperbridge -f ./scripts/docker/Dockerfile .
 cd scripts/parachain-launch
 docker compose up
 ```
+
+## Building HyperClient Javascript SDK
+To build hyperclient
+```bash
+cargo install wasm-pack
+cd client
+wasm-pack build --no-default-features --features wasm
+```

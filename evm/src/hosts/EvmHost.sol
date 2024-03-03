@@ -541,7 +541,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context, Test {
      */
     function dispatch(DispatchPost memory post) external {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
-        require(IERC20(dai()).transferFrom(post.payer, address(this), fee), "Payee has insufficient funds");
+        require(IERC20(dai()).transferFrom(post.payer, address(this), fee), "Payer has insufficient funds");
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -580,7 +580,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context, Test {
      */
     function dispatch(DispatchGet memory get) external {
         uint256 fee = _hostParams.baseGetRequestFee + get.fee;
-        require(IERC20(dai()).transferFrom(get.payer, address(this), fee), "Payee has insufficient funds");
+        require(IERC20(dai()).transferFrom(get.payer, address(this), fee), "Payer has insufficient funds");
 
         // adjust the timeout
         uint64 timeout =
@@ -629,7 +629,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context, Test {
         require(!_responded[receipt], "EvmHost: Duplicate Response");
 
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
-        require(IERC20(dai()).transferFrom(post.payer, address(this), fee), "Payee has insufficient funds");
+        require(IERC20(dai()).transferFrom(post.payer, address(this), fee), "Payer has insufficient funds");
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0

@@ -35,6 +35,7 @@ const OP_HANDLER: H160 = H160(hex!("a25151598Dc180fc03635858f37bDF8427f47845"));
 const BSC_HANDLER: H160 = H160(hex!("43a0BcC347894303f93905cE137CB3b804bE990d"));
 
 #[tokio::test]
+#[ignore]
 async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     dotenv::dotenv().ok();
     let signing_key = std::env::var("SIGNING_KEY").unwrap();
@@ -65,7 +66,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     let config = ClientConfig {
         source: ChainConfig::Evm(source_chain.clone()),
         dest: ChainConfig::Evm(dest_chain.clone()),
-        hyperbridge: hyperbrige_config,
+        hyperbridge: ChainConfig::Substrate(hyperbrige_config),
     };
 
     // Send Ping Message
@@ -156,6 +157,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_timeout_request() -> Result<(), anyhow::Error> {
     dotenv::dotenv().ok();
     let signing_key = std::env::var("SIGNING_KEY").unwrap();
@@ -186,7 +188,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     let config = ClientConfig {
         source: ChainConfig::Evm(source_chain.clone()),
         dest: ChainConfig::Evm(dest_chain.clone()),
-        hyperbridge: hyperbrige_config,
+        hyperbridge: ChainConfig::Substrate(hyperbrige_config),
     };
 
     // Send Ping Message

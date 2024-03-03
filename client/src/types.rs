@@ -49,7 +49,7 @@ impl Config for HyperBridgeConfig {
 
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>>>>;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct EvmConfig {
     pub rpc_url: String,
     pub state_machine: StateMachine,
@@ -73,7 +73,7 @@ impl EvmConfig {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct SubstrateConfig {
     pub rpc_url: String,
     pub state_machine: StateMachine,
@@ -96,17 +96,17 @@ impl SubstrateConfig {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub enum ChainConfig {
     Evm(EvmConfig),
     Substrate(SubstrateConfig),
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct ClientConfig {
     pub source: ChainConfig,
     pub dest: ChainConfig,
-    pub hyperbridge: SubstrateConfig,
+    pub hyperbridge: ChainConfig,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Copy)]
@@ -122,8 +122,6 @@ pub enum MessageStatus {
     DestinationDelivered,
     /// Message has timed out
     Timeout,
-    /// Message has not timed out
-    NotTimedOut,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -153,8 +151,6 @@ pub enum TimeoutStatus {
     HyperbridgeFinalized,
     /// Encoded call data to be submitted to source chain
     TimeoutMessage(Vec<u8>),
-    /// Message has not timed out
-    NotTimedOut,
 }
 
 /// Implements [`TxPayload`] for extrinsic encoding
@@ -176,7 +172,9 @@ pub struct EvmStateProof {
 }
 
 /// Hashing algorithm for the state proof
-#[derive(Debug, Encode, Decode, Clone, Copy, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Debug, Encode, Decode, Clone, Copy, serde::Deserialize, serde::Serialize, Eq, PartialEq,
+)]
 pub enum HashAlgorithm {
     /// For chains that use keccak as their hashing algo
     Keccak,
@@ -249,6 +247,9 @@ impl ClientConfig {
     pub async fn hyperbridge_client(
         &self,
     ) -> Result<SubstrateClient<HyperBridgeConfig>, anyhow::Error> {
-        self.hyperbridge.into_client::<HyperBridgeConfig>().await
+        match self.hyperbridge {
+            ChainConfig::Substrate(ref config) => config.into_client::<HyperBridgeConfig>().await,
+            _ => Err(anyhow!("Hyperbridge config should be a substrate variant")),
+        }
     }
 }

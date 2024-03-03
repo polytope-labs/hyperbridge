@@ -36,8 +36,19 @@ pub type ConsensusClientId = [u8; 4];
 /// The state commitment represents a commitment to the state machine's state (trie) at a given
 /// height. Optionally holds a commitment to the ISMP request/response trie if supported by the
 /// state machine.
-#[derive(Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Hash, Eq)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Encode,
+    Decode,
+    scale_info::TypeInfo,
+    PartialEq,
+    Hash,
+    Eq,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub struct StateCommitment {
     /// Timestamp in seconds
     pub timestamp: u64,
@@ -67,9 +78,20 @@ pub struct IntermediateState {
 /// Since consensus systems may come to conensus about the state of multiple state machines, we
 /// identify each state machine individually.
 #[derive(
-    Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Hash, Ord, PartialOrd,
+    Debug,
+    Clone,
+    Copy,
+    Encode,
+    Decode,
+    scale_info::TypeInfo,
+    PartialEq,
+    Eq,
+    Hash,
+    Ord,
+    PartialOrd,
+    serde::Deserialize,
+    serde::Serialize,
 )]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateMachineId {
     /// The state machine identifier
     pub state_id: StateMachine,
@@ -79,9 +101,20 @@ pub struct StateMachineId {
 
 /// Identifies a state machine at a given height
 #[derive(
-    Debug, Clone, Copy, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq, Hash, Ord, PartialOrd,
+    Debug,
+    Clone,
+    Copy,
+    Encode,
+    Decode,
+    scale_info::TypeInfo,
+    PartialEq,
+    Eq,
+    Hash,
+    Ord,
+    PartialOrd,
+    serde::Deserialize,
+    serde::Serialize,
 )]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct StateMachineHeight {
     /// The state machine identifier
     pub id: StateMachineId,

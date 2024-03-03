@@ -99,6 +99,10 @@ where
                         });
                     if res.is_ok() {
                         host.delete_request_commitment(&request)?;
+                        // If the request was routed we delete it's receipt
+                        if host.host_state_machine() != request.source_chain() {
+                            host.delete_request_receipt(&request)?;
+                        }
                     }
                     Ok(res)
                 })
@@ -163,6 +167,10 @@ where
                         });
                     if res.is_ok() {
                         host.delete_response_commitment(&response)?;
+                        // If the response was routed we delete it's receipt
+                        if host.host_state_machine() != response.source_chain() {
+                            host.delete_response_receipt(&response)?;
+                        }
                     }
                     Ok(res)
                 })

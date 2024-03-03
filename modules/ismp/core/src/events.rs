@@ -9,8 +9,7 @@ use scale_info::TypeInfo;
 
 /// Emitted when a state machine is successfully updated to a new height after the challenge period
 /// has elapsed
-#[derive(Clone, Debug, TypeInfo, Encode, Decode)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize)]
 pub struct StateMachineUpdated {
     /// State machine id
     pub state_machine_id: StateMachineId,
@@ -19,8 +18,7 @@ pub struct StateMachineUpdated {
 }
 
 /// This represents events that should be emitted by ismp-rs wrappers
-#[derive(Clone, Debug, TypeInfo, Encode, Decode)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize)]
 pub enum Event {
     /// Emitted when a state machine is successfully updated to a new height after the challenge
     /// period has elapsed

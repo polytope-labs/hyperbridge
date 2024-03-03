@@ -45,7 +45,7 @@ members = [
 
 
      # hyper-client 
-     "client"
+    "modules/client"
 ]
 
 # Config for 'cargo dist'

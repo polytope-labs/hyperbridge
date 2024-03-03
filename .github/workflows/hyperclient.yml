@@ -19,7 +19,7 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           scope: '@polytope-labs'
       - run: |
-          cd client/pkg
+          cd modules/client/pkg
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

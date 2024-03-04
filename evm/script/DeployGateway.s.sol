@@ -55,21 +55,24 @@ contract DeployScript is Script {
 
     function deployGateway(address host, address admin, address uniRouter) public {
         uint256 paraId = vm.envUint("PARA_ID");
-        ERC6160Ext20 t = new ERC6160Ext20{salt: salt}(admin, "Hyperbridge USD", "USD.h");
+
+        ERC6160Ext20 feeToken = new ERC6160Ext20{salt: salt}(admin, "Hyperbridge USD", "USD.h");
+        feeToken.mint(0x276b41950829E5A7B179ba03B758FaaE9A8d7C41, 1000000000 * 1e18, "");
+
+        // grant the token faucet
+        TokenFaucet faucet = new TokenFaucet{salt: salt}(address(feeToken));
+        feeToken.grantRole(MINTER_ROLE, address(faucet));
 
         TokenGateway gateway = new TokenGateway{salt: salt}(admin);
-        t.grantRole(MINTER_ROLE, address(gateway));
-        t.grantRole(BURNER_ROLE, address(gateway));
-
-        TokenFaucet faucet = new TokenFaucet{salt: salt}(address(t));
-        t.grantRole(MINTER_ROLE, address(faucet));
+        feeToken.grantRole(MINTER_ROLE, address(gateway));
+        feeToken.grantRole(BURNER_ROLE, address(gateway));
 
         Asset[] memory assets = new Asset[](1);
         assets[0] = Asset({
             localIdentifier: keccak256("USD.h"),
             foreignIdentifier: keccak256("USD.h"),
             erc20: address(0),
-            erc6160: address(t)
+            erc6160: address(feeToken)
         });
 
         gateway.init(

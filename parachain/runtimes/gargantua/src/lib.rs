@@ -1,3 +1,4 @@
+
 // Copyright (C) Polytope Labs Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -212,7 +213,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("gargantua"),
     impl_name: create_runtime_str!("gargantua"),
     authoring_version: 1,
-    spec_version: 201,
+    spec_version: 210,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,

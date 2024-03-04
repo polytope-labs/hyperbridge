@@ -144,6 +144,7 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
         consensus_state: Default::default(),
         last_updated: Default::default(),
         latest_state_machine_height: Default::default(),
+        hyperbridge: Default::default(),
     };
     let mut data = vec![1u8];
     data.extend_from_slice(params.encode().as_slice());

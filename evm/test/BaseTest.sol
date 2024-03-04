@@ -35,8 +35,7 @@ contract BaseTest is Test {
         handler = new HandlerV1();
         feeToken = new FeeToken(address(this), "HyperUSD", "USD.h");
 
-        HostManagerParams memory gParams =
-            HostManagerParams({admin: address(this), host: address(0), hyperbridge: StateMachine.kusama(2000)});
+        HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
         HostManager manager = new HostManager(gParams);
 
         HostParams memory params = HostParams({
@@ -53,11 +52,14 @@ contract BaseTest is Test {
             baseGetRequestFee: 10000000000000000000,
             perByteFee: 1000000000000000000, // 1FTK
             feeTokenAddress: address(feeToken),
-            latestStateMachineHeight: 0
+            latestStateMachineHeight: 0,
+            hyperbridge: StateMachine.kusama(2000)
         });
         host = new TestHost(params);
         // approve the host address to spend the fee token.
         feeToken.superApprove(tx.origin, address(host));
+        feeToken.superApprove(address(this), address(host));
+
         testModule = new PingModule(address(this));
         testModule.setIsmpHost(address(host));
         manager.setIsmpHost(address(host));

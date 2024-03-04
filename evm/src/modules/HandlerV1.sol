@@ -262,7 +262,7 @@ contract HandlerV1 is IHandler, Context {
                 MerklePatricia.ReadChildProofCheck(root, proof, request.keys, bytes.concat(requestCommitment));
             GetResponse memory response = GetResponse({request: request, values: values});
 
-            host.dispatchIncoming(response);
+            host.dispatchIncoming(response, meta);
         }
     }
 

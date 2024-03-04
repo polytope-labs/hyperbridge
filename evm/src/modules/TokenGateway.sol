@@ -161,9 +161,7 @@ contract TokenGateway is BaseIsmpModule {
         address feeToken = IIsmpHost(_host).dai();
 
         if (erc20 != address(0) && !params.redeem) {
-            require(
-                IERC20(erc20).transferFrom(from, address(this), params.amount), "Insufficient user balance"
-            );
+            require(IERC20(erc20).transferFrom(from, address(this), params.amount), "Insufficient user balance");
 
             // Calculate output fee in DAI before swap:
             // We can use swapTokensForExactTokens() on Uniswap since we know the output amount

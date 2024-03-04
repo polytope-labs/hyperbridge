@@ -51,15 +51,12 @@ contract DeployScript is Script {
         // consensus client
         RococoVerifier verifier = new RococoVerifier();
         ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
-        // BeefyV1 consensusClient = new BeefyV1{salt: salt}(paraId);
 
         // handler
         HandlerV1 handler = new HandlerV1{salt: salt}();
 
         // Host manager
-        HostManager manager = new HostManager{salt: salt}(
-            HostManagerParams({admin: admin, host: address(0), hyperbridge: StateMachine.kusama(paraId)})
-        );
+        HostManager manager = new HostManager{salt: salt}(HostManagerParams({admin: admin, host: address(0)}));
 
         // EvmHost
         HostParams memory params = HostParams({
@@ -78,7 +75,8 @@ contract DeployScript is Script {
             baseGetRequestFee: 5 * 1e17, // $0.50
             perByteFee: 3 * 1e15, // $0.003/byte
             feeTokenAddress: address(feeToken),
-            latestStateMachineHeight: 0
+            latestStateMachineHeight: 0,
+            hyperbridge: StateMachine.kusama(paraId)
         });
 
         address hostAddress = initHost(params);

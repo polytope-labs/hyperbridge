@@ -43,6 +43,8 @@ struct HostParams {
     uint256 lastUpdated;
     // latest state machine height
     uint256 latestStateMachineHeight;
+    // state machine identifier for hyperbridge
+    bytes hyperbridge;
 }
 
 // The host manager interface. This provides methods for modifying the host's params or withdrawing bridge revenue.
@@ -206,6 +208,20 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context, Test {
     }
 
     /**
+     * @return the base fee for outgoing GET requests
+     */
+    function baseGetRequestFee() external view returns (uint256) {
+        return _hostParams.baseGetRequestFee;
+    }
+
+    /**
+     * @return the state machine identifier for the connected hyperbridge instance
+     */
+    function hyperbridge() external view returns (bytes memory) {
+        return _hostParams.hyperbridge;
+    }
+
+    /**
      * @return the host timestamp
      */
     function timestamp() external view returns (uint256) {
@@ -262,6 +278,27 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context, Test {
     }
 
     /**
+     * @return the challenge period
+     */
+    function challengePeriod() external view returns (uint256) {
+        return _hostParams.challengePeriod;
+    }
+
+    /**
+     * @return the latest state machine height
+     */
+    function latestStateMachineHeight() external view returns (uint256) {
+        return _hostParams.latestStateMachineHeight;
+    }
+
+    /**
+     * @return the unstaking period
+     */
+    function unStakingPeriod() external view returns (uint256) {
+        return _hostParams.unStakingPeriod;
+    }
+
+    /**
      * @param commitment - commitment to the request
      * @return existence status of an incoming request commitment
      */
@@ -291,27 +328,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context, Test {
      */
     function responseCommitments(bytes32 commitment) external view returns (FeeMetadata memory) {
         return _responseCommitments[commitment];
-    }
-
-    /**
-     * @return the challenge period
-     */
-    function challengePeriod() external view returns (uint256) {
-        return _hostParams.challengePeriod;
-    }
-
-    /**
-     * @return the latest state machine height
-     */
-    function latestStateMachineHeight() external view returns (uint256) {
-        return _hostParams.latestStateMachineHeight;
-    }
-
-    /**
-     * @return the unstaking period
-     */
-    function unStakingPeriod() external view returns (uint256) {
-        return _hostParams.unStakingPeriod;
     }
 
     /**

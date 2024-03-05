@@ -12,7 +12,6 @@ import {IIsmpHost, FeeMetadata, ResponseReceipt} from "ismp/IIsmpHost.sol";
 import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
 import {IHandler} from "ismp/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "ismp/Message.sol";
-import {Test} from "forge-std/Test.sol";
 
 // The IsmpHost parameters
 struct HostParams {
@@ -71,8 +70,9 @@ struct WithdrawParams {
     uint256 amount;
 }
 
-/// Ismp implementation for Evm hosts
-abstract contract EvmHost is IIsmpHost, IHostManager, Context, Test {
+/// IsmpHost implementation for Evm hosts. Refer to the official ISMP specification.
+/// https://docs.hyperbridge.network/protocol/ismp
+abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     using Bytes for bytes;
     using Message for PostResponse;
     using Message for PostRequest;
@@ -357,7 +357,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context, Test {
     }
 
     /**
-     * @dev Store an encoded consensus state
+     * @dev Store the serialized consensus state
      */
     function storeConsensusState(bytes memory state) external onlyHandler {
         _hostParams.consensusState = state;

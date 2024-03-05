@@ -2,7 +2,7 @@ specVersion: 1.0.0
 indexerHints:
   prune: auto
 schema:
-  file: ./schema.graphql
+  file: schema.graphql
 dataSources:
   - kind: ethereum
     name: HandlerV1
@@ -19,11 +19,11 @@ dataSources:
         - StateMachineUpdated
       abis:
         - name: HandlerV1
-          file: ./abis/HandlerV1.json
+          file: HandlerV1/abis/HandlerV1.json
       eventHandlers:
         - event: StateMachineUpdated(uint256,uint256)
           handler: handleStateMachineUpdated
-      file: ./src/handler-v-1.ts
+      file: HandlerV1/HandlerV1.wasm
   - kind: ethereum
     name: EthereumHost
     network: sepolia
@@ -44,7 +44,7 @@ dataSources:
         - PostResponseHandled
       abis:
         - name: EthereumHost
-          file: ./abis/EthereumHost.json
+          file: EthereumHost/abis/EthereumHost.json
       eventHandlers:
         - event: GetRequestEvent(bytes,bytes,bytes,bytes[],indexed
             uint256,uint256,uint256,uint256,uint256)
@@ -61,7 +61,7 @@ dataSources:
           handler: handlePostResponseEvent
         - event: PostResponseHandled(bytes32,address)
           handler: handlePostResponseHandled
-      file: ./src/ethereum-host.ts
+      file: EthereumHost/EthereumHost.wasm
   - kind: ethereum
     name: GovernableToken
     network: sepolia
@@ -78,10 +78,10 @@ dataSources:
         - Transfer
       abis:
         - name: GovernableToken
-          file: ./abis/GovernableToken.json
+          file: GovernableToken/abis/GovernableToken.json
       eventHandlers:
         - event: Approval(indexed address,indexed address,uint256)
           handler: handleApproval
         - event: Transfer(indexed address,indexed address,uint256)
           handler: handleTransfer
-      file: ./src/governable-token.ts
+      file: GovernableToken/GovernableToken.wasm

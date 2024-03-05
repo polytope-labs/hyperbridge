@@ -3,6 +3,12 @@
     "HandlerV1": {
       "address": "0xa873b742084F81811693eD86C041583D37c05b43",
       "startBlock": 5340385
+    },
+    "EthereumHost": {
+      "address": "0x9DF353352b469782AB1B0F2CbBFEC41bF1FDbDb3"
+    },
+    "GovernableToken": {
+      "address": "0x6babd299c743d9f08869B9124352A0c4847667C3"
     }
   }
 }

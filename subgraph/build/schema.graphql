@@ -114,3 +114,15 @@ type Transfer @entity(immutable: true) {
   blockTimestamp: BigInt!
   transactionHash: Bytes!
 }
+
+type TransferTotal @entity {
+  id: ID!
+  totalAmount: BigInt! #uint256
+}
+
+type TransferPairTotal @entity {
+  id: ID! # A concatenation of from and to addresses
+  from: Bytes! # address
+  to: Bytes! # address
+  totalAmount: BigInt! # Total transferred amount for this from->to pair
+}

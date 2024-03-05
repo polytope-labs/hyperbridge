@@ -672,6 +672,19 @@ export class PostRequestHandled extends Entity {
     this.set("id", Value.fromBytes(value));
   }
 
+  get requestIndex(): BigInt {
+    let value = this.get("requestIndex");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toBigInt();
+    }
+  }
+
+  set requestIndex(value: BigInt) {
+    this.set("requestIndex", Value.fromBigInt(value));
+  }
+
   get commitment(): Bytes {
     let value = this.get("commitment");
     if (!value || value.kind == ValueKind.NULL) {
@@ -1083,6 +1096,126 @@ export class PostResponseHandled extends Entity {
 
   set transactionHash(value: Bytes) {
     this.set("transactionHash", Value.fromBytes(value));
+  }
+}
+
+export class PostRequestHandledCount extends Entity {
+  constructor(id: string) {
+    super();
+    this.set("id", Value.fromString(id));
+  }
+
+  save(): void {
+    let id = this.get("id");
+    assert(
+      id != null,
+      "Cannot save PostRequestHandledCount entity without an ID",
+    );
+    if (id) {
+      assert(
+        id.kind == ValueKind.STRING,
+        `Entities of type PostRequestHandledCount must have an ID of type String but the id '${id.displayData()}' is of type ${id.displayKind()}`,
+      );
+      store.set("PostRequestHandledCount", id.toString(), this);
+    }
+  }
+
+  static loadInBlock(id: string): PostRequestHandledCount | null {
+    return changetype<PostRequestHandledCount | null>(
+      store.get_in_block("PostRequestHandledCount", id),
+    );
+  }
+
+  static load(id: string): PostRequestHandledCount | null {
+    return changetype<PostRequestHandledCount | null>(
+      store.get("PostRequestHandledCount", id),
+    );
+  }
+
+  get id(): string {
+    let value = this.get("id");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toString();
+    }
+  }
+
+  set id(value: string) {
+    this.set("id", Value.fromString(value));
+  }
+
+  get value(): BigInt {
+    let value = this.get("value");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toBigInt();
+    }
+  }
+
+  set value(value: BigInt) {
+    this.set("value", Value.fromBigInt(value));
+  }
+}
+
+export class RelayerPostRequestHandledCount extends Entity {
+  constructor(id: string) {
+    super();
+    this.set("id", Value.fromString(id));
+  }
+
+  save(): void {
+    let id = this.get("id");
+    assert(
+      id != null,
+      "Cannot save RelayerPostRequestHandledCount entity without an ID",
+    );
+    if (id) {
+      assert(
+        id.kind == ValueKind.STRING,
+        `Entities of type RelayerPostRequestHandledCount must have an ID of type String but the id '${id.displayData()}' is of type ${id.displayKind()}`,
+      );
+      store.set("RelayerPostRequestHandledCount", id.toString(), this);
+    }
+  }
+
+  static loadInBlock(id: string): RelayerPostRequestHandledCount | null {
+    return changetype<RelayerPostRequestHandledCount | null>(
+      store.get_in_block("RelayerPostRequestHandledCount", id),
+    );
+  }
+
+  static load(id: string): RelayerPostRequestHandledCount | null {
+    return changetype<RelayerPostRequestHandledCount | null>(
+      store.get("RelayerPostRequestHandledCount", id),
+    );
+  }
+
+  get id(): string {
+    let value = this.get("id");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toString();
+    }
+  }
+
+  set id(value: string) {
+    this.set("id", Value.fromString(value));
+  }
+
+  get value(): BigInt {
+    let value = this.get("value");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toBigInt();
+    }
+  }
+
+  set value(value: BigInt) {
+    this.set("value", Value.fromBigInt(value));
   }
 }
 

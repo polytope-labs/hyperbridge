@@ -7,6 +7,14 @@ import {
   PostResponseHandled as PostResponseHandledEvent,
 } from "../generated/EthereumHost/EthereumHost"
 import {
+  getPostRequestHandledCount,
+  incrementPostRequestHandledCount,
+} from "./utils/postRequest/PostRequestHandledCount";
+
+import { findOrCreatePostRequestHandled } from "./utils/postRequest/PostRequestHandled";
+import { incrementRelayerPostRequestHandledCount } from "./utils/postRequest/RelayerPostRequestHandledCount";
+
+import {
   GetRequestEvent,
   GetRequestHandled,
   PostRequestEvent,
@@ -72,12 +80,19 @@ export function handlePostRequestEvent(event: PostRequestEventEvent): void {
 }
 
 export function handlePostRequestHandled(event: PostRequestHandledEvent): void {
-  let entity = new PostRequestHandled(
-    event.transaction.hash.concatI32(event.logIndex.toI32()),
-  )
+  incrementPostRequestHandledCount();
+  incrementRelayerPostRequestHandledCount(event.params.relayer.toHexString());
+
+  const requestHandledCount = getPostRequestHandledCount();
+
+  let entity = findOrCreatePostRequestHandled(event.transaction.hash.concatI32(event.logIndex.toI32()));
+
+  // let entity = new PostRequestHandled(
+  //   event.transaction.hash.concatI32(event.logIndex.toI32()),
+  // )
+  entity.requestIndex = requestHandledCount.value;
   entity.commitment = event.params.commitment
   entity.relayer = event.params.relayer
-
   entity.blockNumber = event.block.number
   entity.blockTimestamp = event.block.timestamp
   entity.transactionHash = event.transaction.hash

@@ -5,7 +5,8 @@ pragma solidity 0.8.17;
 
 import "ismp/IIsmpModule.sol";
 import "ismp/IIsmpHost.sol";
-import "ismp/IIsmp.sol";
+import "ismp/Message.sol";
+import "ismp/IDispatcher.sol";
 
 struct CrossChainMessage {
     bytes dest;
@@ -56,9 +57,10 @@ contract CrossChainMessenger is IIsmpModule {
             to: abi.encodePacked(address(this)),
             // unused for now
             gaslimit: 0,
-            fee: 0
+            fee: 0,
+            payer: address(this)
         });
-        IIsmp(host).dispatch(post);
+        IDispatcher(host).dispatch(post);
     }
 
     function onAccept(PostRequest memory request) external onlyIsmpHost {
@@ -73,7 +75,7 @@ contract CrossChainMessenger is IIsmpModule {
         revert("CrossChainMessenger doesn't emit responses");
     }
 
-    function onPostResponseTimeout(PostResponse memory request) external view onlyIsmpHost {
+    function onPostResponseTimeout(PostResponse memory) external view onlyIsmpHost {
         revert("Token gateway doesn't emit Get Requests");
     }
 

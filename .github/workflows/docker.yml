@@ -1,10 +1,10 @@
-name: Release
+name: Docker Release
 
 on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -25,18 +25,24 @@ jobs:
         uses: arduino/setup-protoc@v1
         with:
           version: '3.9.1'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
+          toolchain: stable
 
       - name: Add wasm toolchain
-        run: rustup target add wasm32-unknown-unknown
+        run: |
+          rustup install nightly
+          rustup target add wasm32-unknown-unknown --toolchain nightly
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+          sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
 
       - name: Build
         run:  |
-          cargo +nightly build --release -p hyperbridge
+          cargo build --release -p hyperbridge
           mv ./target/release/hyperbridge ./
 
       - name: Install Cargo get

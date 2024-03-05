@@ -1,6 +1,6 @@
 [package]
 name = "hyperbridge"
-version = "0.2.1"
+version = "0.3.5"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "The Hyperbridge coprocessor node"
 repository = "https://github.com/polytope-labs/hyperbridge"
@@ -20,8 +20,9 @@ serde_json = "1.0.108"
 # local
 gargantua-runtime = { path = "../runtimes/gargantua" }
 messier-runtime = { path = "../runtimes/messier" }
-ismp-rpc = { path = "../modules/ismp/rpc" }
-ismp-runtime-api = { path = "../modules/ismp/runtime-api" }
+nexus-runtime = { path = "../runtimes/nexus" }
+ismp-rpc = { path = "../../modules/ismp/pallet/rpc" }
+ismp-runtime-api = { path = "../../modules/ismp/pallet/runtime-api" }
 
 # Substrate
 frame-benchmarking = { workspace = true }
@@ -68,6 +69,7 @@ staging-xcm = { workspace = true, default-features = false }
 
 # Cumulus
 cumulus-client-cli = { workspace = true }
+cumulus-primitives-aura = { workspace = true }
 cumulus-client-consensus-aura = { workspace = true }
 cumulus-client-consensus-common = { workspace = true }
 cumulus-client-network = { workspace = true }
@@ -79,16 +81,22 @@ cumulus-client-consensus-proposer = { workspace = true }
 cumulus-client-collator = { workspace = true }
 
 [build-dependencies]
-substrate-build-script-utils = { version = "10.0.0" }
+substrate-build-script-utils = { version = "11.0.0" }
 
 [features]
 default = []
 runtime-benchmarks = [
 	"try-runtime-cli/try-runtime",
 	"gargantua-runtime/runtime-benchmarks",
+	"messier-runtime/runtime-benchmarks",
 	"polkadot-cli/runtime-benchmarks",
 ]
 try-runtime = [
 	"try-runtime-cli/try-runtime",
-	"gargantua-runtime/try-runtime"
+	"gargantua-runtime/try-runtime",
+	"messier-runtime/try-runtime"
+]
+async-backing = [
+	"gargantua-runtime/async-backing",
+	"messier-runtime/async-backing"
 ]

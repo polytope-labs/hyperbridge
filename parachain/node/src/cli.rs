@@ -40,7 +40,7 @@ pub enum Subcommand {
     PurgeChain(cumulus_client_cli::PurgeChainCmd),
 
     /// Export the genesis state of the parachain.
-    ExportGenesisState(cumulus_client_cli::ExportGenesisStateCommand),
+    ExportGenesisState(cumulus_client_cli::ExportGenesisHeadCommand),
 
     /// Export the genesis wasm of the parachain.
     ExportGenesisWasm(cumulus_client_cli::ExportGenesisWasmCommand),
@@ -81,6 +81,12 @@ pub struct Cli {
     /// telemetry, if telemetry is enabled.
     #[arg(long)]
     pub no_hardware_benchmarks: bool,
+
+    /// Should we enable async-backing?
+    ///
+    /// NOTE: DEPRECATED, async-backing is enabled by default.
+    #[arg(long)]
+    pub async_backing: bool,
 
     /// Relay chain arguments
     #[arg(raw = true)]

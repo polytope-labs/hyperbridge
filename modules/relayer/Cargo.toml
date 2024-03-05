@@ -1,0 +1,67 @@
+[package]
+name = "pallet-ismp-relayer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# substrate
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-runtime = { workspace = true }
+sp-core = { workspace = true }
+sp-std = { workspace = true }
+sp-io = { workspace = true }
+pallet-ismp = { path = "../ismp/pallet", default-features = false }
+ismp-sync-committee = {path = "../ismp/clients/sync-committee", default-features = false }
+state-machine-manager = { path = "../state-machine-manager", default-features = false }
+
+# polytope labs
+ismp = { package = "ismp", path = "../ismp/core", default-features = false }
+
+# crates.io
+codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
+log = { version = "0.4.17", default-features = false }
+hashbrown = { version = "0.14.3" }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+alloy-rlp = { version = "0.3.2", default-features = false }
+alloy-primitives = { version = "0.6.0", default-features = false, features = ["rlp"] }
+alloy-rlp-derive = "0.3.2"
+ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
+
+
+[dev-dependencies]
+pallet-ismp = { path = "../ismp/pallet", features = [ "testing" ] }
+pallet-timestamp = { workspace = true }
+pallet-balances = { workspace = true }
+ethereum-trie = { path = "../trees/ethereum" }
+trie-db = { workspace = true }
+hash-db = { workspace = true }
+ismp-bsc-pos = { path = "../ismp/clients/bsc-pos" }
+ismp-sync-committee = { path = "../ismp/clients/sync-committee" }
+ismp-polygon-pos = { path = "../ismp/clients/polygon-pos" }
+sp-trie = { workspace = true }
+substrate-state-machine = { path = "../ismp/pallet/state-machine" }
+hex = "0.4.3"
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-support/std",
+    "frame-system/std",
+    "log/std",
+    "scale-info/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "sp-core/std",
+    "sp-io/std",
+    "ismp/std",
+    "pallet-ismp/std",
+    "alloy-primitives/std",
+    "alloy-rlp/std",
+    "ethabi/std",
+    "ismp-sync-committee/std",
+    "state-machine-manager/std"
+]
+
+

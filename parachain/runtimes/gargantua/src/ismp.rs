@@ -17,11 +17,10 @@ use crate::{
     alloc::{boxed::Box, string::ToString},
     AccountId, Balance, Balances, Ismp, ParachainInfo, Runtime, RuntimeEvent, Timestamp,
 };
-use alloc::format;
+
 use frame_support::pallet_prelude::Get;
 use frame_system::EnsureRoot;
 use ismp::{
-    consensus::{ConsensusClient, ConsensusClientId},
     error::Error,
     host::StateMachine,
     module::IsmpModule,
@@ -30,48 +29,17 @@ use ismp::{
 
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::sepolia::Sepolia;
-use pallet_ismp::{
-    dispatcher::FeeMetadata,
-    host::Host,
-    primitives::{ConsensusClientProvider, ModuleId},
-};
+use pallet_ismp::{dispatcher::FeeMetadata, host::Host, primitives::ModuleId};
 use sp_std::prelude::*;
 
 #[derive(Default)]
 pub struct ProxyModule;
 
-pub struct StateMachineProvider;
+pub struct HostStateMachine;
 
-impl Get<StateMachine> for StateMachineProvider {
+impl Get<StateMachine> for HostStateMachine {
     fn get() -> StateMachine {
         StateMachine::Kusama(ParachainInfo::get().into())
-    }
-}
-
-pub struct ConsensusProvider;
-
-impl ConsensusClientProvider for ConsensusProvider {
-    fn consensus_client(id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {
-        match id {
-            ismp_sync_committee::BEACON_CONSENSUS_ID => {
-                let sync_committee = ismp_sync_committee::SyncCommitteeConsensusClient::<
-                    Host<Runtime>,
-                    Sepolia,
-                >::default();
-                Ok(Box::new(sync_committee))
-            },
-            ismp_polygon_pos::POLYGON_CONSENSUS_ID => {
-                let polygon_client =
-                    ismp_polygon_pos::PolygonClient::<Runtime, Host<Runtime>>::default();
-                Ok(Box::new(polygon_client))
-            },
-
-            ismp_bnb_pos::BNB_CONSENSUS_ID => {
-                let bnb_client = ismp_bnb_pos::BnbClient::<Host<Runtime>>::default();
-                Ok(Box::new(bnb_client))
-            },
-            id => Err(Error::ImplementationSpecific(format!("Unknown consensus client: {id:?}")))?,
-        }
     }
 }
 
@@ -81,14 +49,25 @@ impl ismp_sync_committee::pallet::Config for Runtime {
 
 impl ismp_polygon_pos::pallet::Config for Runtime {}
 
+pub struct Coprocessor;
+
+impl Get<Option<StateMachine>> for Coprocessor {
+    fn get() -> Option<StateMachine> {
+        Some(HostStateMachine::get())
+    }
+}
 impl pallet_ismp::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     const INDEXING_PREFIX: &'static [u8] = b"ISMP";
     type AdminOrigin = EnsureRoot<AccountId>;
-    type StateMachine = StateMachineProvider;
+    type HostStateMachine = HostStateMachine;
+    type Coprocessor = Coprocessor;
     type TimeProvider = Timestamp;
-    type IsmpRouter = Router;
-    type ConsensusClientProvider = ConsensusProvider;
+    type Router = Router;
+    type ConsensusClients = (
+        ismp_bsc_pos::BscClient<Host<Runtime>>,
+        ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Sepolia>,
+    );
     type WeightInfo = ();
     type WeightProvider = ();
 }
@@ -100,7 +79,9 @@ impl ismp_demo::Config for Runtime {
     type IsmpDispatcher = pallet_ismp::dispatcher::Dispatcher<Runtime>;
 }
 
-impl pallet_relayer_fees::Config for Runtime {}
+impl pallet_ismp_relayer::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+}
 
 impl state_machine_manager::pallet::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
@@ -108,7 +89,7 @@ impl state_machine_manager::pallet::Config for Runtime {
 
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
-        if request.dest != StateMachineProvider::get() {
+        if request.dest != HostStateMachine::get() {
             let meta = FeeMetadata { origin: [0u8; 32].into(), fee: Default::default() };
             return Ismp::dispatch_request(Request::Post(request), meta);
         }
@@ -123,7 +104,7 @@ impl IsmpModule for ProxyModule {
     }
 
     fn on_response(&self, response: Response) -> Result<(), Error> {
-        if response.dest_chain() != StateMachineProvider::get() {
+        if response.dest_chain() != HostStateMachine::get() {
             let meta = FeeMetadata { origin: [0u8; 32].into(), fee: Default::default() };
             return Ismp::dispatch_response(response, meta);
         }

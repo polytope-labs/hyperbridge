@@ -1,0 +1,47 @@
+[package]
+name = "hyperclient"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+
+[dependencies]
+wasm-bindgen = { version = "0.2.90", features = [] }
+ismp = { path = "../ismp/core", default-features = false }
+subxt = { version = "0.30.1", default-features = false }
+getrandom = { version = "0.2", features = ["js"] }
+ethers = { workspace = true, features = ["ws"] }
+anyhow = "1.0.75"
+hex-literal = { version = "0.3.3" }
+serde-wasm-bindgen = { version = "0.6.3", default-features = false }
+serde = { version = "1.0.196", features = ["derive"], default-features = false }
+wasm-bindgen-futures = "0.4.40"
+sp-core = { workspace = true, default-features = false, features = ["full_crypto", "serde"] }
+codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
+async-trait = { version = "0.1.53", features = [] }
+futures = "0.3.30"
+wasm-streams = "0.4.0"
+tokio = { version = "1.35.1", features = ["macros"]  }
+reqwest = { version = "0.11.23", features = ["json"] }
+wasm-bindgen-test = "0.3.41"
+js-sys = "0.3.68"
+web-sys = "0.3.68"
+wasm-timer = "0.2.5"
+ismp-solidity-abi = { path = "../../evm/abi", default-features = false }
+hashbrown = { version = "0.14.3", features = ["serde"] }
+
+
+[features]
+default = ["std"]
+wasm = ["subxt/web", "subxt/jsonrpsee"]
+std = ["subxt/native", "subxt/jsonrpsee"]
+
+
+[dev-dependencies]
+tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread"]  }
+frame-support = { workspace = true, features = ["default"]}
+dotenv = "0.15.0"
+hex = "0.4.3"

@@ -64,8 +64,6 @@ pub mod opaque {
     /// An index to a block.
     pub type BlockNumber = u32;
 
-    pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-
     /// The address format for describing accounts.
     pub type Address = MultiAddress<AccountId, ()>;
 }
@@ -81,6 +79,7 @@ pub trait BaseHostRuntimeApis:
     + CollectCollationInfo<opaque::Block>
     + TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
     + ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
+    + cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
 {
 }
 
@@ -96,5 +95,6 @@ impl<Api> BaseHostRuntimeApis for Api where
         + CollectCollationInfo<opaque::Block>
         + TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
         + ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
+        + cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
 {
 }

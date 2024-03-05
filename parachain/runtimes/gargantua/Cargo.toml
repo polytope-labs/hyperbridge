@@ -9,12 +9,12 @@ edition = "2021"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [build-dependencies]
-substrate-wasm-builder = { version = "16.0.0" }
+substrate-wasm-builder = { workspace = true }
 
 [dependencies]
 # crates.io
 codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
-hex-literal = { version = "0.3.4", optional = true }
+hex-literal = { version = "0.4.1", optional = true }
 log = { version = "0.4.17", default-features = false }
 scale-info = { version = "2.3.1", default-features = false, features = ["derive"] }
 smallvec = "1.10.0"
@@ -67,23 +67,24 @@ cumulus-pallet-xcm = { workspace = true }
 cumulus-pallet-xcmp-queue = { workspace = true }
 cumulus-primitives-core = { workspace = true }
 cumulus-primitives-timestamp = { workspace = true }
+cumulus-primitives-aura = { workspace = true }
 cumulus-primitives-utility = { workspace = true }
 pallet-collator-selection = { workspace = true }
 parachain-info = { workspace = true }
 parachains-common = { workspace = true  }
 
 # polytope-labs
-ismp = { path = "../../modules/ismp/core", default-features = false }
+ismp = { path = "../../../modules/ismp/core", default-features = false }
 
 # ismp modules
-pallet-ismp = { path = "../../modules/ismp/pallet", default-features = false }
-ismp-demo = { path = "../../modules/ismp/demo", default-features = false }
-ismp-runtime-api = { path = "../../modules/ismp/runtime-api", default-features = false }
-ismp-sync-committee = { path = "../../modules/ismp/sync-committee", default-features = false }
-ismp-polygon-pos = { path = "../../modules/ismp/polygon-pos", default-features = false }
-ismp-bnb-pos = { path = "../../modules/ismp/bnb-pos", default-features = false }
-pallet-relayer-fees = { path = "../../modules/relayer-fees", default-features = false }
-state-machine-manager = { path = "../../modules/state-machine-manager", default-features = false }
+pallet-ismp = { path = "../../../modules/ismp/pallet", default-features = false }
+ismp-demo = { path = "../../../modules/ismp/pallet/demo", default-features = false }
+ismp-runtime-api = { path = "../../../modules/ismp/pallet/runtime-api", default-features = false }
+ismp-sync-committee = { path = "../../../modules/ismp/clients/sync-committee", default-features = false }
+ismp-polygon-pos = { path = "../../../modules/ismp/clients/polygon-pos", default-features = false }
+ismp-bsc-pos = { path = "../../../modules/ismp/clients/bsc-pos", default-features = false }
+pallet-ismp-relayer = { path = "../../../modules/relayer", default-features = false }
+state-machine-manager = { path = "../../../modules/state-machine-manager", default-features = false }
 
 [features]
 default = [
@@ -100,6 +101,7 @@ std = [
 	"cumulus-pallet-xcm/std",
 	"cumulus-pallet-xcmp-queue/std",
 	"cumulus-primitives-core/std",
+	"cumulus-primitives-aura/std",
 	"cumulus-primitives-timestamp/std",
 	"cumulus-primitives-utility/std",
 	"frame-executive/std",
@@ -141,9 +143,9 @@ std = [
 	"pallet-message-queue/std",
 	"parachains-common/std",
 	"sp-genesis-builder/std",
-	"ismp-bnb-pos/std",
+	"ismp-bsc-pos/std",
 	"ismp-polygon-pos/std",
-	"pallet-relayer-fees/std",
+	"pallet-ismp-relayer/std",
 	"state-machine-manager/std"
 ]
 
@@ -184,4 +186,7 @@ try-runtime = [
 	"pallet-transaction-payment/try-runtime",
 	"pallet-xcm/try-runtime",
 	"parachain-info/try-runtime",
+]
+async-backing = [
+	"pallet-aura/experimental"
 ]

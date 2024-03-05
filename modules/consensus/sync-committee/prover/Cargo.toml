@@ -1,0 +1,49 @@
+[package]
+name = "sync-committee-prover"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+sync-committee-primitives = { path= "../primitives" }
+sync-committee-verifier = { path= "../verifier" }
+ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs",  branch = "main" }
+reqwest = {version="0.11.14", features=["json"]}
+serde = { version = "1.0.185", features = ["derive"] }
+serde_json = { version = "1.0.81"}
+anyhow = "1.0.68"
+tokio = { version =  "1.32.0", features = ["sync"]}
+tokio-stream = { version = "0.1.8" }
+async-stream = { version = "0.3.3"}
+base2 = {version= "0.3.1" }
+env_logger = "0.10.0"
+ark-ec = { version = "0.4.2" }
+ark-bls12-381 = { version = "0.4.0" }
+bls_on_arkworks = { version = "0.2.2" }
+primitive-types = { version = "0.12.1", features = ["serde_no_std", "impl-codec"] }
+log = "0.4.20"
+hex = "0.4.3"
+
+
+[dev-dependencies]
+env_logger = "0.10.0"
+sync-committee-primitives = { path= "../primitives", features = ["sepolia-deneb"] }
+sync-committee-verifier = { path= "../verifier" }
+ethers = { workspace = true, features = ["ws", "default"] }
+tokio = { version =  "1.32.0", features = ["macros", "rt-multi-thread"]}
+parity-scale-codec = "3.2.2"
+reqwest-eventsource = "0.4.0"
+dotenv = "0.15.0"
+
+[features]
+default = ["std"]
+std = [
+    "ssz-rs/default",
+    "sync-committee-primitives/std",
+    "anyhow/std",
+    "ark-ec/std",
+    "bls_on_arkworks/std",
+    "ark-bls12-381/std"
+]
+sepolia-deneb = ["sync-committee-primitives/sepolia-deneb"]

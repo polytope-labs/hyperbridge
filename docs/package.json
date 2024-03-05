@@ -3,12 +3,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vocs dev",
+    "dev": "vocs dev --host",
     "build": "vocs build",
     "preview": "vocs preview",
     "prettier": "npm run prettier"
   },
   "dependencies": {
+    "i": "^0.3.7",
     "prettier": "^3.2.2",
     "react": "latest",
     "react-dom": "latest",

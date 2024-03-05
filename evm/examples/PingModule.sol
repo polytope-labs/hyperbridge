@@ -6,12 +6,15 @@ pragma solidity 0.8.17;
 import "ismp/IIsmpModule.sol";
 import "ismp/IIsmpHost.sol";
 import "ismp/StateMachine.sol";
-import "ismp/IIsmp.sol";
+import "ismp/Message.sol";
+import "ismp/IDispatcher.sol";
 
 struct PingMessage {
     bytes dest;
     address module;
     uint64 timeout;
+    uint256 count;
+    uint256 fee;
 }
 
 contract PingModule is IIsmpModule {
@@ -38,10 +41,28 @@ contract PingModule is IIsmpModule {
         _;
     }
 
-    address internal _host;
+    // restricts call to `admin`
+    modifier onlyAdmin() {
+        if (msg.sender != _admin) {
+            revert NotIsmpHost();
+        }
+        _;
+    }
 
-    constructor(address host) {
-        _host = host;
+    address internal _host;
+    address internal _admin;
+
+    constructor(address admin) {
+        _admin = admin;
+    }
+
+    function setIsmpHost(address hostAddr) public onlyAdmin {
+        _host = hostAddr;
+    }
+
+    // returns the current ismp host set
+    function host() public view returns (address) {
+        return _host;
     }
 
     function dispatchPostResponse(PostResponse memory response) public returns (bytes32) {
@@ -50,9 +71,10 @@ contract PingModule is IIsmpModule {
             response: response.response,
             timeout: response.timeoutTimestamp,
             gaslimit: response.gaslimit,
-            fee: 0
+            fee: 0,
+            payer: tx.origin
         });
-        IIsmp(_host).dispatch(post);
+        IDispatcher(_host).dispatch(post);
         return response.hash();
     }
 
@@ -63,9 +85,10 @@ contract PingModule is IIsmpModule {
             timeout: request.timeoutTimestamp,
             to: request.to,
             gaslimit: request.gaslimit,
-            fee: 0
+            fee: 0,
+            payer: tx.origin
         });
-        IIsmp(_host).dispatch(post);
+        IDispatcher(_host).dispatch(post);
         return request.hash();
     }
 
@@ -76,25 +99,29 @@ contract PingModule is IIsmpModule {
             keys: request.keys,
             timeout: request.timeoutTimestamp,
             gaslimit: request.gaslimit,
-            fee: 0
+            fee: 0,
+            payer: tx.origin
         });
-        IIsmp(_host).dispatch(get);
+        IDispatcher(_host).dispatch(get);
         return request.hash();
     }
 
     function ping(PingMessage memory pingMessage) public {
-        DispatchPost memory post = DispatchPost({
-            body: bytes.concat("hello from ", IIsmpHost(_host).host()),
-            dest: pingMessage.dest,
-            // one hour
-            timeout: pingMessage.timeout,
-            // instance of this pallet on another chain.
-            to: abi.encodePacked(address(pingMessage.module)),
-            // unused for now
-            gaslimit: 0,
-            fee: 0
-        });
-        IIsmp(_host).dispatch(post);
+        for (uint256 i = 0; i < pingMessage.count; i++) {
+            DispatchPost memory post = DispatchPost({
+                body: bytes.concat("hello from ", IIsmpHost(_host).host()),
+                dest: pingMessage.dest,
+                // one hour
+                timeout: pingMessage.timeout,
+                // instance of this pallet on another chain.
+                to: abi.encodePacked(address(pingMessage.module)),
+                // unused for now
+                gaslimit: 0,
+                fee: pingMessage.fee,
+                payer: tx.origin
+            });
+            IDispatcher(_host).dispatch(post);
+        }
     }
 
     function dispatchToParachain(uint256 _paraId) public {
@@ -105,9 +132,10 @@ contract PingModule is IIsmpModule {
             // timeout: 60 * 60, // one hour
             to: bytes("ismp-ast"), // ismp demo pallet
             gaslimit: 0,
-            fee: 0
+            fee: 0,
+            payer: tx.origin
         });
-        IIsmp(_host).dispatch(post);
+        IDispatcher(_host).dispatch(post);
     }
 
     function onAccept(PostRequest memory request) external onlyIsmpHost {
@@ -130,7 +158,7 @@ contract PingModule is IIsmpModule {
         emit PostRequestTimeoutReceived();
     }
 
-    function onPostResponseTimeout(PostResponse memory request) external onlyIsmpHost {
+    function onPostResponseTimeout(PostResponse memory) external onlyIsmpHost {
         emit PostResponseTimeoutReceived();
     }
 }

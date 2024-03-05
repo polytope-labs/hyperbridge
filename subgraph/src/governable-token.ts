@@ -4,6 +4,9 @@ import {
 } from "../generated/GovernableToken/GovernableToken"
 import { Approval, Transfer } from "../generated/schema"
 
+import { updateTransferTotal } from "./utils/TransferTotal";
+import { updateTransferPairTotal } from "./utils/TransferPairTotal";
+
 export function handleApproval(event: ApprovalEvent): void {
   let entity = new Approval(
     event.transaction.hash.concatI32(event.logIndex.toI32()),
@@ -20,8 +23,11 @@ export function handleApproval(event: ApprovalEvent): void {
 }
 
 export function handleTransfer(event: TransferEvent): void {
+  updateTransferTotal( event.params.value);
+  updateTransferPairTotal(event.params.from,event.params.to, event.params.value);
+
   let entity = new Transfer(
-    event.transaction.hash.concatI32(event.logIndex.toI32()),
+    event.transaction.hash.concatI32(event.logIndex.toI32())
   )
   entity.from = event.params.from
   entity.to = event.params.to

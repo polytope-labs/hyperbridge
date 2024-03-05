@@ -19,7 +19,9 @@ pub mod mocks;
 #[cfg(test)]
 mod tests;
 
-use crate::mocks::MOCK_CONSENSUS_CLIENT_ID;
+use std::process::id;
+
+use crate::mocks::{MOCK_CONSENSUS_CLIENT_ID, MOCK_CONSENSUS_CLIENT_ID_2};
 use ismp::{
     consensus::{
         ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
@@ -40,6 +42,26 @@ fn mock_consensus_state_id() -> ConsensusStateId {
     *b"mock"
 }
 
+fn mock_proxy_consensus_state_id() -> ConsensusStateId {
+    *b"prox"
+}
+
+// fn proxy_state() -> IntermediateState {
+//     IntermediateState {
+//         height: StateMachineHeight {
+//             id: StateMachineId {
+//                 state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+//                 consensus_state_id: mock_proxy_consensus_state_id(),
+//             },
+//             height: 1,
+//         },
+//         commitment: StateCommitment {
+//             timestamp: 1000,
+//             overlay_root: None,
+//             state_root: Default::default(),
+//         },
+//     }
+// }
 fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
     let intermediate_state = IntermediateState {
         height: StateMachineHeight {
@@ -389,20 +411,202 @@ where
 
 /// This should prevent a request from timing out on a proxy when there exists a consensus client
 /// for the request destination
-pub fn prevent_request_timeout_on_proxy_with_known_state_machine() {}
+pub fn prevent_request_timeout_on_proxy_with_known_state_machine<H, D>(host: &H, dispatcher: &D)  -> Result<(), &'static str>
+where
+    H: IsmpHost,
+    D: IsmpDispatcher,
+    D::Account: From<[u8; 32]>,
+    D::Balance: From<u32>,
+{
+  // takes a host and sets two concensus cliet, 1 for any chain, then the other for the proxy 
+  // the other chain should have one consensus client for the request destination
+  // then the host should send a request to the destination chain
+  // when the proxy tries to timeout the request, it should return an error
+
+  let proxy =  IntermediateState {
+      height: StateMachineHeight {
+          id: StateMachineId {
+              state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+              consensus_state_id: mock_proxy_consensus_state_id(),
+          },
+          height: 1,
+      },
+      commitment: StateCommitment {
+          timestamp: 1000,
+          overlay_root: None,
+          state_root: Default::default(),
+      },
+  };
+   let intermediate_state = setup_mock_client(host);
+let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+let previous_update_time = host.timestamp() - (challenge_period * 2);
+host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
+    .unwrap();
+host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
+    .unwrap();
+
+host.store_consensus_state(mock_proxy_consensus_state_id(), vec![]).unwrap();
+
+host.store_consensus_state_id(proxy.height.id.consensus_state_id, MOCK_CONSENSUS_CLIENT_ID_2).unwrap();
+
+// check for the two consensus clients and also add the clinet the other one 
+//assert that one consensus client is for the proxy and the other is for the destination chain
+
+
+let consensus_clients = host.consensus_clients();
+    assert!(consensus_clients.len() > 1);
+
+let proxy_client = host.consensus_client(MOCK_CONSENSUS_CLIENT_ID_2).unwrap().consensus_client_id();
+let destination_client = host.consensus_client(MOCK_CONSENSUS_CLIENT_ID).unwrap().consensus_client_id();
+
+assert!(proxy_client != destination_client);
+
+
+let  destiation_first_client= &consensus_clients[0].consensus_client_id();
+let proxy_second_client = &consensus_clients[1].consensus_client_id();
+
+assert!(destiation_first_client != proxy_second_client);
+
+assert_eq!(&proxy_client , proxy_second_client);
+
+assert_eq!(&destination_client, destiation_first_client);
+
+
+let dispatch_post = DispatchPost {
+    dest: intermediate_state.height.id.state_id,
+    from: vec![0u8; 32],
+    to: vec![0u8; 32],
+    timeout_timestamp: intermediate_state.commitment.timestamp,
+    data: vec![0u8; 64],
+    gas_limit: 0,
+};
+let post = Post {
+    source: host.host_state_machine(),
+    dest: StateMachine::Kusama(2000),
+    nonce: 0,
+    from: vec![0u8; 32],
+    to: vec![0u8; 32],
+    timeout_timestamp: intermediate_state.commitment.timestamp,
+    data: vec![0u8; 64],
+    gas_limit: 0,
+};
+    
+
+let request = Request::Post(post.clone());
+
+let dispatch_request = DispatchRequest::Post(dispatch_post);
+dispatcher
+    .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
+    .unwrap();
+
+
+
+ // Timeout message handling check for source and destination chain
+ let timeout_message = Message::Timeout(TimeoutMessage::Post {
+    requests: vec![request.clone()],
+    timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
+});
+
+handle_incoming_message(host, timeout_message).unwrap();
+
+
+// Timeout message handling check for the proxy
+let timeout_message = Message::Timeout(TimeoutMessage::Post {
+    requests: vec![request.clone()],
+    timeout_proof: Proof { height: proxy.height, proof: vec![] },
+});
+
+let res = handle_incoming_message(host, timeout_message);
+assert!(res.is_err());
+
+
+    Ok(())
+}
 
 /// This should prevent a response from timing out on a proxy when there exists a consensus client
 /// for the request destination
-pub fn prevent_response_timeout_on_proxy_with_known_state_machine() {}
+pub fn prevent_response_timeout_on_proxy_with_known_state_machine<H, D>(host: &H,dispatcher: &D) -> Result<(), &'static str> 
+    where
+    H: IsmpHost,
+    D: IsmpDispatcher,
+    D::Account: From<[u8; 32]>,
+    D::Balance: From<u32>,
 
+{
+   
+    let proxy =  IntermediateState {
+        height: StateMachineHeight {
+            id: StateMachineId {
+                state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+                consensus_state_id: mock_proxy_consensus_state_id(),
+            },
+            height: 1,
+        },
+        commitment: StateCommitment {
+            timestamp: 1000,
+            overlay_root: None,
+            state_root: Default::default(),
+        },
+    };
+
+    let intermediate_state = setup_mock_client(host);
+    let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+    let previous_update_time = host.timestamp() - (challenge_period * 2);
+    host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
+        .unwrap();
+    host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
+        .unwrap();
+
+    let request = Post {
+        source: intermediate_state.height.id.state_id,
+        dest: host.host_state_machine(),
+        nonce: 0,
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+        gas_limit: 0,
+    };
+
+    let request_message = Message::Request(RequestMessage {
+        requests: vec![request.clone()],
+        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        signer: vec![],
+    });
+
+    handle_incoming_message(host, request_message).unwrap();
+    // Assert that request was acknowledged
+    assert!(matches!(host.request_receipt(&Request::Post(request.clone())), Some(_)));
+
+    let response =
+        PostResponse { post: request, response: vec![], timeout_timestamp: 100, gas_limit: 0 };
+    dispatcher
+        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
+        .unwrap();
+
+    let timeout_message = Message::Timeout(TimeoutMessage::PostResponse {
+        responses: vec![response.clone()],
+        timeout_proof: Proof { height: proxy.height, proof: vec![] },
+    });
+
+    let res = handle_incoming_message(host, timeout_message);
+    assert!(res.is_err());
+
+    Ok(())
+}
 /// This should check that if a proxy isn't configured, requests are not valid if they don't come
 /// from the state machine claimed in the proof as well as check that the request destination
 /// matches the host state machine.
-pub fn check_request_source_and_destination() {}
+// Make sure the source chain in the request is same as the source chain recorded by hyperbridge 
+// Ethereum state machine should not be able to impersonate binance state machine 
+pub fn check_request_source_and_destination() {
+
+}
 
 /// This should check that if a proxy isn't configured, responses are not valid if they don't come
 /// from the state machine claimed in the proof
 pub fn check_response_source() {}
 
 /// Check that proxies can dispatch requests & responses.
+// check that state machine can dispatch request and responses 
 pub fn sanity_check_for_proxies() {}

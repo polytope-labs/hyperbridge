@@ -24,8 +24,12 @@ use std::{
 
 #[derive(Default)]
 pub struct MockClient;
+#[derive(Default)]
+pub struct MockProxyClient;
+
 
 pub const MOCK_CONSENSUS_CLIENT_ID: [u8; 4] = [1u8; 4];
+pub const MOCK_CONSENSUS_CLIENT_ID_2: [u8; 4] = [2u8; 4];
 
 #[derive(codec::Encode, codec::Decode)]
 pub struct MockConsensusState {
@@ -62,6 +66,38 @@ impl ConsensusClient for MockClient {
     }
 }
 
+
+
+impl ConsensusClient for MockProxyClient {
+    fn verify_consensus(
+        &self,
+        _host: &dyn IsmpHost,
+        _consensus_state_id: ConsensusStateId,
+        _trusted_consensus_state: Vec<u8>,
+        _proof: Vec<u8>,
+    ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
+        Ok(Default::default())
+    }
+
+    fn verify_fraud_proof(
+        &self,
+        _host: &dyn IsmpHost,
+        _trusted_consensus_state: Vec<u8>,
+        _proof_1: Vec<u8>,
+        _proof_2: Vec<u8>,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn consensus_client_id(&self) -> ConsensusClientId {
+        MOCK_CONSENSUS_CLIENT_ID_2
+    }
+
+    fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+        Ok(Box::new(MockStateMachineClient))
+    }
+}
+
 pub struct MockStateMachineClient;
 
 impl StateMachineClient for MockStateMachineClient {
@@ -90,7 +126,7 @@ impl StateMachineClient for MockStateMachineClient {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct Host {
     requests: Rc<RefCell<BTreeSet<H256>>>,
     receipts: Rc<RefCell<HashMap<H256, ()>>>,
@@ -304,7 +340,7 @@ impl IsmpHost for Host {
     }
 
     fn consensus_clients(&self) -> Vec<Box<dyn ConsensusClient>> {
-        vec![Box::new(MockClient)]
+        vec![Box::new(MockClient),Box::new(MockProxyClient)]
     }
 
     fn challenge_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {

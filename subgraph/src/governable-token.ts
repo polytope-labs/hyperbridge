@@ -31,11 +31,11 @@ export function handleTransfer(event: TransferEvent): void {
 
   updateInTransferTotal(event.params.to.toHexString(), event.params.value)
 
-  // const hostAddressString: string = "0x9DF353352b469782AB1B0F2CbBFEC41bF1FDbDb3";
-  // const hostAddressBytes: Bytes = Bytes.fromHexString(hostAddressString);
+  const hostAddressString: string = "0x9DF353352b469782AB1B0F2CbBFEC41bF1FDbDb3";
+  const hostAddressBytes: Bytes = Bytes.fromHexString(hostAddressString);
 
-  // updateAggregatedTotal(hostAddressBytes, BigInt.fromI32(0), event.params.value);
-  // updateAggregatedTotal(event.params.to, BigInt.fromI32(0), event.params.value);
+  updateAggregatedTotal(hostAddressBytes, BigInt.fromI32(0), event.params.value);
+  updateAggregatedTotal(event.params.to, BigInt.fromI32(0), event.params.value);
 
   let entity = new Transfer(
     event.transaction.hash.concatI32(event.logIndex.toI32())

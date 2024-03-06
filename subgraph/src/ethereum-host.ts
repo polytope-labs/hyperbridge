@@ -68,10 +68,10 @@ export function handlePostRequestEvent(event: PostRequestEventEvent): void {
 
   updateRequestEventFeeTotal(event.params.fee);
 
-  // const hostAddressString: string = "0x9DF353352b469782AB1B0F2CbBFEC41bF1FDbDb3";
-  // const hostAddressBytes: Bytes = Bytes.fromHexString(hostAddressString);
+  const hostAddressString: string = "0x9DF353352b469782AB1B0F2CbBFEC41bF1FDbDb3";
+  const hostAddressBytes: Bytes = Bytes.fromHexString(hostAddressString);
 
-  // updateAggregatedTotal(hostAddressBytes, event.params.fee, BigInt.fromI32(0));
+  updateAggregatedTotal(hostAddressBytes, event.params.fee, BigInt.fromI32(0));
 
   entity.source = event.params.source
   entity.dest = event.params.dest

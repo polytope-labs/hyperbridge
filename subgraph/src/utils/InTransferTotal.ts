@@ -15,7 +15,9 @@ export function getInTransferTotal(toAddress: string): InTransferTotal {
 }
 
 export function updateInTransferTotal(toAddress: string, eventValue: BigInt): InTransferTotal {
-    let entity = getInTransferTotal(toAddress);
+    let modifiedAddress = toAddress.toLowerCase();
+
+    let entity = getInTransferTotal(modifiedAddress);
 
     const oldTotalAmount = entity.totalAmountTransferredIn;
     entity.totalAmountTransferredIn = oldTotalAmount.plus(eventValue);

@@ -120,6 +120,8 @@ etherscan_api_key = ""
 handler = ""
 # Contract address of the IsmpHost contract
 ismp_host = ""
+# Maximum block range for eth_getLogs in a single rpc call
+query_batch_size = 1000
 # hex-encoded private key for the relayer
 signer = ""
 
@@ -138,6 +140,8 @@ etherscan_api_key = ""
 handler = ""
 # Contract address of the IsmpHost contract
 ismp_host = ""
+# Maximum block range for eth_getLogs in a single rpc call
+query_batch_size = 1000
 # hex-encoded private key for the relayer
 signer = ""
 
@@ -156,6 +160,8 @@ etherscan_api_key = ""
 handler = ""
 # Contract address of the IsmpHost contract
 ismp_host = ""
+# Maximum block range for eth_getLogs in a single rpc call
+query_batch_size = 1000
 # hex-encoded private key for the relayer
 signer = ""
 
@@ -174,6 +180,8 @@ etherscan_api_key = ""
 handler = ""
 # Contract address of the IsmpHost contract
 ismp_host = ""
+# Maximum block range for eth_getLogs in a single rpc call
+query_batch_size = 1000
 # hex-encoded private key for the relayer
 signer = ""
 
@@ -192,14 +200,15 @@ etherscan_api_key = ""
 handler = ""
 # Contract address of the IsmpHost contract
 ismp_host = ""
+# Maximum block range for eth_getLogs in a single rpc call
+query_batch_size = 1000
 # hex-encoded private key for the relayer
 signer = ""
 
+
 # Relayer config, required
 [relayer]
-# Hyperbridge chain spec, either one of Dev, Gargantua, Messier or Nexus
-chain = "Gargantua" # testnet
-# Define your profitability configuration. 0 -> 0% i.e relay all requests, even unprofitable ones. 1 -> 1%. ie fees provided for requests must be profitable by at least 1%. etc. 
+# Define your profitability configuration. 0 -> 0% i.e relay all requests, even unprofitable ones. 1 -> 1%. ie fees provided for requests must be profitable by at least 1%. etc.
 minimum_profit_percentage = 0
 # (Optional) If not empty, will filter requests to be delivered by originating module identifier (eg contract address)
 module_filter = []
@@ -232,6 +241,11 @@ Stop any running relayer instances, run the following command in the terminal an
 
 ```bash
     docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees
+```
+When accumulating fees the required state machine update to verify the proofs might not yet be available on hyperbridge, by default accumulating fees for those state machines will be skipped. To wait for all state machine updates.
+
+```bash
+    docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --wait
 ```
 
 #### Initiating withdrawal from hyperbridge

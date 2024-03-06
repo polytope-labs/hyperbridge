@@ -1596,3 +1596,84 @@ export class TransferPairTotal extends Entity {
     this.set("totalAmount", Value.fromBigInt(value));
   }
 }
+
+export class AggregatedTotal extends Entity {
+  constructor(id: string) {
+    super();
+    this.set("id", Value.fromString(id));
+  }
+
+  save(): void {
+    let id = this.get("id");
+    assert(id != null, "Cannot save AggregatedTotal entity without an ID");
+    if (id) {
+      assert(
+        id.kind == ValueKind.STRING,
+        `Entities of type AggregatedTotal must have an ID of type String but the id '${id.displayData()}' is of type ${id.displayKind()}`,
+      );
+      store.set("AggregatedTotal", id.toString(), this);
+    }
+  }
+
+  static loadInBlock(id: string): AggregatedTotal | null {
+    return changetype<AggregatedTotal | null>(
+      store.get_in_block("AggregatedTotal", id),
+    );
+  }
+
+  static load(id: string): AggregatedTotal | null {
+    return changetype<AggregatedTotal | null>(store.get("AggregatedTotal", id));
+  }
+
+  get id(): string {
+    let value = this.get("id");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toString();
+    }
+  }
+
+  set id(value: string) {
+    this.set("id", Value.fromString(value));
+  }
+
+  get totalRelayerFees(): BigInt {
+    let value = this.get("totalRelayerFees");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toBigInt();
+    }
+  }
+
+  set totalRelayerFees(value: BigInt) {
+    this.set("totalRelayerFees", Value.fromBigInt(value));
+  }
+
+  get totalTransferredValues(): BigInt {
+    let value = this.get("totalTransferredValues");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toBigInt();
+    }
+  }
+
+  set totalTransferredValues(value: BigInt) {
+    this.set("totalTransferredValues", Value.fromBigInt(value));
+  }
+
+  get hyperbridgeEarnings(): BigInt {
+    let value = this.get("hyperbridgeEarnings");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toBigInt();
+    }
+  }
+
+  set hyperbridgeEarnings(value: BigInt) {
+    this.set("hyperbridgeEarnings", Value.fromBigInt(value));
+  }
+}

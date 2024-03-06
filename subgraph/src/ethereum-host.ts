@@ -1,3 +1,4 @@
+import { BigInt } from "@graphprotocol/graph-ts";
 import {
   GetRequestEvent as GetRequestEventEvent,
   GetRequestHandled as GetRequestHandledEvent,
@@ -13,6 +14,7 @@ import {
 
 import { findOrCreatePostRequestHandled } from "./utils/postRequest/PostRequestHandled";
 import { incrementRelayerPostRequestHandledCount } from "./utils/postRequest/RelayerPostRequestHandledCount";
+import { updateAggregatedTotal } from "./utils/AggregatedTotal";
 
 import {
   GetRequestEvent,
@@ -62,6 +64,9 @@ export function handlePostRequestEvent(event: PostRequestEventEvent): void {
   let entity = new PostRequestEvent(
     event.transaction.hash.concatI32(event.logIndex.toI32()),
   )
+
+  updateAggregatedTotal(event.params.source, event.params.fee, BigInt.fromI32(0));
+
   entity.source = event.params.source
   entity.dest = event.params.dest
   entity.from = event.params.from

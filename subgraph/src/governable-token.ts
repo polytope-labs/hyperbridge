@@ -1,3 +1,4 @@
+import { BigInt } from "@graphprotocol/graph-ts";
 import {
   Approval as ApprovalEvent,
   Transfer as TransferEvent,
@@ -6,6 +7,7 @@ import { Approval, Transfer } from "../generated/schema"
 
 import { updateTransferTotal } from "./utils/TransferTotal";
 import { updateTransferPairTotal } from "./utils/TransferPairTotal";
+import { updateAggregatedTotal } from "./utils/AggregatedTotal";
 
 export function handleApproval(event: ApprovalEvent): void {
   let entity = new Approval(
@@ -25,6 +27,8 @@ export function handleApproval(event: ApprovalEvent): void {
 export function handleTransfer(event: TransferEvent): void {
   updateTransferTotal( event.params.value);
   updateTransferPairTotal(event.params.from,event.params.to, event.params.value);
+
+  updateAggregatedTotal(event.params.to, BigInt.fromI32(0), event.params.value);
 
   let entity = new Transfer(
     event.transaction.hash.concatI32(event.logIndex.toI32())

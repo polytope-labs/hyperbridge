@@ -20,18 +20,18 @@ The ISMP framework exposes a handler that allows users/relayers submit timeouts,
 ```rust
 /// A timeout message holds a batch of messages to be timed-out
 pub enum TimeoutMessage {
-    /// A non memership proof for POST requests
+    /// A non membership proof for POST requests
     Post {
         /// Timed out requests
         requests: Vec<Post>,
         /// Non membership batch proof for these requests
         timeout_proof: Proof,
     },
-    /// A non memership proof for POST requests
+    /// A non membership proof for POST responses
     PostResponse {
         /// Timed out responses
         responses: Vec<PostResponse>,
-        /// Non membership batch proof for these requests
+        /// Non membership batch proof for these responses
         timeout_proof: Proof,
     },
     /// There are no proofs for Get timeouts, we only need to

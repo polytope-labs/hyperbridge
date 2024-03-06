@@ -1,4 +1,4 @@
-import { BigInt } from "@graphprotocol/graph-ts";
+import { BigInt, Bytes } from "@graphprotocol/graph-ts";
 import {
   GetRequestEvent as GetRequestEventEvent,
   GetRequestHandled as GetRequestHandledEvent,
@@ -65,7 +65,10 @@ export function handlePostRequestEvent(event: PostRequestEventEvent): void {
     event.transaction.hash.concatI32(event.logIndex.toI32()),
   )
 
-  updateAggregatedTotal(event.params.source, event.params.fee, BigInt.fromI32(0));
+  const hostAddressString: string = "0x9DF353352b469782AB1B0F2CbBFEC41bF1FDbDb3";
+  const hostAddressBytes: Bytes = Bytes.fromHexString(hostAddressString);
+
+  updateAggregatedTotal(hostAddressBytes, event.params.fee, BigInt.fromI32(0));
 
   entity.source = event.params.source
   entity.dest = event.params.dest

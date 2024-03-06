@@ -1,4 +1,4 @@
-import { BigInt } from "@graphprotocol/graph-ts";
+import { BigInt, Bytes } from "@graphprotocol/graph-ts";
 import {
   Approval as ApprovalEvent,
   Transfer as TransferEvent,
@@ -28,7 +28,11 @@ export function handleTransfer(event: TransferEvent): void {
   updateTransferTotal( event.params.value);
   updateTransferPairTotal(event.params.from,event.params.to, event.params.value);
 
-  updateAggregatedTotal(event.params.to, BigInt.fromI32(0), event.params.value);
+  const hostAddressString: string = "0x9DF353352b469782AB1B0F2CbBFEC41bF1FDbDb3";
+  const hostAddressBytes: Bytes = Bytes.fromHexString(hostAddressString);
+
+  updateAggregatedTotal(hostAddressBytes, BigInt.fromI32(0), event.params.value);
+  // updateAggregatedTotal(event.params.to, BigInt.fromI32(0), event.params.value);
 
   let entity = new Transfer(
     event.transaction.hash.concatI32(event.logIndex.toI32())

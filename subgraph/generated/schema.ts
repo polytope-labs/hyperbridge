@@ -1677,3 +1677,115 @@ export class AggregatedTotal extends Entity {
     this.set("hyperbridgeEarnings", Value.fromBigInt(value));
   }
 }
+
+export class InTransferTotal extends Entity {
+  constructor(id: string) {
+    super();
+    this.set("id", Value.fromString(id));
+  }
+
+  save(): void {
+    let id = this.get("id");
+    assert(id != null, "Cannot save InTransferTotal entity without an ID");
+    if (id) {
+      assert(
+        id.kind == ValueKind.STRING,
+        `Entities of type InTransferTotal must have an ID of type String but the id '${id.displayData()}' is of type ${id.displayKind()}`,
+      );
+      store.set("InTransferTotal", id.toString(), this);
+    }
+  }
+
+  static loadInBlock(id: string): InTransferTotal | null {
+    return changetype<InTransferTotal | null>(
+      store.get_in_block("InTransferTotal", id),
+    );
+  }
+
+  static load(id: string): InTransferTotal | null {
+    return changetype<InTransferTotal | null>(store.get("InTransferTotal", id));
+  }
+
+  get id(): string {
+    let value = this.get("id");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toString();
+    }
+  }
+
+  set id(value: string) {
+    this.set("id", Value.fromString(value));
+  }
+
+  get totalAmountTransferredIn(): BigInt {
+    let value = this.get("totalAmountTransferredIn");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toBigInt();
+    }
+  }
+
+  set totalAmountTransferredIn(value: BigInt) {
+    this.set("totalAmountTransferredIn", Value.fromBigInt(value));
+  }
+}
+
+export class RequestEventFeeTotal extends Entity {
+  constructor(id: string) {
+    super();
+    this.set("id", Value.fromString(id));
+  }
+
+  save(): void {
+    let id = this.get("id");
+    assert(id != null, "Cannot save RequestEventFeeTotal entity without an ID");
+    if (id) {
+      assert(
+        id.kind == ValueKind.STRING,
+        `Entities of type RequestEventFeeTotal must have an ID of type String but the id '${id.displayData()}' is of type ${id.displayKind()}`,
+      );
+      store.set("RequestEventFeeTotal", id.toString(), this);
+    }
+  }
+
+  static loadInBlock(id: string): RequestEventFeeTotal | null {
+    return changetype<RequestEventFeeTotal | null>(
+      store.get_in_block("RequestEventFeeTotal", id),
+    );
+  }
+
+  static load(id: string): RequestEventFeeTotal | null {
+    return changetype<RequestEventFeeTotal | null>(
+      store.get("RequestEventFeeTotal", id),
+    );
+  }
+
+  get id(): string {
+    let value = this.get("id");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toString();
+    }
+  }
+
+  set id(value: string) {
+    this.set("id", Value.fromString(value));
+  }
+
+  get totalRequestFee(): BigInt {
+    let value = this.get("totalRequestFee");
+    if (!value || value.kind == ValueKind.NULL) {
+      throw new Error("Cannot return null for a required field.");
+    } else {
+      return value.toBigInt();
+    }
+  }
+
+  set totalRequestFee(value: BigInt) {
+    this.set("totalRequestFee", Value.fromBigInt(value));
+  }
+}

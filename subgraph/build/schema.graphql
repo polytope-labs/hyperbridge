@@ -133,3 +133,13 @@ type AggregatedTotal @entity {
   totalTransferredValues: BigInt! # Total value of fee token transferred into the Host
   hyperbridgeEarnings: BigInt! # The result of totalTransferredValues - totalRelayerFees for this address
 }
+
+type InTransferTotal @entity {
+  id: ID! # to address
+  totalAmountTransferredIn: BigInt! # Total amount transferred  into the to address
+}
+
+type RequestEventFeeTotal @entity {
+  id: ID!
+  totalRequestFee: BigInt! # Total amount of fee emitted from the request event
+}

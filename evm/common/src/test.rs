@@ -51,6 +51,8 @@ async fn test_ismp_state_proof() {
 		signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
 		etherscan_api_key: "".to_string(),
 		tracing_batch_size: None,
+		query_batch_size: None,
+		poll_interval: None,
 	};
 
 	let client = EvmClient::<OpHost>::new(None, config).await.expect("Host creation failed");

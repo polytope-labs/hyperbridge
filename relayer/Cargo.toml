@@ -1,6 +1,6 @@
 [package]
 name = "tesseract"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Chain agnostic relayer implementation for ISMP"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -44,6 +44,8 @@ ethers = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 rust_socketio = { version = "0.4.4" }
 sp-core = { workspace = true, features = ["full_crypto"] }
+tracing-indicatif = "0.3.6"
+tracing = "0.1.40"
 
 [features]
 consensus = []

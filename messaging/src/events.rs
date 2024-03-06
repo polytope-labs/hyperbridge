@@ -9,7 +9,10 @@ use ismp::{
 use sp_core::U256;
 use std::collections::HashMap;
 use tesseract_client::AnyClient;
-use tesseract_primitives::{config::RelayerConfig, Cost, Hasher, IsmpHost, IsmpProvider, Query};
+use tesseract_primitives::{
+	config::{Chain, RelayerConfig},
+	Cost, Hasher, IsmpHost, IsmpProvider, Query,
+};
 
 /// Short description of a request/response event
 #[derive(Debug)]
@@ -63,6 +66,7 @@ pub async fn translate_events_to_messages<A, B>(
 	events: Vec<IsmpEvent>,
 	state_machine_height: StateMachineHeight,
 	config: RelayerConfig,
+	coprocessor: Chain,
 	client_map: &HashMap<StateMachine, AnyClient>,
 ) -> Result<Vec<Message>, anyhow::Error>
 where
@@ -193,7 +197,7 @@ where
 			request_messages,
 			post_request_queries,
 			config.minimum_profit_percentage,
-			&config,
+			coprocessor,
 			&client_map,
 		)
 		.await?;
@@ -222,7 +226,7 @@ where
 			response_messages,
 			response_queries,
 			config.minimum_profit_percentage,
-			&config,
+			coprocessor,
 			&client_map,
 		)
 		.await?;
@@ -298,8 +302,11 @@ pub fn filter_events(router_id: StateMachine, counterparty: StateMachine, ev: &I
 	let is_router = router_id == counterparty;
 
 	match ev {
-		IsmpEvent::PostRequest(post) => (post.dest == counterparty) || is_router,
-		IsmpEvent::PostResponse(resp) => (resp.post.source == counterparty) || is_router,
+		// We filter out events whose origin is the coprocessor
+		IsmpEvent::PostRequest(post) =>
+			(post.dest == counterparty && post.source != router_id) || is_router,
+		IsmpEvent::PostResponse(resp) =>
+			(resp.dest_chain() == counterparty && resp.source_chain() != router_id) || is_router,
 		_ => false,
 	}
 }
@@ -316,7 +323,7 @@ pub async fn return_successful_queries<A>(
 	messages: Vec<Message>,
 	queries: Vec<Query>,
 	minimum_profit_percentage: u32,
-	config: &RelayerConfig,
+	coprocessor: Chain,
 	client_map: &HashMap<StateMachine, AnyClient>,
 ) -> Result<Vec<Option<Query>>, anyhow::Error>
 where
@@ -326,7 +333,7 @@ where
 	let gas_estimates = sink.estimate_gas(messages.clone()).await?;
 	for (index, estimate) in gas_estimates.into_iter().enumerate() {
 		if estimate.successful_execution &&
-			config.chain.state_machine() != sink.state_machine_id().state_id
+			coprocessor.state_machine() != sink.state_machine_id().state_id
 		{
 			let total_gas_to_be_expended_in_usd = estimate.execution_cost;
 			// what kind of message is this?
@@ -363,7 +370,7 @@ where
 				queries_to_be_relayed.push(Some(queries[index].clone()));
 			}
 		} else if estimate.successful_execution &&
-			config.chain.state_machine() == sink.state_machine_id().state_id
+			coprocessor.state_machine() == sink.state_machine_id().state_id
 		// We only deliver sucessful messages to hyperbridge
 		{
 			log::trace!("Pushing tx to {:?}", sink.state_machine_id().state_id);

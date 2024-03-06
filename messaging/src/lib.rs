@@ -26,7 +26,8 @@ use ismp::{consensus::StateMachineHeight, host::StateMachine};
 use tesseract_client::AnyClient;
 
 use tesseract_primitives::{
-	config::RelayerConfig, wait_for_challenge_period, IsmpHost, IsmpProvider, StateMachineUpdated,
+	config::{Chain, RelayerConfig},
+	wait_for_challenge_period, IsmpHost, IsmpProvider, StateMachineUpdated,
 };
 use transaction_fees::TransactionPayment;
 
@@ -34,6 +35,7 @@ pub async fn relay<A, B>(
 	chain_a: A,
 	chain_b: B,
 	config: RelayerConfig,
+	coprocessor: Chain,
 	tx_payment: Arc<TransactionPayment>,
 	client_map: HashMap<StateMachine, AnyClient>,
 ) -> Result<(), anyhow::Error>
@@ -47,14 +49,14 @@ where
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
-		Box::pin(handle_notification(chain_a, chain_b, tx_payment, config, client_map))
+		Box::pin(handle_notification(chain_a, chain_b, tx_payment, config, coprocessor, client_map))
 	};
 
 	let task_b = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
 		let tx_payment = tx_payment.clone();
-		Box::pin(handle_notification(chain_b, chain_a, tx_payment, config, client_map))
+		Box::pin(handle_notification(chain_b, chain_a, tx_payment, config, coprocessor, client_map))
 	};
 
 	// if one task completes, abort the other
@@ -75,6 +77,7 @@ async fn handle_notification<A, B>(
 	chain_b: B,
 	tx_payment: Arc<TransactionPayment>,
 	config: RelayerConfig,
+	coprocessor: Chain,
 	client_map: HashMap<StateMachine, AnyClient>,
 ) -> Result<(), anyhow::Error>
 where
@@ -101,6 +104,7 @@ where
 					state_machine_update.clone(),
 					&mut previous_height,
 					config.clone(),
+					coprocessor,
 					&client_map,
 				)
 				.await
@@ -133,6 +137,7 @@ async fn handle_update<A, B>(
 	state_machine_update: StateMachineUpdated,
 	previous_height: &mut u64,
 	config: RelayerConfig,
+	coprocessor: Chain,
 	client_map: &HashMap<StateMachine, AnyClient>,
 ) -> Result<(), anyhow::Error>
 where
@@ -142,14 +147,24 @@ where
 	// Chain B's state machine has been updated to a new height on chain A
 	// We query all the events that have been emitted on chain B that can be submitted to
 	// chain A filter events list to contain only Request and Response events
-	let events = chain_b
-		.query_ismp_events(*previous_height, state_machine_update.clone())
-		.await?
-		.into_iter()
-		.filter(|ev| {
-			filter_events(config.chain.state_machine(), chain_a.state_machine_id().state_id, ev)
-		})
-		.collect::<Vec<_>>();
+	let result = chain_b.query_ismp_events(*previous_height, state_machine_update.clone()).await;
+
+	let events = match result {
+		Ok(events) => events
+			.into_iter()
+			.filter(|ev| {
+				filter_events(coprocessor.state_machine(), chain_a.state_machine_id().state_id, ev)
+			})
+			.collect::<Vec<_>>(),
+		Err(err) => {
+			log::error!(
+				"Encountered an error querying events from {:?}: {err:?}",
+				chain_b.state_machine_id().state_id
+			);
+			Default::default()
+		},
+	};
+
 	let state_machine = state_machine_update.state_machine_id.state_id;
 	if events.is_empty() {
 		log::info!(
@@ -161,7 +176,8 @@ where
 		*previous_height = state_machine_update.latest_height;
 		return Ok(())
 	}
-
+	// Advance latest known height by relayer
+	*previous_height = state_machine_update.latest_height;
 	let log_events = events.clone().into_iter().map(Into::into).collect::<Vec<Event>>();
 	log::info!(
 	   target: "tesseract",
@@ -188,6 +204,7 @@ where
 		events,
 		state_machine_height.clone(),
 		config.clone(),
+		coprocessor,
 		&client_map,
 	)
 	.await?;
@@ -203,7 +220,7 @@ where
 		match res {
 			Ok(receipts) => {
 				// We should not store messages when they are delivered to hyperbridge
-				if chain_a.state_machine_id().state_id != config.chain.state_machine() {
+				if chain_a.state_machine_id().state_id != coprocessor.state_machine() {
 					if !receipts.is_empty() {
 						log::info!(target: "tesseract", "Storing {} deliveries from {} to {} inside the database",receipts.len(), chain_b.name(), chain_a.name());
 						if let Err(err) = tx_payment.store_messages(receipts).await {
@@ -218,6 +235,5 @@ where
 		}
 	}
 
-	*previous_height = state_machine_update.latest_height;
 	Ok(())
 }

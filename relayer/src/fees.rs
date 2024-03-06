@@ -1,6 +1,6 @@
 use crate::{config::HyperbridgeConfig, create_client_map, logging};
 use anyhow::anyhow;
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
@@ -16,6 +16,7 @@ use std::{collections::HashMap, str::FromStr};
 use tesseract_bsc_pos::KeccakHasher;
 use tesseract_client::AnyClient;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
+use tracing::instrument;
 use transaction_fees::TransactionPayment;
 
 #[derive(Debug, clap::Subcommand)]
@@ -44,8 +45,9 @@ pub struct AccumulateFees {
 
 impl AccumulateFees {
 	/// Accumulate fees accrued through deliveries from source to dest and dest to source
+
 	pub async fn accumulate_fees(&self, config_path: String, db: String) -> anyhow::Result<()> {
-		logging::setup()?;
+		logging::animated_logs()?;
 		let config = HyperbridgeConfig::parse_conf(&config_path).await?;
 
 		let HyperbridgeConfig { hyperbridge: hyperbridge_config, .. } = config.clone();
@@ -68,10 +70,8 @@ impl AccumulateFees {
 
 		let tx_payment = TransactionPayment::initialize(&db).await?;
 		log::info!("Initialized database");
-		let stream = futures::stream::iter(
-			tx_payment.distinct_deliveries().await?.into_iter().map(Ok::<_, anyhow::Error>),
-		);
-		stream.try_for_each_concurrent(None, |delivery| {
+		let stream = futures::stream::iter(tx_payment.distinct_deliveries().await?.into_iter());
+		stream.for_each_concurrent(None, |delivery| {
 			let source_chain = StateMachine::from_str(&delivery.source_chain)
 				.expect("Invalid Source State Machine provided");
 			let dest_chain = StateMachine::from_str(&delivery.dest_chain)
@@ -85,106 +85,113 @@ impl AccumulateFees {
 			let tx_payment = tx_payment.clone();
 			let hyperbridge = hyperbridge.clone();
 			async move {
-				let source_height = hyperbridge.query_latest_height(source.state_machine_id()).await?;
-				let dest_height = hyperbridge.query_latest_height(dest.state_machine_id()).await?;
 
-				let highest_delivery_height_to_dest = tx_payment
-					.highest_delivery_height(
-						source.state_machine_id().state_id,
-						dest.state_machine_id().state_id,
-					)
-					.await?;
-				let highest_delivery_height_to_source = tx_payment
-					.highest_delivery_height(
-						dest.state_machine_id().state_id,
-						source.state_machine_id().state_id,
-					)
-					.await?;
-				// If no messages have been delivered we skip pair
-				if highest_delivery_height_to_dest.is_none() &&
-					highest_delivery_height_to_source.is_none()
-				{
-					log::info!("No deliveries found in db for {source_chain:?}->{dest_chain:?}");
-					return Ok(())
-				}
+				let lambda = || async {
+					let source_height = hyperbridge.query_latest_height(source.state_machine_id()).await?;
+					let dest_height = hyperbridge.query_latest_height(dest.state_machine_id()).await?;
 
-				if let Some(height) = highest_delivery_height_to_dest {
-					let height = if height > dest_height.into() && self.wait {
-						let height = wait_for_state_machine_update(
-							dest.state_machine_id(),
-							&hyperbridge,
-							height,
+					let highest_delivery_height_to_dest = tx_payment
+						.highest_delivery_height(
+							source.state_machine_id().state_id,
+							dest.state_machine_id().state_id,
 						)
-							.await?;
-						Some(height)
-					} else if height <= dest_height.into() {
-						Some(dest_height.into())
-					} else {
-						None
-					};
-
-					match height {
-						Some(height) => {
-							// Create claim proof for deliveries from source to dest
-							log::info!("Creating withdrawal proof from db for deliveries from {source_chain:?}->{dest_chain:?}");
-							let claim_proof = tx_payment
-								.create_claim_proof(source_height.into(), height, &source, &dest)
-								.await?;
-							if let Some(claim_proof) = claim_proof {
-								observe_challenge_period(&dest, &hyperbridge, height).await?;
-								hyperbridge.accumulate_fees(claim_proof.clone()).await?;
-								log::info!("Proof sucessfully submitted");
-								tx_payment.delete_claimed_entries(claim_proof).await?;
-							}
-						},
-						None => {
-							log::info!("Skipping fee accumulation for {source_chain:?}->{dest_chain:?}: state machine update not yet available on hyperbridge");
-						},
+						.await?;
+					let highest_delivery_height_to_source = tx_payment
+						.highest_delivery_height(
+							dest.state_machine_id().state_id,
+							source.state_machine_id().state_id,
+						)
+						.await?;
+					// If no messages have been delivered we skip pair
+					if highest_delivery_height_to_dest.is_none() &&
+						highest_delivery_height_to_source.is_none()
+					{
+						log::info!("No deliveries found in db for {source_chain:?}->{dest_chain:?}");
+						return Ok::<_, anyhow::Error>(())
 					}
-				}
 
-				if let Some(height) = highest_delivery_height_to_source {
-					let height = if height > source_height.into() && self.wait {
-						let height = wait_for_state_machine_update(
-							source.state_machine_id(),
-							&hyperbridge,
-							height,
-						)
-							.await?;
-						Some(height)
-					} else if height <= source_height.into() {
-						Some(source_height.into())
-					} else {
-						None
-					};
-
-					match height {
-						Some(height) => {
-							// Create claim proof for deliveries from dest to source
-							log::info!("Creating withdrawal proof from db for deliveries from {dest_chain:?}->{source_chain:?}");
-							let claim_proof = tx_payment
-								.create_claim_proof(dest_height.into(), height, &dest, &source)
+					if let Some(height) = highest_delivery_height_to_dest {
+						let height = if height > dest_height.into() && self.wait {
+							let height = wait_for_state_machine_update(
+								dest.state_machine_id(),
+								&hyperbridge,
+								height,
+							)
 								.await?;
-							if let Some(claim_proof) = claim_proof {
-								log::info!(
+							Some(height)
+						} else if height <= dest_height.into() {
+							Some(dest_height.into())
+						} else {
+							None
+						};
+
+						match height {
+							Some(height) => {
+								// Create claim proof for deliveries from source to dest
+								log::info!("Creating withdrawal proof from db for deliveries from {source_chain:?}->{dest_chain:?}");
+								let claim_proof = tx_payment
+									.create_claim_proof(source_height.into(), height, &source, &dest)
+									.await?;
+								if let Some(claim_proof) = claim_proof {
+									observe_challenge_period(&dest, &hyperbridge, height).await?;
+									hyperbridge.accumulate_fees(claim_proof.clone()).await?;
+									log::info!("Proof sucessfully submitted");
+									tx_payment.delete_claimed_entries(claim_proof).await?;
+								}
+							},
+							None => {
+								log::info!("Skipping fee accumulation for {source_chain:?}->{dest_chain:?}: state machine update not yet available on hyperbridge");
+							},
+						}
+					}
+
+					if let Some(height) = highest_delivery_height_to_source {
+						let height = if height > source_height.into() && self.wait {
+							let height = wait_for_state_machine_update(
+								source.state_machine_id(),
+								&hyperbridge,
+								height,
+							)
+								.await?;
+							Some(height)
+						} else if height <= source_height.into() {
+							Some(source_height.into())
+						} else {
+							None
+						};
+
+						match height {
+							Some(height) => {
+								// Create claim proof for deliveries from dest to source
+								log::info!("Creating withdrawal proof from db for deliveries from {dest_chain:?}->{source_chain:?}");
+								let claim_proof = tx_payment
+									.create_claim_proof(dest_height.into(), height, &dest, &source)
+									.await?;
+								if let Some(claim_proof) = claim_proof {
+									log::info!(
 							"Submitting proof for {dest_chain:?}->{source_chain:?} to hyperbridge"
 						);
-								observe_challenge_period(&source, &hyperbridge, height).await?;
-								hyperbridge.accumulate_fees(claim_proof.clone()).await?;
-								log::info!("Proof sucessfully submitted");
-								tx_payment.delete_claimed_entries(claim_proof).await?;
-							}
-						},
-						None => {
-							log::info!("Skipping fee accumulation for {dest_chain:?}->{source_chain:?}: state machine update not yet available on hyperbridge");
-						},
+									observe_challenge_period(&source, &hyperbridge, height).await?;
+									hyperbridge.accumulate_fees(claim_proof.clone()).await?;
+									log::info!("Proof sucessfully submitted");
+									tx_payment.delete_claimed_entries(claim_proof).await?;
+								}
+							},
+							None => {
+								log::info!("Skipping fee accumulation for {dest_chain:?}->{source_chain:?}: state machine update not yet available on hyperbridge");
+							},
+						}
 					}
-				}
 
-				Ok(())
+					Ok(())
+				};
+				match lambda().await {
+					Ok(_) => {},
+					Err(e) => log::error!("Fee accumulation for {dest_chain:?}->{source_chain:?} failed: {e:?}"),
+				}
 			}
 
-		}).await?;
+		}).await;
 
 		Ok(())
 	}
@@ -194,47 +201,53 @@ impl AccumulateFees {
 		hyperbridge: &C,
 		clients: HashMap<StateMachine, AnyClient>,
 	) -> anyhow::Result<()> {
-		let stream =
-			futures::stream::iter(clients.keys().cloned().into_iter().map(Ok::<_, anyhow::Error>));
+		let stream = futures::stream::iter(clients.keys().cloned().into_iter());
 
 		stream
-			.try_for_each_concurrent(None, |chain| {
+			.for_each_concurrent(None, |chain| {
 				let client =
 					clients.get(&chain).expect(&format!("Client not found for {chain:?}")).clone();
 				let hyperbridge = hyperbridge.clone();
 				async move {
-					let amount = hyperbridge.available_amount(&client, &chain).await?;
+					let lambda = || async {
+						let amount = hyperbridge.available_amount(&client, &chain).await?;
 
-					if amount == U256::zero() {
-						return Ok(());
+						if amount == U256::zero() {
+							return Ok::<_, anyhow::Error>(());
+						}
+
+						log::info!(
+							"Submitting withdrawal request to {chain:?}  for amount ${}",
+							Cost(amount)
+						);
+						let result = hyperbridge
+							.withdraw_funds(&client, chain, self.gas_limit.unwrap_or_default())
+							.await?;
+						log::info!("Request submitted to hyperbridge successfully");
+						log::info!("Starting delivery of withdrawal message to {:?}", chain);
+						// Wait for state machine update
+						deliver_post_request(&client, &hyperbridge, result).await?;
+						Ok(())
+					};
+
+					match lambda().await {
+						Ok(_) => {},
+						Err(e) => log::error!("Failed to complete a withdrawal request: {e:?}"),
 					}
-
-					log::info!(
-						"Submitting withdrawal request to {chain:?}  for amount ${}",
-						Cost(amount)
-					);
-					let result = hyperbridge
-						.withdraw_funds(&client, chain, self.gas_limit.unwrap_or_default())
-						.await?;
-					log::info!("Request submitted to hyperbridge successfully");
-					log::info!("Starting delivery of withdrawal message to {:?}", chain);
-					// Wait for state machine update
-					deliver_post_request(&client, &hyperbridge, result).await?;
-					Ok(())
 				}
 			})
-			.await?;
+			.await;
 
 		Ok(())
 	}
 }
 
+#[instrument(name = "Waiting for state machine update on hyperbridge", skip_all)]
 async fn wait_for_state_machine_update<C: IsmpProvider>(
 	state_id: StateMachineId,
 	hyperbridge: &C,
 	height: u64,
 ) -> anyhow::Result<u64> {
-	log::info!("Waiting for state machine update for {:?}  on hyperbridge", state_id.state_id);
 	let mut stream = hyperbridge.state_machine_update_notification(state_id).await?;
 
 	while let Some(res) = stream.next().await {
@@ -252,6 +265,7 @@ async fn wait_for_state_machine_update<C: IsmpProvider>(
 	Err(anyhow!("State Machine update stream returned None"))
 }
 
+#[instrument(name = "Waiting for challenge period to elapse on hyperbridge", skip_all)]
 async fn observe_challenge_period<C: IsmpProvider, D: IsmpProvider>(
 	chain: &C,
 	hyperbridge: &D,
@@ -262,11 +276,11 @@ async fn observe_challenge_period<C: IsmpProvider, D: IsmpProvider>(
 		.await?;
 	let height = StateMachineHeight { id: chain.state_machine_id(), height };
 	let last_consensus_update = hyperbridge.query_state_machine_update_time(height).await?;
-	log::info!("Waiting for challenge period to elapse on hyperbridge");
 	wait_for_challenge_period(chain, last_consensus_update, challenge_period).await?;
 	Ok(())
 }
 
+#[instrument(name = "Delivering post request to destination", skip_all)]
 async fn deliver_post_request<C: IsmpProvider, D: IsmpProvider>(
 	dest_chain: &C,
 	hyperbridge: &D,

@@ -31,8 +31,6 @@ pub struct RelayerConfig {
 	pub fisherman: Option<bool>,
 	/// Challenege period to be set on consensus states
 	pub challenge_period: Option<u64>,
-	/// Routing state machine id
-	pub chain: Chain,
 	/// Minimum profit percentage. e.g. 5 -> 5%, 10 -> 10%
 	pub minimum_profit_percentage: u32,
 	/// Delivery endpoints: chains you intend to deliver messages to
@@ -40,7 +38,7 @@ pub struct RelayerConfig {
 }
 
 /// Hyperbridge's parachain runtimes
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
 pub enum Chain {
 	/// Rococo parachain
 	Gargantua,

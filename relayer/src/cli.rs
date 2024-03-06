@@ -151,10 +151,12 @@ impl Cli {
 					.await?;
 				hyperbridge.set_latest_finalized_height(&client).await?;
 				client.set_latest_finalized_height(&hyperbridge).await?;
+				let coprocessor = hyperbridge_config.substrate.chain;
 				processes.push(tokio::spawn(messaging::relay(
 					hyperbridge,
 					client.clone(),
 					relayer.clone(),
+					coprocessor,
 					tx_payment.clone(),
 					clients.clone(),
 				)));

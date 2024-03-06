@@ -256,11 +256,31 @@ where
 		previous_height: u64,
 		event: StateMachineUpdated,
 	) -> Result<Vec<Event>, Error> {
-		let range = (previous_height + 1)..=event.latest_height;
-		if range.is_empty() {
+		let full_range = (previous_height + 1)..=event.latest_height;
+		if full_range.is_empty() {
 			return Ok(Default::default())
 		}
-		let events = self.events(previous_height + 1, event.latest_height).await?;
+
+		let mut events = vec![];
+		let chunk_size = self.config.query_batch_size.unwrap_or(1_000_000_000);
+		let chunks = full_range.end().saturating_sub(*full_range.start()) / chunk_size;
+		for i in 0..=chunks {
+			let start = (i * chunk_size) + *full_range.start();
+			let end = if i == chunks { *full_range.end() } else { start + chunk_size - 1 };
+			let result = self.events(start, end).await;
+			match result {
+				Ok(batch) => events.extend(batch),
+				Err(err) => {
+					log::error!(
+						"Error while querying events in range {}..{} from {:?}: {err:?}",
+						start,
+						end,
+						self.state_machine
+					);
+				},
+			}
+		}
+
 		Ok(events)
 	}
 
@@ -438,8 +458,7 @@ where
 		&self,
 		_counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<StateMachineUpdated>, Error> {
-		// todo: make it configurable?
-		let interval = time::interval(Duration::from_secs(10));
+		let interval = time::interval(Duration::from_secs(self.config.poll_interval.unwrap_or(10)));
 
 		let stream = stream::unfold(
 			(self.initial_height, interval, self.clone()),

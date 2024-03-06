@@ -57,6 +57,10 @@ pub struct EvmConfig {
 	pub etherscan_api_key: String,
 	/// Batch size to parallelize tracing
 	pub tracing_batch_size: Option<usize>,
+	/// Batch size when querying events
+	pub query_batch_size: Option<u64>,
+	/// Polling frequency for state machine updates in seconds
+	pub poll_interval: Option<u64>,
 }
 
 impl Default for EvmConfig {
@@ -70,6 +74,8 @@ impl Default for EvmConfig {
 			signer: Default::default(),
 			etherscan_api_key: Default::default(),
 			tracing_batch_size: Default::default(),
+			query_batch_size: Default::default(),
+			poll_interval: Default::default(),
 		}
 	}
 }

@@ -252,25 +252,25 @@ mod tests {
 		let chains = vec![
 			(
 				StateMachine::Ethereum(Ethereum::ExecutionLayer),
-				H160(hex!("7596aB4f588fE6feFcE2D53feFC08E52afa4bc84")),
+				H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F")),
 				geth_url,
 			),
 			(
 				StateMachine::Ethereum(Ethereum::Arbitrum),
-				H160(hex!("9d87A7F9Edf044Dd4ffbAF65dEdd6e073817ae04")),
+				H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F")),
 				arb_url,
 			),
 			(
 				StateMachine::Ethereum(Ethereum::Optimism),
-				H160(hex!("7C63cA6976B4e31dA2bC49C1B4F7a45b14085EF7")),
+				H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F")),
 				op_url,
 			),
 			(
 				StateMachine::Ethereum(Ethereum::Base),
-				H160(hex!("9530B5fc67342C3c9dD6c4Ec659f89ADd499CF4c")),
+				H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F")),
 				base_url,
 			),
-			(StateMachine::Bsc, H160(hex!("4c1b6031d5BB8A52EF7A13b32852fbE070733FCA")), bsc_url),
+			(StateMachine::Bsc, H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F")), bsc_url),
 		];
 
 		let stream = futures::stream::iter(chains.clone().into_iter().map(Ok::<_, anyhow::Error>));

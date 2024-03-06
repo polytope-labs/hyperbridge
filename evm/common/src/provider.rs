@@ -459,9 +459,9 @@ where
 		_counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<StateMachineUpdated>, Error> {
 		let interval = time::interval(Duration::from_secs(self.config.poll_interval.unwrap_or(10)));
-
+		let initial_height = self.client.get_block_number().await?.low_u64();
 		let stream = stream::unfold(
-			(self.initial_height, interval, self.clone()),
+			(initial_height, interval, self.clone()),
 			move |(mut latest_height, mut interval, client)| async move {
 				let state_machine = client.state_machine;
 				loop {
@@ -493,11 +493,12 @@ where
 					{
 						Ok(events) => events,
 						Err(err) =>
+							// If the query failed we still advance the latest known height
 							return Some((
 								Err(err).context(format!(
-									"Failed to query events on {state_machine:?}"
+									"Failed to query state machine updates in range {latest_height:?}..{block_number:?} on {state_machine:?}"
 								)),
-								(latest_height, interval, client),
+								(block_number, interval, client),
 							)),
 					};
 					let mut events = results

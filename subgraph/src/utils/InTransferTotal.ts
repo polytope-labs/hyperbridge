@@ -1,4 +1,4 @@
-import { BigInt, Bytes } from "@graphprotocol/graph-ts";
+import { BigInt } from "@graphprotocol/graph-ts";
 import { InTransferTotal } from "../../generated/schema";
 
 const BIGINT_ZERO = BigInt.fromString("0");

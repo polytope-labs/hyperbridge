@@ -141,5 +141,5 @@ type InTransferTotal @entity {
 
 type RequestEventFeeTotal @entity {
   id: ID!
-  totalRequestFee: BigInt! # Total amount of fee emitted from the request event
+  totalRequestFee: BigInt! # Total amount of fee emitted from the request eventfor this from->to pair
 }

@@ -126,13 +126,6 @@ type TransferPairTotal @entity {
   totalAmount: BigInt! # Total transferred amount for this from->to pair
 }
 
-type AggregatedTotal @entity {
-  id: ID! # the host address
-  totalRelayerFees: BigInt! # Total fees emitted from PostRequestEvent
-  totalTransferredValues: BigInt! # Total value of fee token transferred into the Host
-  hyperbridgeEarnings: BigInt! # The result of totalTransferredValues - totalRelayerFees for this address
-}
-
 type InTransferTotal @entity {
   id: ID! # to address
   totalAmountTransferredIn: BigInt! # Total amount transferred  into the to address

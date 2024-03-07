@@ -279,7 +279,7 @@ macro_rules! chain {
             async fn state_machine_update_notification(
                 &self,
                 counterparty_state_id: ismp::consensus::StateMachineId,
-            ) -> Result<primitives::BoxStream<primitives::StreamItem>, anyhow::Error> {
+            ) -> Result<primitives::BoxStream<primitives::StateMachineUpdated>, anyhow::Error> {
                 match self {
 					$(
 						$(#[$($meta)*])*

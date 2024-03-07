@@ -48,7 +48,6 @@ use tesseract_primitives::{
 	StateMachineUpdated, StreamItem, TxReceipt,
 };
 use tokio::time;
-use tokio_stream::StreamExt;
 
 #[async_trait::async_trait]
 impl<I> IsmpProvider for EvmClient<I>
@@ -305,6 +304,7 @@ where
 		&self,
 		_msg: Vec<Message>,
 	) -> Result<Vec<EstimateGasReturnParams>, Error> {
+		use tokio_stream::StreamExt;
 		let messages = _msg.clone();
 
 		let debug_trace_call_options = GethDebugTracingCallOptions {
@@ -457,7 +457,8 @@ where
 	async fn state_machine_update_notification(
 		&self,
 		_counterparty_state_id: StateMachineId,
-	) -> Result<BoxStream<StreamItem>, Error> {
+	) -> Result<BoxStream<StateMachineUpdated>, Error> {
+		use futures::StreamExt;
 		let interval = time::interval(Duration::from_secs(self.config.poll_interval.unwrap_or(10)));
 		let initial_height = self.client.get_block_number().await?.low_u64();
 		let stream = stream::unfold(
@@ -515,7 +516,13 @@ where
 					return Some((Ok(StreamItem::NoOp), (block_number + 1, interval, client)))
 				}
 			},
-		);
+		).filter_map(|res| async move {
+			match res {
+				Ok(StreamItem::Value(update)) => Some(Ok(update)),
+				Ok(StreamItem::NoOp) => None,
+				Err(err) => Some(Err(err)),
+			}
+		});
 
 		Ok(Box::pin(stream))
 	}

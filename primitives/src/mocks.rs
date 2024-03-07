@@ -1,6 +1,6 @@
 use crate::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpHost, IsmpProvider, Query, Signature,
-	StateMachineUpdated, StreamItem, TxReceipt,
+	StateMachineUpdated, TxReceipt,
 };
 use anyhow::{anyhow, Error};
 use futures::stream;
@@ -154,7 +154,7 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	async fn state_machine_update_notification(
 		&self,
 		_counterparty_state_id: StateMachineId,
-	) -> Result<BoxStream<StreamItem>, Error> {
+	) -> Result<BoxStream<StateMachineUpdated>, Error> {
 		todo!()
 	}
 

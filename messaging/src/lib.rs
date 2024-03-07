@@ -28,7 +28,7 @@ use tracing::instrument;
 
 use tesseract_primitives::{
 	config::{Chain, RelayerConfig},
-	wait_for_challenge_period, IsmpHost, IsmpProvider, StateMachineUpdated, StreamItem,
+	wait_for_challenge_period, IsmpHost, IsmpProvider, StateMachineUpdated,
 };
 use transaction_fees::TransactionPayment;
 
@@ -107,7 +107,7 @@ where
 
 	while let Some(item) = state_machine_update_stream.next().await {
 		match item {
-			Ok(StreamItem::Value(state_machine_update)) => {
+			Ok(state_machine_update) => {
 				if let Err(err) = handle_update(
 					&chain_a,
 					&chain_b,
@@ -127,7 +127,6 @@ where
 					);
 				}
 			},
-			Ok(StreamItem::NoOp) => {},
 			Err(e) => {
 				log::error!(target: "tesseract","Messaging task {}->{} encountered an error: {e:?}", chain_a.name(), chain_b.name());
 				continue;

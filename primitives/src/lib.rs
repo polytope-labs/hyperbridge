@@ -241,7 +241,7 @@ pub trait IsmpProvider: Send + Sync {
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
-	) -> Result<BoxStream<StreamItem>, anyhow::Error>;
+	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error>;
 
 	/// This should be used to submit new messages [`Vec<Message>`] from a counterparty chain to
 	/// this chain.

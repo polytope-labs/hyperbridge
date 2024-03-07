@@ -16,12 +16,12 @@
 //! [`IsmpProvider`] implementation
 
 use crate::{
-	extrinsic::{system_dry_run_unsigned, Extrinsic},
+	extrinsic::{
+		send_extrinsic, send_unsigned_extrinsic, system_dry_run_unsigned, Extrinsic, InMemorySigner,
+	},
 	runtime::{self, api::runtime_types},
 	SubstrateClient,
 };
-
-use crate::extrinsic::{send_extrinsic, send_unsigned_extrinsic, InMemorySigner};
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 
@@ -229,7 +229,8 @@ where
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
-	) -> Result<BoxStream<StreamItem>, anyhow::Error> {
+	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
+		use futures::StreamExt;
 		let interval = time::interval(Duration::from_secs(10));
 		let stream = stream::unfold(
 			(self.initial_height, interval, self.clone()),
@@ -292,7 +293,14 @@ where
 
 				return value;
 			},
-		);
+		)
+		.filter_map(|res| async move {
+			match res {
+				Ok(StreamItem::Value(update)) => Some(Ok(update)),
+				Ok(StreamItem::NoOp) => None,
+				Err(err) => Some(Err(err)),
+			}
+		});
 
 		Ok(Box::pin(stream))
 	}

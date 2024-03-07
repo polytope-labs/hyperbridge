@@ -1,3 +1,4 @@
+import { BigInt, Bytes } from "@graphprotocol/graph-ts";
 import {
   GetRequestEvent as GetRequestEventEvent,
   GetRequestHandled as GetRequestHandledEvent,
@@ -6,6 +7,17 @@ import {
   PostResponseEvent as PostResponseEventEvent,
   PostResponseHandled as PostResponseHandledEvent,
 } from "../generated/EthereumHost/EthereumHost"
+
+import {
+  getPostRequestHandledCount,
+  incrementPostRequestHandledCount,
+} from "./utils/postRequest/PostRequestHandledCount";
+
+import { findOrCreatePostRequestHandled } from "./utils/postRequest/PostRequestHandled";
+import { incrementRelayerPostRequestHandledCount } from "./utils/postRequest/RelayerPostRequestHandledCount";
+import { updateAggregatedTotal } from "./utils/AggregatedTotal";
+import { updateRequestEventFeeTotal } from "./utils/RequestEventFeeTotal";
+
 import {
   GetRequestEvent,
   GetRequestHandled,
@@ -54,6 +66,14 @@ export function handlePostRequestEvent(event: PostRequestEventEvent): void {
   let entity = new PostRequestEvent(
     event.transaction.hash.concatI32(event.logIndex.toI32()),
   )
+
+  updateRequestEventFeeTotal(event.params.fee);
+
+  const hostAddressString: string = "0x9DF353352b469782AB1B0F2CbBFEC41bF1FDbDb3";
+  const hostAddressBytes: Bytes = Bytes.fromHexString(hostAddressString);
+
+  updateAggregatedTotal(hostAddressBytes, event.params.fee, BigInt.fromI32(0));
+
   entity.source = event.params.source
   entity.dest = event.params.dest
   entity.from = event.params.from
@@ -72,9 +92,16 @@ export function handlePostRequestEvent(event: PostRequestEventEvent): void {
 }
 
 export function handlePostRequestHandled(event: PostRequestHandledEvent): void {
-  let entity = new PostRequestHandled(
-    event.transaction.hash.concatI32(event.logIndex.toI32()),
-  )
+  incrementPostRequestHandledCount();
+  incrementRelayerPostRequestHandledCount(event.params.relayer.toHexString());
+
+  const requestHandledCount = getPostRequestHandledCount();
+
+  let entity = findOrCreatePostRequestHandled(event.transaction.hash.concatI32(event.logIndex.toI32()));
+
+  // let entity = new PostRequestHandled(
+  //   event.transaction.hash.concatI32(event.logIndex.toI32()),
+  // )
   entity.commitment = event.params.commitment
   entity.relayer = event.params.relayer
 

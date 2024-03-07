@@ -83,6 +83,17 @@ type PostResponseHandled @entity(immutable: true) {
   blockTimestamp: BigInt!
   transactionHash: Bytes!
 }
+
+type PostRequestHandledCount @entity {
+  id: ID!
+  value: BigInt! # uint256
+}
+
+type RelayerPostRequestHandledCount @entity {
+  id: ID! # the owner address
+  value: BigInt! # uint256
+}
+
 type Approval @entity(immutable: true) {
   id: Bytes!
   owner: Bytes! # address
@@ -101,4 +112,33 @@ type Transfer @entity(immutable: true) {
   blockNumber: BigInt!
   blockTimestamp: BigInt!
   transactionHash: Bytes!
+}
+
+type TransferTotal @entity {
+  id: ID!
+  totalAmount: BigInt! #uint256
+}
+
+type TransferPairTotal @entity {
+  id: ID! # A concatenation of from and to addresses
+  from: Bytes! # address
+  to: Bytes! # address
+  totalAmount: BigInt! # Total transferred amount for this from->to pair
+}
+
+type AggregatedTotal @entity {
+  id: ID! # the host address
+  totalRelayerFees: BigInt! # Total fees emitted from PostRequestEvent
+  totalTransferredValues: BigInt! # Total value of fee token transferred into the Host
+  hyperbridgeEarnings: BigInt! # The result of totalTransferredValues - totalRelayerFees for this address
+}
+
+type InTransferTotal @entity {
+  id: ID! # to address
+  totalAmountTransferredIn: BigInt! # Total amount transferred  into the to address
+}
+
+type RequestEventFeeTotal @entity {
+  id: ID!
+  totalRequestFee: BigInt! # Total amount of fee emitted from the request event
 }

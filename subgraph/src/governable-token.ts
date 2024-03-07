@@ -35,7 +35,6 @@ export function handleTransfer(event: TransferEvent): void {
   const hostAddressBytes: Bytes = Bytes.fromHexString(hostAddressString);
 
   updateAggregatedTotal(hostAddressBytes, BigInt.fromI32(0), event.params.value);
-  updateAggregatedTotal(event.params.to, BigInt.fromI32(0), event.params.value);
 
   let entity = new Transfer(
     event.transaction.hash.concatI32(event.logIndex.toI32())

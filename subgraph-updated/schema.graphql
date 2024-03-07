@@ -1,0 +1,8 @@
+type StateMachineUpdated @entity(immutable: true) {
+  id: Bytes!
+  stateMachineId: BigInt! # uint256
+  height: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}

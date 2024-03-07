@@ -51,6 +51,8 @@ pub struct SubstrateConfig {
 	pub consensus_state_id: Option<String>,
 	/// Websocket RPC url for the chain
 	pub rpc_ws: String,
+	/// Maximum size in bytes for the rpc payloads, both requests & responses.
+	pub max_rpc_payload_size: Option<u32>,
 	/// Relayer account seed
 	pub signer: Option<String>,
 	/// Latest state machine height
@@ -97,9 +99,12 @@ where
 {
 	pub async fn new(host: Option<T>, config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
+		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(15 * 1024 * 1024);
 		let raw_client = Client::builder()
 			// retry every second
 			.retry_policy(FixedInterval::from_millis(1000))
+			.max_request_size(max_rpc_payload_size)
+			.max_response_size(max_rpc_payload_size)
 			.enable_ws_ping(
 				PingConfig::new()
 					.ping_interval(Duration::from_secs(6))

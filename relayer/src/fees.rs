@@ -9,7 +9,8 @@ use ismp::{
 	util::hash_request,
 };
 use primitives::{
-	wait_for_challenge_period, Cost, HyperbridgeClaim, IsmpProvider, Query, WithdrawFundsResult,
+	wait_for_challenge_period, Cost, HyperbridgeClaim, IsmpProvider, Query, StreamItem,
+	WithdrawFundsResult,
 };
 use sp_core::U256;
 use std::{collections::HashMap, str::FromStr};
@@ -252,10 +253,11 @@ async fn wait_for_state_machine_update<C: IsmpProvider>(
 
 	while let Some(res) = stream.next().await {
 		match res {
-			Ok(event) =>
+			Ok(StreamItem::Value(event)) =>
 				if event.latest_height >= height {
 					return Ok(event.latest_height)
 				},
+			Ok(_) => {},
 			Err(err) => {
 				log::error!("State machine update stream returned an error {err:?}")
 			},
@@ -290,7 +292,7 @@ async fn deliver_post_request<C: IsmpProvider, D: IsmpProvider>(
 		.state_machine_update_notification(hyperbridge.state_machine_id())
 		.await?;
 
-	while let Some(Ok(event)) = stream.next().await {
+	while let Some(Ok(StreamItem::Value(event))) = stream.next().await {
 		log::info!("Waiting for state machine update");
 		if event.latest_height < result.block {
 			continue

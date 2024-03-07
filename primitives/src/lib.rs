@@ -128,6 +128,12 @@ pub enum TxReceipt {
 	Response { query: Query, request_commitment: H256, height: u64 },
 }
 
+#[derive(Clone, Debug)]
+pub enum StreamItem {
+	Value(StateMachineUpdated),
+	NoOp,
+}
+
 /// Stream alias
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>> + Send>>;
 
@@ -235,7 +241,7 @@ pub trait IsmpProvider: Send + Sync {
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
-	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error>;
+	) -> Result<BoxStream<StreamItem>, anyhow::Error>;
 
 	/// This should be used to submit new messages [`Vec<Message>`] from a counterparty chain to
 	/// this chain.

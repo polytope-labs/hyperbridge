@@ -24,10 +24,11 @@ use crate::events::{filter_events, translate_events_to_messages, Event};
 use futures::StreamExt;
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
 use tesseract_client::AnyClient;
+use tracing::instrument;
 
 use tesseract_primitives::{
 	config::{Chain, RelayerConfig},
-	wait_for_challenge_period, IsmpHost, IsmpProvider, StateMachineUpdated,
+	wait_for_challenge_period, IsmpHost, IsmpProvider, StateMachineUpdated, StreamItem,
 };
 use transaction_fees::TransactionPayment;
 
@@ -49,23 +50,33 @@ where
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
-		Box::pin(handle_notification(chain_a, chain_b, tx_payment, config, coprocessor, client_map))
+		tokio::spawn(async move {
+			let _ =
+				handle_notification(chain_a, chain_b, tx_payment, config, coprocessor, client_map)
+					.await?;
+			Ok::<_, anyhow::Error>(())
+		})
 	};
 
 	let task_b = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
 		let tx_payment = tx_payment.clone();
-		Box::pin(handle_notification(chain_b, chain_a, tx_payment, config, coprocessor, client_map))
+		tokio::spawn(async move {
+			let _ =
+				handle_notification(chain_b, chain_a, tx_payment, config, coprocessor, client_map)
+					.await?;
+			Ok::<_, anyhow::Error>(())
+		})
 	};
 
 	// if one task completes, abort the other
 	tokio::select! {
 		result_a = task_a => {
-			result_a?
+			result_a??
 		}
 		result_b = task_b => {
-			result_b?
+			result_b??
 		}
 	};
 
@@ -96,7 +107,7 @@ where
 
 	while let Some(item) = state_machine_update_stream.next().await {
 		match item {
-			Ok(state_machine_update) => {
+			Ok(StreamItem::Value(state_machine_update)) => {
 				if let Err(err) = handle_update(
 					&chain_a,
 					&chain_b,
@@ -116,6 +127,7 @@ where
 					);
 				}
 			},
+			Ok(StreamItem::NoOp) => {},
 			Err(e) => {
 				log::error!(target: "tesseract","Messaging task {}->{} encountered an error: {e:?}", chain_a.name(), chain_b.name());
 				continue;
@@ -130,6 +142,7 @@ where
 	))?
 }
 
+#[instrument(skip_all, fields(chain_a = chain_a.state_machine_id().state_id.to_string(), chain_b = chain_b.state_machine_id().state_id.to_string()))]
 async fn handle_update<A, B>(
 	chain_a: &A,
 	chain_b: &B,

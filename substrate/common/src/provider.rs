@@ -40,7 +40,7 @@ use pallet_ismp::{primitives::SubstrateStateProof, ProofKeys};
 use pallet_ismp_relayer::withdrawal::Signature;
 use primitives::{
 	BoxStream, EstimateGasReturnParams, IsmpHost, IsmpProvider, Query, StateMachineUpdated,
-	TxReceipt,
+	StreamItem, TxReceipt,
 };
 use sp_core::{storage::StorageKey, Pair, H256, U256};
 use std::{collections::HashMap, time::Duration};
@@ -52,6 +52,7 @@ use subxt::{
 	rpc::types::DryRunResult,
 	rpc_params,
 };
+use tokio::time;
 
 #[async_trait::async_trait]
 impl<T, C> IsmpProvider for SubstrateClient<T, C>
@@ -228,58 +229,68 @@ where
 	async fn state_machine_update_notification(
 		&self,
 		counterparty_state_id: StateMachineId,
-	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
-		let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
-
+	) -> Result<BoxStream<StreamItem>, anyhow::Error> {
+		let interval = time::interval(Duration::from_secs(10));
 		let stream = stream::unfold(
-			(self.initial_height, subscription, self.clone()),
-			move |(mut latest_height, mut subscription, client)| async move {
-				loop {
-					let header = match subscription.next().await {
-						Some(Ok(header)) => header,
-						Some(Err(err)) => {
-							log::error!(
-								"Error encountered while watching finalized heads: {err:?}"
-							);
-							continue;
-						},
-						None => return None,
-					};
+			(self.initial_height, interval, self.clone()),
+			move |(latest_height, mut interval, client)| async move {
+				interval.tick().await;
+				let header = match client.client.rpc().finalized_head().await {
+					Ok(hash) => match client.client.rpc().header(Some(hash)).await {
+						Ok(Some(header)) => header,
+						_ =>
+							return Some((
+								Err(anyhow!("Error encountered while fething finalized head")),
+								(latest_height, interval, client),
+							)),
+					},
+					Err(err) =>
+						return Some((
+							Err(anyhow!(
+								"Error encountered while fetching finalized head: {err:?}"
+							)),
+							(latest_height, interval, client),
+						)),
+				};
 
-					let event = StateMachineUpdated {
-						state_machine_id: client.state_machine_id(),
-						latest_height: header.number().into(),
-					};
-
-					let events = match client.query_ismp_events(latest_height, event).await {
-						Ok(e) => e,
-						Err(err) => {
-							log::error!("Error encountered while querying ismp events {err:?}");
-							continue;
-						},
-					};
-
-					let event = events
-						.into_iter()
-						.filter_map(|event| match event {
-							Event::StateMachineUpdated(e)
-								if e.state_machine_id == counterparty_state_id =>
-								Some(e),
-							_ => None,
-						})
-						.max_by(|x, y| x.latest_height.cmp(&y.latest_height));
-
-					let value = match event {
-						Some(event) =>
-							Some((Ok(event), (header.number().into(), subscription, client))),
-						None => {
-							latest_height = header.number().into();
-							continue;
-						},
-					};
-
-					return value;
+				if header.number().into() <= latest_height {
+					return Some((Ok(StreamItem::NoOp), (latest_height, interval, client)))
 				}
+
+				let event = StateMachineUpdated {
+					state_machine_id: client.state_machine_id(),
+					latest_height: header.number().into(),
+				};
+
+				let events = match client.query_ismp_events(latest_height, event).await {
+					Ok(e) => e,
+					Err(err) =>
+						return Some((
+							Err(anyhow!("Error encountered while querying ismp events {err:?}")),
+							(latest_height, interval, client),
+						)),
+				};
+
+				let event = events
+					.into_iter()
+					.filter_map(|event| match event {
+						Event::StateMachineUpdated(e)
+							if e.state_machine_id == counterparty_state_id =>
+							Some(e),
+						_ => None,
+					})
+					.max_by(|x, y| x.latest_height.cmp(&y.latest_height));
+
+				let value = match event {
+					Some(event) => Some((
+						Ok(StreamItem::Value(event)),
+						(header.number().into(), interval, client),
+					)),
+					None =>
+						Some((Ok(StreamItem::NoOp), (header.number().into(), interval, client))),
+				};
+
+				return value;
 			},
 		);
 

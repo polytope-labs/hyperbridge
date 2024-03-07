@@ -29,24 +29,30 @@ where
 	let task_a = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
-		Box::pin(handle_notification(chain_a, chain_b))
+		tokio::spawn(async move {
+			let _ = handle_notification(chain_a, chain_b).await?;
+			Ok::<_, anyhow::Error>(())
+		})
 	};
 
 	let task_b = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
-		Box::pin(handle_notification(chain_b, chain_a))
+		tokio::spawn(async move {
+			let _ = handle_notification(chain_b, chain_a).await?;
+			Ok::<_, anyhow::Error>(())
+		})
 	};
 
 	// if one task completes, abort the other
 	tokio::select! {
 		result_a = task_a => {
-			result_a?
+			result_a??
 		}
 		result_b = task_b => {
-			result_b?
+			result_b??
 		}
-	};
+	}
 
 	Ok(())
 }

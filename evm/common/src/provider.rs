@@ -45,7 +45,7 @@ use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
 	BoxStream, EstimateGasReturnParams, Hasher, IsmpHost, IsmpProvider, Query, Signature,
-	StateMachineUpdated, TxReceipt,
+	StateMachineUpdated, StreamItem, TxReceipt,
 };
 use tokio::time;
 use tokio_stream::StreamExt;
@@ -70,7 +70,7 @@ where
 			call.call().await?
 		};
 
-		// Convert this bytes into BeefyConsensusState for rust and scale encode
+		// Convert these bytes into BeefyConsensusState for rust and scale encode
 		let consensus_state: ConsensusState = BeefyConsensusState::decode(&value.0)?.into();
 		Ok(consensus_state.encode())
 	}
@@ -457,33 +457,33 @@ where
 	async fn state_machine_update_notification(
 		&self,
 		_counterparty_state_id: StateMachineId,
-	) -> Result<BoxStream<StateMachineUpdated>, Error> {
+	) -> Result<BoxStream<StreamItem>, Error> {
 		let interval = time::interval(Duration::from_secs(self.config.poll_interval.unwrap_or(10)));
 		let initial_height = self.client.get_block_number().await?.low_u64();
 		let stream = stream::unfold(
 			(initial_height, interval, self.clone()),
-			move |(mut latest_height, mut interval, client)| async move {
+			move |(latest_height, mut interval, client)| async move {
 				let state_machine = client.state_machine;
-				loop {
-					interval.tick().await;
-					let block_number = match client.client.get_block_number().await {
-						Ok(number) => number.low_u64(),
-						Err(err) =>
-							return Some((
-								Err(err).context(format!(
-								"Error encountered fetching latest block number for {state_machine:?}"
-							)),
-								(latest_height, interval, client),
-							)),
-					};
+				interval.tick().await;
 
-					// in case we get old heights, best to ignore them
-					if block_number < latest_height {
-						continue;
-					}
+				// wait for an update with a greater height
+				let block_number = match client.client.get_block_number().await {
+					Ok(number) => number.low_u64(),
+					Err(err) =>
+						return Some((
+							Err(anyhow!(
+								"Error fetching latest block height on {state_machine:?} {err:?}"
+							)),
+							(latest_height, interval, client),
+						)),
+				};
 
-					let contract = Handler::new(client.config.handler, client.client.clone());
-					let results = match contract
+				if block_number <= latest_height {
+					return Some((Ok(StreamItem::NoOp), (latest_height, interval, client)))
+				}
+
+				let contract = Handler::new(client.config.handler, client.client.clone());
+				let results = match contract
 						.events()
 						.address(client.config.handler.into())
 						.from_block(latest_height)
@@ -501,17 +501,18 @@ where
 								(block_number, interval, client),
 							)),
 					};
-					let mut events = results
-						.into_iter()
-						.map(|ev| ev.into())
-						.collect::<Vec<StateMachineUpdated>>();
-					// we only want the highest event
-					events.sort_by(|a, b| a.latest_height.cmp(&b.latest_height));
-					if let Some(event) = events.last() {
-						return Some((Ok(event.clone()), (block_number + 1, interval, client)))
-					} else {
-						latest_height = block_number + 1;
-					}
+				let event = results
+					.into_iter()
+					.map(|ev| StateMachineUpdated::from(ev))
+					.max_by(|a, b| a.latest_height.cmp(&b.latest_height));
+
+				if let Some(event) = event {
+					return Some((
+						Ok(StreamItem::Value(event.clone())),
+						(block_number + 1, interval, client),
+					))
+				} else {
+					return Some((Ok(StreamItem::NoOp), (block_number + 1, interval, client)))
 				}
 			},
 		);

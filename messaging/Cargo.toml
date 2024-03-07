@@ -21,3 +21,5 @@ transaction-fees = { path = "../fees" }
 tesseract-primitives = { path = "../primitives" }
 ismp-solidity-abi.workspace = true
 tesseract-client = { path = "../client" }
+
+tracing = { version = "0.1.40" }

@@ -11,7 +11,7 @@ Available at: https://api.studio.thegraph.com/query/66742/hyperbridgeupdated/v0.
 
 ### 1. Number of post request handled
 
-The `postRequestHandledCounts` returns the number of post requests handles
+The `postRequestHandledCounts` returns the total number of post requests handled totally.
 
 Query:
 ```sh
@@ -36,3 +36,5 @@ Response:
   }
 }
 ```
+
+### 2. Number of post request handled by a relayer/relayers

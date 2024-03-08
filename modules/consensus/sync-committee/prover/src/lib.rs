@@ -10,7 +10,7 @@ mod test;
 use anyhow::anyhow;
 use bls_on_arkworks::{point_to_pubkey, types::G1ProjectivePoint};
 use log::trace;
-use reqwest::Client;
+use reqwest::{Client, Url};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use retry_policies::Jitter;
@@ -100,7 +100,7 @@ impl<C: Config> SyncCommitteeProver<C> {
         &self,
         state_id: Option<&str>,
     ) -> Result<FinalityCheckpoint, anyhow::Error> {
-        let full_url = self.generate_route(&finality_checkpoints(state_id.unwrap_or("head")));
+        let full_url = self.generate_route(&finality_checkpoints(state_id.unwrap_or("head")))?;
         let response = self
             .client
             .get(full_url)
@@ -117,7 +117,7 @@ impl<C: Config> SyncCommitteeProver<C> {
 
     pub async fn fetch_header(&self, block_id: &str) -> Result<BeaconBlockHeader, anyhow::Error> {
         let path = header_route(block_id);
-        let full_url = self.generate_route(&path);
+        let full_url = self.generate_route(&path)?;
         let response =
             self.client.get(full_url).send().await.map_err(|e| {
                 anyhow!("Failed to fetch header with id {block_id} due to error {e:?}")
@@ -156,7 +156,7 @@ impl<C: Config> SyncCommitteeProver<C> {
         anyhow::Error,
     > {
         let path = block_route(block_id);
-        let full_url = self.generate_route(&path);
+        let full_url = self.generate_route(&path)?;
 
         let response =
             self.client.get(full_url).send().await.map_err(|e| {
@@ -178,7 +178,7 @@ impl<C: Config> SyncCommitteeProver<C> {
         state_id: &str,
     ) -> Result<NodeSyncCommittee, anyhow::Error> {
         let path = sync_committee_route(state_id);
-        let full_url = self.generate_route(&path);
+        let full_url = self.generate_route(&path)?;
 
         let response = self.client.get(full_url).send().await?;
 
@@ -195,7 +195,7 @@ impl<C: Config> SyncCommitteeProver<C> {
         validator_index: &str,
     ) -> Result<Validator, anyhow::Error> {
         let path = validator_route(state_id, validator_index);
-        let full_url = self.generate_route(&path);
+        let full_url = self.generate_route(&path)?;
 
         let response = self.client.get(full_url).send().await?;
 
@@ -211,7 +211,7 @@ impl<C: Config> SyncCommitteeProver<C> {
         state_id: &str,
     ) -> Result<BeaconStateType, anyhow::Error> {
         let path = beacon_state_route(state_id);
-        let full_url = self.generate_route(&path);
+        let full_url = self.generate_route(&path)?;
 
         let response = self.client.get(full_url).send().await.map_err(|e| {
             anyhow!("Failed to fetch beacon state with id {state_id} due to error {e:?}")
@@ -229,8 +229,9 @@ impl<C: Config> SyncCommitteeProver<C> {
         Ok(beacon_state)
     }
 
-    fn generate_route(&self, path: &str) -> String {
-        format!("{}{}", self.primary_url.clone(), path)
+    fn generate_route(&self, path: &str) -> Result<Url, anyhow::Error> {
+        let url = Url::parse(&format!("{}{}", self.primary_url.clone(), path))?;
+        Ok(url)
     }
 
     /// Fetches the latest finality update that can be verified by (state_period..=state_period+1)

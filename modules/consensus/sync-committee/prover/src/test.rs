@@ -193,7 +193,7 @@ async fn test_prover() {
 
     let sync_committee_prover = setup_prover();
     let node_url =
-        format!("{}/eth/v1/events?topics=finalized_checkpoint", sync_committee_prover.node_url);
+        format!("{}/eth/v1/events?topics=finalized_checkpoint", sync_committee_prover.primary_url);
     let block_header = sync_committee_prover.fetch_header("head").await.unwrap();
 
     let state = sync_committee_prover
@@ -219,7 +219,7 @@ async fn test_prover() {
                 let checkpoint =
                     Checkpoint { epoch: message.epoch.parse().unwrap(), root: message.block };
                 let light_client_update = if let Some(update) = sync_committee_prover
-                    .fetch_light_client_update(client_state.clone(), checkpoint, None, "prover")
+                    .fetch_light_client_update(client_state.clone(), checkpoint, None)
                     .await
                     .unwrap()
                 {
@@ -243,8 +243,7 @@ async fn test_prover() {
                     light_client_update,
                 )
                 .unwrap();
-                debug!(
-                    target: "prover",
+                println!(
                     "Sucessfully verified Ethereum block at slot {:?}",
                     client_state.finalized_header.slot
                 );

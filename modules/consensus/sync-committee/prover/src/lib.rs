@@ -1,3 +1,4 @@
+mod middleware;
 #[warn(unused_imports)]
 #[warn(unused_variables)]
 mod responses;
@@ -8,9 +9,12 @@ mod test;
 
 use anyhow::anyhow;
 use bls_on_arkworks::{point_to_pubkey, types::G1ProjectivePoint};
-use log::debug;
+use log::trace;
 use reqwest::Client;
-use std::marker::PhantomData;
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
+use retry_policies::Jitter;
+use std::{marker::PhantomData, time::Duration};
 use sync_committee_primitives::{
     consensus_types::{BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, Validator},
     types::VerifierState,
@@ -63,22 +67,33 @@ pub type BeaconStateType = BeaconState<
 >;
 
 pub struct SyncCommitteeProver<C: Config> {
-    pub node_url: String,
-    pub client: Client,
+    pub primary_url: String,
+    pub client: ClientWithMiddleware,
     pub phantom: PhantomData<C>,
 }
 
 impl<C: Config> Clone for SyncCommitteeProver<C> {
     fn clone(&self) -> Self {
-        Self { node_url: self.node_url.clone(), client: self.client.clone(), phantom: PhantomData }
+        Self {
+            primary_url: self.primary_url.clone(),
+            client: self.client.clone(),
+            phantom: PhantomData,
+        }
     }
 }
 
 impl<C: Config> SyncCommitteeProver<C> {
     pub fn new(node_url: String) -> Self {
-        let client = Client::new();
+        let retry_policy = ExponentialBackoff::builder()
+            .retry_bounds(Duration::from_secs(1), Duration::from_secs(15))
+            .jitter(Jitter::Bounded)
+            .base(2)
+            .build_with_total_retry_duration(Duration::from_secs(100));
 
-        SyncCommitteeProver::<C> { node_url, client, phantom: PhantomData }
+        let retry_transient_middleware = RetryTransientMiddleware::new_with_policy(retry_policy);
+        let client = ClientBuilder::new(Client::new()).with(retry_transient_middleware).build();
+
+        SyncCommitteeProver::<C> { primary_url: node_url, client, phantom: PhantomData }
     }
 
     pub async fn fetch_finalized_checkpoint(
@@ -86,20 +101,32 @@ impl<C: Config> SyncCommitteeProver<C> {
         state_id: Option<&str>,
     ) -> Result<FinalityCheckpoint, anyhow::Error> {
         let full_url = self.generate_route(&finality_checkpoints(state_id.unwrap_or("head")));
-        let response = self.client.get(full_url).send().await?;
+        let response = self
+            .client
+            .get(full_url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to fetch finalized checkpoint due to error {e:?}"))?;
 
-        let response_data =
-            response.json::<responses::finality_checkpoint_response::Response>().await?;
+        let response_data = response
+            .json::<responses::finality_checkpoint_response::Response>()
+            .await
+            .map_err(|e| anyhow!("Failed to fetch finalized checkpoint due to error {e:?}"))?;
         Ok(response_data.data)
     }
 
     pub async fn fetch_header(&self, block_id: &str) -> Result<BeaconBlockHeader, anyhow::Error> {
         let path = header_route(block_id);
         let full_url = self.generate_route(&path);
-        let response = self.client.get(full_url).send().await?;
+        let response =
+            self.client.get(full_url).send().await.map_err(|e| {
+                anyhow!("Failed to fetch header with id {block_id} due to error {e:?}")
+            })?;
 
-        let response_data =
-            response.json::<responses::beacon_block_header_response::Response>().await?;
+        let response_data = response
+            .json::<responses::beacon_block_header_response::Response>()
+            .await
+            .map_err(|e| anyhow!("Failed to fetch header with id {block_id} due to error {e:?}"))?;
 
         let beacon_block_header = response_data.data.header.message;
 
@@ -131,9 +158,15 @@ impl<C: Config> SyncCommitteeProver<C> {
         let path = block_route(block_id);
         let full_url = self.generate_route(&path);
 
-        let response = self.client.get(full_url).send().await?;
+        let response =
+            self.client.get(full_url).send().await.map_err(|e| {
+                anyhow!("Failed to fetch block with id {block_id} due to error {e:?}")
+            })?;
 
-        let response_data = response.json::<responses::beacon_block_response::Response>().await?;
+        let response_data = response
+            .json::<responses::beacon_block_response::Response>()
+            .await
+            .map_err(|e| anyhow!("Failed to fetch block with id {block_id} due to error {e:?}"))?;
 
         let beacon_block = response_data.data.message;
 
@@ -180,9 +213,16 @@ impl<C: Config> SyncCommitteeProver<C> {
         let path = beacon_state_route(state_id);
         let full_url = self.generate_route(&path);
 
-        let response = self.client.get(full_url).send().await?;
+        let response = self.client.get(full_url).send().await.map_err(|e| {
+            anyhow!("Failed to fetch beacon state with id {state_id} due to error {e:?}")
+        })?;
 
-        let response_data = response.json::<responses::beacon_state_response::Response>().await?;
+        let response_data = response
+            .json::<responses::beacon_state_response::Response>()
+            .await
+            .map_err(|e| {
+                anyhow!("Failed to fetch beacon state with id {state_id} due to error {e:?}")
+            })?;
 
         let beacon_state = response_data.data;
 
@@ -190,7 +230,7 @@ impl<C: Config> SyncCommitteeProver<C> {
     }
 
     fn generate_route(&self, path: &str) -> String {
-        format!("{}{}", self.node_url.clone(), path)
+        format!("{}{}", self.primary_url.clone(), path)
     }
 
     /// Fetches the latest finality update that can be verified by (state_period..=state_period+1)
@@ -201,15 +241,15 @@ impl<C: Config> SyncCommitteeProver<C> {
         mut client_state: VerifierState,
         finality_checkpoint: Checkpoint,
         latest_block_id: Option<&str>,
-        debug_target: &str,
     ) -> Result<Option<VerifierStateUpdate>, anyhow::Error> {
         if finality_checkpoint.root == Node::default() ||
             client_state.latest_finalized_epoch >= finality_checkpoint.epoch
         {
+            trace!(target: "sync-committee-prover", "No new epoch finalized yet {}", finality_checkpoint.epoch);
             return Ok(None);
         }
 
-        debug!(target: debug_target, "A new epoch has been finalized {}", finality_checkpoint.epoch);
+        trace!(target: "sync-committee-prover", "A new epoch has been finalized {}", finality_checkpoint.epoch);
         // Find the highest block with the a threshhold number of sync committee signatures
         let latest_header = self.fetch_header(latest_block_id.unwrap_or("head")).await?;
         let latest_root = latest_header.clone().hash_tree_root()?;
@@ -230,7 +270,7 @@ impl<C: Config> SyncCommitteeProver<C> {
             let parent_block_finality_checkpoint =
                 self.fetch_finalized_checkpoint(Some(&parent_state_id)).await?.finalized;
             if parent_block_finality_checkpoint.epoch <= client_state.latest_finalized_epoch {
-                debug!(target: "prover", "Signature block search has reached an invalid epoch {} latest finalized_block_epoch {}", parent_block_finality_checkpoint.epoch, client_state.latest_finalized_epoch);
+                trace!(target: "sync-committee-prover", "Search for a block with a valid sync committee signature has reached an invalid epoch {} latest_finalized_block_epoch: {}", parent_block_finality_checkpoint.epoch, client_state.latest_finalized_epoch);
                 return Ok(None);
             }
 
@@ -309,6 +349,7 @@ impl<C: Config> SyncCommitteeProver<C> {
         let mut block = loop {
             // Prevent an infinite loop
             if count == 100 {
+                log::trace!("Prover could not find a suitable block for the sync committee: {period}, syncing will fail");
                 return Err(anyhow!("Error fetching blocks from selected epoch"));
             }
 

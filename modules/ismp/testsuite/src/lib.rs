@@ -46,22 +46,7 @@ fn mock_proxy_consensus_state_id() -> ConsensusStateId {
     *b"prox"
 }
 
-// fn proxy_state() -> IntermediateState {
-//     IntermediateState {
-//         height: StateMachineHeight {
-//             id: StateMachineId {
-//                 state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
-//                 consensus_state_id: mock_proxy_consensus_state_id(),
-//             },
-//             height: 1,
-//         },
-//         commitment: StateCommitment {
-//             timestamp: 1000,
-//             overlay_root: None,
-//             state_root: Default::default(),
-//         },
-//     }
-// }
+
 fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
     let intermediate_state = IntermediateState {
         height: StateMachineHeight {

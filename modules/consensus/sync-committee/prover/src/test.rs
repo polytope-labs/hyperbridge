@@ -1,10 +1,6 @@
-use crate::middleware::SwitchProviderMiddleware;
-
 use super::*;
-use reqwest::Client;
-use reqwest_chain::ChainMiddleware;
 use reqwest_eventsource::EventSource;
-use reqwest_middleware::ClientBuilder;
+
 use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use sync_committee_primitives::{
     constants::{
@@ -270,24 +266,15 @@ async fn test_prover() {
 #[tokio::test]
 #[ignore]
 async fn test_switch_provider_middleware() {
-    let mut prover = setup_prover();
-    // Set an invalid consensus url
-    prover.primary_url = "http://localhost:3505".to_string();
-    // Provide provider urls to middleware
     let providers = vec![
         "http://localhost:3505".to_string(),
         "http://localhost:3510".to_string(),
         "http://localhost:3500".to_string(),
     ];
-    let client = ClientBuilder::new(Client::new())
-        .with(ChainMiddleware::new(SwitchProviderMiddleware::_new(providers)))
-        .build();
-    let finality_checkpoint_url = prover.generate_route(&finality_checkpoints("head")).unwrap();
 
-    let response = client.get(finality_checkpoint_url).send().await.unwrap();
-    let response_data = response.json::<responses::finality_checkpoint_response::Response>().await;
-    // It should fetch the correct response with the third url
-    assert!(response_data.is_ok())
+    let prover = SyncCommitteeProver::<Devnet>::new(providers);
+    let res = prover.fetch_finalized_checkpoint(None).await;
+    assert!(res.is_ok())
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

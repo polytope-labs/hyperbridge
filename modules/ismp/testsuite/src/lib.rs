@@ -541,11 +541,13 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine<H, D>(host: &H
     D::Balance: From<u32>,
 
 {
+    let proxy_state_machine = StateMachine::Kusama(2000);
+    let direct_conn_state_machine = StateMachine::Bsc; 
    
     let proxy =  IntermediateState {
         height: StateMachineHeight {
             id: StateMachineId {
-                state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+                state_id: proxy_state_machine,
                 consensus_state_id: mock_proxy_consensus_state_id(),
             },
             height: 1,
@@ -564,6 +566,24 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine<H, D>(host: &H
         .unwrap();
     host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
         .unwrap();
+
+    // check for the two consensus clients and also add the clinet the other one 
+//assert that one consensus client is for the proxy and the other is for the destination chain
+
+let consensus_clients= host.consensus_clients();
+assert!(consensus_clients.len() > 1);
+
+// assert that destination chain concensus client is in the Host list of clients 
+// destination chain concensus in this test is assumed to be MOCK_CONSENSUS_CLIENT_ID
+
+
+let proxy_consensus_client_id = consensus_clients.iter().find(|client| client.state_machine(proxy_state_machine).ok().is_some()).expect("The proxy consensus client should be set for this test").consensus_client_id();
+let destination_consensus_client_id = consensus_clients.iter().find(|client| client.state_machine(direct_conn_state_machine).ok().is_some()).expect("The proxy destination chain's consensus client should be set for this test").consensus_client_id();
+
+
+// For our test case we assert that there exists distinct consensus clients for the proxy and the direct connection
+
+assert_ne!(proxy_consensus_client_id, destination_consensus_client_id);
 
     
 
@@ -600,7 +620,8 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine<H, D>(host: &H
     });
 
     let res = handle_incoming_message(host, timeout_message);
-    assert!(res.is_err());
+
+    assert!(matches!(res, Err(..)));
 
     Ok(())
 }
@@ -615,10 +636,13 @@ D::Account: From<[u8; 32]>,
 D::Balance: From<u32>
 {
 
+    let proxy_state_machine = StateMachine::Kusama(2000);
+    let direct_conn_state_machine = StateMachine::Bsc; 
+
     let proxy =  IntermediateState {
         height: StateMachineHeight {
             id: StateMachineId {
-                state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+                state_id: proxy_state_machine,
                 consensus_state_id: mock_proxy_consensus_state_id(),
             },
             height: 1,
@@ -706,7 +730,7 @@ dispatcher
 let res = handle_incoming_message(host, request_invalid_message);
 
 //assert that requests are not valid if they don't come from the state machine claimed  
-assert!(res.is_err(), "Request commitment not found");
+assert!(matches!(res, Err(..)));
 
  let request_message = Message::Request(RequestMessage{
     requests: vec![post.clone()],
@@ -715,21 +739,10 @@ assert!(res.is_err(), "Request commitment not found");
 });
 
 
-let host_machine = host.host_state_machine();
-
+// Check if the destination chain matches the destination chain in the request message
 let message_destination_machine = if let Message::Request(ref request_message) = request_message { Some(request_message.proof.height.id.state_id.clone()) } else { None };
 
-let res_destination_machine = message_destination_machine.unwrap();
-
-let res = handle_incoming_message(host, request_message).unwrap();
-
-let source_chain_res = if let MessageResult::Request(results) = res {
-    results.first().and_then(|result| result.as_ref().ok()).map(|success| success.source_chain.clone())
-} else {
-    None
-};
-// assert_eq!(source_chain_res.unwrap(), host_machine);
-
+assert_eq!(message_destination_machine, Some(direct_conn_state_machine));
 
   Ok(())
 

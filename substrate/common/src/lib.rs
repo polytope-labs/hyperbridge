@@ -19,7 +19,7 @@ use anyhow::Context;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use pallet_ismp::primitives::HashAlgorithm;
 use primitives::{config::Chain, IsmpHost, IsmpProvider};
-use reconnecting_jsonrpsee_ws_client::{Client, FixedInterval, PingConfig};
+use reconnecting_jsonrpsee_ws_client::{Client, PingConfig, RetryPolicy};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, sr25519, Pair, H256};
 use std::{sync::Arc, time::Duration};
@@ -102,7 +102,7 @@ where
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(15 * 1024 * 1024);
 		let raw_client = Client::builder()
 			// retry every second
-			.retry_policy(FixedInterval::from_millis(1000))
+			.retry_policy(RetryPolicy::fixed(Duration::from_millis(1000)))
 			.max_request_size(max_rpc_payload_size)
 			.max_response_size(max_rpc_payload_size)
 			.enable_ws_ping(

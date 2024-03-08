@@ -249,34 +249,20 @@ mod tests {
 			"https://clean-capable-dew.bsc-testnet.quiknode.pro/bed456956996abb801b7ab44fdb3f6f63cd1a4ec/".into(),
 		);
 
+		let ping_addr = H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F"));
+
 		let chains = vec![
-			(
-				StateMachine::Ethereum(Ethereum::ExecutionLayer),
-				H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F")),
-				geth_url,
-			),
-			(
-				StateMachine::Ethereum(Ethereum::Arbitrum),
-				H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F")),
-				arb_url,
-			),
-			(
-				StateMachine::Ethereum(Ethereum::Optimism),
-				H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F")),
-				op_url,
-			),
-			(
-				StateMachine::Ethereum(Ethereum::Base),
-				H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F")),
-				base_url,
-			),
-			(StateMachine::Bsc, H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F")), bsc_url),
+			(StateMachine::Ethereum(Ethereum::ExecutionLayer), geth_url),
+			(StateMachine::Ethereum(Ethereum::Arbitrum), arb_url),
+			(StateMachine::Ethereum(Ethereum::Optimism), op_url),
+			(StateMachine::Ethereum(Ethereum::Base), base_url),
+			(StateMachine::Bsc, bsc_url),
 		];
 
 		let stream = futures::stream::iter(chains.clone().into_iter().map(Ok::<_, anyhow::Error>));
 
 		stream
-			.try_for_each_concurrent(None, |(chain, ping, url)| {
+			.try_for_each_concurrent(None, |(chain, url)| {
 				let chains_clone = chains.clone();
 				async move {
 					let signer = sp_core::ecdsa::Pair::from_seed_slice(&hex!(
@@ -287,10 +273,11 @@ mod tests {
 						LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
 							.with_chain_id(provider.get_chainid().await?.low_u64());
 					let client = Arc::new(provider.with_signer(signer));
-					let ping = PingModule::new(ping.clone(), client.clone());
+					let ping = PingModule::new(ping_addr.clone(), client.clone());
 
 					let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
-					dbg!(&host_addr);
+					dbg!((&chain, &host_addr));
+
 					let host = EvmHost::new(host_addr, client.clone());
 					let erc_20 = Erc20::new(
 						host.dai().await.context(format!("Error in {chain:?}"))?,
@@ -301,29 +288,30 @@ mod tests {
 					call.gas(gas)
 						.send()
 						.await
-						.context(format!("Error in {chain:?}"))?
+						.context(format!("Failed to send approval for {host_addr} in {chain:?}"))?
 						.await
-						.context(format!("Error in {chain:?}"))?;
+						.context(format!("Failed to approve {host_addr} in {chain:?}"))?;
 
-					for (chain, ping_addr, _) in chains_clone.iter().filter(|(c, _, _)| chain != *c)
-					{
+					for (chain, _) in chains_clone.iter().filter(|(c, _)| chain != *c) {
 						for _ in 0..1 {
 							let call = ping.ping(PingMessage {
 								dest: chain.to_string().as_bytes().to_vec().into(),
 								module: ping_addr.clone().into(),
 								timeout: 10 * 60 * 60,
 								fee: U256::from(9_000_000_000_000_000_000u128),
-								count: U256::from(100),
+								count: U256::from(10),
 							});
-							let gas =
-								call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
+							let gas = call
+								.estimate_gas()
+								.await
+								.context(format!("Failed to estimate gas in {chain:?}"))?;
 							let receipt = call
 								.gas(gas)
 								.send()
 								.await
-								.context(format!("Error in {chain:?}"))?
+								.context(format!("Failed to send ping tx to {chain:?}"))?
 								.await
-								.context(format!("Error in {chain:?}"))?;
+								.context(format!("Failed to execute ping message on {chain:?}"))?;
 
 							assert!(receipt.is_some());
 						}

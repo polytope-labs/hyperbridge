@@ -144,6 +144,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "again"
+version = "0.1.2"
+source = "git+https://github.com/softprops/again?branch=develop#6db8c5e56bf93b1177ed35a926f8ff7d4adbf93b"
+dependencies = [
+ "log",
+ "rand 0.8.5",
+ "wasm-timer",
+]
+
+[[package]]
 name = "ahash"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5977,7 +5987,18 @@ checksum = "9579d0ca9fb30da026bac2f0f7d9576ec93489aeb7cd4971dd5b4617d82c79b2"
 dependencies = [
  "jsonrpsee-core 0.21.0",
  "jsonrpsee-types 0.21.0",
- "jsonrpsee-ws-client",
+ "jsonrpsee-ws-client 0.21.0",
+]
+
+[[package]]
+name = "jsonrpsee"
+version = "0.22.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87f3ae45a64cfc0882934f963be9431b2a165d667f53140358181f262aca0702"
+dependencies = [
+ "jsonrpsee-core 0.22.2",
+ "jsonrpsee-types 0.22.2",
+ "jsonrpsee-ws-client 0.22.2",
 ]
 
 [[package]]
@@ -6010,6 +6031,27 @@ dependencies = [
  "futures-util",
  "http 0.2.11",
  "jsonrpsee-core 0.21.0",
+ "pin-project",
+ "rustls-native-certs 0.7.0",
+ "rustls-pki-types",
+ "soketto",
+ "thiserror",
+ "tokio",
+ "tokio-rustls 0.25.0",
+ "tokio-util 0.7.10",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "jsonrpsee-client-transport"
+version = "0.22.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "455fc882e56f58228df2aee36b88a1340eafd707c76af2fa68cf94b37d461131"
+dependencies = [
+ "futures-util",
+ "http 0.2.11",
+ "jsonrpsee-core 0.22.2",
  "pin-project",
  "rustls-native-certs 0.7.0",
  "rustls-pki-types",
@@ -6063,6 +6105,29 @@ dependencies = [
  "futures-timer",
  "futures-util",
  "jsonrpsee-types 0.21.0",
+ "pin-project",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
+name = "jsonrpsee-core"
+version = "0.22.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b75568f4f9696e3a47426e1985b548e1a9fcb13372a5e320372acaf04aca30d1"
+dependencies = [
+ "anyhow",
+ "async-lock 3.3.0",
+ "async-trait",
+ "beef",
+ "futures-timer",
+ "futures-util",
+ "jsonrpsee-types 0.22.2",
  "pin-project",
  "rustc-hash",
  "serde",
@@ -6155,6 +6220,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsonrpsee-types"
+version = "0.22.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3467fd35feeee179f71ab294516bdf3a81139e7aeebdd860e46897c12e1a3368"
+dependencies = [
+ "anyhow",
+ "beef",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "jsonrpsee-ws-client"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6164,6 +6242,19 @@ dependencies = [
  "jsonrpsee-client-transport 0.21.0",
  "jsonrpsee-core 0.21.0",
  "jsonrpsee-types 0.21.0",
+ "url",
+]
+
+[[package]]
+name = "jsonrpsee-ws-client"
+version = "0.22.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68ca71e74983f624c0cb67828e480a981586074da8ad3a2f214c6a3f884edab9"
+dependencies = [
+ "http 0.2.11",
+ "jsonrpsee-client-transport 0.22.2",
+ "jsonrpsee-core 0.22.2",
+ "jsonrpsee-types 0.22.2",
  "url",
 ]
 
@@ -9249,16 +9340,16 @@ dependencies = [
 
 [[package]]
 name = "reconnecting-jsonrpsee-ws-client"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7265f5d33f189e19e7242325ff6874e540aa9c46ae8f44a52412fb59faafbe00"
+version = "0.3.0"
+source = "git+https://github.com/polytope-labs/reconnecting-jsonrpsee-ws-client?rev=7c0817478c2741cc0889e7c75c645aad9f3cbb55#7c0817478c2741cc0889e7c75c645aad9f3cbb55"
 dependencies = [
+ "again",
  "futures",
- "jsonrpsee 0.21.0",
+ "getrandom 0.2.12",
+ "jsonrpsee 0.22.2",
  "serde_json",
  "thiserror",
  "tokio",
- "tokio-retry",
  "tokio-stream",
  "tracing",
 ]
@@ -14388,17 +14479,6 @@ dependencies = [
  "socket2 0.4.10",
  "tokio",
  "tokio-util 0.7.10",
-]
-
-[[package]]
-name = "tokio-retry"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f57eb36ecbe0fc510036adff84824dd3c24bb781e21bfa67b69d556aa85214f"
-dependencies = [
- "pin-project",
- "rand 0.8.5",
- "tokio",
 ]
 
 [[package]]

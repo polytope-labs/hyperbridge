@@ -128,7 +128,7 @@ ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "f8ab49e1ca
 ethers-contract-abigen = { git = "https://github.com/polytope-labs/ethers-rs", rev = "f8ab49e1ca2d68e8bf1113e705ade38e5f30b850" }
 
 merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2" }
-reconnecting-jsonrpsee-ws-client = "0.2.0"
+reconnecting-jsonrpsee-ws-client = { git = "https://github.com/polytope-labs/reconnecting-jsonrpsee-ws-client", rev = "7c0817478c2741cc0889e7c75c645aad9f3cbb55" }
 
 # hyperbridge
 beefy-verifier-primitives = { git = "https://github.com/polytope-labs/hyperbridge", rev = "dffb69a0aeae8588fe4971fe2a2a3a8f87d4420f" }

@@ -84,16 +84,6 @@ type PostResponseHandled @entity(immutable: true) {
   transactionHash: Bytes!
 }
 
-type PostRequestHandledCount @entity {
-  id: ID!
-  value: BigInt! # uint256
-}
-
-type RelayerPostRequestHandledCount @entity {
-  id: ID! # the owner address
-  value: BigInt! # uint256
-}
-
 type Approval @entity(immutable: true) {
   id: Bytes!
   owner: Bytes! # address
@@ -112,6 +102,19 @@ type Transfer @entity(immutable: true) {
   blockNumber: BigInt!
   blockTimestamp: BigInt!
   transactionHash: Bytes!
+}
+
+
+
+
+type PostRequestHandledCount @entity {
+  id: ID!
+  value: BigInt! # uint256
+}
+
+type RelayerPostRequestHandledCount @entity {
+  id: ID! # the owner address
+  value: BigInt! # uint256
 }
 
 type TransferTotal @entity {

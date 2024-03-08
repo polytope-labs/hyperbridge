@@ -24,7 +24,6 @@ use crate::events::{filter_events, translate_events_to_messages, Event};
 use futures::StreamExt;
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
 use tesseract_client::AnyClient;
-use tracing::instrument;
 
 use tesseract_primitives::{
 	config::{Chain, RelayerConfig},
@@ -141,7 +140,6 @@ where
 	))?
 }
 
-#[instrument(skip_all, fields(chain_a = chain_a.state_machine_id().state_id.to_string(), chain_b = chain_b.state_machine_id().state_id.to_string()))]
 async fn handle_update<A, B>(
 	chain_a: &A,
 	chain_b: &B,

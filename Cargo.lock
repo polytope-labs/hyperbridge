@@ -14154,7 +14154,6 @@ dependencies = [
  "tesseract-client",
  "tesseract-primitives",
  "tokio",
- "tracing",
  "transaction-fees",
 ]
 

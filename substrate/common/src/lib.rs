@@ -14,15 +14,14 @@
 // limitations under the License.
 
 pub use crate::provider::system_events_key;
-use crate::rpc_wrapper::ClientWrapper;
-use anyhow::Context;
+
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use pallet_ismp::primitives::HashAlgorithm;
 use primitives::{config::Chain, IsmpHost, IsmpProvider};
-use reconnecting_jsonrpsee_ws_client::{Client, PingConfig, RetryPolicy};
+
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, sr25519, Pair, H256};
-use std::{sync::Arc, time::Duration};
+
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
@@ -100,22 +99,7 @@ where
 	pub async fn new(host: Option<T>, config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(15 * 1024 * 1024);
-		let raw_client = Client::builder()
-			// retry every second
-			.retry_policy(RetryPolicy::fixed(Duration::from_millis(1000)))
-			.max_request_size(max_rpc_payload_size)
-			.max_response_size(max_rpc_payload_size)
-			.enable_ws_ping(
-				PingConfig::new()
-					.ping_interval(Duration::from_secs(6))
-					.inactive_limit(Duration::from_secs(30)),
-			)
-			.build(config.rpc_ws.clone())
-			.await
-			.context(format!("Failed to connect to substrate rpc {}", config.rpc_ws))?;
-		let client = OnlineClient::<C>::from_rpc_client(Arc::new(ClientWrapper(raw_client)))
-			.await
-			.context("Failed to query from substrate rpc")?;
+		let client = rpc_wrapper::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
 		// If latest height of the state machine on the counterparty is not provided in config
 		// Set it to the latest parachain height
 		let latest_height = if let Some(latest_height) = config.latest_height {

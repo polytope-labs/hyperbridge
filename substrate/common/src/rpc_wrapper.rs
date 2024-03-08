@@ -1,10 +1,38 @@
+use anyhow::Context;
 use futures::{StreamExt, TryStreamExt};
-use reconnecting_jsonrpsee_ws_client::{Client, SubscriptionId};
-use std::ops::Deref;
+use reconnecting_jsonrpsee_ws_client::{Client, PingConfig, RetryPolicy, SubscriptionId};
+use std::{ops::Deref, sync::Arc, time::Duration};
 use subxt::{
 	error::RpcError,
 	rpc::{RawValue, RpcClientT, RpcFuture, RpcSubscription},
+	OnlineClient,
 };
+
+/// Create a reconnecting jsonrpsee client
+pub async fn ws_client<T: subxt::Config>(
+	rpc_ws: &str,
+	max_rpc_payload_size: u32,
+) -> Result<OnlineClient<T>, anyhow::Error> {
+	let rpc_ws = rpc_ws.to_owned();
+	let raw_client = Client::builder()
+		// retry every second
+		.retry_policy(RetryPolicy::fixed(Duration::from_millis(1000)))
+		.max_request_size(max_rpc_payload_size)
+		.max_response_size(max_rpc_payload_size)
+		.enable_ws_ping(
+			PingConfig::new()
+				.ping_interval(Duration::from_secs(6))
+				.inactive_limit(Duration::from_secs(30)),
+		)
+		.build(rpc_ws.clone())
+		.await
+		.context(format!("Failed to connect to substrate rpc {rpc_ws}"))?;
+	let client = OnlineClient::<T>::from_rpc_client(Arc::new(ClientWrapper(raw_client)))
+		.await
+		.context("Failed to query from substrate rpc: {rpc_ws}")?;
+
+	Ok(client)
+}
 
 pub struct ClientWrapper(pub Client);
 

@@ -13954,6 +13954,7 @@ dependencies = [
  "pallet-ismp",
  "parity-scale-codec",
  "polkadot-core-primitives",
+ "reconnecting-jsonrpsee-ws-client",
  "serde",
  "sp-consensus-beefy",
  "sp-core 21.0.0",

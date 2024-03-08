@@ -228,7 +228,10 @@ pub async fn get_current_gas_cost_in_usd(
 		chain => Err(anyhow!("Unknown chain: {chain:?}"))?,
 	}
 
-	log::debug!("Returned gas price for {chain:?}: {gas_price}");
+	log::debug!(
+		"Returned gas price for {chain:?}: {} Gwei",
+		ethers::utils::format_units(gas_price, "gwei").unwrap()
+	);
 
 	Ok(GasBreakdown { gas_price, gas_price_cost: gas_price_cost.into(), unit_wei_cost: unit_wei })
 }

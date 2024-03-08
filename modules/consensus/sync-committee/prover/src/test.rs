@@ -285,7 +285,7 @@ async fn test_switch_provider_middleware() {
 
     let response = client.get(finality_checkpoint_url).send().await.unwrap();
     let response_data = response.json::<responses::finality_checkpoint_response::Response>().await;
-    // It should fetch the correct response with the second url
+    // It should fetch the correct response with the third url
     assert!(response_data.is_ok())
 }
 

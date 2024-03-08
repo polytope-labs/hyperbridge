@@ -15,9 +15,7 @@ pub struct JsChainConfig {
     pub state_machine: String,
     pub host_address: Vec<u8>,
     pub handler_address: Vec<u8>,
-    pub consensus_state_id: Vec<u8>,
-    /// Keccak = 1, Blake2 = 2
-    pub hash_algo: i32,
+    pub consensus_state_id: Vec<u8>
 }
 
 
@@ -80,13 +78,7 @@ impl TryFrom<JsClientConfig> for ClientConfig {
                         dest.copy_from_slice(&val.consensus_state_id);
                         dest
                     },
-                    hash_algo: {
-                        if val.hash_algo == 1 {
-                            HashAlgorithm::Keccak
-                        } else {
-                            HashAlgorithm::Blake2
-                        }
-                    },
+                    hash_algo: HashAlgorithm::Keccak
                 };
 
                 Ok(ChainConfig::Substrate(conf))

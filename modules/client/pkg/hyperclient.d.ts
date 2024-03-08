@@ -105,10 +105,6 @@ export class JsChainConfig {
 */
   handler_address: Uint8Array;
 /**
-* Keccak = 1, Blake2 = 2
-*/
-  hash_algo: number;
-/**
 */
   host_address: Uint8Array;
 /**

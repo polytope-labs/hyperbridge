@@ -138,7 +138,7 @@ Response:
 }
 ```
 
-### 2. Amount Earned by a relayer
+### 3. Amount Earned by a relayer
 To get the amount earned by a given relayer, we calculated the total amount transferred from the EVMHost to the specified relayer. This is available on the `transferPairTotals` endpoint. In our query, we make use of the `where` clause, given the <b>host address</b> as the `from` parameter and the <b>relayer address</b> as the `to` parameter. See usage below:
 
 Query:
@@ -170,3 +170,70 @@ Response:
   }
 }
 ```
+
+### 4. Total fees earned by Hyperbridge
+Calculating the total fees earned by Hyperbridge requires some manual calculation where we:
+- First get the sum of the total amount of feeToken transferred into the EVMHost.
+- Secondly we get the sum of the total amount in fees emitted by the PostRequestEvents
+- Lastly we deduct totalPostEventFees from the total amount transferred into the EVMHost. The balance is the amount of fees earned Hyperbridge.
+
+See Usage Below:
+
+For `inTransferTotal`: this takes the host address as parameter for the id field and returns the total amount of feeToken transferred to the host.
+
+Query:
+```sh
+{
+  inTransferTotal(id: "0xe4226c474a6f4bf285ea80c2f01c0942b04323e5") {
+    id
+    totalAmountTransferredIn
+  }
+}
+```
+
+Response:
+```sh
+{
+  "data": {
+    "inTransferTotal": {
+      "id": "0xe4226c474a6f4bf285ea80c2f01c0942b04323e5",
+      "totalAmountTransferredIn": "69829815000000001000000"
+    }
+  }
+}
+```
+
+For `requestEventFeeTotals`: this returns the total fees (relayer fees) emitted by the PostRequestEvent
+
+Query:
+```sh
+{
+  requestEventFeeTotals {
+    id
+    totalRequestFee
+  }
+}
+```
+
+Response:
+```sh
+{
+  "data": {
+    "requestEventFeeTotals": [
+      {
+        "id": "1",
+        "totalRequestFee": "69480000000000001000000"
+      }
+    ]
+  }
+}
+```
+
+Fee earned by Hyperbridge will be `totalAmountTransferredIn - totalRequestFee`. This calculation should be done on the frontend.
+
+The result of the subtraction will be:
+```
+69829815000000001000000 - 69480000000000001000000 = 34981500000000000000
+```
+
+#### Amount earned by Hyperbridge = 34981500000000000000

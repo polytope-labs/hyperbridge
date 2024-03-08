@@ -9,6 +9,8 @@ Available at: https://api.studio.thegraph.com/query/66742/hyperbridgeupdated/v0.
 
 Docs reference: https://docs.google.com/document/d/1ja_hWYOfu764GIwPT-lONJW1aqPFEMN6lmcRTZ_Bslk/edit?usp=sharing
 
+Subgraph Schema: https://github.com/polytope-labs/hyperbridge/blob/d24057af4670673ca5bb1c408a838217e8a1c3e3/subgraph/schema.graphql
+
 ## Queries and Response
 
 ### 1. Number of post request handled

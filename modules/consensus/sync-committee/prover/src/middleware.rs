@@ -31,9 +31,9 @@ impl Chainer for SwitchProviderMiddleware {
         request: &mut reqwest::Request,
     ) -> Result<Option<reqwest::Response>, Error> {
         let mut next_state = || {
-            let next_index = _state.active_url_index + 1;
+            let mut next_index = _state.active_url_index + 1;
             if next_index >= self.providers.len() {
-                return Err(anyhow!("Providers have been exhausted"));
+                next_index = 0;
             }
             _state.active_url_index = next_index;
             let next_provider = self.providers[next_index].clone();
@@ -45,7 +45,7 @@ impl Chainer for SwitchProviderMiddleware {
             let new_url = format!("{next_provider}/eth{}", path);
             *url_ref = Url::parse(&new_url).map_err(|e| anyhow!("{e:?}"))?;
             log::trace!(target:"sync-committee-prover", "Retrying request with new proiver {next_provider:?}");
-            Ok(())
+            Ok::<_, anyhow::Error>(())
         };
         match result {
             Ok(response) => {
@@ -61,5 +61,9 @@ impl Chainer for SwitchProviderMiddleware {
         }
 
         Ok(None)
+    }
+
+    fn max_chain_length(&self) -> u32 {
+        u32::MAX
     }
 }

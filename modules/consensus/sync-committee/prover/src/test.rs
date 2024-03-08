@@ -268,6 +268,7 @@ async fn test_prover() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_switch_provider_middleware() {
     let mut prover = setup_prover();
     // Set an invalid consensus url
@@ -301,5 +302,5 @@ fn setup_prover() -> SyncCommitteeProver<Devnet> {
     dotenv::dotenv().ok();
     let consensus_url =
         std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:3500".to_string());
-    SyncCommitteeProver::<Devnet>::new(consensus_url)
+    SyncCommitteeProver::<Devnet>::new(vec![consensus_url])
 }

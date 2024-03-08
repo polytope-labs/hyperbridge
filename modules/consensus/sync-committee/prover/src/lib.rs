@@ -7,29 +7,25 @@ mod routes;
 #[cfg(test)]
 mod test;
 
-use anyhow::anyhow;
-use bls_on_arkworks::{point_to_pubkey, types::G1ProjectivePoint};
-use log::trace;
-use reqwest::{Client, Url};
-use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
-use retry_policies::Jitter;
-use std::{marker::PhantomData, time::Duration};
-use sync_committee_primitives::{
-    consensus_types::{BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, Validator},
-    types::VerifierState,
-};
-
 use crate::{
+    middleware::SwitchProviderMiddleware,
     responses::{
         finality_checkpoint_response::FinalityCheckpoint,
         sync_committee_response::NodeSyncCommittee,
     },
     routes::*,
 };
+use anyhow::anyhow;
+use bls_on_arkworks::{point_to_pubkey, types::G1ProjectivePoint};
+use log::trace;
 use primitive_types::H256;
+use reqwest::{Client, Url};
+use reqwest_chain::ChainMiddleware;
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use ssz_rs::{Merkleized, Node};
+use std::marker::PhantomData;
 use sync_committee_primitives::{
+    consensus_types::{BeaconBlock, BeaconBlockHeader, BeaconState, Checkpoint, Validator},
     constants::{
         BlsPublicKey, Config, Root, BLOCK_ROOTS_INDEX, BYTES_PER_LOGS_BLOOM,
         EPOCHS_PER_HISTORICAL_VECTOR, EPOCHS_PER_SLASHINGS_VECTOR, ETH1_DATA_VOTES_BOUND,
@@ -43,7 +39,7 @@ use sync_committee_primitives::{
     deneb::MAX_BLOB_COMMITMENTS_PER_BLOCK,
     types::{
         AncestryProof, BlockRootsProof, ExecutionPayloadProof, FinalityProof, SyncCommitteeUpdate,
-        VerifierStateUpdate,
+        VerifierState, VerifierStateUpdate,
     },
     util::{
         compute_epoch_at_slot, compute_sync_committee_period_at_slot,
@@ -68,6 +64,7 @@ pub type BeaconStateType = BeaconState<
 
 pub struct SyncCommitteeProver<C: Config> {
     pub primary_url: String,
+    pub providers: Vec<String>,
     pub client: ClientWithMiddleware,
     pub phantom: PhantomData<C>,
 }
@@ -77,23 +74,24 @@ impl<C: Config> Clone for SyncCommitteeProver<C> {
         Self {
             primary_url: self.primary_url.clone(),
             client: self.client.clone(),
+            providers: self.providers.clone(),
             phantom: PhantomData,
         }
     }
 }
 
 impl<C: Config> SyncCommitteeProver<C> {
-    pub fn new(node_url: String) -> Self {
-        let retry_policy = ExponentialBackoff::builder()
-            .retry_bounds(Duration::from_secs(1), Duration::from_secs(15))
-            .jitter(Jitter::Bounded)
-            .base(2)
-            .build_with_total_retry_duration(Duration::from_secs(100));
+    pub fn new(providers: Vec<String>) -> Self {
+        let client = ClientBuilder::new(Client::new())
+            .with(ChainMiddleware::new(SwitchProviderMiddleware::_new(providers.clone())))
+            .build();
 
-        let retry_transient_middleware = RetryTransientMiddleware::new_with_policy(retry_policy);
-        let client = ClientBuilder::new(Client::new()).with(retry_transient_middleware).build();
-
-        SyncCommitteeProver::<C> { primary_url: node_url, client, phantom: PhantomData }
+        SyncCommitteeProver::<C> {
+            primary_url: providers.get(0).expect("There must be atleast one provider").clone(),
+            providers,
+            client,
+            phantom: PhantomData,
+        }
     }
 
     pub async fn fetch_finalized_checkpoint(

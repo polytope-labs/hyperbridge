@@ -20,12 +20,20 @@ pub struct JsChainConfig {
     pub hash_algo: i32,
 }
 
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct JsHyperbridgeConfig {
+    pub rpc_url: String,
+}
+
+
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct JsClientConfig {
     pub source: JsChainConfig,
     pub dest: JsChainConfig,
-    pub hyperbridge: JsChainConfig,
+    pub hyperbridge: JsHyperbridgeConfig,
 }
 
 impl TryFrom<JsClientConfig> for ClientConfig {
@@ -64,8 +72,6 @@ impl TryFrom<JsClientConfig> for ClientConfig {
             } else {
                 let conf = SubstrateConfig {
                     rpc_url: val.rpc_url.clone(),
-                    state_machine: StateMachine::from_str(&val.state_machine)
-                        .map_err(|e| anyhow!("{e:?}"))?,
                     consensus_state_id: {
                         if val.consensus_state_id.len() != 4 {
                             Err(anyhow!("Invalid consensus state id"))?
@@ -87,9 +93,19 @@ impl TryFrom<JsClientConfig> for ClientConfig {
             }
         };
 
+        let to_hyperbridge_config = |val: &JsHyperbridgeConfig| {
+            let conf = SubstrateConfig {
+                rpc_url: val.rpc_url.clone(),
+                consensus_state_id: [0u8; 4],
+                hash_algo: HashAlgorithm::Keccak
+            };
+
+            Ok::<ChainConfig, Self::Error>(ChainConfig::Substrate(conf))
+        };
+
         let source_config = to_config(&value.source)?;
         let dest_config = to_config(&value.dest)?;
-        let hyperbridge = to_config(&value.hyperbridge)?;
+        let hyperbridge = to_hyperbridge_config(&value.hyperbridge)?;
 
         Ok(ClientConfig { source: source_config, dest: dest_config, hyperbridge })
     }
@@ -166,7 +182,7 @@ impl TryFrom<JsResponse> for PostResponse {
 #[cfg(test)]
 mod tests {
     use crate::{
-        interfaces::{JsChainConfig, JsClientConfig, JsPost, JsResponse},
+        interfaces::{JsChainConfig, JsClientConfig, JsHyperbridgeConfig, JsPost, JsResponse},
         types::{ChainConfig, ClientConfig, EvmConfig, HashAlgorithm, SubstrateConfig},
     };
     use ethers::prelude::H160;
@@ -199,7 +215,6 @@ mod tests {
 
         let hyperbrige_config = SubstrateConfig {
             rpc_url: "ws://127.0.0.1:9990".to_string(),
-            state_machine: StateMachine::Kusama(2000),
             consensus_state_id: *b"PARA",
             hash_algo: HashAlgorithm::Keccak,
         };
@@ -227,13 +242,8 @@ mod tests {
             hash_algo: 0,
         };
 
-        let js_hyperbridge = JsChainConfig {
+        let js_hyperbridge = JsHyperbridgeConfig {
             rpc_url: "ws://127.0.0.1:9990".to_string(),
-            state_machine: "KUSAMA-2000".to_string(),
-            host_address: Default::default(),
-            handler_address: Default::default(),
-            consensus_state_id: b"PARA".to_vec(),
-            hash_algo: 1,
         };
 
         let js_client_conf =

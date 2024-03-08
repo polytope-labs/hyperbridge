@@ -1,4 +1,4 @@
-use crate::providers::{evm_chain::EvmClient, global::Client, substrate::SubstrateClient};
+use crate::{providers::{evm_chain::EvmClient, global::Client, substrate::SubstrateClient}};
 use alloc::collections::BTreeMap;
 use anyhow::anyhow;
 use codec::Encode;
@@ -6,7 +6,7 @@ use core::pin::Pin;
 use ethers::types::H160;
 use futures::Stream;
 use ismp::{
-    consensus::{ConsensusStateId, StateMachineId},
+    consensus::ConsensusStateId,
     host::StateMachine,
 };
 use serde::{Deserialize, Serialize};
@@ -76,7 +76,6 @@ impl EvmConfig {
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct SubstrateConfig {
     pub rpc_url: String,
-    pub state_machine: StateMachine,
     pub consensus_state_id: ConsensusStateId,
     pub hash_algo: HashAlgorithm,
 }
@@ -85,11 +84,8 @@ impl SubstrateConfig {
     async fn into_client<C: Config + Clone>(&self) -> Result<SubstrateClient<C>, anyhow::Error> {
         let client = SubstrateClient::<C>::new(
             self.rpc_url.clone(),
-            StateMachineId {
-                state_id: self.state_machine,
-                consensus_state_id: self.consensus_state_id,
-            },
             self.hash_algo,
+            self.consensus_state_id
         )
         .await?;
         Ok(client)
@@ -181,6 +177,8 @@ pub enum HashAlgorithm {
     /// For chains that use blake2 as their hashing algo
     Blake2,
 }
+
+
 
 /// Holds the relevant data needed for state proof verification
 #[derive(Debug, Encode, Decode, Clone)]

@@ -32,6 +32,10 @@ web-sys = "0.3.68"
 wasm-timer = "0.2.5"
 ismp-solidity-abi = { path = "../../evm/abi", default-features = false }
 hashbrown = { version = "0.14.3", features = ["serde"] }
+reconnecting-jsonrpsee-ws-client = { git = "https://github.com/polytope-labs/reconnecting-jsonrpsee-ws-client", rev = "7c0817478c2741cc0889e7c75c645aad9f3cbb55", features = ["web"], default-features = false}
+
+
+
 
 
 [features]

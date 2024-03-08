@@ -127,10 +127,18 @@ export class JsClientConfig {
   dest: JsChainConfig;
 /**
 */
-  hyperbridge: JsChainConfig;
+  hyperbridge: JsHyperbridgeConfig;
 /**
 */
   source: JsChainConfig;
+}
+/**
+*/
+export class JsHyperbridgeConfig {
+  free(): void;
+/**
+*/
+  rpc_url: string;
 }
 /**
 */

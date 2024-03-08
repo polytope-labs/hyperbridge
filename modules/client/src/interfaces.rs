@@ -15,16 +15,14 @@ pub struct JsChainConfig {
     pub state_machine: String,
     pub host_address: Vec<u8>,
     pub handler_address: Vec<u8>,
-    pub consensus_state_id: Vec<u8>
+    pub consensus_state_id: Vec<u8>,
 }
-
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct JsHyperbridgeConfig {
     pub rpc_url: String,
 }
-
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -78,7 +76,7 @@ impl TryFrom<JsClientConfig> for ClientConfig {
                         dest.copy_from_slice(&val.consensus_state_id);
                         dest
                     },
-                    hash_algo: HashAlgorithm::Keccak
+                    hash_algo: HashAlgorithm::Keccak,
                 };
 
                 Ok(ChainConfig::Substrate(conf))
@@ -89,7 +87,7 @@ impl TryFrom<JsClientConfig> for ClientConfig {
             let conf = SubstrateConfig {
                 rpc_url: val.rpc_url.clone(),
                 consensus_state_id: [0u8; 4],
-                hash_algo: HashAlgorithm::Keccak
+                hash_algo: HashAlgorithm::Keccak,
             };
 
             Ok::<ChainConfig, Self::Error>(ChainConfig::Substrate(conf))
@@ -222,7 +220,6 @@ mod tests {
             host_address: BSC_HOST.0.to_vec(),
             handler_address: BSC_HANDLER.0.to_vec(),
             consensus_state_id: b"BSC0".to_vec(),
-            hash_algo: 0,
         };
 
         let js_dest = JsChainConfig {
@@ -231,12 +228,9 @@ mod tests {
             host_address: OP_HOST.0.to_vec(),
             handler_address: OP_HANDLER.0.to_vec(),
             consensus_state_id: b"ETH0".to_vec(),
-            hash_algo: 0,
         };
 
-        let js_hyperbridge = JsHyperbridgeConfig {
-            rpc_url: "ws://127.0.0.1:9990".to_string(),
-        };
+        let js_hyperbridge = JsHyperbridgeConfig { rpc_url: "ws://127.0.0.1:9990".to_string() };
 
         let js_client_conf =
             JsClientConfig { source: js_source, dest: js_dest, hyperbridge: js_hyperbridge };

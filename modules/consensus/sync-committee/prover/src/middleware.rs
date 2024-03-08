@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use reqwest::{header::HOST, StatusCode};
+use reqwest::{StatusCode, Url};
 use reqwest_chain::Chainer;
 use reqwest_middleware::Error;
 
@@ -30,30 +30,33 @@ impl Chainer for SwitchProviderMiddleware {
         _state: &mut Self::State,
         request: &mut reqwest::Request,
     ) -> Result<Option<reqwest::Response>, Error> {
-        let next_state = || {
+        let mut next_state = || {
             let next_index = _state.active_url_index + 1;
             if next_index >= self.providers.len() {
                 return Err(anyhow!("Providers have been exhausted"));
             }
-            Ok(next_index)
+            _state.active_url_index = next_index;
+            let next_provider = self.providers[next_index].clone();
+            let url_ref = request.url_mut();
+            let full_url = url_ref.as_str();
+            // We split the url at /eth since all our queries are in the /eth namespace
+            let host = full_url.split_inclusive("/eth").collect::<Vec<_>>();
+            let path = host.get(1).ok_or_else(|| anyhow!("Invalid path in url"))?;
+            let new_url = format!("{next_provider}/eth{}", path);
+            *url_ref = Url::parse(&new_url).map_err(|e| anyhow!("{e:?}"))?;
+            log::trace!(target:"sync-committee-prover", "Retrying request with new proiver {next_provider:?}");
+            Ok(())
         };
         match result {
             Ok(response) => {
                 if response.status() == StatusCode::OK {
                     return Ok(Some(response));
                 };
-                let next_index = next_state()?;
-                _state.active_url_index = next_index;
-                let url = self.providers[next_index].clone();
-                request.headers_mut().insert(HOST, url.parse().map_err(|e| anyhow!("{e:?}"))?);
+                let _ = next_state()?;
             },
             Err(e) => {
-                log::trace!("Encountered error submitting http, switching provider request {e:?}");
-                let next_index = next_state()?;
-                _state.active_url_index = next_index;
-                let url = self.providers[next_index].clone();
-
-                request.headers_mut().insert(HOST, url.parse().map_err(|e| anyhow!("{e:?}"))?);
+                log::trace!(target:"sync-committee-prover", "Encountered error submitting request, switching provider {e:?}");
+                let _ = next_state()?;
             },
         }
 

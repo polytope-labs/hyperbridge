@@ -137,3 +137,36 @@ Response:
   }
 }
 ```
+
+### 2. Amount Earned by a relayer
+To get the amount earned by a given relayer, we calculated the total amount transferred from the EVMHost to the specified relayer. This is available on the `transferPairTotals` endpoint. In our query, we make use of the `where` clause, given the <b>host address</b> as the `from` parameter and the <b>relayer address</b> as the `to` parameter. See usage below:
+
+Query:
+```sh
+{
+  transferPairTotals(
+    where: {to: "0x7d72983fedc1f332e55006fea2a2afc148f66142", from: "0xe4226c474A6f4BF285eA80c2f01c0942B04323e5"}
+  ) {
+    from
+    id
+    to
+    totalAmount
+  }
+}
+```
+
+Response:
+```sh
+{
+  "data": {
+    "transferPairTotals": [
+      {
+        "from": "0xe4226c474a6f4bf285ea80c2f01c0942b04323e5",
+        "id": "0xe4226c474a6f4bf285ea80c2f01c0942b04323e5-0x7d72983fedc1f332e55006fea2a2afc148f66142",
+        "to": "0x7d72983fedc1f332e55006fea2a2afc148f66142",
+        "totalAmount": "1800000000000000000000"
+      }
+    ]
+  }
+}
+```

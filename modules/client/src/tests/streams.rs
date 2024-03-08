@@ -59,7 +59,6 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 
     let hyperbrige_config = SubstrateConfig {
         rpc_url: "ws://127.0.0.1:9990".to_string(),
-        state_machine: StateMachine::Kusama(2000),
         consensus_state_id: *b"PARA",
         hash_algo: HashAlgorithm::Keccak,
     };
@@ -181,7 +180,6 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
 
     let hyperbrige_config = SubstrateConfig {
         rpc_url: "ws://127.0.0.1:9990".to_string(),
-        state_machine: StateMachine::Kusama(2000),
         consensus_state_id: *b"PARA",
         hash_algo: HashAlgorithm::Keccak,
     };

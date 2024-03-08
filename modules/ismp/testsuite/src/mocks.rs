@@ -4,7 +4,7 @@ use ismp::{
         StateMachineHeight, StateMachineId, VerifiedCommitments,
     },
     error::Error,
-    host::{IsmpHost, StateMachine},
+    host::{Ethereum, IsmpHost, StateMachine},
     messaging::Proof,
     module::IsmpModule,
     router::{
@@ -62,7 +62,10 @@ impl ConsensusClient for MockClient {
     }
 
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-        Ok(Box::new(MockStateMachineClient))
+        match _id {
+            StateMachine::Bsc => Ok(Box::new(MockStateMachineClient)),
+            _ => Err(Error::ImplementationSpecific("Invalid state machine".to_string())),
+        }
     }
 }
 
@@ -94,7 +97,10 @@ impl ConsensusClient for MockProxyClient {
     }
 
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-        Ok(Box::new(MockStateMachineClient))
+        match _id {
+            StateMachine::Kusama(2000) => Ok(Box::new(MockStateMachineClient)),
+            _ => Err(Error::ImplementationSpecific("Invalid state machine".to_string())),
+        }
     }
 }
 
@@ -356,7 +362,7 @@ impl IsmpHost for Host {
     }
 
     fn allowed_proxy(&self) -> Option<StateMachine> {
-        None
+        Some(StateMachine::Kusama(2000))
     }
 
     fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {

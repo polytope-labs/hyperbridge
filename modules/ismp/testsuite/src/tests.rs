@@ -1,7 +1,7 @@
 
 
 use crate::{
-    check_challenge_period, check_client_expiry, frozen_check, mock_consensus_state_id, mock_proxy_consensus_state_id, mocks::{Host, MockDispatcher}, post_request_timeout_check, post_response_timeout_check, prevent_request_timeout_on_proxy_with_known_state_machine, prevent_response_timeout_on_proxy_with_known_state_machine, sanity_check_for_proxies, write_outgoing_commitments
+    check_challenge_period, check_client_expiry, check_request_source_and_destinatione, frozen_check, mock_consensus_state_id, mock_proxy_consensus_state_id, mocks::{Host, MockDispatcher}, post_request_timeout_check, post_response_timeout_check, prevent_request_timeout_on_proxy_with_known_state_machine, prevent_response_timeout_on_proxy_with_known_state_machine, sanity_check_for_proxies, write_outgoing_commitments
 };
 use std::sync::Arc;
 
@@ -58,3 +58,11 @@ fn should_prevent_response_timeout_on_proxy_with_known_state_machine () {
     let dispatcher = MockDispatcher(host.clone());
     prevent_response_timeout_on_proxy_with_known_state_machine(&*host, &dispatcher).unwrap()
 }
+
+#[test]
+fn should_check_request_source_and_destinatione() {
+    let host = Arc::new(Host::default());
+    let dispatcher = MockDispatcher(host.clone());
+    check_request_source_and_destinatione(&*host, &dispatcher).unwrap();
+}
+

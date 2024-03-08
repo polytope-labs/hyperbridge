@@ -7,6 +7,8 @@ Synced at: https://thegraph.com/studio/subgraph/hyperbridgeupdated/playground
 
 Available at: https://api.studio.thegraph.com/query/66742/hyperbridgeupdated/v0.0.3
 
+Docs reference: https://docs.google.com/document/d/1ja_hWYOfu764GIwPT-lONJW1aqPFEMN6lmcRTZ_Bslk/edit?usp=sharing
+
 ## Queries and Response
 
 ### 1. Number of post request handled
@@ -236,4 +238,4 @@ The result of the subtraction will be:
 69829815000000001000000 - 69480000000000001000000 = 34981500000000000000
 ```
 
-#### Amount earned by Hyperbridge = 34981500000000000000
+#### Total fees earned by Hyperbridge = 34981500000000000000

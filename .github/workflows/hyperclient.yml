@@ -30,4 +30,5 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           wasm-pack build --release --no-default-features --features=wasm
+          cd pkg
           npm publish --access public

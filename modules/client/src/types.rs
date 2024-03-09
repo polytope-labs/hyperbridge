@@ -5,10 +5,7 @@ use codec::Encode;
 use core::pin::Pin;
 use ethers::types::H160;
 use futures::Stream;
-use ismp::{
-    consensus::{ConsensusStateId, StateMachineId},
-    host::StateMachine,
-};
+use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use serde::{Deserialize, Serialize};
 use subxt::{
     config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
@@ -33,7 +30,13 @@ pub struct KeccakHasher;
 impl Hasher for KeccakHasher {
     type Output = H256;
     fn hash(s: &[u8]) -> Self::Output {
-        sp_core::keccak_256(s).into()
+        use tiny_keccak::Hasher;
+
+        let mut keccak = tiny_keccak::Keccak::v256();
+        let mut output = H256::default();
+        keccak.update(s);
+        keccak.finalize(&mut output[..]);
+        output
     }
 }
 
@@ -76,7 +79,6 @@ impl EvmConfig {
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct SubstrateConfig {
     pub rpc_url: String,
-    pub state_machine: StateMachine,
     pub consensus_state_id: ConsensusStateId,
     pub hash_algo: HashAlgorithm,
 }
@@ -85,11 +87,8 @@ impl SubstrateConfig {
     async fn into_client<C: Config + Clone>(&self) -> Result<SubstrateClient<C>, anyhow::Error> {
         let client = SubstrateClient::<C>::new(
             self.rpc_url.clone(),
-            StateMachineId {
-                state_id: self.state_machine,
-                consensus_state_id: self.consensus_state_id,
-            },
             self.hash_algo,
+            self.consensus_state_id,
         )
         .await?;
         Ok(client)

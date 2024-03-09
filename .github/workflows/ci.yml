@@ -14,10 +14,15 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-C link-args=-Wl,--allow-multiple-definition"
+#  RUSTFLAGS: "-C link-args=-Wl,--allow-multiple-definition"
   FOUNDRY_PROFILE: ci
   BNB_RPC: ${{ secrets.BNB_RPC }}
+  BSC_URL: ${{ secrets.BSC_URL }}
+  OP_URL: ${{ secrets.OP_URL }}
+  SEPOLIA_URL: ${{ secrets.SEPOLIA_URL }}
+  SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
   POLYGON_RPC: ${{ secrets.POLYGON_RPC }}
+  WASM_BINDGEN_TEST_TIMEOUT: 3600
 
 jobs:
   check-wasm:
@@ -259,4 +264,24 @@ jobs:
           cd ./evm
           forge test -vvv
         id: test
+
+  hyperclient-tests:
+    name: Hyperclient Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4.1.1
+
+      - name: Install wasm-pack
+        run: |
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+          rustup target add wasm32-unknown-unknown
+
+      - name: Install chrome
+        uses: browser-actions/setup-chrome@latest
+
+      - name: Run WASM tests
+        run: |
+          wasm-pack test --headless --chrome --no-default-features --features=wasm
+        working-directory: modules/client
 

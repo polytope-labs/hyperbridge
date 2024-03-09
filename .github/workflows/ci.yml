@@ -268,7 +268,9 @@ jobs:
       - uses: actions/checkout@v4.1.1
 
       - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        run: |
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+          rustup target add wasm32-unknown-unknown
 
       - name: Install chrome
         uses: browser-actions/setup-chrome@latest

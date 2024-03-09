@@ -1,13 +1,14 @@
+use super::StreamItem;
 use crate::{
     providers::global::{Client, RequestOrResponse},
-    runtime,
+    runtime::{self},
     types::{BoxStream, Extrinsic, HashAlgorithm, SubstrateStateProof},
 };
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use core::time::Duration;
 use ethers::prelude::{H160, H256};
-use futures::stream;
+use futures::{stream, StreamExt};
 use hashbrown::HashMap;
 use hex_literal::hex;
 use ismp::{
@@ -17,8 +18,12 @@ use ismp::{
     messaging::Message,
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
+use reconnecting_jsonrpsee_ws_client::Client as ReconnectClient;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use subxt::{config::Header, rpc_params, OnlineClient};
+
+use super::rpc_wrapper::ClientWrapper;
 
 #[derive(Debug, Clone)]
 pub struct SubstrateClient<C: subxt::Config + Clone> {
@@ -34,10 +39,23 @@ pub struct SubstrateClient<C: subxt::Config + Clone> {
 impl<C: subxt::Config + Clone> SubstrateClient<C> {
     pub async fn new(
         rpc_url: String,
-        state_machine: StateMachineId,
         hashing: HashAlgorithm,
+        consensus_state_id: [u8; 4],
     ) -> Result<Self, Error> {
-        let client = OnlineClient::<C>::from_url(rpc_url.clone()).await?;
+        let rpc = ReconnectClient::builder().build(rpc_url.clone()).await?;
+
+        let client = OnlineClient::<C>::from_rpc_client(Arc::new(ClientWrapper(rpc))).await?;
+        let state_machine_address = runtime::api::storage().parachain_info().parachain_id();
+        let state_id = client
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&state_machine_address)
+            .await?
+            .ok_or(anyhow!("Couldn't get para chain id"))?;
+
+        let state_machine =
+            StateMachineId { state_id: StateMachine::Kusama(state_id.0), consensus_state_id };
 
         Ok(Self { rpc_url, client, state_machine, hashing })
     }
@@ -102,6 +120,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     async fn query_request_receipt(&self, request_hash: H256) -> Result<H160, Error> {
         let addr = runtime::api::storage().ismp().request_receipts(&request_hash);
         let receipt = self.client.storage().at_latest().await?.fetch(&addr).await?;
+
         if let Some(receipt) = receipt {
             Ok(H160::from_slice(&receipt[..20]))
         } else {
@@ -141,7 +160,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let initial_height: u64 = self.client.blocks().at_latest().await?.number().into();
         let stream = stream::unfold(
             (initial_height, subscription, self.clone()),
-            move |(mut latest_height, mut subscription, client)| {
+            move |(latest_height, mut subscription, client)| {
                 let item = item.clone();
                 async move {
                     loop {
@@ -151,7 +170,10 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                                 // log::error!(
                                 // 	"Error encountered while watching finalized heads: {err:?}"
                                 // );
-                                continue;
+                                return Some((
+                                    Ok(StreamItem::NoOp),
+                                    (latest_height, subscription, client),
+                                ))
                             },
                             None => return None,
                         };
@@ -164,7 +186,10 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                             Err(_err) => {
                                 // log::error!("Error encountered while querying ismp events
                                 // {err:?}");
-                                continue;
+                                return Some((
+                                    Ok(StreamItem::NoOp),
+                                    (latest_height, subscription, client),
+                                ))
                             },
                         };
 
@@ -184,19 +209,28 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                         });
 
                         let value = match event {
-                            Some(event) =>
-                                Some((Ok(event), (header.number().into(), subscription, client))),
-                            None => {
-                                latest_height = header.number().into();
-                                continue;
-                            },
+                            Some(event) => Some((
+                                Ok(StreamItem::Item(event)),
+                                (header.number().into(), subscription, client),
+                            )),
+                            None => Some((
+                                Ok(StreamItem::NoOp),
+                                (header.number().into(), subscription, client),
+                            )),
                         };
 
                         return value;
                     }
                 }
             },
-        );
+        )
+        .filter_map(|item| async move {
+            match item {
+                Ok(StreamItem::NoOp) => None,
+                Ok(StreamItem::Item(event)) => Some(Ok(event)),
+                Err(err) => Some(Err(err)),
+            }
+        });
 
         Ok(Box::pin(stream))
     }

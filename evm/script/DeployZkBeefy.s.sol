@@ -14,11 +14,12 @@ contract DeployScript is Script {
 
     bytes32 public salt = keccak256(bytes(vm.envString("VERSION")));
 
-    address public SEPOLIA_HOST = 0x9DF353352b469782AB1B0F2CbBFEC41bF1FDbDb3;
-    address public ARB_SEPOLIA_HOST = 0x424e6971EB1C693cf4296d4bdb42aa0F32a0dd9e;
-    address public OP_SEPOLIA_HOST = 0x1B58A47e61Ca7604b634CBB00b4e275cCd7c9E95;
-    address public BASE_SEPOLIA_HOST = 0x4c876500A13cc3825D343b5Ac791d3A4913bF14f;
-    address public BSC_TESTNET_HOST = 0x022DDE07A21d8c553978b006D93CDe68ac83e677;
+    address public SEPOLIA_HOST = 0xe4226c474A6f4BF285eA80c2f01c0942B04323e5;
+    address public ARB_SEPOLIA_HOST = 0x56101AD00677488B3576C85e9e75d4F0a08BD627;
+    address public OP_SEPOLIA_HOST = 0x39f3D7a7783653a04e2970e35e5f32F0e720daeB;
+    address public BASE_SEPOLIA_HOST = 0x1D14e30e440B8DBA9765108eC291B7b66F98Fd09;
+    address public BSC_TESTNET_HOST = 0x4e5bbdd9fE89F54157DDb64b21eD4D1CA1CDf9a6;
+
     uint256 public paraId = vm.envUint("PARA_ID");
     string private host = vm.envString("HOST");
     bytes32 private privateKey = vm.envBytes32("PRIVATE_KEY");

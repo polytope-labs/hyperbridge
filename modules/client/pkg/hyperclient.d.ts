@@ -105,10 +105,6 @@ export class JsChainConfig {
 */
   handler_address: Uint8Array;
 /**
-* Keccak = 1, Blake2 = 2
-*/
-  hash_algo: number;
-/**
 */
   host_address: Uint8Array;
 /**
@@ -127,10 +123,18 @@ export class JsClientConfig {
   dest: JsChainConfig;
 /**
 */
-  hyperbridge: JsChainConfig;
+  hyperbridge: JsHyperbridgeConfig;
 /**
 */
   source: JsChainConfig;
+}
+/**
+*/
+export class JsHyperbridgeConfig {
+  free(): void;
+/**
+*/
+  rpc_url: string;
 }
 /**
 */

@@ -1,7 +1,8 @@
 use crate::{
-    check_challenge_period, check_client_expiry, frozen_check,
+    check_challenge_period, check_client_expiry, check_response_source, frozen_check,
     mocks::{Host, MockDispatcher},
-    post_request_timeout_check, post_response_timeout_check, write_outgoing_commitments,
+    post_request_timeout_check, post_response_timeout_check, sanity_check_for_proxies,
+    write_outgoing_commitments,
 };
 use std::sync::Arc;
 
@@ -42,4 +43,18 @@ fn should_process_post_response_timeouts_correctly() {
     let host = Arc::new(Host::default());
     let dispatcher = MockDispatcher(host.clone());
     post_response_timeout_check(&*host, &dispatcher).unwrap()
+}
+
+#[test]
+fn should_check_response_source() {
+    let host = Arc::new(Host::default());
+    let dispatcher = MockDispatcher(host.clone());
+    check_response_source(&*host, &dispatcher).unwrap()
+}
+
+#[test]
+fn should_perform_sanity_check_for_proxies() {
+    let host = Arc::new(Host::default());
+    let dispatcher = MockDispatcher(host.clone());
+    sanity_check_for_proxies(&*host, &dispatcher).unwrap()
 }

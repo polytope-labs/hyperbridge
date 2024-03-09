@@ -14,7 +14,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-C link-args=-Wl,--allow-multiple-definition"
+#  RUSTFLAGS: "-C link-args=-Wl,--allow-multiple-definition"
   FOUNDRY_PROFILE: ci
   BNB_RPC: ${{ secrets.BNB_RPC }}
   POLYGON_RPC: ${{ secrets.POLYGON_RPC }}

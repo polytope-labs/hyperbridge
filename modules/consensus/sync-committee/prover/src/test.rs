@@ -1,5 +1,6 @@
 use super::*;
 use reqwest_eventsource::EventSource;
+
 use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use sync_committee_primitives::{
     constants::{
@@ -193,7 +194,7 @@ async fn test_prover() {
 
     let sync_committee_prover = setup_prover();
     let node_url =
-        format!("{}/eth/v1/events?topics=finalized_checkpoint", sync_committee_prover.node_url);
+        format!("{}/eth/v1/events?topics=finalized_checkpoint", sync_committee_prover.primary_url);
     let block_header = sync_committee_prover.fetch_header("head").await.unwrap();
 
     let state = sync_committee_prover
@@ -219,7 +220,7 @@ async fn test_prover() {
                 let checkpoint =
                     Checkpoint { epoch: message.epoch.parse().unwrap(), root: message.block };
                 let light_client_update = if let Some(update) = sync_committee_prover
-                    .fetch_light_client_update(client_state.clone(), checkpoint, None, "prover")
+                    .fetch_light_client_update(client_state.clone(), checkpoint, None)
                     .await
                     .unwrap()
                 {
@@ -243,8 +244,7 @@ async fn test_prover() {
                     light_client_update,
                 )
                 .unwrap();
-                debug!(
-                    target: "prover",
+                println!(
                     "Sucessfully verified Ethereum block at slot {:?}",
                     client_state.finalized_header.slot
                 );
@@ -263,6 +263,20 @@ async fn test_prover() {
     }
 }
 
+#[tokio::test]
+#[ignore]
+async fn test_switch_provider_middleware() {
+    let providers = vec![
+        "http://localhost:3505".to_string(),
+        "http://localhost:3510".to_string(),
+        "http://localhost:3500".to_string(),
+    ];
+
+    let prover = SyncCommitteeProver::<Devnet>::new(providers);
+    let res = prover.fetch_finalized_checkpoint(None).await;
+    assert!(res.is_ok())
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct EventResponse {
     pub block: Root,
@@ -275,5 +289,5 @@ fn setup_prover() -> SyncCommitteeProver<Devnet> {
     dotenv::dotenv().ok();
     let consensus_url =
         std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:3500".to_string());
-    SyncCommitteeProver::<Devnet>::new(consensus_url)
+    SyncCommitteeProver::<Devnet>::new(vec![consensus_url])
 }

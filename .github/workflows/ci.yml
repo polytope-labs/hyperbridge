@@ -17,6 +17,10 @@ env:
 #  RUSTFLAGS: "-C link-args=-Wl,--allow-multiple-definition"
   FOUNDRY_PROFILE: ci
   BNB_RPC: ${{ secrets.BNB_RPC }}
+  BSC_URL: ${{ secrets.BSC_URL }}
+  OP_URL: ${{ secrets.OP_URL }}
+  SEPOLIA_URL: ${{ secrets.SEPOLIA_URL }}
+  SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
   POLYGON_RPC: ${{ secrets.POLYGON_RPC }}
 
 jobs:

@@ -120,6 +120,14 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
+	fn delete_request_receipt(&self, _req: &Request) -> Result<(), Error> {
+		todo!()
+	}
+
+	fn delete_response_receipt(&self, _res: &PostResponse) -> Result<(), Error> {
+		todo!()
+	}
+
 	fn store_state_machine_update_time(
 		&self,
 		_state_machine_height: StateMachineHeight,

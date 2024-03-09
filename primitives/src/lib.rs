@@ -134,6 +134,12 @@ pub enum StreamItem {
 	NoOp,
 }
 
+#[derive(Clone, Debug)]
+pub enum ConsensusItem {
+	Value(ConsensusMessage),
+	NoOp,
+}
+
 /// Stream alias
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>> + Send>>;
 

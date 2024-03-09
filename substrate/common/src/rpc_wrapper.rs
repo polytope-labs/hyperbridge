@@ -14,9 +14,12 @@ pub async fn ws_client<T: subxt::Config>(
 	max_rpc_payload_size: u32,
 ) -> Result<OnlineClient<T>, anyhow::Error> {
 	let rpc_ws = rpc_ws.to_owned();
+	// retry every second
+	let retry_policy = RetryPolicy::fixed(Duration::from_secs(1))
+		.with_max_retries(usize::MAX)
+		.with_max_delay(Duration::from_secs(10));
 	let raw_client = Client::builder()
-		// retry every second
-		.retry_policy(RetryPolicy::fixed(Duration::from_millis(1000)))
+		.retry_policy(retry_policy)
 		.max_request_size(max_rpc_payload_size)
 		.max_response_size(max_rpc_payload_size)
 		.enable_ws_ping(

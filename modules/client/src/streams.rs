@@ -1,5 +1,8 @@
 use crate::{
-    providers::global::{Client, RequestOrResponse},
+    providers::{
+        global::{Client, RequestOrResponse},
+        StreamItem,
+    },
     types::{BoxStream, MessageStatus, PostStreamState},
     Keccak256,
 };
@@ -248,19 +251,23 @@ pub async fn timeout_stream(timeout: u64, client: impl Client + Clone) -> BoxStr
                 };
             };
 
-            loop {
-                let response = lambda().await;
+            let response = lambda().await;
 
-                let value = match response {
-                    Ok(val) if val => Some((Ok(MessageStatus::Timeout), ())),
-                    Ok(val) if !val => continue,
-                    Err(e) =>
-                        Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), ())),
-                    _ => None,
-                };
+            let value = match response {
+                Ok(true) => Some((Ok(StreamItem::Item(MessageStatus::Timeout)), ())),
+                Ok(false) => Some((Ok(StreamItem::NoOp), ())),
+                Err(e) =>
+                    Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), ())),
+            };
 
-                return value
-            }
+            return value
+        }
+    })
+    .filter_map(|item| async move {
+        match item {
+            Ok(StreamItem::NoOp) => None,
+            Ok(StreamItem::Item(event)) => Some(Ok(event)),
+            Err(err) => Some(Err(err)),
         }
     });
 

@@ -281,6 +281,6 @@ jobs:
 
       - name: Run WASM tests
         run: |
-          wasm-pack test --headless --chrome --no-default-features --features=wasm
+          wasm-pack test --headless --firefox --no-default-features --features=wasm
         working-directory: modules/client
 

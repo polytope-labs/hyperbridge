@@ -260,3 +260,21 @@ jobs:
           forge test -vvv
         id: test
 
+  hyperclient-tests:
+    name: Hyperclient Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4.1.1
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install chrome
+        uses: browser-actions/setup-chrome@latest
+
+      - name: Run WASM tests
+        run: |
+          wasm-pack test --headless --chrome --no-default-features --features=wasm
+        working-directory: modules/client
+

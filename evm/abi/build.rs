@@ -1,12 +1,13 @@
-use ethers_contract_abigen::MultiAbigen;
-use forge_testsuite::Runner;
-use std::{env, path::PathBuf};
+use std::env;
 
 fn main() -> anyhow::Result<()> {
     let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
 
     #[cfg(feature = "build-abi")]
     {
+        use ethers_contract_abigen::MultiAbigen;
+        use forge_testsuite::Runner;
+        use std::path::PathBuf;
         // first compile the project.
 
         let _ = Runner::new(PathBuf::from(&base_dir));

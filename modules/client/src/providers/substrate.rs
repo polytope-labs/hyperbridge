@@ -1,3 +1,4 @@
+use super::StreamItem;
 use crate::{
     providers::global::{Client, RequestOrResponse},
     runtime::{self},
@@ -7,7 +8,7 @@ use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use core::time::Duration;
 use ethers::prelude::{H160, H256};
-use futures::stream;
+use futures::{stream, StreamExt};
 use hashbrown::HashMap;
 use hex_literal::hex;
 use ismp::{
@@ -159,7 +160,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let initial_height: u64 = self.client.blocks().at_latest().await?.number().into();
         let stream = stream::unfold(
             (initial_height, subscription, self.clone()),
-            move |(mut latest_height, mut subscription, client)| {
+            move |(latest_height, mut subscription, client)| {
                 let item = item.clone();
                 async move {
                     loop {
@@ -169,7 +170,10 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                                 // log::error!(
                                 // 	"Error encountered while watching finalized heads: {err:?}"
                                 // );
-                                continue;
+                                return Some((
+                                    Ok(StreamItem::NoOp),
+                                    (latest_height, subscription, client),
+                                ))
                             },
                             None => return None,
                         };
@@ -182,7 +186,10 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                             Err(_err) => {
                                 // log::error!("Error encountered while querying ismp events
                                 // {err:?}");
-                                continue;
+                                return Some((
+                                    Ok(StreamItem::NoOp),
+                                    (latest_height, subscription, client),
+                                ))
                             },
                         };
 
@@ -202,19 +209,28 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                         });
 
                         let value = match event {
-                            Some(event) =>
-                                Some((Ok(event), (header.number().into(), subscription, client))),
-                            None => {
-                                latest_height = header.number().into();
-                                continue;
-                            },
+                            Some(event) => Some((
+                                Ok(StreamItem::Item(event)),
+                                (header.number().into(), subscription, client),
+                            )),
+                            None => Some((
+                                Ok(StreamItem::NoOp),
+                                (header.number().into(), subscription, client),
+                            )),
                         };
 
                         return value;
                     }
                 }
             },
-        );
+        )
+        .filter_map(|item| async move {
+            match item {
+                Ok(StreamItem::NoOp) => None,
+                Ok(StreamItem::Item(event)) => Some(Ok(event)),
+                Err(err) => Some(Err(err)),
+            }
+        });
 
         Ok(Box::pin(stream))
     }

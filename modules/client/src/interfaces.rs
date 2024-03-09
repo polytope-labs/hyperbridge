@@ -5,7 +5,7 @@ use ismp::{
     host::StateMachine,
     router::{Post, PostResponse},
 };
-use sp_core::H160;
+use primitive_types::H160;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 #[wasm_bindgen(getter_with_clone)]

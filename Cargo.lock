@@ -74,12 +74,12 @@ dependencies = [
 [[package]]
 name = "again"
 version = "0.1.2"
-source = "git+https://github.com/softprops/again?branch=develop#6db8c5e56bf93b1177ed35a926f8ff7d4adbf93b"
+source = "git+https://github.com/polytope-labs/again?branch=develop#39dc8f18462ff6f2da6205076bd34a967ee1f010"
 dependencies = [
+ "fluvio-wasm-timer",
  "getrandom 0.2.12",
  "log",
  "rand 0.8.5",
- "wasm-timer",
 ]
 
 [[package]]
@@ -4031,6 +4031,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "fluvio-wasm-timer"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b768c170dc045fa587a8f948c91f9bcfb87f774930477c6215addf54317f137f"
+dependencies = [
+ "futures",
+ "js-sys",
+ "parking_lot 0.11.2",
+ "pin-utils",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5468,9 +5483,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "dotenv",
+ "console_error_panic_hook",
  "ethers",
- "frame-support",
+ "fluvio-wasm-timer",
  "futures",
  "getrandom 0.2.12",
  "hashbrown 0.14.3",
@@ -5480,18 +5495,21 @@ dependencies = [
  "ismp-solidity-abi",
  "js-sys",
  "parity-scale-codec",
+ "primitive-types",
  "reconnecting-jsonrpsee-ws-client",
  "reqwest",
  "serde",
  "serde-wasm-bindgen",
  "sp-core 28.0.0",
  "subxt",
+ "tiny-keccak",
  "tokio",
+ "tracing",
+ "tracing-wasm",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "wasm-streams 0.4.0",
- "wasm-timer",
  "web-sys",
 ]
 
@@ -11520,7 +11538,7 @@ dependencies = [
 [[package]]
 name = "reconnecting-jsonrpsee-ws-client"
 version = "0.3.0"
-source = "git+https://github.com/polytope-labs/reconnecting-jsonrpsee-ws-client?rev=7c0817478c2741cc0889e7c75c645aad9f3cbb55#7c0817478c2741cc0889e7c75c645aad9f3cbb55"
+source = "git+https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client?rev=84fd8400cac12babd1be7c337dc1a8d14ce0c101#84fd8400cac12babd1be7c337dc1a8d14ce0c101"
 dependencies = [
  "again",
  "futures",
@@ -17040,6 +17058,17 @@ dependencies = [
  "thread_local",
  "tracing-core",
  "tracing-log 0.2.0",
+]
+
+[[package]]
+name = "tracing-wasm"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4575c663a174420fa2d78f4108ff68f65bf2fbb7dd89f33749b6e826b3626e07"
+dependencies = [
+ "tracing",
+ "tracing-subscriber 0.3.18",
+ "wasm-bindgen",
 ]
 
 [[package]]

@@ -30,7 +30,13 @@ pub struct KeccakHasher;
 impl Hasher for KeccakHasher {
     type Output = H256;
     fn hash(s: &[u8]) -> Self::Output {
-        sp_core::keccak_256(s).into()
+        use tiny_keccak::Hasher;
+
+        let mut keccak = tiny_keccak::Keccak::v256();
+        let mut output = H256::default();
+        keccak.update(s);
+        keccak.finalize(&mut output[..]);
+        output
     }
 }
 

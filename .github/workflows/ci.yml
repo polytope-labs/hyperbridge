@@ -22,6 +22,7 @@ env:
   SEPOLIA_URL: ${{ secrets.SEPOLIA_URL }}
   SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
   POLYGON_RPC: ${{ secrets.POLYGON_RPC }}
+  WASM_BINDGEN_TEST_TIMEOUT: 3600
 
 jobs:
   check-wasm:
@@ -281,6 +282,6 @@ jobs:
 
       - name: Run WASM tests
         run: |
-          wasm-pack test --headless --firefox --no-default-features --features=wasm
+          wasm-pack test --headless --chrome --no-default-features --features=wasm
         working-directory: modules/client
 

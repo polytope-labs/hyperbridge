@@ -18,8 +18,16 @@ jobs:
           node-version: '20.x'
           registry-url: 'https://registry.npmjs.org'
           scope: '@polytope-labs'
-      - run: |
-          cd modules/client/pkg
-          npm publish --access public
+
+      - name: Install wasm-pack
+        run: |
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+          rustup target add wasm32-unknown-unknown
+
+      - name: Build and Publish
+        working-directory: modules/client
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          wasm-pack build --release --no-default-features --features=wasm
+          npm publish --access public

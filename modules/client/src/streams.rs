@@ -1,6 +1,6 @@
 use crate::{
     providers::{
-        global::{Client, RequestOrResponse},
+        interface::{Client, RequestOrResponse},
         StreamItem,
     },
     types::{BoxStream, MessageStatus, PostStreamState},
@@ -40,7 +40,7 @@ pub async fn query_request_status_stream(
                         if relayer_address != H160::zero() {
                             // This means the message has gotten to the destination chain
                             return Ok::<Option<(Result<_, Error>, PostStreamState)>, Error>(Some((
-                                Ok(MessageStatus::DestinationDelivered),
+                                Ok(MessageStatus::DestinationDelivered { height: 0 }),
                                 PostStreamState::End,
                             )))
                         }
@@ -57,7 +57,7 @@ pub async fn query_request_status_stream(
                         if relayer != H160::zero() {
                             // This means the message has gotten to the destination chain
                             return Ok::<Option<(Result<_, Error>, PostStreamState)>, Error>(Some((
-                                Ok(MessageStatus::HyperbridgeDelivered),
+                                Ok(MessageStatus::HyperbridgeDelivered { height: 0 }),
                                 PostStreamState::HyperbridgeDelivered(
                                     hyperbridge_client.query_latest_block_height().await?,
                                 ),
@@ -81,7 +81,7 @@ pub async fn query_request_status_stream(
                                             post.source
                                     {
                                         return Ok(Some((
-                                            Ok(MessageStatus::SourceFinalized),
+                                            Ok(MessageStatus::SourceFinalized { height: 0 }),
                                             PostStreamState::SourceFinalized,
                                         )))
                                     }
@@ -109,7 +109,7 @@ pub async fn query_request_status_stream(
                                 hyperbridge_client.query_latest_block_height().await?;
 
                             return Ok(Some((
-                                Ok(MessageStatus::HyperbridgeDelivered),
+                                Ok(MessageStatus::HyperbridgeDelivered { height: 0 }),
                                 PostStreamState::HyperbridgeDelivered(hyperbridge_height.into()),
                             )));
                         }
@@ -123,7 +123,7 @@ pub async fn query_request_status_stream(
                                     let hyperbridge_height =
                                         hyperbridge_client.query_latest_block_height().await?;
                                     return Ok(Some((
-                                        Ok(MessageStatus::HyperbridgeDelivered),
+                                        Ok(MessageStatus::HyperbridgeDelivered { height: 0 }),
                                         PostStreamState::HyperbridgeDelivered(
                                             hyperbridge_height.into(),
                                         ),
@@ -147,7 +147,7 @@ pub async fn query_request_status_stream(
                         let res = dest_client.query_request_receipt(hash).await?;
                         if res != H160::zero() {
                             return Ok(Some((
-                                Ok(MessageStatus::DestinationDelivered),
+                                Ok(MessageStatus::DestinationDelivered { height: 0 }),
                                 PostStreamState::End,
                             )));
                         }
@@ -162,7 +162,7 @@ pub async fn query_request_status_stream(
                                 Ok(event) =>
                                     if event.latest_height >= height {
                                         return Ok(Some((
-                                            Ok(MessageStatus::HyperbridgeFinalized),
+                                            Ok(MessageStatus::HyperbridgeFinalized { height: 0 }),
                                             PostStreamState::HyperbridgeFinalized,
                                         )));
                                     } else {
@@ -185,7 +185,7 @@ pub async fn query_request_status_stream(
                         let res = dest_client.query_request_receipt(hash).await?;
                         if res != H160::zero() {
                             return Ok(Some((
-                                Ok(MessageStatus::DestinationDelivered),
+                                Ok(MessageStatus::DestinationDelivered { height: 0 }),
                                 PostStreamState::DestinationDelivered,
                             )));
                         }
@@ -195,7 +195,7 @@ pub async fn query_request_status_stream(
                             match event {
                                 Ok(_) => {
                                     return Ok(Some((
-                                        Ok(MessageStatus::DestinationDelivered),
+                                        Ok(MessageStatus::DestinationDelivered { height: 0 }),
                                         PostStreamState::DestinationDelivered,
                                     )));
                                 },

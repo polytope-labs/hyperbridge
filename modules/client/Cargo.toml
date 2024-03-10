@@ -14,7 +14,7 @@ wasm-bindgen = { version = "0.2.90" }
 subxt = { version = "0.30.1", default-features = false }
 getrandom = { version = "0.2", default-features = false, features = ["js"] }
 anyhow = "1.0.75"
-hex-literal = { version = "0.3.3" }
+hex-literal = { version = "0.4.1" }
 serde-wasm-bindgen = { version = "0.6.3", default-features = false }
 serde = { version = "1.0.196", features = ["derive"], default-features = false }
 wasm-bindgen-futures = "0.4.40"
@@ -33,7 +33,6 @@ hashbrown = { version = "0.14.3", features = ["serde"] }
 primitive-types = { version = "0.12.2", default-features = false, features = ["serde"] }
 
 ethers = { workspace = true, features = ["ws"] }
-sp-core = { workspace = true }
 
 ismp = { path = "../ismp/core", default-features = false }
 ismp-solidity-abi = { path = "../../evm/abi", default-features = false }

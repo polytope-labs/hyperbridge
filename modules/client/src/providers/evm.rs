@@ -1,5 +1,5 @@
 use crate::{
-    providers::global::{Client, RequestOrResponse},
+    providers::interface::{Client, RequestOrResponse},
     types::BoxStream,
 };
 use ethers::prelude::Middleware;
@@ -442,7 +442,7 @@ impl Client for EvmClient {
         }
     }
 
-    async fn submit(&self, _msg: Message) -> Result<(), Error> {
+    async fn submit(&self, _msg: Message) -> Result<u64, Error> {
         Err(anyhow!("Client cannot submit messages"))
     }
 

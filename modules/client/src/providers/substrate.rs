@@ -1,6 +1,6 @@
 use super::StreamItem;
 use crate::{
-    providers::global::{Client, RequestOrResponse},
+    providers::interface::{Client, RequestOrResponse},
     runtime::{self},
     types::{BoxStream, Extrinsic, HashAlgorithm, SubstrateStateProof},
 };
@@ -8,7 +8,7 @@ use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use core::time::Duration;
 use ethers::prelude::{H160, H256};
-use futures::{stream, StreamExt};
+use futures::{stream, StreamExt, TryStreamExt};
 use hashbrown::HashMap;
 use hex_literal::hex;
 use ismp::{
@@ -18,12 +18,15 @@ use ismp::{
     messaging::Message,
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
-use reconnecting_jsonrpsee_ws_client::Client as ReconnectClient;
+use reconnecting_jsonrpsee_ws_client::{Client as ReconnectClient, SubscriptionId};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use subxt::{config::Header, rpc_params, OnlineClient};
-
-use super::rpc_wrapper::ClientWrapper;
+use std::{ops::Deref, sync::Arc};
+use subxt::{
+    config::Header,
+    error::RpcError,
+    rpc::{RawValue, RpcClientT, RpcFuture, RpcSubscription},
+    rpc_params, OnlineClient,
+};
 
 #[derive(Debug, Clone)]
 pub struct SubstrateClient<C: subxt::Config + Clone> {
@@ -35,7 +38,6 @@ pub struct SubstrateClient<C: subxt::Config + Clone> {
     pub client: OnlineClient<C>,
     pub hashing: HashAlgorithm,
 }
-
 impl<C: subxt::Config + Clone> SubstrateClient<C> {
     pub async fn new(
         rpc_url: String,
@@ -350,12 +352,21 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         Ok(ext.into_encoded())
     }
 
-    async fn submit(&self, msg: Message) -> Result<(), Error> {
+    async fn submit(&self, msg: Message) -> Result<u64, Error> {
         let call = vec![msg].encode();
         let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle", call);
         let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
-        let _ = ext.submit_and_watch().await?.wait_for_in_block().await?;
-        Ok(())
+        let in_block = ext.submit_and_watch().await?.wait_for_in_block().await?;
+        in_block.wait_for_success().await?;
+
+        let header = self
+            .client
+            .rpc()
+            .header(Some(in_block.block_hash()))
+            .await?
+            .ok_or_else(|| anyhow!("Inconsistent node state."))?;
+
+        Ok(header.number().into())
     }
 
     async fn query_state_machine_update_time(
@@ -376,6 +387,57 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let response: u64 = self.client.rpc().request("ismp_queryChallengePeriod", params).await?;
 
         Ok(Duration::from_secs(response))
+    }
+}
+
+/// Adapter client for suxt
+pub struct ClientWrapper(pub ReconnectClient);
+
+impl Deref for ClientWrapper {
+    type Target = ReconnectClient;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl RpcClientT for ClientWrapper {
+    fn request_raw<'a>(
+        &'a self,
+        method: &'a str,
+        params: Option<Box<RawValue>>,
+    ) -> RpcFuture<'a, Box<RawValue>> {
+        Box::pin(async move {
+            let res = self
+                .0
+                .request_raw(method.to_string(), params)
+                .await
+                .map_err(|e| RpcError::ClientError(Box::new(e)))?;
+            Ok(res)
+        })
+    }
+
+    fn subscribe_raw<'a>(
+        &'a self,
+        sub: &'a str,
+        params: Option<Box<RawValue>>,
+        unsub: &'a str,
+    ) -> RpcFuture<'a, RpcSubscription> {
+        Box::pin(async move {
+            let stream = self
+                .0
+                .subscribe_raw(sub.to_string(), params, unsub.to_string())
+                .await
+                .map_err(|e| RpcError::ClientError(Box::new(e)))?;
+
+            let id = match stream.id() {
+                SubscriptionId::Str(id) => Some(id.clone().into_owned()),
+                SubscriptionId::Num(id) => Some(id.to_string()),
+            };
+
+            let stream = stream.map_err(|e| RpcError::ClientError(Box::new(e))).boxed();
+            Ok(RpcSubscription { stream, id })
+        })
     }
 }
 

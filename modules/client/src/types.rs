@@ -1,4 +1,4 @@
-use crate::providers::{evm_chain::EvmClient, global::Client, substrate::SubstrateClient};
+use crate::providers::{evm::EvmClient, interface::Client, substrate::SubstrateClient};
 use alloc::collections::BTreeMap;
 use anyhow::anyhow;
 use codec::Encode;
@@ -109,16 +109,29 @@ pub struct ClientConfig {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Copy)]
+#[serde(tag = "kind")]
 pub enum MessageStatus {
     Pending,
-    /// Source state machine has been finalized on hyperbridge
-    SourceFinalized,
+    /// Source state machine has been finalized on hyperbridge.
+    SourceFinalized {
+        /// Hyperbridge height when this was finalized
+        height: u64,
+    },
     /// Message has been delivered to hyperbridge
-    HyperbridgeDelivered,
+    HyperbridgeDelivered {
+        /// Hyperbridge height when the request was delivered
+        height: u64,
+    },
     /// Messaged has been finalized on hyperbridge
-    HyperbridgeFinalized,
+    HyperbridgeFinalized {
+        /// Hyperbridge height that finalized the request
+        height: u64,
+    },
     /// Delivered to destination
-    DestinationDelivered,
+    DestinationDelivered {
+        /// Destination height at which request was delivered
+        height: u64,
+    },
     /// Message has timed out
     Timeout,
 }
@@ -143,13 +156,25 @@ pub enum PostStreamState {
 pub enum TimeoutStatus {
     Pending,
     /// Destination state machine has been finalized on hyperbridge
-    DestinationFinalized,
+    DestinationFinalized {
+        /// Hyperbridge height when the destination finalized the timeout.
+        height: u64,
+    },
     /// Message has been timed out on hyperbridge
-    HyperbridgeTimedout,
+    HyperbridgeTimedout {
+        /// Hyperbridge height when the request was timed-out
+        height: u64,
+    },
     /// Hyperbridge has been finalized on source state machine
-    HyperbridgeFinalized,
+    HyperbridgeFinalized {
+        /// Hyperbridge height when that finalizes the timeout
+        height: u64,
+    },
     /// Encoded call data to be submitted to source chain
-    TimeoutMessage(Vec<u8>),
+    TimeoutMessage {
+        /// Calldata that encodes the proof for the timeout message on the source.
+        calldata: Vec<u8>,
+    },
 }
 
 /// Implements [`TxPayload`] for extrinsic encoding

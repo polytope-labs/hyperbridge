@@ -1,5 +1,5 @@
 use crate::{
-    providers::global::{wait_for_challenge_period, Client},
+    providers::interface::{wait_for_challenge_period, Client},
     types::{BoxStream, ClientConfig, MessageStatus, TimeoutStatus},
     Keccak256,
 };
@@ -30,7 +30,7 @@ pub async fn query_request_status_internal(
 
     if relayer_address != H160::zero() {
         // This means the message has gotten the destination chain
-        return Ok(MessageStatus::DestinationDelivered);
+        return Ok(MessageStatus::DestinationDelivered { height: 0 });
     }
 
     // Checking to see if the messaging has timed-out
@@ -43,7 +43,7 @@ pub async fn query_request_status_internal(
     let relayer = hyperbridge_client.query_request_receipt(hash).await?;
 
     if relayer != H160::zero() {
-        return Ok(MessageStatus::HyperbridgeDelivered);
+        return Ok(MessageStatus::HyperbridgeDelivered { height: 0 });
     }
 
     if hyperbridge_current_timestamp.as_secs() > post.timeout_timestamp {
@@ -68,7 +68,7 @@ pub async fn query_response_status_internal(
     let response_receipt_relayer = dest_client.query_response_receipt(req_hash).await?;
 
     if response_receipt_relayer != H160::zero() {
-        return Ok(MessageStatus::DestinationDelivered);
+        return Ok(MessageStatus::DestinationDelivered { height: 0 });
     }
 
     if response_destination_timeout.as_secs() > post_response.timeout_timestamp {
@@ -79,7 +79,7 @@ pub async fn query_response_status_internal(
     let relayer = hyperbridge_client.query_response_receipt(req_hash).await?;
 
     if relayer != H160::zero() {
-        return Ok(MessageStatus::HyperbridgeDelivered);
+        return Ok(MessageStatus::HyperbridgeDelivered { height: 0 });
     }
 
     let hyperbridge_current_timestamp = hyperbridge_client.latest_timestamp().await?;
@@ -157,14 +157,14 @@ pub async fn timeout_request_stream(
                             }
                             Ok(valid_proof_height.map(|height| {
                                 (
-                                    Ok(TimeoutStatus::DestinationFinalized),
+                                    Ok(TimeoutStatus::DestinationFinalized { height }),
                                     TimeoutStreamState::DestinationFinalized(height),
                                 )
                             }))
                         } else {
                             let height = hyperbridge_client.query_latest_block_height().await?;
                             Ok(Some((
-                                Ok(TimeoutStatus::HyperbridgeTimedout),
+                                Ok(TimeoutStatus::HyperbridgeTimedout { height }),
                                 TimeoutStreamState::HyperbridgeTimedout(height),
                             )))
                         }
@@ -194,11 +194,10 @@ pub async fn timeout_request_stream(
                             challenge_period,
                         )
                         .await?;
-                        hyperbridge_client.submit(message).await?;
-                        let next_height = hyperbridge_client.query_latest_block_height().await?;
+                        let height = hyperbridge_client.submit(message).await?;
                         Ok(Some((
-                            Ok(TimeoutStatus::HyperbridgeTimedout),
-                            TimeoutStreamState::HyperbridgeTimedout(next_height),
+                            Ok(TimeoutStatus::HyperbridgeTimedout { height }),
+                            TimeoutStreamState::HyperbridgeTimedout(height),
                         )))
                     },
                     TimeoutStreamState::HyperbridgeTimedout(hyperbridge_height) => {
@@ -233,9 +232,10 @@ pub async fn timeout_request_stream(
                                     ))),
                             }
                         }
+
                         Ok(valid_proof_height.map(|height| {
                             (
-                                Ok(TimeoutStatus::HyperbridgeFinalized),
+                                Ok(TimeoutStatus::HyperbridgeFinalized { height }),
                                 TimeoutStreamState::HyperbridgeFinalized(height),
                             )
                         }))
@@ -262,9 +262,10 @@ pub async fn timeout_request_stream(
                             source_client.query_state_machine_update_time(height).await?;
                         wait_for_challenge_period(&source_client, update_time, challenge_period)
                             .await?;
-                        let message = source_client.encode(message)?;
+                        let calldata = source_client.encode(message)?;
+
                         Ok(Some((
-                            Ok(TimeoutStatus::TimeoutMessage(message)),
+                            Ok(TimeoutStatus::TimeoutMessage { calldata }),
                             TimeoutStreamState::End,
                         )))
                     },

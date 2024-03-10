@@ -2,8 +2,7 @@
 use wasm_bindgen_test::*;
 
 use crate::{
-    internals::timeout_request_stream, mock::erc_20::Erc20, streams::query_request_status_stream,
-    types::ClientConfig,
+    internals::timeout_request_stream, streams::query_request_status_stream, types::ClientConfig,
 };
 use anyhow::Context;
 use ethers::{
@@ -15,7 +14,7 @@ use ethers::{
 
 use crate::{
     internals::query_request_status_internal,
-    providers::global::Client,
+    providers::interface::Client,
     types::{ChainConfig, EvmConfig, HashAlgorithm, MessageStatus, SubstrateConfig, TimeoutStatus},
 };
 use ethers::{
@@ -31,6 +30,7 @@ use ismp::{
     router,
 };
 use ismp_solidity_abi::{
+    erc_20::Erc20,
     evm_host::{EvmHost, PostRequestEventFilter},
     ping_module::{PingMessage, PingModule},
 };

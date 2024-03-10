@@ -5,7 +5,7 @@ use core::time::Duration;
 use ethers::{prelude::H256, types::H160};
 use ismp::{
     consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
-    events::{Event, StateMachineUpdated},
+    events::{EventData, StateMachineUpdated},
     messaging::Message,
     router::{Post, PostResponse},
 };
@@ -43,7 +43,7 @@ pub trait Client: Clone + Send + Sync + 'static {
     async fn ismp_events_stream(
         &self,
         item: RequestOrResponse,
-    ) -> Result<BoxStream<Event>, anyhow::Error>;
+    ) -> Result<BoxStream<EventData>, anyhow::Error>;
 
     // Returns a stream of the PostRequestHandled on the ISMP host of this chain
     async fn post_request_handled_stream(

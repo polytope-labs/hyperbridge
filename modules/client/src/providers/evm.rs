@@ -15,7 +15,7 @@ use ethers::{
 use futures::{stream, StreamExt};
 use ismp::{
     consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
-    events::{Event, StateMachineUpdated},
+    events::{EventData, StateMachineUpdated},
     host::StateMachine,
     messaging::{Message, TimeoutMessage},
     router::Request,
@@ -165,7 +165,7 @@ impl Client for EvmClient {
     async fn ismp_events_stream(
         &self,
         _item: RequestOrResponse,
-    ) -> Result<BoxStream<Event>, Error> {
+    ) -> Result<BoxStream<EventData>, Error> {
         Err(anyhow!("Ismp stream unavailable for evm client"))
     }
 

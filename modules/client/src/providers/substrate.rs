@@ -26,6 +26,7 @@ use subxt::{
     rpc::{RawValue, RpcClientT, RpcFuture, RpcSubscription},
     rpc_params, OnlineClient,
 };
+use ismp::events::EventData;
 
 #[derive(Debug, Clone)]
 pub struct SubstrateClient<C: subxt::Config + Clone> {
@@ -79,7 +80,7 @@ impl<C: subxt::Config + Clone> SubstrateClient<C> {
         &self,
         previous_height: u64,
         latest_height: u64,
-    ) -> Result<Vec<Event>, Error> {
+    ) -> Result<Vec<EventData>, Error> {
         let range = (previous_height + 1)..=latest_height;
         if range.is_empty() {
             return Ok(Default::default());
@@ -98,7 +99,7 @@ impl<C: subxt::Config + Clone> SubstrateClient<C> {
             BlockNumberOrHash::<H256>::Number(previous_height.saturating_add(1) as u32),
             BlockNumberOrHash::<H256>::Number(latest_height as u32)
         ];
-        let response: HashMap<String, Vec<Event>> =
+        let response: HashMap<String, Vec<EventData>> =
             self.client.rpc().request("ismp_queryEvents", params).await?;
         let events = response.values().into_iter().cloned().flatten().collect();
         Ok(events)
@@ -156,7 +157,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         }
     }
 
-    async fn ismp_events_stream(&self, item: RequestOrResponse) -> Result<BoxStream<Event>, Error> {
+    async fn ismp_events_stream(&self, item: RequestOrResponse) -> Result<BoxStream<EventData>, Error> {
         let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
         let initial_height: u64 = self.client.blocks().at_latest().await?.number().into();
         let stream = stream::unfold(
@@ -189,7 +190,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                         };
 
                         let event = events.into_iter().find_map(|event| {
-                            let value = match event.clone() {
+                            let value = match event.clone().event {
                                 Event::PostRequest(post) => Some(RequestOrResponse::Request(post)),
                                 Event::PostResponse(resp) =>
                                     Some(RequestOrResponse::Response(resp)),
@@ -291,7 +292,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
                     let event = events
                         .into_iter()
-                        .filter_map(|event| match event {
+                        .filter_map(|event| match event.event {
                             Event::StateMachineUpdated(e)
                                 if e.state_machine_id == counterparty_state_id =>
                                 Some(e),

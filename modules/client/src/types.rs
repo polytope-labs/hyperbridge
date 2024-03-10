@@ -284,7 +284,10 @@ mod tests {
 
     #[test]
     fn test_serialization() -> Result<(), anyhow::Error> {
-        assert_eq!(r#"{"kind":"DestinationDelivered","height":23}"#, json::to_string(&MessageStatus::DestinationDelivered { height: 23 })?);
+        assert_eq!(
+            r#"{"kind":"DestinationDelivered","height":23}"#,
+            json::to_string(&MessageStatus::DestinationDelivered { height: 23 })?
+        );
         assert_eq!(r#"{"kind":"Timeout"}"#, json::to_string(&MessageStatus::Timeout)?);
 
         Ok(())

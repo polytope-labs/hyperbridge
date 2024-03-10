@@ -162,6 +162,11 @@ pub enum MessageStatusWithMetadata {
         #[serde(flatten)]
         meta: EventMetadata,
     },
+    /// An error was encountered in the stream
+    Error {
+        /// Error description
+        description: String,
+    },
     /// Message has timed out
     Timeout,
 }
@@ -170,12 +175,13 @@ pub enum MessageStatusWithMetadata {
 pub enum PostStreamState {
     /// Message has been finalized on source chain
     Pending,
-    /// Source state machine has been updated on hyperbridge
-    SourceFinalized,
-    /// Message has been delivered to hyperbridge
-    HyperbridgeDelivered(u64),
+    /// Source state machine has been updated on hyperbridge, holds the block number at which the
+    /// source was finalized on hyperbridge
+    SourceFinalized(u64),
     /// Message has been finalized by hyperbridge
-    HyperbridgeFinalized,
+    HyperbridgeFinalized(u64),
+    /// Message has been delivered to hyperbridge, holds the block where the message was delivered
+    HyperbridgeDelivered(u64),
     /// Message has been delivered to destination
     DestinationDelivered,
     /// Stream has ended, check the message status
@@ -185,7 +191,7 @@ pub enum PostStreamState {
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum TimeoutStatus {
     Pending,
-    /// Destination state machine has been finalized on hyperbridge
+    /// Destination state machine has been finalized the timeout on hyperbridge
     DestinationFinalized {
         /// Metadata about the event on hyperbridge
         #[serde(flatten)]
@@ -197,11 +203,16 @@ pub enum TimeoutStatus {
         #[serde(flatten)]
         meta: EventMetadata,
     },
-    /// Hyperbridge has been finalized on source state machine
+    /// Hyperbridge has been finalized the timeout on source state machine
     HyperbridgeFinalized {
         /// Metadata about the event on the destination
         #[serde(flatten)]
         meta: EventMetadata,
+    },
+    /// An error was encountered in the stream
+    Error {
+        /// Error description
+        description: String,
     },
     /// Encoded call data to be submitted to source chain
     TimeoutMessage {

@@ -19,7 +19,10 @@ use ismp::{
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use reconnecting_jsonrpsee_ws_client::{Client as ReconnectClient, SubscriptionId};
 use serde::{Deserialize, Serialize};
-use std::{ops::Deref, sync::Arc};
+use std::{
+    ops::{Deref, RangeInclusive},
+    sync::Arc,
+};
 use subxt::{
     config::Header,
     error::RpcError,
@@ -352,6 +355,13 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle", call);
         let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
         Ok(ext.into_encoded())
+    }
+
+    async fn query_ismp_event(
+        &self,
+        range: RangeInclusive<u64>,
+    ) -> Result<Vec<WithMetadata<Event>>, anyhow::Error> {
+        self.query_ismp_events(*range.start(), *range.end()).await
     }
 
     async fn submit(&self, msg: Message) -> Result<EventMetadata, Error> {

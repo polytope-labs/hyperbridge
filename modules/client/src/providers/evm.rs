@@ -27,7 +27,7 @@ use ismp_solidity_abi::{
     evm_host::{EvmHost, EvmHostEvents, GetRequest, PostRequestHandledFilter},
     handler::{GetTimeoutMessage, Handler, PostRequestTimeoutMessage, PostResponseTimeoutMessage},
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
 
 // =======================================
 // CONSTANTS                            =
@@ -163,6 +163,32 @@ impl Client for EvmClient {
         let response_receipt = host.response_receipts(request_commitment.0).call().await?;
 
         Ok(response_receipt.relayer)
+    }
+
+    async fn query_ismp_event(
+        &self,
+        range: RangeInclusive<u64>,
+    ) -> Result<Vec<WithMetadata<Event>>, anyhow::Error> {
+        let contract = EvmHost::new(self.host_address, self.client.clone());
+        contract
+            .events()
+            .address(self.host_address.into())
+            .from_block(*range.start())
+            .to_block(*range.end())
+            .query_with_meta()
+            .await?
+            .into_iter()
+            .map(|(event, meta)| {
+                Ok(WithMetadata {
+                    meta: EventMetadata {
+                        block_hash: meta.block_hash,
+                        transaction_hash: meta.transaction_hash,
+                        block_number: meta.block_number.as_u64(),
+                    },
+                    event: event.try_into()?,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
     }
 
     async fn ismp_events_stream(

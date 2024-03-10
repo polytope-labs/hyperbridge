@@ -1,3 +1,5 @@
+//! The hyperclient. Allows clients of hyperbridge manage their in-flight ISMP requests.
+
 pub mod internals;
 pub mod providers;
 pub mod runtime;
@@ -16,9 +18,10 @@ use crate::{
 use crate::{
     interfaces::{JsClientConfig, JsPost, JsResponse},
     internals::timeout_request_stream,
+    types::{MessageStatusWithMetadata, TimeoutStatus},
 };
 use ethers::{types::H256, utils::keccak256};
-use futures::{stream, StreamExt};
+use futures::StreamExt;
 use ismp::router::{Post, PostResponse};
 use wasm_bindgen::prelude::*;
 use wasm_streams::ReadableStream;
@@ -113,7 +116,7 @@ pub async fn query_response_status(
 
 /// Accepts a post request that has timed out returns a `ReadableStream` that yields a
 /// `TimeoutStatus` where type TimeoutStatus =  DestinationFinalized | HyperbridgeTimedout |
-/// HyperbridgeFinalized | TimeoutMessage;
+/// HyperbridgeFinalized | TimeoutMessage | Error;
 ///
 /// // This event is emitted on hyperbridge
 /// interface DestinationFinalized {
@@ -155,6 +158,13 @@ pub async fn query_response_status(
 ///     calldata: Vec<u8>,
 /// }
 ///
+/// // An error was encountered in the stream, errors are recoverable so it's safe to continue
+/// polling. interface Error {
+///     kind: "Error";
+///     // error description
+///     description: string
+/// }
+///
 /// This function will not check if the request has timed out, only call it when sure that the
 /// request has timed out after calling `query_request_status`
 #[wasm_bindgen]
@@ -172,20 +182,21 @@ pub async fn timeout_post_request(
         .map(|value| {
             value
                 .map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
-                .map_err(|e| JsValue::from_str(alloc::format!("{e:?}").as_str()))
+                .map_err(|e| {
+                    serde_wasm_bindgen::to_value(&TimeoutStatus::Error {
+                        description: alloc::format!("{e:?}"),
+                    })
+                    .expect("Infallible")
+                })
         });
 
     let js_stream = ReadableStream::from_stream(stream);
     Ok(js_stream.into_raw())
 }
 
-// =====================================
-// Stream Functions
-// =====================================
-
 /// Accepts a PostRequest and returns a `ReadableStream` that yields a `MessageStatus` where:
 /// type MessageStatus =  SourceFinalized | HyperbridgeDelivered | HyperbridgeFinalized |
-/// DestinationDelivered | Timeout;
+/// DestinationDelivered | Timeout | Error;
 ///
 /// // This event is emitted on hyperbridge
 /// interface SourceFinalized {
@@ -235,6 +246,13 @@ pub async fn timeout_post_request(
 /// interface Timeout {
 ///     kind: "Timeout";
 /// }
+///
+/// // An error was encountered in the stream, errors are recoverable so it's safe to continue
+/// polling. interface Error {
+///     kind: "Error";
+///     // error description
+///     description: string
+/// }
 #[wasm_bindgen]
 pub async fn request_status_stream(
     request: JsPost,
@@ -256,34 +274,27 @@ pub async fn request_status_stream(
         .await
         .map_err(|e| JsError::new(e.to_string().as_str()))?;
 
-    let stream = stream::unfold((), move |_| {
-        let dest_client = dest_client.clone();
-        let hyperbridge_client = hyperbridge_client.clone();
-        let source_client = source_client.clone();
-        let post = post.clone();
-        async move {
-            // Obtaining the request stream and the timeout stream
-            let mut timed_out =
-                internals::request_timeout_stream(post.timeout_timestamp, source_client.clone())
-                    .await;
-            let mut request_status = internals::request_status_stream(
-                post,
-                source_client.clone(),
-                dest_client,
-                hyperbridge_client,
-                request.height,
-            )
-            .await;
+    // Obtaining the request stream and the timeout stream
+    let timed_out =
+        internals::request_timeout_stream(post.timeout_timestamp, source_client.clone()).await;
 
-            tokio::select! {
-                result = timed_out.next() => {
-                    return result.map(|val| (val.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible")).map_err(|e| JsValue::from_str(alloc::format!("{e:?}").as_str())), ()))
-                }
-                result = request_status.next() => {
-                    return result.map(|val| (val.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible")).map_err(|e| JsValue::from_str(alloc::format!("{e:?}").as_str())), ()))
-                }
-            }
-        }
+    let request_status = internals::request_status_stream(
+        post,
+        source_client.clone(),
+        dest_client,
+        hyperbridge_client,
+        request.height,
+    )
+    .await;
+
+    let stream = futures::stream::select(request_status, timed_out).map(|res| {
+        res.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
+            .map_err(|e| {
+                serde_wasm_bindgen::to_value(&MessageStatusWithMetadata::Error {
+                    description: alloc::format!("{e:?}"),
+                })
+                .expect("Infallible")
+            })
     });
 
     // Wrapping the main stream in a readable stream

@@ -11,6 +11,7 @@ use ismp::{
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use serde::{Deserialize, Serialize};
+use std::ops::RangeInclusive;
 
 #[derive(Eq, PartialEq, Clone)]
 pub enum RequestOrResponse {
@@ -54,6 +55,12 @@ pub trait Client: Clone + Send + Sync + 'static {
         &self,
         item: RequestOrResponse,
     ) -> Result<BoxStream<WithMetadata<Event>>, anyhow::Error>;
+
+    /// Should return all the events emitted between the given block range
+    async fn query_ismp_event(
+        &self,
+        range: RangeInclusive<u64>,
+    ) -> Result<Vec<WithMetadata<Event>>, anyhow::Error>;
 
     // Returns a stream of the PostRequestHandled on the ISMP host of this chain
     async fn post_request_handled_stream(

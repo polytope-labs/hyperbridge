@@ -16,6 +16,7 @@ use ismp::{
     util::hash_request,
 };
 
+use ismp::events::Event;
 use std::time::Duration;
 
 /// `query_request_status_internal` is an internal function that
@@ -376,7 +377,9 @@ pub async fn request_status_stream(
                                             Ok(MessageStatusWithMetadata::SourceFinalized {
                                                 meta: state_machine_update.meta,
                                             }),
-                                            PostStreamState::SourceFinalized,
+                                            PostStreamState::SourceFinalized(
+                                                state_machine_update.meta.block_number,
+                                            ),
                                         )))
                                     }
                                 },
@@ -395,18 +398,32 @@ pub async fn request_status_stream(
                         Ok(None)
                     },
 
-                    PostStreamState::SourceFinalized => {
-                        let hyperbridge_request_response =
-                            hyperbridge_client.query_request_receipt(hash).await?;
-                        if hyperbridge_request_response != H160::zero() {
-                            let hyperbridge_height =
+                    PostStreamState::SourceFinalized(finalized_height) => {
+                        let relayer = hyperbridge_client.query_request_receipt(hash).await?;
+
+                        if relayer != H160::zero() {
+                            let latest_height =
                                 hyperbridge_client.query_latest_block_height().await?;
+
+                            let meta = dest_client
+                                .query_ismp_event(finalized_height..=latest_height)
+                                .await?
+                                .into_iter()
+                                .find_map(|event| match event.event {
+                                    Event::PostRequest(post_event)
+                                        if post.source == post_event.source &&
+                                            post.nonce == post_event.nonce =>
+                                        Some(event.meta),
+                                    _ => None,
+                                });
 
                             return Ok(Some((
                                 Ok(MessageStatusWithMetadata::HyperbridgeDelivered {
-                                    meta: Default::default(),
+                                    meta: meta.unwrap_or_default(),
                                 }),
-                                PostStreamState::HyperbridgeDelivered(hyperbridge_height.into()),
+                                PostStreamState::HyperbridgeDelivered(
+                                    meta.map(|m| m.block_number).unwrap_or(latest_height),
+                                ),
                             )));
                         }
 
@@ -418,22 +435,16 @@ pub async fn request_status_stream(
                                 Ok(event) => {
                                     return Ok(Some((
                                         Ok(MessageStatusWithMetadata::HyperbridgeDelivered {
-                                            meta: event.meta,
+                                            meta: event.meta.clone(),
                                         }),
                                         PostStreamState::HyperbridgeDelivered(
                                             event.meta.block_number,
                                         ),
                                     )));
                                 },
-                                Err(e) =>
-                                    return Ok(Some((
-                                        Err(anyhow!(
-                                            "Encountered an error {:?}: in {:?}",
-                                            PostStreamState::SourceFinalized,
-                                            e
-                                        )),
-                                        post_request_status,
-                                    ))),
+                                Err(e) => tracing::info!(
+                                    "Encountered waiting for message on hyperbridge: {e:?}"
+                                ),
                             }
                         }
 
@@ -463,7 +474,9 @@ pub async fn request_status_stream(
                                             Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
                                                 meta: event.meta,
                                             }),
-                                            PostStreamState::HyperbridgeFinalized,
+                                            PostStreamState::HyperbridgeFinalized(
+                                                event.meta.block_number,
+                                            ),
                                         )));
                                     } else {
                                         continue
@@ -481,34 +494,40 @@ pub async fn request_status_stream(
                         }
                         Ok(None)
                     },
-                    PostStreamState::HyperbridgeFinalized => {
+                    PostStreamState::HyperbridgeFinalized(finalized_height) => {
                         let res = dest_client.query_request_receipt(hash).await?;
                         if res != H160::zero() {
+                            let latest_height = dest_client.query_latest_block_height().await?;
+                            let meta = dest_client
+                                .query_ismp_event(finalized_height..=latest_height)
+                                .await?
+                                .into_iter()
+                                .find_map(|event| match event.event {
+                                    Event::PostRequest(post_event)
+                                        if post.source == post_event.source &&
+                                            post.nonce == post_event.nonce =>
+                                        Some(event.meta),
+                                    _ => None,
+                                })
+                                .unwrap_or_default();
                             return Ok(Some((
-                                Ok(MessageStatusWithMetadata::DestinationDelivered {
-                                    meta: Default::default(),
-                                }),
+                                Ok(MessageStatusWithMetadata::DestinationDelivered { meta }),
                                 PostStreamState::DestinationDelivered,
                             )));
                         }
                         let mut stream = dest_client.post_request_handled_stream(hash).await?;
 
                         while let Some(event) = stream.next().await {
-                            return match event {
-                                Ok(event) => Ok(Some((
+                            match event {
+                                Ok(event) => return Ok(Some((
                                     Ok(MessageStatusWithMetadata::DestinationDelivered {
                                         meta: event.meta,
                                     }),
                                     PostStreamState::DestinationDelivered,
                                 ))),
-                                Err(e) => Ok(Some((
-                                    Err(anyhow!(
-                                        "Encountered an error {:?}: in {:?}",
-                                        PostStreamState::HyperbridgeFinalized,
-                                        e
-                                    )),
-                                    post_request_status,
-                                ))),
+                                Err(e) =>  tracing::info!(
+                                    "Encountered an error waiting for message delivery to destination {e:?}",
+                                ),
                             }
                         }
 

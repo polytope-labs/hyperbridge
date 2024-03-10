@@ -1,19 +1,16 @@
-mod internals;
-mod providers;
-mod runtime;
-mod streams;
-mod types;
+pub mod internals;
+pub mod providers;
+pub mod runtime;
+pub mod streams;
+pub mod types;
 
-mod interfaces;
-#[cfg(test)]
-mod tests;
+pub mod interfaces;
 
 extern crate alloc;
 extern crate core;
 
 use crate::{
     internals::{query_request_status_internal, query_response_status_internal},
-    streams::{query_request_status_stream, timeout_stream},
     types::ClientConfig,
 };
 
@@ -96,18 +93,21 @@ pub async fn timeout_post_request(
 // Stream Functions
 // =====================================
 
-/// Races between a timeout stream and request processing stream, and yields the following json
+/// Returns a stream that yields the following json
 /// strings variants Status Variants: `Pending`, `SourceFinalized`, `HyperbridgeDelivered`,
 /// `HyperbridgeFinalized`, `DestinationDelivered`, `Timeout`
 #[wasm_bindgen]
-pub async fn subscribe_to_request_status(
+pub async fn request_status_stream(
     request: JsPost,
     config_js: JsClientConfig,
-    post_request_height: u64,
 ) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
-    let post: Post = request.try_into().map_err(|_| JsError::new("deserialization error"))?;
-    let config: ClientConfig =
-        config_js.try_into().map_err(|_| JsError::new("deserialization error"))?;
+    let post: Post = request
+        .clone()
+        .try_into()
+        .map_err(|_err| JsError::new("deserialization error: {_err:?}"))?;
+    let config: ClientConfig = config_js
+        .try_into()
+        .map_err(|_err| JsError::new("deserialization error: {_err:?}"))?;
     let source_client =
         config.source_chain().await.map_err(|e| JsError::new(e.to_string().as_str()))?;
     let dest_client =
@@ -124,13 +124,15 @@ pub async fn subscribe_to_request_status(
         let post = post.clone();
         async move {
             // Obtaining the request stream and the timeout stream
-            let mut timed_out = timeout_stream(post.timeout_timestamp, source_client.clone()).await;
-            let mut request_status = query_request_status_stream(
+            let mut timed_out =
+                streams::request_timeout_stream(post.timeout_timestamp, source_client.clone())
+                    .await;
+            let mut request_status = streams::request_status_stream(
                 post,
                 source_client.clone(),
                 dest_client,
                 hyperbridge_client,
-                post_request_height,
+                request.height,
             )
             .await;
 

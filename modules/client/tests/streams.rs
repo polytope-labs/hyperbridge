@@ -1,36 +1,37 @@
 #![cfg(target_arch = "wasm32")]
 use wasm_bindgen_test::*;
 
-use crate::{
-    internals::timeout_request_stream, streams::query_request_status_stream, types::ClientConfig,
-};
 use anyhow::Context;
 use ethers::{
+    contract::parse_log,
     core::k256::SecretKey,
-    prelude::{LocalWallet, Middleware, MiddlewareBuilder, Provider, Signer, U256},
+    prelude::{
+        transaction::eip2718::TypedTransaction, LocalWallet, Middleware, MiddlewareBuilder,
+        NameOrAddress, Provider, Signer, TransactionRequest, U256,
+    },
     providers::{Http, ProviderExt},
     types::H160,
-};
-
-use crate::{
-    internals::query_request_status_internal,
-    providers::interface::Client,
-    types::{ChainConfig, EvmConfig, HashAlgorithm, MessageStatus, SubstrateConfig, TimeoutStatus},
-};
-use ethers::{
-    contract::parse_log,
-    prelude::{transaction::eip2718::TypedTransaction, NameOrAddress, TransactionRequest},
     utils::hex,
 };
+
 use futures::StreamExt;
 use hex_literal::hex;
+use hyperclient::{
+    internals::{query_request_status_internal, timeout_request_stream},
+    providers::interface::Client,
+    streams::request_status_stream,
+    types::{
+        ChainConfig, ClientConfig, EvmConfig, HashAlgorithm, MessageStatus, SubstrateConfig,
+        TimeoutStatus,
+    },
+};
 use ismp::{
     consensus::StateMachineId,
     host::{Ethereum, StateMachine},
     router,
 };
 use ismp_solidity_abi::{
-    erc_20::Erc20,
+    erc20::ERC20,
     evm_host::{EvmHost, PostRequestEventFilter},
     ping_module::{PingMessage, PingModule},
 };
@@ -103,7 +104,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
     let host = EvmHost::new(host_addr, client.clone());
     let erc_20 =
-        Erc20::new(host.dai().await.context(format!("Error in {chain:?}"))?, client.clone());
+        ERC20::new(host.dai().await.context(format!("Error in {chain:?}"))?, client.clone());
     let call = erc_20.approve(host_addr, U256::max_value());
 
     let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
@@ -143,7 +144,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     let source_client = config.source_chain().await?;
     let dest_client = config.dest_chain().await?;
     let hyperbridge_client = config.hyperbridge_client().await?;
-    let mut stream = query_request_status_stream(
+    let mut stream = request_status_stream(
         post,
         source_client,
         dest_client,
@@ -212,7 +213,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     tracing::info!("{:#?}", host.host_params().await?);
 
     let erc_20 =
-        Erc20::new(host.dai().await.context(format!("Error in {chain:?}"))?, client.clone());
+        ERC20::new(host.dai().await.context(format!("Error in {chain:?}"))?, client.clone());
     let call = erc_20.approve(host_addr, U256::max_value());
 
     let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
@@ -290,7 +291,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
             Ok(status) => {
                 tracing::info!("Got Status {:?}", status);
                 match status {
-                    TimeoutStatus::TimeoutMessage(call_data) => {
+                    TimeoutStatus::TimeoutMessage { calldata } => {
                         let gas_price = client.get_gas_price().await?;
                         tracing::info!("Sending timeout to BSC");
                         let receipt = client
@@ -300,7 +301,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
                                     to: Some(NameOrAddress::Address(source_chain.handler_address)),
                                     value: Some(Default::default()),
                                     gas_price: Some(gas_price * 5), // experiment with higher?
-                                    data: Some(call_data.into()),
+                                    data: Some(calldata.into()),
                                     ..Default::default()
                                 }),
                                 None,

@@ -121,6 +121,8 @@ pub struct JsPost {
     /// Gas limit for executing the request on destination
     /// This value should be zero if destination module is not a contract
     pub gas_limit: u64,
+    /// Height at which this request was emitted on the source chain
+    pub height: u64,
 }
 
 impl TryFrom<JsPost> for Post {

@@ -16,7 +16,7 @@ use ismp::{
 use std::time::Duration;
 
 /// returns the query stream for a post
-pub async fn query_request_status_stream(
+pub async fn request_status_stream(
     post: Post,
     source_client: impl Client,
     dest_client: impl Client,
@@ -234,7 +234,10 @@ pub async fn query_request_status_stream(
 
 /// This function returns a stream that yields when the timeout
 /// time of a request is reached
-pub async fn timeout_stream(timeout: u64, client: impl Client + Clone) -> BoxStream<MessageStatus> {
+pub async fn request_timeout_stream(
+    timeout: u64,
+    client: impl Client + Clone,
+) -> BoxStream<MessageStatus> {
     let stream = stream::unfold((), move |_| {
         let client_moved = client.clone();
 

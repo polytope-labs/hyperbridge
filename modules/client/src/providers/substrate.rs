@@ -12,7 +12,7 @@ use hashbrown::HashMap;
 use hex_literal::hex;
 use ismp::{
     consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
-    events::{Event, StateMachineUpdated},
+    events::{Event, EventData, StateMachineUpdated},
     host::{Ethereum, StateMachine},
     messaging::Message,
 };
@@ -26,7 +26,6 @@ use subxt::{
     rpc::{RawValue, RpcClientT, RpcFuture, RpcSubscription},
     rpc_params, OnlineClient,
 };
-use ismp::events::EventData;
 
 #[derive(Debug, Clone)]
 pub struct SubstrateClient<C: subxt::Config + Clone> {
@@ -157,7 +156,10 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         }
     }
 
-    async fn ismp_events_stream(&self, item: RequestOrResponse) -> Result<BoxStream<EventData>, Error> {
+    async fn ismp_events_stream(
+        &self,
+        item: RequestOrResponse,
+    ) -> Result<BoxStream<EventData>, Error> {
         let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
         let initial_height: u64 = self.client.blocks().at_latest().await?.number().into();
         let stream = stream::unfold(

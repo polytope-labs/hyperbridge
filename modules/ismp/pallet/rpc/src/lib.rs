@@ -26,7 +26,7 @@ use jsonrpsee::{
 use codec::Encode;
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
-    events::{Event, StateMachineUpdated},
+    events::{Event, EventData, EventMetadata, StateMachineUpdated},
     router::{Request, Response},
 };
 use ismp_runtime_api::IsmpRuntimeApi;
@@ -39,11 +39,12 @@ use sc_client_api::{BlockBackend, ProofProvider};
 use serde::{Deserialize, Serialize};
 use sp_api::{ApiExt, ProvideRuntimeApi};
 use sp_blockchain::HeaderBackend;
-use sp_core::offchain::{storage::OffchainDb, OffchainDbExt, OffchainStorage};
-use sp_runtime::traits::{Block as BlockT, Header, BlakeTwo256, Hash};
+use sp_core::{
+    offchain::{storage::OffchainDb, OffchainDbExt, OffchainStorage},
+    H256,
+};
+use sp_runtime::traits::{BlakeTwo256, Block as BlockT, Hash, Header};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
-use sp_core::H256;
-use ismp::events::{EventData, EventMetadata};
 
 /// A type that could be a block number or a block hash
 #[derive(Clone, Hash, Debug, PartialEq, Eq, Copy, Serialize, Deserialize)]
@@ -358,26 +359,37 @@ where
                     runtime_error_into_rpc_error("Invalid block number or hash provided")
                 })?;
 
-            let block_body = self.client.block(at.clone()).map_err(|e| runtime_error_into_rpc_error(e.to_string()))?.ok_or_else( || {
-                runtime_error_into_rpc_error("Invalid block number or hash provided")
+            let block_body = self
+                .client
+                .block(at.clone())
+                .map_err(|e| runtime_error_into_rpc_error(e.to_string()))?
+                .ok_or_else(|| {
+                    runtime_error_into_rpc_error("Invalid block number or hash provided")
+                })?;
+
+            let extrinsics_hash: Vec<H256> = block_body
+                .block
+                .extrinsics()
+                .to_vec()
+                .iter()
+                .map(|ext| BlakeTwo256::hash_of(ext))
+                .collect();
+
+            let block_hash: [u8; 32] = at.as_ref().try_into().map_err(|_| {
+                runtime_error_into_rpc_error("Could not convert block hash to fixed type")
             })?;
 
-            let extrinsics_hash: Vec<H256> = block_body.block.extrinsics().to_vec().iter().map(|ext| BlakeTwo256::hash_of(ext)).collect();
+            let event_metadata =
+                EventMetadata { block_hash: H256::from(block_hash), extrinsics_hash };
 
-            let block_hash:[u8; 32] = at.as_ref().try_into().map_err(|_| runtime_error_into_rpc_error("Could not convert block hash to fixed type"))?;
-
-            let event_metadata = EventMetadata {
-                block_hash: H256::from(block_hash),
-                extrinsics_hash,
-            };
-
-            let event_data: Vec<EventData> = temp.iter().map(|event| {
-                let event_data = EventData {
-                    event: event.clone(),
-                    event_metadata: event_metadata.clone()
-                };
-                return event_data
-            }).collect();
+            let event_data: Vec<EventData> = temp
+                .iter()
+                .map(|event| {
+                    let event_data =
+                        EventData { event: event.clone(), event_metadata: event_metadata.clone() };
+                    return event_data
+                })
+                .collect();
 
             events.insert(header.hash().to_string(), event_data);
         }

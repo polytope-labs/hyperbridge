@@ -32,7 +32,6 @@ pub enum Event {
     GetRequest(Get),
 }
 
-
 /// This represents event metadata that should be emitted by ismp-rs wrappers
 #[derive(Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize)]
 pub struct EventData {
@@ -42,12 +41,11 @@ pub struct EventData {
     pub event_metadata: EventMetadata,
 }
 
-
 /// This represents event metadata that should be emitted by ismp-rs wrappers
 #[derive(Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize)]
 pub struct EventMetadata {
     /// The block hash of the event
     pub block_hash: H256,
     /// The hash of the extrinsics in the block
-    pub extrinsics_hash: Vec<H256>
+    pub extrinsics_hash: Vec<H256>,
 }

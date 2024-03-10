@@ -17,9 +17,8 @@ use ethers::{
 use futures::StreamExt;
 use hex_literal::hex;
 use hyperclient::{
-    internals::{query_request_status_internal, timeout_request_stream},
+    internals::{query_request_status_internal, request_status_stream, timeout_request_stream},
     providers::interface::Client,
-    streams::request_status_stream,
     types::{
         ChainConfig, ClientConfig, EvmConfig, HashAlgorithm, MessageStatus, SubstrateConfig,
         TimeoutStatus,

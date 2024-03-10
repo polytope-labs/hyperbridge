@@ -108,29 +108,59 @@ pub struct ClientConfig {
     pub hyperbridge: ChainConfig,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Copy)]
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq, Default, Copy)]
+pub struct EventMetadata {
+    /// The hash of the block where the event was emitted
+    pub block_hash: H256,
+    /// The hash of the extrinsic responsible for the event
+    pub transaction_hash: H256,
+    /// The block number where the event was emitted
+    pub block_number: u64,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum MessageStatus {
     Pending,
     /// Source state machine has been finalized on hyperbridge.
+    SourceFinalized,
+    /// Message has been delivered to hyperbridge
+    HyperbridgeDelivered,
+    /// Messaged has been finalized on hyperbridge
+    HyperbridgeFinalized,
+    /// Delivered to destination
+    DestinationDelivered,
+    /// Message has timed out
+    Timeout,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum MessageStatusWithMetadata {
+    Pending,
+    /// Source state machine has been finalized on hyperbridge.
     SourceFinalized {
-        /// Hyperbridge height when this was finalized
-        height: u64,
+        /// Metadata about the event on hyperbridge
+        #[serde(flatten)]
+        meta: EventMetadata,
     },
     /// Message has been delivered to hyperbridge
     HyperbridgeDelivered {
-        /// Hyperbridge height when the request was delivered
-        height: u64,
+        /// Metadata about the event on hyperbridge
+        #[serde(flatten)]
+        meta: EventMetadata,
     },
     /// Messaged has been finalized on hyperbridge
     HyperbridgeFinalized {
-        /// Hyperbridge height that finalized the request
-        height: u64,
+        /// Metadata about the event on the destination chain
+        #[serde(flatten)]
+        meta: EventMetadata,
     },
     /// Delivered to destination
     DestinationDelivered {
-        /// Destination height at which request was delivered
-        height: u64,
+        /// Metadata about the event on the destination chain
+        #[serde(flatten)]
+        meta: EventMetadata,
     },
     /// Message has timed out
     Timeout,
@@ -157,18 +187,21 @@ pub enum TimeoutStatus {
     Pending,
     /// Destination state machine has been finalized on hyperbridge
     DestinationFinalized {
-        /// Hyperbridge height when the destination finalized the timeout.
-        height: u64,
+        /// Metadata about the event on hyperbridge
+        #[serde(flatten)]
+        meta: EventMetadata,
     },
     /// Message has been timed out on hyperbridge
     HyperbridgeTimedout {
-        /// Hyperbridge height when the request was timed-out
-        height: u64,
+        /// Metadata about the event on hyperbridge
+        #[serde(flatten)]
+        meta: EventMetadata,
     },
     /// Hyperbridge has been finalized on source state machine
     HyperbridgeFinalized {
-        /// Hyperbridge height when that finalizes the timeout
-        height: u64,
+        /// Metadata about the event on the destination
+        #[serde(flatten)]
+        meta: EventMetadata,
     },
     /// Encoded call data to be submitted to source chain
     TimeoutMessage {
@@ -280,13 +313,15 @@ impl ClientConfig {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::MessageStatus;
+    use crate::types::{MessageStatus, MessageStatusWithMetadata};
 
     #[test]
     fn test_serialization() -> Result<(), anyhow::Error> {
         assert_eq!(
-            r#"{"kind":"DestinationDelivered","height":23}"#,
-            json::to_string(&MessageStatus::DestinationDelivered { height: 23 })?
+            r#"{"kind":"DestinationDelivered","block_hash":"0x0000000000000000000000000000000000000000000000000000000000000000","transaction_hash":"0x0000000000000000000000000000000000000000000000000000000000000000","block_number":0}"#,
+            json::to_string(&MessageStatusWithMetadata::DestinationDelivered {
+                meta: Default::default()
+            })?
         );
         assert_eq!(r#"{"kind":"Timeout"}"#, json::to_string(&MessageStatus::Timeout)?);
 

@@ -1,6 +1,6 @@
 #![allow(async_fn_in_trait)]
 
-use crate::types::BoxStream;
+use crate::types::{BoxStream, EventMetadata};
 use core::time::Duration;
 use ethers::{prelude::H256, types::H160};
 use ismp::{
@@ -10,11 +10,21 @@ use ismp::{
     router::{Post, PostResponse},
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
+use serde::{Deserialize, Serialize};
 
 #[derive(Eq, PartialEq, Clone)]
 pub enum RequestOrResponse {
     Request(Post),
     Response(PostResponse),
+}
+
+/// Holds an event along with relevant metadata about the event
+#[derive(Serialize, Deserialize, Clone)]
+pub struct WithMetadata<T> {
+    /// The event metdata
+    pub meta: EventMetadata,
+    /// The event in question
+    pub event: T,
 }
 
 pub trait Client: Clone + Send + Sync + 'static {
@@ -43,13 +53,13 @@ pub trait Client: Clone + Send + Sync + 'static {
     async fn ismp_events_stream(
         &self,
         item: RequestOrResponse,
-    ) -> Result<BoxStream<Event>, anyhow::Error>;
+    ) -> Result<BoxStream<WithMetadata<Event>>, anyhow::Error>;
 
     // Returns a stream of the PostRequestHandled on the ISMP host of this chain
     async fn post_request_handled_stream(
         &self,
         commitment: H256,
-    ) -> Result<BoxStream<PostRequestHandledFilter>, anyhow::Error>;
+    ) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, anyhow::Error>;
 
     async fn query_state_machine_commitment(
         &self,
@@ -60,7 +70,7 @@ pub trait Client: Clone + Send + Sync + 'static {
     async fn state_machine_update_notification(
         &self,
         counterparty_state_id: StateMachineId,
-    ) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error>;
+    ) -> Result<BoxStream<WithMetadata<StateMachineUpdated>>, anyhow::Error>;
 
     /// This method should return the key used to be used to query the state proof for the request
     /// commitment
@@ -82,7 +92,7 @@ pub trait Client: Clone + Send + Sync + 'static {
     fn encode(&self, msg: Message) -> Result<Vec<u8>, anyhow::Error>;
 
     /// Submit message to chain
-    async fn submit(&self, msg: Message) -> Result<u64, anyhow::Error>;
+    async fn submit(&self, msg: Message) -> Result<EventMetadata, anyhow::Error>;
 
     /// Query the timestamp at which the client was last updated
     async fn query_state_machine_update_time(

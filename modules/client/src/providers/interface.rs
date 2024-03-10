@@ -109,5 +109,6 @@ pub async fn wait_for_challenge_period<C: Client>(
         let current_timestamp = client.query_timestamp().await?;
         delay = current_timestamp.saturating_sub(last_consensus_update);
     }
+
     Ok(())
 }

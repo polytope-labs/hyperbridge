@@ -1,8 +1,5 @@
 use crate::{
-    providers::{
-        interface::{Client, RequestOrResponse},
-        StreamItem,
-    },
+    providers::interface::{Client, RequestOrResponse},
     types::{BoxStream, MessageStatus, PostStreamState},
     Keccak256,
 };
@@ -192,24 +189,22 @@ pub async fn request_status_stream(
                         let mut stream = dest_client.post_request_handled_stream(hash).await?;
 
                         while let Some(event) = stream.next().await {
-                            match event {
-                                Ok(_) => {
-                                    return Ok(Some((
-                                        Ok(MessageStatus::DestinationDelivered { height: 0 }),
-                                        PostStreamState::DestinationDelivered,
-                                    )));
-                                },
-                                Err(e) =>
-                                    return Ok(Some((
-                                        Err(anyhow!(
-                                            "Encountered an error {:?}: in {:?}",
-                                            PostStreamState::HyperbridgeFinalized,
-                                            e
-                                        )),
-                                        post_request_status,
-                                    ))),
+                            return match event {
+                                Ok(_) => Ok(Some((
+                                    Ok(MessageStatus::DestinationDelivered { height: 0 }),
+                                    PostStreamState::DestinationDelivered,
+                                ))),
+                                Err(e) => Ok(Some((
+                                    Err(anyhow!(
+                                        "Encountered an error {:?}: in {:?}",
+                                        PostStreamState::HyperbridgeFinalized,
+                                        e
+                                    )),
+                                    post_request_status,
+                                ))),
                             }
                         }
+
                         Ok(None)
                     },
 
@@ -232,8 +227,8 @@ pub async fn request_status_stream(
     Box::pin(stream)
 }
 
-/// This function returns a stream that yields when the timeout
-/// time of a request is reached
+/// This returns a stream that yields when the provided timeout value is reached on the chain for
+/// the provided [`Client`]
 pub async fn request_timeout_stream(
     timeout: u64,
     client: impl Client + Clone,
@@ -257,8 +252,8 @@ pub async fn request_timeout_stream(
             let response = lambda().await;
 
             let value = match response {
-                Ok(true) => Some((Ok(StreamItem::Item(MessageStatus::Timeout)), ())),
-                Ok(false) => Some((Ok(StreamItem::NoOp), ())),
+                Ok(true) => Some((Ok(Some(MessageStatus::Timeout)), ())),
+                Ok(false) => Some((Ok(None), ())),
                 Err(e) =>
                     Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), ())),
             };
@@ -268,8 +263,8 @@ pub async fn request_timeout_stream(
     })
     .filter_map(|item| async move {
         match item {
-            Ok(StreamItem::NoOp) => None,
-            Ok(StreamItem::Item(event)) => Some(Ok(event)),
+            Ok(None) => None,
+            Ok(Some(event)) => Some(Ok(event)),
             Err(err) => Some(Err(err)),
         }
     });

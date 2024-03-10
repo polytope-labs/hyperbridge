@@ -4,7 +4,6 @@ use crate::{
 };
 use ethers::prelude::Middleware;
 
-use super::StreamItem;
 use crate::types::{EvmStateProof, SubstrateStateProof};
 use anyhow::{anyhow, Context, Error};
 use core::time::Duration;
@@ -195,7 +194,7 @@ impl Client for EvmClient {
 
                 // in case we get old heights, best to ignore them
                 if block_number < latest_height {
-                    return Some((Ok(StreamItem::NoOp), (block_number, interval, client)))
+                    return Some((Ok(None), (block_number, interval, client)))
                 }
 
                 let contract = EvmHost::new(client.host_address, client.client.clone());
@@ -227,19 +226,16 @@ impl Client for EvmClient {
                     .collect::<Vec<PostRequestHandledFilter>>();
 
                 // we only want the highest event
-                let value = if let Some(event) = events.last() {
-                    StreamItem::Item(event.clone())
-                } else {
-                    StreamItem::NoOp
-                };
+                let value =
+                    if let Some(event) = events.last() { Some(event.clone()) } else { None };
 
                 Some((Ok(value), (block_number + 1, interval, client)))
             },
         )
         .filter_map(|item| async move {
             match item {
-                Ok(StreamItem::NoOp) => None,
-                Ok(StreamItem::Item(event)) => Some(Ok(event)),
+                Ok(None) => None,
+                Ok(Some(event)) => Some(Ok(event)),
                 Err(err) => Some(Err(err)),
             }
         });
@@ -271,7 +267,7 @@ impl Client for EvmClient {
 
                 // in case we get old heights, best to ignore them
                 if block_number < latest_height {
-                    return Some((Ok(StreamItem::NoOp), (block_number, interval, client)))
+                    return Some((Ok(None), (block_number, interval, client)))
                 }
 
                 let contract = Handler::new(client.ismp_handler, client.client.clone());
@@ -296,19 +292,16 @@ impl Client for EvmClient {
                 // we only want the highest event
                 events.sort_by(|a, b| a.latest_height.cmp(&b.latest_height));
                 // we only want the highest event
-                let value = if let Some(event) = events.last() {
-                    StreamItem::Item(event.clone())
-                } else {
-                    StreamItem::NoOp
-                };
+                let value =
+                    if let Some(event) = events.last() { Some(event.clone()) } else { None };
 
                 Some((Ok(value), (block_number + 1, interval, client)))
             },
         )
         .filter_map(|item| async move {
             match item {
-                Ok(StreamItem::NoOp) => None,
-                Ok(StreamItem::Item(event)) => Some(Ok(event)),
+                Ok(None) => None,
+                Ok(Some(event)) => Some(Ok(event)),
                 Err(err) => Some(Err(err)),
             }
         });

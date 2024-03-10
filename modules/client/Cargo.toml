@@ -1,9 +1,9 @@
 [package]
 name = "hyperclient"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "The hyperclient is a library for managing (in-flight) ISMP requests"
-repository = "https://github.com/polytope-labs/hyperbridge"
+repository = "https://github.com/polytope-labs/hyperbridge/blob/main/modules/client"
 license = "Apache-2.0"
 
 [lib]
@@ -31,6 +31,7 @@ web-sys = "0.3.68"
 wasm-timer = { package = "fluvio-wasm-timer", version = "0.2.5" }
 hashbrown = { version = "0.14.3", features = ["serde"] }
 primitive-types = { version = "0.12.2", default-features = false, features = ["serde"] }
+tracing = { version = "0.1.40", default-features = false }
 
 ethers = { workspace = true, features = ["ws"] }
 
@@ -52,5 +53,4 @@ json = { package = "serde_json", version = "1.0.114", default-features = false }
 wasm-bindgen-test = "0.3.24"
 tracing-wasm = "0.2.1"
 console_error_panic_hook = "0.1.7"
-tracing = { version = "0.1.40", default-features = false }
 hex = { version = "0.4.3", default-features = false }

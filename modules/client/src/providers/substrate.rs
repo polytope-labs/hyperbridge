@@ -1,4 +1,3 @@
-use super::StreamItem;
 use crate::{
     providers::interface::{Client, RequestOrResponse},
     runtime::{self},
@@ -172,10 +171,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                                 // log::error!(
                                 // 	"Error encountered while watching finalized heads: {err:?}"
                                 // );
-                                return Some((
-                                    Ok(StreamItem::NoOp),
-                                    (latest_height, subscription, client),
-                                ))
+                                return Some((Ok(None), (latest_height, subscription, client)))
                             },
                             None => return None,
                         };
@@ -188,10 +184,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                             Err(_err) => {
                                 // log::error!("Error encountered while querying ismp events
                                 // {err:?}");
-                                return Some((
-                                    Ok(StreamItem::NoOp),
-                                    (latest_height, subscription, client),
-                                ))
+                                return Some((Ok(None), (latest_height, subscription, client)))
                             },
                         };
 
@@ -212,13 +205,11 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
                         let value = match event {
                             Some(event) => Some((
-                                Ok(StreamItem::Item(event)),
+                                Ok(Some(event)),
                                 (header.number().into(), subscription, client),
                             )),
-                            None => Some((
-                                Ok(StreamItem::NoOp),
-                                (header.number().into(), subscription, client),
-                            )),
+                            None =>
+                                Some((Ok(None), (header.number().into(), subscription, client))),
                         };
 
                         return value;
@@ -228,8 +219,8 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         )
         .filter_map(|item| async move {
             match item {
-                Ok(StreamItem::NoOp) => None,
-                Ok(StreamItem::Item(event)) => Some(Ok(event)),
+                Ok(None) => None,
+                Ok(Some(event)) => Some(Ok(event)),
                 Err(err) => Some(Err(err)),
             }
         });

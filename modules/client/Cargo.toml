@@ -48,6 +48,7 @@ wasm = ["subxt/web", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/web"]
 std = ["subxt/native", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/native"]
 
 [dev-dependencies]
+json = { package = "serde_json", version = "1.0.114", default-features = false }
 wasm-bindgen-test = "0.3.24"
 tracing-wasm = "0.2.1"
 console_error_panic_hook = "0.1.7"

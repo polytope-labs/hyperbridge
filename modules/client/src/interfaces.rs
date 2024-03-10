@@ -268,6 +268,7 @@ mod tests {
                 timeout_timestamp: 1_600_000,
                 data: vec![40; 256],
                 gas_limit: 5000,
+                height: 0,
             },
             response: vec![80; 256],
             timeout_timestamp: 4_500_000,

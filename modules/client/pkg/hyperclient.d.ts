@@ -30,15 +30,14 @@ export function query_response_status(response: JsResponse, config_js: JsClientC
 */
 export function timeout_post_request(request: JsPost, config_js: JsClientConfig): Promise<ReadableStream>;
 /**
-* Races between a timeout stream and request processing stream, and yields the following json
+* Returns a stream that yields the following json
 * strings variants Status Variants: `Pending`, `SourceFinalized`, `HyperbridgeDelivered`,
 * `HyperbridgeFinalized`, `DestinationDelivered`, `Timeout`
 * @param {JsPost} request
 * @param {JsClientConfig} config_js
-* @param {bigint} post_request_height
 * @returns {Promise<ReadableStream>}
 */
-export function subscribe_to_request_status(request: JsPost, config_js: JsClientConfig, post_request_height: bigint): Promise<ReadableStream>;
+export function request_status_stream(request: JsPost, config_js: JsClientConfig): Promise<ReadableStream>;
 /**
 */
 export class IntoUnderlyingByteSource {
@@ -157,6 +156,10 @@ export class JsPost {
 * This value should be zero if destination module is not a contract
 */
   gas_limit: bigint;
+/**
+* Height at which this request was emitted on the source chain
+*/
+  height: bigint;
 /**
 * The nonce of this request on the source chain
 */

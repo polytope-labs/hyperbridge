@@ -1,0 +1,14 @@
+{
+  "sepolia": {
+    "HandlerV1": {
+      "address": "0xF763D969aDC8281b1A8459Bde4CE86BA811b0Aaf",
+      "startBlock": 5419390
+    },
+    "EthereumHost": {
+      "address": "0xe4226c474A6f4BF285eA80c2f01c0942B04323e5"
+    },
+    "ERC6160Ext20": {
+      "address": "0x6df8dE86458D15a3Be3A6B907e6aE6B7af352452"
+    }
+  }
+}

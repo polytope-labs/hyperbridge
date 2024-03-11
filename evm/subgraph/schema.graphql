@@ -1,0 +1,140 @@
+type StateMachineUpdated @entity(immutable: true) {
+  id: Bytes!
+  stateMachineId: BigInt! # uint256
+  height: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+type GetRequestEvent @entity(immutable: true) {
+  id: Bytes!
+  source: Bytes! # bytes
+  dest: Bytes! # bytes
+  from: Bytes! # bytes
+  keys: [Bytes!]! # bytes[]
+  nonce: BigInt! # uint256
+  height: BigInt! # uint256
+  timeoutTimestamp: BigInt! # uint256
+  gaslimit: BigInt! # uint256
+  fee: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type GetRequestHandled @entity(immutable: true) {
+  id: Bytes!
+  commitment: Bytes! # bytes32
+  relayer: Bytes! # address
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type PostRequestEvent @entity(immutable: true) {
+  id: Bytes!
+  source: Bytes! # bytes
+  dest: Bytes! # bytes
+  from: Bytes! # bytes
+  to: Bytes! # bytes
+  nonce: BigInt! # uint256
+  timeoutTimestamp: BigInt! # uint256
+  data: Bytes! # bytes
+  gaslimit: BigInt! # uint256
+  fee: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type PostRequestHandled @entity(immutable: true) {
+  id: Bytes!
+  commitment: Bytes! # bytes32
+  relayer: Bytes! # address
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type PostResponseEvent @entity(immutable: true) {
+  id: Bytes!
+  source: Bytes! # bytes
+  dest: Bytes! # bytes
+  from: Bytes! # bytes
+  to: Bytes! # bytes
+  nonce: BigInt! # uint256
+  timeoutTimestamp: BigInt! # uint256
+  data: Bytes! # bytes
+  gaslimit: BigInt! # uint256
+  response: Bytes! # bytes
+  resGaslimit: BigInt! # uint256
+  resTimeoutTimestamp: BigInt! # uint256
+  fee: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type PostResponseHandled @entity(immutable: true) {
+  id: Bytes!
+  commitment: Bytes! # bytes32
+  relayer: Bytes! # address
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type Approval @entity(immutable: true) {
+  id: Bytes!
+  owner: Bytes! # address
+  spender: Bytes! # address
+  value: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type Transfer @entity(immutable: true) {
+  id: Bytes!
+  from: Bytes! # address
+  to: Bytes! # address
+  value: BigInt! # uint256
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+
+
+
+type PostRequestHandledCount @entity {
+  id: ID!
+  value: BigInt! # uint256
+}
+
+type RelayerPostRequestHandledCount @entity {
+  id: ID! # the owner address
+  value: BigInt! # uint256
+}
+
+type TransferTotal @entity {
+  id: ID!
+  totalAmount: BigInt! #uint256
+}
+
+type TransferPairTotal @entity {
+  id: ID! # A concatenation of from and to addresses
+  from: Bytes! # address
+  to: Bytes! # address
+  totalAmount: BigInt! # Total transferred amount for this from->to pair
+}
+
+type InTransferTotal @entity {
+  id: ID! # to address
+  totalAmountTransferredIn: BigInt! # Total amount transferred  into the to address
+}
+
+type RequestEventFeeTotal @entity {
+  id: ID!
+  totalRequestFee: BigInt! # Total amount of fee emitted from the request event
+}

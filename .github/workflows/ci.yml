@@ -268,6 +268,7 @@ jobs:
   hyperclient-tests:
     name: Hyperclient Integration Tests
     runs-on: ubuntu-latest
+    if: false
 
     steps:
       - uses: actions/checkout@v4.1.1

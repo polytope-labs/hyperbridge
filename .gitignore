@@ -17,3 +17,5 @@ evm/broadcast/
 evm/integration-tests/target/
 
 .uuid*
+
+modules/client/pkg

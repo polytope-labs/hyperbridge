@@ -67,7 +67,7 @@ use frame_support::{
 };
 use frame_system::{
     limits::{BlockLength, BlockWeights},
-    EnsureRoot,
+    EnsureRoot, Phase,
 };
 use pallet_ismp::{
     mmr_primitives::{Leaf, LeafIndex},
@@ -775,11 +775,32 @@ impl_runtime_apis! {
             Ismp::get_challenge_period(consensus_state_id)
         }
 
-/// Generate a proof for the provided leaf indices
+        /// Generate a proof for the provided leaf indices
         fn generate_proof(
             keys: ProofKeys
         ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), pallet_ismp::primitives::Error> {
             Ismp::generate_proof(keys)
+        }
+
+        /// Fetch all ISMP events and their extrinsic metadata
+        fn block_events_with_metadata() -> Vec<(pallet_ismp::events::Event, u32)> {
+            let raw_events = frame_system::Pallet::<Self>::read_events_no_consensus().into_iter();
+            raw_events.filter_map(|e| {
+                let frame_system::EventRecord { event, phase, ..} = *e;
+                let Phase::ApplyExtrinsic(index) = phase else {
+                    unreachable!("ISMP events are always dispatched by extrinsics");
+                };
+
+                match event {
+                    RuntimeEvent::Ismp(event) => {
+                        pallet_ismp::events::to_core_protocol_event(event)
+                            .map(|event| {
+                            (event, index)
+                        })
+                    },
+                    _ => None
+                }
+            }).collect()
         }
 
         /// Fetch all ISMP events

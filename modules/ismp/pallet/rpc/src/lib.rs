@@ -23,7 +23,7 @@ use jsonrpsee::{
     types::{error::CallError, ErrorObject},
 };
 
-use codec::Encode;
+use codec::{Decode, Encode};
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     events::{Event, StateMachineUpdated},
@@ -39,8 +39,11 @@ use sc_client_api::{BlockBackend, ProofProvider};
 use serde::{Deserialize, Serialize};
 use sp_api::{ApiExt, ProvideRuntimeApi};
 use sp_blockchain::HeaderBackend;
-use sp_core::offchain::{storage::OffchainDb, OffchainDbExt, OffchainStorage};
-use sp_runtime::traits::{Block as BlockT, Header};
+use sp_core::{
+    offchain::{storage::OffchainDb, OffchainDbExt, OffchainStorage},
+    H256,
+};
+use sp_runtime::traits::{Block as BlockT, Hash, Header};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 /// A type that could be a block number or a block hash
@@ -89,6 +92,26 @@ fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> RpcError {
         "Something wrong",
         Some(format!("{}", e)),
     )))
+}
+
+/// Relevant transaction metadata for an event
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq, Default)]
+pub struct EventMetadata {
+    /// The hash of the block where the event was emitted
+    pub block_hash: H256,
+    /// The hash of the extrinsic responsible for the event
+    pub transaction_hash: H256,
+    /// The block number where the event was emitted
+    pub block_number: u64,
+}
+
+/// Holds an event along with relevant metadata about the event
+#[derive(Serialize, Deserialize)]
+pub struct EventWithMetadata {
+    /// The event metdata
+    pub meta: EventMetadata,
+    /// The event in question
+    pub event: Event,
 }
 
 /// ISMP RPC methods.
@@ -141,6 +164,15 @@ where
         from: BlockNumberOrHash<Hash>,
         to: BlockNumberOrHash<Hash>,
     ) -> Result<HashMap<String, Vec<Event>>>;
+
+    /// Query ISMP Events that were deposited in a series of blocks
+    /// Using String keys because HashMap fails to deserialize when key is not a String
+    #[method(name = "ismp_queryEventsWithMetadata")]
+    fn query_events_with_metadata(
+        &self,
+        from: BlockNumberOrHash<Hash>,
+        to: BlockNumberOrHash<Hash>,
+    ) -> Result<HashMap<String, Vec<EventWithMetadata>>>;
 }
 
 /// An implementation of ISMP specific RPC methods.
@@ -169,6 +201,8 @@ where
         + ProofProvider<Block>
         + BlockBackend<Block>,
     C::Api: IsmpRuntimeApi<Block, Block::Hash>,
+    Block::Hash: Into<H256>,
+    u64: From<<Block::Header as Header>::Number>,
 {
     fn query_requests(&self, query: Vec<LeafIndexQuery>) -> Result<Vec<Request>> {
         let mut api = self.client.runtime_api();
@@ -295,9 +329,11 @@ where
             .header(to)
             .map_err(|e| runtime_error_into_rpc_error(e.to_string()))?
             .ok_or_else(|| runtime_error_into_rpc_error("Invalid block number or hash provided"))?;
+
+        let mut api = self.client.runtime_api();
+        api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
+
         while header.number() >= from_block.number() {
-            let mut api = self.client.runtime_api();
-            api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
             let at = header.hash();
 
             let mut request_commitments = vec![];
@@ -347,6 +383,133 @@ where
 
             temp.extend(request_events);
             temp.extend(response_events);
+
+            events.insert(header.hash().to_string(), temp);
+            header = self
+                .client
+                .header(*header.parent_hash())
+                .map_err(|e| runtime_error_into_rpc_error(e.to_string()))?
+                .ok_or_else(|| {
+                    runtime_error_into_rpc_error("Invalid block number or hash provided")
+                })?;
+        }
+        Ok(events)
+    }
+
+    fn query_events_with_metadata(
+        &self,
+        from: BlockNumberOrHash<Block::Hash>,
+        to: BlockNumberOrHash<Block::Hash>,
+    ) -> Result<HashMap<String, Vec<EventWithMetadata>>> {
+        let mut events = HashMap::new();
+        let to =
+            match to {
+                BlockNumberOrHash::Hash(block_hash) => block_hash,
+                BlockNumberOrHash::Number(block_number) =>
+                    self.client.block_hash(block_number.into()).ok().flatten().ok_or_else(|| {
+                        runtime_error_into_rpc_error("Invalid block number provided")
+                    })?,
+            };
+
+        let from =
+            match from {
+                BlockNumberOrHash::Hash(block_hash) => block_hash,
+                BlockNumberOrHash::Number(block_number) =>
+                    self.client.block_hash(block_number.into()).ok().flatten().ok_or_else(|| {
+                        runtime_error_into_rpc_error("Invalid block number provided")
+                    })?,
+            };
+
+        let from_block = self
+            .client
+            .header(from)
+            .map_err(|e| runtime_error_into_rpc_error(e.to_string()))?
+            .ok_or_else(|| runtime_error_into_rpc_error("Invalid block number or hash provided"))?;
+
+        let mut header = self
+            .client
+            .header(to)
+            .map_err(|e| runtime_error_into_rpc_error(e.to_string()))?
+            .ok_or_else(|| runtime_error_into_rpc_error("Invalid block number or hash provided"))?;
+
+        let mut api = self.client.runtime_api();
+        api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
+
+        while header.number() >= from_block.number() {
+            let at = header.hash();
+
+            let block_events = api.block_events_with_metadata(at).map_err(|e| {
+                runtime_error_into_rpc_error(format!("failed to read block events {:?}", e))
+            })?;
+
+            let mut temp = vec![];
+
+            for (event, index) in block_events {
+                let event = match event {
+                    pallet_ismp::events::Event::Request { commitment, .. } => api
+                        .get_requests(at, vec![commitment])
+                        .map_err(|_| runtime_error_into_rpc_error("Error fetching requests"))?
+                        .into_iter()
+                        .map(|req| match req {
+                            Request::Post(post) => Event::PostRequest(post),
+                            Request::Get(get) => Event::GetRequest(get),
+                        })
+                        .next(),
+                    pallet_ismp::events::Event::Response { commitment, .. } => api
+                        .get_responses(at, vec![commitment])
+                        .map_err(|_| runtime_error_into_rpc_error("Error fetching response"))?
+                        .into_iter()
+                        .filter_map(|res| match res {
+                            Response::Post(post) => Some(Event::PostResponse(post)),
+                            _ => None,
+                        })
+                        .next(),
+                    pallet_ismp::events::Event::StateMachineUpdated {
+                        state_machine_id,
+                        latest_height,
+                    } => Some(Event::StateMachineUpdated(StateMachineUpdated {
+                        state_machine_id,
+                        latest_height,
+                    })),
+                };
+
+                if let Some(event) = event {
+                    // get the block extrinsics
+                    let extrinsic = self
+                        .client
+                        .block_body(at)
+                        .map_err(|err| {
+                            runtime_error_into_rpc_error(format!(
+                                "Error fetching extrinsic for block {at:?}: {err:?}"
+                            ))
+                        })?
+                        .ok_or_else(|| {
+                            runtime_error_into_rpc_error(format!(
+                                "No extrinsics found for block {at:?}"
+                            ))
+                        })?
+                        // using swap remove should be fine unless the node is in an inconsistent
+                        // state
+                        .swap_remove(index as usize);
+
+                    let extrinsic =
+                        Vec::<u8>::decode(&mut extrinsic.encode().as_slice()).map_err(|err| {
+                            runtime_error_into_rpc_error(format!(
+                                "Could not decode extrinsic with index {index:?}: {err:?}"
+                            ))
+                        })?;
+                    let extrinsic_hash =
+                        <Block::Header as Header>::Hashing::hash(extrinsic.as_slice());
+                    temp.push(EventWithMetadata {
+                        meta: EventMetadata {
+                            block_hash: at.into(),
+                            transaction_hash: extrinsic_hash.into(),
+                            block_number: u64::from(*header.number()),
+                        },
+                        event,
+                    });
+                }
+            }
 
             events.insert(header.hash().to_string(), temp);
             header = self

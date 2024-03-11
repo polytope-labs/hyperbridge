@@ -302,6 +302,11 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
                     timeout_timestamp: resp.res_timeout_timestamp.low_u64(),
                     gas_limit: resp.res_gaslimit.low_u64(),
                 })),
+            EvmHostEvents::PostRequestHandledFilter(handled) =>
+                Ok(ismp::events::Event::PostRequestHandled(ismp::events::PostRequestHandled {
+                    commitment: handled.commitment.into(),
+                    relayer: handled.relayer.as_bytes().to_vec(),
+                })),
             event => Err(anyhow!("Unsupported event {event:?}")),
         }
     }

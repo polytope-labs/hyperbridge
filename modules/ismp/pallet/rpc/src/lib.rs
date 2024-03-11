@@ -330,10 +330,9 @@ where
             .map_err(|e| runtime_error_into_rpc_error(e.to_string()))?
             .ok_or_else(|| runtime_error_into_rpc_error("Invalid block number or hash provided"))?;
 
-        let mut api = self.client.runtime_api();
-        api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
-
         while header.number() >= from_block.number() {
+            let mut api = self.client.runtime_api();
+            api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
             let at = header.hash();
 
             let mut request_commitments = vec![];
@@ -432,10 +431,9 @@ where
             .map_err(|e| runtime_error_into_rpc_error(e.to_string()))?
             .ok_or_else(|| runtime_error_into_rpc_error("Invalid block number or hash provided"))?;
 
-        let mut api = self.client.runtime_api();
-        api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
-
         while header.number() >= from_block.number() {
+            let mut api = self.client.runtime_api();
+            api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
             let at = header.hash();
 
             let block_events = api.block_events_with_metadata(at).map_err(|e| {

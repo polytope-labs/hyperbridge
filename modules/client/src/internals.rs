@@ -280,11 +280,12 @@ pub async fn timeout_request_stream(
                 }
             };
 
-            let response = lambda().await;
-            match response {
-                Ok(res) => res,
-                Err(e) => Some((Err(anyhow!("Encountered an error in stream {e:?}")), state)),
-            }
+            lambda().await.unwrap_or_else(|e| {
+                Some((
+                    Err(anyhow!("Encountered an error in stream {e:?}")),
+                    TimeoutStreamState::End,
+                ))
+            })
         }
     });
 
@@ -496,6 +497,8 @@ pub async fn request_status_stream(
                     },
                     PostStreamState::HyperbridgeFinalized(finalized_height) => {
                         let res = dest_client.query_request_receipt(hash).await?;
+                        let request_commitment =
+                            hash_request::<Keccak256>(&Request::Post(post.clone()));
                         if res != H160::zero() {
                             let latest_height = dest_client.query_latest_block_height().await?;
                             let meta = dest_client
@@ -503,9 +506,8 @@ pub async fn request_status_stream(
                                 .await?
                                 .into_iter()
                                 .find_map(|event| match event.event {
-                                    Event::PostRequest(post_event)
-                                        if post.source == post_event.source &&
-                                            post.nonce == post_event.nonce =>
+                                    Event::PostRequestHandled(handled)
+                                        if handled.commitment == request_commitment =>
                                         Some(event.meta),
                                     _ => None,
                                 })
@@ -539,14 +541,10 @@ pub async fn request_status_stream(
                 }
             };
 
-            let response = lambda().await;
-            match response {
-                Ok(res) => res,
-                Err(e) => Some((
-                    Err(anyhow!("Encountered an error in stream {e:?}")),
-                    post_request_status,
-                )),
-            }
+            // terminate the stream once an error is encountered
+            lambda().await.unwrap_or_else(|e| {
+                Some((Err(anyhow!("Encountered an error in stream {e:?}")), PostStreamState::End))
+            })
         }
     });
 

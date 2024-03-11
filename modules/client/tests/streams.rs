@@ -84,8 +84,8 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     };
 
     let hyperbrige_config = SubstrateConfig {
-        // rpc_url: "wss://hyperbridge-gargantua-rpc.blockops.network:443".to_string(),
-        rpc_url: "ws://127.0.0.1:9944".to_string(),
+        rpc_url: "wss://hyperbridge-gargantua-rpc.blockops.network:443".to_string(),
+        // rpc_url: "ws://127.0.0.1:9944".to_string(),
         consensus_state_id: *b"PARA",
         hash_algo: HashAlgorithm::Keccak,
     };
@@ -162,7 +162,8 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
                 tracing::info!("Got Status {:?}", status);
             },
             Err(e) => {
-                tracing::info!("Error: {e:?}")
+                tracing::info!("Error: {e:?}");
+                Err(e)?
             },
         }
     }
@@ -195,8 +196,8 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     };
 
     let hyperbrige_config = SubstrateConfig {
-        // rpc_url: "wss://hyperbridge-gargantua-rpc.blockops.network:443".to_string(),
-        rpc_url: "ws://127.0.0.1:9944".to_string(),
+        rpc_url: "wss://hyperbridge-gargantua-rpc.blockops.network:443".to_string(),
+        // rpc_url: "ws://127.0.0.1:9944".to_string(),
         consensus_state_id: *b"PARA",
         hash_algo: HashAlgorithm::Keccak,
     };

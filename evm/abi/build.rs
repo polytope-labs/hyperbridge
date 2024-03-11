@@ -18,6 +18,7 @@ fn main() -> anyhow::Result<()> {
             ("Beefy", format!("{base_dir}/out/BeefyV1.sol/BeefyV1.json")),
             ("PingModule", format!("{base_dir}/out/PingModule.sol/PingModule.json")),
             ("HostManager", format!("{base_dir}/out/HostManager.sol/HostManager.json")),
+            ("ERC20", format!("{base_dir}/out/ERC20.sol/ERC20.json")),
         ];
 
         MultiAbigen::new(sources)

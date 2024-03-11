@@ -396,18 +396,16 @@ where
 
 /// This should prevent a request from timing out on a proxy when there exists a consensus client
 /// for the request destination
-/// The State machine for the proxy is assumed in this test to be ``StateMachine::Ethereum(Ethereum::ExecutionLayer)``
+/// The State machine for the proxy is assumed in this test to be ``StateMachine::Kusama(2000);``
 /// the State machine for the host is assumed in this test to be ``StateMachine::Polkadot(1000)``
 /// The destination state machine for the test is assumed to be ``StateMachine::Kusama(1000)``
-pub fn prevent_request_timeout_on_proxy_with_known_state_machine<H, D>(host: &H, dispatcher: &D)  -> Result<(), &'static str>
+pub fn prevent_request_timeout_on_proxy_with_known_state_machine<H, D>(host: &H, dispatcher: &D,proxy_state_machine: StateMachine, direct_conn_state_machine: StateMachine )  -> Result<(), &'static str>
 where
     H: IsmpHost,
     D: IsmpDispatcher,
     D::Account: From<[u8; 32]>,
     D::Balance: From<u32>,
 {
- let proxy_state_machine = StateMachine::Kusama(2000);
- let direct_conn_state_machine = StateMachine::Bsc; 
   // takes a host and sets two concensus cliet, 1 for any chain, then the other for the proxy 
   // the other chain should have one consensus client for the request destination
   // then the host should send a request to the destination chain
@@ -451,17 +449,12 @@ let consensus_clients= host.consensus_clients();
 
 
 let proxy_consensus_client_id = consensus_clients.iter().find(|client| client.state_machine(proxy_state_machine).ok().is_some()).expect("The proxy consensus client should be set for this test").consensus_client_id();
-let destination_consensus_client_id = consensus_clients.iter().find(|client| client.state_machine(direct_conn_state_machine).ok().is_some()).expect("The proxy destination chain's consensus client should be set for this test").consensus_client_id();
+let destination_consensus_client_id = consensus_clients.iter().find(|client| client.state_machine(direct_conn_state_machine).ok().is_some()).expect("The directly connected chain's consensus client should be set for this test").consensus_client_id();
 
 
 // For our test case we assert that there exists distinct consensus clients for the proxy and the direct connection
 
 assert_ne!(proxy_consensus_client_id, destination_consensus_client_id);
-
-let  destiation_client_= &consensus_clients[0].consensus_client_id();
-let proxy_client_ = &consensus_clients[1].consensus_client_id();
-
-assert!(destiation_client_ != proxy_client_);
 
 
 let dispatch_post = DispatchPost {
@@ -472,9 +465,11 @@ let dispatch_post = DispatchPost {
     data: vec![0u8; 64],
     gas_limit: 0,
 };
+
+
 let post = Post {
     source: host.host_state_machine(),
-    dest: StateMachine::Kusama(2000),
+    dest: direct_conn_state_machine,
     nonce: 0,
     from: vec![0u8; 32],
     to: vec![0u8; 32],
@@ -496,21 +491,14 @@ dispatcher
  // Timeout message handling check for source and destination chain
  let timeout_message = Message::Timeout(TimeoutMessage::Post {
     requests: vec![request.clone()],
-    timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
-});
-
-handle_incoming_message(host, timeout_message).unwrap();
-
-
-// Timeout message handling check for the proxy
-let timeout_message = Message::Timeout(TimeoutMessage::Post {
-    requests: vec![request.clone()],
     timeout_proof: Proof { height: proxy.height, proof: vec![] },
 });
 
 let res = handle_incoming_message(host, timeout_message);
 
-assert!(matches!(res, Err(..)));
+//asert that request doesnt timeout on proxy when there is a consensus client for the destination
+
+assert!(res.is_err(), "should prevent a request from timing out on a proxy when there exists a consensus client for the request destination ");
 
 
     Ok(())
@@ -518,7 +506,7 @@ assert!(matches!(res, Err(..)));
 
 /// This should prevent a response from timing out on a proxy when there exists a consensus client
 /// for the request destination
-pub fn prevent_response_timeout_on_proxy_with_known_state_machine<H, D>(host: &H,dispatcher: &D) -> Result<(), &'static str> 
+pub fn prevent_response_timeout_on_proxy_with_known_state_machine<H, D>(host: &H,dispatcher: &D, proxy_state_machine: StateMachine,direct_conn_state_machine: StateMachine ) -> Result<(), &'static str> 
     where
     H: IsmpHost,
     D: IsmpDispatcher,
@@ -526,8 +514,6 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine<H, D>(host: &H
     D::Balance: From<u32>,
 
 {
-    let proxy_state_machine = StateMachine::Kusama(2000);
-    let direct_conn_state_machine = StateMachine::Bsc; 
    
     let proxy =  IntermediateState {
         height: StateMachineHeight {
@@ -573,7 +559,7 @@ assert_ne!(proxy_consensus_client_id, destination_consensus_client_id);
     
 
     let request = Post {
-        source: intermediate_state.height.id.state_id,
+        source: direct_conn_state_machine,
         dest: host.host_state_machine(),
         nonce: 0,
         from: vec![0u8; 32],

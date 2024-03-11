@@ -1,5 +1,7 @@
 
 
+use ismp::host::StateMachine;
+
 use crate::{
     check_challenge_period, check_client_expiry, check_request_source_and_destinatione, frozen_check, mock_consensus_state_id, mock_proxy_consensus_state_id, mocks::{Host, MockDispatcher}, post_request_timeout_check, post_response_timeout_check, prevent_request_timeout_on_proxy_with_known_state_machine, prevent_response_timeout_on_proxy_with_known_state_machine, sanity_check_for_proxies, write_outgoing_commitments
 };
@@ -48,7 +50,9 @@ fn should_process_post_response_timeouts_correctly() {
 fn should_prevent_request_timeout_on_proxy_with_known_state_machine () {
     let host = Arc::new(Host::default());
     let dispatcher = MockDispatcher(host.clone());
-    prevent_request_timeout_on_proxy_with_known_state_machine(&*host, &dispatcher).unwrap()
+    let proxy_state_machine = StateMachine::Kusama(2000);
+    let direct_conn_state_machine = StateMachine::Bsc; 
+    prevent_request_timeout_on_proxy_with_known_state_machine(&*host, &dispatcher, proxy_state_machine, direct_conn_state_machine).unwrap()
 }
 
 
@@ -56,7 +60,9 @@ fn should_prevent_request_timeout_on_proxy_with_known_state_machine () {
 fn should_prevent_response_timeout_on_proxy_with_known_state_machine () {
     let host = Arc::new(Host::default());
     let dispatcher = MockDispatcher(host.clone());
-    prevent_response_timeout_on_proxy_with_known_state_machine(&*host, &dispatcher).unwrap()
+    let proxy_state_machine = StateMachine::Kusama(2000);
+    let direct_conn_state_machine = StateMachine::Bsc; 
+    prevent_response_timeout_on_proxy_with_known_state_machine(&*host, &dispatcher, proxy_state_machine, direct_conn_state_machine).unwrap()
 }
 
 #[test]

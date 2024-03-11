@@ -158,8 +158,8 @@ pub async fn query_response_status(
 ///     calldata: Vec<u8>,
 /// }
 ///
-/// // An error was encountered in the stream, errors are recoverable so it's safe to continue
-/// polling. interface Error {
+/// // An error was encountered in the stream, the stream will come to an end.
+/// interface Error {
 ///     kind: "Error";
 ///     // error description
 ///     description: string
@@ -247,8 +247,8 @@ pub async fn timeout_post_request(
 ///     kind: "Timeout";
 /// }
 ///
-/// // An error was encountered in the stream, errors are recoverable so it's safe to continue
-/// polling. interface Error {
+/// // An error was encountered in the stream, the stream will come to an end.
+/// interface Error {
 ///     kind: "Error";
 ///     // error description
 ///     description: string

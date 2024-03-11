@@ -50,7 +50,7 @@ impl Chainer for SwitchProviderMiddleware {
         match result {
             Ok(response) => {
                 if response.status() == StatusCode::OK {
-                    return Ok(Some(response));
+                    return Ok(Some(response))
                 };
                 let _ = next_state()?;
             },

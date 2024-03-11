@@ -56,7 +56,7 @@ where
         if data == &HASHED_NULL_NODE {
             // early return if this is == keccak(rlp(null)), aka empty trie root
             // source: https://ethereum.github.io/execution-specs/diffs/frontier_homestead/trie/index.html#empty-trie-root
-            return Ok(NodePlan::Empty);
+            return Ok(NodePlan::Empty)
         }
 
         let r = Rlp::new(data);

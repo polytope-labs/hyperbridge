@@ -37,7 +37,7 @@ pub fn mmr_position_to_k_index(mut leaves: Vec<u64>, mmr_size: u64) -> Vec<(u64,
 fn take_while_vec<T, P: Fn(&T) -> bool>(v: &mut Vec<T>, p: P) -> Vec<T> {
     for i in 0..v.len() {
         if !p(&v[i]) {
-            return v.drain(..i).collect();
+            return v.drain(..i).collect()
         }
     }
     v.drain(..).collect()

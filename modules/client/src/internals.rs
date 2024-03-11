@@ -35,25 +35,25 @@ pub async fn query_request_status_internal(
 
     if relayer_address != H160::zero() {
         // This means the message has gotten the destination chain
-        return Ok(MessageStatus::DestinationDelivered);
+        return Ok(MessageStatus::DestinationDelivered)
     }
 
     // Checking to see if the messaging has timed-out
     if destination_current_timestamp.as_secs() >= post.timeout_timestamp {
         // request timed out before reaching the destination chain
-        return Ok(MessageStatus::Timeout);
+        return Ok(MessageStatus::Timeout)
     }
 
     let hyperbridge_current_timestamp = hyperbridge_client.query_timestamp().await?;
     let relayer = hyperbridge_client.query_request_receipt(hash).await?;
 
     if relayer != H160::zero() {
-        return Ok(MessageStatus::HyperbridgeDelivered);
+        return Ok(MessageStatus::HyperbridgeDelivered)
     }
 
     if hyperbridge_current_timestamp.as_secs() > post.timeout_timestamp {
         // the request timed out before getting to hyper bridge
-        return Ok(MessageStatus::Timeout);
+        return Ok(MessageStatus::Timeout)
     }
 
     Ok(MessageStatus::Pending)
@@ -73,25 +73,25 @@ pub async fn query_response_status_internal(
     let response_receipt_relayer = dest_client.query_response_receipt(req_hash).await?;
 
     if response_receipt_relayer != H160::zero() {
-        return Ok(MessageStatus::DestinationDelivered);
+        return Ok(MessageStatus::DestinationDelivered)
     }
 
     if response_destination_timeout.as_secs() > post_response.timeout_timestamp {
         // response timed out before reaching the destination chain
-        return Ok(MessageStatus::Timeout);
+        return Ok(MessageStatus::Timeout)
     }
 
     let relayer = hyperbridge_client.query_response_receipt(req_hash).await?;
 
     if relayer != H160::zero() {
-        return Ok(MessageStatus::HyperbridgeDelivered);
+        return Ok(MessageStatus::HyperbridgeDelivered)
     }
 
     let hyperbridge_current_timestamp = hyperbridge_client.latest_timestamp().await?;
 
     if hyperbridge_current_timestamp.as_secs() > post_response.timeout_timestamp {
         // the request timed out before getting to hyper bridge
-        return Ok(MessageStatus::Timeout);
+        return Ok(MessageStatus::Timeout)
     }
 
     Ok(MessageStatus::Pending)
@@ -424,7 +424,7 @@ pub async fn request_status_stream(
                                 PostStreamState::HyperbridgeDelivered(
                                     meta.map(|m| m.block_number).unwrap_or(latest_height),
                                 ),
-                            )));
+                            )))
                         }
 
                         let mut stream = hyperbridge_client
@@ -440,7 +440,7 @@ pub async fn request_status_stream(
                                         PostStreamState::HyperbridgeDelivered(
                                             event.meta.block_number,
                                         ),
-                                    )));
+                                    )))
                                 },
                                 Err(e) => tracing::info!(
                                     "Encountered waiting for message on hyperbridge: {e:?}"
@@ -458,7 +458,7 @@ pub async fn request_status_stream(
                                     meta: Default::default(),
                                 }),
                                 PostStreamState::End,
-                            )));
+                            )))
                         }
 
                         let mut stream = dest_client
@@ -477,7 +477,7 @@ pub async fn request_status_stream(
                                             PostStreamState::HyperbridgeFinalized(
                                                 event.meta.block_number,
                                             ),
-                                        )));
+                                        )))
                                     } else {
                                         continue
                                     },
@@ -513,7 +513,7 @@ pub async fn request_status_stream(
                             return Ok(Some((
                                 Ok(MessageStatusWithMetadata::DestinationDelivered { meta }),
                                 PostStreamState::DestinationDelivered,
-                            )));
+                            )))
                         }
                         let mut stream = dest_client.post_request_handled_stream(hash).await?;
 
@@ -572,7 +572,7 @@ pub async fn request_timeout_stream(
                     let sleep_time = timeout - current_timestamp;
                     let _ = wasm_timer::Delay::new(Duration::from_secs(sleep_time)).await;
                     Ok::<_, anyhow::Error>(false)
-                };
+                }
             };
 
             let response = lambda().await;

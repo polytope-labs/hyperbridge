@@ -88,7 +88,7 @@ where
     ) -> Result<Vec<WithMetadata<Event>>, Error> {
         let range = (previous_height + 1)..=latest_height;
         if range.is_empty() {
-            return Ok(Default::default());
+            return Ok(Default::default())
         }
 
         #[derive(Clone, Hash, Debug, PartialEq, Eq, Copy, Serialize, Deserialize)]
@@ -222,7 +222,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                                 Some((Ok(None), (header.number().into(), subscription, client))),
                         };
 
-                        return value;
+                        return value
                     }
                 }
             },
@@ -316,7 +316,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                     None => Some((Ok(None), (header.number().into(), subscription, client))),
                 };
 
-                return value;
+                return value
             },
         )
         .filter_map(|item| async move {

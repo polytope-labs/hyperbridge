@@ -242,7 +242,8 @@ The result of the subtraction will be:
 
 #### Total fees earned by Hyperbridge = 34981500000000000000
 
-## Frontend Usage:
+## Frontend Usage
+Usage of the graphql endpoints with any graphql client of choice
 
 ### Hyperbridge Fees
 ```javascript

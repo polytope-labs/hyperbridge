@@ -95,7 +95,7 @@ pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
     if proof_value != output_root.0 {
         return Err(Error::MembershipProofVerificationFailed(
             "Invalid optimism output root proof".to_string(),
-        ));
+        ))
     }
 
     // verify timestamp and block number
@@ -132,7 +132,7 @@ pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
     if payload.timestamp != timestamp && payload.block_number != block_number {
         return Err(Error::MembershipProofVerificationFailed(
             "Invalid optimism block and timestamp proof".to_string(),
-        ));
+        ))
     }
 
     Ok(IntermediateState {

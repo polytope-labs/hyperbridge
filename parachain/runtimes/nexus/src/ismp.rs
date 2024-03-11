@@ -85,7 +85,7 @@ impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
         if request.dest != HostStateMachine::get() {
             let meta = FeeMetadata { origin: [0u8; 32].into(), fee: Default::default() };
-            return Ismp::dispatch_request(Request::Post(request), meta);
+            return Ismp::dispatch_request(Request::Post(request), meta)
         }
 
         let pallet_id = ModuleId::from_bytes(&request.to)
@@ -100,7 +100,7 @@ impl IsmpModule for ProxyModule {
     fn on_response(&self, response: Response) -> Result<(), Error> {
         if response.dest_chain() != HostStateMachine::get() {
             let meta = FeeMetadata { origin: [0u8; 32].into(), fee: Default::default() };
-            return Ismp::dispatch_response(response, meta);
+            return Ismp::dispatch_response(response, meta)
         }
 
         let request = &response.request();

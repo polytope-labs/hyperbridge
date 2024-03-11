@@ -321,7 +321,7 @@ pub mod pallet {
                     },
                     Err(e) => {
                         log::error!(target: "ismp::mmr", "MMR finalize failed: {:?}", e);
-                        return;
+                        return
                     },
                 }
 
@@ -332,7 +332,7 @@ pub mod pallet {
                     Ok(root) => root,
                     Err(e) => {
                         log::error!(target: "ismp::mmr", "MMR finalize failed: {:?}", e);
-                        return;
+                        return
                     },
                 };
 
@@ -681,7 +681,7 @@ impl<T: Config> Pallet<T> {
                     _ => None,
                 },
                 _ => None,
-            };
+            }
         }
         None
     }
@@ -697,7 +697,7 @@ impl<T: Config> Pallet<T> {
                     _ => None,
                 },
                 _ => None,
-            };
+            }
         }
         None
     }

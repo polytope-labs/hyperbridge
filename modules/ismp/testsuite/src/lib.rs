@@ -489,6 +489,7 @@ where
     Ok(())
 }
 
+/// TODO! test not passing
 /// Check that proxies can dispatch requests & responses.
 pub fn sanity_check_for_proxies<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
 where

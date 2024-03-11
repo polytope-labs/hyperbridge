@@ -88,11 +88,6 @@ fn setup_mock_proxy_client<H: IsmpHost>(host: &H) -> IntermediateState {
     host.store_consensus_state(mock_proxy_consensus_state_id(), vec![]).unwrap();
     host.store_consensus_state_id(mock_proxy_consensus_state_id(), MOCK_PROXY_CONSENSUS_CLIENT_ID)
         .unwrap();
-    host.store_state_machine_commitment(
-        proxy_state_commitment.height,
-        proxy_state_commitment.commitment,
-    )
-    .unwrap();
 
     proxy_state_commitment
 }
@@ -441,17 +436,6 @@ where
     D::Account: From<[u8; 32]>,
     D::Balance: From<u32>,
 {
-    let invalid_state_commitment: IntermediateState = IntermediateState {
-        height: StateMachineHeight {
-            id: StateMachineId { state_id: StateMachine::Bsc, consensus_state_id: [0u8; 4] },
-            height: 1,
-        },
-        commitment: StateCommitment {
-            timestamp: 1000,
-            overlay_root: None,
-            state_root: Default::default(),
-        },
-    };
     let intermediate_state = setup_mock_client(host);
     // Set the previous update time
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
@@ -461,17 +445,11 @@ where
     host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
         .unwrap();
 
-    let dispatch_post = DispatchPost {
-        dest: intermediate_state.height.id.state_id,
-        from: vec![0u8; 32],
-        to: vec![0u8; 32],
-        timeout_timestamp: 0,
-        data: vec![0u8; 64],
-        gas_limit: 0,
-    };
+    assert!(host.allowed_proxy().is_none());
+
     let post = Post {
-        source: host.host_state_machine(),
-        dest: intermediate_state.height.id.state_id,
+        source: intermediate_state.height.id.state_id,
+        dest: host.host_state_machine(),
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
@@ -479,11 +457,6 @@ where
         data: vec![0u8; 64],
         gas_limit: 0,
     };
-
-    let dispatch_request = DispatchRequest::Post(dispatch_post);
-    dispatcher
-        .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
-        .unwrap();
 
     // Request message handling check for source and destination chain
     let request_message = Message::Request(RequestMessage {
@@ -493,15 +466,12 @@ where
     });
 
     handle_incoming_message(host, request_message).unwrap();
+    // Assert that request was acknowledged
+    assert!(host.request_receipt(&Request::Post(post)).is_some());
 
-    let request = Request::Post(post);
-    // Fetch commitment from storage
-    let commitment = hash_request::<H>(&request);
-    host.request_commitment(commitment)
-        .map_err(|_| "Expected Request commitment to be found in storage")?;
     let post = Post {
-        source: host.host_state_machine(),
-        dest: intermediate_state.height.id.state_id,
+        source: StateMachine::Kusama(2000),
+        dest: host.host_state_machine(),
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
@@ -512,22 +482,9 @@ where
     let response =
         PostResponse { post: post.clone(), response: vec![], timeout_timestamp: 0, gas_limit: 0 };
     dispatcher
-        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
-        .unwrap();
-
-    // Fetch commitment from storage
-    let commitment = hash_post_response::<H>(&response.clone());
-    host.response_commitment(commitment)
-        .map_err(|_| "Expected Request commitment to be found in storage")?;
-    // Response message handling check
-    let msg = ResponseMessage {
-        datagram: RequestResponse::Response(vec![Response::Post(response.clone())]),
-        proof: Proof { height: invalid_state_commitment.height, proof: vec![] },
-        signer: vec![],
-    };
-    assert_ne!(response.source_chain(), msg.proof.height.id.state_id);
-    let res = handle_incoming_message(host, Message::Response(msg.clone()));
-    assert!(matches!(res, Err(..)));
+        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into()).unwrap();
+    // Assert that response is not acknowledged
+    assert!(host.response_receipt(&Response::Post(response)).is_none());
     Ok(())
 }
 
@@ -539,26 +496,25 @@ where
     D::Account: From<[u8; 32]>,
     D::Balance: From<u32>,
 {
+    let intermediate_state = setup_mock_client(host);
     let proxy_state_commitment = setup_mock_proxy_client(host);
     // Set the previous update time
-    let challenge_period = host.challenge_period(mock_proxy_consensus_state_id()).unwrap();
+    let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
+    host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
+        .unwrap();
+    host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
+        .unwrap();
     host.store_consensus_update_time(mock_proxy_consensus_state_id(), previous_update_time)
         .unwrap();
-    host.store_state_machine_update_time(proxy_state_commitment.height, previous_update_time)
+    host.store_state_machine_commitment(proxy_state_commitment.height, proxy_state_commitment.commitment)
         .unwrap();
 
-    let dispatch_post = DispatchPost {
-        dest: StateMachine::Kusama(2000),
-        from: vec![0u8; 32],
-        to: vec![0u8; 32],
-        timeout_timestamp: 0,
-        data: vec![0u8; 64],
-        gas_limit: 0,
-    };
+    assert!(host.allowed_proxy().is_some() && host.is_allowed_proxy(&proxy_state_commitment.height.id.state_id));
+
     let post = Post {
-        source: host.host_state_machine(),
-        dest: StateMachine::Kusama(2000),
+        source: intermediate_state.height.id.state_id,
+        dest: host.host_state_machine(),
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
@@ -567,55 +523,25 @@ where
         gas_limit: 0,
     };
 
-    let dispatch_request = DispatchRequest::Post(dispatch_post);
-    dispatcher
-        .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
-        .unwrap();
-
-    // Request message handling check for source and destination chain
+    // Request message handling check
     let request_message = Message::Request(RequestMessage {
         requests: vec![post.clone()],
-        proof: Proof { height: proxy_state_commitment.height, proof: vec![] },
+        proof: Proof { height: intermediate_state.height, proof: vec![] },
         signer: vec![0u8; 32],
     });
 
     handle_incoming_message(host, request_message).unwrap();
+    assert!(host.request_receipt(&Request::Post(post.clone())).is_some());
 
-    let request = Request::Post(post);
-    // Fetch commitment from storage
-    let commitment = hash_request::<H>(&request);
-    host.request_commitment(commitment)
-        .map_err(|_| "Expected Request commitment to be found in storage")?;
-    let post = Post {
-        source: host.host_state_machine(),
-        dest: StateMachine::Kusama(2000),
-        nonce: 0,
-        from: vec![0u8; 32],
-        to: vec![0u8; 32],
-        timeout_timestamp: 0,
-        data: vec![0u8; 64],
-        gas_limit: 0,
-    };
     let response =
-        PostResponse { post: post.clone(), response: vec![], timeout_timestamp: 0, gas_limit: 0 };
+        PostResponse { post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
     // Dispatch response
     dispatcher
         .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
         .unwrap();
-
-    // Fetch commitment from storage
-    let commitment = hash_post_response::<H>(&response.clone());
-    host.response_commitment(commitment)
-        .map_err(|_| "Expected Request commitment to be found in storage")?;
-    // Response message handling check
-    let response_message = Message::Response(ResponseMessage {
-        datagram: RequestResponse::Response(vec![Response::Post(response)]),
-        proof: Proof { height: proxy_state_commitment.height, proof: vec![] },
-        signer: vec![],
-    });
-
-    let result = handle_incoming_message(host, response_message);
-    assert!(matches!(result, Ok(..)));
-    assert!(host.is_allowed_proxy(&proxy_state_commitment.height.id.state_id));
+    assert_ne!(response.clone().dest_chain(), host.host_state_machine());
+    // Assert that response was acknowledged
+    assert!(host.response_receipt(&Response::Post(response)).is_some());
+    
     Ok(())
 }

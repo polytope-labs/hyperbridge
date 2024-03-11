@@ -1,0 +1,87 @@
+specVersion: 1.0.0
+indexerHints:
+  prune: auto
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: HandlerV1
+    network: base-sepolia
+    source:
+      address: "0x0B26ba93424A7d00153abEb6388C55F960529E89"
+      abi: HandlerV1
+      startBlock: 6924063
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - StateMachineUpdated
+      abis:
+        - name: HandlerV1
+          file: ./abis/HandlerV1.json
+      eventHandlers:
+        - event: StateMachineUpdated(uint256,uint256)
+          handler: handleStateMachineUpdated
+      file: ./src/handler-v-1.ts
+  - kind: ethereum
+    name: EthereumHost
+    network: base-sepolia
+    source:
+      address: "0x1D14e30e440B8DBA9765108eC291B7b66F98Fd09"
+      abi: EthereumHost
+      startBlock: 6923924
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - GetRequestEvent
+        - GetRequestHandled
+        - PostRequestEvent
+        - PostRequestHandled
+        - PostResponseEvent
+        - PostResponseHandled
+      abis:
+        - name: EthereumHost
+          file: ./abis/EthereumHost.json
+      eventHandlers:
+        - event: GetRequestEvent(bytes,bytes,bytes,bytes[],indexed
+            uint256,uint256,uint256,uint256,uint256)
+          handler: handleGetRequestEvent
+        - event: GetRequestHandled(bytes32,address)
+          handler: handleGetRequestHandled
+        - event: PostRequestEvent(bytes,bytes,bytes,bytes,indexed
+            uint256,uint256,bytes,uint256,uint256)
+          handler: handlePostRequestEvent
+        - event: PostRequestHandled(bytes32,address)
+          handler: handlePostRequestHandled
+        - event: PostResponseEvent(bytes,bytes,bytes,bytes,indexed
+            uint256,uint256,bytes,uint256,bytes,uint256,uint256,uint256)
+          handler: handlePostResponseEvent
+        - event: PostResponseHandled(bytes32,address)
+          handler: handlePostResponseHandled
+      file: ./src/ethereum-host.ts
+  - kind: ethereum
+    name: ERC6160Ext20
+    network: base-sepolia
+    source:
+      address: "0x6df8dE86458D15a3Be3A6B907e6aE6B7af352452"
+      abi: ERC6160Ext20
+      startBlock: 6923285
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Approval
+        - Transfer
+      abis:
+        - name: ERC6160Ext20
+          file: ./abis/ERC6160Ext20.json
+      eventHandlers:
+        - event: Approval(indexed address,indexed address,uint256)
+          handler: handleApproval
+        - event: Transfer(indexed address,indexed address,uint256)
+          handler: handleTransfer
+      file: ./src/erc-6160-ext-20.ts

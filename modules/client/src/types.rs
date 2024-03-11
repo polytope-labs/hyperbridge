@@ -1,14 +1,11 @@
-use crate::providers::{evm_chain::EvmClient, global::Client, substrate::SubstrateClient};
+use crate::providers::{evm::EvmClient, interface::Client, substrate::SubstrateClient};
 use alloc::collections::BTreeMap;
 use anyhow::anyhow;
 use codec::Encode;
 use core::pin::Pin;
 use ethers::types::H160;
 use futures::Stream;
-use ismp::{
-    consensus::{ConsensusStateId, StateMachineId},
-    host::StateMachine,
-};
+use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use serde::{Deserialize, Serialize};
 use subxt::{
     config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
@@ -33,7 +30,13 @@ pub struct KeccakHasher;
 impl Hasher for KeccakHasher {
     type Output = H256;
     fn hash(s: &[u8]) -> Self::Output {
-        sp_core::keccak_256(s).into()
+        use tiny_keccak::Hasher;
+
+        let mut keccak = tiny_keccak::Keccak::v256();
+        let mut output = H256::default();
+        keccak.update(s);
+        keccak.finalize(&mut output[..]);
+        output
     }
 }
 
@@ -76,7 +79,6 @@ impl EvmConfig {
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct SubstrateConfig {
     pub rpc_url: String,
-    pub state_machine: StateMachine,
     pub consensus_state_id: ConsensusStateId,
     pub hash_algo: HashAlgorithm,
 }
@@ -85,11 +87,8 @@ impl SubstrateConfig {
     async fn into_client<C: Config + Clone>(&self) -> Result<SubstrateClient<C>, anyhow::Error> {
         let client = SubstrateClient::<C>::new(
             self.rpc_url.clone(),
-            StateMachineId {
-                state_id: self.state_machine,
-                consensus_state_id: self.consensus_state_id,
-            },
             self.hash_algo,
+            self.consensus_state_id,
         )
         .await?;
         Ok(client)
@@ -109,10 +108,21 @@ pub struct ClientConfig {
     pub hyperbridge: ChainConfig,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Copy)]
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq, Default, Copy)]
+pub struct EventMetadata {
+    /// The hash of the block where the event was emitted
+    pub block_hash: H256,
+    /// The hash of the extrinsic responsible for the event
+    pub transaction_hash: H256,
+    /// The block number where the event was emitted
+    pub block_number: u64,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
 pub enum MessageStatus {
     Pending,
-    /// Source state machine has been finalized on hyperbridge
+    /// Source state machine has been finalized on hyperbridge.
     SourceFinalized,
     /// Message has been delivered to hyperbridge
     HyperbridgeDelivered,
@@ -124,16 +134,54 @@ pub enum MessageStatus {
     Timeout,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum MessageStatusWithMetadata {
+    Pending,
+    /// Source state machine has been finalized on hyperbridge.
+    SourceFinalized {
+        /// Metadata about the event on hyperbridge
+        #[serde(flatten)]
+        meta: EventMetadata,
+    },
+    /// Message has been delivered to hyperbridge
+    HyperbridgeDelivered {
+        /// Metadata about the event on hyperbridge
+        #[serde(flatten)]
+        meta: EventMetadata,
+    },
+    /// Messaged has been finalized on hyperbridge
+    HyperbridgeFinalized {
+        /// Metadata about the event on the destination chain
+        #[serde(flatten)]
+        meta: EventMetadata,
+    },
+    /// Delivered to destination
+    DestinationDelivered {
+        /// Metadata about the event on the destination chain
+        #[serde(flatten)]
+        meta: EventMetadata,
+    },
+    /// An error was encountered in the stream
+    Error {
+        /// Error description
+        description: String,
+    },
+    /// Message has timed out
+    Timeout,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PostStreamState {
     /// Message has been finalized on source chain
     Pending,
-    /// Source state machine has been updated on hyperbridge
-    SourceFinalized,
-    /// Message has been delivered to hyperbridge
-    HyperbridgeDelivered(u64),
+    /// Source state machine has been updated on hyperbridge, holds the block number at which the
+    /// source was finalized on hyperbridge
+    SourceFinalized(u64),
     /// Message has been finalized by hyperbridge
-    HyperbridgeFinalized,
+    HyperbridgeFinalized(u64),
+    /// Message has been delivered to hyperbridge, holds the block where the message was delivered
+    HyperbridgeDelivered(u64),
     /// Message has been delivered to destination
     DestinationDelivered,
     /// Stream has ended, check the message status
@@ -143,14 +191,34 @@ pub enum PostStreamState {
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum TimeoutStatus {
     Pending,
-    /// Destination state machine has been finalized on hyperbridge
-    DestinationFinalized,
+    /// Destination state machine has been finalized the timeout on hyperbridge
+    DestinationFinalized {
+        /// Metadata about the event on hyperbridge
+        #[serde(flatten)]
+        meta: EventMetadata,
+    },
     /// Message has been timed out on hyperbridge
-    HyperbridgeTimedout,
-    /// Hyperbridge has been finalized on source state machine
-    HyperbridgeFinalized,
+    HyperbridgeTimedout {
+        /// Metadata about the event on hyperbridge
+        #[serde(flatten)]
+        meta: EventMetadata,
+    },
+    /// Hyperbridge has been finalized the timeout on source state machine
+    HyperbridgeFinalized {
+        /// Metadata about the event on the destination
+        #[serde(flatten)]
+        meta: EventMetadata,
+    },
+    /// An error was encountered in the stream
+    Error {
+        /// Error description
+        description: String,
+    },
     /// Encoded call data to be submitted to source chain
-    TimeoutMessage(Vec<u8>),
+    TimeoutMessage {
+        /// Calldata that encodes the proof for the timeout message on the source.
+        calldata: Vec<u8>,
+    },
 }
 
 /// Implements [`TxPayload`] for extrinsic encoding
@@ -251,5 +319,23 @@ impl ClientConfig {
             ChainConfig::Substrate(ref config) => config.into_client::<HyperBridgeConfig>().await,
             _ => Err(anyhow!("Hyperbridge config should be a substrate variant")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::types::{MessageStatus, MessageStatusWithMetadata};
+
+    #[test]
+    fn test_serialization() -> Result<(), anyhow::Error> {
+        assert_eq!(
+            r#"{"kind":"DestinationDelivered","block_hash":"0x0000000000000000000000000000000000000000000000000000000000000000","transaction_hash":"0x0000000000000000000000000000000000000000000000000000000000000000","block_number":0}"#,
+            json::to_string(&MessageStatusWithMetadata::DestinationDelivered {
+                meta: Default::default()
+            })?
+        );
+        assert_eq!(r#"{"kind":"Timeout"}"#, json::to_string(&MessageStatus::Timeout)?);
+
+        Ok(())
     }
 }

@@ -4,6 +4,7 @@
 //! Do not manually edit these files.
 //! These files may be overwritten by the codegen system at any time.
 pub mod beefy;
+pub mod erc20;
 pub mod evm_host;
 pub mod handler;
 pub mod host_manager;

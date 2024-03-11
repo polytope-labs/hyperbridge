@@ -162,7 +162,8 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
                 tracing::info!("Got Status {:?}", status);
             },
             Err(e) => {
-                tracing::info!("Error: {e:?}")
+                tracing::info!("Error: {e:?}");
+                Err(e)?
             },
         }
     }

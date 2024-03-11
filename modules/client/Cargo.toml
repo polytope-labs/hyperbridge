@@ -1,6 +1,6 @@
 [package]
 name = "hyperclient"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "The hyperclient is a library for managing (in-flight) ISMP requests"
 repository = "https://github.com/polytope-labs/hyperbridge"
@@ -18,13 +18,10 @@ hex-literal = { version = "0.4.1" }
 serde-wasm-bindgen = { version = "0.6.3", default-features = false }
 serde = { version = "1.0.196", features = ["derive"], default-features = false }
 wasm-bindgen-futures = "0.4.40"
-tiny-keccak = { version = "2.0.2", features = ["keccak"] }
 codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
-async-trait = { version = "0.1.53", default-features = false }
 futures = "0.3.30"
 wasm-streams = "0.4.0"
 tokio = { version = "1.35.1", features = ["macros"]  }
-reqwest = { version = "0.11.23", features = ["json"] }
 wasm-bindgen-test = "0.3.41"
 js-sys = "0.3.68"
 web-sys = "0.3.68"

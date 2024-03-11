@@ -3,7 +3,7 @@ use alloc::collections::BTreeMap;
 use anyhow::anyhow;
 use codec::Encode;
 use core::pin::Pin;
-use ethers::types::H160;
+use ethers::{types::H160, utils::keccak256};
 use futures::Stream;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use serde::{Deserialize, Serialize};
@@ -30,13 +30,7 @@ pub struct KeccakHasher;
 impl Hasher for KeccakHasher {
     type Output = H256;
     fn hash(s: &[u8]) -> Self::Output {
-        use tiny_keccak::Hasher;
-
-        let mut keccak = tiny_keccak::Keccak::v256();
-        let mut output = H256::default();
-        keccak.update(s);
-        keccak.finalize(&mut output[..]);
-        output
+        keccak256(s).into()
     }
 }
 

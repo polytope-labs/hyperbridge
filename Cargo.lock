@@ -5479,10 +5479,9 @@ dependencies = [
 
 [[package]]
 name = "hyperclient"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
- "async-trait",
  "console_error_panic_hook",
  "ethers",
  "fluvio-wasm-timer",
@@ -5497,12 +5496,10 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types",
  "reconnecting-jsonrpsee-ws-client",
- "reqwest",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
  "subxt",
- "tiny-keccak",
  "tokio",
  "tracing",
  "tracing-wasm",

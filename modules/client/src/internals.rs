@@ -432,7 +432,7 @@ pub async fn request_status_stream(
                             .await?;
                         while let Some(event) = stream.next().await {
                             match event {
-                                Ok(event) => {
+                                Ok(event) =>
                                     return Ok(Some((
                                         Ok(MessageStatusWithMetadata::HyperbridgeDelivered {
                                             meta: event.meta.clone(),
@@ -440,8 +440,7 @@ pub async fn request_status_stream(
                                         PostStreamState::HyperbridgeDelivered(
                                             event.meta.block_number,
                                         ),
-                                    )))
-                                },
+                                    ))),
                                 Err(e) => tracing::info!(
                                     "Encountered waiting for message on hyperbridge: {e:?}"
                                 ),

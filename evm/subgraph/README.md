@@ -2,11 +2,11 @@
 
 ## Testnet Query Endpoints
 
-BSC: https://api.studio.thegraph.com/query/67788/hyperbridge-bsc-testnet/0.0.1
-Sepolia: https://api.studio.thegraph.com/query/67788/hyperbridge-sepolia/0.0.1
-Base: https://api.studio.thegraph.com/query/67788/hyperbridge-base-sepolia/0.0.1
-Arbitrum: https://api.studio.thegraph.com/query/67788/hyperbridge-arbitrum-sepolia/0.0.1
-Optimism: https://api.studio.thegraph.com/query/67788/hyperbridge-op-sepolia/0.0.1
+BSC: https://api.studio.thegraph.com/query/67788/hyperbridge-bsc-testnet/0.0.1  
+Sepolia: https://api.studio.thegraph.com/query/67788/hyperbridge-sepolia/0.0.1  
+Base: https://api.studio.thegraph.com/query/67788/hyperbridge-base-sepolia/0.0.1  
+Arbitrum: https://api.studio.thegraph.com/query/67788/hyperbridge-arbitrum-sepolia/0.0.1  
+Optimism: https://api.studio.thegraph.com/query/67788/hyperbridge-op-sepolia/0.0.1  
 
 GraphQl schema is located in `/evm/subgraph/schema.graphql`
 

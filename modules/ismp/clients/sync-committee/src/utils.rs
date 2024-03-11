@@ -125,7 +125,7 @@ pub(super) fn to_bytes_32(bytes: &[u8]) -> Result<[u8; 32], Error> {
         return Err(Error::ImplementationSpecific(format!(
             "Input vector must have exactly 32 elements {:?}",
             bytes
-        )))
+        )));
     }
 
     let mut array = [0u8; 32];

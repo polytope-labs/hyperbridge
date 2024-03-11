@@ -67,10 +67,10 @@ where
             );
             // Try to retrieve the element from Off-chain DB.
             if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-                return Ok(codec::Decode::decode(&mut &*elem).ok())
+                return Ok(codec::Decode::decode(&mut &*elem).ok());
             }
         } else {
-            return Ok(Pallet::<T>::get_node(pos))
+            return Ok(Pallet::<T>::get_node(pos));
         }
 
         Ok(None)
@@ -95,7 +95,7 @@ where
         elems: Vec<DataOrHash>,
     ) -> merkle_mountain_range::Result<()> {
         if elems.is_empty() {
-            return Ok(())
+            return Ok(());
         }
 
         trace!(
@@ -107,7 +107,7 @@ where
         let size = NodesUtils::new(leaves).size();
 
         if pos != size {
-            return Err(merkle_mountain_range::Error::InconsistentStore)
+            return Err(merkle_mountain_range::Error::InconsistentStore);
         }
 
         // Now we are going to iterate over elements to insert

@@ -434,7 +434,7 @@ impl IsmpDispatcher for MockDispatcher {
         let response = Response::Post(response);
         let hash = hash_response::<Host>(&response);
         if host.responses.borrow().contains(&hash) {
-            return Err(Error::ImplementationSpecific("Duplicate response".to_string()))
+            return Err(Error::ImplementationSpecific("Duplicate response".to_string()));
         }
         host.responses.borrow_mut().insert(hash);
         Ok(())

@@ -226,7 +226,7 @@ async fn test_prover() {
                 {
                     update
                 } else {
-                    continue
+                    continue;
                 };
 
                 if light_client_update.sync_committee_update.is_some() {
@@ -252,7 +252,7 @@ async fn test_prover() {
                 count += 1;
                 // For CI purposes we test finalization of 2 epochs
                 if count == 2 {
-                    break
+                    break;
                 }
             },
             Err(err) => {

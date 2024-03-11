@@ -245,7 +245,7 @@ impl<C: Config> SyncCommitteeProver<C> {
             client_state.latest_finalized_epoch >= finality_checkpoint.epoch
         {
             trace!(target: "sync-committee-prover", "No new epoch finalized yet {}", finality_checkpoint.epoch);
-            return Ok(None)
+            return Ok(None);
         }
 
         trace!(target: "sync-committee-prover", "A new epoch has been finalized {}", finality_checkpoint.epoch);
@@ -270,7 +270,7 @@ impl<C: Config> SyncCommitteeProver<C> {
                 self.fetch_finalized_checkpoint(Some(&parent_state_id)).await?.finalized;
             if parent_block_finality_checkpoint.epoch <= client_state.latest_finalized_epoch {
                 trace!(target: "sync-committee-prover", "Search for a block with a valid sync committee signature has reached an invalid epoch {} latest_finalized_block_epoch: {}", parent_block_finality_checkpoint.epoch, client_state.latest_finalized_epoch);
-                return Ok(None)
+                return Ok(None);
             }
 
             let num_signatures = block.body.sync_aggregate.sync_committee_bits.count_ones();
@@ -281,7 +281,7 @@ impl<C: Config> SyncCommitteeProver<C> {
                 (state_period..=state_period + 1).contains(&signature_period) &&
                 parent_block_finality_checkpoint.epoch > client_state.latest_finalized_epoch
             {
-                break
+                break;
             }
             block = parent_block;
         }
@@ -291,7 +291,7 @@ impl<C: Config> SyncCommitteeProver<C> {
         let mut attested_state =
             self.fetch_beacon_state(&get_block_id(attested_header.state_root)).await?;
         if attested_state.finalized_checkpoint.root == Node::default() {
-            return Ok(None)
+            return Ok(None);
         }
         let finalized_block_id = get_block_id(attested_state.finalized_checkpoint.root);
         let finalized_header = self.fetch_header(&finalized_block_id).await?;
@@ -349,11 +349,11 @@ impl<C: Config> SyncCommitteeProver<C> {
             // Prevent an infinite loop
             if count == 100 {
                 log::trace!("Prover could not find a suitable block for the sync committee: {period}, syncing will fail");
-                return Err(anyhow!("Error fetching blocks from selected epoch"))
+                return Err(anyhow!("Error fetching blocks from selected epoch"));
             }
 
             if let Ok(block) = self.fetch_block(&higest_slot_in_epoch.to_string()).await {
-                break block
+                break block;
             } else {
                 higest_slot_in_epoch -= 1;
                 count += 1;
@@ -368,7 +368,7 @@ impl<C: Config> SyncCommitteeProver<C> {
         loop {
             let num_signatures = block.body.sync_aggregate.sync_committee_bits.count_ones();
             if num_signatures >= min_signatures {
-                break
+                break;
             }
 
             let parent_root = block.parent_root;

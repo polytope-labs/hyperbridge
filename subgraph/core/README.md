@@ -241,3 +241,144 @@ The result of the subtraction will be:
 ```
 
 #### Total fees earned by Hyperbridge = 34981500000000000000
+
+## Frontend Usage:
+
+### Hyperbridge Fees
+```javascript
+export async function handleHyperbridgeFeesEarned(hostAddress: string): Promise<number> {
+  const modifiedHostAddress = hostAddress.toLowerCase()
+
+  const totalAmountTransferredIntoHost = await handleInTransferTotal(modifiedHostAddress)
+  const totalRelayerFeeEmittedByHost = await handleRequestEventFeeTotal()
+
+  const hyperbridgeFeesEarned = totalAmountTransferredIntoHost - totalRelayerFeeEmittedByHost
+
+  return hyperbridgeFeesEarned
+}
+
+async function handleInTransferTotal(hostAddress: string): Promise<number> {
+  const operationName = QueryOptions.InTransferTotal
+
+  const response = await client.query({
+    query: gql`
+      query ${operationName}($hostId: ID!) {
+        inTransferTotal(id: $hostId) {
+          id
+          totalAmountTransferredIn
+        }
+      }
+    `,
+    variables: {
+      hostId: hostAddress,
+    },
+  })
+
+  return response.data.inTransferTotal.totalAmountTransferredIn
+}
+
+async function handleRequestEventFeeTotal(): Promise<number> {
+  const operationName = QueryOptions.RequestEventFeeTotal
+
+  const response = await client.query({
+    query: gql`
+        query ${operationName} {
+          requestEventFeeTotals {
+            id
+            totalRequestFee
+          }
+        }
+      `,
+  })
+
+  return response.data.requestEventFeeTotals[0].totalRequestFee
+}
+```
+
+### Post Requests Handled Count
+```javascript
+export async function handlePostRequestHandledCount() {
+  const operationName = QueryOptions.PostRequestHandledCount
+
+  const response = await client.query({
+    query: gql`
+      query ${operationName} {
+        postRequestHandledCounts {
+          id
+          value
+        }
+      }
+    `,
+  })
+
+  return response
+}
+```
+
+### Relayer Post Requests Handled Count
+```javascript
+export async function handleRelayerPostRequestHandledCount(relayerAddress: string) {
+  const operationName = QueryOptions.RelayerPostRequestHandledCount
+  const modifiedRelayerAddress = relayerAddress.toLowerCase()
+
+  const response = await client.query({
+    query: gql`
+      query ${operationName}($relayerId: ID!) {
+        relayerPostRequestHandledCount(id: $relayerId) {
+          id
+          value
+        }
+      }
+    `,
+    variables: {
+      relayerId: modifiedRelayerAddress,
+    },
+  })
+
+  return response
+}
+```
+
+### Relayer Amount Earned
+```javascript
+export async function handleRelayerAmountEarned(hostAddress: string, relayerAddress: string) {
+  const operationName = QueryOptions.RelayerPostRequestHandledCount
+
+  const modifiedHostAddress = hostAddress.toLowerCase()
+  const modifiedRelayerAddress = relayerAddress.toLowerCase()
+
+  const response = await client.query({
+    query: gql`
+        query ${operationName}($hostAddress: String!, $relayerAddress: String!) {
+          transferPairTotals(
+            where: {from: $hostAddress, to: $relayerAddress}
+          ) {
+            from
+            id
+            to
+            totalAmount
+          }
+        }
+      `,
+    variables: {
+      hostAddress: modifiedHostAddress,
+      relayerAddress: modifiedRelayerAddress,
+    },
+  })
+
+  return response
+}
+```
+
+### Query Option Enum
+```javascript
+export enum QueryOptions {
+  TransferTotal = 'TransferTotal',
+  TransferPairTotal = 'TransferPairTotal',
+  InTransferTotal = 'InTransferTotal',
+  RequestEventFeeTotal = 'RequestEventFeeTotal',
+  PostRequestHandledCount = 'PostRequestHandledCount',
+  RelayerPostRequestHandledCount = 'RelayerPostRequestHandledCount',
+}
+
+```

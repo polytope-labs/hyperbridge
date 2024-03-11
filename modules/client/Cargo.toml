@@ -3,7 +3,7 @@ name = "hyperclient"
 version = "0.2.1"
 edition = "2021"
 description = "The hyperclient is a library for managing (in-flight) ISMP requests"
-repository = "https://github.com/polytope-labs/hyperbridge/blob/main/modules/client"
+repository = "https://github.com/polytope-labs/hyperbridge"
 license = "Apache-2.0"
 
 [lib]

@@ -1,11 +1,13 @@
 use crate::{
-    providers::global::{Client, RequestOrResponse},
+    providers::interface::{Client, RequestOrResponse},
     types::BoxStream,
 };
 use ethers::prelude::Middleware;
 
-use super::StreamItem;
-use crate::types::{EvmStateProof, SubstrateStateProof};
+use crate::{
+    providers::interface::WithMetadata,
+    types::{EventMetadata, EvmStateProof, SubstrateStateProof},
+};
 use anyhow::{anyhow, Context, Error};
 use core::time::Duration;
 use ethers::{
@@ -25,7 +27,7 @@ use ismp_solidity_abi::{
     evm_host::{EvmHost, EvmHostEvents, GetRequest, PostRequestHandledFilter},
     handler::{GetTimeoutMessage, Handler, PostRequestTimeoutMessage, PostResponseTimeoutMessage},
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
 
 // =======================================
 // CONSTANTS                            =
@@ -163,17 +165,43 @@ impl Client for EvmClient {
         Ok(response_receipt.relayer)
     }
 
+    async fn query_ismp_event(
+        &self,
+        range: RangeInclusive<u64>,
+    ) -> Result<Vec<WithMetadata<Event>>, anyhow::Error> {
+        let contract = EvmHost::new(self.host_address, self.client.clone());
+        contract
+            .events()
+            .address(self.host_address.into())
+            .from_block(*range.start())
+            .to_block(*range.end())
+            .query_with_meta()
+            .await?
+            .into_iter()
+            .map(|(event, meta)| {
+                Ok(WithMetadata {
+                    meta: EventMetadata {
+                        block_hash: meta.block_hash,
+                        transaction_hash: meta.transaction_hash,
+                        block_number: meta.block_number.as_u64(),
+                    },
+                    event: event.try_into()?,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+    }
+
     async fn ismp_events_stream(
         &self,
         _item: RequestOrResponse,
-    ) -> Result<BoxStream<Event>, Error> {
+    ) -> Result<BoxStream<WithMetadata<Event>>, Error> {
         Err(anyhow!("Ismp stream unavailable for evm client"))
     }
 
     async fn post_request_handled_stream(
         &self,
         commitment: H256,
-    ) -> Result<BoxStream<PostRequestHandledFilter>, Error> {
+    ) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, Error> {
         let initial_height = self.client.get_block_number().await?.as_u64();
         let client = self.clone();
         let interval = wasm_timer::Interval::new(Duration::from_secs(30));
@@ -195,7 +223,7 @@ impl Client for EvmClient {
 
                 // in case we get old heights, best to ignore them
                 if block_number < latest_height {
-                    return Some((Ok(StreamItem::NoOp), (block_number, interval, client)))
+                    return Some((Ok(None), (block_number, interval, client)))
                 }
 
                 let contract = EvmHost::new(client.host_address, client.client.clone());
@@ -204,7 +232,7 @@ impl Client for EvmClient {
                     .address(client.host_address.into())
                     .from_block(latest_height)
                     .to_block(block_number)
-                    .query()
+                    .query_with_meta()
                     .await
                 {
                     Ok(events) => events,
@@ -218,28 +246,29 @@ impl Client for EvmClient {
 
                 let events = results
                     .into_iter()
-                    .filter_map(|ev| match ev {
+                    .filter_map(|(ev, meta)| match ev {
                         EvmHostEvents::PostRequestHandledFilter(filter)
                             if filter.commitment == commitment.0 =>
-                            Some(filter),
+                            Some(WithMetadata {
+                                meta: EventMetadata {
+                                    block_hash: meta.block_hash,
+                                    transaction_hash: meta.transaction_hash,
+                                    block_number: meta.block_number.as_u64(),
+                                },
+                                event: filter,
+                            }),
                         _ => None,
                     })
-                    .collect::<Vec<PostRequestHandledFilter>>();
+                    .collect::<Vec<_>>();
 
                 // we only want the highest event
-                let value = if let Some(event) = events.last() {
-                    StreamItem::Item(event.clone())
-                } else {
-                    StreamItem::NoOp
-                };
-
-                Some((Ok(value), (block_number + 1, interval, client)))
+                Some((Ok(events.last().cloned()), (block_number + 1, interval, client)))
             },
         )
         .filter_map(|item| async move {
             match item {
-                Ok(StreamItem::NoOp) => None,
-                Ok(StreamItem::Item(event)) => Some(Ok(event)),
+                Ok(None) => None,
+                Ok(Some(event)) => Some(Ok(event)),
                 Err(err) => Some(Err(err)),
             }
         });
@@ -250,7 +279,7 @@ impl Client for EvmClient {
     async fn state_machine_update_notification(
         &self,
         _counterparty_state_id: StateMachineId,
-    ) -> Result<BoxStream<StateMachineUpdated>, Error> {
+    ) -> Result<BoxStream<WithMetadata<StateMachineUpdated>>, Error> {
         let initial_height = self.client.get_block_number().await?.as_u64();
         let interval = wasm_timer::Interval::new(Duration::from_secs(30));
         let stream = stream::unfold(
@@ -271,7 +300,7 @@ impl Client for EvmClient {
 
                 // in case we get old heights, best to ignore them
                 if block_number < latest_height {
-                    return Some((Ok(StreamItem::NoOp), (block_number, interval, client)))
+                    return Some((Ok(None), (block_number, interval, client)))
                 }
 
                 let contract = Handler::new(client.ismp_handler, client.client.clone());
@@ -280,7 +309,7 @@ impl Client for EvmClient {
                     .address(client.ismp_handler.into())
                     .from_block(latest_height)
                     .to_block(block_number)
-                    .query()
+                    .query_with_meta()
                     .await
                 {
                     Ok(events) => events,
@@ -291,24 +320,27 @@ impl Client for EvmClient {
                             (latest_height, interval, client),
                         )),
                 };
-                let mut events =
-                    results.into_iter().map(|ev| ev.into()).collect::<Vec<StateMachineUpdated>>();
+                let mut events = results
+                    .into_iter()
+                    .map(|(ev, meta)| WithMetadata {
+                        meta: EventMetadata {
+                            block_hash: meta.block_hash,
+                            transaction_hash: meta.transaction_hash,
+                            block_number: meta.block_number.as_u64(),
+                        },
+                        event: StateMachineUpdated::from(ev),
+                    })
+                    .collect::<Vec<_>>();
                 // we only want the highest event
-                events.sort_by(|a, b| a.latest_height.cmp(&b.latest_height));
+                events.sort_by(|a, b| a.event.latest_height.cmp(&b.event.latest_height));
                 // we only want the highest event
-                let value = if let Some(event) = events.last() {
-                    StreamItem::Item(event.clone())
-                } else {
-                    StreamItem::NoOp
-                };
-
-                Some((Ok(value), (block_number + 1, interval, client)))
+                Some((Ok(events.last().cloned()), (block_number + 1, interval, client)))
             },
         )
         .filter_map(|item| async move {
             match item {
-                Ok(StreamItem::NoOp) => None,
-                Ok(StreamItem::Item(event)) => Some(Ok(event)),
+                Ok(None) => None,
+                Ok(Some(event)) => Some(Ok(event)),
                 Err(err) => Some(Err(err)),
             }
         });
@@ -442,7 +474,7 @@ impl Client for EvmClient {
         }
     }
 
-    async fn submit(&self, _msg: Message) -> Result<(), Error> {
+    async fn submit(&self, _msg: Message) -> Result<EventMetadata, Error> {
         Err(anyhow!("Client cannot submit messages"))
     }
 

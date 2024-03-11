@@ -12,11 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Setup .npmrc file to publish to npm
       - uses: actions/setup-node@v4
         with:
           node-version: '20.x'
-          registry-url: 'https://registry.npmjs.org'
 
       - name: Install graph cli globally
         run: |
@@ -28,34 +26,39 @@ jobs:
         run: |
           graph auth --studio $SUBGRAPH_TOKEN
 
+      - name: Npm Install
+        working-directory: evm/subgraph
+        run: |
+          npm install
+
       - name: Build and Deploy Subgraph on Ethereum Sepolia
-        working-directory: subgraph/core
+        working-directory: evm/subgraph
         run: |
           graph codegen ./ethereum-sepolia-subgraph.yaml && graph build ./ethereum-sepolia-subgraph.yaml
-          graph deploy --studio hyperbridge-sepolia ./ethereum-sepolia-subgraph.yaml
+          graph deploy --studio hyperbridge-sepolia ./ethereum-sepolia-subgraph.yaml --version-label 0.0.1
 
       - name: Build and Deploy Subgraph on Base Sepolia
-        working-directory: subgraph/core
+        working-directory: evm/subgraph
         run: |
           graph codegen ./base-sepolia-subgraph.yaml && graph build ./base-sepolia-subgraph.yaml
-          graph deploy --studio hyperbridge-base-sepolia ./base-sepolia-subgraph.yaml
+          graph deploy --studio hyperbridge-base-sepolia ./base-sepolia-subgraph.yaml --version-label 0.0.1
 
       - name: Build and Deploy Subgraph on Arbitrum Sepolia
-        working-directory: subgraph/core
+        working-directory: evm/subgraph
         run: |
           graph codegen ./arbitrum-sepolia-subgraph.yaml && graph build ./arbitrum-sepolia-subgraph.yaml
-          graph deploy --studio hyperbridge-arbitrum-sepolia ./arbitrum-sepolia-subgraph.yaml
+          graph deploy --studio hyperbridge-arbitrum-sepolia ./arbitrum-sepolia-subgraph.yaml --version-label 0.0.1
 
       - name: Build and Deploy Subgraph on BSC Testnet
-        working-directory: subgraph/core
+        working-directory: evm/subgraph
         run: |
           graph codegen ./bsc-testnet-subgraph.yaml && graph build ./bsc-testnet-subgraph.yaml
-          graph deploy --studio hyperbridge-bsc-testnet ./bsc-testnet-subgraph.yaml
+          graph deploy --studio hyperbridge-bsc-testnet ./bsc-testnet-subgraph.yaml --version-label 0.0.1
 
       - name: Build and Deploy Subgraph on Optimism Sepolia
-        working-directory: subgraph/core
+        working-directory: evm/subgraph
         run: |
           graph codegen ./optimism-sepolia-subgraph.yaml && graph build ./optimism-sepolia-subgraph.yaml
-          graph deploy --studio hyperbridge-op-sepolia ./optimism-sepolia-subgraph.yaml
+          graph deploy --studio hyperbridge-op-sepolia ./optimism-sepolia-subgraph.yaml --version-label 0.0.1
 
     

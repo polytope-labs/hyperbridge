@@ -1,15 +1,14 @@
 # Hyperbridge Subgraph
-The
 
-## Subgraph Endpoint
+## Testnet Query Endpoints
 
-Synced at: https://thegraph.com/studio/subgraph/hyperbridgeupdated/playground
+BSC: https://api.studio.thegraph.com/query/67788/hyperbridge-bsc-testnet/0.0.1
+Sepolia: https://api.studio.thegraph.com/query/67788/hyperbridge-sepolia/0.0.1
+Base: https://api.studio.thegraph.com/query/67788/hyperbridge-base-sepolia/0.0.1
+Arbitrum: https://api.studio.thegraph.com/query/67788/hyperbridge-arbitrum-sepolia/0.0.1
+Optimism: https://api.studio.thegraph.com/query/67788/hyperbridge-op-sepolia/0.0.1
 
-Available at: https://api.studio.thegraph.com/query/66742/hyperbridgeupdated/v0.0.3
-
-Docs reference: https://docs.google.com/document/d/1ja_hWYOfu764GIwPT-lONJW1aqPFEMN6lmcRTZ_Bslk/edit?usp=sharing
-
-Subgraph Schema: https://github.com/polytope-labs/hyperbridge/blob/d24057af4670673ca5bb1c408a838217e8a1c3e3/subgraph/schema.graphql
+GraphQl schema is located in `/evm/subgraph/schema.graphql`
 
 ## Queries and Response
 
@@ -243,9 +242,10 @@ The result of the subtraction will be:
 #### Total fees earned by Hyperbridge = 34981500000000000000
 
 ## Frontend Usage
-Usage of the graphql endpoints with any graphql client of choice
+Example usage of the graphql schema with any graphql client of choice
 
 ### Hyperbridge Fees
+
 ```javascript
 export async function handleHyperbridgeFeesEarned(hostAddress: string): Promise<number> {
   const modifiedHostAddress = hostAddress.toLowerCase()
@@ -297,6 +297,7 @@ async function handleRequestEventFeeTotal(): Promise<number> {
 ```
 
 ### Post Requests Handled Count
+
 ```javascript
 export async function handlePostRequestHandledCount() {
   const operationName = QueryOptions.PostRequestHandledCount
@@ -317,6 +318,7 @@ export async function handlePostRequestHandledCount() {
 ```
 
 ### Relayer Post Requests Handled Count
+
 ```javascript
 export async function handleRelayerPostRequestHandledCount(relayerAddress: string) {
   const operationName = QueryOptions.RelayerPostRequestHandledCount
@@ -341,6 +343,7 @@ export async function handleRelayerPostRequestHandledCount(relayerAddress: strin
 ```
 
 ### Relayer Amount Earned
+
 ```javascript
 export async function handleRelayerAmountEarned(hostAddress: string, relayerAddress: string) {
   const operationName = QueryOptions.RelayerPostRequestHandledCount

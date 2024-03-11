@@ -586,26 +586,26 @@ pub mod beefy {
             if let Ok(decoded) =
                 <AuraConsensusIdCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::AuraConsensusId(decoded))
+                return Ok(Self::AuraConsensusId(decoded));
             }
             if let Ok(decoded) =
                 <IsmpConsensusIdCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::IsmpConsensusId(decoded))
+                return Ok(Self::IsmpConsensusId(decoded));
             }
             if let Ok(decoded) =
                 <MmrRootPayloadIdCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::MmrRootPayloadId(decoded))
+                return Ok(Self::MmrRootPayloadId(decoded));
             }
             if let Ok(decoded) = <SlotDurationCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::SlotDuration(decoded))
+                return Ok(Self::SlotDuration(decoded));
             }
             if let Ok(decoded) =
                 <VerifyConsensusCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::VerifyConsensus(decoded))
+                return Ok(Self::VerifyConsensus(decoded));
             }
             if let Ok(decoded) = <VerifyConsensusWithEncodedStateAndEncodedProofCall as ::ethers::core::abi::AbiDecode>::decode(
                 data,

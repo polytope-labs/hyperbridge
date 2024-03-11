@@ -2136,22 +2136,22 @@ pub mod evm_host {
             log: &::ethers::core::abi::RawLog,
         ) -> ::core::result::Result<Self, ::ethers::core::abi::Error> {
             if let Ok(decoded) = GetRequestEventFilter::decode_log(log) {
-                return Ok(EvmHostEvents::GetRequestEventFilter(decoded))
+                return Ok(EvmHostEvents::GetRequestEventFilter(decoded));
             }
             if let Ok(decoded) = GetRequestHandledFilter::decode_log(log) {
-                return Ok(EvmHostEvents::GetRequestHandledFilter(decoded))
+                return Ok(EvmHostEvents::GetRequestHandledFilter(decoded));
             }
             if let Ok(decoded) = PostRequestEventFilter::decode_log(log) {
-                return Ok(EvmHostEvents::PostRequestEventFilter(decoded))
+                return Ok(EvmHostEvents::PostRequestEventFilter(decoded));
             }
             if let Ok(decoded) = PostRequestHandledFilter::decode_log(log) {
-                return Ok(EvmHostEvents::PostRequestHandledFilter(decoded))
+                return Ok(EvmHostEvents::PostRequestHandledFilter(decoded));
             }
             if let Ok(decoded) = PostResponseEventFilter::decode_log(log) {
-                return Ok(EvmHostEvents::PostResponseEventFilter(decoded))
+                return Ok(EvmHostEvents::PostResponseEventFilter(decoded));
             }
             if let Ok(decoded) = PostResponseHandledFilter::decode_log(log) {
-                return Ok(EvmHostEvents::PostResponseHandledFilter(decoded))
+                return Ok(EvmHostEvents::PostResponseHandledFilter(decoded));
             }
             Err(::ethers::core::abi::Error::InvalidData)
         }
@@ -2921,168 +2921,168 @@ pub mod evm_host {
         ) -> ::core::result::Result<Self, ::ethers::core::abi::AbiError> {
             let data = data.as_ref();
             if let Ok(decoded) = <AdminCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::Admin(decoded))
+                return Ok(Self::Admin(decoded));
             }
             if let Ok(decoded) =
                 <BaseGetRequestFeeCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::BaseGetRequestFee(decoded))
+                return Ok(Self::BaseGetRequestFee(decoded));
             }
             if let Ok(decoded) = <ChainIdCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::ChainId(decoded))
+                return Ok(Self::ChainId(decoded));
             }
             if let Ok(decoded) =
                 <ChallengePeriodCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::ChallengePeriod(decoded))
+                return Ok(Self::ChallengePeriod(decoded));
             }
             if let Ok(decoded) =
                 <ConsensusClientCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::ConsensusClient(decoded))
+                return Ok(Self::ConsensusClient(decoded));
             }
             if let Ok(decoded) =
                 <ConsensusStateCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::ConsensusState(decoded))
+                return Ok(Self::ConsensusState(decoded));
             }
             if let Ok(decoded) =
                 <ConsensusUpdateTimeCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::ConsensusUpdateTime(decoded))
+                return Ok(Self::ConsensusUpdateTime(decoded));
             }
             if let Ok(decoded) = <DaiCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::Dai(decoded))
+                return Ok(Self::Dai(decoded));
             }
             if let Ok(decoded) = <Dispatch0Call as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::Dispatch0(decoded))
+                return Ok(Self::Dispatch0(decoded));
             }
             if let Ok(decoded) = <Dispatch1Call as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::Dispatch1(decoded))
+                return Ok(Self::Dispatch1(decoded));
             }
             if let Ok(decoded) = <Dispatch2Call as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::Dispatch2(decoded))
+                return Ok(Self::Dispatch2(decoded));
             }
             if let Ok(decoded) =
                 <DispatchIncoming3Call as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::DispatchIncoming3(decoded))
+                return Ok(Self::DispatchIncoming3(decoded));
             }
             if let Ok(decoded) =
                 <DispatchIncoming4Call as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::DispatchIncoming4(decoded))
+                return Ok(Self::DispatchIncoming4(decoded));
             }
             if let Ok(decoded) =
                 <DispatchIncoming0Call as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::DispatchIncoming0(decoded))
+                return Ok(Self::DispatchIncoming0(decoded));
             }
             if let Ok(decoded) =
                 <DispatchIncoming2Call as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::DispatchIncoming2(decoded))
+                return Ok(Self::DispatchIncoming2(decoded));
             }
             if let Ok(decoded) =
                 <DispatchIncoming1Call as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::DispatchIncoming1(decoded))
+                return Ok(Self::DispatchIncoming1(decoded));
             }
             if let Ok(decoded) =
                 <DispatchIncoming5Call as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::DispatchIncoming5(decoded))
+                return Ok(Self::DispatchIncoming5(decoded));
             }
             if let Ok(decoded) = <FrozenCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::Frozen(decoded))
+                return Ok(Self::Frozen(decoded));
             }
             if let Ok(decoded) = <HostCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::Host(decoded))
+                return Ok(Self::Host(decoded));
             }
             if let Ok(decoded) = <HostParamsCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::HostParams(decoded))
+                return Ok(Self::HostParams(decoded));
             }
             if let Ok(decoded) = <HyperbridgeCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::Hyperbridge(decoded))
+                return Ok(Self::Hyperbridge(decoded));
             }
             if let Ok(decoded) =
                 <LatestStateMachineHeightCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::LatestStateMachineHeight(decoded))
+                return Ok(Self::LatestStateMachineHeight(decoded));
             }
             if let Ok(decoded) = <PerByteFeeCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::PerByteFee(decoded))
+                return Ok(Self::PerByteFee(decoded));
             }
             if let Ok(decoded) =
                 <RequestCommitmentsCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::RequestCommitments(decoded))
+                return Ok(Self::RequestCommitments(decoded));
             }
             if let Ok(decoded) =
                 <RequestReceiptsCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::RequestReceipts(decoded))
+                return Ok(Self::RequestReceipts(decoded));
             }
             if let Ok(decoded) =
                 <ResponseCommitmentsCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::ResponseCommitments(decoded))
+                return Ok(Self::ResponseCommitments(decoded));
             }
             if let Ok(decoded) =
                 <ResponseReceiptsCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::ResponseReceipts(decoded))
+                return Ok(Self::ResponseReceipts(decoded));
             }
             if let Ok(decoded) =
                 <SetConsensusStateCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::SetConsensusState(decoded))
+                return Ok(Self::SetConsensusState(decoded));
             }
             if let Ok(decoded) =
                 <SetFrozenStateCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::SetFrozenState(decoded))
+                return Ok(Self::SetFrozenState(decoded));
             }
             if let Ok(decoded) = <SetHostParamsCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::SetHostParams(decoded))
+                return Ok(Self::SetHostParams(decoded));
             }
             if let Ok(decoded) =
                 <SetHostParamsAdminCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::SetHostParamsAdmin(decoded))
+                return Ok(Self::SetHostParamsAdmin(decoded));
             }
             if let Ok(decoded) =
                 <StateMachineCommitmentCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::StateMachineCommitment(decoded))
+                return Ok(Self::StateMachineCommitment(decoded));
             }
             if let Ok(decoded) =
                 <StateMachineCommitmentUpdateTimeCall as ::ethers::core::abi::AbiDecode>::decode(
                     data,
                 )
             {
-                return Ok(Self::StateMachineCommitmentUpdateTime(decoded))
+                return Ok(Self::StateMachineCommitmentUpdateTime(decoded));
             }
             if let Ok(decoded) =
                 <StoreConsensusStateCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::StoreConsensusState(decoded))
+                return Ok(Self::StoreConsensusState(decoded));
             }
             if let Ok(decoded) =
                 <StoreConsensusUpdateTimeCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::StoreConsensusUpdateTime(decoded))
+                return Ok(Self::StoreConsensusUpdateTime(decoded));
             }
             if let Ok(decoded) =
                 <StoreLatestStateMachineHeightCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::StoreLatestStateMachineHeight(decoded))
+                return Ok(Self::StoreLatestStateMachineHeight(decoded));
             }
             if let Ok(decoded) =
                 <StoreStateMachineCommitmentCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::StoreStateMachineCommitment(decoded))
+                return Ok(Self::StoreStateMachineCommitment(decoded));
             }
             if let Ok(decoded) = <StoreStateMachineCommitmentUpdateTimeCall as ::ethers::core::abi::AbiDecode>::decode(
                 data,
@@ -3090,15 +3090,15 @@ pub mod evm_host {
                 return Ok(Self::StoreStateMachineCommitmentUpdateTime(decoded));
             }
             if let Ok(decoded) = <TimestampCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::Timestamp(decoded))
+                return Ok(Self::Timestamp(decoded));
             }
             if let Ok(decoded) =
                 <UnStakingPeriodCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::UnStakingPeriod(decoded))
+                return Ok(Self::UnStakingPeriod(decoded));
             }
             if let Ok(decoded) = <WithdrawCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::Withdraw(decoded))
+                return Ok(Self::Withdraw(decoded));
             }
             Err(::ethers::core::abi::Error::InvalidData.into())
         }

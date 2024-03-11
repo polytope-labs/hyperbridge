@@ -20,5 +20,5 @@ evm/integration-tests/target/
 
 modules/client/pkg
 
-subgraph/core/build
-subgraph/core/generated
+evm/subgraph/build
+evm/subgraph/generated

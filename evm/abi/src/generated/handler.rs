@@ -773,37 +773,37 @@ pub mod handler {
             if let Ok(decoded) =
                 <HandleConsensusCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::HandleConsensus(decoded))
+                return Ok(Self::HandleConsensus(decoded));
             }
             if let Ok(decoded) =
                 <HandleGetRequestTimeoutsCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::HandleGetRequestTimeouts(decoded))
+                return Ok(Self::HandleGetRequestTimeouts(decoded));
             }
             if let Ok(decoded) =
                 <HandleGetResponsesCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::HandleGetResponses(decoded))
+                return Ok(Self::HandleGetResponses(decoded));
             }
             if let Ok(decoded) =
                 <HandlePostRequestTimeoutsCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::HandlePostRequestTimeouts(decoded))
+                return Ok(Self::HandlePostRequestTimeouts(decoded));
             }
             if let Ok(decoded) =
                 <HandlePostRequestsCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::HandlePostRequests(decoded))
+                return Ok(Self::HandlePostRequests(decoded));
             }
             if let Ok(decoded) =
                 <HandlePostResponseTimeoutsCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::HandlePostResponseTimeouts(decoded))
+                return Ok(Self::HandlePostResponseTimeouts(decoded));
             }
             if let Ok(decoded) =
                 <HandlePostResponsesCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::HandlePostResponses(decoded))
+                return Ok(Self::HandlePostResponses(decoded));
             }
             Err(::ethers::core::abi::Error::InvalidData.into())
         }

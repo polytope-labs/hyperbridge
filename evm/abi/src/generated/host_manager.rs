@@ -563,36 +563,36 @@ pub mod host_manager {
         ) -> ::core::result::Result<Self, ::ethers::core::abi::AbiError> {
             let data = data.as_ref();
             if let Ok(decoded) = <OnAcceptCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::OnAccept(decoded))
+                return Ok(Self::OnAccept(decoded));
             }
             if let Ok(decoded) = <OnGetResponseCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::OnGetResponse(decoded))
+                return Ok(Self::OnGetResponse(decoded));
             }
             if let Ok(decoded) = <OnGetTimeoutCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::OnGetTimeout(decoded))
+                return Ok(Self::OnGetTimeout(decoded));
             }
             if let Ok(decoded) =
                 <OnPostRequestTimeoutCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::OnPostRequestTimeout(decoded))
+                return Ok(Self::OnPostRequestTimeout(decoded));
             }
             if let Ok(decoded) =
                 <OnPostResponseCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::OnPostResponse(decoded))
+                return Ok(Self::OnPostResponse(decoded));
             }
             if let Ok(decoded) =
                 <OnPostResponseTimeoutCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
-                return Ok(Self::OnPostResponseTimeout(decoded))
+                return Ok(Self::OnPostResponseTimeout(decoded));
             }
             if let Ok(decoded) = <ParamsCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::Params(decoded))
+                return Ok(Self::Params(decoded));
             }
             if let Ok(decoded) = <SetIsmpHostCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::SetIsmpHost(decoded))
+                return Ok(Self::SetIsmpHost(decoded));
             }
             Err(::ethers::core::abi::Error::InvalidData.into())
         }

@@ -482,7 +482,8 @@ where
     let response =
         PostResponse { post: post.clone(), response: vec![], timeout_timestamp: 0, gas_limit: 0 };
     dispatcher
-        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into()).unwrap();
+        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
+        .unwrap();
     // Assert that response is not acknowledged
     assert!(host.response_receipt(&Response::Post(response)).is_none());
     Ok(())
@@ -507,10 +508,16 @@ where
         .unwrap();
     host.store_consensus_update_time(mock_proxy_consensus_state_id(), previous_update_time)
         .unwrap();
-    host.store_state_machine_commitment(proxy_state_commitment.height, proxy_state_commitment.commitment)
-        .unwrap();
+    host.store_state_machine_commitment(
+        proxy_state_commitment.height,
+        proxy_state_commitment.commitment,
+    )
+    .unwrap();
 
-    assert!(host.allowed_proxy().is_some() && host.is_allowed_proxy(&proxy_state_commitment.height.id.state_id));
+    assert!(
+        host.allowed_proxy().is_some() &&
+            host.is_allowed_proxy(&proxy_state_commitment.height.id.state_id)
+    );
 
     let post = Post {
         source: intermediate_state.height.id.state_id,
@@ -533,8 +540,7 @@ where
     handle_incoming_message(host, request_message).unwrap();
     assert!(host.request_receipt(&Request::Post(post.clone())).is_some());
 
-    let response =
-        PostResponse { post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
+    let response = PostResponse { post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
     // Dispatch response
     dispatcher
         .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
@@ -542,6 +548,6 @@ where
     assert_ne!(response.clone().dest_chain(), host.host_state_machine());
     // Assert that response was acknowledged
     assert!(host.response_receipt(&Response::Post(response)).is_some());
-    
+
     Ok(())
 }

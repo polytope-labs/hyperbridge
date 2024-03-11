@@ -375,7 +375,7 @@ impl IsmpHost for Host {
     }
 
     fn allowed_proxy(&self) -> Option<StateMachine> {
-        Some(StateMachine::Bsc)
+        self.consensus_state(*b"prxy").map(|_| StateMachine::Bsc).ok()
     }
 
     fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {

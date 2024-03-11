@@ -399,7 +399,13 @@ where
 /// The State machine for the proxy is assumed in this test to be ``StateMachine::Kusama(2000);``
 /// the State machine for the host is assumed in this test to be ``StateMachine::Polkadot(1000)``
 /// The destination state machine for the test is assumed to be ``StateMachine::Kusama(1000)``
-pub fn prevent_request_timeout_on_proxy_with_known_state_machine<H, D>(host: &H, dispatcher: &D,proxy_state_machine: StateMachine, direct_conn_state_machine: StateMachine )  -> Result<(), &'static str>
+pub fn prevent_request_timeout_on_proxy_with_known_state_machine<H, D>
+(
+    host: &H, 
+    dispatcher: &D,
+    proxy_state_machine: StateMachine, 
+    direct_conn_state_machine: StateMachine 
+)  -> Result<(), &'static str>
 where
     H: IsmpHost,
     D: IsmpDispatcher,
@@ -498,8 +504,7 @@ let res = handle_incoming_message(host, timeout_message);
 
 //asert that request doesnt timeout on proxy when there is a consensus client for the destination
 
-assert!(res.is_err(), "should prevent a request from timing out on a proxy when there exists a consensus client for the request destination ");
-
+assert!(matches!(res, Err(ismp::error::Error::ImplementationSpecific {..})));
 
     Ok(())
 }

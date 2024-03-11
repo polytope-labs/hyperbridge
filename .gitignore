@@ -19,3 +19,8 @@ evm/integration-tests/target/
 .uuid*
 
 modules/client/pkg
+
+subgraph/core/build
+subgraph/core/generated
+
+subgraph/graph-sdk/dist

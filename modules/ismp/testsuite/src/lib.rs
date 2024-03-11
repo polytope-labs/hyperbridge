@@ -605,11 +605,11 @@ assert_ne!(proxy_consensus_client_id, destination_consensus_client_id);
 /// from the state machine claimed in the proof as well as check that the request destination
 /// matches the host state machine.
 pub fn check_request_source_and_destinatione<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str> 
-where
-H: IsmpHost,
-D: IsmpDispatcher,
-D::Account: From<[u8; 32]>,
-D::Balance: From<u32>
+    where
+    H: IsmpHost,
+    D: IsmpDispatcher,
+    D::Account: From<[u8; 32]>,
+    D::Balance: From<u32>
 {
 
     let proxy_state_machine = StateMachine::Kusama(2000);

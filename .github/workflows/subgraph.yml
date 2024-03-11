@@ -1,0 +1,61 @@
+name: Publish hyperclient to npmjs
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: hyperclient-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Setup .npmrc file to publish to npm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install graph cli globally
+        run: |
+          npm install -g @graphprotocol/graph-cli
+      
+      - name: Authenticate Subgraph
+        env:
+          SUBGRAPH_TOKEN: ${{ secrets.SUBGRAPH_AUTH_TOKEN }}
+        run: |
+          graph auth --studio $SUBGRAPH_TOKEN
+
+      - name: Build and Deploy Subgraph on Ethereum Sepolia
+        working-directory: subgraph/core
+        run: |
+          graph codegen ./ethereum-sepolia-subgraph.yaml && graph build ./ethereum-sepolia-subgraph.yaml
+          graph deploy --studio hyperbridge-sepolia
+
+      - name: Build and Deploy Subgraph on Base Sepolia
+        working-directory: subgraph/core
+        run: |
+          graph codegen ./base-sepolia-subgraph.yaml && graph build ./base-sepolia-subgraph.yaml
+          graph deploy --studio hyperbridge-base-sepolia
+
+      - name: Build and Deploy Subgraph on Arbitrum Sepolia
+        working-directory: subgraph/core
+        run: |
+          graph codegen ./arbitrum-sepolia-subgraph.yaml && graph build ./arbitrum-sepolia-subgraph.yaml
+          graph deploy --studio hyperbridge-arbitrum-sepolia
+
+      - name: Build and Deploy Subgraph on BSC Testnet
+        working-directory: subgraph/core
+        run: |
+          graph codegen ./bsc-testnet-subgraph.yaml && graph build ./bsc-testnet-subgraph.yaml
+          graph deploy --studio hyperbridge-bsc-testnet
+
+      - name: Build and Deploy Subgraph on Optimism Sepolia
+        working-directory: subgraph/core
+        run: |
+          graph codegen ./optimism-sepolia-subgraph.yaml && graph build ./optimism-sepolia-subgraph.yaml
+          graph deploy --studio hyperbridge-op-sepolia
+
+    

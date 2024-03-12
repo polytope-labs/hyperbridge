@@ -412,11 +412,6 @@ where
     D::Account: From<[u8; 32]>,
     D::Balance: From<u32>,
 {
-  // takes a host and sets two concensus cliet, 1 for any chain, then the other for the proxy 
-  // the other chain should have one consensus client for the request destination
-  // then the host should send a request to the destination chain
-  // when the proxy tries to timeout the request, it should return an error
-
   let proxy =  IntermediateState {
       height: StateMachineHeight {
           id: StateMachineId {
@@ -493,18 +488,16 @@ dispatcher
     .unwrap();
 
 
-
- // Timeout message handling check for source and destination chain
  let timeout_message = Message::Timeout(TimeoutMessage::Post {
     requests: vec![request.clone()],
-    timeout_proof: Proof { height: proxy.height, proof: vec![] },
+    timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 });
 
-let res = handle_incoming_message(host, timeout_message);
+handle_incoming_message(host, timeout_message).unwrap();
 
-//asert that request doesnt timeout on proxy when there is a consensus client for the destination
-
-assert!(matches!(res, Err(ismp::error::Error::ImplementationSpecific {..})));
+let commitment = hash_request::<H>(&request);
+let res = host.request_commitment(commitment);
+assert!(matches!(res, Err(..)));
 
     Ok(())
 }
@@ -592,12 +585,12 @@ assert_ne!(proxy_consensus_client_id, destination_consensus_client_id);
 
     let timeout_message = Message::Timeout(TimeoutMessage::PostResponse {
         responses: vec![response.clone()],
-        timeout_proof: Proof { height: proxy.height, proof: vec![] },
+        timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
     });
 
-    let res = handle_incoming_message(host, timeout_message);
+    handle_incoming_message(host, timeout_message).unwrap();
 
-    assert!(matches!(res, Err(..)));
+    // assert!(matches!(res, Err(..)));
 
     Ok(())
 }

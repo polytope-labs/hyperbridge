@@ -5,7 +5,10 @@ use ethers::{
 	contract::{parse_log, FunctionCall},
 	core::k256::ecdsa,
 	middleware::SignerMiddleware,
-	prelude::{transaction::eip2718::TypedTransaction, Log, NameOrAddress, Provider, Wallet},
+	prelude::{
+		signer::SignerMiddlewareError, transaction::eip2718::TypedTransaction, ContractError, Log,
+		NameOrAddress, Provider, ProviderError, Wallet,
+	},
 	providers::{Http, Middleware, PendingTransaction},
 	types::{TransactionReceipt, TransactionRequest},
 };
@@ -35,22 +38,52 @@ use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use crate::gas_oracle::get_current_gas_cost_in_usd;
 use tesseract_primitives::IsmpHost;
 
-/// Use this to initialize the transaction submit queue. This pipelines transaction submission
-/// eliminating race conditions.
+/// Type alias
+type SolidityFunctionCall = FunctionCall<
+	Arc<SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>>,
+	SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>,
+	(),
+>;
+
+#[async_recursion::async_recursion]
 pub async fn submit_messages<I: IsmpHost>(
 	client: &EvmClient<I>,
 	messages: Vec<Message>,
 ) -> anyhow::Result<BTreeSet<H256>> {
-	let calls = generate_contract_calls(client, messages).await?;
+	let calls = generate_contract_calls(client, messages.clone()).await?;
 	let mut events = BTreeSet::new();
-	for call in calls {
+	for (index, call) in calls.into_iter().enumerate() {
 		let gas_price = call.tx.gas_price();
-		match call.send().await {
+		match call.clone().send().await {
 			Ok(progress) => {
-				let evs = wait_for_success(client, progress, gas_price).await?;
+				let retry = if matches!(messages[index], Message::Consensus(_)) {
+					Some(call)
+				} else {
+					None
+				};
+				let evs = wait_for_success(client, progress, gas_price, retry).await?;
 				events.extend(evs);
 			},
 			Err(err) => {
+				match err {
+					ContractError::MiddlewareError {
+						e:
+							SignerMiddlewareError::MiddlewareError(ProviderError::JsonRpcClientError(
+								ref error,
+							)),
+					} => {
+						if let Some(err) = error.as_error_response() {
+							// https://docs.alchemy.com/reference/error-reference#http-status-codes
+							if err.code == 429 {
+								// we should retry.
+								log::info!("Retrying tx submission, got error: {err:?}");
+								return submit_messages(&client, messages).await
+							}
+						}
+					},
+					_ => {},
+				}
+
 				log::error!(
 					"Error broadcasting transaction to {}:  {err:?}",
 					client.config.state_machine
@@ -59,15 +92,24 @@ pub async fn submit_messages<I: IsmpHost>(
 		}
 	}
 
-	log::trace!("Got  {} receipts from executing on {:?}", events.len(), client.state_machine);
+	if !events.is_empty() {
+		log::trace!("Got {} receipts from executing on {:?}", events.len(), client.state_machine);
+	}
 
 	Ok(events)
 }
-async fn wait_for_success<'a, I: IsmpHost>(
+
+#[async_recursion::async_recursion]
+async fn wait_for_success<'a, I>(
 	client: &EvmClient<I>,
 	tx: PendingTransaction<'a, Http>,
 	gas_price: Option<U256>,
-) -> Result<BTreeSet<H256>, anyhow::Error> {
+	retry: Option<SolidityFunctionCall>,
+) -> Result<BTreeSet<H256>, anyhow::Error>
+where
+	'a: 'async_recursion,
+	I: IsmpHost,
+{
 	let log_receipt = |receipt: TransactionReceipt, cancelled: bool| {
 		let prelude = if cancelled { "Cancellation Tx" } else { "Tx" };
 		if matches!(receipt.status.as_ref().map(|f| f.low_u64()), Some(1)) {
@@ -80,27 +122,54 @@ async fn wait_for_success<'a, I: IsmpHost>(
 			);
 		}
 	};
-	let client_clone = client.clone();
-	let cancel_tx = move || async move {
-		// cancel the transaction here
-		log::info!("No receipt for transaction on {:?}, cancelling", client_clone.state_machine);
-		let pending = client_clone
-			.signer
-			.send_transaction(
-				TypedTransaction::Legacy(TransactionRequest {
-					to: Some(NameOrAddress::Address(H160::from_slice(&client_clone.address))),
-					value: Some(Default::default()),
-					gas_price: gas_price.map(|price| price * 10), // experiment with higher?
-					..Default::default()
-				}),
-				None,
-			)
-			.await;
 
-		if let Ok(pending) = pending {
-			if let Ok(Some(receipt)) = pending.await {
-				log_receipt(receipt, true);
+	let client_clone = client.clone();
+
+	let handle_failed_tx = move || async move {
+		log::info!("No receipt for transaction on {:?}", client_clone.state_machine);
+
+		if let Some(call) = retry {
+			// lets retry
+			let gas_price = get_current_gas_cost_in_usd(
+				client.chain_id,
+				client.state_machine,
+				&client.config.etherscan_api_key.clone(),
+				client.client.clone(),
+			)
+			.await?
+			.gas_price * 2; // for good measure
+			log::info!(
+				"Retrying consensus message on {:?} with gas {}",
+				client_clone.state_machine,
+				ethers::utils::format_units(gas_price, "gwei")?
+			);
+			let call = call.gas_price(gas_price);
+			let pending = call.send().await?;
+
+			// don't retry in the next callstack
+			wait_for_success(client, pending, Some(gas_price), None).await
+		} else {
+			// cancel the transaction here
+			let pending = client_clone
+				.signer
+				.send_transaction(
+					TypedTransaction::Legacy(TransactionRequest {
+						to: Some(NameOrAddress::Address(H160::from_slice(&client_clone.address))),
+						value: Some(Default::default()),
+						gas_price: gas_price.map(|price| price * 10), // experiment with higher?
+						..Default::default()
+					}),
+					None,
+				)
+				.await;
+
+			if let Ok(pending) = pending {
+				if let Ok(Some(receipt)) = pending.await {
+					log_receipt(receipt, true);
+				}
 			}
+
+			Err(anyhow!("Transaction to {:?} was cancelled!", client.state_machine))?
 		}
 	};
 
@@ -108,43 +177,38 @@ async fn wait_for_success<'a, I: IsmpHost>(
 	let sleep = tokio::time::sleep(Duration::from_secs(5 * 60));
 
 	tokio::select! {
-			_ = sleep => {
-				cancel_tx().await;
-				Err(anyhow!("Transaction to {:?} was cancelled!", client.state_machine))?
-			},
-			result = tx => {
-				match result {
-					Ok(Some(receipt)) => {
-						let events =  receipt.logs.iter().filter_map(|l| {
-							let log = Log {
-								topics: l.clone().topics,
-								data: l.clone().data,
-								..Default::default()
-							};
-
-							if let Some(ev) = parse_log::<PostRequestHandledFilter>(log.clone()).ok() {
-								return Some(ev.commitment.into())
-							}
-
-							if let Some(ev) = parse_log::<PostResponseHandledFilter>(log.clone()).ok() {
-								return Some(ev.commitment.into())
-							}
-
-							None
-						}).collect();
-						log_receipt(receipt, false);
-						Ok(events)
-					},
-					Ok(None) => {
-						cancel_tx().await;
-						Err(anyhow!("Transaction to {:?} was cancelled!", client.state_machine))?
-					},
-					Err(err) => {
-						log::error!("Error broadcasting transaction to {:?}: {err:?}", client.state_machine);
-						Err(err)?
-					},
-				}
+		_ = sleep => {
+			return handle_failed_tx().await;
+		},
+		result = tx => {
+			match result {
+				Ok(Some(receipt)) => {
+					let events =  receipt.logs.iter().filter_map(|l| {
+						let log = Log {
+							topics: l.clone().topics,
+							data: l.clone().data,
+							..Default::default()
+						};
+						if let Some(ev) = parse_log::<PostRequestHandledFilter>(log.clone()).ok() {
+							return Some(ev.commitment.into())
+						}
+						if let Some(ev) = parse_log::<PostResponseHandledFilter>(log.clone()).ok() {
+							return Some(ev.commitment.into())
+						}
+						None
+					}).collect();
+					log_receipt(receipt, false);
+					Ok(events)
+				},
+				Ok(None) => {
+					return handle_failed_tx().await;
+				},
+				Err(err) => {
+					log::error!("Error broadcasting transaction to {:?}: {err:?}", client.state_machine);
+					Err(err)?
+				},
 			}
+		}
 	}
 }
 
@@ -152,15 +216,7 @@ async fn wait_for_success<'a, I: IsmpHost>(
 pub async fn generate_contract_calls<I: IsmpHost>(
 	client: &EvmClient<I>,
 	messages: Vec<Message>,
-) -> anyhow::Result<
-	Vec<
-		FunctionCall<
-			Arc<SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>>,
-			SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>,
-			(),
-		>,
-	>,
-> {
+) -> anyhow::Result<Vec<SolidityFunctionCall>> {
 	let contract = IsmpHandler::new(client.config.handler, client.signer.clone());
 	let ismp_host = client.config.ismp_host;
 	let mut calls = Vec::new();

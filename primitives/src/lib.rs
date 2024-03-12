@@ -128,18 +128,6 @@ pub enum TxReceipt {
 	Response { query: Query, request_commitment: H256, height: u64 },
 }
 
-#[derive(Clone, Debug)]
-pub enum StreamItem {
-	Value(StateMachineUpdated),
-	NoOp,
-}
-
-#[derive(Clone, Debug)]
-pub enum ConsensusItem {
-	Value(ConsensusMessage),
-	NoOp,
-}
-
 /// Stream alias
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>> + Send>>;
 

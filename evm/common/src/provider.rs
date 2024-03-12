@@ -45,7 +45,7 @@ use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
 	BoxStream, EstimateGasReturnParams, Hasher, IsmpHost, IsmpProvider, Query, Signature,
-	StateMachineUpdated, StreamItem, TxReceipt,
+	StateMachineUpdated, TxReceipt,
 };
 use tokio::time;
 
@@ -480,7 +480,7 @@ where
 				};
 
 				if block_number <= latest_height {
-					return Some((Ok(StreamItem::NoOp), (latest_height, interval, client)))
+					return Some((Ok(None), (latest_height, interval, client)))
 				}
 
 				let contract = Handler::new(client.config.handler, client.client.clone());
@@ -509,17 +509,17 @@ where
 
 				if let Some(event) = event {
 					return Some((
-						Ok(StreamItem::Value(event.clone())),
+						Ok(Some(event.clone())),
 						(block_number + 1, interval, client),
 					))
 				} else {
-					return Some((Ok(StreamItem::NoOp), (block_number + 1, interval, client)))
+					return Some((Ok(None), (block_number + 1, interval, client)))
 				}
 			},
 		).filter_map(|res| async move {
 			match res {
-				Ok(StreamItem::Value(update)) => Some(Ok(update)),
-				Ok(StreamItem::NoOp) => None,
+				Ok(Some(update)) => Some(Ok(update)),
+				Ok(None) => None,
 				Err(err) => Some(Err(err)),
 			}
 		});

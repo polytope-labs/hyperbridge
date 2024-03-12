@@ -30,6 +30,7 @@ tokio-stream = "0.1.14"
 frame-support = { workspace = true }
 reqwest-retry = "0.3.0"
 reqwest-middleware = "0.2.4"
+async-recursion = "1.0.5"
 
 ismp-solidity-abi.workspace = true
 beefy-verifier-primitives.workspace = true

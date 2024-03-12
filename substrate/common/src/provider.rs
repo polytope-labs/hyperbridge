@@ -40,7 +40,7 @@ use pallet_ismp::{primitives::SubstrateStateProof, ProofKeys};
 use pallet_ismp_relayer::withdrawal::Signature;
 use primitives::{
 	BoxStream, EstimateGasReturnParams, IsmpHost, IsmpProvider, Query, StateMachineUpdated,
-	StreamItem, TxReceipt,
+	TxReceipt,
 };
 use sp_core::{storage::StorageKey, Pair, H256, U256};
 use std::{collections::HashMap, time::Duration};
@@ -255,7 +255,7 @@ where
 				};
 
 				if header.number().into() <= latest_height {
-					return Some((Ok(StreamItem::NoOp), (latest_height, interval, client)))
+					return Some((Ok(None), (latest_height, interval, client)))
 				}
 
 				let event = StateMachineUpdated {
@@ -283,12 +283,9 @@ where
 					.max_by(|x, y| x.latest_height.cmp(&y.latest_height));
 
 				let value = match event {
-					Some(event) => Some((
-						Ok(StreamItem::Value(event)),
-						(header.number().into(), interval, client),
-					)),
-					None =>
-						Some((Ok(StreamItem::NoOp), (header.number().into(), interval, client))),
+					Some(event) =>
+						Some((Ok(Some(event)), (header.number().into(), interval, client))),
+					None => Some((Ok(None), (header.number().into(), interval, client))),
 				};
 
 				return value;
@@ -296,8 +293,8 @@ where
 		)
 		.filter_map(|res| async move {
 			match res {
-				Ok(StreamItem::Value(update)) => Some(Ok(update)),
-				Ok(StreamItem::NoOp) => None,
+				Ok(Some(update)) => Some(Ok(update)),
+				Ok(None) => None,
 				Err(err) => Some(Err(err)),
 			}
 		});

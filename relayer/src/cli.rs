@@ -178,7 +178,7 @@ impl Cli {
 				.reconnect_on_disconnect(true)
 				.max_reconnect_attempts(255)
 				.on("error", |_err, _| {
-					// log::error!("Disconnected from telemetry with: {:#?}, reconnecting.", _err)
+					log::error!("Disconnected from telemetry with: {:#?}, reconnecting.", _err)
 				})
 				.connect()
 		})

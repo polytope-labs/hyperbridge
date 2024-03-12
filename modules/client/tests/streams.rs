@@ -61,11 +61,11 @@ fn init_tracing() {
 async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     init_tracing();
 
+    tracing::info!("\n\n\n\nStarting request status subscription\n\n\n\n");
+
     let signing_key = env!("SIGNING_KEY").to_string();
     let bsc_url = env!("BSC_URL").to_string();
     let op_url = env!("OP_URL").to_string();
-
-    tracing::info!("\n\n\n\nStarting request status subscription\n\n\n\n");
 
     let source_chain = EvmConfig {
         rpc_url: bsc_url.clone(),
@@ -323,21 +323,20 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
                     TimeoutStatus::TimeoutMessage { calldata } => {
                         let gas_price = client.get_gas_price().await?;
                         tracing::info!("Sending timeout to BSC");
-                        let receipt = client
-                            .clone()
+                        let pending = client
                             .send_transaction(
                                 TypedTransaction::Legacy(TransactionRequest {
                                     to: Some(NameOrAddress::Address(source_chain.handler_address)),
-                                    value: Some(Default::default()),
                                     gas_price: Some(gas_price * 5), // experiment with higher?
                                     data: Some(calldata.into()),
                                     ..Default::default()
                                 }),
                                 None,
                             )
-                            .await?
-                            .await?;
-                        dbg!(receipt.unwrap().transaction_hash);
+                            .await;
+                        tracing::info!("Send transaction result: {pending:#?}");
+                        let result = pending?.await;
+                        tracing::info!("Transaction Receipt: {result:#?}");
                     },
                     _ => {},
                 }

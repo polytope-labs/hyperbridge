@@ -9,7 +9,7 @@ use primitive_types::H160;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 #[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Default)]
 pub struct JsChainConfig {
     pub rpc_url: String,
     pub state_machine: String,
@@ -18,18 +18,42 @@ pub struct JsChainConfig {
     pub consensus_state_id: Vec<u8>,
 }
 
+#[wasm_bindgen]
+impl JsChainConfig {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 #[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Default)]
 pub struct JsHyperbridgeConfig {
     pub rpc_url: String,
 }
 
+#[wasm_bindgen]
+impl JsHyperbridgeConfig {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 #[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Default)]
 pub struct JsClientConfig {
     pub source: JsChainConfig,
     pub dest: JsChainConfig,
     pub hyperbridge: JsHyperbridgeConfig,
+}
+
+#[wasm_bindgen]
+impl JsClientConfig {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 impl TryFrom<JsClientConfig> for ClientConfig {

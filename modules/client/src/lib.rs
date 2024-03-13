@@ -273,7 +273,10 @@ impl HyperClient {
         };
 
         lambda().await.map_err(|err: anyhow::Error| {
-            JsError::new(&format!("Could not create hyperclient {err:?}"))
+            JsError::new(&format!(
+                "Failed to query request status for {:?}->{:?}: {err:?}",
+                self.source.state_machine, self.dest.state_machine,
+            ))
         })
     }
 
@@ -287,7 +290,10 @@ impl HyperClient {
         };
 
         lambda().await.map_err(|err: anyhow::Error| {
-            JsError::new(&format!("Could not create hyperclient {err:?}"))
+            JsError::new(&format!(
+                "Failed to query response status for {:?}->{:?}: {err:?}",
+                self.source.state_machine, self.dest.state_machine,
+            ))
         })
     }
 
@@ -326,7 +332,7 @@ impl HyperClient {
         };
 
         lambda().await.map_err(|err: anyhow::Error| {
-            JsError::new(&format!("Could not create hyperclient {err:?}"))
+            JsError::new(&format!("Failed to create request status stream: {err:?}"))
         })
     }
 
@@ -358,7 +364,7 @@ impl HyperClient {
         };
 
         lambda().await.map_err(|err: anyhow::Error| {
-            JsError::new(&format!("Could not create hyperclient {err:?}"))
+            JsError::new(&format!("Failed to create post request timeout stream: {err:?}"))
         })
     }
 }

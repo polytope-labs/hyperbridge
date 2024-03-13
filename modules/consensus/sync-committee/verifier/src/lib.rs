@@ -44,7 +44,8 @@ pub fn verify_sync_committee_attestation<C: Config>(
     let sync_aggregate_participants: u64 =
         sync_committee_bits.iter().as_bitslice().count_ones() as u64;
 
-    if sync_aggregate_participants < (2 * sync_committee_bits.len() as u64) / 3 {
+    if sync_aggregate_participants < ((2 * sync_committee_bits.len() as u64) / 3).saturating_add(1)
+    {
         Err(Error::SyncCommitteeParticipantsTooLow)?
     }
 

@@ -72,7 +72,6 @@ async fn verify_bsc_pos_headers() {
     let mut next_validators: Option<NextValidators> = None;
     let mut current_epoch = compute_epoch(latest_block.number.low_u64());
     let mut done = false;
-    // Http polling can cause missed blocks
     let mut sub = prover.client.watch_blocks().await.unwrap();
     // Verify at least an epoch change until validator set is rotated
     while let Some(block) = sub.next().await {

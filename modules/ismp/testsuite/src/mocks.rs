@@ -27,7 +27,6 @@ pub struct MockClient;
 #[derive(Default)]
 pub struct MockProxyClient;
 
-
 pub const MOCK_CONSENSUS_CLIENT_ID: [u8; 4] = [1u8; 4];
 pub const MOCK_CONSENSUS_CLIENT_ID_2: [u8; 4] = [2u8; 4];
 
@@ -68,8 +67,6 @@ impl ConsensusClient for MockClient {
         }
     }
 }
-
-
 
 impl ConsensusClient for MockProxyClient {
     fn verify_consensus(
@@ -346,7 +343,7 @@ impl IsmpHost for Host {
     }
 
     fn consensus_clients(&self) -> Vec<Box<dyn ConsensusClient>> {
-        vec![Box::new(MockClient),Box::new(MockProxyClient)]
+        vec![Box::new(MockClient), Box::new(MockProxyClient)]
     }
 
     fn challenge_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {

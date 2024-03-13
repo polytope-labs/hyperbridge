@@ -56,7 +56,7 @@ pub struct EvmConfig {
 }
 
 impl EvmConfig {
-    async fn into_client(&self) -> Result<EvmClient, anyhow::Error> {
+    pub async fn into_client(&self) -> Result<EvmClient, anyhow::Error> {
         let client = EvmClient::new(
             self.rpc_url.clone(),
             self.consensus_state_id,

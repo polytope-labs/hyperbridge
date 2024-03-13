@@ -2,9 +2,9 @@
 use crate::{
     providers::interface::RequestOrResponse,
     providers::interface::{wait_for_challenge_period, Client},
-    types::{BoxStream, ClientConfig, MessageStatus, TimeoutStatus},
+    types::{BoxStream, MessageStatus, TimeoutStatus},
     types::{MessageStatusWithMetadata, PostStreamState},
-    Keccak256,
+    HyperClient, Keccak256,
 };
 use anyhow::anyhow;
 use ethers::prelude::H160;
@@ -22,16 +22,13 @@ use std::time::Duration;
 /// `query_request_status_internal` is an internal function that
 /// checks the status of a message
 pub async fn query_request_status_internal(
+    client: &HyperClient,
     post: Post,
-    config: ClientConfig,
 ) -> Result<MessageStatus, anyhow::Error> {
-    let dest_client = config.dest_chain().await?;
-    let hyperbridge_client = config.hyperbridge_client().await?;
-
-    let destination_current_timestamp = dest_client.query_timestamp().await?;
+    let destination_current_timestamp = client.dest.query_timestamp().await?;
     let req = Request::Post(post.clone());
     let hash = hash_request::<Keccak256>(&req);
-    let relayer_address = dest_client.query_request_receipt(hash).await?;
+    let relayer_address = client.dest.query_request_receipt(hash).await?;
 
     if relayer_address != H160::zero() {
         // This means the message has gotten the destination chain
@@ -44,8 +41,8 @@ pub async fn query_request_status_internal(
         return Ok(MessageStatus::Timeout);
     }
 
-    let hyperbridge_current_timestamp = hyperbridge_client.query_timestamp().await?;
-    let relayer = hyperbridge_client.query_request_receipt(hash).await?;
+    let hyperbridge_current_timestamp = client.hyperbridge.query_timestamp().await?;
+    let relayer = client.hyperbridge.query_request_receipt(hash).await?;
 
     if relayer != H160::zero() {
         return Ok(MessageStatus::HyperbridgeDelivered);
@@ -61,16 +58,13 @@ pub async fn query_request_status_internal(
 
 /// `query_response_status_internal` function returns the status of a response
 pub async fn query_response_status_internal(
-    config: ClientConfig,
+    hyperclient: &HyperClient,
     post_response: PostResponse,
 ) -> Result<MessageStatus, anyhow::Error> {
-    let dest_client = config.dest_chain().await?;
-    let hyperbridge_client = config.hyperbridge_client().await?;
-
-    let response_destination_timeout = dest_client.query_timestamp().await?;
+    let response_destination_timeout = hyperclient.dest.query_timestamp().await?;
     let res = Response::Post(post_response.clone());
     let req_hash = hash_request::<Keccak256>(&res.request());
-    let response_receipt_relayer = dest_client.query_response_receipt(req_hash).await?;
+    let response_receipt_relayer = hyperclient.dest.query_response_receipt(req_hash).await?;
 
     if response_receipt_relayer != H160::zero() {
         return Ok(MessageStatus::DestinationDelivered);
@@ -81,13 +75,13 @@ pub async fn query_response_status_internal(
         return Ok(MessageStatus::Timeout);
     }
 
-    let relayer = hyperbridge_client.query_response_receipt(req_hash).await?;
+    let relayer = hyperclient.hyperbridge.query_response_receipt(req_hash).await?;
 
     if relayer != H160::zero() {
         return Ok(MessageStatus::HyperbridgeDelivered);
     }
 
-    let hyperbridge_current_timestamp = hyperbridge_client.latest_timestamp().await?;
+    let hyperbridge_current_timestamp = hyperclient.hyperbridge.latest_timestamp().await?;
 
     if hyperbridge_current_timestamp.as_secs() > post_response.timeout_timestamp {
         // the request timed out before getting to hyper bridge
@@ -114,12 +108,13 @@ pub enum TimeoutStreamState {
 /// to the source chain This future does not check the request timeout status, only call it after
 /// you have confirmed the request timeout status using `query_request_status`
 pub async fn timeout_request_stream(
+    hyperclient: &HyperClient,
     post: Post,
-    config: ClientConfig,
 ) -> Result<BoxStream<TimeoutStatus>, anyhow::Error> {
-    let dest_client = config.dest_chain().await?;
-    let hyperbridge_client = config.hyperbridge_client().await?;
-    let source_client = config.source_chain().await?;
+    let dest_client = hyperclient.dest.clone();
+    let hyperbridge_client = hyperclient.hyperbridge.clone();
+    let source_client = hyperclient.source.clone();
+
     let stream = stream::unfold(TimeoutStreamState::Pending, move |state| {
         let dest_client = dest_client.clone();
         let hyperbridge_client = hyperbridge_client.clone();
@@ -294,12 +289,14 @@ pub async fn timeout_request_stream(
 
 /// returns the query stream for a post
 pub async fn request_status_stream(
+    hyperclient: &HyperClient,
     post: Post,
-    source_client: impl Client,
-    dest_client: impl Client,
-    hyperbridge_client: impl Client,
     post_request_height: u64,
 ) -> BoxStream<MessageStatusWithMetadata> {
+    let source_client = hyperclient.source.clone();
+    let dest_client = hyperclient.dest.clone();
+    let hyperbridge_client = hyperclient.hyperbridge.clone();
+
     let stream = stream::unfold(PostStreamState::Pending, move |post_request_status| {
         let dest_client = dest_client.clone();
         let hyperbridge_client = hyperbridge_client.clone();
@@ -557,33 +554,29 @@ pub async fn request_timeout_stream(
     timeout: u64,
     client: impl Client + Clone,
 ) -> BoxStream<MessageStatusWithMetadata> {
-    let stream = stream::unfold((), move |_| {
-        let client_moved = client.clone();
+    let stream = stream::unfold(client, move |client| async move {
+        let lambda = || async {
+            let current_timestamp = client.query_timestamp().await?.as_secs();
 
-        async move {
-            let lambda = || async {
-                let current_timestamp = client_moved.query_timestamp().await?.as_secs();
-
-                return if current_timestamp > timeout {
-                    Ok(true)
-                } else {
-                    let sleep_time = timeout - current_timestamp;
-                    let _ = wasm_timer::Delay::new(Duration::from_secs(sleep_time)).await;
-                    Ok::<_, anyhow::Error>(false)
-                };
+            return if current_timestamp > timeout {
+                Ok(true)
+            } else {
+                let sleep_time = timeout - current_timestamp;
+                let _ = wasm_timer::Delay::new(Duration::from_secs(sleep_time)).await;
+                Ok::<_, anyhow::Error>(false)
             };
+        };
 
-            let response = lambda().await;
+        let response = lambda().await;
 
-            let value = match response {
-                Ok(true) => Some((Ok(Some(MessageStatusWithMetadata::Timeout)), ())),
-                Ok(false) => Some((Ok(None), ())),
-                Err(e) =>
-                    Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), ())),
-            };
+        let value = match response {
+            Ok(true) => Some((Ok(Some(MessageStatusWithMetadata::Timeout)), client)),
+            Ok(false) => Some((Ok(None), client)),
+            Err(e) =>
+                Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), client)),
+        };
 
-            return value
-        }
+        return value
     })
     .filter_map(|item| async move {
         match item {

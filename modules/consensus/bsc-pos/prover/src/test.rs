@@ -27,8 +27,9 @@ impl Keccak256 for Host {
 async fn setup_prover() -> BscPosProver {
     dotenv::dotenv().ok();
     let consensus_url = std::env::var("BNB_RPC").unwrap();
-    let provider = Provider::<Http>::connect(&consensus_url).await;
-
+    let mut provider = Provider::<Http>::connect(&consensus_url).await;
+    // Bsc block time is 3s we don't want to deal with missing authority set changes while polling for blocks in our tests
+    provider.set_interval(Duration::from_secs(3));
     BscPosProver::new(provider)
 }
 
@@ -70,6 +71,7 @@ async fn verify_bsc_pos_headers() {
     let mut next_validators: Option<NextValidators> = None;
     let mut current_epoch = compute_epoch(latest_block.number.low_u64());
     let mut done = false;
+    // Http polling can cause missed blocks
     let mut sub = prover.client.watch_blocks().await.unwrap();
     // Verify at least an epoch change until validator set is rotated
     while let Some(block) = sub.next().await {

@@ -266,7 +266,7 @@ impl<C: Config> SyncCommitteeProver<C> {
             block_id
         };
         let mut block = self.fetch_block(&get_block_id(latest_root)).await?;
-        let min_signatures = (2 * SYNC_COMMITTEE_SIZE) / 3;
+        let min_signatures = ((2 * SYNC_COMMITTEE_SIZE) / 3) + 1;
         let state_period = client_state.state_period;
         loop {
             // Some checks on the epoch finalized by the signature block

@@ -6,10 +6,11 @@ use ismp::{
     router::{Post, PostResponse},
 };
 use primitive_types::H160;
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 #[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq, Debug, Default)]
+#[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
 pub struct JsChainConfig {
     pub rpc_url: String,
     pub state_machine: String,
@@ -27,7 +28,7 @@ impl JsChainConfig {
 }
 
 #[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq, Debug, Default)]
+#[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
 pub struct JsHyperbridgeConfig {
     pub rpc_url: String,
 }
@@ -41,7 +42,7 @@ impl JsHyperbridgeConfig {
 }
 
 #[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq, Debug, Default)]
+#[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
 pub struct JsClientConfig {
     pub source: JsChainConfig,
     pub dest: JsChainConfig,
@@ -126,7 +127,7 @@ impl TryFrom<JsClientConfig> for ClientConfig {
 }
 
 #[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Default, Deserialize, Serialize)]
 pub struct JsPost {
     /// The source state machine of this request.
     pub source: String,
@@ -149,6 +150,14 @@ pub struct JsPost {
     pub height: u64,
 }
 
+#[wasm_bindgen]
+impl JsPost {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 impl TryFrom<JsPost> for Post {
     type Error = anyhow::Error;
 
@@ -168,7 +177,7 @@ impl TryFrom<JsPost> for Post {
 }
 
 #[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Default)]
 pub struct JsResponse {
     /// The request that triggered this response.
     pub post: JsPost,
@@ -178,6 +187,14 @@ pub struct JsResponse {
     pub timeout_timestamp: u64,
     /// Gas limit for executing the response on destination, only used for solidity modules.
     pub gas_limit: u64,
+}
+
+#[wasm_bindgen]
+impl JsResponse {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 impl TryFrom<JsResponse> for PostResponse {

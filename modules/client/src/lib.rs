@@ -59,15 +59,19 @@ pub async fn query_request_status(
     request: JsPost,
     config: JsClientConfig,
 ) -> Result<JsValue, JsError> {
-    let post: Post = request.try_into().map_err(|_| JsError::new("deserialization error"))?;
-    let config: ClientConfig =
-        config.try_into().map_err(|_| JsError::new("deserialization error"))?;
+    let post: Post = request
+        .try_into()
+        .map_err(|err| JsError::new(&format!("Error converting from JsPost {err:?}")))?;
+    let config: ClientConfig = config
+        .try_into()
+        .map_err(|err| JsError::new(&format!("Error converting from JsClientConfig {err:?}")))?;
 
     let response = query_request_status_internal(post, config)
         .await
         .map_err(|e| JsError::new(e.to_string().as_str()))?;
 
-    serde_wasm_bindgen::to_value(&response).map_err(|_| JsError::new("deserialization error"))
+    serde_wasm_bindgen::to_value(&response)
+        .map_err(|err| JsError::new(&format!("Error converting from MessageStatus {err:?}")))
 }
 
 /// Accepts a post response and returns a `MessageStatus` where

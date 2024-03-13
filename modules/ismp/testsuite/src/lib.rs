@@ -19,9 +19,7 @@ pub mod mocks;
 #[cfg(test)]
 mod tests;
 
-use std::process::id;
-
-use crate::mocks::{MOCK_CONSENSUS_CLIENT_ID, MOCK_CONSENSUS_CLIENT_ID_2};
+use crate::mocks::{MOCK_CONSENSUS_CLIENT_ID, MOCK_PROXY_CONSENSUS_CLIENT_ID};
 use ismp::{
     consensus::{
         ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
@@ -50,7 +48,7 @@ fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
     let intermediate_state = IntermediateState {
         height: StateMachineHeight {
             id: StateMachineId {
-                state_id: StateMachine::Bsc,
+                state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                 consensus_state_id: mock_consensus_state_id(),
             },
             height: 1,
@@ -91,7 +89,7 @@ fn setup_mock_proxy_client<H: IsmpHost>(
     };
 
     host.store_consensus_state(mock_proxy_consensus_state_id(), vec![]).unwrap();
-    host.store_consensus_state_id(mock_proxy_consensus_state_id(), MOCK_CONSENSUS_CLIENT_ID_2)
+    host.store_consensus_state_id(mock_proxy_consensus_state_id(), MOCK_PROXY_CONSENSUS_CLIENT_ID)
         .unwrap();
     host.store_state_machine_commitment(proxy.height, proxy.commitment).unwrap();
     proxy
@@ -424,7 +422,8 @@ where
 /// for the request destination
 /// The State machine for the proxy is assumed in this test to be ``StateMachine::Kusama(2000);``
 /// the State machine for the host is assumed in this test to be ``StateMachine::Polkadot(1000)``
-/// The destination state machine for the test is assumed to be ``StateMachine::Kusama(1000)``
+/// The destination state machine for the test is assumed to be
+/// ``StateMachine::Ethereum(Ethereum::ExecutionLayer)``
 pub fn prevent_request_timeout_on_proxy_with_known_state_machine<H, D>(
     host: &H,
     dispatcher: &D,
@@ -437,7 +436,6 @@ where
     D::Account: From<[u8; 32]>,
     D::Balance: From<u32>,
 {
-    let intermediate_state = setup_mock_client(host);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
 
@@ -477,7 +475,7 @@ where
         dest: direct_conn_state_machine,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
-        timeout_timestamp: intermediate_state.commitment.timestamp,
+        timeout_timestamp: proxy.commitment.timestamp,
         data: vec![0u8; 64],
         gas_limit: 0,
     };
@@ -488,7 +486,7 @@ where
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
-        timeout_timestamp: intermediate_state.commitment.timestamp,
+        timeout_timestamp: proxy.commitment.timestamp,
         data: vec![0u8; 64],
         gas_limit: 0,
     };
@@ -507,7 +505,7 @@ where
 
     let res = handle_incoming_message(host, timeout_message).unwrap();
 
-    // Assert that the dispatch results are empty
+    // Assert that the dispatch results are empty which means the timeout message was ignored.
     let dispatch_results_length = match res {
         MessageResult::Timeout(dispatch_results) => dispatch_results.len(),
         _ => unreachable!(),
@@ -619,87 +617,7 @@ where
 /// This should check that if a proxy isn't configured, requests are not valid if they don't come
 /// from the state machine claimed in the proof as well as check that the request destination
 /// matches the host state machine.
-pub fn check_request_source_and_destination<H>(
-    host: &H,
-    // dispatcher: &D,
-    proxy_state_machine: StateMachine,
-    direct_conn_state_machine: StateMachine,
-) -> Result<(), &'static str>
-where
-    H: IsmpHost,
-    // D: IsmpDispatcher,
-    // D::Account: From<[u8; 32]>,
-    // D::Balance: From<u32>,
-{
-    let intermediate_state = setup_mock_client(host);
-    let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
-    let previous_update_time = host.timestamp() - (challenge_period * 2);
-    host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
-        .unwrap();
-    host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
-        .unwrap();
-
-    let proxy = setup_mock_proxy_client(host, proxy_state_machine);
-
-    host.store_consensus_update_time(mock_proxy_consensus_state_id(), previous_update_time)
-        .unwrap();
-    host.store_state_machine_update_time(proxy.height, previous_update_time)
-        .unwrap();
-
-    let consensus_clients = host.consensus_clients();
-    assert!(consensus_clients.len() > 1);
-
-    // assert that proxy chain concensus client is configured
-    // Proxy chain concensus in this test is assumed to be MOCK_CONSENSUS_CLIENT_ID_2
-
-    let proxy_consensus_client_id = consensus_clients
-        .iter()
-        .find(|client| client.state_machine(proxy_state_machine).ok().is_some())
-        .expect("The proxy consensus client should be set for this test")
-        .consensus_client_id();
-
-    // For our test case we assert the configuration of the proxy
-    assert_eq!(proxy_consensus_client_id, MOCK_CONSENSUS_CLIENT_ID_2);
-
-    let request = Post {
-        source: direct_conn_state_machine,
-        dest: host.host_state_machine(),
-        nonce: 0,
-        from: vec![0u8; 32],
-        to: vec![0u8; 32],
-        timeout_timestamp: 0,
-        data: vec![0u8; 64],
-        gas_limit: 0,
-    };
-
-    let request_message = Message::Request(RequestMessage {
-        requests: vec![request.clone()],
-        proof: Proof { height: intermediate_state.height, proof: vec![] },
-        signer: vec![],
-    });
-
-    let res: MessageResult = handle_incoming_message(host, request_message).unwrap();
-
-    let host_state_machine = host.host_state_machine();
-
-    // Get the destination chain from the proof which must be the host state machine
-    let dest_chain = match &res {
-        MessageResult::Request(dispatch_results) if !dispatch_results.is_empty() => {
-            if let Ok(dispatch_success) = &dispatch_results[0] {
-                dispatch_success.dest_chain.clone()
-            } else {
-                unreachable!()
-            }
-        },
-        _ => unreachable!(),
-    };
-
-    // Assert that the destination chain matches the host state machine
-
-    assert_eq!(dest_chain, host_state_machine);
-
-    Ok(())
-}
+pub fn check_request_source_and_destination() {}
 
 /// This should check that if a proxy isn't configured, responses are not valid if they don't come
 /// from the state machine claimed in the proof

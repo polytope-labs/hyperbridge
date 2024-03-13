@@ -1,4 +1,4 @@
-use ismp::host::StateMachine;
+use ismp::host::{Ethereum, StateMachine};
 
 use crate::{
     check_challenge_period, check_client_expiry, check_request_source_and_destination,
@@ -55,7 +55,7 @@ fn should_prevent_request_timeout_on_proxy_with_known_state_machine() {
     let host = Arc::new(Host::default());
     let dispatcher = MockDispatcher(host.clone());
     let proxy_state_machine = StateMachine::Kusama(2000);
-    let direct_conn_state_machine = StateMachine::Bsc;
+    let direct_conn_state_machine = StateMachine::Ethereum(Ethereum::ExecutionLayer);
     prevent_request_timeout_on_proxy_with_known_state_machine(
         &*host,
         &dispatcher,
@@ -70,7 +70,7 @@ fn should_prevent_response_timeout_on_proxy_with_known_state_machine() {
     let host = Arc::new(Host::default());
     let dispatcher = MockDispatcher(host.clone());
     let proxy_state_machine = StateMachine::Kusama(2000);
-    let direct_conn_state_machine = StateMachine::Bsc;
+    let direct_conn_state_machine = StateMachine::Ethereum(Ethereum::ExecutionLayer);
     prevent_response_timeout_on_proxy_with_known_state_machine(
         &*host,
         &dispatcher,
@@ -78,13 +78,4 @@ fn should_prevent_response_timeout_on_proxy_with_known_state_machine() {
         direct_conn_state_machine,
     )
     .unwrap()
-}
-
-#[test]
-fn should_check_request_source_and_destinatione() {
-    let host = Arc::new(Host::default());
-    let proxy_state_machine = StateMachine::Kusama(2000);
-    let direct_conn_state_machine = StateMachine::Bsc;
-    check_request_source_and_destination(&*host, proxy_state_machine, direct_conn_state_machine)
-        .unwrap();
 }

@@ -28,7 +28,8 @@ async fn setup_prover() -> BscPosProver {
     dotenv::dotenv().ok();
     let consensus_url = std::env::var("BNB_RPC").unwrap();
     let mut provider = Provider::<Http>::connect(&consensus_url).await;
-    // Bsc block time is 3s we don't want to deal with missing authority set changes while polling for blocks in our tests
+    // Bsc block time is 3s we don't want to deal with missing authority set changes while polling
+    // for blocks in our tests
     provider.set_interval(Duration::from_secs(3));
     BscPosProver::new(provider)
 }

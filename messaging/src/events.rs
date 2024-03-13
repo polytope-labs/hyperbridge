@@ -101,7 +101,7 @@ where
 				if post.timeout_timestamp != 0 &&
 					post.timeout_timestamp <= counterparty_timestamp.as_secs()
 				{
-					log::trace!(
+					tracing::trace!(
 						"Found timed out request, request: {}, counterparty: {}",
 						post.timeout_timestamp,
 						counterparty_timestamp.as_secs()
@@ -110,7 +110,7 @@ where
 				}
 
 				if !is_allowed_module(&post.from) {
-					log::trace!(
+					tracing::trace!(
 						"Request from module {}, filtered by module filter",
 						hex::encode(&post.from),
 					);
@@ -144,7 +144,7 @@ where
 				if post_response.timeout_timestamp != 0 &&
 					post_response.timeout_timestamp <= counterparty_timestamp.as_secs()
 				{
-					log::trace!(
+					tracing::trace!(
 						"Found timed out request, request: {}, counterparty: {}",
 						post_response.timeout_timestamp,
 						counterparty_timestamp.as_secs()
@@ -153,7 +153,7 @@ where
 				}
 
 				if !is_allowed_module(&post_response.source_module()) {
-					log::trace!(
+					tracing::trace!(
 						"Request from module {}, filtered by module filter",
 						hex::encode(&post_response.source_module()),
 					);
@@ -187,7 +187,7 @@ where
 	}
 
 	let (post_requests, post_request_queries, post_responses, response_queries) = {
-		log::trace!(
+		tracing::trace!(
 			"Tracing transactions to {:?}, from: {:?}",
 			sink.state_machine_id().state_id,
 			source.state_machine_id().state_id
@@ -258,7 +258,7 @@ where
 	let mut messages = vec![];
 
 	if !post_request_queries.is_empty() {
-		log::trace!("Querying request proof for batch length {}", post_request_queries.len());
+		tracing::trace!("Querying request proof for batch length {}", post_request_queries.len());
 		let chunks = chunk_size(sink.state_machine_id().state_id);
 		let query_chunks = post_request_queries.chunks(chunks);
 		let post_request_chunks = post_requests.chunks(chunks);
@@ -276,7 +276,7 @@ where
 	}
 
 	if !response_queries.is_empty() {
-		log::trace!("Querying response proof for batch length {}", response_queries.len());
+		tracing::trace!("Querying response proof for batch length {}", response_queries.len());
 		let chunks = chunk_size(sink.state_machine_id().state_id);
 		let query_chunks = response_queries.chunks(chunks);
 		let post_request_chunks = post_responses.chunks(chunks);
@@ -340,7 +340,7 @@ where
 			let og_source = if let Some(client) = client_map.get(&queries[index].source_chain) {
 				client
 			} else {
-				log::info!("Skipping tx because fee metadata cannot be queried, client for {:?} was not provided", queries[index].source_chain);
+				tracing::info!("Skipping tx because fee metadata cannot be queried, client for {:?} was not provided", queries[index].source_chain);
 				queries_to_be_relayed.push(None);
 				continue
 			};
@@ -360,10 +360,10 @@ where
 				fee_metadata = U256::MAX.into()
 			};
 			if fee_metadata < fee_with_profit {
-				log::info!("Skipping unprofitable tx. Expected ${fee_with_profit}, user provided ${fee_metadata}");
+				tracing::info!("Skipping unprofitable tx. Expected ${fee_with_profit}, user provided ${fee_metadata}");
 				queries_to_be_relayed.push(None)
 			} else {
-				log::trace!(
+				tracing::trace!(
 					"Pushing tx to {:?} with cost ${fee_with_profit}",
 					sink.state_machine_id().state_id
 				);
@@ -373,10 +373,10 @@ where
 			coprocessor.state_machine() == sink.state_machine_id().state_id
 		// We only deliver sucessful messages to hyperbridge
 		{
-			log::trace!("Pushing tx to {:?}", sink.state_machine_id().state_id);
+			tracing::trace!("Pushing tx to {:?}", sink.state_machine_id().state_id);
 			queries_to_be_relayed.push(Some(queries[index].clone()));
 		} else {
-			log::info!("Skipping Failed tx");
+			tracing::info!("Skipping Failed tx");
 			queries_to_be_relayed.push(None)
 		}
 	}

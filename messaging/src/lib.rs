@@ -19,6 +19,7 @@ mod events;
 
 use anyhow::anyhow;
 use std::{collections::HashMap, sync::Arc};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::events::{filter_events, translate_events_to_messages, Event};
 use futures::StreamExt;
@@ -27,10 +28,12 @@ use tesseract_client::AnyClient;
 
 use tesseract_primitives::{
 	config::{Chain, RelayerConfig},
-	wait_for_challenge_period, IsmpHost, IsmpProvider, StateMachineUpdated,
+	observe_challenge_period, wait_for_challenge_period, wait_for_state_machine_update,
+	HyperbridgeClaim, IsmpHost, IsmpProvider, StateMachineUpdated, TxReceipt,
 };
 use transaction_fees::TransactionPayment;
 
+type FeeAccSender = Sender<Vec<TxReceipt>>;
 pub async fn relay<A, B>(
 	chain_a: A,
 	chain_b: B,
@@ -40,19 +43,28 @@ pub async fn relay<A, B>(
 	client_map: HashMap<StateMachine, AnyClient>,
 ) -> Result<(), anyhow::Error>
 where
-	A: IsmpHost + IsmpProvider + 'static,
+	A: IsmpHost + IsmpProvider + HyperbridgeClaim + 'static,
 	B: IsmpHost + IsmpProvider + 'static,
 {
+	let (sender, receiver) = tokio::sync::mpsc::channel::<Vec<TxReceipt>>(64);
 	let task_a = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
+		let sender = sender.clone();
 		tokio::spawn(async move {
-			let _ =
-				handle_notification(chain_a, chain_b, tx_payment, config, coprocessor, client_map)
-					.await?;
+			let _ = handle_notification(
+				chain_a,
+				chain_b,
+				tx_payment,
+				config,
+				coprocessor,
+				client_map,
+				sender,
+			)
+			.await?;
 			Ok::<_, anyhow::Error>(())
 		})
 	};
@@ -60,12 +72,32 @@ where
 	let task_b = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
+		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
+		let sender = sender.clone();
 		tokio::spawn(async move {
-			let _ =
-				handle_notification(chain_b, chain_a, tx_payment, config, coprocessor, client_map)
-					.await?;
+			let _ = handle_notification(
+				chain_b,
+				chain_a,
+				tx_payment,
+				config,
+				coprocessor,
+				client_map,
+				sender,
+			)
+			.await?;
 			Ok::<_, anyhow::Error>(())
+		})
+	};
+
+	// Fee accumulation background task
+	let _fee_acc = {
+		let hyperbridge = chain_a.clone();
+		let dest = chain_b.clone();
+		let client_map = client_map.clone();
+
+		tokio::spawn(async move {
+			fee_accumulation(receiver, dest, hyperbridge, client_map, tx_payment).await
 		})
 	};
 
@@ -89,6 +121,7 @@ async fn handle_notification<A, B>(
 	config: RelayerConfig,
 	coprocessor: Chain,
 	client_map: HashMap<StateMachine, AnyClient>,
+	fee_acc_sender: FeeAccSender,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
@@ -116,10 +149,11 @@ where
 					config.clone(),
 					coprocessor,
 					&client_map,
+					fee_acc_sender.clone(),
 				)
 				.await
 				{
-					log::error!(
+					tracing::error!(
 						"Error while handling {:?} on {:?}: {err:?}",
 						state_machine_update.state_machine_id.state_id,
 						chain_a.state_machine_id().state_id
@@ -127,7 +161,7 @@ where
 				}
 			},
 			Err(e) => {
-				log::error!(target: "tesseract","Messaging task {}->{} encountered an error: {e:?}", chain_a.name(), chain_b.name());
+				tracing::error!(target: "tesseract","Messaging task {}->{} encountered an error: {e:?}", chain_a.name(), chain_b.name());
 				continue;
 			},
 		}
@@ -149,6 +183,7 @@ async fn handle_update<A, B>(
 	config: RelayerConfig,
 	coprocessor: Chain,
 	client_map: &HashMap<StateMachine, AnyClient>,
+	fee_acc_sender: FeeAccSender,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider,
@@ -167,7 +202,7 @@ where
 			})
 			.collect::<Vec<_>>(),
 		Err(err) => {
-			log::error!(
+			tracing::error!(
 				"Encountered an error querying events from {:?}: {err:?}",
 				chain_b.state_machine_id().state_id
 			);
@@ -177,7 +212,7 @@ where
 
 	let state_machine = state_machine_update.state_machine_id.state_id;
 	if events.is_empty() {
-		log::info!(
+		tracing::info!(
 			"Skipping latest finalized height {} on {}, no new messages from {state_machine:?} in range {:?}",
 			state_machine_update.latest_height,
 			chain_a.name(),
@@ -189,7 +224,7 @@ where
 	// Advance latest known height by relayer
 	*previous_height = state_machine_update.latest_height;
 	let log_events = events.clone().into_iter().map(Into::into).collect::<Vec<Event>>();
-	log::info!(
+	tracing::info!(
 	   target: "tesseract",
 	   "Events from {} {:#?}", chain_b.name(),
 	   log_events // event names
@@ -220,7 +255,7 @@ where
 	.await?;
 
 	if !messages.is_empty() {
-		log::info!(
+		tracing::info!(
 			target: "tesseract",
 			"🛰️ Transmitting ismp messages from {} to {}",
 			chain_b.name(), chain_a.name()
@@ -232,18 +267,139 @@ where
 				// We should not store messages when they are delivered to hyperbridge
 				if chain_a.state_machine_id().state_id != coprocessor.state_machine() {
 					if !receipts.is_empty() {
-						log::info!(target: "tesseract", "Storing {} deliveries from {} to {} inside the database",receipts.len(), chain_b.name(), chain_a.name());
-						if let Err(err) = tx_payment.store_messages(receipts).await {
-							log::error!(
-								"Failed to store some delivered messages to database: {err:?}"
-							)
+						// Send receipts to the fee accumulation task
+						match fee_acc_sender.send(receipts).await {
+							Err(sent) => {
+								// If for aome reason the receiver has been dropped, store receipts
+								// in db so they can be accumulated manually
+								tracing::info!(target: "tesseract", "Storing {} deliveries from {} to {} inside the database", sent.0.len(), chain_b.name(), chain_a.name());
+								if let Err(err) = tx_payment.store_messages(sent.0).await {
+									tracing::error!(
+										"Failed to store some delivered messages to database: {err:?}"
+									)
+								}
+							},
+							_ => {},
 						}
 					}
 				}
 			},
-			Err(err) => log::error!("Failed to submit transaction to {state_machine}: {err:?}"),
+			Err(err) => tracing::error!("Failed to submit transaction to {state_machine}: {err:?}"),
 		}
 	}
 
 	Ok(())
+}
+
+async fn fee_accumulation<
+	A: IsmpProvider + Clone + 'static,
+	B: IsmpProvider + Clone + HyperbridgeClaim + 'static,
+>(
+	mut receiver: Receiver<Vec<TxReceipt>>,
+	dest: A,
+	hyperbridge: B,
+	client_map: HashMap<StateMachine, AnyClient>,
+	tx_payment: Arc<TransactionPayment>,
+) -> Result<(), anyhow::Error> {
+	while let Some(receipts) = receiver.recv().await {
+		if receipts.is_empty() {
+			continue
+		}
+		// Spawn a new task so fee accumulation can be done concurrently
+		tokio::spawn({
+			let dest = dest.clone();
+			let hyperbridge = hyperbridge.clone();
+			let client_map = client_map.clone();
+			let tx_payment = tx_payment.clone();
+			async move {
+				// Group receipts by source chain;
+				// Query latest state machine height of source on hyperbridge
+				// Get height at which messages were delivered to destination
+				// Wait for state machine update on hyperbridge
+				// Generate proofs
+				// Observe challenge period
+				// Submit proof
+				let mut groups = HashMap::new();
+				let delivery_height = receipts
+					.iter()
+					.max_by(|a, b| a.height().cmp(&b.height()))
+					.map(|tx| tx.height())
+					.expect("Infallible");
+				receipts.iter().for_each(|receipt| match receipt {
+					TxReceipt::Request { query, .. } => {
+						let entry = groups.entry(query.source_chain).or_insert(vec![]);
+						entry.push(*receipt);
+					},
+					TxReceipt::Response { query, .. } => {
+						let entry = groups.entry(query.source_chain).or_insert(vec![]);
+						entry.push(*receipt);
+					},
+				});
+
+				// Wait for destination chain's state machine update on hyperbridge
+				tracing::info!(
+					"Fee accumulation for {} messages submitted to {:?} has started",
+					receipts.len(),
+					dest.state_machine_id().state_id
+				);
+				let dest_height = match wait_for_state_machine_update(
+					dest.state_machine_id(),
+					&hyperbridge,
+					delivery_height,
+				)
+				.await
+				{
+					Ok(height) => height,
+					Err(err) => {
+						tracing::error!("An error occurred while waiting for a state machine update, auto fee accumulation failed, Receipts have been stored in the db you can try again manually \n{err:?}");
+						if let Err(err) = tx_payment.store_messages(receipts).await {
+							tracing::error!(
+								"Failed to store some delivered messages to database: {err:?}"
+							)
+						}
+						return
+					},
+				};
+
+				let stream = futures::stream::iter(groups);
+				stream.for_each_concurrent(None, |(source, receipts)| {
+					let hyperbridge = hyperbridge.clone();
+					let source_chain = client_map.get(&source).cloned();
+					let dest = dest.clone();
+					let tx_payment = tx_payment.clone();
+					async move {
+						let lambda = || async {
+							let source_chain = source_chain.ok_or_else(|| anyhow!("Client for {source} not found in config, fees cannot be accumulated"))?;
+							let source_height = hyperbridge.query_latest_height(source_chain.state_machine_id()).await?;
+							// Create claim proof for deliveries from source to dest
+							tracing::info!("Creating withdrawal proof from db for deliveries from {:?}->{:?}", source, dest.state_machine_id().state_id);
+							let claim_proof = tx_payment
+							.create_proof_from_receipts(source_height.into(), dest_height, &source_chain, &dest, receipts.clone())
+							.await?;
+
+							observe_challenge_period(&dest, &hyperbridge, dest_height).await?;
+						if let Some(claim_proof) = claim_proof {
+							hyperbridge.accumulate_fees(claim_proof.clone()).await?;
+							tracing::info!("Fee accumulation was sucessful");
+						}
+							Ok::<_, anyhow::Error>(())
+						};
+
+						match lambda().await {
+							Ok(()) => {},
+							Err(err) => {
+								tracing::error!("Error accummulating some fees, receipts have been stored in the db, you can try again manually \n{err:?}");
+								if let Err(err) = tx_payment.store_messages(receipts).await {
+									tracing::error!(
+										"Failed to store some delivered messages to database: {err:?}"
+									)
+								}
+							}
+						}
+					}
+				}).await;
+			}
+		});
+	}
+	Ok::<_, anyhow::Error>(())
 }

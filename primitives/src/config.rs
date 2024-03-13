@@ -25,6 +25,8 @@ pub struct RelayerConfig {
 	pub module_filter: Option<Vec<Vec<u8>>>,
 	/// Relay consensus messages
 	pub consensus: Option<bool>,
+	/// Consensus stream timeout
+	pub consensus_stream_timeout: Option<u64>,
 	/// Relay messages
 	pub messaging: Option<bool>,
 	/// Fisherman protocol

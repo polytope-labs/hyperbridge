@@ -15,22 +15,25 @@
 
 //! Consensus message relay
 
+use std::time::Duration;
+
 use anyhow::anyhow;
 use futures::StreamExt;
 use ismp::messaging::Message;
-use tesseract_primitives::{IsmpHost, IsmpProvider};
+use tesseract_primitives::{config::RelayerConfig, IsmpHost, IsmpProvider};
 
 /// Relays [`ConsensusMessage`] updates.
-pub async fn relay<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
+pub async fn relay<A, B>(chain_a: A, chain_b: B, config: RelayerConfig) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
 	B: IsmpHost + IsmpProvider + 'static,
 {
+	let timeout = config.consensus_stream_timeout.unwrap_or(600);
 	let task_a = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
 		tokio::spawn(async move {
-			let _ = handle_notification(chain_a, chain_b).await?;
+			let _ = handle_notification(chain_a, chain_b, timeout).await?;
 			Ok::<_, anyhow::Error>(())
 		})
 	};
@@ -39,7 +42,7 @@ where
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
 		tokio::spawn(async move {
-			let _ = handle_notification(chain_b, chain_a).await?;
+			let _ = handle_notification(chain_b, chain_a, timeout).await?;
 			Ok::<_, anyhow::Error>(())
 		})
 	};
@@ -57,7 +60,11 @@ where
 	Ok(())
 }
 
-async fn handle_notification<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
+async fn handle_notification<A, B>(
+	chain_a: A,
+	chain_b: B,
+	timeout: u64,
+) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
 	B: IsmpHost + IsmpProvider + 'static,
@@ -66,23 +73,34 @@ where
 		.consensus_notification(chain_b.clone())
 		.await
 		.map_err(|err| anyhow!("ConsensusMessage stream subscription failed: {err:?}"))?;
+	loop {
+		let timeout = tokio::time::sleep(Duration::from_secs(timeout.into()));
+		tokio::select! {
+			_ = timeout => {
+				// If timeout elapses and consensus stream has not yielded recreate the stream
+				log::trace!("Recreating consensus stream for {:?}-{:?}", chain_a.state_machine_id().state_id, chain_b.state_machine_id().state_id);
+				consensus_stream = chain_a.consensus_notification(chain_b.clone()).await.map_err(|err| anyhow!("ConsensusMessage stream subscription failed: {err:?}"))?;
+			}
+			item = consensus_stream.next() => {
+				match item {
+					Some(Ok(consensus_message)) => {
+						log::info!(
+							target: "tesseract",
+							"🛰️ Transmitting consensus message from {} to {}",
+							chain_a.name(), chain_b.name()
+						);
+						if let Err(err) = chain_b.submit(vec![Message::Consensus(consensus_message)]).await
+						{
+							log::error!("Failed to submit transaction to {}: {err:?}", chain_b.name())
+						}
+					}
+					Some(Err(e)) => {
+						log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
+					}
 
-	while let Some(item) = consensus_stream.next().await {
-		match item {
-			Ok(consensus_message) => {
-				log::info!(
-					target: "tesseract",
-					"🛰️ Transmitting consensus message from {} to {}",
-					chain_a.name(), chain_b.name()
-				);
-				if let Err(err) = chain_b.submit(vec![Message::Consensus(consensus_message)]).await
-				{
-					log::error!("Failed to submit transaction to {}: {err:?}", chain_b.name())
+					None => break
 				}
-			},
-			Err(e) => {
-				log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
-			},
+			}
 		}
 	}
 

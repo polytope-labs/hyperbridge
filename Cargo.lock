@@ -6593,9 +6593,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.20"
+version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
+checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 
 [[package]]
 name = "loom"
@@ -13921,7 +13921,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -14176,13 +14176,13 @@ dependencies = [
  "hex",
  "ismp",
  "ismp-solidity-abi",
- "log",
  "pallet-ismp",
  "percentage",
  "sp-core 21.0.0",
  "tesseract-client",
  "tesseract-primitives",
  "tokio",
+ "tracing",
  "transaction-fees",
 ]
 
@@ -14213,6 +14213,7 @@ dependencies = [
  "serde",
  "sp-core 28.0.0",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -14953,6 +14954,7 @@ dependencies = [
  "tesseract-primitives",
  "tesseract-substrate",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -31,4 +31,4 @@
 /fees/prisma/dev.db
 /fees/prisma/dev.db-journal
 /
-dev.db
+**/*.db

@@ -15,7 +15,7 @@ use ismp::{
 };
 use pallet_ismp_relayer::{
 	message,
-	withdrawal::{WithdrawalInputData, WithdrawalParams, WithdrawalProof},
+	withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalProof},
 };
 use primitives::{HyperbridgeClaim, IsmpHost, IsmpProvider, WithdrawFundsResult};
 use sp_core::{Pair, U256};
@@ -181,6 +181,21 @@ where
 		let Event::PostRequest(post) = event else { unreachable!() };
 
 		Ok(WithdrawFundsResult { post, block: block_number })
+	}
+
+	async fn check_claimed(&self, key: Key) -> anyhow::Result<bool> {
+		let claimed = match key {
+			Key::Request(req) => {
+				let addr = runtime::api::storage().relayer().claimed(&req);
+				self.client.storage().at_latest().await?.fetch(&addr).await?.unwrap_or_default()
+			},
+			Key::Response { response_commitment, .. } => {
+				let addr = runtime::api::storage().relayer().claimed(&response_commitment);
+				self.client.storage().at_latest().await?.fetch(&addr).await?.unwrap_or_default()
+			},
+		};
+
+		Ok(claimed)
 	}
 }
 

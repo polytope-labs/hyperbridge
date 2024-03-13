@@ -1,15 +1,15 @@
 use crate::{config::HyperbridgeConfig, create_client_map, logging};
-use anyhow::anyhow;
 use futures::StreamExt;
 use ismp::{
-	consensus::{StateMachineHeight, StateMachineId},
+	consensus::StateMachineHeight,
 	host::StateMachine,
 	messaging::{Message, Proof, RequestMessage},
 	router::Request,
 	util::hash_request,
 };
 use primitives::{
-	wait_for_challenge_period, Cost, HyperbridgeClaim, IsmpProvider, Query, WithdrawFundsResult,
+	observe_challenge_period, wait_for_challenge_period, wait_for_state_machine_update, Cost,
+	HyperbridgeClaim, IsmpProvider, Query, WithdrawFundsResult,
 };
 use sp_core::U256;
 use std::{collections::HashMap, str::FromStr};
@@ -130,13 +130,23 @@ impl AccumulateFees {
 								// Create claim proof for deliveries from source to dest
 								log::info!("Creating withdrawal proof from db for deliveries from {source_chain:?}->{dest_chain:?}");
 								let claim_proof = tx_payment
-									.create_claim_proof(source_height.into(), height, &source, &dest)
+									.create_claim_proof(source_height.into(), height, &source, &dest, &hyperbridge)
 									.await?;
 								if let Some(claim_proof) = claim_proof {
+									// We should check if these proofs have been claimed already
+
 									observe_challenge_period(&dest, &hyperbridge, height).await?;
 									hyperbridge.accumulate_fees(claim_proof.clone()).await?;
 									log::info!("Proof sucessfully submitted");
-									tx_payment.delete_claimed_entries(claim_proof).await?;
+									// Don't panic if delete operation failed
+									match tx_payment.delete_claimed_entries(claim_proof.commitments).await {
+										Err(_) => {
+										log::error!("An Error occured while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
+										}
+										_ => {}
+									};
+								} else {
+									log::info!("All fees in the database for  {source_chain:?}->{dest_chain:?} have been successfully accumulated in a previous attempt")
 								}
 							},
 							None => {
@@ -165,7 +175,7 @@ impl AccumulateFees {
 								// Create claim proof for deliveries from dest to source
 								log::info!("Creating withdrawal proof from db for deliveries from {dest_chain:?}->{source_chain:?}");
 								let claim_proof = tx_payment
-									.create_claim_proof(dest_height.into(), height, &dest, &source)
+									.create_claim_proof(dest_height.into(), height, &dest, &source, &hyperbridge)
 									.await?;
 								if let Some(claim_proof) = claim_proof {
 									log::info!(
@@ -174,7 +184,15 @@ impl AccumulateFees {
 									observe_challenge_period(&source, &hyperbridge, height).await?;
 									hyperbridge.accumulate_fees(claim_proof.clone()).await?;
 									log::info!("Proof sucessfully submitted");
-									tx_payment.delete_claimed_entries(claim_proof).await?;
+									// Don't panic if delete operation failed, it will be retried in another fee accumulation attempt
+									match tx_payment.delete_claimed_entries(claim_proof.commitments).await {
+										Err(_) => {
+											log::error!("An Error occured while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
+										}
+										_ => {}
+									}
+								} else {
+									log::info!("All fees in the database for  {dest_chain:?}->{source_chain:?} have been successfully accumulated in a previous attempt")
 								}
 							},
 							None => {
@@ -213,6 +231,7 @@ impl AccumulateFees {
 						let amount = hyperbridge.available_amount(&client, &chain).await?;
 
 						if amount == U256::zero() {
+							log::info!("Unclaimed balance on {chain} is 0, exiting");
 							return Ok::<_, anyhow::Error>(());
 						}
 
@@ -242,45 +261,7 @@ impl AccumulateFees {
 	}
 }
 
-#[instrument(name = "Waiting for state machine update on hyperbridge", skip_all)]
-async fn wait_for_state_machine_update<C: IsmpProvider>(
-	state_id: StateMachineId,
-	hyperbridge: &C,
-	height: u64,
-) -> anyhow::Result<u64> {
-	let mut stream = hyperbridge.state_machine_update_notification(state_id).await?;
-
-	while let Some(res) = stream.next().await {
-		match res {
-			Ok(event) =>
-				if event.latest_height >= height {
-					return Ok(event.latest_height)
-				},
-			Err(err) => {
-				log::error!("State machine update stream returned an error {err:?}")
-			},
-		}
-	}
-
-	Err(anyhow!("State Machine update stream returned None"))
-}
-
-#[instrument(name = "Waiting for challenge period to elapse on hyperbridge", skip_all)]
-async fn observe_challenge_period<C: IsmpProvider, D: IsmpProvider>(
-	chain: &C,
-	hyperbridge: &D,
-	height: u64,
-) -> anyhow::Result<()> {
-	let challenge_period = hyperbridge
-		.query_challenge_period(chain.state_machine_id().consensus_state_id)
-		.await?;
-	let height = StateMachineHeight { id: chain.state_machine_id(), height };
-	let last_consensus_update = hyperbridge.query_state_machine_update_time(height).await?;
-	wait_for_challenge_period(chain, last_consensus_update, challenge_period).await?;
-	Ok(())
-}
-
-#[instrument(name = "Delivering post request to destination", skip_all)]
+#[instrument(name = "Delivering post request to ", skip_all, fields(destination = dest_chain.state_machine_id().state_id.to_string()))]
 async fn deliver_post_request<C: IsmpProvider, D: IsmpProvider>(
 	dest_chain: &C,
 	hyperbridge: &D,

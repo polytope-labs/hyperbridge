@@ -20,12 +20,12 @@ use ismp::{
 use itertools::Itertools;
 use pallet_ismp_relayer::withdrawal::{Key, WithdrawalProof};
 use primitive_types::H256;
-use prisma_client_rust::{BatchItem, Direction};
+use prisma_client_rust::{query_core::RawQuery, BatchItem, Direction, PrismaValue, Raw};
 use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
 use std::sync::Arc;
 use tesseract_evm::EvmConfig;
-use tesseract_primitives::{IsmpProvider, TxReceipt};
+use tesseract_primitives::{HyperbridgeClaim, IsmpProvider, TxReceipt};
 use tesseract_substrate::SubstrateConfig;
 
 mod db;
@@ -169,12 +169,86 @@ impl TransactionPayment {
 
 	/// Create payment claim proof for all deliveries of requests and responses from source to dest
 	/// a number of days The default is 30 days
-	pub async fn create_claim_proof<A: IsmpProvider, B: IsmpProvider>(
+	pub async fn create_proof_from_receipts<A: IsmpProvider, B: IsmpProvider>(
 		&self,
 		source_height: u64,
 		dest_height: u64,
 		source: &A,
 		dest: &B,
+		receipts: Vec<TxReceipt>,
+	) -> anyhow::Result<Option<WithdrawalProof>> {
+		let keys = receipts.iter().map(|data| {
+			match data {
+				TxReceipt::Request { query, height } => {
+					let source_key = source.request_commitment_full_key(query.commitment);
+					//Get request receipt keys on dest chain
+					let dest_key = dest.request_receipt_full_key(query.commitment);
+					(Key::Request(query.commitment), source_key, dest_key)
+				},
+				TxReceipt::Response { query, request_commitment, height } => {
+					let source_key = source.response_commitment_full_key(query.commitment);
+					//Get response receipt keys on dest chain
+					let dest_key = dest.response_receipt_full_key(*request_commitment);
+					(
+						Key::Response {
+							request_commitment: *request_commitment,
+							response_commitment: query.commitment,
+						},
+						source_key,
+						dest_key,
+					)
+				},
+			}
+		});
+
+		// Gather keys to be queried on the source chain
+		let mut source_chain_storage_keys = vec![];
+		let mut dest_chain_storage_keys = vec![];
+		let mut request_response_commitments = vec![];
+
+		for (key, source_key, dest_key) in keys {
+			source_chain_storage_keys.push(source_key);
+			dest_chain_storage_keys.push(dest_key);
+			request_response_commitments.push(key);
+		}
+
+		if request_response_commitments.is_empty() {
+			return Ok(None)
+		}
+
+		let source_proof = source
+			.query_state_proof(
+				source_height,
+				source_chain_storage_keys.into_iter().flatten().collect(),
+			)
+			.await?;
+
+		let dest_proof = dest
+			.query_state_proof(dest_height, dest_chain_storage_keys.into_iter().flatten().collect())
+			.await?;
+
+		Ok(Some(WithdrawalProof {
+			commitments: request_response_commitments,
+			source_proof: Proof {
+				height: StateMachineHeight { id: source.state_machine_id(), height: source_height },
+				proof: source_proof,
+			},
+			dest_proof: Proof {
+				height: StateMachineHeight { id: dest.state_machine_id(), height: dest_height },
+				proof: dest_proof,
+			},
+		}))
+	}
+
+	/// Create payment claim proof for all deliveries of requests and responses from source to dest
+	/// a number of days The default is 30 days
+	pub async fn create_claim_proof<A: IsmpProvider, B: IsmpProvider, H: HyperbridgeClaim>(
+		&self,
+		source_height: u64,
+		dest_height: u64,
+		source: &A,
+		dest: &B,
+		hyperbridge: &H,
 	) -> anyhow::Result<Option<WithdrawalProof>> {
 		let source_chain = source.state_machine_id().state_id;
 		let dest_chain = dest.state_machine_id().state_id;
@@ -223,15 +297,41 @@ impl TransactionPayment {
 			let dest_key = dest.response_receipt_full_key(request_commitment);
 			Some((Key::Response { request_commitment, response_commitment }, source_key, dest_key))
 		});
+
+		let mut keys_to_delete = vec![];
+		let mut keys_to_prove = vec![];
+
+		for key in requests.chain(responses) {
+			if hyperbridge.check_claimed(key.0.clone()).await? {
+				keys_to_delete.push(key.0.clone());
+			} else {
+				keys_to_prove.push(key)
+			}
+		}
 		// Gather keys to be queried on the source chain
 		let mut source_chain_storage_keys = vec![];
 		let mut dest_chain_storage_keys = vec![];
 		let mut request_response_commitments = vec![];
 
-		for (key, source_key, dest_key) in requests.chain(responses) {
+		for (key, source_key, dest_key) in keys_to_prove {
 			source_chain_storage_keys.push(source_key);
 			dest_chain_storage_keys.push(dest_key);
 			request_response_commitments.push(key);
+		}
+
+		let tx = self.clone();
+		// Delete claimed keys in the background
+		tokio::spawn(async move {
+			match tx.delete_claimed_entries(keys_to_delete).await {
+				Err(_) => {
+					tracing::error!("An Error occured while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
+				},
+				_ => {},
+			}
+		});
+
+		if request_response_commitments.is_empty() {
+			return Ok(None)
 		}
 
 		let source_proof = source
@@ -258,23 +358,24 @@ impl TransactionPayment {
 		}))
 	}
 
-	pub async fn delete_claimed_entries(&self, proof: WithdrawalProof) -> anyhow::Result<()> {
-		// Remove claimed entries from db
-		let entries = proof
-			.commitments
-			.into_iter()
-			.map(|key| match key {
-				Key::Request(req) => req.0.to_vec(),
-				Key::Response { request_commitment, response_commitment } => {
-					let mut key = vec![];
-					key.extend_from_slice(&response_commitment.0);
-					key.extend_from_slice(&request_commitment.0);
-					key
-				},
-			})
-			.collect();
+	pub async fn delete_claimed_entries(&self, commitments: Vec<Key>) -> anyhow::Result<()> {
+		if !commitments.is_empty() {
+			// Remove claimed entries from db
+			let entries = commitments
+				.into_iter()
+				.map(|key| match key {
+					Key::Request(req) => req.0.to_vec(),
+					Key::Response { request_commitment, response_commitment } => {
+						let mut key = vec![];
+						key.extend_from_slice(&response_commitment.0);
+						key.extend_from_slice(&request_commitment.0);
+						key
+					},
+				})
+				.collect();
 
-		self.delete_entries(entries).await?;
+			self.delete_entries(entries).await?;
+		}
 		Ok(())
 	}
 }

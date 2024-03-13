@@ -89,8 +89,11 @@ impl Cli {
 			if relayer.consensus.unwrap_or(false) {
 				// consensus streams
 				for (_, client) in _client_map.iter() {
-					processes
-						.push(tokio::spawn(consensus::relay(hyperbridge.clone(), client.clone())));
+					processes.push(tokio::spawn(consensus::relay(
+						hyperbridge.clone(),
+						client.clone(),
+						relayer.clone(),
+					)));
 				}
 
 				if let Some(ref host) = hyperbridge.host {

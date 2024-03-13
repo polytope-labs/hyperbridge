@@ -19,7 +19,7 @@ pub mod config;
 pub mod mocks;
 pub mod queue;
 
-use futures::Stream;
+use futures::{Stream, StreamExt};
 pub use ismp::events::StateMachineUpdated;
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
@@ -29,6 +29,7 @@ use ismp::{
 	router::Post,
 	util::Keccak256,
 };
+use pallet_ismp_relayer::withdrawal::Key;
 pub use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
 use primitive_types::{H256, U256};
 use sp_core::keccak_256;
@@ -39,6 +40,8 @@ use std::{
 	sync::Arc,
 	time::Duration,
 };
+
+use tracing::instrument;
 
 /// Ideal Currency unit denominated in 18 decimals
 #[derive(Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq)]
@@ -121,11 +124,21 @@ pub struct Query {
 }
 
 /// A type tha should be returned when messages are submitted successfully
+#[derive(Debug, Clone, Copy)]
 pub enum TxReceipt {
 	/// Request variant
 	Request { query: Query, height: u64 },
 	/// Response variant
 	Response { query: Query, request_commitment: H256, height: u64 },
+}
+
+impl TxReceipt {
+	pub fn height(&self) -> u64 {
+		match self {
+			TxReceipt::Request { height, .. } => *height,
+			TxReceipt::Response { height, .. } => *height,
+		}
+	}
 }
 
 /// Stream alias
@@ -338,6 +351,8 @@ pub trait HyperbridgeClaim {
 		chain: StateMachine,
 		gas_limit: u64,
 	) -> anyhow::Result<WithdrawFundsResult>;
+	/// Check if this key has been claimed
+	async fn check_claimed(&self, key: Key) -> anyhow::Result<bool>;
 }
 
 pub struct WithdrawFundsResult {
@@ -370,6 +385,7 @@ impl NonceProvider {
 		nonce
 	}
 }
+
 pub async fn wait_for_challenge_period<C: IsmpProvider>(
 	client: &C,
 	last_consensus_update: Duration,
@@ -388,5 +404,43 @@ pub async fn wait_for_challenge_period<C: IsmpProvider>(
 		let current_timestamp = client.query_timestamp().await?;
 		delay = current_timestamp.saturating_sub(last_consensus_update);
 	}
+	Ok(())
+}
+
+#[instrument(name = "Waiting for state machine update on hyperbridge", skip_all)]
+pub async fn wait_for_state_machine_update<C: IsmpProvider>(
+	state_id: StateMachineId,
+	hyperbridge: &C,
+	height: u64,
+) -> anyhow::Result<u64> {
+	let mut stream = hyperbridge.state_machine_update_notification(state_id).await?;
+
+	while let Some(res) = stream.next().await {
+		match res {
+			Ok(event) =>
+				if event.latest_height >= height {
+					return Ok(event.latest_height)
+				},
+			Err(err) => {
+				log::error!("State machine update stream returned an error {err:?}")
+			},
+		}
+	}
+
+	Err(anyhow::anyhow!("State Machine update stream returned None"))
+}
+
+#[instrument(name = "Waiting for challenge period to elapse on hyperbridge", skip_all)]
+pub async fn observe_challenge_period<C: IsmpProvider, D: IsmpProvider>(
+	chain: &C,
+	hyperbridge: &D,
+	height: u64,
+) -> anyhow::Result<()> {
+	let challenge_period = hyperbridge
+		.query_challenge_period(chain.state_machine_id().consensus_state_id)
+		.await?;
+	let height = StateMachineHeight { id: chain.state_machine_id(), height };
+	let last_consensus_update = hyperbridge.query_state_machine_update_time(height).await?;
+	wait_for_challenge_period(chain, last_consensus_update, challenge_period).await?;
 	Ok(())
 }

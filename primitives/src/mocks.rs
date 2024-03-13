@@ -1,6 +1,6 @@
 use crate::{
-	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpHost, IsmpProvider, Query, Signature,
-	StateMachineUpdated, TxReceipt,
+	BoxStream, ByzantineHandler, EstimateGasReturnParams, HyperbridgeClaim, IsmpHost, IsmpProvider,
+	Query, Signature, StateMachineUpdated, TxReceipt, WithdrawFundsResult,
 };
 use anyhow::{anyhow, Error};
 use futures::stream;
@@ -10,6 +10,7 @@ use ismp::{
 	host::StateMachine,
 	messaging::{CreateConsensusState, Message},
 };
+use pallet_ismp_relayer::withdrawal::{Key, WithdrawalProof};
 use parity_scale_codec::Codec;
 use primitive_types::{H256, U256};
 use std::{
@@ -30,6 +31,26 @@ impl<C> MockHost<C> {
 			latest_height: Arc::new(Mutex::new(latest_height)),
 			state_machine,
 		}
+	}
+}
+
+#[async_trait::async_trait]
+impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
+	async fn accumulate_fees(&self, _proof: WithdrawalProof) -> anyhow::Result<()> {
+		Err(anyhow!("Unimplemented"))
+	}
+
+	async fn withdraw_funds<C: IsmpProvider>(
+		&self,
+		_client: &C,
+		_chain: StateMachine,
+		_gas_limit: u64,
+	) -> anyhow::Result<WithdrawFundsResult> {
+		Err(anyhow!("Unimplemented"))
+	}
+
+	async fn check_claimed(&self, _key: Key) -> anyhow::Result<bool> {
+		Ok(false)
 	}
 }
 

@@ -277,7 +277,7 @@ impl<C: Config> SyncCommitteeProver<C> {
             let parent_block_finality_checkpoint =
                 self.fetch_finalized_checkpoint(Some(&parent_state_id)).await?.finalized;
             if parent_block_finality_checkpoint.epoch <= client_state.latest_finalized_epoch {
-                trace!(target: "sync-committee-prover", "Search for a block with a valid sync committee signature has reached an invalid epoch {} latest_finalized_block_epoch: {}", parent_block_finality_checkpoint.epoch, client_state.latest_finalized_epoch);
+                trace!(target: "sync-committee-prover", "A block with valid sync committe signature was not found for epoch {:?}", finality_checkpoint.epoch);
                 return Ok(None);
             }
 

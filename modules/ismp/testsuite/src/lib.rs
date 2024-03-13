@@ -694,6 +694,8 @@ where
         _ => unreachable!(),
     };
 
+    // Assert that the destination chain matches the host state machine
+
     assert_eq!(dest_chain, host_state_machine);
 
     Ok(())

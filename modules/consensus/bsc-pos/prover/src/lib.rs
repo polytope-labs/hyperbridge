@@ -50,6 +50,7 @@ impl BscPosProver {
     pub async fn fetch_bsc_update<I: Keccak256>(
         &self,
         attested_header: CodecHeader,
+        validator_size: u64,
     ) -> Result<Option<BscClientUpdate>, anyhow::Error> {
         trace!(target: "bsc-prover", "fetching bsc update for  {:?}", attested_header.number);
         let parse_extra_data = parse_extra::<I>(&attested_header.extra_data)
@@ -79,10 +80,11 @@ impl BscPosProver {
         // update
         let diff = source_header.number.low_u64().saturating_sub(epoch_header_number);
         // The maximum difference between the epoch header block number and the source header
-        // number is 9 since authority set rotation happens after the first 12 blocks in an
-        // epoch, we want to show that the epoch header is in the ancestry of our finalized
-        // header
-        if (1..=9).contains(&diff) {
+        // number is (rotation_block - 3) since authority set rotation happens after the first
+        // (validator_size / 2 + 2) blocks in an epoch, we want to show that the epoch
+        // header is in the ancestry of our finalized header
+        let upper_bound = (validator_size / 2) - 1;
+        if (1..=upper_bound).contains(&diff) {
             let mut header =
                 self.fetch_header(source_header.parent_hash).await?.ok_or_else(|| {
                     anyhow!("header block could not be fetched {}", source_header.parent_hash)

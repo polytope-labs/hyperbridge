@@ -50,7 +50,10 @@ async fn verify_bsc_pos_header() {
         .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
         .collect::<Vec<BlsPublicKey>>();
 
-    let update = prover.fetch_bsc_update::<Host>(epoch_2_header.clone()).await.unwrap();
+    let update = prover
+        .fetch_bsc_update::<Host>(epoch_2_header.clone(), validators.len() as u64)
+        .await
+        .unwrap();
 
     let result = verify_bsc_header::<Host>(&validators, update.unwrap()).unwrap();
     dbg!(result);
@@ -82,7 +85,11 @@ async fn verify_bsc_pos_headers() {
         let header: CodecHeader = prover.fetch_header(block).await.unwrap().unwrap();
         let block_epoch = compute_epoch(header.number.low_u64());
 
-        if let Some(mut update) = prover.fetch_bsc_update::<Host>(header.clone()).await.unwrap() {
+        if let Some(mut update) = prover
+            .fetch_bsc_update::<Host>(header.clone(), validators.len() as u64)
+            .await
+            .unwrap()
+        {
             dbg!(block_epoch);
             dbg!(current_epoch);
             dbg!(header.number);

@@ -107,7 +107,9 @@ pub fn verify_bsc_header<H: Keccak256>(
             if !validators.is_empty() {
                 Some(NextValidators {
                     validators,
-                    rotation_block: update.source_header.number.low_u64() + 12,
+                    rotation_block: epoch_header.number.low_u64() +
+                        (current_validators.len() as u64 / 2) +
+                        2,
                 })
             } else {
                 Err(anyhow!(

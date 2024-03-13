@@ -1252,6 +1252,7 @@ dependencies = [
  "sp-core 28.0.0",
  "sync-committee-primitives",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -16446,6 +16447,7 @@ dependencies = [
  "sync-committee-verifier",
  "tokio",
  "tokio-stream",
+ "tracing",
 ]
 
 [[package]]

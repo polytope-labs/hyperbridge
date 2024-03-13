@@ -27,6 +27,7 @@ primitive-types = { version = "0.12.1", features = ["serde_no_std", "impl-codec"
 log = "0.4.20"
 hex = "0.4.3"
 async-trait = "0.1.77"
+tracing = "0.1.40"
 
 
 [dev-dependencies]

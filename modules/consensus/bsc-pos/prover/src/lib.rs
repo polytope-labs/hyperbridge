@@ -13,6 +13,7 @@ use ismp::util::Keccak256;
 use sp_core::H256;
 use std::{fmt::Debug, sync::Arc};
 use sync_committee_primitives::constants::BlsPublicKey;
+use tracing::{instrument, trace};
 
 #[derive(Clone)]
 pub struct BscPosProver {
@@ -34,7 +35,9 @@ impl BscPosProver {
         Ok(block)
     }
 
+    #[instrument(level = "trace", target = "bsc-prover", skip(self))]
     pub async fn latest_header(&self) -> Result<CodecHeader, anyhow::Error> {
+        trace!(target: "bsc-prover", "fetching latest header");
         let block_number = self.client.get_block_number().await?;
         let header = self
             .fetch_header(block_number.as_u64())
@@ -43,10 +46,12 @@ impl BscPosProver {
         Ok(header)
     }
 
+    #[instrument(level = "trace", target = "bsc-prover", skip(self))]
     pub async fn fetch_bsc_update<I: Keccak256>(
         &self,
         attested_header: CodecHeader,
     ) -> Result<Option<BscClientUpdate>, anyhow::Error> {
+        trace!(target: "bsc-prover", "fetching bsc update for  {:?}", attested_header.number);
         let parse_extra_data = parse_extra::<I>(&attested_header.extra_data)
             .map_err(|_| anyhow!("Extra data not found in header {:?}", attested_header.number))?;
         let source_hash = H256::from_slice(&parse_extra_data.vote_data.source_hash.0);

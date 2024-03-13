@@ -46,6 +46,7 @@ use sync_committee_primitives::{
         should_have_sync_committee_update,
     },
 };
+use tracing::instrument;
 
 use sync_committee_verifier::crypto::pubkey_to_projective;
 
@@ -93,11 +94,12 @@ impl<C: Config> SyncCommitteeProver<C> {
             phantom: PhantomData,
         }
     }
-
+    #[instrument(level = "trace", target = "sync-committee-prover", skip(self))]
     pub async fn fetch_finalized_checkpoint(
         &self,
         state_id: Option<&str>,
     ) -> Result<FinalityCheckpoint, anyhow::Error> {
+        trace!(target: "sync-committee-prover", "Fetching finalized checkpoint {state_id:?}");
         let full_url = self.generate_route(&finality_checkpoints(state_id.unwrap_or("head")))?;
         let response = self
             .client
@@ -113,7 +115,9 @@ impl<C: Config> SyncCommitteeProver<C> {
         Ok(response_data.data)
     }
 
+    #[instrument(level = "trace", target = "sync-committee-prover", skip(self))]
     pub async fn fetch_header(&self, block_id: &str) -> Result<BeaconBlockHeader, anyhow::Error> {
+        trace!(target: "sync-committee-prover", "Fetching Header {block_id}");
         let path = header_route(block_id);
         let full_url = self.generate_route(&path)?;
         let response =
@@ -131,6 +135,7 @@ impl<C: Config> SyncCommitteeProver<C> {
         Ok(beacon_block_header)
     }
 
+    #[instrument(level = "trace", target = "sync-committee-prover", skip(self))]
     pub async fn fetch_block(
         &self,
         block_id: &str,
@@ -153,6 +158,7 @@ impl<C: Config> SyncCommitteeProver<C> {
         >,
         anyhow::Error,
     > {
+        trace!(target: "sync-committee-prover", "Fetching block {block_id}");
         let path = block_route(block_id);
         let full_url = self.generate_route(&path)?;
 
@@ -204,10 +210,12 @@ impl<C: Config> SyncCommitteeProver<C> {
         Ok(validator)
     }
 
+    #[instrument(level = "trace", target = "sync-committee-prover", skip(self))]
     pub async fn fetch_beacon_state(
         &self,
         state_id: &str,
     ) -> Result<BeaconStateType, anyhow::Error> {
+        trace!(target: "sync-committee-prover", "Fetching beacon state {state_id}");
         let path = beacon_state_route(state_id);
         let full_url = self.generate_route(&path)?;
 
@@ -335,10 +343,12 @@ impl<C: Config> SyncCommitteeProver<C> {
         Ok(Some(light_client_update))
     }
 
+    #[instrument(level = "trace", target = "sync-committee-prover", skip(self))]
     pub async fn latest_update_for_period(
         &self,
         period: u64,
     ) -> Result<VerifierStateUpdate, anyhow::Error> {
+        trace!(target: "sync-committee-prover", "latest_update_for_period {period}");
         let mut higest_slot_in_epoch = ((period * C::EPOCHS_PER_SYNC_COMMITTEE_PERIOD) *
             C::SLOTS_PER_EPOCH) +
             (C::EPOCHS_PER_SYNC_COMMITTEE_PERIOD * C::SLOTS_PER_EPOCH) -
@@ -348,7 +358,7 @@ impl<C: Config> SyncCommitteeProver<C> {
         let mut block = loop {
             // Prevent an infinite loop
             if count == 100 {
-                log::trace!("Prover could not find a suitable block for the sync committee: {period}, syncing will fail");
+                log::trace!(target: "sync-committee-prover", "Prover could not find a suitable block for the sync committee: {period}, syncing will fail");
                 return Err(anyhow!("Error fetching blocks from selected epoch"));
             }
 
@@ -417,9 +427,11 @@ impl<C: Config> SyncCommitteeProver<C> {
     }
 }
 
+#[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_execution_payload<C: Config>(
     beacon_state: &mut BeaconStateType,
 ) -> anyhow::Result<ExecutionPayloadProof> {
+    trace!(target: "sync-committee-prover", "Proving execution payload");
     let indices = [
         C::EXECUTION_PAYLOAD_STATE_ROOT_INDEX as usize,
         C::EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX as usize,
@@ -445,14 +457,18 @@ pub fn prove_execution_payload<C: Config>(
     })
 }
 
+#[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_sync_committee_update<C: Config>(
     state: &mut BeaconStateType,
 ) -> anyhow::Result<Vec<Node>> {
+    trace!(target: "sync-committee-prover", "Proving sync committee update");
     let proof = ssz_rs::generate_proof(state, &[NEXT_SYNC_COMMITTEE_INDEX as usize])?;
     Ok(proof)
 }
 
+#[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
 pub fn prove_finalized_header<C: Config>(state: &mut BeaconStateType) -> anyhow::Result<Vec<Node>> {
+    trace!(target: "sync-committee-prover", "Proving finalized head");
     let indices = [FINALIZED_ROOT_INDEX as usize];
     let proof = ssz_rs::generate_proof(state, indices.as_slice())?;
 

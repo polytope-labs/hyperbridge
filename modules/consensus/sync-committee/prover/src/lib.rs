@@ -369,7 +369,7 @@ impl<C: Config> SyncCommitteeProver<C> {
                 count += 1;
             }
         };
-        let min_signatures = (2 * SYNC_COMMITTEE_SIZE) / 3;
+        let min_signatures = ((2 * SYNC_COMMITTEE_SIZE) / 3) + 1;
         let get_block_id = |root: Root| {
             let mut block_id = hex::encode(root.0.to_vec());
             block_id.insert_str(0, "0x");

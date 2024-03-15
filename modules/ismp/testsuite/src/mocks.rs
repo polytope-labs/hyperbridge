@@ -8,8 +8,8 @@ use ismp::{
     messaging::Proof,
     module::IsmpModule,
     router::{
-        DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse, Request,
-        RequestResponse, Response, Timeout,
+        DispatchPost, DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse,
+        Request, RequestResponse, Response, Timeout,
     },
     util::{hash_post_response, hash_request, hash_response, Keccak256},
 };
@@ -92,7 +92,7 @@ impl ConsensusClient for MockProxyClient {
 
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         match _id {
-            StateMachine::Bsc => Ok(Box::new(MockStateMachineClient)),
+            StateMachine::Kusama(2000) => Ok(Box::new(MockStateMachineClient)),
             _ => Err(Error::ImplementationSpecific("Invalid state machine".to_string())),
         }
     }
@@ -375,7 +375,7 @@ impl IsmpHost for Host {
     }
 
     fn allowed_proxy(&self) -> Option<StateMachine> {
-        self.consensus_state(*b"prxy").map(|_| StateMachine::Bsc).ok()
+        self.consensus_state(*b"prxy").map(|_| StateMachine::Kusama(2000)).ok()
     }
 
     fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {
@@ -383,7 +383,10 @@ impl IsmpHost for Host {
     }
 
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {
-        Box::new(MockRouter(self.clone()))
+        match self.allowed_proxy() {
+            Some(_) => Box::new(MockProxyRouter(self.clone())),
+            None => Box::new(MockRouter(self.clone())),
+        }
     }
 }
 
@@ -397,7 +400,7 @@ impl Keccak256 for Host {
 }
 
 #[derive(Default)]
-pub struct MockModule;
+pub struct MockModule(pub Host);
 
 impl IsmpModule for MockModule {
     fn on_accept(&self, _request: Post) -> Result<(), Error> {
@@ -413,11 +416,67 @@ impl IsmpModule for MockModule {
     }
 }
 
+#[derive(Default)]
+pub struct MockProxyModule(pub Host);
+
+impl IsmpModule for MockProxyModule {
+    fn on_accept(&self, _request: Post) -> Result<(), Error> {
+        let proxy_state_machine = self.0.clone().allowed_proxy().unwrap();
+        if _request.dest == proxy_state_machine {
+            let request = DispatchRequest::Post(DispatchPost {
+                dest: _request.source,
+                from: _request.from,
+                to: _request.to,
+                timeout_timestamp: _request.timeout_timestamp,
+                data: _request.data,
+                gas_limit: _request.gas_limit,
+            });
+            let dispatcher = MockDispatcher(Arc::new(self.0.clone()));
+            dispatcher.dispatch_request(request, [0; 32].into(), 0u32)?
+        }
+        Ok(())
+    }
+
+    fn on_response(&self, _response: Response) -> Result<(), Error> {
+        if _response.source_chain() == self.0.clone().allowed_proxy().unwrap() {
+            let response = PostResponse {
+                post: Post {
+                    source: self.0.host_state_machine(),
+                    dest: _response.source_chain(),
+                    nonce: self.0.clone().next_nonce(),
+                    from: _response.destination_module(),
+                    to: _response.request().source_module(),
+                    timeout_timestamp: 0,
+                    data: _response.request().data().unwrap_or_default(),
+                    gas_limit: 0,
+                },
+                response: vec![],
+                timeout_timestamp: 0,
+                gas_limit: 0,
+            };
+            let dispatcher = MockDispatcher(Arc::new(self.0.clone()));
+            dispatcher.dispatch_response(response, [0; 32].into(), 0u32)?
+        }
+        Ok(())
+    }
+
+    fn on_timeout(&self, _request: Timeout) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
 pub struct MockRouter(pub Host);
 
 impl IsmpRouter for MockRouter {
     fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
-        Ok(Box::new(MockModule))
+        Ok(Box::new(MockModule(self.0.clone())))
+    }
+}
+pub struct MockProxyRouter(pub Host);
+
+impl IsmpRouter for MockProxyRouter {
+    fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+        Ok(Box::new(MockProxyModule(self.0.clone())))
     }
 }
 

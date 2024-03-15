@@ -35,6 +35,10 @@ pub struct RelayerConfig {
 	pub challenge_period: Option<u64>,
 	/// Minimum profit percentage. e.g. 5 -> 5%, 10 -> 10%
 	pub minimum_profit_percentage: u32,
+	/// How frequently to initiate withdrawals in seconds.
+	pub withdrawal_frequency: Option<u64>,
+	/// Minimum amount to withdraw when auto-withdrawing
+	pub minimum_withdrawal_amount: Option<u128>,
 	/// Delivery endpoints: chains you intend to deliver messages to
 	pub delivery_endpoints: Vec<StateMachine>,
 }

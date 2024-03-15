@@ -1,4 +1,5 @@
 use crate::{config::HyperbridgeConfig, create_client_map, logging};
+use ethers::providers::interval;
 use futures::StreamExt;
 use ismp::{
 	consensus::StateMachineHeight,
@@ -8,11 +9,12 @@ use ismp::{
 	util::hash_request,
 };
 use primitives::{
-	observe_challenge_period, wait_for_challenge_period, wait_for_state_machine_update, Cost,
-	HyperbridgeClaim, IsmpProvider, Query, WithdrawFundsResult,
+	config::RelayerConfig, observe_challenge_period, wait_for_challenge_period,
+	wait_for_state_machine_update, Cost, HyperbridgeClaim, IsmpProvider, Query,
+	WithdrawFundsResult,
 };
 use sp_core::U256;
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 use tesseract_bsc_pos::KeccakHasher;
 use tesseract_client::AnyClient;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
@@ -65,7 +67,7 @@ impl AccumulateFees {
 		// early return if withdrawing
 		if self.withdraw {
 			self.withdraw(&hyperbridge, clients).await?;
-			return Ok(())
+			return Ok(());
 		}
 
 		let tx_payment = TransactionPayment::initialize(&db).await?;
@@ -129,25 +131,31 @@ impl AccumulateFees {
 							Some(height) => {
 								// Create claim proof for deliveries from source to dest
 								log::info!("Creating withdrawal proof from db for deliveries from {source_chain:?}->{dest_chain:?}");
-								let claim_proof = tx_payment
+								let proofs = tx_payment
 									.create_claim_proof(source_height.into(), height, &source, &dest, &hyperbridge)
 									.await?;
-								if let Some(claim_proof) = claim_proof {
-									// We should check if these proofs have been claimed already
 
+								if proofs.is_empty() {
+									log::info!("All fees in the database for  {source_chain:?}->{dest_chain:?} have been successfully accumulated in a previous attempt")
+								} else {
 									observe_challenge_period(&dest, &hyperbridge, height).await?;
-									hyperbridge.accumulate_fees(claim_proof.clone()).await?;
-									log::info!("Proof sucessfully submitted");
+								}
+
+								log::info!(
+									"Submitting proofs for {source_chain:?}->{dest_chain:?} to hyperbridge"
+								);
+								for proof in proofs {
+									hyperbridge.accumulate_fees(proof.clone()).await?;
 									// Don't panic if delete operation failed
-									match tx_payment.delete_claimed_entries(claim_proof.commitments).await {
+									match tx_payment.delete_claimed_entries(proof.commitments).await {
 										Err(_) => {
 										log::error!("An Error occured while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
 										}
 										_ => {}
 									};
-								} else {
-									log::info!("All fees in the database for  {source_chain:?}->{dest_chain:?} have been successfully accumulated in a previous attempt")
 								}
+
+								log::info!("Proofs sucessfully submitted");
 							},
 							None => {
 								log::info!("Skipping fee accumulation for {source_chain:?}->{dest_chain:?}: state machine update not yet available on hyperbridge");
@@ -174,26 +182,30 @@ impl AccumulateFees {
 							Some(height) => {
 								// Create claim proof for deliveries from dest to source
 								log::info!("Creating withdrawal proof from db for deliveries from {dest_chain:?}->{source_chain:?}");
-								let claim_proof = tx_payment
+								let proofs = tx_payment
 									.create_claim_proof(dest_height.into(), height, &dest, &source, &hyperbridge)
 									.await?;
-								if let Some(claim_proof) = claim_proof {
-									log::info!(
-							"Submitting proof for {dest_chain:?}->{source_chain:?} to hyperbridge"
-						);
+
+								if proofs.is_empty() {
+									log::info!("All fees in the database for  {dest_chain:?}->{source_chain:?} have been successfully accumulated in a previous attempt")
+								}
+								else {
 									observe_challenge_period(&source, &hyperbridge, height).await?;
-									hyperbridge.accumulate_fees(claim_proof.clone()).await?;
-									log::info!("Proof sucessfully submitted");
+								}
+								log::info!(
+									"Submitting proofs for {dest_chain:?}->{source_chain:?} to hyperbridge"
+								);
+								for proof in proofs {
+									hyperbridge.accumulate_fees(proof.clone()).await?;
 									// Don't panic if delete operation failed, it will be retried in another fee accumulation attempt
-									match tx_payment.delete_claimed_entries(claim_proof.commitments).await {
+									match tx_payment.delete_claimed_entries(proof.commitments).await {
 										Err(_) => {
 											log::error!("An Error occured while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
 										}
 										_ => {}
 									}
-								} else {
-									log::info!("All fees in the database for  {dest_chain:?}->{source_chain:?} have been successfully accumulated in a previous attempt")
 								}
+								log::info!("Proof sucessfully submitted");
 							},
 							None => {
 								log::info!("Skipping fee accumulation for {dest_chain:?}->{source_chain:?}: state machine update not yet available on hyperbridge");
@@ -261,70 +273,387 @@ impl AccumulateFees {
 	}
 }
 
+/// For every configured `withdrawal_frequency`, will attempt to withdraw all unclaimed fees on
+/// hyperbridge.
+pub async fn auto_withdraw<C>(
+	hyperbridge: C,
+	clients: HashMap<StateMachine, AnyClient>,
+	config: RelayerConfig,
+	db: Arc<TransactionPayment>,
+) -> anyhow::Result<()>
+where
+	C: IsmpProvider + HyperbridgeClaim + Clone,
+{
+	// default to 1 day
+	let frequency = Duration::from_secs(config.withdrawal_frequency.unwrap_or(86_400));
+	tracing::info!("Auto-withdraw frequency set to {:?}", frequency);
+	// default to $100
+	let min_amount: U256 =
+		(config.minimum_withdrawal_amount.unwrap_or(100) * 10u128.pow(18)).into();
+
+	tracing::info!("Minimum auto-withdrawal amount set to ${:?}", Cost(min_amount));
+	let mut interval = interval(frequency);
+
+	while let Some(_) = interval.next().await {
+		let stream = futures::stream::iter(clients.keys().cloned().into_iter());
+		stream
+			.for_each_concurrent(None, |chain| {
+				let client =
+					clients.get(&chain).expect(&format!("Client not found for {chain:?}")).clone();
+				let hyperbridge = hyperbridge.clone();
+				let moved_db = db.clone();
+				async move {
+					let lambda = || async {
+						// lets try to deliver any pending requests in the db
+						let (pending_withdrawals, ids): (Vec<_>, Vec<_>) = moved_db.pending_withdrawals(&chain).await?.into_iter().unzip();
+						for pending in pending_withdrawals {
+							deliver_post_request(&client, &hyperbridge, pending).await?;
+						}
+						// can this fail?
+						moved_db.delete_pending_withdrawals(ids).await?;
+
+						let amount = hyperbridge.available_amount(&client, &chain).await?;
+						if amount < min_amount {
+							tracing::info!("Unclaimed balance {amount} on {chain} is < minimum_withdrawal_amount: {min_amount}, exiting");
+							return Ok::<_, anyhow::Error>(());
+						}
+
+						tracing::info!(
+							"Submitting withdrawal request to hyperbridge for amount ${} on {chain:?}",
+							Cost(amount)
+						);
+						let result = hyperbridge
+							.withdraw_funds(&client, chain, 0)
+							.await?;
+						tracing::info!("Request submitted to hyperbridge successfully");
+						tracing::info!("Starting delivery of withdrawal message to {:?}", chain);
+						match deliver_post_request(&client, &hyperbridge, result.clone()).await {
+							Ok(_) => {},
+							Err(err) => {
+								// persist the withdrawal in-case delivery fails, so it's not lost forever
+								tracing::error!("Encountered an error while delivering withdrawal request: {err:?}");
+								moved_db.store_pending_withdrawals(vec![result]).await?;
+								tracing::info!("Stored the failed withdrawal request in the db, so they can be retried later.");
+							}
+						};
+						Ok(())
+					};
+
+					match lambda().await {
+						Ok(_) => {},
+						Err(e) => log::error!("Failed to complete an auto-withdrawal: {e:?}"),
+					}
+				}
+			})
+			.await;
+	}
+
+	Ok(())
+}
+
 #[instrument(name = "Delivering post request to ", skip_all, fields(destination = dest_chain.state_machine_id().state_id.to_string()))]
 async fn deliver_post_request<C: IsmpProvider, D: IsmpProvider>(
 	dest_chain: &C,
 	hyperbridge: &D,
 	result: WithdrawFundsResult,
 ) -> anyhow::Result<()> {
-	let mut stream = dest_chain
-		.state_machine_update_notification(hyperbridge.state_machine_id())
-		.await?;
+	let mut latest_height =
+		dest_chain.query_latest_height(hyperbridge.state_machine_id()).await? as u64;
 
-	while let Some(Ok(event)) = stream.next().await {
-		log::info!("Waiting for state machine update");
-		if event.latest_height < result.block {
-			continue
-		}
-		log::info!("Found a valid state machine update");
-		let challenge_period = dest_chain
-			.query_challenge_period(event.state_machine_id.consensus_state_id)
+	if result.block > latest_height {
+		// then we have to wait
+		log::info!(
+			"Waiting for state machine update that finalizes withdraw height: {}",
+			result.block
+		);
+		let mut stream = dest_chain
+			.state_machine_update_notification(hyperbridge.state_machine_id())
 			.await?;
-		let height = StateMachineHeight { id: event.state_machine_id, height: event.latest_height };
-		let last_consensus_update = dest_chain.query_state_machine_update_time(height).await?;
-		log::info!("Waiting for challenge period to elapse");
-		wait_for_challenge_period(dest_chain, last_consensus_update, challenge_period).await?;
-		let query = Query {
-			source_chain: result.post.source,
-			dest_chain: result.post.dest,
-			nonce: result.post.nonce,
-			commitment: hash_request::<KeccakHasher>(&Request::Post(result.post.clone())),
-		};
-		log::info!("Querying request proof from hyperbridge at {}", event.latest_height);
-		let proof = hyperbridge.query_requests_proof(event.latest_height, vec![query]).await?;
-		log::info!("Successfully queried request proof from hyperbridge");
-		let msg = RequestMessage {
-			requests: vec![result.post.clone()],
-			proof: Proof {
-				height: StateMachineHeight {
-					id: hyperbridge.state_machine_id(),
-					height: event.latest_height,
-				},
-				proof,
+
+		while let Some(Ok(event)) = stream.next().await {
+			if event.latest_height < result.block {
+				continue;
+			} else {
+				log::info!("Found a state machine update: {}", event.latest_height);
+				latest_height = event.latest_height;
+				break;
+			}
+		}
+	}
+
+	let state_machine_id = hyperbridge.state_machine_id();
+	let challenge_period =
+		dest_chain.query_challenge_period(state_machine_id.consensus_state_id).await?;
+	let height = StateMachineHeight { id: state_machine_id, height: latest_height };
+	let last_consensus_update = dest_chain.query_state_machine_update_time(height).await?;
+
+	log::info!("Waiting for challenge period to elapse");
+
+	wait_for_challenge_period(dest_chain, last_consensus_update, challenge_period).await?;
+	let query = Query {
+		source_chain: result.post.source,
+		dest_chain: result.post.dest,
+		nonce: result.post.nonce,
+		commitment: hash_request::<KeccakHasher>(&Request::Post(result.post.clone())),
+	};
+	log::info!("Querying request proof from hyperbridge at {}", latest_height);
+	let proof = hyperbridge.query_requests_proof(latest_height, vec![query]).await?;
+	log::info!("Successfully queried request proof from hyperbridge");
+	let msg = RequestMessage {
+		requests: vec![result.post.clone()],
+		proof: Proof {
+			height: StateMachineHeight {
+				id: hyperbridge.state_machine_id(),
+				height: latest_height,
 			},
-			signer: dest_chain.address(),
-		};
+			proof,
+		},
+		signer: dest_chain.address(),
+	};
 
-		log::info!("Submitting post request to {:?}", dest_chain.state_machine_id().state_id);
+	log::info!("Submitting post request to {:?}", dest_chain.state_machine_id().state_id);
 
-		let mut count = 5;
-		while count != 0 {
-			if let Err(e) = dest_chain.submit(vec![Message::Request(msg.clone())]).await {
-				log::info!(
+	let mut count = 5;
+	while count != 0 {
+		if let Err(e) = dest_chain.submit(vec![Message::Request(msg.clone())]).await {
+			log::info!(
 					"Encountered error trying to submit withdrawal request to {:?}.\n{e:?}\nWill retry {count} more times.",
 					dest_chain.state_machine_id().state_id
 				);
-				count -= 1;
-			} else {
-				log::info!(
-					"Withdrawal message submitted successfully to {:?}",
-					dest_chain.state_machine_id().state_id
-				);
-				return Ok(())
-			}
+			count -= 1;
+		} else {
+			log::info!(
+				"Withdrawal message submitted successfully to {:?}",
+				dest_chain.state_machine_id().state_id
+			);
+			return Ok(());
+		}
+	}
+
+	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use crate::{config::HyperbridgeConfig, create_client_map, logging};
+	use divide_range::RangeDivisions;
+	use futures::{stream, TryStreamExt};
+	use ismp::{
+		consensus::StateMachineHeight,
+		messaging::{Message, Proof, RequestMessage},
+		router::Request,
+		util::hash_request,
+	};
+	use itertools::Itertools;
+	use pallet_ismp::primitives::LeafIndexQuery;
+	use primitives::{IsmpProvider, Query};
+	use sp_core::H160;
+	use subxt::rpc_params;
+	use tesseract_bsc_pos::KeccakHasher;
+	use tesseract_substrate::{
+		config::{Blake2SubstrateChain, KeccakSubstrateChain},
+		runtime::{
+			api,
+			api::{runtime_types, runtime_types::gargantua_runtime::RuntimeEvent},
+		},
+		SubstrateClient,
+	};
+
+	#[tokio::test]
+	#[ignore]
+	async fn scan_and_deliver() -> Result<(), anyhow::Error> {
+		let _ = logging::setup();
+
+		let home = env!("HOME");
+		let path = format!("{home}/consensus.toml");
+		dbg!(&path);
+		let config = HyperbridgeConfig::parse_conf(&path).await?;
+
+		tracing::info!("Creating clients");
+		let clients = create_client_map(config.clone()).await?;
+		tracing::info!("Created clients");
+
+		let hyperbridge: SubstrateClient<_, _> = config
+			.hyperbridge
+			.clone()
+			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
+			.await?;
+		tracing::info!("Hyperbridge connected");
+		let latest_height: u64 = hyperbridge
+			.client
+			.rpc()
+			.header(None)
+			.await?
+			.expect("block header should be available")
+			.number
+			.into();
+		let max_concurrent = 1024;
+
+		// scan the entire chain.
+		tracing::info!("Dividing range");
+		let chunks = (109438u64..latest_height).divide_evenly_into(max_concurrent);
+		tracing::info!("Divided range");
+
+		let mut futures = vec![];
+		for chunk in chunks {
+			tracing::info!("Scanning: {chunk:?}");
+			let hyperbridge = hyperbridge.clone();
+			let clients = clients.clone();
+
+			let future = async move {
+				let mut posts = vec![];
+
+				for height in chunk {
+					let key = api::storage().system().events();
+					let hash =
+						hyperbridge.client.rpc().block_hash(Some(height.into())).await?.unwrap();
+
+					let Some(value) = hyperbridge.client.storage().at(hash).fetch(&key).await?
+					else {
+						continue;
+					};
+
+					// fetch the withdraw event
+					let event = value.iter().find(|event| match event.event {
+						RuntimeEvent::Relayer(
+							runtime_types::pallet_ismp_relayer::pallet::Event::Withdraw { .. },
+						) => true,
+						_ => false,
+					});
+
+					let Some(withdraw_event) = event else { continue };
+
+					tracing::info!("Found withdraw event: {:?}", withdraw_event.event);
+
+					let commitment = value
+						.iter()
+						.find_map(|event| match event.event {
+							RuntimeEvent::Ismp(
+								runtime_types::pallet_ismp::pallet::Event::Request {
+									commitment,
+									..
+								},
+							) if withdraw_event.phase == event.phase => Some(commitment),
+							_ => None,
+						})
+						// it should exist
+						.unwrap();
+					let requests = hyperbridge
+						.client
+						.rpc()
+						.request::<Vec<Request>>(
+							"ismp_queryRequests",
+							rpc_params![vec![LeafIndexQuery { commitment }]],
+						)
+						.await?;
+					let Request::Post(ref post) = requests[0] else { continue };
+
+					let relayer = clients
+						.get(&post.dest)
+						.unwrap() // should exist
+						.query_request_receipt(commitment)
+						.await?;
+
+					if relayer != H160::default() {
+						tracing::info!(
+							"Skipping already delivered withdraw event: {:?}",
+							withdraw_event.event
+						);
+						continue;
+					}
+
+					tracing::info!(
+						"Found pending withdrawal request to {:?} at {height}",
+						post.dest
+					);
+
+					posts.push(post.clone())
+				}
+
+				Ok(posts)
+			};
+
+			futures.push(future);
 		}
 
-		break
+		let posts = futures::future::join_all(futures)
+			.await
+			.into_iter()
+			.filter_map(|item: Result<Vec<_>, anyhow::Error>| match item {
+				Ok(posts) => Some(posts),
+				Err(err) => {
+					tracing::error!("Got error: {err:?}");
+					None
+				},
+			})
+			.flatten()
+			.collect::<Vec<_>>();
+
+		let posts = posts
+			.into_iter()
+			.into_group_map_by(|element| element.dest)
+			.into_iter()
+			.map(Ok)
+			.collect::<Vec<_>>();
+
+		let stream = stream::iter(posts);
+
+		let result: Result<(), anyhow::Error> = stream
+			.try_for_each_concurrent(max_concurrent, |(dest, posts)| {
+				let hyperbridge = hyperbridge.clone();
+				let dest_chain = clients.get(&dest).cloned().unwrap();
+				tracing::info!("Got {} posts for {dest}", posts.len());
+
+				async move {
+					for post in posts {
+						let host_manager = dest_chain.query_host_manager_address().await?;
+						if post.to != host_manager {
+							tracing::info!("Skipping outdated withdrawal to {dest:?}");
+							continue;
+						}
+						let latest_height = dest_chain
+							.query_latest_height(hyperbridge.state_machine_id())
+							.await? as u64;
+
+						let query = Query {
+							source_chain: post.source,
+							dest_chain: post.dest,
+							nonce: post.nonce,
+							commitment: hash_request::<KeccakHasher>(&Request::Post(post.clone())),
+						};
+						log::info!("Querying request proof from hyperbridge at {}", latest_height);
+						let proof =
+							hyperbridge.query_requests_proof(latest_height, vec![query]).await?;
+						log::info!("Successfully queried request proof from hyperbridge");
+						let msg = RequestMessage {
+							requests: vec![post.clone()],
+							proof: Proof {
+								height: StateMachineHeight {
+									id: hyperbridge.state_machine_id(),
+									height: latest_height,
+								},
+								proof,
+							},
+							signer: dest_chain.address(),
+						};
+
+						log::info!(
+							"Submitting post request to {:?}",
+							dest_chain.state_machine_id().state_id
+						);
+
+						let result = dest_chain.submit(vec![Message::Request(msg.clone())]).await;
+
+						tracing::info!("result for {dest}: {result:?}")
+					}
+
+					Ok(())
+				}
+			})
+			.await;
+
+		let _ = dbg!(result);
+
+		Ok(())
 	}
-	Ok(())
 }

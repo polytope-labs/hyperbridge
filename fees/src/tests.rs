@@ -72,7 +72,7 @@ async fn transaction_payments_flow() {
 		.await
 		.unwrap();
 
-	let claim_proof = tx_payment
+	let proofs = tx_payment
 		.create_claim_proof(
 			0,
 			0,
@@ -81,11 +81,16 @@ async fn transaction_payments_flow() {
 			&MockHost::new((), 0, StateMachine::Kusama(2000)),
 		)
 		.await
-		.unwrap()
 		.unwrap();
 
-	assert_eq!(claim_proof.commitments.len(), 1000);
-	tx_payment.delete_claimed_entries(claim_proof.commitments).await.unwrap();
+	assert_eq!(proofs.iter().fold(0, |acc, proof| proof.commitments.len() + acc), 1000);
+	tx_payment
+		.delete_claimed_entries(proofs.into_iter().fold(vec![], |mut acc, proof| {
+			acc.extend(proof.commitments);
+			acc
+		}))
+		.await
+		.unwrap();
 	let deliveries = tx_payment.db.deliveries().count(Default::default()).exec().await.unwrap();
 	assert_eq!(deliveries, 0)
 }

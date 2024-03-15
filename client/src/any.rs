@@ -204,6 +204,17 @@ macro_rules! chain {
             }
 
 
+
+		async fn query_request_receipt(&self, hash: sp_core::H256) -> Result<sp_core::H160, anyhow::Error> {
+			match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.query_request_receipt(hash).await,
+					)*
+				}
+		}
+
+
             fn name(&self) -> String {
                 match self {
 					$(

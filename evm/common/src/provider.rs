@@ -211,7 +211,7 @@ where
 			let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
 			for key in keys {
 				if key.len() != 52 {
-					continue
+					continue;
 				}
 
 				let contract_address = H160::from_slice(&key[..20]);
@@ -257,7 +257,7 @@ where
 	) -> Result<Vec<Event>, Error> {
 		let full_range = (previous_height + 1)..=event.latest_height;
 		if full_range.is_empty() {
-			return Ok(Default::default())
+			return Ok(Default::default());
 		}
 
 		let mut events = vec![];
@@ -281,6 +281,13 @@ where
 		}
 
 		Ok(events)
+	}
+
+	async fn query_request_receipt(&self, hash: H256) -> Result<H160, anyhow::Error> {
+		let host_contract = EvmHost::new(self.config.ismp_host, self.signer.clone());
+		let address = host_contract.request_receipts(hash.into()).call().await?;
+		dbg!(address);
+		Ok(address)
 	}
 
 	fn name(&self) -> String {
@@ -675,8 +682,9 @@ pub fn check_trace_for_event(call_frame: CallFrame, event_in: CheckTraceForEvent
 					let event = parse_log::<PostRequestHandledFilter>(log.clone());
 					match event {
 						Ok(_) => return true,
-						Err(err) =>
-							log::error!("Failed to parse {:?} trace log: {err:?}", frame.to),
+						Err(err) => {
+							log::error!("Failed to parse {:?} trace log: {err:?}", frame.to)
+						},
 					}
 				},
 				CheckTraceForEventParams::Response => {
@@ -684,8 +692,9 @@ pub fn check_trace_for_event(call_frame: CallFrame, event_in: CheckTraceForEvent
 
 					match event {
 						Ok(_) => return true,
-						Err(err) =>
-							log::error!("Failed to parse {:?} trace log: {err:?}", frame.to),
+						Err(err) => {
+							log::error!("Failed to parse {:?} trace log: {err:?}", frame.to)
+						},
 					}
 				},
 			};

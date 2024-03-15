@@ -15,7 +15,7 @@
 
 //! Tesseract CLI utilities
 
-use crate::{config::HyperbridgeConfig, fees::Subcommand, logging};
+use crate::{config::HyperbridgeConfig, fees, fees::Subcommand, logging};
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use codec::Encode;
@@ -167,6 +167,18 @@ impl Cli {
 				metadata
 					.push((state_machine, H160::from_slice(&client.address().as_slice()[..20])));
 			}
+
+			let hyperbridge = hyperbridge_config
+				.clone()
+				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
+				.await?;
+			tokio::spawn(fees::auto_withdraw(
+				hyperbridge,
+				clients.clone(),
+				config.relayer.clone(),
+				tx_payment,
+			));
+
 			log::info!("💬 Initialized messaging tasks");
 		}
 

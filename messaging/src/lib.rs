@@ -91,7 +91,7 @@ where
 	};
 
 	// Fee accumulation background task
-	let _fee_acc = {
+	{
 		let hyperbridge = chain_a.clone();
 		let dest = chain_b.clone();
 		let client_map = client_map.clone();
@@ -372,16 +372,17 @@ async fn fee_accumulation<
 							let source_chain = source_chain.ok_or_else(|| anyhow!("Client for {source} not found in config, fees cannot be accumulated"))?;
 							let source_height = hyperbridge.query_latest_height(source_chain.state_machine_id()).await?;
 							// Create claim proof for deliveries from source to dest
-							tracing::info!("Creating withdrawal proof from db for deliveries from {:?}->{:?}", source, dest.state_machine_id().state_id);
-							let claim_proof = tx_payment
+							tracing::info!("Creating withdrawal proofs from db for deliveries from {:?}->{:?}", source, dest.state_machine_id().state_id);
+							let proofs = tx_payment
 							.create_proof_from_receipts(source_height.into(), dest_height, &source_chain, &dest, receipts.clone())
 							.await?;
 
 							observe_challenge_period(&dest, &hyperbridge, dest_height).await?;
-						if let Some(claim_proof) = claim_proof {
-							hyperbridge.accumulate_fees(claim_proof.clone()).await?;
+							for proof in proofs {
+								hyperbridge.accumulate_fees(proof).await?;
+							}
 							tracing::info!("Fee accumulation was sucessful");
-						}
+
 							Ok::<_, anyhow::Error>(())
 						};
 

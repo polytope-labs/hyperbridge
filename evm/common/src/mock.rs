@@ -301,23 +301,21 @@ mod tests {
 						.context(format!("Failed to approve {host_addr} in {chain:?}"))?;
 
 					for (chain, _) in chains_clone.iter().filter(|(c, _)| chain != *c) {
-						for _ in 0..1 {
+						for _ in 0..10 {
 							let call = ping.ping(PingMessage {
 								dest: chain.to_string().as_bytes().to_vec().into(),
 								module: ping_addr.clone().into(),
 								timeout: 10 * 60 * 60,
-								fee: U256::from(9_000_000_000_000_000_000u128),
-								count: U256::from(10),
+								fee: U256::from(30_000_000_000_000_000_000u128),
+								count: U256::from(100),
 							});
 							let gas = call
 								.estimate_gas()
 								.await
 								.context(format!("Failed to estimate gas in {chain:?}"))?;
-							let receipt = call
-								.gas(gas)
-								.send()
-								.await
-								.context(format!("Failed to send ping tx to {chain:?}"))?
+							let call = call.gas(gas);
+							let Ok(tx) = call.send().await else { continue };
+							let receipt = tx
 								.await
 								.context(format!("Failed to execute ping message on {chain:?}"))?;
 

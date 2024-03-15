@@ -9,7 +9,7 @@ use crate::db::{
 	PrismaClient, PrismaClientBuilder,
 };
 use anyhow::anyhow;
-use codec::Encode;
+use codec::{Decode, Encode};
 use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
 use std::sync::Arc;
 use tesseract_evm::EvmConfig;
-use tesseract_primitives::{HyperbridgeClaim, IsmpProvider, TxReceipt};
+use tesseract_primitives::{HyperbridgeClaim, IsmpProvider, TxReceipt, WithdrawFundsResult};
 use tesseract_substrate::SubstrateConfig;
 
 mod db;
@@ -176,68 +176,137 @@ impl TransactionPayment {
 		source: &A,
 		dest: &B,
 		receipts: Vec<TxReceipt>,
-	) -> anyhow::Result<Option<WithdrawalProof>> {
-		let keys = receipts.iter().map(|data| {
-			match data {
-				TxReceipt::Request { query, height } => {
-					let source_key = source.request_commitment_full_key(query.commitment);
-					//Get request receipt keys on dest chain
-					let dest_key = dest.request_receipt_full_key(query.commitment);
-					(Key::Request(query.commitment), source_key, dest_key)
-				},
-				TxReceipt::Response { query, request_commitment, height } => {
-					let source_key = source.response_commitment_full_key(query.commitment);
-					//Get response receipt keys on dest chain
-					let dest_key = dest.response_receipt_full_key(*request_commitment);
-					(
-						Key::Response {
-							request_commitment: *request_commitment,
-							response_commitment: query.commitment,
-						},
-						source_key,
-						dest_key,
-					)
-				},
+	) -> anyhow::Result<Vec<WithdrawalProof>> {
+		let keys = receipts
+			.iter()
+			.map(|data| {
+				match data {
+					TxReceipt::Request { query, height } => {
+						let source_key = source.request_commitment_full_key(query.commitment);
+						//Get request receipt keys on dest chain
+						let dest_key = dest.request_receipt_full_key(query.commitment);
+						(Key::Request(query.commitment), source_key, dest_key)
+					},
+					TxReceipt::Response { query, request_commitment, height } => {
+						let source_key = source.response_commitment_full_key(query.commitment);
+						//Get response receipt keys on dest chain
+						let dest_key = dest.response_receipt_full_key(*request_commitment);
+						(
+							Key::Response {
+								request_commitment: *request_commitment,
+								response_commitment: query.commitment,
+							},
+							source_key,
+							dest_key,
+						)
+					},
+				}
+			})
+			.collect::<Vec<_>>();
+
+		let mut proofs = vec![];
+		// Chunk keys by 20 each
+		for chunk in keys.chunks(20) {
+			// Gather keys to be queried on the source chain
+			let mut source_chain_storage_keys = vec![];
+			let mut dest_chain_storage_keys = vec![];
+			let mut request_response_commitments = vec![];
+			for (key, source_key, dest_key) in chunk {
+				source_chain_storage_keys.push(source_key.clone());
+				dest_chain_storage_keys.push(dest_key.clone());
+				request_response_commitments.push(key.clone());
 			}
-		});
 
-		// Gather keys to be queried on the source chain
-		let mut source_chain_storage_keys = vec![];
-		let mut dest_chain_storage_keys = vec![];
-		let mut request_response_commitments = vec![];
+			let source_proof = source
+				.query_state_proof(
+					source_height,
+					source_chain_storage_keys.into_iter().flatten().collect(),
+				)
+				.await?;
 
-		for (key, source_key, dest_key) in keys {
-			source_chain_storage_keys.push(source_key);
-			dest_chain_storage_keys.push(dest_key);
-			request_response_commitments.push(key);
+			let dest_proof = dest
+				.query_state_proof(
+					dest_height,
+					dest_chain_storage_keys.into_iter().flatten().collect(),
+				)
+				.await?;
+
+			let proof = WithdrawalProof {
+				commitments: request_response_commitments,
+				source_proof: Proof {
+					height: StateMachineHeight {
+						id: source.state_machine_id(),
+						height: source_height,
+					},
+					proof: source_proof,
+				},
+				dest_proof: Proof {
+					height: StateMachineHeight { id: dest.state_machine_id(), height: dest_height },
+					proof: dest_proof,
+				},
+			};
+
+			proofs.push(proof)
 		}
 
-		if request_response_commitments.is_empty() {
-			return Ok(None)
-		}
+		Ok(proofs)
+	}
 
-		let source_proof = source
-			.query_state_proof(
-				source_height,
-				source_chain_storage_keys.into_iter().flatten().collect(),
-			)
-			.await?;
+	/// Fetch all pending withdrawals from the db, returns their id so they can be deleted.
+	pub async fn pending_withdrawals(
+		&self,
+		dest: &StateMachine,
+	) -> Result<Vec<(WithdrawFundsResult, i32)>, anyhow::Error> {
+		let pending = self
+			.db
+			.pending_withdrawal()
+			.find_many(vec![db::pending_withdrawal::WhereParam::Dest(StringFilter::Equals(
+				dest.to_string(),
+			))])
+			.exec()
+			.await?
+			.into_iter()
+			.map(|record| Ok((WithdrawFundsResult::decode(&mut &record.encoded[..])?, record.id)))
+			.collect::<Result<Vec<_>, anyhow::Error>>()?;
 
-		let dest_proof = dest
-			.query_state_proof(dest_height, dest_chain_storage_keys.into_iter().flatten().collect())
-			.await?;
+		Ok(pending)
+	}
 
-		Ok(Some(WithdrawalProof {
-			commitments: request_response_commitments,
-			source_proof: Proof {
-				height: StateMachineHeight { id: source.state_machine_id(), height: source_height },
-				proof: source_proof,
-			},
-			dest_proof: Proof {
-				height: StateMachineHeight { id: dest.state_machine_id(), height: dest_height },
-				proof: dest_proof,
-			},
-		}))
+	/// Delete any pending withdrawals
+	pub async fn delete_pending_withdrawals(&self, pending: Vec<i32>) -> Result<(), anyhow::Error> {
+		let actions = pending
+			.into_iter()
+			.map(|item| {
+				self.db
+					.pending_withdrawal()
+					.delete(db::pending_withdrawal::UniqueWhereParam::IdEquals(item))
+			})
+			.collect::<Vec<_>>();
+
+		self.db._batch(actions).await?;
+
+		Ok(())
+	}
+
+	/// Store a pending withdrawal request
+	pub async fn store_pending_withdrawals(
+		&self,
+		pending: Vec<WithdrawFundsResult>,
+	) -> Result<Vec<i32>, anyhow::Error> {
+		let actions = pending
+			.into_iter()
+			.map(|item| {
+				self.db.pending_withdrawal().create(
+					item.post.dest.to_string(),
+					item.encode(),
+					vec![],
+				)
+			})
+			.collect::<Vec<_>>();
+
+		let ids = self.db._batch(actions).await?.into_iter().map(|record| record.id).collect();
+
+		Ok(ids)
 	}
 
 	/// Create payment claim proof for all deliveries of requests and responses from source to dest
@@ -249,7 +318,7 @@ impl TransactionPayment {
 		source: &A,
 		dest: &B,
 		hyperbridge: &H,
-	) -> anyhow::Result<Option<WithdrawalProof>> {
+	) -> anyhow::Result<Vec<WithdrawalProof>> {
 		let source_chain = source.state_machine_id().state_id;
 		let dest_chain = dest.state_machine_id().state_id;
 		let request_entries = self
@@ -275,7 +344,7 @@ impl TransactionPayment {
 			.await?;
 
 		if request_entries.is_empty() && response_entries.is_empty() {
-			return Ok(None)
+			return Ok(Default::default())
 		}
 
 		let requests = request_entries.iter().filter_map(|data| {
@@ -308,16 +377,6 @@ impl TransactionPayment {
 				keys_to_prove.push(key)
 			}
 		}
-		// Gather keys to be queried on the source chain
-		let mut source_chain_storage_keys = vec![];
-		let mut dest_chain_storage_keys = vec![];
-		let mut request_response_commitments = vec![];
-
-		for (key, source_key, dest_key) in keys_to_prove {
-			source_chain_storage_keys.push(source_key);
-			dest_chain_storage_keys.push(dest_key);
-			request_response_commitments.push(key);
-		}
 
 		let tx = self.clone();
 		// Delete claimed keys in the background
@@ -330,32 +389,52 @@ impl TransactionPayment {
 			}
 		});
 
-		if request_response_commitments.is_empty() {
-			return Ok(None)
+		let mut proofs = vec![];
+		// We chunk keys by 20 each
+		for chunk in keys_to_prove.chunks(20) {
+			// Gather keys to be queried on the source chain
+			let mut source_chain_storage_keys = vec![];
+			let mut dest_chain_storage_keys = vec![];
+			let mut request_response_commitments = vec![];
+			for (key, source_key, dest_key) in chunk {
+				source_chain_storage_keys.push(source_key.clone());
+				dest_chain_storage_keys.push(dest_key.clone());
+				request_response_commitments.push(key.clone());
+			}
+
+			let source_proof = source
+				.query_state_proof(
+					source_height,
+					source_chain_storage_keys.into_iter().flatten().collect(),
+				)
+				.await?;
+
+			let dest_proof = dest
+				.query_state_proof(
+					dest_height,
+					dest_chain_storage_keys.into_iter().flatten().collect(),
+				)
+				.await?;
+
+			let proof = WithdrawalProof {
+				commitments: request_response_commitments,
+				source_proof: Proof {
+					height: StateMachineHeight {
+						id: source.state_machine_id(),
+						height: source_height,
+					},
+					proof: source_proof,
+				},
+				dest_proof: Proof {
+					height: StateMachineHeight { id: dest.state_machine_id(), height: dest_height },
+					proof: dest_proof,
+				},
+			};
+
+			proofs.push(proof)
 		}
 
-		let source_proof = source
-			.query_state_proof(
-				source_height,
-				source_chain_storage_keys.into_iter().flatten().collect(),
-			)
-			.await?;
-
-		let dest_proof = dest
-			.query_state_proof(dest_height, dest_chain_storage_keys.into_iter().flatten().collect())
-			.await?;
-
-		Ok(Some(WithdrawalProof {
-			commitments: request_response_commitments,
-			source_proof: Proof {
-				height: StateMachineHeight { id: source.state_machine_id(), height: source_height },
-				proof: source_proof,
-			},
-			dest_proof: Proof {
-				height: StateMachineHeight { id: dest.state_machine_id(), height: dest_height },
-				proof: dest_proof,
-			},
-		}))
+		Ok(proofs)
 	}
 
 	pub async fn delete_claimed_entries(&self, commitments: Vec<Key>) -> anyhow::Result<()> {

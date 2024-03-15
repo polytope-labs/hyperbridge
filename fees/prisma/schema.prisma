@@ -9,11 +9,17 @@ generator client {
 }
 
 model Deliveries {
-  id                Int       @id @default(autoincrement())
-  hash              String
-  source_chain      String
-  dest_chain        String
-  delivery_type     Int
-  created_at        Int
-  height            Int
+  id            Int    @id @default(autoincrement())
+  hash          String
+  source_chain  String
+  dest_chain    String
+  delivery_type Int
+  created_at    Int
+  height        Int
+}
+
+model PendingWithdrawal {
+  id      Int    @id @default(autoincrement())
+  dest    String
+  encoded Bytes
 }

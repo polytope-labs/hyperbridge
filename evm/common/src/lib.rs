@@ -108,7 +108,14 @@ where
 {
 	pub async fn new(host: Option<I>, config: EvmConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
-		let bytes = from_hex(config.signer.as_str())?;
+		let bytes = match from_hex(config.signer.as_str()) {
+			Ok(bytes) => bytes,
+			Err(_) => {
+				// it's probably a file.
+				let contents = tokio::fs::read_to_string(config.signer.as_str()).await?;
+				from_hex(contents.as_str())?
+			},
+		};
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
 		let address = signer.public().to_eth_address().expect("Infallible").to_vec();
 

@@ -21,18 +21,15 @@ jobs:
         with:
           ssh-private-key: "${{ secrets.SSH_KEY }}"
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          version: '3.9.1'
-
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: stable
 
       - name: Build
-        run:  cargo build --release -p tesseract --features=sepolia
+        run:  |
+          sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+          cargo build --release -p tesseract --features=sepolia
 
       - name: Install Cargo get
         run: cargo install cargo-get

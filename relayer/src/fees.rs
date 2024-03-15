@@ -288,8 +288,7 @@ where
 	let frequency = Duration::from_secs(config.withdrawal_frequency.unwrap_or(86_400));
 	tracing::info!("Auto-withdraw frequency set to {:?}", frequency);
 	// default to $100
-	let min_amount: U256 =
-		(config.minimum_withdrawal_amount.unwrap_or(100) * 10u128.pow(18)).into();
+	let min_amount: U256 = (config.minimum_withdrawal_amount.unwrap_or(100) * 10u64.pow(18)).into();
 
 	tracing::info!("Minimum auto-withdrawal amount set to ${:?}", Cost(min_amount));
 	let mut interval = interval(frequency);

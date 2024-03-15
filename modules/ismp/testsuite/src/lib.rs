@@ -490,13 +490,7 @@ where
 }
 
 /// Check that proxies can dispatch requests & responses.
-pub fn sanity_check_for_proxies<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
-where
-    H: IsmpHost,
-    D: IsmpDispatcher,
-    D::Account: From<[u8; 32]>,
-    D::Balance: From<u32>,
-{
+pub fn sanity_check_for_proxies<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     let intermediate_state = setup_mock_client(host);
     let proxy_state_commitment = setup_mock_proxy_client(host);
     // Set the previous update time
@@ -522,7 +516,7 @@ where
 
     let post = Post {
         source: intermediate_state.height.id.state_id,
-        dest: proxy_state_commitment.height.id.state_id,
+        dest: StateMachine::Polygon,
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
@@ -538,31 +532,22 @@ where
         signer: vec![0u8; 32],
     });
 
-    let res = handle_incoming_message(host, request_message);
-    println!("request result: {:?}", res);
+    handle_incoming_message(host, request_message).unwrap();
+
     // let request = Request::Post(post.clone());
     // let commitment = hash_request::<H>(&request);
     // host.request_commitment(commitment)
     //     .map_err(|_| "Expected Request commitment to be found in storage")?;
 
-    let post = Post {
-        source: intermediate_state.height.id.state_id,
-        dest: host.host_state_machine(),
-        nonce: host.next_nonce(),
-        from: vec![0u8; 32],
-        to: vec![0u8; 32],
-        timeout_timestamp: 0,
-        data: vec![0u8; 64],
-        gas_limit: 0,
-    };
     let response = PostResponse { post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
-    // Dispatch the outgoing response for the first time
-    dispatcher
-        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
-        .map_err(|_| "Router failed to dispatch request")?;
-    println!("response src: {:?}", response.clone().source_chain());
-    println!("response dest: {:?}", response.clone().dest_chain());
+    // Response message handling check
+    let response_message = Message::Response(ResponseMessage {
+        datagram: RequestResponse::Response(vec![Response::Post(response.clone())]),
+        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        signer: vec![],
+    });
 
+    handle_incoming_message(host, response_message).unwrap();
     assert_ne!(response.dest_chain(), host.host_state_machine());
     // Assert that response was acknowledged
     // assert!(host.response_receipt(&Response::Post(response)).is_some());

@@ -383,10 +383,7 @@ impl IsmpHost for Host {
     }
 
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {
-        match self.allowed_proxy() {
-            Some(_) => Box::new(MockProxyRouter(self.clone())),
-            None => Box::new(MockRouter(self.clone())),
-        }
+        Box::new(MockRouter(self.clone()))
     }
 }
 
@@ -400,52 +397,37 @@ impl Keccak256 for Host {
 }
 
 #[derive(Default)]
-pub struct MockModule(pub Host);
+pub struct MockModule(pub Arc<Host>);
 
 impl IsmpModule for MockModule {
     fn on_accept(&self, _request: Post) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn on_response(&self, _response: Response) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn on_timeout(&self, _request: Timeout) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-pub struct MockProxyModule(pub Host);
-
-impl IsmpModule for MockProxyModule {
-    fn on_accept(&self, _request: Post) -> Result<(), Error> {
-        let proxy_state_machine = self.0.clone().allowed_proxy().unwrap();
-        if _request.dest == proxy_state_machine {
+        let proxy_state_machine = self.0.clone().allowed_proxy();
+        if proxy_state_machine.is_some() {
+            let dispatcher = MockProxyDispatcher(Arc::clone(&self.0));
             let request = DispatchRequest::Post(DispatchPost {
-                dest: _request.source,
+                dest: _request.dest,
                 from: _request.from,
                 to: _request.to,
                 timeout_timestamp: _request.timeout_timestamp,
                 data: _request.data,
                 gas_limit: _request.gas_limit,
             });
-            let dispatcher = MockDispatcher(Arc::new(self.0.clone()));
-            dispatcher.dispatch_request(request, [0; 32].into(), 0u32)?
+            return dispatcher.dispatch_request(request, [0; 32].into(), 0u32);
         }
         Ok(())
     }
 
     fn on_response(&self, _response: Response) -> Result<(), Error> {
-        if _response.source_chain() == self.0.clone().allowed_proxy().unwrap() {
+        let proxy_state_machine = self.0.clone().allowed_proxy();
+        if proxy_state_machine.is_some() {
+            let dispatcher = MockProxyDispatcher(Arc::clone(&self.0));
             let response = PostResponse {
                 post: Post {
-                    source: self.0.host_state_machine(),
-                    dest: _response.source_chain(),
-                    nonce: self.0.clone().next_nonce(),
-                    from: _response.destination_module(),
-                    to: _response.request().source_module(),
+                    source: _response.source_chain(),
+                    dest: _response.dest_chain(),
+                    nonce: _response.request().nonce(),
+                    from: _response.request().source_module(),
+                    to: _response.destination_module(),
                     timeout_timestamp: 0,
                     data: _response.request().data().unwrap_or_default(),
                     gas_limit: 0,
@@ -454,8 +436,7 @@ impl IsmpModule for MockProxyModule {
                 timeout_timestamp: 0,
                 gas_limit: 0,
             };
-            let dispatcher = MockDispatcher(Arc::new(self.0.clone()));
-            dispatcher.dispatch_response(response, [0; 32].into(), 0u32)?
+            return dispatcher.dispatch_response(response, [0; 32].into(), 0u32);
         }
         Ok(())
     }
@@ -469,14 +450,7 @@ pub struct MockRouter(pub Host);
 
 impl IsmpRouter for MockRouter {
     fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
-        Ok(Box::new(MockModule(self.0.clone())))
-    }
-}
-pub struct MockProxyRouter(pub Host);
-
-impl IsmpRouter for MockProxyRouter {
-    fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
-        Ok(Box::new(MockProxyModule(self.0.clone())))
+        Ok(Box::new(MockModule(Arc::new(self.0.clone()))))
     }
 }
 
@@ -512,6 +486,69 @@ impl IsmpDispatcher for MockDispatcher {
                     source: host.host_state_machine(),
                     dest: dispatch_post.dest,
                     nonce: host.next_nonce(),
+                    from: dispatch_post.from,
+                    to: dispatch_post.to,
+                    timeout_timestamp: dispatch_post.timeout_timestamp,
+                    data: dispatch_post.data,
+                    gas_limit: dispatch_post.gas_limit,
+                };
+                Request::Post(post)
+            },
+        };
+        let hash = hash_request::<Host>(&request);
+        host.requests.borrow_mut().insert(hash);
+        Ok(())
+    }
+
+    fn dispatch_response(
+        &self,
+        response: PostResponse,
+        _who: Self::Account,
+        _fee: Self::Balance,
+    ) -> Result<(), Error> {
+        let host = self.0.clone();
+        let response = Response::Post(response);
+        let hash = hash_response::<Host>(&response);
+        if host.responses.borrow().contains(&hash) {
+            return Err(Error::ImplementationSpecific("Duplicate response".to_string()));
+        }
+        host.responses.borrow_mut().insert(hash);
+        Ok(())
+    }
+}
+pub struct MockProxyDispatcher(pub Arc<Host>);
+
+impl IsmpDispatcher for MockProxyDispatcher {
+    type Account = Vec<u8>;
+    type Balance = u32;
+
+    fn dispatch_request(
+        &self,
+        request: DispatchRequest,
+        _who: Self::Account,
+        _fee: Self::Balance,
+    ) -> Result<(), Error> {
+        let host = self.0.clone();
+        let proxy = self.0.clone().allowed_proxy().unwrap();
+        let request = match request {
+            DispatchRequest::Get(dispatch_get) => {
+                let get = Get {
+                    source: proxy,
+                    dest: dispatch_get.dest,
+                    nonce: 0,
+                    from: dispatch_get.from,
+                    keys: dispatch_get.keys,
+                    height: dispatch_get.height,
+                    timeout_timestamp: dispatch_get.timeout_timestamp,
+                    gas_limit: dispatch_get.gas_limit,
+                };
+                Request::Get(get)
+            },
+            DispatchRequest::Post(dispatch_post) => {
+                let post = Post {
+                    source: proxy,
+                    dest: dispatch_post.dest,
+                    nonce: 0,
                     from: dispatch_post.from,
                     to: dispatch_post.to,
                     timeout_timestamp: dispatch_post.timeout_timestamp,

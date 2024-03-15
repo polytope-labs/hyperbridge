@@ -55,6 +55,5 @@ fn should_check_response_source() {
 #[test]
 fn should_perform_sanity_check_for_proxies() {
     let host = Arc::new(Host::default());
-    let dispatcher = MockDispatcher(host.clone());
-    sanity_check_for_proxies(&*host, &dispatcher).unwrap()
+    sanity_check_for_proxies(&*host).unwrap()
 }

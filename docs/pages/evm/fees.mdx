@@ -1,0 +1,47 @@
+## Hyperbridge Fees
+
+Hyperbridge fees is charged from "Hyperbridge bridge messging as a service" stand point, Applications interoping using Hyperbridge
+pays `$0.003` per bytes of a request.
+
+### Example
+
+Using a snippet of code from the `TokenGatway` contract, this is a how fees are estimated;
+
+```solidity
+    struct Body {
+        // amount to be sent
+        uint256 amount;
+        // The token identifier
+        bytes32 tokenId;
+        // flag to redeem the erc20 asset on the destination
+        bool redeem;
+        // sender address
+        address from;
+        // recipient address
+        address to;
+    }
+    bytes memory data = abi.encode(
+        Body({from: from, to: params.to, amount: params.amount, tokenId: params.tokenId, redeem: params.redeem})
+    );
+    DispatchPost memory request = DispatchPost({
+        dest: params.dest,
+        to: abi.encodePacked(address(this)),
+        // add enum variant for body
+        body: bytes.concat(hex"00", data),
+        timeout: params.timeout,
+        fee: params.fee,
+        gaslimit: uint64(0),
+        payer: msg.sender
+    });
+    // Your money is now on its way
+    IDispatcher(_host).dispatch(request);
+
+```
+
+In `DispatchPost`, this property that influences fees been paid is the `body` property, in the example above, 
+the `body` property is `bytes.concat(hex"00", data)`, the `data` is the `Body` struct that contains the `amount`, 
+`tokenId`, `redeem`, `from` and `to` properties. These are information the `TokenGatway` contract needs to execute
+asset bridging.
+
+In the example above the fee that would be paid can be estimated by calculating the length of the `data` [160 bytes] and multiplying it by `$0.003`
+evaulating to `$0.48`. 

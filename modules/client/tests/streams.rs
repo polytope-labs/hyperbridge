@@ -24,6 +24,7 @@ use hyperclient::{
         ChainConfig, ClientConfig, EvmConfig, HashAlgorithm, MessageStatusWithMetadata,
         SubstrateConfig, TimeoutStatus,
     },
+    HyperClient,
 };
 use ismp::{
     consensus::StateMachineId,
@@ -94,6 +95,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
         dest: ChainConfig::Evm(dest_chain.clone()),
         hyperbridge: ChainConfig::Substrate(hyperbrige_config),
     };
+    let hyperclient = HyperClient::new(config).await?;
 
     // Send Ping Message
     let signer = hex::decode(signing_key).unwrap();
@@ -144,17 +146,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     let block = receipt.block_number.unwrap();
     tracing::info!("\n\nTx block: {block}\n\n");
 
-    let source_client = config.source_chain().await?;
-    let dest_client = config.dest_chain().await?;
-    let hyperbridge_client = config.hyperbridge_client().await?;
-    let mut stream = request_status_stream(
-        post,
-        source_client,
-        dest_client,
-        hyperbridge_client,
-        block.low_u64(),
-    )
-    .await;
+    let mut stream = request_status_stream(&hyperclient, post, block.low_u64()).await;
 
     while let Some(res) = stream.next().await {
         match res {
@@ -206,6 +198,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
         dest: ChainConfig::Evm(dest_chain.clone()),
         hyperbridge: ChainConfig::Substrate(hyperbrige_config),
     };
+    let hyperclient = HyperClient::new(config).await?;
 
     // Send Ping Message
     let pair = hex::decode(signing_key).unwrap();
@@ -231,8 +224,8 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
         .await
         .context(format!("Error in {chain:?}"))?;
 
-    let hyperbridge_client = config.hyperbridge_client().await?;
-    let mut stream = hyperbridge_client
+    let mut stream = hyperclient
+        .hyperbridge
         .state_machine_update_notification(StateMachineId {
             state_id: StateMachine::Bsc,
             consensus_state_id: *b"BSC0",
@@ -280,21 +273,11 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     let block = receipt.block_number.unwrap();
     tracing::info!("\n\nTx block: {block}\n\n");
 
-    let source_client = config.source_chain().await?;
-    let dest_client = config.dest_chain().await?;
-
-    let request_status = request_status_stream(
-        post.clone(),
-        source_client.clone(),
-        dest_client.clone(),
-        hyperbridge_client.clone(),
-        block.low_u64(),
-    )
-    .await;
+    let request_status = request_status_stream(&hyperclient, post.clone(), block.low_u64()).await;
 
     // Obtaining the request stream and the timeout stream
     let timed_out =
-        internals::request_timeout_stream(post.timeout_timestamp, source_client.clone()).await;
+        internals::request_timeout_stream(post.timeout_timestamp, hyperclient.source.clone()).await;
 
     let mut stream = futures::stream::select(request_status, timed_out);
 
@@ -313,7 +296,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
         }
     }
 
-    let mut stream = timeout_request_stream(post, config).await?;
+    let mut stream = timeout_request_stream(&hyperclient, post).await?;
 
     while let Some(res) = stream.next().await {
         match res {

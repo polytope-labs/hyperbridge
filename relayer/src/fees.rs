@@ -288,7 +288,8 @@ where
 	let frequency = Duration::from_secs(config.withdrawal_frequency.unwrap_or(86_400));
 	tracing::info!("Auto-withdraw frequency set to {:?}", frequency);
 	// default to $100
-	let min_amount: U256 = (config.minimum_withdrawal_amount.unwrap_or(100) * 10u64.pow(18)).into();
+	let min_amount: U256 =
+		(config.minimum_withdrawal_amount.unwrap_or(100) as u128 * 10u128.pow(18)).into();
 
 	tracing::info!("Minimum auto-withdrawal amount set to ${:?}", Cost(min_amount));
 	let mut interval = interval(frequency);
@@ -326,13 +327,18 @@ where
 							.await?;
 						tracing::info!("Request submitted to hyperbridge successfully");
 						tracing::info!("Starting delivery of withdrawal message to {:?}", chain);
+
+						// persist the withdrawal in-case delivery fails, so it's not lost forever
+						let ids = moved_db.store_pending_withdrawals(vec![result.clone()]).await?;
+
 						match deliver_post_request(&client, &hyperbridge, result.clone()).await {
-							Ok(_) => {},
+							Ok(_) => {
+								if let Err(e) = moved_db.delete_pending_withdrawals(ids).await {
+									tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
+								}
+							},
 							Err(err) => {
-								// persist the withdrawal in-case delivery fails, so it's not lost forever
-								tracing::error!("Encountered an error while delivering withdrawal request: {err:?}");
-								moved_db.store_pending_withdrawals(vec![result]).await?;
-								tracing::info!("Stored the failed withdrawal request in the db, so they can be retried later.");
+								tracing::info!("Failed to deliver withdrawal request: {err:?}, they will be retried.");
 							}
 						};
 						Ok(())

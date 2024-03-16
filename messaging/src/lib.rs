@@ -267,17 +267,20 @@ where
 				// We should not store messages when they are delivered to hyperbridge
 				if chain_a.state_machine_id().state_id != coprocessor.state_machine() {
 					if !receipts.is_empty() {
+						// Store receipts in database before auto accumulation
+						tracing::trace!(target: "tesseract", "Persisting {} deliveries from {}->{} to the db", receipts.len(), chain_b.name(), chain_a.name());
+						if let Err(err) = tx_payment.store_messages(receipts.clone()).await {
+							tracing::error!(
+								"Failed to persist {} deliveries to database: {err:?}",
+								receipts.len()
+							)
+						}
 						// Send receipts to the fee accumulation task
 						match fee_acc_sender.send(receipts).await {
-							Err(sent) => {
-								// If for aome reason the receiver has been dropped, store receipts
-								// in db so they can be accumulated manually
-								tracing::info!(target: "tesseract", "Storing {} deliveries from {} to {} inside the database", sent.0.len(), chain_b.name(), chain_a.name());
-								if let Err(err) = tx_payment.store_messages(sent.0).await {
-									tracing::error!(
-										"Failed to store some delivered messages to database: {err:?}"
-									)
-								}
+							Err(_sent) => {
+								tracing::error!(
+									"Fee auto accumulation failed You can try again manually"
+								)
 							},
 							_ => {},
 						}
@@ -378,11 +381,14 @@ async fn fee_accumulation<
 							.await?;
 
 							observe_challenge_period(&dest, &hyperbridge, dest_height).await?;
+							let mut commitments =  vec![];
 							for proof in proofs {
+								commitments.extend_from_slice(&proof.commitments);
 								hyperbridge.accumulate_fees(proof).await?;
 							}
 							tracing::info!("Fee accumulation was sucessful");
-
+							// If delete fails, not an issue, they'll be deleted whenever manual accumulation is triggered
+							let _ = tx_payment.delete_claimed_entries(commitments).await;
 							Ok::<_, anyhow::Error>(())
 						};
 
@@ -390,11 +396,6 @@ async fn fee_accumulation<
 							Ok(()) => {},
 							Err(err) => {
 								tracing::error!("Error accummulating some fees, receipts have been stored in the db, you can try again manually \n{err:?}");
-								if let Err(err) = tx_payment.store_messages(receipts).await {
-									tracing::error!(
-										"Failed to store some delivered messages to database: {err:?}"
-									)
-								}
 							}
 						}
 					}

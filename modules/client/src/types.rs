@@ -183,6 +183,7 @@ pub enum PostStreamState {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
 pub enum TimeoutStatus {
     Pending,
     /// Destination state machine has been finalized the timeout on hyperbridge

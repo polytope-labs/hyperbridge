@@ -20,7 +20,7 @@ pub enum RequestOrResponse {
 }
 
 /// Holds an event along with relevant metadata about the event
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WithMetadata<T> {
     /// The event metdata
     pub meta: EventMetadata,

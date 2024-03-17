@@ -373,6 +373,9 @@ pub async fn request_status_stream(
                                     {
                                         return Ok(Some((
                                             Ok(MessageStatusWithMetadata::SourceFinalized {
+                                                finalized_height: state_machine_update
+                                                    .event
+                                                    .latest_height,
                                                 meta: state_machine_update.meta,
                                             }),
                                             PostStreamState::SourceFinalized(
@@ -448,6 +451,7 @@ pub async fn request_status_stream(
 
                         Ok(None)
                     },
+
                     PostStreamState::HyperbridgeDelivered(height) => {
                         let res = dest_client.query_request_receipt(hash).await?;
                         if res != H160::zero() {
@@ -470,6 +474,7 @@ pub async fn request_status_stream(
                                     if event.event.latest_height >= height {
                                         return Ok(Some((
                                             Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
+                                                finalized_height: event.event.latest_height,
                                                 meta: event.meta,
                                             }),
                                             PostStreamState::HyperbridgeFinalized(
@@ -492,6 +497,7 @@ pub async fn request_status_stream(
                         }
                         Ok(None)
                     },
+
                     PostStreamState::HyperbridgeFinalized(finalized_height) => {
                         let res = dest_client.query_request_receipt(hash).await?;
                         let request_commitment =

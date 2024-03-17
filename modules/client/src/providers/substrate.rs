@@ -173,21 +173,19 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
             move |(latest_height, mut subscription, client)| {
                 let item = item.clone();
                 async move {
-                    loop {
-                        let header = match subscription.next().await {
-                            Some(Ok(header)) => header,
-                            Some(Err(_err)) => {
-                                tracing::error!(
-                                    "Error encountered while watching finalized heads: {_err:?}"
-                                );
-                                return Some((Ok(None), (latest_height, subscription, client)))
-                            },
-                            None => return None,
-                        };
+                    let header = match subscription.next().await {
+                        Some(Ok(header)) => header,
+                        Some(Err(_err)) => {
+                            tracing::error!(
+                                "Error encountered while watching finalized heads: {_err:?}"
+                            );
+                            return Some((Ok(None), (latest_height, subscription, client)))
+                        },
+                        None => return None,
+                    };
 
-                        let events = match client
-                            .query_ismp_events(latest_height, header.number().into())
-                            .await
+                    let events =
+                        match client.query_ismp_events(latest_height, header.number().into()).await
                         {
                             Ok(e) => e,
                             Err(_err) => {
@@ -198,32 +196,28 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                             },
                         };
 
-                        let event = events.into_iter().find_map(|event| {
-                            let value = match event.event.clone() {
-                                Event::PostRequest(post) => Some(RequestOrResponse::Request(post)),
-                                Event::PostResponse(resp) =>
-                                    Some(RequestOrResponse::Response(resp)),
-                                _ => None,
-                            };
-
-                            if value == Some(item.clone()) {
-                                Some(event)
-                            } else {
-                                None
-                            }
-                        });
-
-                        let value = match event {
-                            Some(event) => Some((
-                                Ok(Some(event)),
-                                (header.number().into(), subscription, client),
-                            )),
-                            None =>
-                                Some((Ok(None), (header.number().into(), subscription, client))),
+                    let event = events.into_iter().find_map(|event| {
+                        let value = match event.event.clone() {
+                            Event::PostRequest(post) =>
+                                Some(RequestOrResponse::Request(post.clone())),
+                            Event::PostResponse(resp) => Some(RequestOrResponse::Response(resp)),
+                            _ => None,
                         };
 
-                        return value;
-                    }
+                        if value == Some(item.clone()) {
+                            Some(event)
+                        } else {
+                            None
+                        }
+                    });
+
+                    let value = match event {
+                        Some(event) =>
+                            Some((Ok(Some(event)), (header.number().into(), subscription, client))),
+                        None => Some((Ok(None), (header.number().into(), subscription, client))),
+                    };
+
+                    return value;
                 }
             },
         )

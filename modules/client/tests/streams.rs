@@ -122,7 +122,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     let call = ping.ping(PingMessage {
         dest: dest_chain.state_machine.to_string().as_bytes().to_vec().into(),
         module: ping_addr.clone().into(),
-        timeout: 10 * 60 * 60,
+        timeout: 3 * 60,
         fee: U256::from(9_000_000_000_000_000_000u128),
         count: U256::from(1),
     });

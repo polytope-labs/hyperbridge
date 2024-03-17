@@ -123,10 +123,12 @@ type TimeoutStatus =  DestinationFinalizedWithMetadata | HyperbridgeTimedoutWith
 // This event is emitted on hyperbridge
 interface SourceFinalizedWithMetadata {
     kind: "SourceFinalized";
+    // Block height of the source chain that was finalized.
+    finalized_height: bigint;
     // The hash of the block where the event was emitted
-    block_hash: Uint8Array;
+    block_hash: `0x{string}`;
     // The hash of the extrinsic responsible for the event
-    transaction_hash: Uint8Array;
+    transaction_hash: `0x{string}`;
     // The block number where the event was emitted
     block_number: bigint;
 }
@@ -135,9 +137,9 @@ interface SourceFinalizedWithMetadata {
 interface HyperbridgeDeliveredWithMetadata {
     kind: "HyperbridgeDelivered";
     // The hash of the block where the event was emitted
-    block_hash: Uint8Array;
+    block_hash: `0x{string}`;
     // The hash of the extrinsic responsible for the event
-    transaction_hash: Uint8Array;
+    transaction_hash: `0x{string}`;
     // The block number where the event was emitted
     block_number: bigint;
 }
@@ -145,10 +147,12 @@ interface HyperbridgeDeliveredWithMetadata {
 // This event is emitted on the destination chain
 interface HyperbridgeFinalizedWithMetadata {
     kind: "HyperbridgeFinalized";
+    // Block height of hyperbridge chain that was finalized.
+    finalized_height: bigint;
     // The hash of the block where the event was emitted
-    block_hash: Uint8Array;
+    block_hash: `0x{string}`;
     // The hash of the extrinsic responsible for the event
-    transaction_hash: Uint8Array;
+    transaction_hash: `0x{string}`;
     // The block number where the event was emitted
     block_number: bigint;
 }
@@ -157,9 +161,9 @@ interface HyperbridgeFinalizedWithMetadata {
 interface HyperbridgeTimedoutWithMetadata {
     kind: "HyperbridgeTimedout";
     // The hash of the block where the event was emitted
-    block_hash: Uint8Array;
+    block_hash: `0x{string}`;
     // The hash of the extrinsic responsible for the event
-    transaction_hash: Uint8Array;
+    transaction_hash: `0x{string}`;
     // The block number where the event was emitted
     block_number: bigint;
 }
@@ -168,9 +172,9 @@ interface HyperbridgeTimedoutWithMetadata {
 interface DestinationDeliveredWithMetadata {
     kind: "DestinationDelivered";
     // The hash of the block where the event was emitted
-    block_hash: Uint8Array;
+    block_hash: `0x{string}`;
     // The hash of the extrinsic responsible for the event
-    transaction_hash: Uint8Array;
+    transaction_hash: `0x{string}`;
     // The block number where the event was emitted
     block_number: bigint;
 }
@@ -186,9 +190,9 @@ interface TimeoutMessage {
 interface DestinationFinalizedWithMetadata {
     kind: "DestinationFinalized";
     // The hash of the block where the event was emitted
-    block_hash: Uint8Array;
+    block_hash: `0x{string}`;
     // The hash of the extrinsic responsible for the event
-    transaction_hash: Uint8Array;
+    transaction_hash: `0x{string}`;
     // The block number where the event was emitted
     block_number: bigint;
 }
@@ -225,6 +229,11 @@ pub struct HyperClient {
     pub dest: EvmClient,
     #[wasm_bindgen(skip)]
     pub hyperbridge: SubstrateClient<HyperBridgeConfig>,
+}
+
+fn init_tracing() {
+    console_error_panic_hook::set_once();
+    let _ = tracing_wasm::try_set_as_global_default();
 }
 
 impl HyperClient {
@@ -265,6 +274,7 @@ impl HyperClient {
 
     /// Queries the status of a request and returns `MessageStatus`
     pub async fn query_request_status(&self, request: IPostRequest) -> Result<JsValue, JsError> {
+        init_tracing();
         let lambda = || async move {
             let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
             let post: Post = post.try_into()?;
@@ -303,6 +313,7 @@ impl HyperClient {
         &self,
         request: IPostRequest,
     ) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
+        init_tracing();
         let lambda = || async move {
             let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
             let height = post.height;
@@ -344,6 +355,7 @@ impl HyperClient {
         &self,
         request: IPostRequest,
     ) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
+        init_tracing();
         let lambda = || async move {
             let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
             let post: Post = post.try_into()?;

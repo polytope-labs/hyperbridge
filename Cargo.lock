@@ -5480,7 +5480,7 @@ dependencies = [
 
 [[package]]
 name = "hyperclient"
-version = "0.3.4"
+version = "0.3.10"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",

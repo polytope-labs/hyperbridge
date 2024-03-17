@@ -346,7 +346,7 @@ export async function handleRelayerPostRequestHandledCount(relayerAddress: strin
 
 ```javascript
 export async function handleRelayerAmountEarned(hostAddress: string, relayerAddress: string) {
-  const operationName = QueryOptions.RelayerPostRequestHandledCount
+  const operationName = QueryOptions.TransferPairTotal
 
   const modifiedHostAddress = hostAddress.toLowerCase()
   const modifiedRelayerAddress = relayerAddress.toLowerCase()

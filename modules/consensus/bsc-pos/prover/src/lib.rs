@@ -46,7 +46,7 @@ impl BscPosProver {
         Ok(header)
     }
 
-    #[instrument(level = "trace", target = "bsc-prover", skip(self))]
+    #[instrument(level = "trace", target = "bsc-prover", skip_all)]
     pub async fn fetch_bsc_update<I: Keccak256>(
         &self,
         attested_header: CodecHeader,
@@ -77,14 +77,12 @@ impl BscPosProver {
         let mut epoch_header_ancestry = vec![];
 
         // If we are still in authority rotation period get the epoch header ancestry alongside
-        // update
-        let diff = source_header.number.low_u64().saturating_sub(epoch_header_number);
-        // The maximum difference between the epoch header block number and the source header
-        // number is (rotation_block - 3) since authority set rotation happens after the first
-        // (validator_size / 2 + 2) blocks in an epoch, we want to show that the epoch
-        // header is in the ancestry of our finalized header
-        let upper_bound = (validator_size / 2) - 1;
-        if (1..=upper_bound).contains(&diff) {
+        // update only if the finalized header is not the epoch block
+        let rotation_block = get_rotation_block(epoch_header_number, validator_size) - 1;
+        if attested_header.number.low_u64() >= epoch_header_number + 2 &&
+            attested_header.number.low_u64() <= rotation_block &&
+            source_header.number.low_u64() > epoch_header_number
+        {
             let mut header =
                 self.fetch_header(source_header.parent_hash).await?.ok_or_else(|| {
                     anyhow!("header block could not be fetched {}", source_header.parent_hash)
@@ -130,4 +128,18 @@ impl BscPosProver {
             .collect::<Vec<BlsPublicKey>>();
         Ok((current_epoch_header, current_validators))
     }
+}
+
+// Get the maximum block that can be signed by previous validator set before authority set rotation
+// occurs Validator set change happens at
+// block%EPOCH_LENGTH == validator_size / 2
+pub fn get_rotation_block(mut block: u64, validator_size: u64) -> u64 {
+    loop {
+        if block % EPOCH_LENGTH == (validator_size / 2) {
+            break
+        }
+        block += 1
+    }
+
+    block
 }

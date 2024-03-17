@@ -34,7 +34,7 @@ async fn setup_prover() -> BscPosProver {
 }
 
 #[tokio::test]
-// #[ignore]
+#[ignore]
 async fn verify_bsc_pos_headers() {
     let prover = setup_prover().await;
     let latest_block = prover.latest_header().await.unwrap();

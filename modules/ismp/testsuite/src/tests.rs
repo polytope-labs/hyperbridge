@@ -48,12 +48,12 @@ fn should_process_post_response_timeouts_correctly() {
 #[test]
 fn should_check_response_source() {
     let host = Arc::new(Host::default());
-    let dispatcher = MockDispatcher(host.clone());
-    check_response_source(&*host, &dispatcher).unwrap()
+    check_response_source(&*host).unwrap()
 }
 
 #[test]
 fn should_perform_sanity_check_for_proxies() {
     let host = Arc::new(Host::default());
-    sanity_check_for_proxies(&*host).unwrap()
+    let dispatcher = MockDispatcher(host.clone());
+    sanity_check_for_proxies(&*host, &dispatcher).unwrap()
 }

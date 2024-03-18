@@ -33,7 +33,7 @@ use ismp::{
         DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse, Request,
         RequestResponse, Response,
     },
-    util::{hash_post_response, hash_request},
+    util::{hash_post_response, hash_request, hash_response},
 };
 
 fn mock_consensus_state_id() -> ConsensusStateId {
@@ -429,8 +429,7 @@ pub fn check_request_source_and_destination() {}
 
 /// This should check that if a proxy isn't configured, responses are not valid if they don't come
 /// from the state machine claimed in the proof
-pub fn check_response_source<H: IsmpHost>(host: &H) -> Result<(), &'static str>
-{
+pub fn check_response_source<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     let intermediate_state = setup_mock_client(host);
     // Set the previous update time
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
@@ -476,7 +475,7 @@ pub fn check_response_source<H: IsmpHost>(host: &H) -> Result<(), &'static str>
     };
     let response =
         PostResponse { post: post.clone(), response: vec![], timeout_timestamp: 0, gas_limit: 0 };
-        // Response message handling check
+    // Response message handling check
     let response_message = Message::Response(ResponseMessage {
         datagram: RequestResponse::Response(vec![Response::Post(response.clone())]),
         proof: Proof { height: intermediate_state.height, proof: vec![] },
@@ -490,32 +489,31 @@ pub fn check_response_source<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 }
 
 /// Check that proxies can dispatch requests & responses.
-pub fn sanity_check_for_proxies<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
-    let intermediate_state = setup_mock_client(host);
-    let proxy_state_commitment = setup_mock_proxy_client(host);
-    // Set the previous update time
-    let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
-    let previous_update_time = host.timestamp() - (challenge_period * 2);
-    host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
-        .unwrap();
-    host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
-        .unwrap();
-    host.store_consensus_update_time(mock_proxy_consensus_state_id(), previous_update_time)
-        .unwrap();
-    host.store_state_machine_commitment(
-        proxy_state_commitment.height,
-        proxy_state_commitment.commitment,
-    )
-    .unwrap();
+pub fn sanity_check_for_proxies<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
+where
+    H: IsmpHost,
+    D: IsmpDispatcher,
+    D::Account: From<[u8; 32]>,
+    D::Balance: From<u32>,
+{
+    let proxy_state = setup_mock_proxy_client(host);
 
-    // Assert that proxy is configured
-    assert!(
-        host.allowed_proxy().is_some() &&
-            host.is_allowed_proxy(&proxy_state_commitment.height.id.state_id)
-    );
-
+    let post = DispatchPost {
+        dest: StateMachine::Polygon,
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+        gas_limit: 0,
+    };
+    let dispatch_request = DispatchRequest::Post(post);
+    // Dispatch the request the first time
+    dispatcher
+        .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
+        .map_err(|_| "Dispatcher failed to dispatch request")?;
+    // Fetch commitment from storage
     let post = Post {
-        source: intermediate_state.height.id.state_id,
+        source: proxy_state.height.id.state_id,
         dest: StateMachine::Polygon,
         nonce: 0,
         from: vec![0u8; 32],
@@ -524,33 +522,19 @@ pub fn sanity_check_for_proxies<H: IsmpHost>(host: &H) -> Result<(), &'static st
         data: vec![0u8; 64],
         gas_limit: 0,
     };
-
-    // Request message handling check
-    let request_message = Message::Request(RequestMessage {
-        requests: vec![post.clone()],
-        proof: Proof { height: intermediate_state.height, proof: vec![] },
-        signer: vec![0u8; 32],
-    });
-
-    handle_incoming_message(host, request_message).unwrap();
-
-    // let request = Request::Post(post.clone());
-    // let commitment = hash_request::<H>(&request);
-    // host.request_commitment(commitment)
-    //     .map_err(|_| "Expected Request commitment to be found in storage")?;
+    let request = Request::Post(post.clone());
+    let commitment = hash_request::<H>(&request);
+    host.request_commitment(commitment)
+        .map_err(|_| "Expected Request commitment to be found in storage")?;
 
     let response = PostResponse { post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
-    // Response message handling check
-    let response_message = Message::Response(ResponseMessage {
-        datagram: RequestResponse::Response(vec![Response::Post(response.clone())]),
-        proof: Proof { height: intermediate_state.height, proof: vec![] },
-        signer: vec![],
-    });
-
-    handle_incoming_message(host, response_message).unwrap();
-    assert_ne!(response.dest_chain(), host.host_state_machine());
-    // Assert that response was acknowledged
-    // assert!(host.response_receipt(&Response::Post(response)).is_some());
+    // Dispatch the outgoing response for the first time
+    dispatcher
+        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
+        .map_err(|_| "Router failed to dispatch request")?;
+    let commitment = hash_response::<H>(&Response::Post(response));
+    host.response_commitment(commitment)
+        .map_err(|_| "Expected Request commitment to be found in storage")?;
 
     Ok(())
 }

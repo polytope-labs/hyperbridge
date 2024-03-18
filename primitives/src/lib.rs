@@ -165,6 +165,9 @@ pub trait IsmpProvider: Send + Sync {
 	/// Query the latest height at which some state machine was last updated
 	async fn query_latest_height(&self, id: StateMachineId) -> Result<u32, anyhow::Error>;
 
+	/// Query the finalized latest height of this host
+	async fn query_finalized_height(&self) -> Result<u64, anyhow::Error>;
+
 	/// Query the State machine commitment at the provided height
 	async fn query_state_machine_commitment(
 		&self,

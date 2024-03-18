@@ -1,6 +1,6 @@
 use ismp::{
 	consensus::StateMachineHeight,
-	events::{Event as IsmpEvent, StateMachineUpdated},
+	events::{Event as IsmpEvent, PostRequestHandled, StateMachineUpdated},
 	host::StateMachine,
 	messaging::{Message, Proof, RequestMessage, ResponseMessage},
 	router::{Post, Request, RequestResponse, Response},
@@ -36,6 +36,8 @@ pub enum Event {
 	PostResponse(Meta),
 	/// An event that is emitted when a get request is dispatched
 	GetRequest(Meta),
+	/// Post request handled
+	PostRequestHandled(PostRequestHandled),
 }
 
 impl From<IsmpEvent> for Event {
@@ -51,6 +53,7 @@ impl From<IsmpEvent> for Event {
 			}),
 			IsmpEvent::GetRequest(e) =>
 				Event::GetRequest(Meta { nonce: e.nonce, dest: e.dest, source: e.source }),
+			IsmpEvent::PostRequestHandled(ev) => Event::PostRequestHandled(ev),
 		}
 	}
 }

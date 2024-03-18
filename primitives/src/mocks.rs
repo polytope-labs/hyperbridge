@@ -103,6 +103,10 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		Ok(*self.latest_height.lock().unwrap() as u32)
 	}
 
+	async fn query_finalized_height(&self) -> Result<u64, Error> {
+		Ok(*self.latest_height.lock().unwrap())
+	}
+
 	async fn query_state_machine_commitment(
 		&self,
 		_height: StateMachineHeight,

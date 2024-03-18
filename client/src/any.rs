@@ -104,6 +104,17 @@ macro_rules! chain {
 				}
             }
 
+			async fn query_finalized_height(
+                &self,
+            ) -> Result<u64, anyhow::Error> {
+                match self {
+					$(
+						$(#[$($meta)*])*
+						Self::$name(chain) => chain.query_finalized_height().await,
+					)*
+				}
+            }
+
 			async fn query_state_machine_commitment(
                 &self,
                 height: ismp::consensus::StateMachineHeight,

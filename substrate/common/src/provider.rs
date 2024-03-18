@@ -85,6 +85,17 @@ where
 		Ok(response)
 	}
 
+	async fn query_finalized_height(&self) -> Result<u64, anyhow::Error> {
+		let finalized = self.client.rpc().finalized_head().await?;
+		let block = self
+			.client
+			.rpc()
+			.header(Some(finalized))
+			.await?
+			.ok_or_else(|| anyhow!("Finalized header should exist {finalized:?}"))?;
+		Ok(block.number().into())
+	}
+
 	async fn query_state_machine_update_time(
 		&self,
 		height: StateMachineHeight,

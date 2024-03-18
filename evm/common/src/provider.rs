@@ -80,6 +80,11 @@ where
 		Ok(value.low_u64() as u32)
 	}
 
+	async fn query_finalized_height(&self) -> Result<u64, Error> {
+		let value = self.client.get_block_number().await?;
+		Ok(value.low_u64())
+	}
+
 	async fn query_state_machine_commitment(
 		&self,
 		height: StateMachineHeight,

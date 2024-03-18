@@ -429,12 +429,7 @@ pub fn check_request_source_and_destination() {}
 
 /// This should check that if a proxy isn't configured, responses are not valid if they don't come
 /// from the state machine claimed in the proof
-pub fn check_response_source<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
-where
-    H: IsmpHost,
-    D: IsmpDispatcher,
-    D::Account: From<[u8; 32]>,
-    D::Balance: From<u32>,
+pub fn check_response_source<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 {
     let intermediate_state = setup_mock_client(host);
     // Set the previous update time
@@ -481,9 +476,14 @@ where
     };
     let response =
         PostResponse { post: post.clone(), response: vec![], timeout_timestamp: 0, gas_limit: 0 };
-    dispatcher
-        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
-        .unwrap();
+        // Response message handling check
+    let response_message = Message::Response(ResponseMessage {
+        datagram: RequestResponse::Response(vec![Response::Post(response.clone())]),
+        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        signer: vec![],
+    });
+
+    handle_incoming_message(host, response_message).unwrap();
     // Assert that response is not acknowledged
     assert!(host.response_receipt(&Response::Post(response)).is_none());
     Ok(())

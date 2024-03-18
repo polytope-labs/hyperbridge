@@ -497,6 +497,8 @@ where
     D::Balance: From<u32>,
 {
     let proxy_state = setup_mock_proxy_client(host);
+    // Assert that a proxy is configured
+    assert!(host.allowed_proxy().is_some());
 
     let post = DispatchPost {
         dest: StateMachine::Polygon,
@@ -523,6 +525,8 @@ where
         gas_limit: 0,
     };
     let request = Request::Post(post.clone());
+    assert_ne!(request.dest_chain(), host.host_state_machine());
+
     let commitment = hash_request::<H>(&request);
     host.request_commitment(commitment)
         .map_err(|_| "Expected Request commitment to be found in storage")?;

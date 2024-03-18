@@ -15,12 +15,16 @@
 
 use crate::{
     prelude::*,
-    presets::L2_OUTPUTS_SLOT,
-    utils::{derive_array_item_key, get_contract_storage_root, get_value_from_proof, to_bytes_32},
+    presets::{DISPUTE_GAMES_SLOT, L2_OUTPUTS_SLOT},
+    utils::{
+        derive_array_item_key, derive_map_key, get_contract_storage_root, get_value_from_proof,
+        to_bytes_32,
+    },
 };
 use alloc::{format, string::ToString};
 use alloy_rlp::Decodable;
 use ethabi::ethereum_types::{H160, H256, U128, U256};
+use geth_primitives::{CodecHeader, Header};
 use ismp::{
     consensus::{
         ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
@@ -147,6 +151,102 @@ pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
             timestamp: payload.timestamp,
             overlay_root: None,
             state_root: payload.state_root,
+        },
+    })
+}
+
+#[derive(codec::Encode, codec::Decode, Debug)]
+pub struct OptimismDisputeGameProof {
+    /// Op stack header
+    pub header: CodecHeader,
+    /// Storage root hash of the optimism withdrawal contracts
+    pub withdrawal_storage_root: H256,
+    /// L2Oracle contract version
+    pub version: H256,
+    /// Membership Proof for the DisputeFactory contract account in the ethereum world trie
+    pub dispute_factory_proof: Vec<Vec<u8>>,
+    /// Membership proof for dispute game in disputeGames map
+    pub dispute_game_proof: Vec<Vec<u8>>,
+    /// Dispute game proxy address
+    pub proxy: H160,
+    /// Extra data that was used in initializing the dispute game
+    pub extra_data: Vec<u8>,
+    /// Game type
+    pub game_type: u32,
+}
+
+// https://github.com/ethereum-optimism/optimism/blob/f707883038d527cbf1e9f8ea513fe33255deadbc/packages/contracts-bedrock/src/dispute/DisputeGameFactory.sol#L127
+pub fn get_game_uuid<H: IsmpHost>(game_type: u32, root_claim: H256, extra_data: Vec<u8>) -> H256 {
+    let tokens = [
+        ethabi::Token::Uint(game_type.into()),
+        ethabi::Token::FixedBytes(root_claim.0.to_vec()),
+        ethabi::Token::Bytes(extra_data),
+    ];
+    let encoded = ethabi::encode(&tokens);
+    H::keccak256(&encoded)
+}
+
+// https://github.com/ethereum-optimism/optimism/blob/f707883038d527cbf1e9f8ea513fe33255deadbc/packages/contracts-bedrock/src/libraries/DisputeTypes.sol#L94
+/// Game types
+const CANNON: u32 = 0;
+const _PERMISSIONED: u32 = 1;
+
+pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
+    payload: OptimismDisputeGameProof,
+    root: &[u8],
+    dispute_factory_address: H160,
+    consensus_state_id: ConsensusStateId,
+) -> Result<IntermediateState, Error> {
+    // Is the game type the respected game type
+    if payload.game_type != CANNON {
+        Err(Error::MembershipProofVerificationFailed(
+            "Game type must be the respected game type".to_string(),
+        ))?;
+    }
+    let root = to_bytes_32(root)?;
+    let root = H256::from_slice(&root[..]);
+    let storage_root = get_contract_storage_root::<H>(
+        payload.dispute_factory_proof,
+        dispute_factory_address,
+        root,
+    )?;
+    let l2_block_hash = Header::from(&payload.header).hash::<H>();
+    let mut buf = Vec::with_capacity(128);
+    buf.extend_from_slice(&payload.version[..]);
+    buf.extend_from_slice(&payload.header.state_root[..]);
+    buf.extend_from_slice(&payload.withdrawal_storage_root[..]);
+    buf.extend_from_slice(&l2_block_hash[..]);
+
+    let output_root = H::keccak256(&buf);
+
+    let game_uuid = get_game_uuid::<H>(payload.game_type, output_root, payload.extra_data);
+
+    let dispute_game_key = derive_map_key::<H>(game_uuid.0.to_vec(), DISPUTE_GAMES_SLOT);
+
+    // Does the dispute game's unique identifier exist in the _disputeGames map?
+    let _ = match get_value_from_proof::<H>(
+        dispute_game_key.0.to_vec(),
+        storage_root,
+        payload.dispute_game_proof,
+    )? {
+        Some(value) => value.clone(),
+        _ => Err(Error::MembershipProofVerificationFailed(
+            "Dispute Game's Id not found in proof".to_string(),
+        ))?,
+    };
+
+    Ok(IntermediateState {
+        height: StateMachineHeight {
+            id: StateMachineId {
+                state_id: StateMachine::Ethereum(Ethereum::Optimism),
+                consensus_state_id,
+            },
+            height: payload.header.number.low_u64(),
+        },
+        commitment: StateCommitment {
+            timestamp: payload.header.timestamp,
+            overlay_root: None,
+            state_root: payload.header.state_root,
         },
     })
 }

@@ -18,6 +18,7 @@ use codec::{Decode, Encode};
 use ethabi::ethereum_types::{H160, H256};
 
 use crate::{
+    optimism::verify_optimism_dispute_game_proof,
     types::{BeaconClientUpdate, ConsensusState},
     utils::{
         construct_intermediate_state, decode_evm_state_proof, get_contract_storage_root,
@@ -60,10 +61,14 @@ impl<
         trusted_consensus_state: Vec<u8>,
         consensus_proof: Vec<u8>,
     ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-        let BeaconClientUpdate { mut op_stack_payload, consensus_update, arbitrum_payload } =
-            BeaconClientUpdate::decode(&mut &consensus_proof[..]).map_err(|_| {
-                Error::ImplementationSpecific("Cannot decode beacon client update".to_string())
-            })?;
+        let BeaconClientUpdate {
+            mut op_stack_payload,
+            mut dispute_game_payload,
+            consensus_update,
+            arbitrum_payload,
+        } = BeaconClientUpdate::decode(&mut &consensus_proof[..]).map_err(|_| {
+            Error::ImplementationSpecific("Cannot decode beacon client update".to_string())
+        })?;
 
         let consensus_state =
             ConsensusState::decode(&mut &trusted_consensus_state[..]).map_err(|_| {
@@ -125,6 +130,28 @@ impl<
             }
         }
 
+        for state_machine_id in op_stack {
+            if let Some(payload) = dispute_game_payload.remove(&state_machine_id) {
+                let state = verify_optimism_dispute_game_proof::<H>(
+                    payload,
+                    &state_root[..],
+                    *consensus_state.dispute_factory_address.get(&state_machine_id).ok_or_else(
+                        || Error::ImplementationSpecific("l2 oracle address was not set".into()),
+                    )?,
+                    consensus_state_id.clone(),
+                )?;
+
+                let state_commitment_height = StateCommitmentHeight {
+                    commitment: state.commitment,
+                    height: state.height.height,
+                };
+
+                let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
+                state_commitment_vec.push(state_commitment_height);
+                state_machine_map.insert(state_machine_id, state_commitment_vec);
+            }
+        }
+
         if let Some(arbitrum_payload) = arbitrum_payload {
             let state = verify_arbitrum_payload::<H>(
                 arbitrum_payload,
@@ -151,6 +178,7 @@ impl<
             })?,
             ismp_contract_addresses: consensus_state.ismp_contract_addresses,
             l2_oracle_address: consensus_state.l2_oracle_address,
+            dispute_factory_address: consensus_state.dispute_factory_address,
             rollup_core_address: consensus_state.rollup_core_address,
         };
 

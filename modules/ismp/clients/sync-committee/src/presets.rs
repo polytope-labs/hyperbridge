@@ -25,3 +25,5 @@ pub const RESPONSE_RECEIPTS_SLOT: u64 = 3;
 pub const L2_OUTPUTS_SLOT: u64 = 3;
 /// Storage layout slot for the nodes map in the Rollup Contract
 pub const NODES_SLOT: u64 = 118;
+/// Slot for the disputeGames map in DisputeFactory contract
+pub const DISPUTE_GAMES_SLOT: u64 = 3;

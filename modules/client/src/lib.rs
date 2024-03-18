@@ -231,11 +231,6 @@ pub struct HyperClient {
     pub hyperbridge: SubstrateClient<HyperBridgeConfig>,
 }
 
-fn init_tracing() {
-    console_error_panic_hook::set_once();
-    let _ = tracing_wasm::try_set_as_global_default();
-}
-
 impl HyperClient {
     /// Initialize the Hyperclient
     pub async fn new(config: ClientConfig) -> Result<Self, anyhow::Error> {
@@ -274,7 +269,6 @@ impl HyperClient {
 
     /// Queries the status of a request and returns `MessageStatus`
     pub async fn query_request_status(&self, request: IPostRequest) -> Result<JsValue, JsError> {
-        init_tracing();
         let lambda = || async move {
             let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
             let post: Post = post.try_into()?;
@@ -313,7 +307,6 @@ impl HyperClient {
         &self,
         request: IPostRequest,
     ) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
-        init_tracing();
         let lambda = || async move {
             let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
             let height = post.height;
@@ -355,7 +348,6 @@ impl HyperClient {
         &self,
         request: IPostRequest,
     ) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
-        init_tracing();
         let lambda = || async move {
             let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
             let post: Post = post.try_into()?;

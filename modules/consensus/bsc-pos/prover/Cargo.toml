@@ -16,6 +16,7 @@ ismp = { path = "../../../ismp/core" }
 sp-core = { workspace = true }
 sync-committee-primitives  = { path = "../../sync-committee/primitives" }
 geth-primitives = { path = "../../geth-primitives" }
+tracing = "0.1.40"
 
 [dev-dependencies]
 tokio = { version = "1.32.0", features = ["macros"] }

@@ -136,12 +136,12 @@ pub mod mainnet {
         const BELLATRIX_FORK_EPOCH: Epoch = 144896;
         const CAPELLA_FORK_EPOCH: Epoch = 194048;
         const CAPELLA_FORK_VERSION: Version = hex_literal::hex!("03000000");
-        const DENEB_FORK_EPOCH: Epoch = u64::MAX;
-        const DENEB_FORK_VERSION: Version = [0, 0, 0, 0];
+        const DENEB_FORK_EPOCH: Epoch = 269568;
+        const DENEB_FORK_VERSION: Version = hex_literal::hex!("04000000");
         const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 256;
-        const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 18;
-        const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 22;
-        const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 25;
+        const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
+        const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
+        const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
     }
 }
 

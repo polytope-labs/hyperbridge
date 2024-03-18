@@ -1252,6 +1252,7 @@ dependencies = [
  "sp-core 28.0.0",
  "sync-committee-primitives",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -7249,7 +7250,6 @@ dependencies = [
  "ismp",
  "ismp-bsc-pos",
  "ismp-demo",
- "ismp-polygon-pos",
  "ismp-runtime-api",
  "ismp-sync-committee",
  "log",
@@ -7753,7 +7753,6 @@ dependencies = [
  "ismp",
  "ismp-bsc-pos",
  "ismp-demo",
- "ismp-polygon-pos",
  "ismp-runtime-api",
  "ismp-sync-committee",
  "log",
@@ -16446,6 +16445,7 @@ dependencies = [
  "sync-committee-verifier",
  "tokio",
  "tokio-stream",
+ "tracing",
 ]
 
 [[package]]

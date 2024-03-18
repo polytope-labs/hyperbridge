@@ -29,7 +29,7 @@ use ismp::{
 
 use ismp::router::Timeout;
 
-use ismp_sync_committee::constants::sepolia::Sepolia;
+use ismp_sync_committee::constants::mainnet::Mainnet;
 use pallet_ismp::{dispatcher::FeeMetadata, host::Host, primitives::ModuleId};
 use sp_std::prelude::*;
 
@@ -66,7 +66,7 @@ impl pallet_ismp::Config for Runtime {
     type Coprocessor = Coprocessor;
     type ConsensusClients = (
         ismp_bsc_pos::BscClient<Host<Runtime>>,
-        ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Sepolia>,
+        ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Mainnet>,
     );
     type WeightInfo = ();
     type WeightProvider = ();
@@ -78,8 +78,6 @@ impl ismp_demo::Config for Runtime {
     type NativeCurrency = Balances;
     type IsmpDispatcher = pallet_ismp::dispatcher::Dispatcher<Runtime>;
 }
-
-impl ismp_polygon_pos::pallet::Config for Runtime {}
 
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {

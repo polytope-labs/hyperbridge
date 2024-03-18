@@ -1,10 +1,13 @@
 use crate::{
-    providers::global::{Client, RequestOrResponse},
+    providers::interface::{Client, RequestOrResponse},
     types::BoxStream,
 };
 use ethers::prelude::Middleware;
 
-use crate::types::{EvmStateProof, SubstrateStateProof};
+use crate::{
+    providers::interface::WithMetadata,
+    types::{EventMetadata, EvmStateProof, SubstrateStateProof},
+};
 use anyhow::{anyhow, Context, Error};
 use core::time::Duration;
 use ethers::{
@@ -24,7 +27,7 @@ use ismp_solidity_abi::{
     evm_host::{EvmHost, EvmHostEvents, GetRequest, PostRequestHandledFilter},
     handler::{GetTimeoutMessage, Handler, PostRequestTimeoutMessage, PostResponseTimeoutMessage},
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
 
 // =======================================
 // CONSTANTS                            =
@@ -162,80 +165,113 @@ impl Client for EvmClient {
         Ok(response_receipt.relayer)
     }
 
+    async fn query_ismp_event(
+        &self,
+        range: RangeInclusive<u64>,
+    ) -> Result<Vec<WithMetadata<Event>>, anyhow::Error> {
+        let contract = EvmHost::new(self.host_address, self.client.clone());
+        contract
+            .events()
+            .address(self.host_address.into())
+            .from_block(*range.start())
+            .to_block(*range.end())
+            .query_with_meta()
+            .await?
+            .into_iter()
+            .map(|(event, meta)| {
+                Ok(WithMetadata {
+                    meta: EventMetadata {
+                        block_hash: meta.block_hash,
+                        transaction_hash: meta.transaction_hash,
+                        block_number: meta.block_number.as_u64(),
+                    },
+                    event: event.try_into()?,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+    }
+
     async fn ismp_events_stream(
         &self,
         _item: RequestOrResponse,
-    ) -> Result<BoxStream<Event>, Error> {
+    ) -> Result<BoxStream<WithMetadata<Event>>, Error> {
         Err(anyhow!("Ismp stream unavailable for evm client"))
     }
 
     async fn post_request_handled_stream(
         &self,
         commitment: H256,
-    ) -> Result<BoxStream<PostRequestHandledFilter>, Error> {
+    ) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, Error> {
         let initial_height = self.client.get_block_number().await?.as_u64();
         let client = self.clone();
         let interval = wasm_timer::Interval::new(Duration::from_secs(30));
         let stream = stream::unfold(
             (initial_height, interval, client),
-            move |(mut latest_height, mut interval, client)| async move {
+            move |(latest_height, mut interval, client)| async move {
                 let state_machine = client.state_machine;
-                loop {
-                    interval.next().await;
-                    let block_number = match client.client.get_block_number().await {
-                            Ok(number) => number.low_u64(),
-                            Err(err) =>
-                                return Some((
-                                    Err(err).context(format!(
-                                        "Error encountered fetching latest block number for {state_machine:?}"
-                                    )),
-                                    (latest_height, interval, client),
-                                )),
-                        };
+                interval.next().await;
+                let block_number = match client.client.get_block_number().await {
+                    Ok(number) => number.low_u64(),
+                    Err(err) =>
+                        return Some((
+                            Err(err).context(format!(
+                            "Error encountered fetching latest block number for {state_machine:?}"
+                        )),
+                            (latest_height, interval, client),
+                        )),
+                };
 
-                    // in case we get old heights, best to ignore them
-                    if block_number < latest_height {
-                        continue;
-                    }
-
-                    let contract = EvmHost::new(client.host_address, client.client.clone());
-                    let results = match contract
-                        .events()
-                        .address(client.host_address.into())
-                        .from_block(latest_height)
-                        .to_block(block_number)
-                        .query()
-                        .await
-                    {
-                        Ok(events) => events,
-                        Err(err) =>
-                            return Some((
-                                Err(err).context(format!(
-                                    "Failed to query events on {state_machine:?}"
-                                )),
-                                (latest_height, interval, client),
-                            )),
-                    };
-
-                    let events = results
-                        .into_iter()
-                        .filter_map(|ev| match ev {
-                            EvmHostEvents::PostRequestHandledFilter(filter)
-                                if filter.commitment == commitment.0 =>
-                                Some(filter),
-                            _ => None,
-                        })
-                        .collect::<Vec<PostRequestHandledFilter>>();
-
-                    // we only want the highest event
-                    if let Some(event) = events.last() {
-                        return Some((Ok(event.clone()), (block_number + 1, interval, client)))
-                    } else {
-                        latest_height = block_number + 1;
-                    }
+                // in case we get old heights, best to ignore them
+                if block_number < latest_height {
+                    return Some((Ok(None), (block_number, interval, client)))
                 }
+
+                let contract = EvmHost::new(client.host_address, client.client.clone());
+                let results = match contract
+                    .events()
+                    .address(client.host_address.into())
+                    .from_block(latest_height)
+                    .to_block(block_number)
+                    .query_with_meta()
+                    .await
+                {
+                    Ok(events) => events,
+                    Err(err) =>
+                        return Some((
+                            Err(err)
+                                .context(format!("Failed to query events on {state_machine:?}")),
+                            (latest_height, interval, client),
+                        )),
+                };
+
+                let events = results
+                    .into_iter()
+                    .filter_map(|(ev, meta)| match ev {
+                        EvmHostEvents::PostRequestHandledFilter(filter)
+                            if filter.commitment == commitment.0 =>
+                            Some(WithMetadata {
+                                meta: EventMetadata {
+                                    block_hash: meta.block_hash,
+                                    transaction_hash: meta.transaction_hash,
+                                    block_number: meta.block_number.as_u64(),
+                                },
+                                event: filter,
+                            }),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+
+                // we only want the highest event
+                Some((Ok(events.last().cloned()), (block_number + 1, interval, client)))
             },
-        );
+        )
+        .filter_map(|item| async move {
+            match item {
+                Ok(None) => None,
+                Ok(Some(event)) => Some(Ok(event)),
+                Err(err) => Some(Err(err)),
+            }
+        });
 
         Ok(Box::pin(stream))
     }
@@ -243,63 +279,71 @@ impl Client for EvmClient {
     async fn state_machine_update_notification(
         &self,
         _counterparty_state_id: StateMachineId,
-    ) -> Result<BoxStream<StateMachineUpdated>, Error> {
+    ) -> Result<BoxStream<WithMetadata<StateMachineUpdated>>, Error> {
         let initial_height = self.client.get_block_number().await?.as_u64();
         let interval = wasm_timer::Interval::new(Duration::from_secs(30));
         let stream = stream::unfold(
             (initial_height, interval, self.clone()),
-            move |(mut latest_height, mut interval, client)| async move {
+            move |(latest_height, mut interval, client)| async move {
                 let state_machine = client.state_machine;
-                loop {
-                    interval.next().await;
-                    let block_number = match client.client.get_block_number().await {
-                        Ok(number) => number.low_u64(),
-                        Err(err) =>
-                            return Some((
-                                Err(err).context(format!(
-                                    "Error encountered fetching latest block number for {state_machine:?}"
-                                )),
-                                (latest_height,interval, client),
-                            )),
-                    };
+                interval.next().await;
+                let block_number = match client.client.get_block_number().await {
+                    Ok(number) => number.low_u64(),
+                    Err(err) =>
+                        return Some((
+                            Err(err).context(format!(
+                            "Error encountered fetching latest block number for {state_machine:?}"
+                        )),
+                            (latest_height, interval, client),
+                        )),
+                };
 
-                    // in case we get old heights, best to ignore them
-                    if block_number < latest_height {
-                        continue;
-                    }
-
-                    let contract = Handler::new(client.ismp_handler, client.client.clone());
-                    let results = match contract
-                        .events()
-                        .address(client.ismp_handler.into())
-                        .from_block(latest_height)
-                        .to_block(block_number)
-                        .query()
-                        .await
-                    {
-                        Ok(events) => events,
-                        Err(err) =>
-                            return Some((
-                                Err(err).context(format!(
-                                    "Failed to query events on {state_machine:?}"
-                                )),
-                                (latest_height, interval, client),
-                            )),
-                    };
-                    let mut events = results
-                        .into_iter()
-                        .map(|ev| ev.into())
-                        .collect::<Vec<StateMachineUpdated>>();
-                    // we only want the highest event
-                    events.sort_by(|a, b| a.latest_height.cmp(&b.latest_height));
-                    if let Some(event) = events.last() {
-                        return Some((Ok(event.clone()), (block_number + 1, interval, client)))
-                    } else {
-                        latest_height = block_number + 1;
-                    }
+                // in case we get old heights, best to ignore them
+                if block_number < latest_height {
+                    return Some((Ok(None), (block_number, interval, client)))
                 }
+
+                let contract = Handler::new(client.ismp_handler, client.client.clone());
+                let results = match contract
+                    .events()
+                    .address(client.ismp_handler.into())
+                    .from_block(latest_height)
+                    .to_block(block_number)
+                    .query_with_meta()
+                    .await
+                {
+                    Ok(events) => events,
+                    Err(err) =>
+                        return Some((
+                            Err(err)
+                                .context(format!("Failed to query events on {state_machine:?}")),
+                            (latest_height, interval, client),
+                        )),
+                };
+                let mut events = results
+                    .into_iter()
+                    .map(|(ev, meta)| WithMetadata {
+                        meta: EventMetadata {
+                            block_hash: meta.block_hash,
+                            transaction_hash: meta.transaction_hash,
+                            block_number: meta.block_number.as_u64(),
+                        },
+                        event: StateMachineUpdated::from(ev),
+                    })
+                    .collect::<Vec<_>>();
+                // we only want the highest event
+                events.sort_by(|a, b| a.event.latest_height.cmp(&b.event.latest_height));
+                // we only want the highest event
+                Some((Ok(events.last().cloned()), (block_number + 1, interval, client)))
             },
-        );
+        )
+        .filter_map(|item| async move {
+            match item {
+                Ok(None) => None,
+                Ok(Some(event)) => Some(Ok(event)),
+                Err(err) => Some(Err(err)),
+            }
+        });
 
         Ok(Box::pin(stream))
     }
@@ -430,7 +474,7 @@ impl Client for EvmClient {
         }
     }
 
-    async fn submit(&self, _msg: Message) -> Result<(), Error> {
+    async fn submit(&self, _msg: Message) -> Result<EventMetadata, Error> {
         Err(anyhow!("Client cannot submit messages"))
     }
 

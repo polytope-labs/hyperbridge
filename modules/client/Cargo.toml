@@ -1,47 +1,53 @@
 [package]
 name = "hyperclient"
-version = "0.1.0"
+version = "0.3.4"
 edition = "2021"
+description = "The hyperclient is a library for managing (in-flight) ISMP requests"
+repository = "https://github.com/polytope-labs/hyperbridge"
+license = "Apache-2.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-
 [dependencies]
-wasm-bindgen = { version = "0.2.90", features = [] }
-ismp = { path = "../ismp/core", default-features = false }
+wasm-bindgen = { version = "0.2.90" }
 subxt = { version = "0.30.1", default-features = false }
-getrandom = { version = "0.2", features = ["js"] }
-ethers = { workspace = true, features = ["ws"] }
+getrandom = { version = "0.2", default-features = false, features = ["js"] }
 anyhow = "1.0.75"
-hex-literal = { version = "0.3.3" }
+hex-literal = { version = "0.4.1" }
 serde-wasm-bindgen = { version = "0.6.3", default-features = false }
 serde = { version = "1.0.196", features = ["derive"], default-features = false }
 wasm-bindgen-futures = "0.4.40"
-sp-core = { workspace = true, default-features = false, features = ["full_crypto", "serde"] }
 codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
-async-trait = { version = "0.1.53", features = [] }
 futures = "0.3.30"
 wasm-streams = "0.4.0"
 tokio = { version = "1.35.1", features = ["macros"]  }
-reqwest = { version = "0.11.23", features = ["json"] }
 wasm-bindgen-test = "0.3.41"
 js-sys = "0.3.68"
 web-sys = "0.3.68"
-wasm-timer = "0.2.5"
-ismp-solidity-abi = { path = "../../evm/abi", default-features = false }
+wasm-timer = { package = "fluvio-wasm-timer", version = "0.2.5" }
 hashbrown = { version = "0.14.3", features = ["serde"] }
+primitive-types = { version = "0.12.2", default-features = false, features = ["serde"] }
+tracing = { version = "0.1.40", default-features = false }
 
+ethers = { workspace = true, features = ["ws"] }
+
+ismp = { path = "../ismp/core", default-features = false }
+ismp-solidity-abi = { path = "../../evm/abi", default-features = false }
+
+[dependencies.reconnecting-jsonrpsee-ws-client]
+git = "https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client"
+rev = "84fd8400cac12babd1be7c337dc1a8d14ce0c101"
+default-features = false
 
 [features]
 default = ["std"]
-wasm = ["subxt/web", "subxt/jsonrpsee"]
-std = ["subxt/native", "subxt/jsonrpsee"]
-
+wasm = ["subxt/web", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/web"]
+std = ["subxt/native", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/native"]
 
 [dev-dependencies]
-tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread"]  }
-frame-support = { workspace = true, features = ["default"]}
-dotenv = "0.15.0"
-hex = "0.4.3"
+json = { package = "serde_json", version = "1.0.114", default-features = false }
+wasm-bindgen-test = "0.3.24"
+tracing-wasm = "0.2.1"
+console_error_panic_hook = "0.1.7"
+hex = { version = "0.4.3", default-features = false }

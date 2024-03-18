@@ -20,6 +20,12 @@ import {
     PostResponseLeaf
 } from "ismp/Message.sol";
 
+// Storage prefix for request receipts in pallet-ismp
+bytes constant REQUEST_RECEIPTS_STORAGE_PREFIX = hex"103895530afb23bb607661426d55eb8b0484aecefe882c3ce64e6f82507f715a";
+
+// Storage prefix for request receipts in pallet-ismp
+bytes constant RESPONSE_RECEIPTS_STORAGE_PREFIX = hex"103895530afb23bb607661426d55eb8b554b72b7162725f9457d35ecafb8b02f";
+
 /// Entry point for the hyperbridge. Implementation of the ISMP handler protocol
 contract HandlerV1 is IHandler, Context {
     using Bytes for bytes;
@@ -33,26 +39,20 @@ contract HandlerV1 is IHandler, Context {
         _;
     }
 
-    // Storage prefix for request receipts in pallet-ismp
-    bytes private constant REQUEST_RECEIPTS_STORAGE_PREFIX =
-        hex"103895530afb23bb607661426d55eb8b0484aecefe882c3ce64e6f82507f715a";
-
-    // Storage prefix for request receipts in pallet-ismp
-    bytes private constant RESPONSE_RECEIPTS_STORAGE_PREFIX =
-        hex"103895530afb23bb607661426d55eb8b554b72b7162725f9457d35ecafb8b02f";
-
     event StateMachineUpdated(uint256 stateMachineId, uint256 height);
 
     /**
-     * @dev Handle incoming consensus messages
-     * @param host - Ismp host
+     * @dev Handle incoming consensus messages. These message are accompanied with some cryptographic proof.
+     * If the Host's internal consensus client verifies this proof successfully,
+     * The `StateCommitment` enters the preconfigured challenge period.
+     * @param host - `IsmpHost`
      * @param proof - consensus proof
      */
     function handleConsensus(IIsmpHost host, bytes memory proof) external notFrozen(host) {
         uint256 delay = host.timestamp() - host.consensusUpdateTime();
 
         // not today, time traveling validators
-        require(delay < host.unStakingPeriod() || _msgSender() == host.admin(), "IHandler: still in challenge period");
+        require(delay < host.unStakingPeriod(), "IHandler: still in challenge period");
 
         (bytes memory verifiedState, IntermediateState memory intermediate) =
             IConsensusClient(host.consensusClient()).verifyConsensus(host.consensusState(), proof);
@@ -74,8 +74,8 @@ contract HandlerV1 is IHandler, Context {
     }
 
     /**
-     * @dev check request proofs, message delay and timeouts, then dispatch post requests to modules
-     * @param host - Ismp host
+     * @dev Checks the provided requests and their proofs, before dispatching them to their relevant destination modules
+     * @param host - `IsmpHost`
      * @param request - batch post requests
      */
     function handlePostRequests(IIsmpHost host, PostRequestMessage memory request) external notFrozen(host) {
@@ -113,8 +113,8 @@ contract HandlerV1 is IHandler, Context {
     }
 
     /**
-     * @dev check response proofs, message delay and timeouts, then dispatch post responses to modules
-     * @param host - Ismp host
+     * @dev Checks the provided responses and their proofs, before dispatching them to their relevant destination modules
+     * @param host - `IsmpHost`
      * @param response - batch post responses
      */
     function handlePostResponses(IIsmpHost host, PostResponseMessage memory response) external notFrozen(host) {
@@ -153,8 +153,8 @@ contract HandlerV1 is IHandler, Context {
     }
 
     /**
-     * @dev check timeout proofs then dispatch to modules
-     * @param host - Ismp host
+     * @dev Checks the provided timed-out requests and their proofs, before dispatching them to their relevant destination modules
+     * @param host - IsmpHost
      * @param message - batch post request timeouts
      */
     function handlePostRequestTimeouts(IIsmpHost host, PostRequestTimeoutMessage memory message)

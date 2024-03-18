@@ -31,6 +31,7 @@ use ismp::{
     },
     error::Error,
     host::{Ethereum, IsmpHost, StateMachine},
+    util::Keccak256,
 };
 
 #[derive(codec::Encode, codec::Decode, Debug)]
@@ -173,10 +174,12 @@ pub struct OptimismDisputeGameProof {
     pub extra_data: Vec<u8>,
     /// Game type
     pub game_type: u32,
+    /// L1 Timestamp at game creation
+    pub timestamp: u64,
 }
 
 // https://github.com/ethereum-optimism/optimism/blob/f707883038d527cbf1e9f8ea513fe33255deadbc/packages/contracts-bedrock/src/dispute/DisputeGameFactory.sol#L127
-pub fn get_game_uuid<H: IsmpHost>(game_type: u32, root_claim: H256, extra_data: Vec<u8>) -> H256 {
+pub fn get_game_uuid<H: Keccak256>(game_type: u32, root_claim: H256, extra_data: Vec<u8>) -> H256 {
     let tokens = [
         ethabi::Token::Uint(game_type.into()),
         ethabi::Token::FixedBytes(root_claim.0.to_vec()),
@@ -188,8 +191,8 @@ pub fn get_game_uuid<H: IsmpHost>(game_type: u32, root_claim: H256, extra_data: 
 
 // https://github.com/ethereum-optimism/optimism/blob/f707883038d527cbf1e9f8ea513fe33255deadbc/packages/contracts-bedrock/src/libraries/DisputeTypes.sol#L94
 /// Game types
-const CANNON: u32 = 0;
-const _PERMISSIONED: u32 = 1;
+pub const CANNON: u32 = 0;
+pub const _PERMISSIONED: u32 = 1;
 
 pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
     payload: OptimismDisputeGameProof,
@@ -217,14 +220,14 @@ pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
     buf.extend_from_slice(&payload.withdrawal_storage_root[..]);
     buf.extend_from_slice(&l2_block_hash[..]);
 
-    let output_root = H::keccak256(&buf);
+    let root_claim = H::keccak256(&buf);
 
-    let game_uuid = get_game_uuid::<H>(payload.game_type, output_root, payload.extra_data);
+    let game_uuid = get_game_uuid::<H>(payload.game_type, root_claim, payload.extra_data);
 
     let dispute_game_key = derive_map_key::<H>(game_uuid.0.to_vec(), DISPUTE_GAMES_SLOT);
 
     // Does the dispute game's unique identifier exist in the _disputeGames map?
-    let _ = match get_value_from_proof::<H>(
+    let proof_value = match get_value_from_proof::<H>(
         dispute_game_key.0.to_vec(),
         storage_root,
         payload.dispute_game_proof,
@@ -234,6 +237,20 @@ pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
             "Dispute Game's Id not found in proof".to_string(),
         ))?,
     };
+
+    let proof_value = <alloy_primitives::FixedBytes<32> as Decodable>::decode(&mut &*proof_value)
+        .map_err(|_| {
+        Error::ImplementationSpecific(format!("Error decoding output root from {:?}", &proof_value))
+    })?;
+
+    let proof_game_id = U256::from_big_endian(&proof_value.0);
+    let game_id = get_game_id(payload.game_type, payload.timestamp, payload.proxy);
+
+    if proof_game_id != game_id {
+        Err(Error::MembershipProofVerificationFailed(
+            "Game Id from proof does not match derived game id".to_string(),
+        ))?;
+    }
 
     Ok(IntermediateState {
         height: StateMachineHeight {
@@ -249,4 +266,19 @@ pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
             state_root: payload.header.state_root,
         },
     })
+}
+
+// https://github.com/ethereum-optimism/optimism/blob/f707883038d527cbf1e9f8ea513fe33255deadbc/packages/contracts-bedrock/src/dispute/lib/LibGameId.sol#L15
+fn get_game_id(game_type: u32, timestamp: u64, game_proxy: H160) -> U256 {
+    let mut bytes = U256::zero();
+    // Use bitwise shifts and bitwise OR for packing
+    bytes |= U256::from(game_type) << 224;
+    bytes |= U256::from(timestamp) << 160;
+
+    let mut addr = vec![0u8; 12];
+    addr.extend_from_slice(&game_proxy.0);
+    let proxy = U256::from_big_endian(&addr);
+
+    bytes |= proxy;
+    bytes
 }

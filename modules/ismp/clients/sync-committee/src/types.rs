@@ -13,7 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{arbitrum::ArbitrumPayloadProof, optimism::OptimismPayloadProof, prelude::*};
+use crate::{
+    arbitrum::ArbitrumPayloadProof,
+    optimism::{OptimismDisputeGameProof, OptimismPayloadProof},
+    prelude::*,
+};
 use alloc::collections::BTreeMap;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use codec::{Decode, Encode};

@@ -47,8 +47,6 @@ impl ismp_sync_committee::pallet::Config for Runtime {
     type AdminOrigin = EnsureRoot<AccountId>;
 }
 
-impl ismp_polygon_pos::pallet::Config for Runtime {}
-
 pub struct Coprocessor;
 
 impl Get<Option<StateMachine>> for Coprocessor {

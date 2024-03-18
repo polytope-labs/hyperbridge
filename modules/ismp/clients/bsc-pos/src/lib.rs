@@ -7,7 +7,7 @@ use core::marker::PhantomData;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 use bsc_pos_verifier::{
-    primitives::{compute_epoch, BscClientUpdate},
+    primitives::{compute_epoch, BscClientUpdate, EPOCH_LENGTH},
     verify_bsc_header, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
@@ -27,7 +27,7 @@ use sync_committee_primitives::constants::BlsPublicKey;
 
 pub const BSC_CONSENSUS_ID: ConsensusStateId = *b"BSCP";
 
-#[derive(codec::Encode, codec::Decode, Debug, Default)]
+#[derive(codec::Encode, codec::Decode, Debug, Default, PartialEq, Eq, Clone)]
 pub struct ConsensusState {
     pub current_validators: Vec<BlsPublicKey>,
     pub next_validators: Option<NextValidators>,
@@ -73,14 +73,24 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
         }
 
         if let Some(next_validators) = consensus_state.next_validators.clone() {
-            if bsc_client_update.attested_header.number.low_u64() >= next_validators.rotation_block
+            if bsc_client_update.attested_header.number.low_u64() % EPOCH_LENGTH >=
+                (consensus_state.current_validators.len() as u64 / 2)
             {
+                // Sanity check
+                // During authority set rotation, the source header must be from the same epoch as
+                // the attested header
+                let epoch = compute_epoch(bsc_client_update.attested_header.number.low_u64());
+                let source_header_epoch =
+                    compute_epoch(bsc_client_update.source_header.number.low_u64());
+                if source_header_epoch != epoch {
+                    Err(Error::ImplementationSpecific("The Source Header must be from the same epoch with the attested epoch during an authority set rotation".to_string()))?
+                }
                 consensus_state.current_validators = next_validators.validators;
                 consensus_state.next_validators = None;
+                consensus_state.current_epoch = epoch;
             }
         }
 
-        let epoch = compute_epoch(bsc_client_update.source_header.number.low_u64());
         let VerificationResult { hash, finalized_header, next_validators } =
             verify_bsc_header::<H>(&consensus_state.current_validators, bsc_client_update)
                 .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
@@ -97,7 +107,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
             height: finalized_header.number.low_u64(),
         };
         consensus_state.finalized_hash = hash;
-        consensus_state.current_epoch = epoch;
+
         if let Some(next_validators) = next_validators {
             consensus_state.next_validators = Some(next_validators);
         }

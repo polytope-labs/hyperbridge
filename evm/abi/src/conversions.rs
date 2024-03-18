@@ -14,156 +14,168 @@
 // limitations under the License.
 
 //! Convenient type conversions
-
+#![allow(unused_imports)]
 use crate::{
-    beefy::{
-        AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf, Commitment,
-        IntermediateState, Node, Parachain, ParachainProof, Payload, RelayChainProof,
-        SignedCommitment, Vote,
-    },
+    beefy::IntermediateState,
     evm_host::EvmHostEvents,
     handler::StateMachineUpdatedFilter,
     shared_types::{PostRequest, PostResponse, StateMachineHeight},
 };
 use anyhow::anyhow;
-use beefy_verifier_primitives::{
-    BeefyNextAuthoritySet, ConsensusMessage, ConsensusState, MmrProof,
-};
 use ismp::{host::StateMachine, router};
-use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
+
+use crate::evm_host::PostRequestEventFilter;
+#[cfg(feature = "beefy")]
+pub use beefy::*;
 use primitive_types::H256;
 use std::str::FromStr;
 
-impl From<beefy_verifier_primitives::ParachainProof> for ParachainProof {
-    fn from(value: beefy_verifier_primitives::ParachainProof) -> Self {
-        ParachainProof {
-            parachain: value
-                .parachains
-                .into_iter()
-                .map(|parachain| Parachain {
-                    index: parachain.index.into(),
-                    id: parachain.para_id.into(),
-                    header: parachain.header.into(),
-                })
-                .collect::<Vec<_>>()[0]
-                .clone(),
-            proof: value
-                .proof
-                .into_iter()
-                .map(|layer| {
-                    layer
-                        .into_iter()
-                        .map(|(index, node)| Node { k_index: index.into(), node: node.into() })
-                        .collect()
-                })
-                .collect(),
-        }
-    }
-}
+#[cfg(feature = "beefy")]
+mod beefy {
+    use crate::beefy::{
+        AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf, Commitment,
+        Node, Parachain, ParachainProof, Payload, RelayChainProof, SignedCommitment, Vote,
+    };
+    use beefy_verifier_primitives::{ConsensusMessage, ConsensusState, MmrProof};
+    use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
+    use primitive_types::H256;
+    use sp_consensus_beefy::mmr::BeefyNextAuthoritySet;
 
-impl From<ConsensusMessage> for BeefyConsensusProof {
-    fn from(message: ConsensusMessage) -> Self {
-        BeefyConsensusProof { relay: message.mmr.into(), parachain: message.parachain.into() }
-    }
-}
-
-impl From<MmrProof> for RelayChainProof {
-    fn from(value: MmrProof) -> Self {
-        let leaf_index = value.mmr_proof.leaf_indices[0];
-        let k_index = mmr_utils::mmr_position_to_k_index(
-            vec![leaf_index_to_pos(leaf_index)],
-            leaf_index_to_mmr_size(leaf_index),
-        )[0]
-        .1;
-
-        RelayChainProof {
-            signed_commitment: SignedCommitment {
-                commitment: Commitment {
-                    payload: vec![Payload {
-                        id: b"mh".clone(),
-                        data: value
-                            .signed_commitment
-                            .commitment
-                            .payload
-                            .get_raw(b"mh")
-                            .unwrap()
-                            .clone()
-                            .into(),
-                    }],
-                    block_number: value.signed_commitment.commitment.block_number.into(),
-                    validator_set_id: value.signed_commitment.commitment.validator_set_id.into(),
-                },
-                votes: value
-                    .signed_commitment
-                    .signatures
+    impl From<beefy_verifier_primitives::ParachainProof> for ParachainProof {
+        fn from(value: beefy_verifier_primitives::ParachainProof) -> Self {
+            ParachainProof {
+                parachain: value
+                    .parachains
                     .into_iter()
-                    .map(|a| Vote {
-                        signature: a.signature.to_vec().into(),
-                        authority_index: a.index.into(),
+                    .map(|parachain| Parachain {
+                        index: parachain.index.into(),
+                        id: parachain.para_id.into(),
+                        header: parachain.header.into(),
+                    })
+                    .collect::<Vec<_>>()[0]
+                    .clone(),
+                proof: value
+                    .proof
+                    .into_iter()
+                    .map(|layer| {
+                        layer
+                            .into_iter()
+                            .map(|(index, node)| Node { k_index: index.into(), node: node.into() })
+                            .collect()
                     })
                     .collect(),
-            },
-            latest_mmr_leaf: BeefyMmrLeaf {
-                version: 0.into(),
-                parent_number: value.latest_mmr_leaf.parent_number_and_hash.0.into(),
-                parent_hash: value.latest_mmr_leaf.parent_number_and_hash.1.into(),
-                next_authority_set: value.latest_mmr_leaf.beefy_next_authority_set.into(),
-                extra: value.latest_mmr_leaf.leaf_extra.into(),
-                k_index: k_index.into(),
-                leaf_index: leaf_index.into(),
-            },
-            mmr_proof: value.mmr_proof.items.into_iter().map(Into::into).collect(),
-            proof: value
-                .authority_proof
-                .into_iter()
-                .map(|layer| {
-                    layer
+            }
+        }
+    }
+
+    impl From<ConsensusMessage> for BeefyConsensusProof {
+        fn from(message: ConsensusMessage) -> Self {
+            BeefyConsensusProof { relay: message.mmr.into(), parachain: message.parachain.into() }
+        }
+    }
+
+    impl From<MmrProof> for RelayChainProof {
+        fn from(value: MmrProof) -> Self {
+            let leaf_index = value.mmr_proof.leaf_indices[0];
+            let k_index = mmr_utils::mmr_position_to_k_index(
+                vec![leaf_index_to_pos(leaf_index)],
+                leaf_index_to_mmr_size(leaf_index),
+            )[0]
+            .1;
+
+            RelayChainProof {
+                signed_commitment: SignedCommitment {
+                    commitment: Commitment {
+                        payload: vec![Payload {
+                            id: b"mh".clone(),
+                            data: value
+                                .signed_commitment
+                                .commitment
+                                .payload
+                                .get_raw(b"mh")
+                                .unwrap()
+                                .clone()
+                                .into(),
+                        }],
+                        block_number: value.signed_commitment.commitment.block_number.into(),
+                        validator_set_id: value
+                            .signed_commitment
+                            .commitment
+                            .validator_set_id
+                            .into(),
+                    },
+                    votes: value
+                        .signed_commitment
+                        .signatures
                         .into_iter()
-                        .map(|(index, node)| Node { k_index: index.into(), node: node.into() })
-                        .collect()
-                })
-                .collect(),
+                        .map(|a| Vote {
+                            signature: a.signature.to_vec().into(),
+                            authority_index: a.index.into(),
+                        })
+                        .collect(),
+                },
+                latest_mmr_leaf: BeefyMmrLeaf {
+                    version: 0.into(),
+                    parent_number: value.latest_mmr_leaf.parent_number_and_hash.0.into(),
+                    parent_hash: value.latest_mmr_leaf.parent_number_and_hash.1.into(),
+                    next_authority_set: value.latest_mmr_leaf.beefy_next_authority_set.into(),
+                    extra: value.latest_mmr_leaf.leaf_extra.into(),
+                    k_index: k_index.into(),
+                    leaf_index: leaf_index.into(),
+                },
+                mmr_proof: value.mmr_proof.items.into_iter().map(Into::into).collect(),
+                proof: value
+                    .authority_proof
+                    .into_iter()
+                    .map(|layer| {
+                        layer
+                            .into_iter()
+                            .map(|(index, node)| Node { k_index: index.into(), node: node.into() })
+                            .collect()
+                    })
+                    .collect(),
+            }
         }
     }
-}
 
-impl From<BeefyNextAuthoritySet<H256>> for AuthoritySetCommitment {
-    fn from(value: BeefyNextAuthoritySet<H256>) -> Self {
-        AuthoritySetCommitment {
-            id: value.id.into(),
-            len: value.len.into(),
-            root: value.keyset_commitment.into(),
+    impl From<BeefyNextAuthoritySet<H256>> for AuthoritySetCommitment {
+        fn from(value: BeefyNextAuthoritySet<H256>) -> Self {
+            AuthoritySetCommitment {
+                id: value.id.into(),
+                len: value.len.into(),
+                root: value.keyset_commitment.into(),
+            }
         }
     }
-}
 
-impl From<ConsensusState> for BeefyConsensusState {
-    fn from(value: ConsensusState) -> Self {
-        BeefyConsensusState {
-            latest_height: value.latest_beefy_height.into(),
-            beefy_activation_block: value.beefy_activation_block.into(),
-            current_authority_set: value.current_authorities.into(),
-            next_authority_set: value.next_authorities.into(),
+    impl From<ConsensusState> for BeefyConsensusState {
+        fn from(value: ConsensusState) -> Self {
+            BeefyConsensusState {
+                latest_height: value.latest_beefy_height.into(),
+                beefy_activation_block: value.beefy_activation_block.into(),
+                current_authority_set: value.current_authorities.into(),
+                next_authority_set: value.next_authorities.into(),
+            }
         }
     }
-}
 
-impl From<BeefyConsensusState> for ConsensusState {
-    fn from(value: BeefyConsensusState) -> Self {
-        ConsensusState {
-            beefy_activation_block: value.beefy_activation_block.as_u32(),
-            latest_beefy_height: value.latest_height.as_u32(),
-            mmr_root_hash: Default::default(),
-            current_authorities: BeefyNextAuthoritySet {
-                id: value.current_authority_set.id.as_u64(),
-                len: value.current_authority_set.len.as_u32(),
-                keyset_commitment: value.current_authority_set.root.into(),
-            },
-            next_authorities: BeefyNextAuthoritySet {
-                id: value.next_authority_set.id.as_u64(),
-                len: value.next_authority_set.len.as_u32(),
-                keyset_commitment: value.next_authority_set.root.into(),
-            },
+    impl From<BeefyConsensusState> for ConsensusState {
+        fn from(value: BeefyConsensusState) -> Self {
+            ConsensusState {
+                beefy_activation_block: value.beefy_activation_block.as_u32(),
+                latest_beefy_height: value.latest_height.as_u32(),
+                mmr_root_hash: Default::default(),
+                current_authorities: BeefyNextAuthoritySet {
+                    id: value.current_authority_set.id.as_u64(),
+                    len: value.current_authority_set.len.as_u32(),
+                    keyset_commitment: value.current_authority_set.root.into(),
+                },
+                next_authorities: BeefyNextAuthoritySet {
+                    id: value.next_authority_set.id.as_u64(),
+                    len: value.next_authority_set.len.as_u32(),
+                    keyset_commitment: value.next_authority_set.root.into(),
+                },
+            }
         }
     }
 }
@@ -271,18 +283,7 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
                     gas_limit: get.gaslimit.low_u64(),
                 })),
             EvmHostEvents::PostRequestEventFilter(post) =>
-                Ok(ismp::events::Event::PostRequest(router::Post {
-                    source: StateMachine::from_str(&String::from_utf8(post.source.0.into())?)
-                        .map_err(|e| anyhow!("{}", e))?,
-                    dest: StateMachine::from_str(&String::from_utf8(post.dest.0.into())?)
-                        .map_err(|e| anyhow!("{}", e))?,
-                    nonce: post.nonce.low_u64(),
-                    from: post.from.0.into(),
-                    to: post.to.0.into(),
-                    timeout_timestamp: post.timeout_timestamp.low_u64(),
-                    data: post.data.0.into(),
-                    gas_limit: post.gaslimit.low_u64(),
-                })),
+                Ok(ismp::events::Event::PostRequest(post.try_into()?)),
             EvmHostEvents::PostResponseEventFilter(resp) =>
                 Ok(ismp::events::Event::PostResponse(router::PostResponse {
                     post: router::Post {
@@ -301,8 +302,32 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
                     timeout_timestamp: resp.res_timeout_timestamp.low_u64(),
                     gas_limit: resp.res_gaslimit.low_u64(),
                 })),
+            EvmHostEvents::PostRequestHandledFilter(handled) =>
+                Ok(ismp::events::Event::PostRequestHandled(ismp::events::PostRequestHandled {
+                    commitment: handled.commitment.into(),
+                    relayer: handled.relayer.as_bytes().to_vec(),
+                })),
             event => Err(anyhow!("Unsupported event {event:?}")),
         }
+    }
+}
+
+impl TryFrom<PostRequestEventFilter> for router::Post {
+    type Error = anyhow::Error;
+
+    fn try_from(post: PostRequestEventFilter) -> Result<Self, Self::Error> {
+        Ok(router::Post {
+            source: StateMachine::from_str(&String::from_utf8(post.source.0.into())?)
+                .map_err(|e| anyhow!("{}", e))?,
+            dest: StateMachine::from_str(&String::from_utf8(post.dest.0.into())?)
+                .map_err(|e| anyhow!("{}", e))?,
+            nonce: post.nonce.low_u64(),
+            from: post.from.0.into(),
+            to: post.to.0.into(),
+            timeout_timestamp: post.timeout_timestamp.low_u64(),
+            data: post.data.0.into(),
+            gas_limit: post.gaslimit.low_u64(),
+        })
     }
 }
 

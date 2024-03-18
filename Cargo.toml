@@ -42,6 +42,10 @@ members = [
      "evm/abi",
      "modules/relayer",
      "modules/trees/mmr",
+
+
+     # hyper-client 
+    "modules/client"
 ]
 
 # Config for 'cargo dist'
@@ -166,7 +170,7 @@ cumulus-client-collator = "0.7.0"
 substrate-wasm-builder = { version = "17.0.0" }
 mmr-rpc = { version = "28.0.0" }
 
-ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "f8ab49e1ca2d68e8bf1113e705ade38e5f30b850", features = ["ethers-solc"] }
+ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "f8ab49e1ca2d68e8bf1113e705ade38e5f30b850", features = ["ethers-solc"], default-features = false }
 ethers-contract-abigen = { git = "https://github.com/polytope-labs/ethers-rs", rev = "f8ab49e1ca2d68e8bf1113e705ade38e5f30b850" }
 
 forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "50c6686ddfe61c697013bd067ac5fae7a0d5723e" }

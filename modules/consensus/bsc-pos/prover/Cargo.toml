@@ -11,11 +11,12 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 bsc-pos-verifier = { path= "../verifier" }
 anyhow = "1.0.68"
 primitive-types = { version = "0.12.1", features = ["serde", "impl-codec"] }
-ethers = { workspace = true, features = ["ws"] }
+ethers = { workspace = true, features = ["ws", "default"] }
 ismp = { path = "../../../ismp/core" }
 sp-core = { workspace = true }
 sync-committee-primitives  = { path = "../../sync-committee/primitives" }
 geth-primitives = { path = "../../geth-primitives" }
+tracing = "0.1.40"
 
 [dev-dependencies]
 tokio = { version = "1.32.0", features = ["macros"] }

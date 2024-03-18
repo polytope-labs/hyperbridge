@@ -18,16 +18,16 @@ struct TeleportParams {
     uint256 fee;
     // The token identifier
     bytes32 tokenId;
+    // Redeem Erc20 on the destination?
+    bool redeem;
     // recipient address
     address to;
+    // The Erc20 token to be used to swap for a fee
+    address feeToken;
     // recipient state machine
     bytes dest;
     // timeout in seconds
     uint64 timeout;
-    // Redeem Erc20 on the destination?
-    bool redeem;
-    // The Erc20 token to be used to swap for a fee
-    address feeToken;
 }
 
 struct Body {
@@ -69,15 +69,17 @@ struct Asset {
     bytes32 foreignIdentifier;
 }
 
-enum OnAcceptActions {
-    /// Incoming asset from a chain
+enum OnAcceptActions
+/// Incoming asset from a chain
+{
     IncomingAsset,
     /// Governance actions
     GovernanceAction
 }
 
-enum GovernanceActions {
-    /// Some new assets are now supported by gateway
+enum GovernanceActions
+/// Some new assets are now supported by gateway
+{
     NewAssets,
     /// Governance has decided to adjust liquidity fee paid to relayers
     AdjustLiquidityFee,
@@ -146,39 +148,36 @@ contract TokenGateway is BaseIsmpModule {
 
         setAssets(initialParams.assets);
 
+        // admin can only call this once
         _admin = address(0);
     }
 
     function teleport(TeleportParams memory params) public {
-        require(_host != address(0), "Gateway: Host is not set");
-        require(address(_uniswapV2Router) != address(0), "Gateway: Uniswap router not set");
+        require(params.to != address(0), "Burn your funds some other way");
+        require(params.amount > 100_000, "Amount too low");
+        require(params.feeToken != address(0), "Fee token not selected");
 
         address from = msg.sender;
         address erc20 = _erc20s[params.tokenId];
         address erc6160 = _erc6160s[params.tokenId];
         address feeToken = IIsmpHost(_host).dai();
 
-        require(params.to != address(0), "Burn your funds some other way");
-        require(params.amount > 0, "Gateway: Can't bridge zero value");
-        require(params.feeToken != address(0), "Intended fee token not selected");
-
         if (erc20 != address(0) && !params.redeem) {
-            require(
-                IERC20(erc20).transferFrom(from, address(this), params.amount), "Gateway: Insufficient user balance"
-            );
+            require(IERC20(erc20).transferFrom(from, address(this), params.amount), "Insufficient user balance");
 
-            // Calculate output fee in DAI before swap: We can use swapTokensForExactTokens() on Uniswap since we know the output amount
+            // Calculate output fee in DAI before swap:
+            // We can use swapTokensForExactTokens() on Uniswap since we know the output amount
             uint256 _fee = calculateBridgeFee(params.fee);
 
-            // only swap if the feeToken is not the token intended for fee and if fee > 0
-            if (feeToken != params.feeToken && _fee > 0) {
+            // only swap if the feeToken is not the token intended for fee
+            if (feeToken != params.feeToken) {
                 require(handleSwap(from, params.feeToken, feeToken, _fee), "Token swap failed");
             }
         } else if (erc6160 != address(0)) {
             // we're sending an erc6160 asset so we should redeem on the destination if we can.
             IERC6160Ext20(erc6160).burn(from, params.amount, "");
         } else {
-            revert("Gateway: Unknown Token Identifier");
+            revert("Unknown Token Identifier");
         }
 
         bytes memory data = abi.encode(
@@ -192,7 +191,8 @@ contract TokenGateway is BaseIsmpModule {
             body: bytes.concat(hex"00", data),
             timeout: params.timeout,
             fee: params.fee,
-            gaslimit: uint64(0)
+            gaslimit: uint64(0),
+            payer: msg.sender
         });
 
         // Your money is now on its way
@@ -236,7 +236,6 @@ contract TokenGateway is BaseIsmpModule {
         address erc20 = _erc20s[localAsset];
         address erc6160 = _erc6160s[localAsset];
 
-        // prefer to give the user erc20
         if (erc20 != address(0) && body.redeem) {
             // a relayer/user is redeeming the native asset
             uint256 _protocolRedeemFee = calculateProtocolFee(body.amount);
@@ -244,11 +243,12 @@ contract TokenGateway is BaseIsmpModule {
 
             require(IERC20(erc20).transfer(body.to, _amountToTransfer), "Gateway: Insufficient Balance");
         } else if (erc20 != address(0) && erc6160 != address(0) && !body.redeem) {
-            // relayers double as liquidity providers.
+            // user is swapping, relayers should double as liquidity providers.
             uint256 _protocolLiquidityFee = calculateRelayerLiquidityFee(body.amount);
             uint256 _amountToTransfer = body.amount - _protocolLiquidityFee;
 
             require(
+                // we assume that the relayer is an EOA
                 IERC20(erc20).transferFrom(tx.origin, body.to, _amountToTransfer),
                 "Gateway: Insufficient relayer balance"
             );
@@ -297,9 +297,7 @@ contract TokenGateway is BaseIsmpModule {
         );
         require(IERC20(_fromToken).approve(address(_uniswapV2Router), _fromTokenAmountIn), "approve failed.");
 
-        _uniswapV2Router.swapTokensForExactTokens(
-            _toTokenAmountOut, _fromTokenAmountIn, path, tx.origin, block.timestamp
-        );
+        _uniswapV2Router.swapTokensForExactTokens(_toTokenAmountOut, _fromTokenAmountIn, path, _sender, block.timestamp);
 
         return true;
     }

@@ -1,12 +1,13 @@
-use ethers_contract_abigen::MultiAbigen;
-use forge_testsuite::Runner;
-use std::{env, path::PathBuf};
+use std::env;
 
 fn main() -> anyhow::Result<()> {
     let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
 
     #[cfg(feature = "build-abi")]
     {
+        use ethers_contract_abigen::MultiAbigen;
+        use forge_testsuite::Runner;
+        use std::path::PathBuf;
         // first compile the project.
 
         let _ = Runner::new(PathBuf::from(&base_dir));
@@ -17,6 +18,7 @@ fn main() -> anyhow::Result<()> {
             ("Beefy", format!("{base_dir}/out/BeefyV1.sol/BeefyV1.json")),
             ("PingModule", format!("{base_dir}/out/PingModule.sol/PingModule.json")),
             ("HostManager", format!("{base_dir}/out/HostManager.sol/HostManager.json")),
+            ("ERC20", format!("{base_dir}/out/ERC20.sol/ERC20.json")),
         ];
 
         MultiAbigen::new(sources)

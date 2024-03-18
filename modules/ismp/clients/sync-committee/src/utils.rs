@@ -104,13 +104,15 @@ pub fn req_res_receipt_keys<H: IsmpHost>(item: RequestResponse) -> Vec<Vec<u8>> 
         RequestResponse::Request(requests) =>
             for req in requests {
                 let commitment = hash_request::<H>(&req);
-                let key = derive_map_key::<H>(commitment.0.to_vec(), REQUEST_RECEIPTS_SLOT);
+                let key =
+                    derive_unhashed_map_key::<H>(commitment.0.to_vec(), REQUEST_RECEIPTS_SLOT);
                 keys.push(key.0.to_vec())
             },
         RequestResponse::Response(responses) =>
             for res in responses {
                 let commitment = hash_request::<H>(&res.request());
-                let key = derive_map_key::<H>(commitment.0.to_vec(), RESPONSE_RECEIPTS_SLOT);
+                let key =
+                    derive_unhashed_map_key::<H>(commitment.0.to_vec(), RESPONSE_RECEIPTS_SLOT);
                 keys.push(key.0.to_vec())
             },
     }

@@ -10,6 +10,8 @@ sync-committee-primitives = { path= "../primitives" }
 sync-committee-verifier = { path= "../verifier" }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs",  branch = "main" }
 reqwest = {version="0.11.14", features=["json"]}
+reqwest-middleware = "0.2.4"
+reqwest-chain = "0.1.0"
 serde = { version = "1.0.185", features = ["derive"] }
 serde_json = { version = "1.0.81"}
 anyhow = "1.0.68"
@@ -24,13 +26,15 @@ bls_on_arkworks = { version = "0.2.2" }
 primitive-types = { version = "0.12.1", features = ["serde_no_std", "impl-codec"] }
 log = "0.4.20"
 hex = "0.4.3"
+async-trait = "0.1.77"
+tracing = "0.1.40"
 
 
 [dev-dependencies]
 env_logger = "0.10.0"
 sync-committee-primitives = { path= "../primitives", features = ["sepolia-deneb"] }
 sync-committee-verifier = { path= "../verifier" }
-ethers = { workspace = true, features = ["ws"] }
+ethers = { workspace = true, features = ["ws", "default"] }
 tokio = { version =  "1.32.0", features = ["macros", "rt-multi-thread"]}
 parity-scale-codec = "3.2.2"
 reqwest-eventsource = "0.4.0"

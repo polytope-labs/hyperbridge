@@ -401,7 +401,7 @@ impl Keccak256 for Host {
 }
 
 #[derive(Default)]
-pub struct MockModule(pub Arc<Host>);
+pub struct MockModule;
 
 impl IsmpModule for MockModule {
     fn on_accept(&self, _request: Post) -> Result<(), Error> {
@@ -421,7 +421,7 @@ pub struct MockRouter(pub Host);
 
 impl IsmpRouter for MockRouter {
     fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
-        Ok(Box::new(MockModule(Arc::new(self.0.clone()))))
+        Ok(Box::new(MockModule))
     }
 }
 

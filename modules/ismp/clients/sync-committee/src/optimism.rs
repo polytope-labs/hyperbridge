@@ -69,14 +69,12 @@ pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
     let storage_root =
         get_contract_storage_root::<H>(payload.l2_oracle_proof, l2_oracle_address, root)?;
 
-    let mut buf = Vec::with_capacity(128);
-    buf.extend_from_slice(&payload.version[..]);
-    buf.extend_from_slice(&payload.state_root[..]);
-    buf.extend_from_slice(&payload.withdrawal_storage_root[..]);
-    buf.extend_from_slice(&payload.l2_block_hash[..]);
-
-    let output_root = H::keccak256(&buf);
-
+    let output_root = calculate_output_root::<H>(
+        payload.version,
+        payload.state_root,
+        payload.withdrawal_storage_root,
+        payload.l2_block_hash,
+    );
     let output_root_key = derive_array_item_key::<H>(L2_OUTPUTS_SLOT, payload.output_root_index, 0);
 
     let proof_value = match get_value_from_proof::<H>(
@@ -156,7 +154,7 @@ pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
     })
 }
 
-#[derive(codec::Encode, codec::Decode, Debug)]
+#[derive(codec::Encode, codec::Decode, Debug, Clone)]
 pub struct OptimismDisputeGameProof {
     /// Op stack header
     pub header: CodecHeader,
@@ -189,6 +187,21 @@ pub fn get_game_uuid<H: Keccak256>(game_type: u32, root_claim: H256, extra_data:
     H::keccak256(&encoded)
 }
 
+pub fn calculate_output_root<H: Keccak256>(
+    version: H256,
+    state_root: H256,
+    withdrawal_storage_root: H256,
+    l2_block_hash: H256,
+) -> H256 {
+    let mut buf = Vec::with_capacity(128);
+    buf.extend_from_slice(&version[..]);
+    buf.extend_from_slice(&state_root[..]);
+    buf.extend_from_slice(&withdrawal_storage_root[..]);
+    buf.extend_from_slice(&l2_block_hash[..]);
+
+    H::keccak256(&buf)
+}
+
 // https://github.com/ethereum-optimism/optimism/blob/f707883038d527cbf1e9f8ea513fe33255deadbc/packages/contracts-bedrock/src/libraries/DisputeTypes.sol#L94
 /// Game types
 pub const CANNON: u32 = 0;
@@ -214,13 +227,13 @@ pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
         root,
     )?;
     let l2_block_hash = Header::from(&payload.header).hash::<H>();
-    let mut buf = Vec::with_capacity(128);
-    buf.extend_from_slice(&payload.version[..]);
-    buf.extend_from_slice(&payload.header.state_root[..]);
-    buf.extend_from_slice(&payload.withdrawal_storage_root[..]);
-    buf.extend_from_slice(&l2_block_hash[..]);
 
-    let root_claim = H::keccak256(&buf);
+    let root_claim = calculate_output_root::<H>(
+        payload.version,
+        payload.header.state_root,
+        payload.withdrawal_storage_root,
+        l2_block_hash,
+    );
 
     let game_uuid = get_game_uuid::<H>(payload.game_type, root_claim, payload.extra_data);
 

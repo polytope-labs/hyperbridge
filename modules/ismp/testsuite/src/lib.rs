@@ -475,6 +475,9 @@ pub fn check_response_source<H: IsmpHost>(host: &H) -> Result<(), &'static str> 
     };
     let response =
         PostResponse { post: post.clone(), response: vec![], timeout_timestamp: 0, gas_limit: 0 };
+    
+    // Assert that response source is not the state machine claimed in the proof
+    assert_ne!(response.source_chain(), intermediate_state.height.id.state_id);
     // Response message handling check
     let response_message = Message::Response(ResponseMessage {
         datagram: RequestResponse::Response(vec![Response::Post(response.clone())]),

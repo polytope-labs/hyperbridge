@@ -4,7 +4,7 @@ use ismp::{
         StateMachineHeight, StateMachineId, VerifiedCommitments,
     },
     error::Error,
-    host::{IsmpHost, StateMachine},
+    host::{Ethereum, IsmpHost, StateMachine},
     messaging::Proof,
     module::IsmpModule,
     router::{
@@ -24,7 +24,6 @@ use std::{
 
 #[derive(Default)]
 pub struct MockClient;
-
 #[derive(Default)]
 pub struct MockProxyClient;
 
@@ -62,9 +61,14 @@ impl ConsensusClient for MockClient {
     }
 
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-        Ok(Box::new(MockStateMachineClient))
+        match _id {
+            StateMachine::Ethereum(Ethereum::ExecutionLayer) =>
+                Ok(Box::new(MockStateMachineClient)),
+            _ => Err(Error::ImplementationSpecific("Invalid state machine".to_string())),
+        }
     }
 }
+
 impl ConsensusClient for MockProxyClient {
     fn verify_consensus(
         &self,
@@ -126,7 +130,7 @@ impl StateMachineClient for MockStateMachineClient {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct Host {
     requests: Rc<RefCell<BTreeSet<H256>>>,
     receipts: Rc<RefCell<HashMap<H256, ()>>>,
@@ -375,7 +379,7 @@ impl IsmpHost for Host {
     }
 
     fn allowed_proxy(&self) -> Option<StateMachine> {
-        self.consensus_state(*b"prxy").map(|_| StateMachine::Kusama(2000)).ok()
+        self.consensus_state(*b"prox").map(|_| StateMachine::Kusama(2000)).ok()
     }
 
     fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {

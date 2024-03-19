@@ -97,15 +97,15 @@ impl Cli {
 				}
 
 				if let Some(ref host) = hyperbridge.host {
-					let state_machine = host
-						.host
-						.base_state_machine
+					let clients = _client_map
 						.clone()
-						.unwrap_or(StateMachine::Ethereum(Ethereum::ExecutionLayer));
-					let ethereum = _client_map.get(&state_machine).ok_or_else(|| {
-						anyhow!("Please provide a config option for {state_machine}")
-					})?;
-					host.spawn_prover(ethereum.clone()).await?;
+						.into_iter()
+						.map(|(_, client)| client)
+						.collect::<Vec<_>>();
+					if clients.is_empty() {
+						Err(anyhow!("Client map is empty, please provide some clients other than hyperbridge in the config"))?
+					}
+					host.spawn_prover(clients).await?;
 				}
 
 				log::info!("Initialized consensus tasks");

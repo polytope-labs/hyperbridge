@@ -13,7 +13,6 @@ tesseract-evm = { path = "../evm/common" }
 #tesseract-polygon-pos = { path = "../ethereum/polygon-pos" }
 tesseract-bsc-pos = { path = "../evm/bsc-pos" }
 tesseract-sync-committee = { path = "../evm/sync-committee" }
-tesseract-beefy = { path = "../substrate/beefy/naive" }
 
 # polytope labs
 ismp.workspace = true

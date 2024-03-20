@@ -235,7 +235,7 @@ where
 	}
 }
 
-fn derive_map_key(mut key: Vec<u8>, slot: u64) -> H256 {
+pub fn derive_map_key(mut key: Vec<u8>, slot: u64) -> H256 {
 	let mut bytes = [0u8; 32];
 	U256::from(slot as u64).to_big_endian(&mut bytes);
 	key.extend_from_slice(&bytes);

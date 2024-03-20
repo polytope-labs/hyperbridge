@@ -105,7 +105,7 @@ impl<
         state_machine_map
             .insert(StateMachine::Ethereum(Ethereum::ExecutionLayer), state_commitment_vec);
 
-        let op_stack = [StateMachine::Ethereum(Ethereum::Base)];
+        let op_stack = consensus_state.l2_oracle_address.keys().cloned();
 
         for state_machine_id in op_stack {
             if let Some(payload) = op_stack_payload.remove(&state_machine_id) {
@@ -129,7 +129,7 @@ impl<
             }
         }
 
-        let dispute_game_stack = [StateMachine::Ethereum(Ethereum::Optimism)];
+        let dispute_game_stack = consensus_state.dispute_factory_address.keys().cloned();
 
         for state_machine_id in dispute_game_stack {
             if let Some(payload) = dispute_game_payload.remove(&state_machine_id) {

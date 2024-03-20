@@ -19,6 +19,8 @@ pub mod mocks;
 #[cfg(test)]
 mod tests;
 
+use std::vec;
+
 use crate::mocks::MOCK_CONSENSUS_CLIENT_ID;
 use ismp::{
     consensus::{
@@ -73,6 +75,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
     let consensus_message = Message::Consensus(ConsensusMessage {
         consensus_proof: vec![],
         consensus_state_id: mock_consensus_state_id(),
+        signer: vec![],
     });
     let intermediate_state = setup_mock_client(host);
     // Set the previous update time
@@ -138,6 +141,7 @@ pub fn check_client_expiry<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     let consensus_message = Message::Consensus(ConsensusMessage {
         consensus_proof: vec![],
         consensus_state_id: mock_consensus_state_id(),
+        signer: vec![],
     });
     setup_mock_client(host);
     // Set the previous update time

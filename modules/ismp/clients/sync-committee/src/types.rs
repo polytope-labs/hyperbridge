@@ -13,7 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{arbitrum::ArbitrumPayloadProof, optimism::OptimismPayloadProof, prelude::*};
+use crate::{
+    arbitrum::ArbitrumPayloadProof,
+    optimism::{OptimismDisputeGameProof, OptimismPayloadProof},
+    prelude::*,
+};
 use alloc::collections::BTreeMap;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use codec::{Decode, Encode};
@@ -41,6 +45,7 @@ pub struct ConsensusState {
     pub light_client_state: VerifierState,
     pub ismp_contract_addresses: BTreeMap<StateMachine, H160>,
     pub l2_oracle_address: BTreeMap<StateMachine, H160>,
+    pub dispute_factory_address: BTreeMap<StateMachine, H160>,
     pub rollup_core_address: H160,
 }
 
@@ -48,6 +53,7 @@ pub struct ConsensusState {
 pub struct BeaconClientUpdate {
     pub consensus_update: VerifierStateUpdate,
     pub op_stack_payload: BTreeMap<StateMachine, OptimismPayloadProof>,
+    pub dispute_game_payload: BTreeMap<StateMachine, OptimismDisputeGameProof>,
     pub arbitrum_payload: Option<ArbitrumPayloadProof>,
 }
 

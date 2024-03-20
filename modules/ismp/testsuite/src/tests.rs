@@ -1,13 +1,11 @@
 use ismp::host::{Ethereum, StateMachine};
 
 use crate::{
-    check_challenge_period, check_client_expiry, check_request_source_and_destination,
-    frozen_check, mock_consensus_state_id, mock_proxy_consensus_state_id,
+    check_challenge_period, check_client_expiry, frozen_check,
     mocks::{Host, MockDispatcher},
     post_request_timeout_check, post_response_timeout_check,
     prevent_request_timeout_on_proxy_with_known_state_machine,
-    prevent_response_timeout_on_proxy_with_known_state_machine, sanity_check_for_proxies,
-    write_outgoing_commitments,
+    prevent_response_timeout_on_proxy_with_known_state_machine, write_outgoing_commitments,
 };
 use std::sync::Arc;
 

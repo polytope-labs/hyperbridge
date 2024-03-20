@@ -512,6 +512,7 @@ fn test_evm_accumulate_fees() {
             ismp_contract_addresses: vec![(StateMachine::Ethereum(Ethereum::Optimism), op_host)].into_iter().collect(),
             l2_oracle_address: Default::default(),
             rollup_core_address: Default::default(),
+            dispute_factory_address: Default::default(),
         };
         host.store_consensus_state(claim_proof.source_proof.height.id.consensus_state_id, bsc_consensus_state.encode()).unwrap();
         host.store_consensus_state(claim_proof.dest_proof.height.id.consensus_state_id, sync_committee_consensus_state.encode()).unwrap();

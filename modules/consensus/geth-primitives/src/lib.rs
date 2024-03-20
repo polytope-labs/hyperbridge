@@ -30,6 +30,9 @@ pub struct Header {
     pub nonce: FixedBytes<8>,
     pub base_fee_per_gas: Option<alloy_primitives::U256>,
     pub withdrawals_hash: Option<B256>,
+    pub blob_gas_used: Option<u64>,
+    pub excess_blob_gas_used: Option<u64>,
+    pub parent_beacon_root: Option<B256>,
 }
 
 #[derive(codec::Encode, codec::Decode, Debug, Clone, scale_info::TypeInfo)]
@@ -51,6 +54,9 @@ pub struct CodecHeader {
     pub nonce: H64,
     pub base_fee_per_gas: Option<U256>,
     pub withdrawals_hash: Option<H256>,
+    pub blob_gas_used: Option<u64>,
+    pub excess_blob_gas_used: Option<u64>,
+    pub parent_beacon_root: Option<H256>,
 }
 
 impl AsRef<CodecHeader> for CodecHeader {
@@ -80,6 +86,18 @@ impl From<Block<H256>> for CodecHeader {
             nonce: block.nonce.unwrap_or_default(),
             base_fee_per_gas: block.base_fee_per_gas,
             withdrawals_hash: block.withdrawals_root,
+            blob_gas_used: block
+                .other
+                .get_deserialized::<u64>("blobGasUsed")
+                .and_then(|val| val.ok()),
+            excess_blob_gas_used: block
+                .other
+                .get_deserialized::<u64>("excessBlobGas")
+                .and_then(|val| val.ok()),
+            parent_beacon_root: block
+                .other
+                .get_deserialized::<H256>("parentBeaconBlockRoot")
+                .and_then(|val| val.ok()),
         }
     }
 }
@@ -116,6 +134,9 @@ impl From<&CodecHeader> for Header {
                 alloy_primitives::U256::from_be_bytes(bytes)
             }),
             withdrawals_hash: value.withdrawals_hash.map(|val| val.0.into()),
+            blob_gas_used: value.blob_gas_used,
+            excess_blob_gas_used: value.excess_blob_gas_used,
+            parent_beacon_root: value.parent_beacon_root.map(|val| val.0.into()),
         }
     }
 }

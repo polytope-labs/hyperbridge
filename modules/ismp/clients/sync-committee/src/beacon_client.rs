@@ -105,8 +105,7 @@ impl<
         state_machine_map
             .insert(StateMachine::Ethereum(Ethereum::ExecutionLayer), state_commitment_vec);
 
-        let op_stack =
-            [StateMachine::Ethereum(Ethereum::Base), StateMachine::Ethereum(Ethereum::Optimism)];
+        let op_stack = [StateMachine::Ethereum(Ethereum::Base)];
 
         for state_machine_id in op_stack {
             if let Some(payload) = op_stack_payload.remove(&state_machine_id) {
@@ -130,13 +129,19 @@ impl<
             }
         }
 
-        for state_machine_id in op_stack {
+        let dispute_game_stack = [StateMachine::Ethereum(Ethereum::Optimism)];
+
+        for state_machine_id in dispute_game_stack {
             if let Some(payload) = dispute_game_payload.remove(&state_machine_id) {
                 let state = verify_optimism_dispute_game_proof::<H>(
                     payload,
                     &state_root[..],
                     *consensus_state.dispute_factory_address.get(&state_machine_id).ok_or_else(
-                        || Error::ImplementationSpecific("l2 oracle address was not set".into()),
+                        || {
+                            Error::ImplementationSpecific(
+                                "dispute factory address was not set".into(),
+                            )
+                        },
                     )?,
                     consensus_state_id.clone(),
                 )?;

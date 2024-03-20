@@ -213,7 +213,7 @@ pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
     dispute_factory_address: H160,
     consensus_state_id: ConsensusStateId,
 ) -> Result<IntermediateState, Error> {
-    // Is the game type the respected game type
+    // Is the game type the respected game type?
     if payload.game_type != CANNON {
         Err(Error::MembershipProofVerificationFailed(
             "Game type must be the respected game type".to_string(),
@@ -251,18 +251,29 @@ pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
         ))?,
     };
 
-    let proof_value = <alloy_primitives::FixedBytes<32> as Decodable>::decode(&mut &*proof_value)
+    let mut encoded_game_id = <alloy_primitives::Bytes as Decodable>::decode(&mut &*proof_value)
         .map_err(|_| {
-        Error::ImplementationSpecific(format!("Error decoding output root from {:?}", &proof_value))
-    })?;
+            Error::ImplementationSpecific(format!(
+                "Error decoding output root from {:?}",
+                &proof_value
+            ))
+        })?
+        .0
+        .to_vec();
 
-    let proof_game_id = U256::from_big_endian(&proof_value.0);
     let game_id = get_game_id(payload.game_type, payload.timestamp, payload.proxy);
+    let mut game_id_bytes = [0u8; 32];
+    game_id.to_big_endian(&mut game_id_bytes);
 
-    if proof_game_id != game_id {
+    // Pad the encoded game id gotten from proof with zeros so it becomes 32 bytes long
+    (0..game_id_bytes.len().saturating_sub(encoded_game_id.len()))
+        .for_each(|_| encoded_game_id.insert(0, 0));
+
+    // Derived game id must be equal to encoded game id
+    if encoded_game_id != game_id_bytes {
         Err(Error::MembershipProofVerificationFailed(
-            "Game Id from proof does not match derived game id".to_string(),
-        ))?;
+            "Dispute Game Id from proof does not match derived game id".to_string(),
+        ))?
     }
 
     Ok(IntermediateState {

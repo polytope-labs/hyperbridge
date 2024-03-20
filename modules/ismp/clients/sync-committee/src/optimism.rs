@@ -254,7 +254,7 @@ pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
     let mut encoded_game_id = <alloy_primitives::Bytes as Decodable>::decode(&mut &*proof_value)
         .map_err(|_| {
             Error::ImplementationSpecific(format!(
-                "Error decoding output root from {:?}",
+                "Error decoding dispute game id from {:?}",
                 &proof_value
             ))
         })?

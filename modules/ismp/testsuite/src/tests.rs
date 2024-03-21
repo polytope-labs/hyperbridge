@@ -5,7 +5,8 @@ use crate::{
     mocks::{Host, MockDispatcher},
     post_request_timeout_check, post_response_timeout_check,
     prevent_request_timeout_on_proxy_with_known_state_machine,
-    prevent_response_timeout_on_proxy_with_known_state_machine, write_outgoing_commitments,
+    prevent_response_timeout_on_proxy_with_known_state_machine, sanity_check_for_proxies,
+    write_outgoing_commitments,
 };
 use std::sync::Arc;
 

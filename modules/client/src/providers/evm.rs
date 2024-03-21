@@ -276,6 +276,16 @@ impl Client for EvmClient {
         Ok(Box::pin(stream))
     }
 
+    async fn query_latest_state_machine_height(
+        &self,
+        _state_machine: StateMachineId,
+    ) -> Result<u64, anyhow::Error> {
+        let contract = EvmHost::new(self.host_address, self.client.clone());
+        let height = contract.latest_state_machine_height().await?;
+
+        Ok(height.low_u64())
+    }
+
     async fn state_machine_update_notification(
         &self,
         _counterparty_state_id: StateMachineId,

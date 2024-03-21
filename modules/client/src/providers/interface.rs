@@ -68,6 +68,12 @@ pub trait Client: Clone + Send + Sync + 'static {
         commitment: H256,
     ) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, anyhow::Error>;
 
+    /// Query the latest height of the given state machine
+    async fn query_latest_state_machine_height(
+        &self,
+        state_machine: StateMachineId,
+    ) -> Result<u64, anyhow::Error>;
+
     async fn query_state_machine_commitment(
         &self,
         id: StateMachineHeight,

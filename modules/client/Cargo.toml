@@ -1,6 +1,6 @@
 [package]
 name = "hyperclient"
-version = "0.3.11"
+version = "0.3.14"
 edition = "2021"
 description = "The hyperclient is a library for managing (in-flight) ISMP requests"
 repository = "https://github.com/polytope-labs/hyperbridge"
@@ -29,6 +29,7 @@ wasm-timer = { package = "fluvio-wasm-timer", version = "0.2.5" }
 hashbrown = { version = "0.14.3", features = ["serde"] }
 primitive-types = { version = "0.12.2", default-features = false, features = ["serde"] }
 tracing = { version = "0.1.40", default-features = false }
+
 tracing-wasm = "0.2.1"
 console_error_panic_hook = "0.1.7"
 

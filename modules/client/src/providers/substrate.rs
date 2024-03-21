@@ -239,6 +239,17 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         Err(anyhow!("Post request handled stream is currently unavailable"))
     }
 
+    async fn query_latest_state_machine_height(
+        &self,
+        state_machine: StateMachineId,
+    ) -> Result<u64, anyhow::Error> {
+        let params = rpc_params![state_machine];
+        let response: u64 =
+            self.client.rpc().request("ismp_queryStateMachineLatestHeight", params).await?;
+
+        Ok(response)
+    }
+
     async fn query_state_machine_commitment(
         &self,
         height: StateMachineHeight,
@@ -362,8 +373,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let call = vec![msg].encode();
         let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle", call);
         let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
-        let in_block = ext.submit_and_watch().await?.wait_for_in_block().await?;
-        in_block.wait_for_success().await?;
+        let in_block = ext.submit_and_watch().await?.wait_for_finalized_success().await?;
 
         let header = self
             .client

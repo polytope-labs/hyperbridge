@@ -60,16 +60,16 @@ where
             // Validate request:
             // If a receipt exists for any request then it's a duplicate and it is not dispatched
             if host.request_receipt(&req_).is_none() && 
-            // can't dispatch timed out requests
-            !req_.timed_out(host.timestamp()) &&
-            // either the host is a router and can accept requests on behalf of any chain
-            // or the request must be intended for this chain
-            (req_.dest_chain() == host.host_state_machine() || 
-            host.is_router()) &&
-            // either the proof metadata matches the source chain, or it's coming from a proxy
-            // in which case, we must NOT have a configured state machine for the source
-            (req_.source_chain() == msg.proof.height.id.state_id || 
-            (host.is_allowed_proxy(&msg.proof.height.id.state_id) && check_for_consensus_client(req_.source_chain())))
+                // can't dispatch timed out requests
+                !req_.timed_out(host.timestamp()) &&
+                // either the host is a router and can accept requests on behalf of any chain
+                // or the request must be intended for this chain
+                (req_.dest_chain() == host.host_state_machine() || 
+                host.is_router()) &&
+                // either the proof metadata matches the source chain, or it's coming from a proxy
+                // in which case, we must NOT have a configured state machine for the source
+                (req_.source_chain() == msg.proof.height.id.state_id || 
+                (host.is_allowed_proxy(&msg.proof.height.id.state_id) && check_for_consensus_client(req_.source_chain())))
             {
                 Ok(req)
             } else {

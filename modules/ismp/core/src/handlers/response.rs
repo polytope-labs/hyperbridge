@@ -48,22 +48,44 @@ where
         RequestResponse::Response(responses) => {
             // For a response to be valid a request commitment must be present in storage
             // Also we must not have received a response for this request
+
+            // let responses = responses
+            //     .iter()
+            //     .filter(|response| {
+            //         let request = response.request();
+            //         let commitment = hash_request::<H>(&request);
+            //         host.request_commitment(commitment).is_ok() &&
+            //             host.response_receipt(&response).is_none() &&
+            //             !response.timed_out(host.timestamp()) &&
+            //             // either the proof metadata matches the source chain, or it's coming from a proxy
+            //             // in which case, we must NOT have a configured state machine for the source
+            //             (response.source_chain() == msg.proof.height.id.state_id ||
+            //                 host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+            //                     check_for_consensus_client(response.source_chain()))
+            //     })
+            //     .cloned()
+            //     .collect::<Vec<_>>();
+
             let responses = responses
                 .iter()
-                .filter(|response| {
+                .map(|response| {
                     let request = response.request();
                     let commitment = hash_request::<H>(&request);
-                    host.request_commitment(commitment).is_ok() &&
+
+                    if host.request_commitment(commitment).is_ok() &&
                         host.response_receipt(&response).is_none() &&
                         !response.timed_out(host.timestamp()) &&
                         // either the proof metadata matches the source chain, or it's coming from a proxy
                         // in which case, we must NOT have a configured state machine for the source
                         (response.source_chain() == msg.proof.height.id.state_id ||
-                            host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-                                check_for_consensus_client(response.source_chain()))
-                })
-                .cloned()
-                .collect::<Vec<_>>();
+                        host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+                        check_for_consensus_client(response.source_chain())) 
+                    {
+                        Ok(response.clone())
+                    } else {
+                        Err(Error::ImplementationSpecific(String::from("Response: Response is not a valid request commitment")))
+                    }
+                }).collect::<Result<Vec<_>, Error>>()?;
 
             // Verify membership proof
             state_machine.verify_membership(
@@ -101,9 +123,14 @@ where
         RequestResponse::Request(requests) => {
             let requests = requests
                 .into_iter()
-                .filter(|req| {
-                    !req.timed_out(host.timestamp()) && req.dest_chain() == proof.height.id.state_id
-                })
+                .map(|req| {
+                    if !req.timed_out(host.timestamp()) && req.dest_chain() == proof.height.id.state_id {
+                        Ok(req)
+                    } else {
+                        Err(Error::ImplementationSpecific(String::from("Response: Response timed out")))
+                    }
+                }).collect::<Result<Vec<_>, Error>>()?
+                .into_iter()
                 .filter_map(|req| match req {
                     Request::Post(_) => None,
                     Request::Get(get) => {

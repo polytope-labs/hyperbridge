@@ -21,10 +21,10 @@ use crate::{
     },
     types::{Account, EvmStateProof, KeccakHasher},
 };
-use alloc::{collections::BTreeMap, format, string::ToString};
+use alloc::{format, string::ToString};
 use alloy_rlp::Decodable;
 use codec::Decode;
-use ethabi::ethereum_types::{H160, H256, U256};
+use ethabi::ethereum_types::{H256, U256};
 use ethereum_trie::{EIP1186Layout, StorageProof};
 use ismp::{
     consensus::{
@@ -137,12 +137,12 @@ pub(super) fn to_bytes_32(bytes: &[u8]) -> Result<[u8; 32], Error> {
 
 pub fn get_contract_storage_root<H: IsmpHost + Send + Sync>(
     contract_account_proof: Vec<Vec<u8>>,
-    contract_address: H160,
+    contract_address: &[u8],
     root: H256,
 ) -> Result<H256, Error> {
     let db = StorageProof::new(contract_account_proof).into_memory_db::<KeccakHasher<H>>();
     let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&db, &root).build();
-    let key = H::keccak256(contract_address.as_bytes()).0;
+    let key = H::keccak256(contract_address).0;
     let result = trie
         .get(&key)
         .map_err(|_| Error::ImplementationSpecific("Invalid contract account proof".to_string()))?
@@ -210,17 +210,12 @@ pub(super) fn derive_array_item_key<H: IsmpHost>(slot: u64, index: u64, offset: 
 pub(super) fn get_values_from_proof<H: IsmpHost + Send + Sync>(
     keys: Vec<Vec<u8>>,
     root: H256,
-    mut proof: BTreeMap<Vec<u8>, Vec<Vec<u8>>>,
+    proof: Vec<Vec<u8>>,
 ) -> Result<Vec<Option<DBValue>>, Error> {
     let mut values = vec![];
+    let proof_db = StorageProof::new(proof).into_memory_db::<KeccakHasher<H>>();
+    let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&proof_db, &root).build();
     for key in keys {
-        let proof_db = StorageProof::new(
-            proof
-                .remove(&key)
-                .ok_or_else(|| Error::ImplementationSpecific(format!("Missing proof")))?,
-        )
-        .into_memory_db::<KeccakHasher<H>>();
-        let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&proof_db, &root).build();
         let val = trie
             .get(&key)
             .map_err(|_| Error::ImplementationSpecific(format!("Error reading proof db")))?;

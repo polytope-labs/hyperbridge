@@ -16,7 +16,7 @@
 use crate::{
     prelude::*,
     presets::NODES_SLOT,
-    utils::{derive_map_key, get_contract_storage_root, get_value_from_proof, to_bytes_32},
+    utils::{derive_map_key, get_contract_storage_root, get_value_from_proof},
 };
 use alloc::{format, string::ToString};
 use alloy_rlp::Decodable;
@@ -116,15 +116,12 @@ fn get_state_hash<H: IsmpHost>(
 
 pub fn verify_arbitrum_payload<H: IsmpHost + Send + Sync>(
     payload: ArbitrumPayloadProof,
-    root: &[u8],
+    root: H256,
     rollup_core_address: H160,
     consensus_state_id: ConsensusStateId,
 ) -> Result<IntermediateState, Error> {
-    let root = to_bytes_32(root)?;
-    let root = H256::from_slice(&root[..]);
-
     let storage_root =
-        get_contract_storage_root::<H>(payload.contract_proof, rollup_core_address, root)?;
+        get_contract_storage_root::<H>(payload.contract_proof, &rollup_core_address.0, root)?;
 
     let header: Header = payload.arbitrum_header.as_ref().into();
     if &payload.global_state.send_root[..] != &payload.arbitrum_header.extra_data {

@@ -29,7 +29,7 @@ sp-runtime = { workspace = true }
 sp-consensus-aura = { workspace = true }
 
 # cumulus
-cumulus-pallet-parachain-system = { package = "cumulus-pallet-parachain-system", workspace = true,  default-features = false }
+cumulus-pallet-parachain-system = { workspace = true,  default-features = false }
 cumulus-primitives-core = { workspace = true, default-features = false }
 
 # local

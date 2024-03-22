@@ -296,7 +296,6 @@ where
     let res = host.request_commitment(commitment);
 
     assert!(matches!(message_handler, Err(..)));
-
     assert!(matches!(res, Err(..)));
     Ok(())
 }

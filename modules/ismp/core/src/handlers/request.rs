@@ -50,26 +50,30 @@ where
     };
 
     let router = host.ismp_router();
+
     let result = msg
         .requests
         .into_iter()
-        .filter(|req| {
-            let req = Request::Post(req.clone());
-            // If a receipt exists for any request then it's a duplicate and it is not dispatched
-            host.request_receipt(&req).is_none() &&
-                // can't dispatch timed out requests
-                !req.timed_out(host.timestamp()) &&
-                // either the host is a router and can accept requests on behalf of any chain
-                // or the request must be intended for this chain
-                (req.dest_chain() == host.host_state_machine() ||
-                host.is_router()) &&
-                // either the proof metadata matches the source chain, or it's coming from a proxy
-                // in which case, we must NOT have a configured state machine for the source
-                (req.source_chain() == msg.proof.height.id.state_id ||
-                host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-                    check_for_consensus_client(req.source_chain()))
-        })
-        .map(|request| {
+        .map(|req| {
+            let req_ = Request::Post(req.clone());
+
+            // Validate request
+            if host.request_receipt(&req_).is_none() && 
+            !req_.timed_out(host.timestamp()) &&
+            (req_.dest_chain() == host.host_state_machine() || 
+            host.is_router()) &&
+            (req_.source_chain() == msg.proof.height.id.state_id || 
+            (host.is_allowed_proxy(&msg.proof.height.id.state_id) && check_for_consensus_client(req_.source_chain())))
+            {
+                Ok(req)
+            } else {
+                Err(Error::ImplementationSpecific(String::from("Request: Request does not meet the required criteria")))
+            }
+        }).collect::<Result<Vec<_>, Error>>()?;
+
+        let result = result
+            .into_iter()
+            .map(|request| {
             let lambda = || {
                 let cb = router.module_for_id(request.to.clone())?;
                 let res = cb.on_accept(request.clone()).map(|_| DispatchSuccess {

@@ -34,6 +34,7 @@ use pallet_ismp::host::Host;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
+    use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
     use cumulus_primitives_core::relay_chain;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
@@ -41,7 +42,6 @@ pub mod pallet {
         host::IsmpHost,
         messaging::{ConsensusMessage, Message},
     };
-    use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);

@@ -20,6 +20,7 @@ use core::{marker::PhantomData, time::Duration};
 use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use codec::{Decode, Encode};
 use core::fmt::Debug;
+use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
 use ismp::{
     consensus::{
         ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -28,9 +29,8 @@ use ismp::{
     error::Error,
     host::{IsmpHost, StateMachine},
     messaging::StateCommitmentHeight,
+    ISMP_ID,
 };
-use ismp::ISMP_ID;
-use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
 use primitive_types::H256;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_runtime::{

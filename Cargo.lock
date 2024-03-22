@@ -5881,6 +5881,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-parachain-inherent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "cumulus-primitives-core",
+ "cumulus-relay-chain-interface",
+ "ismp",
+ "ismp-parachain",
+ "ismp-parachain-runtime-api",
+ "parity-scale-codec",
+ "sp-api",
+ "sp-blockchain",
+ "sp-inherents",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
+name = "ismp-parachain-runtime-api"
+version = "0.1.0"
+dependencies = [
+ "sp-api",
+]
+
+[[package]]
 name = "ismp-polygon-pos"
 version = "0.1.0"
 dependencies = [

@@ -30,7 +30,7 @@ use ismp::{
     messaging::StateCommitmentHeight,
 };
 use ismp::ISMP_ID;
-use parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
+use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
 use primitive_types::H256;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_runtime::{

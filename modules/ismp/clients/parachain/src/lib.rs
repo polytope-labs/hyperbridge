@@ -41,7 +41,7 @@ pub mod pallet {
         host::IsmpHost,
         messaging::{ConsensusMessage, Message},
     };
-    use parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
+    use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -49,7 +49,7 @@ pub mod pallet {
     /// The config trait
     #[pallet::config]
     pub trait Config:
-        frame_system::Config + pallet_ismp::Config + parachain_system::Config
+        frame_system::Config + pallet_ismp::Config + cumulus_pallet_parachain_system::Config
     {
         /// The overarching event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;

@@ -32,7 +32,7 @@ tracing = "0.1.40"
 
 [dev-dependencies]
 env_logger = "0.10.0"
-sync-committee-primitives = { path= "../primitives", features = ["sepolia-deneb"] }
+sync-committee-primitives = { path= "../primitives" }
 sync-committee-verifier = { path= "../verifier" }
 ethers = { workspace = true, features = ["ws", "default"] }
 tokio = { version =  "1.32.0", features = ["macros", "rt-multi-thread"]}
@@ -50,4 +50,3 @@ std = [
     "bls_on_arkworks/std",
     "ark-bls12-381/std"
 ]
-sepolia-deneb = ["sync-committee-primitives/sepolia-deneb"]

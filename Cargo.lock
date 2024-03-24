@@ -13932,7 +13932,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -14199,6 +14199,7 @@ dependencies = [
  "tesseract-client",
  "tesseract-primitives",
  "tokio",
+ "tokio-stream",
  "tracing",
  "transaction-fees",
 ]

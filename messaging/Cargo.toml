@@ -13,6 +13,7 @@ futures = "0.3.28"
 tokio = { version = "1.32.0", features = ["full"] }
 sp-core = { version = "21.0.0", features = ["full_crypto"] }
 hex = "0.4.3"
+tokio-stream = "0.1.14"
 
 ismp.workspace = true
 pallet-ismp.workspace = true

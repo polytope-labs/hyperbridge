@@ -1,3 +1,5 @@
+use anyhow::{anyhow, Error};
+use futures::stream::FuturesUnordered;
 use ismp::{
 	consensus::StateMachineHeight,
 	events::{Event as IsmpEvent, PostRequestHandled, StateMachineUpdated},
@@ -73,8 +75,8 @@ pub async fn translate_events_to_messages<A, B>(
 	client_map: &HashMap<StateMachine, AnyClient>,
 ) -> Result<Vec<Message>, anyhow::Error>
 where
-	A: IsmpHost + IsmpProvider,
-	B: IsmpHost + IsmpProvider,
+	A: IsmpHost + IsmpProvider + 'static,
+	B: IsmpHost + IsmpProvider + 'static,
 {
 	let mut post_request_queries = vec![];
 	let mut response_queries = vec![];
@@ -86,106 +88,144 @@ where
 	let mut response_messages = vec![];
 
 	let counterparty_timestamp = sink.query_timestamp().await?;
-	let is_allowed_module = |module: &Vec<u8>| match config.module_filter {
-		Some(ref filters) =>
-			if !filters.is_empty() {
-				filters.iter().find(|filter| **filter == *module).is_some()
-			} else {
-				true
-			},
-		// if no filter is provided, allow all modules
-		None => true,
-	};
 
-	for event in events.iter() {
-		match event {
-			IsmpEvent::PostRequest(post) => {
-				// Skip timed out requests
-				if post.timeout_timestamp != 0 &&
-					post.timeout_timestamp <= counterparty_timestamp.as_secs()
-				{
-					tracing::trace!(
-						"Found timed out request, request: {}, counterparty: {}",
-						post.timeout_timestamp,
-						counterparty_timestamp.as_secs()
+	// Fetch message proofs for estimating gas concurrently
+	let batch_size = source.max_concurrent_queries();
+	for chunk in events.chunks(batch_size) {
+		use tokio_stream::StreamExt;
+		let processes: FuturesUnordered<tokio::task::JoinHandle<Result<_, Error>>> = chunk
+			.into_iter()
+			.map(|event| {
+				let source = source.clone();
+				let event = event.clone();
+				let sink = sink.clone();
+				let config = config.clone();
+				tokio::spawn(async move {
+					match event {
+						IsmpEvent::PostRequest(post) => {
+							// Skip timed out requests
+							if post.timeout_timestamp != 0 &&
+								post.timeout_timestamp <= counterparty_timestamp.as_secs()
+							{
+								tracing::trace!(
+									"Found timed out request, request: {}, counterparty: {}",
+									post.timeout_timestamp,
+									counterparty_timestamp.as_secs()
+								);
+								return Ok(None)
+							}
+
+							if !is_allowed_module(config, &post.from) {
+								tracing::trace!(
+									"Request from module {}, filtered by module filter",
+									hex::encode(&post.from),
+								);
+								return Ok(None)
+							}
+
+							let req = Request::Post(post.clone());
+							let hash = hash_request::<Hasher>(&req);
+
+							let query = Query {
+								source_chain: req.source_chain(),
+								dest_chain: req.dest_chain(),
+								nonce: req.nonce(),
+								commitment: hash,
+							};
+
+							let proof = source
+								.query_requests_proof(state_machine_height.height, vec![query])
+								.await?;
+
+							let _msg = RequestMessage {
+								requests: vec![post.clone()],
+								proof: Proof { height: state_machine_height, proof },
+								signer: sink.address(),
+							};
+							Ok(Some((Message::Request(_msg), query)))
+						},
+						IsmpEvent::PostResponse(post_response) => {
+							// Skip timed out responses
+							if post_response.timeout_timestamp != 0 &&
+								post_response.timeout_timestamp <=
+									counterparty_timestamp.as_secs()
+							{
+								tracing::trace!(
+									"Found timed out request, request: {}, counterparty: {}",
+									post_response.timeout_timestamp,
+									counterparty_timestamp.as_secs()
+								);
+								return Ok(None)
+							}
+
+							if !is_allowed_module(config, &post_response.source_module()) {
+								tracing::trace!(
+									"Request from module {}, filtered by module filter",
+									hex::encode(&post_response.source_module()),
+								);
+								return Ok(None)
+							}
+
+							let resp = Response::Post(post_response.clone());
+							let hash = hash_response::<Hasher>(&resp);
+
+							let query = Query {
+								source_chain: resp.source_chain(),
+								dest_chain: resp.dest_chain(),
+								nonce: resp.nonce(),
+								commitment: hash,
+							};
+
+							let proof = source
+								.query_responses_proof(state_machine_height.height, vec![query])
+								.await?;
+
+							let _msg = ResponseMessage {
+								datagram: RequestResponse::Response(vec![resp.clone()]),
+								proof: Proof { height: state_machine_height, proof },
+								signer: sink.address(),
+							};
+							Ok(Some((Message::Response(_msg), query)))
+						},
+						_ => Ok(None),
+					}
+				})
+			})
+			.collect::<FuturesUnordered<_>>();
+
+		let results = processes
+			.collect::<Result<Vec<_>, _>>()
+			.await?
+			.into_iter()
+			.collect::<Result<Vec<_>, _>>()?;
+
+		for res in results {
+			match res {
+				Some((Message::Request(req_msg), query)) => {
+					post_request_queries.push(query);
+					post_requests.push(
+						req_msg
+							.requests
+							.get(0)
+							.cloned()
+							.ok_or_else(|| anyhow!("Expected a post to be present"))?,
 					);
-					continue
-				}
-
-				if !is_allowed_module(&post.from) {
-					tracing::trace!(
-						"Request from module {}, filtered by module filter",
-						hex::encode(&post.from),
-					);
-					continue
-				}
-
-				let req = Request::Post(post.clone());
-				let hash = hash_request::<Hasher>(&req);
-
-				let query = Query {
-					source_chain: req.source_chain(),
-					dest_chain: req.dest_chain(),
-					nonce: req.nonce(),
-					commitment: hash,
-				};
-
-				let proof =
-					source.query_requests_proof(state_machine_height.height, vec![query]).await?;
-
-				let _msg = RequestMessage {
-					requests: vec![post.clone()],
-					proof: Proof { height: state_machine_height, proof },
-					signer: sink.address(),
-				};
-				request_messages.push(Message::Request(_msg));
-				post_requests.push(post.clone());
-				post_request_queries.push(query);
-			},
-			IsmpEvent::PostResponse(post_response) => {
-				// Skip timed out responses
-				if post_response.timeout_timestamp != 0 &&
-					post_response.timeout_timestamp <= counterparty_timestamp.as_secs()
-				{
-					tracing::trace!(
-						"Found timed out request, request: {}, counterparty: {}",
-						post_response.timeout_timestamp,
-						counterparty_timestamp.as_secs()
-					);
-					continue
-				}
-
-				if !is_allowed_module(&post_response.source_module()) {
-					tracing::trace!(
-						"Request from module {}, filtered by module filter",
-						hex::encode(&post_response.source_module()),
-					);
-					continue
-				}
-
-				let resp = Response::Post(post_response.clone());
-				let hash = hash_response::<Hasher>(&resp);
-
-				let query = Query {
-					source_chain: resp.source_chain(),
-					dest_chain: resp.dest_chain(),
-					nonce: resp.nonce(),
-					commitment: hash,
-				};
-
-				let proof =
-					source.query_responses_proof(state_machine_height.height, vec![query]).await?;
-
-				let _msg = ResponseMessage {
-					datagram: RequestResponse::Response(vec![resp.clone()]),
-					proof: Proof { height: state_machine_height, proof },
-					signer: sink.address(),
-				};
-				response_messages.push(Message::Response(_msg));
-				post_responses.push(resp);
-				response_queries.push(query);
-			},
-			_ => {},
+					request_messages.push(Message::Request(req_msg))
+				},
+				Some((Message::Response(resp_msg), query)) => {
+					response_queries.push(query);
+					let response = match resp_msg.datagram {
+						RequestResponse::Response(ref resps) => resps
+							.get(0)
+							.cloned()
+							.ok_or_else(|| anyhow!("Expected a response to be present"))?,
+						_ => Err(anyhow!("Expected Response found posts"))?,
+					};
+					post_responses.push(response);
+					response_messages.push(Message::Response(resp_msg))
+				},
+				_ => {},
+			}
 		}
 	}
 
@@ -385,4 +425,17 @@ where
 	}
 
 	Ok(queries_to_be_relayed)
+}
+
+fn is_allowed_module(config: RelayerConfig, module: &Vec<u8>) -> bool {
+	match config.module_filter {
+		Some(ref filters) =>
+			if !filters.is_empty() {
+				filters.iter().find(|filter| **filter == *module).is_some()
+			} else {
+				true
+			},
+		// if no filter is provided, allow all modules
+		None => true,
+	}
 }

@@ -66,7 +66,8 @@ impl AccumulateFees {
 
 		// early return if withdrawing
 		if self.withdraw {
-			self.withdraw(&hyperbridge, clients).await?;
+			let tx_payment = TransactionPayment::initialize(&db).await?;
+			self.withdraw(tx_payment, &hyperbridge, clients).await?;
 			return Ok(());
 		}
 
@@ -228,6 +229,7 @@ impl AccumulateFees {
 
 	pub async fn withdraw<C: IsmpProvider + HyperbridgeClaim + Clone>(
 		&self,
+		tx: TransactionPayment,
 		hyperbridge: &C,
 		clients: HashMap<StateMachine, AnyClient>,
 	) -> anyhow::Result<()> {
@@ -238,6 +240,7 @@ impl AccumulateFees {
 				let client =
 					clients.get(&chain).expect(&format!("Client not found for {chain:?}")).clone();
 				let hyperbridge = hyperbridge.clone();
+				let tx = tx.clone();
 				async move {
 					let lambda = || async {
 						let amount = hyperbridge.available_amount(&client, &chain).await?;
@@ -257,7 +260,19 @@ impl AccumulateFees {
 						log::info!("Request submitted to hyperbridge successfully");
 						log::info!("Starting delivery of withdrawal message to {:?}", chain);
 						// Wait for state machine update
-						deliver_post_request(&client, &hyperbridge, result).await?;
+						// persist the withdrawal in-case delivery fails, so it's not lost forever
+						let ids = tx.store_pending_withdrawals(vec![result.clone()]).await?;
+
+						match deliver_post_request(&client, &hyperbridge, result.clone()).await {
+							Ok(_) => {
+								if let Err(e) = tx.delete_pending_withdrawals(ids).await {
+									tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
+								}
+							},
+							Err(err) => {
+								tracing::info!("Failed to deliver withdrawal request: {err:?}, they will be retried.");
+							}
+						};
 						Ok(())
 					};
 

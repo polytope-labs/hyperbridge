@@ -98,7 +98,7 @@ where
 {
 	pub async fn new(host: Option<T>, config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
-		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(15 * 1024 * 1024);
+		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(150 * 1024 * 1024);
 		let client = rpc_wrapper::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
 		// If latest height of the state machine on the counterparty is not provided in config
 		// Set it to the latest parachain height

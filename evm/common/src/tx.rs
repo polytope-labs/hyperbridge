@@ -237,7 +237,6 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 					.estimate_gas()
 					.await
 					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
-
 				let call = call.gas_price(gas_price).gas(gas_limit);
 
 				calls.push(call);

@@ -186,8 +186,8 @@ async fn handle_update<A, B>(
 	fee_acc_sender: FeeAccSender,
 ) -> Result<(), anyhow::Error>
 where
-	A: IsmpHost + IsmpProvider,
-	B: IsmpHost + IsmpProvider,
+	A: IsmpHost + IsmpProvider + 'static,
+	B: IsmpHost + IsmpProvider + 'static,
 {
 	// Chain B's state machine has been updated to a new height on chain A
 	// We query all the events that have been emitted on chain B that can be submitted to

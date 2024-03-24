@@ -306,6 +306,11 @@ pub trait IsmpProvider: Send + Sync {
 
 	/// Fetch the host manager address for this chain
 	async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error>;
+
+	/// The max number of concurrent queries that can be made to the rpc node
+	fn max_concurrent_queries(&self) -> usize {
+		10
+	}
 }
 
 /// Provides an interface for handling byzantine behaviour. Implementations of this should watch for

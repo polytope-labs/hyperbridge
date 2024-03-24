@@ -142,16 +142,18 @@ where
 		let proof = self.client.get_proof(self.config.ismp_host, keys, Some(at.into())).await?;
 		let proof = EvmStateProof {
 			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
-			storage_proof: proof
-				.storage_proof
+			storage_proof: {
+				let storage_proofs = proof.storage_proof.into_iter().map(|proof| {
+					StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.0.into()))
+				});
+				let merged_proofs = StorageProof::merge(storage_proofs);
+				vec![(
+					self.config.ismp_host.0.to_vec(),
+					merged_proofs.into_nodes().into_iter().collect(),
+				)]
 				.into_iter()
-				.map(|proof| {
-					(
-						sp_core::keccak_256(&proof.key.0).to_vec(),
-						proof.proof.into_iter().map(|bytes| bytes.0.into()).collect(),
-					)
-				})
-				.collect(),
+				.collect()
+			},
 		};
 		Ok(proof.encode())
 	}
@@ -164,16 +166,18 @@ where
 		let proof = self.client.get_proof(self.config.ismp_host, keys, Some(at.into())).await?;
 		let proof = EvmStateProof {
 			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
-			storage_proof: proof
-				.storage_proof
+			storage_proof: {
+				let storage_proofs = proof.storage_proof.into_iter().map(|proof| {
+					StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.0.into()))
+				});
+				let merged_proofs = StorageProof::merge(storage_proofs);
+				vec![(
+					self.config.ismp_host.0.to_vec(),
+					merged_proofs.into_nodes().into_iter().collect(),
+				)]
 				.into_iter()
-				.map(|proof| {
-					(
-						sp_core::keccak_256(&proof.key.0).to_vec(),
-						proof.proof.into_iter().map(|bytes| bytes.0.into()).collect(),
-					)
-				})
-				.collect(),
+				.collect()
+			},
 		};
 		Ok(proof.encode())
 	}
@@ -185,22 +189,17 @@ where
 			let locations = keys.iter().map(|key| H256::from_slice(key)).collect();
 			let proof =
 				self.client.get_proof(self.config.ismp_host, locations, Some(at.into())).await?;
-			for (index, key) in keys.into_iter().enumerate() {
-				map.insert(
-					key,
-					proof
-						.storage_proof
-						.get(index)
-						.cloned()
-						.ok_or_else(|| {
-							anyhow!("Invalid key supplied, storage proof could not be retrieved")
-						})?
-						.proof
-						.into_iter()
-						.map(|bytes| bytes.0.into())
-						.collect(),
-				);
+			let mut storage_proofs = vec![];
+			for proof in proof.storage_proof {
+				storage_proofs
+					.push(StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.0.into())));
 			}
+
+			let storage_proof = StorageProof::merge(storage_proofs);
+			map.insert(
+				self.config.ismp_host.0.to_vec(),
+				storage_proof.into_nodes().into_iter().collect(),
+			);
 
 			let state_proof = EvmStateProof {
 				contract_proof: proof
@@ -214,6 +213,7 @@ where
 		} else {
 			let mut contract_proofs: Vec<_> = vec![];
 			let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
+			let mut contract_address_to_proofs = BTreeMap::new();
 			for key in keys {
 				if key.len() != 52 {
 					continue;
@@ -228,8 +228,10 @@ where
 				contract_proofs.push(StorageProof::new(
 					proof.account_proof.into_iter().map(|node| node.0.into()),
 				));
-				map.insert(
-					key,
+
+				let entry =
+					contract_address_to_proofs.entry(contract_address.0.to_vec()).or_insert(vec![]);
+				entry.push(StorageProof::new(
 					proof
 						.storage_proof
 						.get(0)
@@ -239,10 +241,17 @@ where
 						})?
 						.proof
 						.into_iter()
-						.map(|bytes| bytes.0.into())
-						.collect(),
+						.map(|bytes| bytes.0.into()),
+				));
+			}
+
+			for (address, storage_proofs) in contract_address_to_proofs {
+				map.insert(
+					address,
+					StorageProof::merge(storage_proofs).into_nodes().into_iter().collect(),
 				);
 			}
+
 			let contract_proof = StorageProof::merge(contract_proofs);
 
 			let state_proof = EvmStateProof {
@@ -652,6 +661,10 @@ where
 	async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error> {
 		let address = self.host_manager().await?;
 		Ok(address.0.to_vec())
+	}
+
+	fn max_concurrent_queries(&self) -> usize {
+		self.config.tracing_batch_size.unwrap_or(10)
 	}
 }
 

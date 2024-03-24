@@ -431,6 +431,10 @@ where
 	async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error> {
 		Ok(pallet_ismp_relayer::MODULE_ID.to_vec())
 	}
+
+	fn max_concurrent_queries(&self) -> usize {
+		50
+	}
 }
 
 // The storage key needed to access events.

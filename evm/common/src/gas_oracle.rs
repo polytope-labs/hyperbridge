@@ -90,6 +90,8 @@ pub async fn get_current_gas_cost_in_usd(
 					let arb_gas_info_contract = ArbGasInfo::new(H160(ARB_GAS_INFO), client);
 					let oracle_gas_price = arb_gas_info_contract.get_minimum_gas_price().await?;
 					gas_price = std::cmp::max(node_gas_price, oracle_gas_price); // minimum gas price is 0.1 Gwei
+															 // todo: This is a hack, we need a reliable gas api for L2 chains
+					gas_price = gas_price + 2_000_000;
 					let response_json = get_eth_to_usd_price(&eth_price_uri).await?;
 					let eth_usd = parse_to_27_decimals(&response_json.result.ethusd)?;
 					unit_wei = get_cost_of_one_wei(eth_usd);

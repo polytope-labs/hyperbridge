@@ -104,6 +104,8 @@ The configuration file is a toml file that at the moment, expects the following 
 chain = "Gargantua" # testnet
 # Hyperbidge node ws rpc endpoint.
 rpc_ws = "ws://127.0.0.1:9944" # example endpoint
+# Sets the maximum size of an rpc request or response in bytes defaults to 150mb
+max_rpc_payload_size = 150000000
 
 [ethereum]
 # configuration type
@@ -217,6 +219,10 @@ signer = ""
 minimum_profit_percentage = 0
 # (Optional) If not empty, will filter requests to be delivered by originating module identifier (eg contract address)
 module_filter = []
+# How frequently to initiate withdrawals in seconds, defaults to 24 hours
+withdrawal_frequency = 86400,
+# Minimum amount to withdraw when auto-withdrawing, defaults to $100
+minimum_withdrawal_amount = 100,
 # (Optional) If not empty, only deliver to the specied state-machines
 delivery_endpoints = [
     { Ethereum = "ExecutionLayer" },
@@ -263,3 +269,14 @@ To use this feature run the following command:
 ```bash
     docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --withdraw
 ```
+
+
+### Auto Accumulation and withdrawals
+
+The relayer runs background tasks for automatic fee accumulation and withdrawals. Whenever a batch of messages are successfully delivered, the fee accumulation task receives the deliery receipts and starts the process of accumulating the fees on hyperbridge.  
+This process happens concurrently for all successfully delivered message batches. For redundancy, the delivery receipts are stored in the database prior to accumulation so they can be retried manually if any error is encountered.  
+
+Withdrawing fees from hyperbridge is triggered at fixed intervals based on the configured `withdrawal_frequency` and  `minimum_withdrawal_amount`. To change the frequency of withdrawal attempts you can configure `withdrawal_frequency` and `minimum_withdrawal_amount` to the desired values.   
+The task will only make a withdrawal attempt if your balance on hyperbridge is greater than or equal to the configured `minimum_withdrawal_amount`. Any failed withdrawal attempts will be retried each time the withdrawal task is triggered.  
+
+The manual processes described in the previous sections can be used as fallbacks when errors are encountered by their automated conterparts.  

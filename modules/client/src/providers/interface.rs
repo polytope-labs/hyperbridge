@@ -54,6 +54,7 @@ pub trait Client: Clone + Send + Sync + 'static {
     async fn ismp_events_stream(
         &self,
         item: RequestOrResponse,
+        initial_height: u64,
     ) -> Result<BoxStream<WithMetadata<Event>>, anyhow::Error>;
 
     /// Should return all the events emitted between the given block range

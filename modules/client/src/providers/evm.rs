@@ -194,6 +194,7 @@ impl Client for EvmClient {
     async fn ismp_events_stream(
         &self,
         _item: RequestOrResponse,
+        _initial_height: u64,
     ) -> Result<BoxStream<WithMetadata<Event>>, Error> {
         Err(anyhow!("Ismp stream unavailable for evm client"))
     }

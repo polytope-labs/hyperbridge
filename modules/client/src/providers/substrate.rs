@@ -165,9 +165,9 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     async fn ismp_events_stream(
         &self,
         item: RequestOrResponse,
+        initial_height: u64,
     ) -> Result<BoxStream<WithMetadata<Event>>, Error> {
         let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
-        let initial_height: u64 = self.client.blocks().at_latest().await?.number().into();
         let stream = stream::unfold(
             (initial_height, subscription, self.clone()),
             move |(latest_height, mut subscription, client)| {

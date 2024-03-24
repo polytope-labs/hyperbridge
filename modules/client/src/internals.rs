@@ -484,7 +484,10 @@ pub async fn request_status_stream(
                         }
 
                         let mut stream = hyperbridge_client
-                            .ismp_events_stream(RequestOrResponse::Request(post.clone()))
+                            .ismp_events_stream(
+                                RequestOrResponse::Request(post.clone()),
+                                finalized_height,
+                            )
                             .await?;
                         while let Some(event) = stream.next().await {
                             match event {

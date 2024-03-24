@@ -18,7 +18,6 @@ use crate::{
     presets::{DISPUTE_GAMES_SLOT, L2_OUTPUTS_SLOT},
     utils::{
         derive_array_item_key, derive_map_key, get_contract_storage_root, get_value_from_proof,
-        to_bytes_32,
     },
 };
 use alloc::{format, string::ToString};
@@ -60,14 +59,12 @@ pub struct OptimismPayloadProof {
 
 pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
     payload: OptimismPayloadProof,
-    root: &[u8],
+    root: H256,
     l2_oracle_address: H160,
     consensus_state_id: ConsensusStateId,
 ) -> Result<IntermediateState, Error> {
-    let root = to_bytes_32(root)?;
-    let root = H256::from_slice(&root[..]);
     let storage_root =
-        get_contract_storage_root::<H>(payload.l2_oracle_proof, l2_oracle_address, root)?;
+        get_contract_storage_root::<H>(payload.l2_oracle_proof, &l2_oracle_address.0, root)?;
 
     let output_root = calculate_output_root::<H>(
         payload.version,
@@ -209,7 +206,7 @@ pub const _PERMISSIONED: u32 = 1;
 
 pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
     payload: OptimismDisputeGameProof,
-    root: &[u8],
+    root: H256,
     dispute_factory_address: H160,
     consensus_state_id: ConsensusStateId,
 ) -> Result<IntermediateState, Error> {
@@ -219,11 +216,9 @@ pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
             "Game type must be the respected game type".to_string(),
         ))?;
     }
-    let root = to_bytes_32(root)?;
-    let root = H256::from_slice(&root[..]);
     let storage_root = get_contract_storage_root::<H>(
         payload.dispute_factory_proof,
-        dispute_factory_address,
+        &dispute_factory_address.0,
         root,
     )?;
     let l2_block_hash = Header::from(&payload.header).hash::<H>();

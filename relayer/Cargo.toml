@@ -56,4 +56,3 @@ itertools = "0.12.1"
 
 [features]
 consensus = []
-sepolia = ["tesseract-sync-committee/sepolia"]

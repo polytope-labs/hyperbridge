@@ -92,7 +92,7 @@ async fn test_ismp_state_proof() {
 	let proof = client.query_requests_proof(at, vec![query]).await.unwrap();
 	let evm_state_proof = EvmStateProof::decode(&mut &*proof).unwrap();
 	let contract_root =
-		get_contract_storage_root::<Host>(evm_state_proof.contract_proof, ISMP_HOST, state_root)
+		get_contract_storage_root::<Host>(evm_state_proof.contract_proof, &ISMP_HOST.0, state_root)
 			.unwrap();
 
 	let key = sp_core::keccak_256(&client.request_commitment_key(query.commitment).1 .0).to_vec();

@@ -1,11 +1,10 @@
-#[cfg(feature = "sepolia-deneb")]
-use crate::deneb::KzgCommitment;
 use crate::{
     constants::{
         BlsPublicKey, BlsSignature, Bytes32, Epoch, ExecutionAddress, Gwei, Hash32,
         ParticipationFlags, Root, Slot, ValidatorIndex, Version, WithdrawalIndex,
         DEPOSIT_PROOF_LENGTH, JUSTIFICATION_BITS_LENGTH,
     },
+    deneb::KzgCommitment,
     ssz::{ByteList, ByteVector},
 };
 use alloc::{vec, vec::Vec};
@@ -219,10 +218,8 @@ pub struct ExecutionPayload<
     pub block_hash: Hash32,
     pub transactions: List<Transaction<MAX_BYTES_PER_TRANSACTION>, MAX_TRANSACTIONS_PER_PAYLOAD>,
     pub withdrawals: List<Withdrawal, MAX_WITHDRAWALS_PER_PAYLOAD>,
-    #[cfg(feature = "sepolia-deneb")]
     #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub blob_gas_used: u64,
-    #[cfg(feature = "sepolia-deneb")]
     #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub excess_blob_gas: u64,
 }
@@ -252,10 +249,8 @@ pub struct ExecutionPayloadHeader<
     pub block_hash: Hash32,
     pub transactions_root: Root,
     pub withdrawals_root: Root,
-    #[cfg(feature = "sepolia-deneb")]
     #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub blob_gas_used: u64,
-    #[cfg(feature = "sepolia-deneb")]
     #[cfg_attr(feature = "std", serde(with = "crate::serde::as_string"))]
     pub excess_blob_gas: u64,
 }
@@ -296,7 +291,6 @@ pub struct BeaconBlockBody<
         MAX_WITHDRAWALS_PER_PAYLOAD,
     >,
     pub bls_to_execution_changes: List<SignedBlsToExecutionChange, MAX_BLS_TO_EXECUTION_CHANGES>,
-    #[cfg(feature = "sepolia-deneb")]
     pub blob_kzg_commitments: List<KzgCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK>,
 }
 

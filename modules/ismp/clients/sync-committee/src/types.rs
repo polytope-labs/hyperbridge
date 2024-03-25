@@ -61,7 +61,8 @@ pub struct BeaconClientUpdate {
 pub struct EvmStateProof {
     /// Contract account proof
     pub contract_proof: Vec<Vec<u8>>,
-    /// A map of storage key to the associated storage proof
+    /// A map of contract address to the associated account trie proof for all keys requested from
+    /// the contract
     pub storage_proof: BTreeMap<Vec<u8>, Vec<Vec<u8>>>,
 }
 

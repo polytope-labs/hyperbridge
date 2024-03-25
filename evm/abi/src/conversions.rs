@@ -24,6 +24,7 @@ use crate::{
 use anyhow::anyhow;
 use ismp::{host::StateMachine, router};
 
+use crate::evm_host::PostRequestEventFilter;
 #[cfg(feature = "beefy")]
 pub use beefy::*;
 use primitive_types::H256;
@@ -282,18 +283,7 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
                     gas_limit: get.gaslimit.low_u64(),
                 })),
             EvmHostEvents::PostRequestEventFilter(post) =>
-                Ok(ismp::events::Event::PostRequest(router::Post {
-                    source: StateMachine::from_str(&String::from_utf8(post.source.0.into())?)
-                        .map_err(|e| anyhow!("{}", e))?,
-                    dest: StateMachine::from_str(&String::from_utf8(post.dest.0.into())?)
-                        .map_err(|e| anyhow!("{}", e))?,
-                    nonce: post.nonce.low_u64(),
-                    from: post.from.0.into(),
-                    to: post.to.0.into(),
-                    timeout_timestamp: post.timeout_timestamp.low_u64(),
-                    data: post.data.0.into(),
-                    gas_limit: post.gaslimit.low_u64(),
-                })),
+                Ok(ismp::events::Event::PostRequest(post.try_into()?)),
             EvmHostEvents::PostResponseEventFilter(resp) =>
                 Ok(ismp::events::Event::PostResponse(router::PostResponse {
                     post: router::Post {
@@ -312,8 +302,32 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
                     timeout_timestamp: resp.res_timeout_timestamp.low_u64(),
                     gas_limit: resp.res_gaslimit.low_u64(),
                 })),
+            EvmHostEvents::PostRequestHandledFilter(handled) =>
+                Ok(ismp::events::Event::PostRequestHandled(ismp::events::PostRequestHandled {
+                    commitment: handled.commitment.into(),
+                    relayer: handled.relayer.as_bytes().to_vec(),
+                })),
             event => Err(anyhow!("Unsupported event {event:?}")),
         }
+    }
+}
+
+impl TryFrom<PostRequestEventFilter> for router::Post {
+    type Error = anyhow::Error;
+
+    fn try_from(post: PostRequestEventFilter) -> Result<Self, Self::Error> {
+        Ok(router::Post {
+            source: StateMachine::from_str(&String::from_utf8(post.source.0.into())?)
+                .map_err(|e| anyhow!("{}", e))?,
+            dest: StateMachine::from_str(&String::from_utf8(post.dest.0.into())?)
+                .map_err(|e| anyhow!("{}", e))?,
+            nonce: post.nonce.low_u64(),
+            from: post.from.0.into(),
+            to: post.to.0.into(),
+            timeout_timestamp: post.timeout_timestamp.low_u64(),
+            data: post.data.0.into(),
+            gas_limit: post.gaslimit.low_u64(),
+        })
     }
 }
 

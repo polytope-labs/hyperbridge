@@ -36,6 +36,8 @@ pub struct ConsensusMessage {
     pub consensus_proof: Vec<u8>,
     /// The consensus state Id
     pub consensus_state_id: ConsensusStateId,
+    /// Public key of the sender
+    pub signer: Vec<u8>,
 }
 
 /// A fraud proof message is used to report byzantine misbehaviour in a consensus system.

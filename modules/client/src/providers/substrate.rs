@@ -1,13 +1,13 @@
 use crate::{
-    providers::global::{Client, RequestOrResponse},
-    runtime,
-    types::{BoxStream, Extrinsic, HashAlgorithm, SubstrateStateProof},
+    providers::interface::{Client, RequestOrResponse, WithMetadata},
+    runtime::{self},
+    types::{BoxStream, EventMetadata, Extrinsic, HashAlgorithm, SubstrateStateProof},
 };
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use core::time::Duration;
 use ethers::prelude::{H160, H256};
-use futures::stream;
+use futures::{stream, StreamExt, TryStreamExt};
 use hashbrown::HashMap;
 use hex_literal::hex;
 use ismp::{
@@ -17,8 +17,18 @@ use ismp::{
     messaging::Message,
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
+use reconnecting_jsonrpsee_ws_client::{Client as ReconnectClient, SubscriptionId};
 use serde::{Deserialize, Serialize};
-use subxt::{config::Header, rpc_params, OnlineClient};
+use std::{
+    ops::{Deref, RangeInclusive},
+    sync::Arc,
+};
+use subxt::{
+    config::Header,
+    error::RpcError,
+    rpc::{RawValue, RpcClientT, RpcFuture, RpcSubscription},
+    rpc_params, OnlineClient,
+};
 
 #[derive(Debug, Clone)]
 pub struct SubstrateClient<C: subxt::Config + Clone> {
@@ -30,14 +40,29 @@ pub struct SubstrateClient<C: subxt::Config + Clone> {
     pub client: OnlineClient<C>,
     pub hashing: HashAlgorithm,
 }
-
-impl<C: subxt::Config + Clone> SubstrateClient<C> {
+impl<C> SubstrateClient<C>
+where
+    C: subxt::Config + Clone,
+{
     pub async fn new(
         rpc_url: String,
-        state_machine: StateMachineId,
         hashing: HashAlgorithm,
+        consensus_state_id: [u8; 4],
     ) -> Result<Self, Error> {
-        let client = OnlineClient::<C>::from_url(rpc_url.clone()).await?;
+        let rpc = ReconnectClient::builder().build(rpc_url.clone()).await?;
+
+        let client = OnlineClient::<C>::from_rpc_client(Arc::new(ClientWrapper(rpc))).await?;
+        let state_machine_address = runtime::api::storage().parachain_info().parachain_id();
+        let state_id = client
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&state_machine_address)
+            .await?
+            .ok_or(anyhow!("Couldn't get para chain id"))?;
+
+        let state_machine =
+            StateMachineId { state_id: StateMachine::Kusama(state_id.0), consensus_state_id };
 
         Ok(Self { rpc_url, client, state_machine, hashing })
     }
@@ -60,7 +85,7 @@ impl<C: subxt::Config + Clone> SubstrateClient<C> {
         &self,
         previous_height: u64,
         latest_height: u64,
-    ) -> Result<Vec<Event>, Error> {
+    ) -> Result<Vec<WithMetadata<Event>>, Error> {
         let range = (previous_height + 1)..=latest_height;
         if range.is_empty() {
             return Ok(Default::default());
@@ -79,8 +104,8 @@ impl<C: subxt::Config + Clone> SubstrateClient<C> {
             BlockNumberOrHash::<H256>::Number(previous_height.saturating_add(1) as u32),
             BlockNumberOrHash::<H256>::Number(latest_height as u32)
         ];
-        let response: HashMap<String, Vec<Event>> =
-            self.client.rpc().request("ismp_queryEvents", params).await?;
+        let response: HashMap<String, Vec<WithMetadata<Event>>> =
+            self.client.rpc().request("ismp_queryEventsWithMetadata", params).await?;
         let events = response.values().into_iter().cloned().flatten().collect();
         Ok(events)
     }
@@ -102,6 +127,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     async fn query_request_receipt(&self, request_hash: H256) -> Result<H160, Error> {
         let addr = runtime::api::storage().ismp().request_receipts(&request_hash);
         let receipt = self.client.storage().at_latest().await?.fetch(&addr).await?;
+
         if let Some(receipt) = receipt {
             Ok(H160::from_slice(&receipt[..20]))
         } else {
@@ -136,22 +162,25 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         }
     }
 
-    async fn ismp_events_stream(&self, item: RequestOrResponse) -> Result<BoxStream<Event>, Error> {
+    async fn ismp_events_stream(
+        &self,
+        item: RequestOrResponse,
+    ) -> Result<BoxStream<WithMetadata<Event>>, Error> {
         let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
         let initial_height: u64 = self.client.blocks().at_latest().await?.number().into();
         let stream = stream::unfold(
             (initial_height, subscription, self.clone()),
-            move |(mut latest_height, mut subscription, client)| {
+            move |(latest_height, mut subscription, client)| {
                 let item = item.clone();
                 async move {
                     loop {
                         let header = match subscription.next().await {
                             Some(Ok(header)) => header,
                             Some(Err(_err)) => {
-                                // log::error!(
-                                // 	"Error encountered while watching finalized heads: {err:?}"
-                                // );
-                                continue;
+                                tracing::error!(
+                                    "Error encountered while watching finalized heads: {_err:?}"
+                                );
+                                return Some((Ok(None), (latest_height, subscription, client)))
                             },
                             None => return None,
                         };
@@ -162,14 +191,15 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                         {
                             Ok(e) => e,
                             Err(_err) => {
-                                // log::error!("Error encountered while querying ismp events
-                                // {err:?}");
-                                continue;
+                                tracing::error!(
+                                    "Error encountered while querying ismp events {_err:?}"
+                                );
+                                return Some((Ok(None), (latest_height, subscription, client)))
                             },
                         };
 
                         let event = events.into_iter().find_map(|event| {
-                            let value = match event.clone() {
+                            let value = match event.event.clone() {
                                 Event::PostRequest(post) => Some(RequestOrResponse::Request(post)),
                                 Event::PostResponse(resp) =>
                                     Some(RequestOrResponse::Response(resp)),
@@ -184,19 +214,26 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                         });
 
                         let value = match event {
-                            Some(event) =>
-                                Some((Ok(event), (header.number().into(), subscription, client))),
-                            None => {
-                                latest_height = header.number().into();
-                                continue;
-                            },
+                            Some(event) => Some((
+                                Ok(Some(event)),
+                                (header.number().into(), subscription, client),
+                            )),
+                            None =>
+                                Some((Ok(None), (header.number().into(), subscription, client))),
                         };
 
                         return value;
                     }
                 }
             },
-        );
+        )
+        .filter_map(|item| async move {
+            match item {
+                Ok(None) => None,
+                Ok(Some(event)) => Some(Ok(event)),
+                Err(err) => Some(Err(err)),
+            }
+        });
 
         Ok(Box::pin(stream))
     }
@@ -204,7 +241,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     async fn post_request_handled_stream(
         &self,
         _commitment: H256,
-    ) -> Result<BoxStream<PostRequestHandledFilter>, Error> {
+    ) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, Error> {
         Err(anyhow!("Post request handled stream is currently unavailable"))
     }
 
@@ -233,58 +270,62 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     async fn state_machine_update_notification(
         &self,
         counterparty_state_id: StateMachineId,
-    ) -> Result<BoxStream<StateMachineUpdated>, Error> {
+    ) -> Result<BoxStream<WithMetadata<StateMachineUpdated>>, Error> {
         let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
         let initial_height: u64 = self.client.blocks().at_latest().await?.number().into();
         let stream = stream::unfold(
             (initial_height, subscription, self.clone()),
-            move |(mut latest_height, mut subscription, client)| async move {
-                loop {
-                    let header = match subscription.next().await {
-                        Some(Ok(header)) => header,
-                        Some(Err(_err)) => {
-                            // log::error!(
-                            // 	"Error encountered while watching finalized heads: {err:?}"
-                            // );
-                            continue;
-                        },
-                        None => return None,
-                    };
+            move |(latest_height, mut subscription, client)| async move {
+                let header = match subscription.next().await {
+                    Some(Ok(header)) => header,
+                    Some(Err(_err)) => {
+                        tracing::error!(
+                            "Error encountered while fetching finalized header: {_err:?}"
+                        );
+                        return Some((Ok(None), (latest_height, subscription, client)))
+                    },
+                    None => return None,
+                };
 
-                    let events = match client
-                        .query_ismp_events(latest_height, header.number().into())
-                        .await
-                    {
-                        Ok(e) => e,
-                        Err(_err) => {
-                            // log::error!("Error encountered while querying ismp events {err:?}");
-                            continue;
-                        },
-                    };
+                let events = match client
+                    .query_ismp_events(latest_height, header.number().into())
+                    .await
+                {
+                    Ok(e) => e,
+                    Err(_err) => {
+                        tracing::error!("Error encountered while querying ismp events {_err:?}");
+                        return Some((Ok(None), (latest_height, subscription, client)))
+                    },
+                };
 
-                    let event = events
-                        .into_iter()
-                        .filter_map(|event| match event {
-                            Event::StateMachineUpdated(e)
-                                if e.state_machine_id == counterparty_state_id =>
-                                Some(e),
-                            _ => None,
-                        })
-                        .max_by(|x, y| x.latest_height.cmp(&y.latest_height));
+                let event = events
+                    .into_iter()
+                    .filter_map(|event| match event.event {
+                        Event::StateMachineUpdated(e)
+                            if e.state_machine_id == counterparty_state_id =>
+                            Some((e, event.meta)),
+                        _ => None,
+                    })
+                    .max_by(|x, y| x.0.latest_height.cmp(&y.0.latest_height));
 
-                    let value = match event {
-                        Some(event) =>
-                            Some((Ok(event), (header.number().into(), subscription, client))),
-                        None => {
-                            latest_height = header.number().into();
-                            continue;
-                        },
-                    };
+                let value = match event {
+                    Some((event, meta)) => Some((
+                        Ok(Some(WithMetadata { event, meta })),
+                        (header.number().into(), subscription, client),
+                    )),
+                    None => Some((Ok(None), (header.number().into(), subscription, client))),
+                };
 
-                    return value;
-                }
+                return value;
             },
-        );
+        )
+        .filter_map(|item| async move {
+            match item {
+                Ok(None) => None,
+                Ok(Some(event)) => Some(Ok(event)),
+                Err(err) => Some(Err(err)),
+            }
+        });
 
         Ok(Box::pin(stream))
     }
@@ -316,12 +357,34 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         Ok(ext.into_encoded())
     }
 
-    async fn submit(&self, msg: Message) -> Result<(), Error> {
+    async fn query_ismp_event(
+        &self,
+        range: RangeInclusive<u64>,
+    ) -> Result<Vec<WithMetadata<Event>>, anyhow::Error> {
+        self.query_ismp_events(*range.start(), *range.end()).await
+    }
+
+    async fn submit(&self, msg: Message) -> Result<EventMetadata, Error> {
         let call = vec![msg].encode();
         let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle", call);
         let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
-        let _ = ext.submit_and_watch().await?.wait_for_in_block().await?;
-        Ok(())
+        let in_block = ext.submit_and_watch().await?.wait_for_in_block().await?;
+        in_block.wait_for_success().await?;
+
+        let header = self
+            .client
+            .rpc()
+            .header(Some(in_block.block_hash()))
+            .await?
+            .ok_or_else(|| anyhow!("Inconsistent node state."))?;
+
+        let event = EventMetadata {
+            block_hash: H256::from_slice(in_block.block_hash().as_ref()),
+            transaction_hash: H256::from_slice(in_block.extrinsic_hash().as_ref()),
+            block_number: header.number().into(),
+        };
+
+        Ok(event)
     }
 
     async fn query_state_machine_update_time(
@@ -342,6 +405,57 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let response: u64 = self.client.rpc().request("ismp_queryChallengePeriod", params).await?;
 
         Ok(Duration::from_secs(response))
+    }
+}
+
+/// Adapter client for suxt
+pub struct ClientWrapper(pub ReconnectClient);
+
+impl Deref for ClientWrapper {
+    type Target = ReconnectClient;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl RpcClientT for ClientWrapper {
+    fn request_raw<'a>(
+        &'a self,
+        method: &'a str,
+        params: Option<Box<RawValue>>,
+    ) -> RpcFuture<'a, Box<RawValue>> {
+        Box::pin(async move {
+            let res = self
+                .0
+                .request_raw(method.to_string(), params)
+                .await
+                .map_err(|e| RpcError::ClientError(Box::new(e)))?;
+            Ok(res)
+        })
+    }
+
+    fn subscribe_raw<'a>(
+        &'a self,
+        sub: &'a str,
+        params: Option<Box<RawValue>>,
+        unsub: &'a str,
+    ) -> RpcFuture<'a, RpcSubscription> {
+        Box::pin(async move {
+            let stream = self
+                .0
+                .subscribe_raw(sub.to_string(), params, unsub.to_string())
+                .await
+                .map_err(|e| RpcError::ClientError(Box::new(e)))?;
+
+            let id = match stream.id() {
+                SubscriptionId::Str(id) => Some(id.clone().into_owned()),
+                SubscriptionId::Num(id) => Some(id.to_string()),
+            };
+
+            let stream = stream.map_err(|e| RpcError::ClientError(Box::new(e))).boxed();
+            Ok(RpcSubscription { stream, id })
+        })
     }
 }
 

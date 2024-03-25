@@ -1,8 +1,10 @@
+use ismp::host::{Ethereum, StateMachine};
+
 use crate::{
     check_challenge_period, check_client_expiry, check_response_source, frozen_check,
-    mocks::{Host, MockDispatcher},
-    post_request_timeout_check, post_response_timeout_check, sanity_check_for_proxies,
-    write_outgoing_commitments,
+    mocks::{Host, MockDispatcher}, post_request_timeout_check, post_response_timeout_check,
+    prevent_request_timeout_on_proxy_with_known_state_machine,
+    prevent_response_timeout_on_proxy_with_known_state_machine, write_outgoing_commitments,
 };
 use std::sync::Arc;
 
@@ -44,6 +46,37 @@ fn should_process_post_response_timeouts_correctly() {
     let dispatcher = MockDispatcher(host.clone());
     post_response_timeout_check(&*host, &dispatcher).unwrap()
 }
+
+#[test]
+fn should_prevent_request_timeout_on_proxy_with_known_state_machine() {
+    let host = Arc::new(Host::default());
+    let dispatcher = MockDispatcher(host.clone());
+    let proxy_state_machine = StateMachine::Kusama(2000);
+    let direct_conn_state_machine = StateMachine::Ethereum(Ethereum::ExecutionLayer);
+    prevent_request_timeout_on_proxy_with_known_state_machine(
+        &*host,
+        &dispatcher,
+        proxy_state_machine,
+        direct_conn_state_machine,
+    )
+    .unwrap()
+}
+
+#[test]
+fn should_prevent_response_timeout_on_proxy_with_known_state_machine() {
+    let host = Arc::new(Host::default());
+    let dispatcher = MockDispatcher(host.clone());
+    let proxy_state_machine = StateMachine::Kusama(2000);
+    let direct_conn_state_machine = StateMachine::Ethereum(Ethereum::ExecutionLayer);
+    prevent_response_timeout_on_proxy_with_known_state_machine(
+        &*host,
+        &dispatcher,
+        proxy_state_machine,
+        direct_conn_state_machine,
+    )
+    .unwrap()
+}
+
 
 #[test]
 fn should_check_response_source() {

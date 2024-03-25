@@ -1,156 +1,372 @@
-mod internals;
-#[cfg(test)]
-mod mock;
-mod providers;
-mod runtime;
-mod streams;
-mod types;
+//! The hyperclient. Allows clients of hyperbridge manage their in-flight ISMP requests.
 
-mod interfaces;
-#[cfg(test)]
-mod tests;
+pub mod internals;
+pub mod providers;
+pub mod runtime;
+pub mod types;
+
+pub mod interfaces;
 
 extern crate alloc;
 extern crate core;
 
-use crate::{
-    internals::{query_request_status_internal, query_response_status_internal},
-    streams::{query_request_status_stream, timeout_stream},
-    types::ClientConfig,
-};
+use crate::types::ClientConfig;
+use anyhow::anyhow;
 
 use crate::{
-    interfaces::{JsClientConfig, JsPost, JsResponse},
-    internals::timeout_request_stream,
+    interfaces::{JsClientConfig, JsPost, JsPostResponse},
+    providers::{evm::EvmClient, substrate::SubstrateClient},
+    types::{ChainConfig, HyperBridgeConfig, MessageStatusWithMetadata, TimeoutStatus},
 };
 use ethers::{types::H256, utils::keccak256};
-use futures::{stream, StreamExt};
+use futures::StreamExt;
 use ismp::router::{Post, PostResponse};
 use wasm_bindgen::prelude::*;
 use wasm_streams::ReadableStream;
 
-/// Functions takes in a post request and returns one of the following json strings variants
-/// Status variants: `Pending`, `SourceFinalized`, `HyperbridgeDelivered`, `HyperbridgeFinalized`,
-/// `DestinationDelivered`, `Timeout`
-#[wasm_bindgen]
-pub async fn query_request_status(
-    request: JsPost,
-    config_js: JsClientConfig,
-) -> Result<JsValue, JsError> {
-    let post: Post = request.try_into().map_err(|_| JsError::new("deserialization error"))?;
-    let config: ClientConfig =
-        config_js.try_into().map_err(|_| JsError::new("deserialization error"))?;
-
-    let response = query_request_status_internal(post, config)
-        .await
-        .map_err(|e| JsError::new(e.to_string().as_str()))?;
-
-    serde_wasm_bindgen::to_value(&response).map_err(|_| JsError::new("deserialization error"))
+#[wasm_bindgen(typescript_custom_section)]
+const ICONFIG: &'static str = r#"
+interface IConfig {
+    // confuration object for the source chain
+    source: IChainConfig;
+    // confuration object for the destination chain
+    dest: IChainConfig;
+    // confuration object for hyperbridge
+    hyperbridge: IHyperbridgeConfig;
 }
 
-/// Function takes in a post response and returns one of the following json strings variants
-/// Status Variants: `Pending`, `SourceFinalized`, `HyperbridgeDelivered`, `HyperbridgeFinalized`,
-/// `DestinationDelivered`, `Timeout`
-#[wasm_bindgen]
-pub async fn query_response_status(
-    response: JsResponse,
-    config_js: JsClientConfig,
-) -> Result<JsValue, JsError> {
-    let post_response: PostResponse =
-        response.try_into().map_err(|_| JsError::new("deserialization error"))?;
-    let config: ClientConfig =
-        config_js.try_into().map_err(|_| JsError::new("deserialization error"))?;
-    let response = query_response_status_internal(config, post_response)
-        .await
-        .map_err(|e| JsError::new(e.to_string().as_str()))?;
-
-    serde_wasm_bindgen::to_value(&response).map_err(|_| JsError::new("deserialization error"))
+interface IChainConfig {
+    // rpc url of the chain
+    rpc_url: string;
+    // state machine identifier as a string
+    state_machine: string;
+    // contract address of the `IsmpHost` on this chain
+    host_address: Uint8Array;
+    // contract address of the `IHandler` on this chain
+    handler_address: Uint8Array;
+    // consensus state identifier of this chain on hyperbridge
+    consensus_state_id: Uint8Array;
 }
 
-/// Accepts a post request that has timed out returns a stream that yields the following json
-/// strings variants Status Variants: `Pending`, `DestinationFinalized`, `HyperbridgeTimedout`,
-/// `HyperbridgeFinalized`, `{ "TimeoutMessage": [...] }`. This function will not check if the
-/// request has timed out, only call it when sure that the request has timed out after calling
-/// `query_request_status`
-#[wasm_bindgen]
-pub async fn timeout_post_request(
-    request: JsPost,
-    config_js: JsClientConfig,
-) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
-    let post: Post = request.try_into().map_err(|_| JsError::new("deserialization error"))?;
-    let config: ClientConfig =
-        config_js.try_into().map_err(|_| JsError::new("deserialization error"))?;
-
-    let stream = timeout_request_stream(post, config)
-        .await
-        .map_err(|e| JsError::new(e.to_string().as_str()))?
-        .map(|value| {
-            value
-                .map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
-                .map_err(|e| JsValue::from_str(alloc::format!("{e:?}").as_str()))
-        });
-
-    let js_stream = ReadableStream::from_stream(stream);
-    Ok(js_stream.into_raw())
+interface IHyperbridgeConfig {
+    // websocket rpc endpoint for hyperbridge
+    rpc_url: string;
 }
 
-// =====================================
-// Stream Functions
-// =====================================
+interface IPostRequest {
+    // The source state machine of this request.
+    source: string;
+    // The destination state machine of this request.
+    dest: string;
+    // Module Id of the sending module
+    from: Uint8Array;
+    // Module ID of the receiving module
+    to: Uint8Array;
+    // The nonce of this request on the source chain
+    nonce: bigint;
+    // Encoded request body.
+    data: Uint8Array;
+    // Timestamp which this request expires in seconds.
+    timeout_timestamp: bigint;
+    // Gas limit for executing the request on destination
+    // This value should be zero if destination module is not a contract
+    gas_limit: bigint;
+    // Height at which this request was emitted on the source
+    height: bigint;
+}
 
-/// Races between a timeout stream and request processing stream, and yields the following json
-/// strings variants Status Variants: `Pending`, `SourceFinalized`, `HyperbridgeDelivered`,
-/// `HyperbridgeFinalized`, `DestinationDelivered`, `Timeout`
+interface IPostResponse {
+    // The request that triggered this response.
+    post: IPostRequest;
+    // The response message.
+    response: Uint8Array;
+    // Timestamp at which this response expires in seconds.
+    timeout_timestamp: bigint;
+    // Gas limit for executing the response on destination, only used for solidity modules.
+    gas_limit: bigint;
+}
+
+type MessageStatus =  SourceFinalized | HyperbridgeDelivered | HyperbridgeFinalized | DestinationDelivered | Timeout;
+
+// This event is emitted on hyperbridge
+interface SourceFinalized {
+    kind: "SourceFinalized";
+}
+
+// This event is emitted on hyperbridge
+interface HyperbridgeDelivered {
+    kind: "HyperbridgeDelivered";
+}
+
+// This event is emitted on the destination chain
+interface HyperbridgeFinalized {
+    kind: "HyperbridgeFinalized";
+}
+
+// This event is emitted on the destination chain
+interface DestinationDelivered {
+    kind: "DestinationDelivered";
+}
+
+// The request has now timed out
+interface Timeout {
+    kind: "Timeout";
+}
+
+// The possible states of an inflight request
+type MessageStatusWithMeta =  SourceFinalizedWithMetadata | HyperbridgeDeliveredWithMetadata | HyperbridgeFinalizedWithMetadata | DestinationDeliveredWithMetadata | Timeout | ErrorWithMetadata;
+
+// The possible states of a timed-out request
+type TimeoutStatus =  DestinationFinalizedWithMetadata | HyperbridgeTimedoutWithMetadata | HyperbridgeFinalizedWithMetadata | TimeoutMessage | ErrorWithMetadata;
+
+
+// This event is emitted on hyperbridge
+interface SourceFinalizedWithMetadata {
+    kind: "SourceFinalized";
+    // The hash of the block where the event was emitted
+    block_hash: Uint8Array;
+    // The hash of the extrinsic responsible for the event
+    transaction_hash: Uint8Array;
+    // The block number where the event was emitted
+    block_number: bigint;
+}
+
+// This event is emitted on hyperbridge
+interface HyperbridgeDeliveredWithMetadata {
+    kind: "HyperbridgeDelivered";
+    // The hash of the block where the event was emitted
+    block_hash: Uint8Array;
+    // The hash of the extrinsic responsible for the event
+    transaction_hash: Uint8Array;
+    // The block number where the event was emitted
+    block_number: bigint;
+}
+
+// This event is emitted on the destination chain
+interface HyperbridgeFinalizedWithMetadata {
+    kind: "HyperbridgeFinalized";
+    // The hash of the block where the event was emitted
+    block_hash: Uint8Array;
+    // The hash of the extrinsic responsible for the event
+    transaction_hash: Uint8Array;
+    // The block number where the event was emitted
+    block_number: bigint;
+}
+
+// This event is emitted on hyperbridge
+interface HyperbridgeTimedoutWithMetadata {
+    kind: "HyperbridgeTimedout";
+    // The hash of the block where the event was emitted
+    block_hash: Uint8Array;
+    // The hash of the extrinsic responsible for the event
+    transaction_hash: Uint8Array;
+    // The block number where the event was emitted
+    block_number: bigint;
+}
+
+// This event is emitted on the destination chain
+interface DestinationDeliveredWithMetadata {
+    kind: "DestinationDelivered";
+    // The hash of the block where the event was emitted
+    block_hash: Uint8Array;
+    // The hash of the extrinsic responsible for the event
+    transaction_hash: Uint8Array;
+    // The block number where the event was emitted
+    block_number: bigint;
+}
+
+// This event is emitted on the destination chain
+interface TimeoutMessage {
+    kind: "TimeoutMessage";
+    // encoded call for HandlerV1.handlePostRequestTimeouts
+    calldata: Uint8Array,
+}
+
+// This event is emitted on hyperbridge
+interface DestinationFinalizedWithMetadata {
+    kind: "DestinationFinalized";
+    // The hash of the block where the event was emitted
+    block_hash: Uint8Array;
+    // The hash of the extrinsic responsible for the event
+    transaction_hash: Uint8Array;
+    // The block number where the event was emitted
+    block_number: bigint;
+}
+
+
+// An error was encountered in the stream, the stream will come to an end.
+interface ErrorWithMetadata {
+    kind: "Error";
+    // error description
+    description: string
+}
+"#;
+
 #[wasm_bindgen]
-pub async fn subscribe_to_request_status(
-    request: JsPost,
-    config_js: JsClientConfig,
-    post_request_height: u64,
-) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
-    let post: Post = request.try_into().map_err(|_| JsError::new("deserialization error"))?;
-    let config: ClientConfig =
-        config_js.try_into().map_err(|_| JsError::new("deserialization error"))?;
-    let source_client =
-        config.source_chain().await.map_err(|e| JsError::new(e.to_string().as_str()))?;
-    let dest_client =
-        config.dest_chain().await.map_err(|e| JsError::new(e.to_string().as_str()))?;
-    let hyperbridge_client = config
-        .hyperbridge_client()
-        .await
-        .map_err(|e| JsError::new(e.to_string().as_str()))?;
+extern "C" {
+    #[wasm_bindgen(typescript_type = "IConfig")]
+    pub type IConfig;
 
-    let stream = stream::unfold((), move |_| {
-        let dest_client = dest_client.clone();
-        let hyperbridge_client = hyperbridge_client.clone();
-        let source_client = source_client.clone();
-        let post = post.clone();
-        async move {
+    #[wasm_bindgen(typescript_type = "IPostRequest")]
+    pub type IPostRequest;
+
+    #[wasm_bindgen(typescript_type = "IPostResponse")]
+    pub type IPostResponse;
+}
+
+/// The hyperclient, allows the clients of hyperbridge to manage their in-flight ISMP requests
+/// across multiple chains.
+#[wasm_bindgen]
+#[derive(Clone)]
+pub struct HyperClient {
+    #[wasm_bindgen(skip)]
+    pub source: EvmClient,
+    #[wasm_bindgen(skip)]
+    pub dest: EvmClient,
+    #[wasm_bindgen(skip)]
+    pub hyperbridge: SubstrateClient<HyperBridgeConfig>,
+}
+
+impl HyperClient {
+    /// Initialize the Hyperclient
+    pub async fn new(config: ClientConfig) -> Result<Self, anyhow::Error> {
+        // todo: we'll need an AnyClient to make this generic
+        let ChainConfig::Evm(ref source_config) = config.source else {
+            Err(anyhow!("Expected EvmConfig"))?
+        };
+        let ChainConfig::Evm(ref dest_config) = config.dest else {
+            Err(anyhow!("Expected EvmConfig"))?
+        };
+        let hyperbridge = config.hyperbridge_client().await?;
+
+        Ok(Self {
+            source: source_config.into_client().await?,
+            dest: dest_config.into_client().await?,
+            hyperbridge,
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl HyperClient {
+    /// Initialize the hyperclient
+    pub async fn init(config: IConfig) -> Result<HyperClient, JsError> {
+        let lambda = || async move {
+            let config = serde_wasm_bindgen::from_value::<JsClientConfig>(config.into()).unwrap();
+            let config: ClientConfig = config.try_into()?;
+
+            HyperClient::new(config).await
+        };
+
+        lambda().await.map_err(|err: anyhow::Error| {
+            JsError::new(&format!("Could not create hyperclient {err:?}"))
+        })
+    }
+
+    /// Queries the status of a request and returns `MessageStatus`
+    pub async fn query_request_status(&self, request: IPostRequest) -> Result<JsValue, JsError> {
+        let lambda = || async move {
+            let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
+            let post: Post = post.try_into()?;
+            let status = internals::query_request_status_internal(&self, post).await?;
+            Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
+        };
+
+        lambda().await.map_err(|err: anyhow::Error| {
+            JsError::new(&format!(
+                "Failed to query request status for {:?}->{:?}: {err:?}",
+                self.source.state_machine, self.dest.state_machine,
+            ))
+        })
+    }
+
+    /// Accepts a post response and returns a `MessageStatus`
+    pub async fn query_response_status(&self, response: IPostResponse) -> Result<JsValue, JsError> {
+        let lambda = || async move {
+            let post = serde_wasm_bindgen::from_value::<JsPostResponse>(response.into()).unwrap();
+            let response: PostResponse = post.try_into()?;
+            let status = internals::query_response_status_internal(&self, response).await?;
+            Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
+        };
+
+        lambda().await.map_err(|err: anyhow::Error| {
+            JsError::new(&format!(
+                "Failed to query response status for {:?}->{:?}: {err:?}",
+                self.source.state_machine, self.dest.state_machine,
+            ))
+        })
+    }
+
+    /// Return the status of a post request as a `ReadableStream` that yields
+    /// `MessageStatusWithMeta`
+    pub async fn request_status_stream(
+        &self,
+        request: IPostRequest,
+    ) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
+        let lambda = || async move {
+            let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
+            let height = post.height;
+            let post: Post = post.try_into()?;
+
             // Obtaining the request stream and the timeout stream
-            let mut timed_out = timeout_stream(post.timeout_timestamp, source_client.clone()).await;
-            let mut request_status = query_request_status_stream(
-                post,
-                source_client.clone(),
-                dest_client,
-                hyperbridge_client,
-                post_request_height,
-            )
-            .await;
+            let timed_out =
+                internals::request_timeout_stream(post.timeout_timestamp, self.source.clone())
+                    .await;
 
-            tokio::select! {
-                result = timed_out.next() => {
-                    return result.map(|val| (val.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible")).map_err(|e| JsValue::from_str(alloc::format!("{e:?}").as_str())), ()))
-                }
-                result = request_status.next() => {
-                    return result.map(|val| (val.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible")).map_err(|e| JsValue::from_str(alloc::format!("{e:?}").as_str())), ()))
-                }
-            }
-        }
-    });
+            let request_status = internals::request_status_stream(&self, post, height).await;
 
-    // Wrapping the main stream in a readable stream
-    let js_stream = ReadableStream::from_stream(stream);
+            let stream = futures::stream::select(request_status, timed_out).map(|res| {
+                res.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
+                    .map_err(|e| {
+                        serde_wasm_bindgen::to_value(&MessageStatusWithMetadata::Error {
+                            description: alloc::format!("{e:?}"),
+                        })
+                        .expect("Infallible")
+                    })
+            });
 
-    Ok(js_stream.into_raw())
+            // Wrapping the main stream in a readable stream
+            let js_stream = ReadableStream::from_stream(stream);
+
+            Ok(js_stream.into_raw())
+        };
+
+        lambda().await.map_err(|err: anyhow::Error| {
+            JsError::new(&format!("Failed to create request status stream: {err:?}"))
+        })
+    }
+
+    /// Given a post request that has timed out returns a `ReadableStream` that yields a
+    /// `TimeoutStatus` This function will not check if the request has timed out, only call it
+    /// when you receive a `MesssageStatus::TimeOut` from `query_request_status` or
+    /// `request_status_stream`. The stream ends when once it yields a `TimeoutMessage`
+    pub async fn timeout_post_request(
+        &self,
+        request: IPostRequest,
+    ) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
+        let lambda = || async move {
+            let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
+            let post: Post = post.try_into()?;
+
+            let stream = internals::timeout_request_stream(&self, post).await?.map(|value| {
+                value
+                    .map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
+                    .map_err(|e| {
+                        serde_wasm_bindgen::to_value(&TimeoutStatus::Error {
+                            description: alloc::format!("{e:?}"),
+                        })
+                        .expect("Infallible")
+                    })
+            });
+
+            let js_stream = ReadableStream::from_stream(stream);
+            Ok(js_stream.into_raw())
+        };
+
+        lambda().await.map_err(|err: anyhow::Error| {
+            JsError::new(&format!("Failed to create post request timeout stream: {err:?}"))
+        })
+    }
 }
 
 #[derive(Clone, Default)]

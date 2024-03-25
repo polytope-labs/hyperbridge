@@ -66,7 +66,7 @@ use frame_support::{
 };
 use frame_system::{
     limits::{BlockLength, BlockWeights},
-    EnsureRoot,
+    EnsureRoot, Phase,
 };
 use pallet_ismp::{
     mmr_primitives::{Leaf, LeafIndex},
@@ -212,7 +212,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("gargantua"),
     impl_name: create_runtime_str!("gargantua"),
     authoring_version: 1,
-    spec_version: 210,
+    spec_version: 223,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -766,6 +766,27 @@ impl_runtime_apis! {
                 match event {
                     RuntimeEvent::Ismp(event) => {
                         pallet_ismp::events::to_core_protocol_event(event)
+                    },
+                    _ => None
+                }
+            }).collect()
+        }
+
+        /// Fetch all ISMP events and their extrinsic metadata
+        fn block_events_with_metadata() -> Vec<(pallet_ismp::events::Event, u32)> {
+            let raw_events = frame_system::Pallet::<Self>::read_events_no_consensus().into_iter();
+            raw_events.filter_map(|e| {
+                let frame_system::EventRecord { event, phase, ..} = *e;
+                let Phase::ApplyExtrinsic(index) = phase else {
+                    unreachable!("ISMP events are always dispatched by extrinsics");
+                };
+
+                match event {
+                    RuntimeEvent::Ismp(event) => {
+                        pallet_ismp::events::to_core_protocol_event(event)
+                            .map(|event| {
+                            (event, index)
+                        })
                     },
                     _ => None
                 }

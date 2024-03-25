@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use anyhow::anyhow;
 use ark_ec::AffineRepr;
 use ismp::util::Keccak256;
-use primitives::{parse_extra, BscClientUpdate, VALIDATOR_BIT_SET_SIZE};
+use primitives::{parse_extra, BscClientUpdate, EPOCH_LENGTH, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
 use sync_committee_verifier::crypto::{pairing, pubkey_to_projective};
 pub mod primitives;
@@ -27,7 +27,7 @@ pub struct VerificationResult {
     pub next_validators: Option<NextValidators>,
 }
 
-#[derive(Debug, Clone, Default, codec::Encode, codec::Decode)]
+#[derive(Debug, Clone, Default, codec::Encode, codec::Decode, PartialEq, Eq)]
 pub struct NextValidators {
     pub validators: Vec<BlsPublicKey>,
     pub rotation_block: u64,
@@ -82,6 +82,7 @@ pub fn verify_bsc_header<H: Keccak256>(
     }
 
     let next_validator_addresses: Option<NextValidators> =
+        // If an epoch ancestry was provided, we try to extract the next validator set from it
         if !update.epoch_header_ancestry.is_empty() {
             let mut parent_hash = Header::from(&update.epoch_header_ancestry[0]).hash::<H>();
             for header in update.epoch_header_ancestry[1..].into_iter() {
@@ -105,7 +106,29 @@ pub fn verify_bsc_header<H: Keccak256>(
             if !validators.is_empty() {
                 Some(NextValidators {
                     validators,
-                    rotation_block: update.source_header.number.low_u64() + 12,
+                    rotation_block: epoch_header.number.low_u64() +
+                        (current_validators.len() as u64 / 2),
+                })
+            } else {
+                Err(anyhow!(
+                    "Epoch header provided does not have a validator set present in its extra data"
+                ))?
+            }
+            // If the source header that was finalized is the epoch header we extract the next validator set
+        } else if update.source_header.number.low_u64() % EPOCH_LENGTH == 0 {
+            let epoch_header_extra_data = parse_extra::<H>(&update.source_header.extra_data)
+                .map_err(|_| anyhow!("could not parse extra data from epoch header"))?;
+            let validators = epoch_header_extra_data
+                .validators
+                .into_iter()
+                .map(|val| val.bls_public_key.as_slice().try_into().expect("Infallible"))
+                .collect::<Vec<BlsPublicKey>>();
+
+            if !validators.is_empty() {
+                Some(NextValidators {
+                    validators,
+                    rotation_block: update.source_header.number.low_u64() +
+                        (current_validators.len() as u64 / 2),
                 })
             } else {
                 Err(anyhow!(

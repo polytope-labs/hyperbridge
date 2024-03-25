@@ -4,7 +4,7 @@ use ismp::{
         StateMachineHeight, StateMachineId, VerifiedCommitments,
     },
     error::Error,
-    host::{IsmpHost, StateMachine},
+    host::{Ethereum, IsmpHost, StateMachine},
     messaging::Proof,
     module::IsmpModule,
     router::{
@@ -24,6 +24,8 @@ use std::{
 
 #[derive(Default)]
 pub struct MockClient;
+#[derive(Default)]
+pub struct MockProxyClient;
 
 #[derive(Default)]
 pub struct MockProxyClient;
@@ -62,7 +64,44 @@ impl ConsensusClient for MockClient {
     }
 
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-        Ok(Box::new(MockStateMachineClient))
+        match _id {
+            StateMachine::Ethereum(Ethereum::ExecutionLayer) =>
+                Ok(Box::new(MockStateMachineClient)),
+            _ => Err(Error::ImplementationSpecific("Invalid state machine".to_string())),
+        }
+    }
+}
+
+impl ConsensusClient for MockProxyClient {
+    fn verify_consensus(
+        &self,
+        _host: &dyn IsmpHost,
+        _consensus_state_id: ConsensusStateId,
+        _trusted_consensus_state: Vec<u8>,
+        _proof: Vec<u8>,
+    ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
+        Ok(Default::default())
+    }
+
+    fn verify_fraud_proof(
+        &self,
+        _host: &dyn IsmpHost,
+        _trusted_consensus_state: Vec<u8>,
+        _proof_1: Vec<u8>,
+        _proof_2: Vec<u8>,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn consensus_client_id(&self) -> ConsensusClientId {
+        MOCK_PROXY_CONSENSUS_CLIENT_ID
+    }
+
+    fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+        match _id {
+            StateMachine::Kusama(2000) => Ok(Box::new(MockStateMachineClient)),
+            _ => Err(Error::ImplementationSpecific("Invalid state machine".to_string())),
+        }
     }
 }
 impl ConsensusClient for MockProxyClient {
@@ -126,7 +165,7 @@ impl StateMachineClient for MockStateMachineClient {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct Host {
     requests: Rc<RefCell<BTreeSet<H256>>>,
     receipts: Rc<RefCell<HashMap<H256, ()>>>,

@@ -408,7 +408,7 @@ impl Keccak256 for Host {
 }
 
 #[derive(Default)]
-pub struct MockModule(pub Host);
+pub struct MockModule;
 
 impl IsmpModule for MockModule {
     fn on_accept(&self, _request: Post) -> Result<(), Error> {
@@ -425,7 +425,7 @@ impl IsmpModule for MockModule {
 }
 
 #[derive(Default)]
-pub struct MockProxyModule(pub Host);
+pub struct MockProxyModule;
 
 impl IsmpModule for MockProxyModule {
     fn on_accept(&self, _request: Post) -> Result<(), Error> {
@@ -445,14 +445,14 @@ pub struct MockRouter(pub Host);
 
 impl IsmpRouter for MockRouter {
     fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
-        Ok(Box::new(MockModule(self.0.clone())))
+        Ok(Box::new(MockModule))
     }
 }
 pub struct MockProxyRouter(pub Host);
 
 impl IsmpRouter for MockProxyRouter {
     fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
-        Ok(Box::new(MockProxyModule(self.0.clone())))
+        Ok(Box::new(MockProxyModule))
     }
 }
 

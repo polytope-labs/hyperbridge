@@ -35,6 +35,7 @@ use ismp::{
     },
     util::{hash_post_response, hash_request},
 };
+use std::vec;
 
 fn mock_consensus_state_id() -> ConsensusStateId {
     *b"mock"
@@ -104,6 +105,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
     let consensus_message = Message::Consensus(ConsensusMessage {
         consensus_proof: vec![],
         consensus_state_id: mock_consensus_state_id(),
+        signer: vec![],
     });
     let intermediate_state = setup_mock_client(host);
     // Set the previous update time
@@ -169,6 +171,7 @@ pub fn check_client_expiry<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     let consensus_message = Message::Consensus(ConsensusMessage {
         consensus_proof: vec![],
         consensus_state_id: mock_consensus_state_id(),
+        signer: vec![],
     });
     setup_mock_client(host);
     // Set the previous update time

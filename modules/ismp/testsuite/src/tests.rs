@@ -2,9 +2,11 @@ use ismp::host::{Ethereum, StateMachine};
 
 use crate::{
     check_challenge_period, check_client_expiry, check_response_source, frozen_check,
-    mocks::{Host, MockDispatcher}, post_request_timeout_check, post_response_timeout_check,
+    mocks::{Host, MockDispatcher},
+    post_request_timeout_check, post_response_timeout_check,
     prevent_request_timeout_on_proxy_with_known_state_machine,
-    prevent_response_timeout_on_proxy_with_known_state_machine, write_outgoing_commitments,
+    prevent_response_timeout_on_proxy_with_known_state_machine, sanity_check_for_proxies,
+    write_outgoing_commitments,
 };
 use std::sync::Arc;
 
@@ -77,17 +79,15 @@ fn should_prevent_response_timeout_on_proxy_with_known_state_machine() {
     .unwrap()
 }
 
-
 #[test]
 fn should_check_response_source() {
     let host = Arc::new(Host::default());
-    let dispatcher = MockDispatcher(host.clone());
-    check_response_source(&*host, &dispatcher).unwrap()
+    check_response_source(&*host).unwrap()
 }
 
 #[test]
 fn should_perform_sanity_check_for_proxies() {
     let host = Arc::new(Host::default());
-    let dispatcher = MockDispatcher(host.clone());
-    sanity_check_for_proxies(&*host, &dispatcher).unwrap()
+    let proxy_state_machine = StateMachine::Kusama(2000);
+    sanity_check_for_proxies(&*host, proxy_state_machine).unwrap()
 }

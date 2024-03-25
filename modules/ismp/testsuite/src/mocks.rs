@@ -8,8 +8,8 @@ use ismp::{
     messaging::Proof,
     module::IsmpModule,
     router::{
-        DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse, Request,
-        RequestResponse, Response, Timeout,
+        DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse,
+        Request, RequestResponse, Response, Timeout,
     },
     util::{hash_post_response, hash_request, hash_response, Keccak256},
 };

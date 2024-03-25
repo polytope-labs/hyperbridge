@@ -4,9 +4,8 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
+  pull_request_target:
+    types: [opened, synchronize]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -14,7 +13,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-#  RUSTFLAGS: "-C link-args=-Wl,--allow-multiple-definition"
   FOUNDRY_PROFILE: ci
   BNB_RPC: ${{ secrets.BNB_RPC }}
   BSC_URL: ${{ secrets.BSC_URL }}
@@ -23,6 +21,7 @@ env:
   SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
   POLYGON_RPC: ${{ secrets.POLYGON_RPC }}
   WASM_BINDGEN_TEST_TIMEOUT: 3600
+  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
 jobs:
   check-wasm:
@@ -32,9 +31,26 @@ jobs:
     strategy:
       matrix:
         crate: [messier-runtime, gargantua-runtime, nexus-runtime]
+
     steps:
+      - name: Get User Permission
+        id: checkAccess
+        uses: actions-cool/check-user-permission@v2
+        with:
+          require: write
+          username: ${{ github.triggering_actor }}
+
+      - name: Check User Permission
+        if: steps.checkAccess.outputs.require-result == 'false'
+        run: |
+          echo "${{ github.triggering_actor }} does not have permissions on this repo."
+          echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
+          echo "Job originally triggered by ${{ github.actor }}"
+          exit 1 
+
       - uses: actions/checkout@v3
         with:
+          ref: ${{  github.event.pull_request.head.sha }}
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
@@ -70,8 +86,24 @@ jobs:
     runs-on: arc-runner-set
     if: github.event.pull_request.draft == false
     steps:
+      - name: Get User Permission
+        id: checkAccess
+        uses: actions-cool/check-user-permission@v2
+        with:
+          require: write
+          username: ${{ github.triggering_actor }}
+
+      - name: Check User Permission
+        if: steps.checkAccess.outputs.require-result == 'false'
+        run: |
+          echo "${{ github.triggering_actor }} does not have permissions on this repo."
+          echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
+          echo "Job originally triggered by ${{ github.actor }}"
+          exit 1 
+
       - uses: actions/checkout@v3
         with:
+          ref: ${{  github.event.pull_request.head.sha }}
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
@@ -124,9 +156,24 @@ jobs:
     runs-on: arc-runner-set
     if: github.event.pull_request.draft == false
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v3
+      - name: Get User Permission
+        id: checkAccess
+        uses: actions-cool/check-user-permission@v2
         with:
+          require: write
+          username: ${{ github.triggering_actor }}
+
+      - name: Check User Permission
+        if: steps.checkAccess.outputs.require-result == 'false'
+        run: |
+          echo "${{ github.triggering_actor }} does not have permissions on this repo."
+          echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
+          echo "Job originally triggered by ${{ github.actor }}"
+          exit 1 
+
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{  github.event.pull_request.head.sha }}
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
@@ -162,9 +209,24 @@ jobs:
     runs-on: arc-runner-set
     if: github.event.pull_request.draft == false
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v3
+      - name: Get User Permission
+        id: checkAccess
+        uses: actions-cool/check-user-permission@v2
         with:
+          require: write
+          username: ${{ github.triggering_actor }}
+
+      - name: Check User Permission
+        if: steps.checkAccess.outputs.require-result == 'false'
+        run: |
+          echo "${{ github.triggering_actor }} does not have permissions on this repo."
+          echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
+          echo "Job originally triggered by ${{ github.actor }}"
+          exit 1 
+
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{  github.event.pull_request.head.sha }}
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
@@ -270,7 +332,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4.1.1
+      - name: Get User Permission
+        id: checkAccess
+        uses: actions-cool/check-user-permission@v2
+        with:
+          require: write
+          username: ${{ github.triggering_actor }}
+
+      - name: Check User Permission
+        if: steps.checkAccess.outputs.require-result == 'false'
+        run: |
+          echo "${{ github.triggering_actor }} does not have permissions on this repo."
+          echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
+          echo "Job originally triggered by ${{ github.actor }}"
+          exit 1 
+
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{  github.event.pull_request.head.sha }}
+          token: ${{ secrets.GH_TOKEN }}
+          submodules: recursive
 
       - name: Install wasm-pack
         run: |

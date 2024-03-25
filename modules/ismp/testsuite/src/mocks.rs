@@ -8,8 +8,8 @@ use ismp::{
     messaging::Proof,
     module::IsmpModule,
     router::{
-        DispatchPost, DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse,
-        Request, RequestResponse, Response, Timeout,
+        DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse, Request,
+        RequestResponse, Response, Timeout,
     },
     util::{hash_post_response, hash_request, hash_response, Keccak256},
 };
@@ -24,9 +24,6 @@ use std::{
 
 #[derive(Default)]
 pub struct MockClient;
-#[derive(Default)]
-pub struct MockProxyClient;
-
 #[derive(Default)]
 pub struct MockProxyClient;
 
@@ -72,38 +69,6 @@ impl ConsensusClient for MockClient {
     }
 }
 
-impl ConsensusClient for MockProxyClient {
-    fn verify_consensus(
-        &self,
-        _host: &dyn IsmpHost,
-        _consensus_state_id: ConsensusStateId,
-        _trusted_consensus_state: Vec<u8>,
-        _proof: Vec<u8>,
-    ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-        Ok(Default::default())
-    }
-
-    fn verify_fraud_proof(
-        &self,
-        _host: &dyn IsmpHost,
-        _trusted_consensus_state: Vec<u8>,
-        _proof_1: Vec<u8>,
-        _proof_2: Vec<u8>,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn consensus_client_id(&self) -> ConsensusClientId {
-        MOCK_PROXY_CONSENSUS_CLIENT_ID
-    }
-
-    fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-        match _id {
-            StateMachine::Kusama(2000) => Ok(Box::new(MockStateMachineClient)),
-            _ => Err(Error::ImplementationSpecific("Invalid state machine".to_string())),
-        }
-    }
-}
 impl ConsensusClient for MockProxyClient {
     fn verify_consensus(
         &self,
@@ -414,7 +379,7 @@ impl IsmpHost for Host {
     }
 
     fn allowed_proxy(&self) -> Option<StateMachine> {
-        self.consensus_state(*b"prxy").map(|_| StateMachine::Kusama(2000)).ok()
+        self.consensus_state(*b"prox").map(|_| StateMachine::Kusama(2000)).ok()
     }
 
     fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {
@@ -426,6 +391,10 @@ impl IsmpHost for Host {
             Some(_) => Box::new(MockProxyRouter(self.clone())),
             None => Box::new(MockRouter(self.clone())),
         }
+    }
+
+    fn is_router(&self) -> bool {
+        self.allowed_proxy().is_some()
     }
 }
 
@@ -460,42 +429,10 @@ pub struct MockProxyModule(pub Host);
 
 impl IsmpModule for MockProxyModule {
     fn on_accept(&self, _request: Post) -> Result<(), Error> {
-        let proxy_state_machine = self.0.clone().allowed_proxy().unwrap();
-        if _request.dest == proxy_state_machine {
-            let request = DispatchRequest::Post(DispatchPost {
-                dest: _request.source,
-                from: _request.from,
-                to: _request.to,
-                timeout_timestamp: _request.timeout_timestamp,
-                data: _request.data,
-                gas_limit: _request.gas_limit,
-            });
-            let dispatcher = MockDispatcher(Arc::new(self.0.clone()));
-            dispatcher.dispatch_request(request, [0; 32].into(), 0u32)?
-        }
         Ok(())
     }
 
     fn on_response(&self, _response: Response) -> Result<(), Error> {
-        if _response.source_chain() == self.0.clone().allowed_proxy().unwrap() {
-            let response = PostResponse {
-                post: Post {
-                    source: self.0.host_state_machine(),
-                    dest: _response.source_chain(),
-                    nonce: self.0.clone().next_nonce(),
-                    from: _response.destination_module(),
-                    to: _response.request().source_module(),
-                    timeout_timestamp: 0,
-                    data: _response.request().data().unwrap_or_default(),
-                    gas_limit: 0,
-                },
-                response: vec![],
-                timeout_timestamp: 0,
-                gas_limit: 0,
-            };
-            let dispatcher = MockDispatcher(Arc::new(self.0.clone()));
-            dispatcher.dispatch_response(response, [0; 32].into(), 0u32)?
-        }
         Ok(())
     }
 

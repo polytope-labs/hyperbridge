@@ -507,15 +507,6 @@ where
 
     let res = handle_incoming_message(host, timeout_message);
 
-    // Assert that the dispatch results are empty which means the timeout message was ignored.
-    // let dispatch_results_length = match res {
-    //     MessageResult::Timeout(dispatch_results) => dispatch_results.len(),
-    //     _ => unreachable!(),
-    // };
-
-    // assert_eq!(dispatch_results_length, 0);
-
-    // let err = dispatcher.dispatch_response(response, [0; 32].into(), 0u32.into());
     assert!(res.is_err(), "Timeout: Request does not meet the required criteria");
 
 

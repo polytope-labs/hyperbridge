@@ -49,23 +49,6 @@ where
             // For a response to be valid a request commitment must be present in storage
             // Also we must not have received a response for this request
 
-            // let responses = responses
-            //     .iter()
-            //     .filter(|response| {
-            //         let request = response.request();
-            //         let commitment = hash_request::<H>(&request);
-            //         host.request_commitment(commitment).is_ok() &&
-            //             host.response_receipt(&response).is_none() &&
-            //             !response.timed_out(host.timestamp()) &&
-            //             // either the proof metadata matches the source chain, or it's coming from a proxy
-            //             // in which case, we must NOT have a configured state machine for the source
-            //             (response.source_chain() == msg.proof.height.id.state_id ||
-            //                 host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-            //                     check_for_consensus_client(response.source_chain()))
-            //     })
-            //     .cloned()
-            //     .collect::<Vec<_>>();
-
             let responses = responses
                 .iter()
                 .map(|response| {
@@ -83,7 +66,7 @@ where
                     {
                         Ok(response.clone())
                     } else {
-                        Err(Error::ImplementationSpecific(String::from("Response: Response is not a valid request commitment")))
+                        Err(Error::ImplementationSpecific(String::from("Response: Response does not meet the required criteria")))
                     }
                 }).collect::<Result<Vec<_>, Error>>()?;
 

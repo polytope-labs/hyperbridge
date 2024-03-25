@@ -73,7 +73,7 @@ where
             {
                 Ok(req)
             } else {
-                Err(Error::ImplementationSpecific(String::from("Request: Request does not meet the required criteria")))
+                Err(Error::ImplementationSpecific("Request: Request does not meet the required criteria".into()))?
             }
         }).collect::<Result<Vec<_>, Error>>()?;
 

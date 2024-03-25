@@ -66,7 +66,7 @@ where
                     {
                         Ok(response.clone())
                     } else {
-                        Err(Error::ImplementationSpecific(String::from("Response: Response does not meet the required criteria")))
+                        Err(Error::ImplementationSpecific("Response: Response does not meet the required criteria".into()))?
                     }
                 }).collect::<Result<Vec<_>, Error>>()?;
 
@@ -110,7 +110,7 @@ where
                     if !req.timed_out(host.timestamp()) && req.dest_chain() == proof.height.id.state_id {
                         Ok(req)
                     } else {
-                        Err(Error::ImplementationSpecific(String::from("Response: Response timed out")))
+                        Err(Error::ImplementationSpecific("Response: Response timed out".into()))?
                     }
                 }).collect::<Result<Vec<_>, Error>>()?
                 .into_iter()

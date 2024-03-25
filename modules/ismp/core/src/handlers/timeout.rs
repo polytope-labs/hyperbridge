@@ -57,7 +57,7 @@ where
                     {
                         Ok(req)
                     } else {
-                        Err(Error::ImplementationSpecific(String::from("Timeout: Request does not meet the required criteria")))
+                        Err(Error::ImplementationSpecific("Timeout: Request does not meet the required criteria".into()))?
                     }
                 }).collect::<Result<Vec<_>, Error>>()?;
 

@@ -41,7 +41,7 @@ jobs:
           username: ${{ github.triggering_actor }}
 
       - name: Check User Permission
-        if: steps.checkAccess.outputs.require-result == 'false'
+#        if: steps.checkAccess.outputs.require-result == 'false'
         run: |
           echo "Ref: ${{ github.ref }}"
           echo "Branch: ${{ github.head_ref || github.ref_name }}"

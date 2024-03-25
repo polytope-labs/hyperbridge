@@ -235,6 +235,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     async fn post_request_handled_stream(
         &self,
         _commitment: H256,
+        _initial_height: u64,
     ) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, Error> {
         Err(anyhow!("Post request handled stream is currently unavailable"))
     }

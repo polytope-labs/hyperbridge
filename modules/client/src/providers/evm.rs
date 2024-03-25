@@ -202,8 +202,8 @@ impl Client for EvmClient {
     async fn post_request_handled_stream(
         &self,
         commitment: H256,
+        initial_height: u64,
     ) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, Error> {
-        let initial_height = self.client.get_block_number().await?.as_u64();
         let client = self.clone();
         let interval = wasm_timer::Interval::new(Duration::from_secs(30));
         let stream = stream::unfold(

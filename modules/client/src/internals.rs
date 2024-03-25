@@ -616,7 +616,8 @@ pub async fn request_status_stream(
                                 PostStreamState::DestinationDelivered,
                             )));
                         }
-                        let mut stream = dest_client.post_request_handled_stream(hash).await?;
+                        let mut stream =
+                            dest_client.post_request_handled_stream(hash, finalized_height).await?;
 
                         while let Some(event) = stream.next().await {
                             match event {

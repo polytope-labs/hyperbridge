@@ -21,6 +21,7 @@ env:
   SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
   POLYGON_RPC: ${{ secrets.POLYGON_RPC }}
   WASM_BINDGEN_TEST_TIMEOUT: 3600
+  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
 jobs:
   check-wasm:
@@ -38,8 +39,7 @@ jobs:
         with:
           require: write
           username: ${{ github.triggering_actor }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
       - name: Check User Permission
         if: steps.checkAccess.outputs.require-result == 'false'
         run: |
@@ -92,8 +92,7 @@ jobs:
         with:
           require: write
           username: ${{ github.triggering_actor }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
       - name: Check User Permission
         if: steps.checkAccess.outputs.require-result == 'false'
         run: |
@@ -163,8 +162,7 @@ jobs:
         with:
           require: write
           username: ${{ github.triggering_actor }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
       - name: Check User Permission
         if: steps.checkAccess.outputs.require-result == 'false'
         run: |
@@ -217,8 +215,7 @@ jobs:
         with:
           require: write
           username: ${{ github.triggering_actor }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
       - name: Check User Permission
         if: steps.checkAccess.outputs.require-result == 'false'
         run: |
@@ -341,8 +338,7 @@ jobs:
         with:
           require: write
           username: ${{ github.triggering_actor }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
       - name: Check User Permission
         if: steps.checkAccess.outputs.require-result == 'false'
         run: |

@@ -205,7 +205,7 @@ impl Client for EvmClient {
         initial_height: u64,
     ) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, Error> {
         let client = self.clone();
-        let interval = wasm_timer::Interval::new(Duration::from_secs(30));
+        let interval = wasm_timer::Interval::new(Duration::from_secs(12));
         let stream = stream::unfold(
             (initial_height, interval, client),
             move |(latest_height, mut interval, client)| async move {
@@ -248,16 +248,25 @@ impl Client for EvmClient {
                 let events = results
                     .into_iter()
                     .filter_map(|(ev, meta)| match ev {
-                        EvmHostEvents::PostRequestHandledFilter(filter)
-                            if filter.commitment == commitment.0 =>
-                            Some(WithMetadata {
-                                meta: EventMetadata {
-                                    block_hash: meta.block_hash,
-                                    transaction_hash: meta.transaction_hash,
-                                    block_number: meta.block_number.as_u64(),
-                                },
-                                event: filter,
-                            }),
+                        EvmHostEvents::PostRequestHandledFilter(filter) => {
+                            println!(
+                                "\n\n\nleft: {}, right: {}\n\n\n\n",
+                                commitment,
+                                H256(filter.commitment.clone())
+                            );
+                            if filter.commitment == commitment.0 {
+                                return Some(WithMetadata {
+                                    meta: EventMetadata {
+                                        block_hash: meta.block_hash,
+                                        transaction_hash: meta.transaction_hash,
+                                        block_number: meta.block_number.as_u64(),
+                                    },
+                                    event: filter,
+                                })
+                            }
+
+                            None
+                        },
                         _ => None,
                     })
                     .collect::<Vec<_>>();

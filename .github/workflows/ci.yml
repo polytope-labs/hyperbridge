@@ -20,7 +20,7 @@ env:
   SEPOLIA_URL: ${{ secrets.SEPOLIA_URL }}
   SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
   POLYGON_RPC: ${{ secrets.POLYGON_RPC }}
-  WASM_BINDGEN_TEST_TIMEOUT: 3600
+  WASM_BINDGEN_TEST_TIMEOUT: 5400
   GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
 jobs:

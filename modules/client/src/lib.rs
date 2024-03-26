@@ -86,7 +86,12 @@ interface IPostResponse {
     gas_limit: bigint;
 }
 
-type MessageStatus =  SourceFinalized | HyperbridgeDelivered | HyperbridgeFinalized | DestinationDelivered | Timeout;
+type MessageStatus =  Pending | SourceFinalized | HyperbridgeDelivered | HyperbridgeFinalized | DestinationDelivered | Timeout;
+
+// This transaction is still pending on the source chain
+interface Pending {
+    kind: "Pending";
+}
 
 // This event is emitted on hyperbridge
 interface SourceFinalized {
@@ -113,20 +118,38 @@ interface Timeout {
     kind: "Timeout";
 }
 
+// The request has now timed out
+interface DestinationFinalized {
+    kind: "DestinationFinalized";
+}
+
+// The request has now timed out
+interface HyperbridgeTimedout {
+    kind: "HyperbridgeTimedout";
+}
+
+
+// The request has now timed out
+interface HyperbridgeTimedout {
+    kind: "HyperbridgeTimedout";
+}
+
 // The possible states of an inflight request
 type MessageStatusWithMeta =  SourceFinalizedWithMetadata | HyperbridgeDeliveredWithMetadata | HyperbridgeFinalizedWithMetadata | DestinationDeliveredWithMetadata | Timeout | ErrorWithMetadata;
 
 // The possible states of a timed-out request
-type TimeoutStatus =  DestinationFinalizedWithMetadata | HyperbridgeTimedoutWithMetadata | HyperbridgeFinalizedWithMetadata | TimeoutMessage | ErrorWithMetadata;
+type TimeoutStatusWithMeta =  DestinationFinalizedWithMetadata | HyperbridgeTimedoutWithMetadata | HyperbridgeFinalizedWithMetadata | TimeoutMessage | ErrorWithMetadata;
 
 
 // This event is emitted on hyperbridge
 interface SourceFinalizedWithMetadata {
     kind: "SourceFinalized";
+    // Block height of the source chain that was finalized.
+    finalized_height: bigint;
     // The hash of the block where the event was emitted
-    block_hash: Uint8Array;
+    block_hash: `0x{string}`;
     // The hash of the extrinsic responsible for the event
-    transaction_hash: Uint8Array;
+    transaction_hash: `0x{string}`;
     // The block number where the event was emitted
     block_number: bigint;
 }
@@ -135,9 +158,9 @@ interface SourceFinalizedWithMetadata {
 interface HyperbridgeDeliveredWithMetadata {
     kind: "HyperbridgeDelivered";
     // The hash of the block where the event was emitted
-    block_hash: Uint8Array;
+    block_hash: `0x{string}`;
     // The hash of the extrinsic responsible for the event
-    transaction_hash: Uint8Array;
+    transaction_hash: `0x{string}`;
     // The block number where the event was emitted
     block_number: bigint;
 }
@@ -145,10 +168,12 @@ interface HyperbridgeDeliveredWithMetadata {
 // This event is emitted on the destination chain
 interface HyperbridgeFinalizedWithMetadata {
     kind: "HyperbridgeFinalized";
+    // Block height of hyperbridge chain that was finalized.
+    finalized_height: bigint;
     // The hash of the block where the event was emitted
-    block_hash: Uint8Array;
+    block_hash: `0x{string}`;
     // The hash of the extrinsic responsible for the event
-    transaction_hash: Uint8Array;
+    transaction_hash: `0x{string}`;
     // The block number where the event was emitted
     block_number: bigint;
 }
@@ -157,9 +182,9 @@ interface HyperbridgeFinalizedWithMetadata {
 interface HyperbridgeTimedoutWithMetadata {
     kind: "HyperbridgeTimedout";
     // The hash of the block where the event was emitted
-    block_hash: Uint8Array;
+    block_hash: `0x{string}`;
     // The hash of the extrinsic responsible for the event
-    transaction_hash: Uint8Array;
+    transaction_hash: `0x{string}`;
     // The block number where the event was emitted
     block_number: bigint;
 }
@@ -168,9 +193,9 @@ interface HyperbridgeTimedoutWithMetadata {
 interface DestinationDeliveredWithMetadata {
     kind: "DestinationDelivered";
     // The hash of the block where the event was emitted
-    block_hash: Uint8Array;
+    block_hash: `0x{string}`;
     // The hash of the extrinsic responsible for the event
-    transaction_hash: Uint8Array;
+    transaction_hash: `0x{string}`;
     // The block number where the event was emitted
     block_number: bigint;
 }
@@ -186,9 +211,9 @@ interface TimeoutMessage {
 interface DestinationFinalizedWithMetadata {
     kind: "DestinationFinalized";
     // The hash of the block where the event was emitted
-    block_hash: Uint8Array;
+    block_hash: `0x{string}`;
     // The hash of the extrinsic responsible for the event
-    transaction_hash: Uint8Array;
+    transaction_hash: `0x{string}`;
     // The block number where the event was emitted
     block_number: bigint;
 }

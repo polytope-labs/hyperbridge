@@ -2,6 +2,7 @@ use crate::{
     providers::interface::{Client, RequestOrResponse},
     types::BoxStream,
 };
+use ethereum_trie::StorageProof;
 use ethers::prelude::Middleware;
 
 use crate::{
@@ -134,22 +135,14 @@ impl Client for EvmClient {
         let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
         let locations = keys.iter().map(|key| H256::from_slice(key)).collect();
         let proof = self.client.get_proof(self.host_address, locations, Some(at.into())).await?;
-        for (index, key) in keys.into_iter().enumerate() {
-            map.insert(
-                key,
-                proof
-                    .storage_proof
-                    .get(index)
-                    .cloned()
-                    .ok_or_else(|| {
-                        anyhow!("Invalid key supplied, storage proof could not be retrieved")
-                    })?
-                    .proof
-                    .into_iter()
-                    .map(|bytes| bytes.0.into())
-                    .collect(),
-            );
+        let mut storage_proofs = vec![];
+        for proof in proof.storage_proof {
+            storage_proofs
+                .push(StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.0.into())));
         }
+
+        let storage_proof = StorageProof::merge(storage_proofs);
+        map.insert(self.host_address.0.to_vec(), storage_proof.into_nodes().into_iter().collect());
 
         let state_proof = EvmStateProof {
             contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
@@ -194,6 +187,7 @@ impl Client for EvmClient {
     async fn ismp_events_stream(
         &self,
         _item: RequestOrResponse,
+        _initial_height: u64,
     ) -> Result<BoxStream<WithMetadata<Event>>, Error> {
         Err(anyhow!("Ismp stream unavailable for evm client"))
     }
@@ -201,10 +195,10 @@ impl Client for EvmClient {
     async fn post_request_handled_stream(
         &self,
         commitment: H256,
+        initial_height: u64,
     ) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, Error> {
-        let initial_height = self.client.get_block_number().await?.as_u64();
         let client = self.clone();
-        let interval = wasm_timer::Interval::new(Duration::from_secs(30));
+        let interval = wasm_timer::Interval::new(Duration::from_secs(12));
         let stream = stream::unfold(
             (initial_height, interval, client),
             move |(latest_height, mut interval, client)| async move {
@@ -247,16 +241,25 @@ impl Client for EvmClient {
                 let events = results
                     .into_iter()
                     .filter_map(|(ev, meta)| match ev {
-                        EvmHostEvents::PostRequestHandledFilter(filter)
-                            if filter.commitment == commitment.0 =>
-                            Some(WithMetadata {
-                                meta: EventMetadata {
-                                    block_hash: meta.block_hash,
-                                    transaction_hash: meta.transaction_hash,
-                                    block_number: meta.block_number.as_u64(),
-                                },
-                                event: filter,
-                            }),
+                        EvmHostEvents::PostRequestHandledFilter(filter) => {
+                            println!(
+                                "\n\n\nleft: {}, right: {}\n\n\n\n",
+                                commitment,
+                                H256(filter.commitment.clone())
+                            );
+                            if filter.commitment == commitment.0 {
+                                return Some(WithMetadata {
+                                    meta: EventMetadata {
+                                        block_hash: meta.block_hash,
+                                        transaction_hash: meta.transaction_hash,
+                                        block_number: meta.block_number.as_u64(),
+                                    },
+                                    event: filter,
+                                })
+                            }
+
+                            None
+                        },
                         _ => None,
                     })
                     .collect::<Vec<_>>();
@@ -274,6 +277,16 @@ impl Client for EvmClient {
         });
 
         Ok(Box::pin(stream))
+    }
+
+    async fn query_latest_state_machine_height(
+        &self,
+        _state_machine: StateMachineId,
+    ) -> Result<u64, anyhow::Error> {
+        let contract = EvmHost::new(self.host_address, self.client.clone());
+        let height = contract.latest_state_machine_height().await?;
+
+        Ok(height.low_u64())
     }
 
     async fn state_machine_update_notification(

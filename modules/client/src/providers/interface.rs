@@ -20,7 +20,7 @@ pub enum RequestOrResponse {
 }
 
 /// Holds an event along with relevant metadata about the event
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WithMetadata<T> {
     /// The event metdata
     pub meta: EventMetadata,
@@ -54,6 +54,7 @@ pub trait Client: Clone + Send + Sync + 'static {
     async fn ismp_events_stream(
         &self,
         item: RequestOrResponse,
+        initial_height: u64,
     ) -> Result<BoxStream<WithMetadata<Event>>, anyhow::Error>;
 
     /// Should return all the events emitted between the given block range
@@ -66,7 +67,14 @@ pub trait Client: Clone + Send + Sync + 'static {
     async fn post_request_handled_stream(
         &self,
         commitment: H256,
+        initial_height: u64,
     ) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, anyhow::Error>;
+
+    /// Query the latest height of the given state machine
+    async fn query_latest_state_machine_height(
+        &self,
+        state_machine: StateMachineId,
+    ) -> Result<u64, anyhow::Error>;
 
     async fn query_state_machine_commitment(
         &self,

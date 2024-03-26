@@ -165,29 +165,27 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     async fn ismp_events_stream(
         &self,
         item: RequestOrResponse,
+        initial_height: u64,
     ) -> Result<BoxStream<WithMetadata<Event>>, Error> {
         let subscription = self.client.rpc().subscribe_finalized_block_headers().await?;
-        let initial_height: u64 = self.client.blocks().at_latest().await?.number().into();
         let stream = stream::unfold(
             (initial_height, subscription, self.clone()),
             move |(latest_height, mut subscription, client)| {
                 let item = item.clone();
                 async move {
-                    loop {
-                        let header = match subscription.next().await {
-                            Some(Ok(header)) => header,
-                            Some(Err(_err)) => {
-                                tracing::error!(
-                                    "Error encountered while watching finalized heads: {_err:?}"
-                                );
-                                return Some((Ok(None), (latest_height, subscription, client)))
-                            },
-                            None => return None,
-                        };
+                    let header = match subscription.next().await {
+                        Some(Ok(header)) => header,
+                        Some(Err(_err)) => {
+                            tracing::error!(
+                                "Error encountered while watching finalized heads: {_err:?}"
+                            );
+                            return Some((Ok(None), (latest_height, subscription, client)))
+                        },
+                        None => return None,
+                    };
 
-                        let events = match client
-                            .query_ismp_events(latest_height, header.number().into())
-                            .await
+                    let events =
+                        match client.query_ismp_events(latest_height, header.number().into()).await
                         {
                             Ok(e) => e,
                             Err(_err) => {
@@ -198,32 +196,28 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                             },
                         };
 
-                        let event = events.into_iter().find_map(|event| {
-                            let value = match event.event.clone() {
-                                Event::PostRequest(post) => Some(RequestOrResponse::Request(post)),
-                                Event::PostResponse(resp) =>
-                                    Some(RequestOrResponse::Response(resp)),
-                                _ => None,
-                            };
-
-                            if value == Some(item.clone()) {
-                                Some(event)
-                            } else {
-                                None
-                            }
-                        });
-
-                        let value = match event {
-                            Some(event) => Some((
-                                Ok(Some(event)),
-                                (header.number().into(), subscription, client),
-                            )),
-                            None =>
-                                Some((Ok(None), (header.number().into(), subscription, client))),
+                    let event = events.into_iter().find_map(|event| {
+                        let value = match event.event.clone() {
+                            Event::PostRequest(post) =>
+                                Some(RequestOrResponse::Request(post.clone())),
+                            Event::PostResponse(resp) => Some(RequestOrResponse::Response(resp)),
+                            _ => None,
                         };
 
-                        return value;
-                    }
+                        if value == Some(item.clone()) {
+                            Some(event)
+                        } else {
+                            None
+                        }
+                    });
+
+                    let value = match event {
+                        Some(event) =>
+                            Some((Ok(Some(event)), (header.number().into(), subscription, client))),
+                        None => Some((Ok(None), (header.number().into(), subscription, client))),
+                    };
+
+                    return value;
                 }
             },
         )
@@ -241,8 +235,20 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     async fn post_request_handled_stream(
         &self,
         _commitment: H256,
+        _initial_height: u64,
     ) -> Result<BoxStream<WithMetadata<PostRequestHandledFilter>>, Error> {
         Err(anyhow!("Post request handled stream is currently unavailable"))
+    }
+
+    async fn query_latest_state_machine_height(
+        &self,
+        state_machine: StateMachineId,
+    ) -> Result<u64, anyhow::Error> {
+        let params = rpc_params![state_machine];
+        let response: u64 =
+            self.client.rpc().request("ismp_queryStateMachineLatestHeight", params).await?;
+
+        Ok(response)
     }
 
     async fn query_state_machine_commitment(
@@ -368,8 +374,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let call = vec![msg].encode();
         let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle", call);
         let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
-        let in_block = ext.submit_and_watch().await?.wait_for_in_block().await?;
-        in_block.wait_for_success().await?;
+        let in_block = ext.submit_and_watch().await?.wait_for_finalized_success().await?;
 
         let header = self
             .client

@@ -134,6 +134,8 @@ pub enum MessageStatusWithMetadata {
     Pending,
     /// Source state machine has been finalized on hyperbridge.
     SourceFinalized {
+        /// Block height of the source chain that was finalized.
+        finalized_height: u64,
         /// Metadata about the event on hyperbridge
         #[serde(flatten)]
         meta: EventMetadata,
@@ -146,6 +148,8 @@ pub enum MessageStatusWithMetadata {
     },
     /// Messaged has been finalized on hyperbridge
     HyperbridgeFinalized {
+        /// Block height of hyperbridge chain that was finalized.
+        finalized_height: u64,
         /// Metadata about the event on the destination chain
         #[serde(flatten)]
         meta: EventMetadata,

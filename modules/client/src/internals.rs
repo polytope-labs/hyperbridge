@@ -127,6 +127,27 @@ pub async fn timeout_request_stream(
                     TimeoutStreamState::Pending => {
                         let relayer = hyperbridge_client.query_request_receipt(hash).await?;
                         if relayer != H160::zero() {
+                            let height = hyperbridge_client
+                                .query_latest_state_machine_height(dest_client.state_machine_id())
+                                .await?;
+
+                            let state_commitment = hyperbridge_client
+                                .query_state_machine_commitment(StateMachineHeight {
+                                    id: dest_client.state_machine_id(),
+                                    height,
+                                })
+                                .await?;
+
+                            if state_commitment.timestamp > post.timeout_timestamp {
+                                // early return if the destination has already finalized the height
+                                return Ok(Some((
+                                    Ok(TimeoutStatus::DestinationFinalized {
+                                        meta: Default::default(),
+                                    }),
+                                    TimeoutStreamState::DestinationFinalized(height),
+                                )))
+                            }
+
                             let mut stream = hyperbridge_client
                                 .state_machine_update_notification(dest_client.state_machine_id())
                                 .await?;
@@ -203,6 +224,40 @@ pub async fn timeout_request_stream(
                         )))
                     },
                     TimeoutStreamState::HyperbridgeTimedout(hyperbridge_height) => {
+                        let latest_hyperbridge_height = source_client
+                            .query_latest_state_machine_height(
+                                hyperbridge_client.state_machine_id(),
+                            )
+                            .await?;
+                        // check if the height has already been finalized
+                        if latest_hyperbridge_height >= hyperbridge_height {
+                            let latest_height = source_client.query_latest_block_height().await?;
+                            let meta = source_client
+                                .query_ismp_event((latest_height - 500)..=latest_height)
+                                .await?
+                                .into_iter()
+                                .find_map(|event| match event.event {
+                                    Event::StateMachineUpdated(updated)
+                                        if updated.latest_height >= hyperbridge_height =>
+                                        Some(event.meta),
+                                    _ => None,
+                                });
+
+                            let Some(meta) = meta else {
+                                return Ok(Some((
+                                    Ok(TimeoutStatus::HyperbridgeFinalized {
+                                        meta: Default::default(),
+                                    }),
+                                    TimeoutStreamState::HyperbridgeFinalized(latest_height),
+                                )));
+                            };
+
+                            return Ok(Some((
+                                Ok(TimeoutStatus::HyperbridgeFinalized { meta: meta.clone() }),
+                                TimeoutStreamState::HyperbridgeFinalized(meta.block_number),
+                            )));
+                        }
+
                         let mut state_machine_update_stream = source_client
                             .state_machine_update_notification(
                                 hyperbridge_client.state_machine_id(),
@@ -373,6 +428,9 @@ pub async fn request_status_stream(
                                     {
                                         return Ok(Some((
                                             Ok(MessageStatusWithMetadata::SourceFinalized {
+                                                finalized_height: state_machine_update
+                                                    .event
+                                                    .latest_height,
                                                 meta: state_machine_update.meta,
                                             }),
                                             PostStreamState::SourceFinalized(
@@ -426,7 +484,10 @@ pub async fn request_status_stream(
                         }
 
                         let mut stream = hyperbridge_client
-                            .ismp_events_stream(RequestOrResponse::Request(post.clone()))
+                            .ismp_events_stream(
+                                RequestOrResponse::Request(post.clone()),
+                                finalized_height,
+                            )
                             .await?;
                         while let Some(event) = stream.next().await {
                             match event {
@@ -448,6 +509,7 @@ pub async fn request_status_stream(
 
                         Ok(None)
                     },
+
                     PostStreamState::HyperbridgeDelivered(height) => {
                         let res = dest_client.query_request_receipt(hash).await?;
                         if res != H160::zero() {
@@ -456,6 +518,44 @@ pub async fn request_status_stream(
                                     meta: Default::default(),
                                 }),
                                 PostStreamState::End,
+                            )));
+                        }
+
+                        let latest_hyperbridge_height = dest_client
+                            .query_latest_state_machine_height(
+                                hyperbridge_client.state_machine_id(),
+                            )
+                            .await?;
+                        // check if the height has already been finalized
+                        if latest_hyperbridge_height >= height {
+                            let latest_height = dest_client.query_latest_block_height().await?;
+                            let meta = dest_client
+                                .query_ismp_event((latest_height - 500)..=latest_height)
+                                .await?
+                                .into_iter()
+                                .find_map(|event| match event.event {
+                                    Event::StateMachineUpdated(updated)
+                                        if updated.latest_height >= height =>
+                                        Some((event.meta, updated)),
+                                    _ => None,
+                                });
+
+                            let Some((meta, update)) = meta else {
+                                return Ok(Some((
+                                    Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
+                                        finalized_height: height,
+                                        meta: Default::default(),
+                                    }),
+                                    PostStreamState::HyperbridgeFinalized(latest_height),
+                                )));
+                            };
+
+                            return Ok(Some((
+                                Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
+                                    finalized_height: update.latest_height,
+                                    meta: meta.clone(),
+                                }),
+                                PostStreamState::HyperbridgeFinalized(meta.block_number),
                             )));
                         }
 
@@ -470,6 +570,7 @@ pub async fn request_status_stream(
                                     if event.event.latest_height >= height {
                                         return Ok(Some((
                                             Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
+                                                finalized_height: event.event.latest_height,
                                                 meta: event.meta,
                                             }),
                                             PostStreamState::HyperbridgeFinalized(
@@ -492,6 +593,7 @@ pub async fn request_status_stream(
                         }
                         Ok(None)
                     },
+
                     PostStreamState::HyperbridgeFinalized(finalized_height) => {
                         let res = dest_client.query_request_receipt(hash).await?;
                         let request_commitment =
@@ -514,7 +616,8 @@ pub async fn request_status_stream(
                                 PostStreamState::DestinationDelivered,
                             )));
                         }
-                        let mut stream = dest_client.post_request_handled_stream(hash).await?;
+                        let mut stream =
+                            dest_client.post_request_handled_stream(hash, finalized_height).await?;
 
                         while let Some(event) = stream.next().await {
                             match event {

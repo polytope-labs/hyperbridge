@@ -72,6 +72,7 @@ pub fn verify_bsc_header<H: Keccak256>(
     verify_aggregate_signature(&aggregate_public_key, msg.0.to_vec(), signature.to_vec().as_ref())
         .map_err(|_| anyhow!("Could not verify aggregate signature"))?;
 
+    // i would do this check before signature verification
     let source_header_hash = Header::from(&update.source_header).hash::<H>();
     let target_header_hash = Header::from(&update.target_header).hash::<H>();
 
@@ -155,6 +156,7 @@ pub fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Vec<u8> {
     point_to_pubkey(aggregate.into())
 }
 
+// we need a bls-utils crate
 pub fn verify_aggregate_signature(
     aggregate: &BlsPublicKey,
     msg: Vec<u8>,

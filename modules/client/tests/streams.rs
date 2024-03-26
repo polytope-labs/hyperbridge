@@ -245,7 +245,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     let call = ping.ping(PingMessage {
         dest: dest_chain.state_machine.to_string().as_bytes().to_vec().into(),
         module: PING_MODULE.clone().into(),
-        timeout: 6 * 60,
+        timeout: 4 * 60,
         fee: U256::from(0u128),
         count: U256::from(1),
     });

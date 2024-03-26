@@ -5859,6 +5859,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-parachain"
+version = "0.1.0"
+dependencies = [
+ "cumulus-pallet-parachain-system",
+ "cumulus-primitives-core",
+ "frame-support",
+ "frame-system",
+ "hex-literal 0.4.1",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
+ "serde",
+ "sp-consensus-aura",
+ "sp-inherents",
+ "sp-io 30.0.0",
+ "sp-runtime 31.0.1",
+ "sp-trie 29.0.0",
+ "substrate-state-machine",
+]
+
+[[package]]
+name = "ismp-parachain-inherent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "cumulus-primitives-core",
+ "cumulus-relay-chain-interface",
+ "ismp",
+ "ismp-parachain",
+ "ismp-parachain-runtime-api",
+ "parity-scale-codec",
+ "sp-api",
+ "sp-blockchain",
+ "sp-inherents",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
+name = "ismp-parachain-runtime-api"
+version = "0.1.0"
+dependencies = [
+ "sp-api",
+]
+
+[[package]]
 name = "ismp-polygon-pos"
 version = "0.1.0"
 dependencies = [

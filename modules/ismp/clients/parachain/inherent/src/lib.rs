@@ -68,6 +68,7 @@ impl ConsensusInherentProvider {
         let message = ConsensusMessage {
             consensus_state_id: ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID,
             consensus_proof: consensus_proof.encode(),
+            signer: Default::default(),
         };
 
         Ok(ConsensusInherentProvider(Some(message)))

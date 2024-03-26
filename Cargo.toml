@@ -20,6 +20,9 @@ members = [
      "modules/ismp/clients/sync-committee",
 #     "modules/ismp/clients/polygon-pos",
      "modules/ismp/clients/casper-ffg",
+     "modules/ismp/clients/parachain",
+     "modules/ismp/clients/parachain/inherent",
+     "modules/ismp/clients/parachain/runtime-api",
      "modules/ismp/pallet/state-machine",
 
      # modules

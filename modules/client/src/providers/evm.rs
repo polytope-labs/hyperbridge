@@ -242,11 +242,6 @@ impl Client for EvmClient {
                     .into_iter()
                     .filter_map(|(ev, meta)| match ev {
                         EvmHostEvents::PostRequestHandledFilter(filter) => {
-                            println!(
-                                "\n\n\nleft: {}, right: {}\n\n\n\n",
-                                commitment,
-                                H256(filter.commitment.clone())
-                            );
                             if filter.commitment == commitment.0 {
                                 return Some(WithMetadata {
                                     meta: EventMetadata {

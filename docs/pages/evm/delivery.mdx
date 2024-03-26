@@ -1,0 +1,132 @@
+## Hyperbridge Messeage Passing
+
+Hyperbridge as a message passing layer between different consensus enviroments is a powerful tool.
+This enable trustless communication between different blockchains and consensus enviroments, powering a new generation of decentralized applications.
+One liquidity DEX accross chains, Multi-chain goverance, Asset Bridges, One pool multichain lending protocols and much more are application 
+brought into the light of possiblity by the Hyperbridge.
+
+
+This documentation will in detail explain how to intergrate with Hyperbridge as a message passing protocol.
+
+### Guide 
+
+Hyperbridge is built underneath a simple message agnostic messaging protocol, Interopable State Machine Protocol (ISMP).
+The Assembling point of communication of all the Hyperbridge interoped state machines is the ISMP host. Incoming and outgoing requests
+goes through the ISMP host. This means to send and recieve request some ISMP host interfacing would be required.
+This [ISMP solidity library](https://github.com/polytope-labs/ismp-solidity) provides inferaface and other utils to interact with the ISMP host.
+
+
+
+```solidity 
+abstract contract BaseIsmpModule is IIsmpModule {
+    function onAccept(PostRequest calldata) external virtual {
+        revert("IsmpModule doesn't expect Post requests");
+    }
+
+    function onPostRequestTimeout(PostRequest memory) external virtual {
+        revert("IsmpModule doesn't emit Post requests");
+    }
+
+    function onPostResponse(PostResponse memory) external virtual {
+        revert("IsmpModule doesn't emit Post responses");
+    }
+
+    function onPostResponseTimeout(PostResponse memory) external virtual {
+        revert("IsmpModule doesn't emit Post responses");
+    }
+
+    function onGetResponse(GetResponse memory) external virtual {
+        revert("IsmpModule doesn't emit Get requests");
+    }
+
+    function onGetTimeout(GetRequest memory) external virtual {
+        revert("IsmpModule doesn't emit Get requests");
+    }
+}
+```
+
+`BaseIsmpModule` is a base contract housing interfaces that much be inmplemented by the contract which would be interoping using 
+Hyperbridge. The `onAccept` function is called when a request is recieved by the ISMP host. The `onPostRequestTimeout` function is called
+when a post request times out. The `onPostResponse` function is called when a post response is recieved. The `onPostResponseTimeout` function
+is called when a post response times out. The `onGetResponse` function is called when a get response is recieved. The `onGetTimeout` function
+is called when a get request times out.
+
+
+After implementing the `BaseIsmpModule` contract, the contract is set to process requests from the ISMP host. 
+We can look at how send (`Dispatch`) request to the ISMP host. 
+
+First, a `IDispatcher` Instance of the ISMP host is created. The dispatcher provides;
+
+```solidity 
+    function dispatch(DispatchPost memory request) external; 
+```
+*used to send post requests to the ISMP host.*
+
+
+```solidity 
+    function dispatch(DispatchGet memory request) external;
+```
+*used to send get requests to the ISMP host.*
+
+```solidity 
+    function dispatch(DispatchPostResponse memory response) external;
+```
+*used to send post response to the ISMP host.*
+
+
+Dispatching messages to the ISMP host is done using the `dispatch` function, which takes in a `DispatchPost`, `DispatchGet` or `DispatchPostResponse`
+for the corresponsing type of message to be sent. 
+
+```solidity 
+// An object for dispatching post requests to the IsmpDispatcher
+struct DispatchPost {
+    // bytes representation of the destination state machine
+    bytes dest;
+    // the destination module
+    bytes to;
+    // the request body
+    bytes body;
+    // timeout for this request in seconds
+    uint64 timeout;
+    // gas limit for executing this request on destination & its response (if any) on the source.
+    uint64 gaslimit;
+    // the amount put up to be paid to the relayer, this is in $DAI and charged to tx.origin
+    uint256 fee;
+    // who pays for this request?
+    address payer;
+}
+
+// An object for dispatching get requests to the IsmpDispatcher
+struct DispatchGet {
+    // bytes representation of the destination state machine
+    bytes dest;
+    // height at which to read the state machine
+    uint64 height;
+    // Storage keys to read
+    bytes[] keys;
+    // timeout for this request in seconds
+    uint64 timeout;
+    // gas limit for executing this request on destination & its response (if any) on the source.
+    uint64 gaslimit;
+    // the amount put up to be paid to the relayer, this is in $DAI and charged to tx.origin
+    uint256 fee;
+    // who pays for this request?
+    address payer;
+}
+
+struct DispatchPostResponse {
+    // The request that initiated this response
+    PostRequest request;
+    // bytes for post response
+    bytes response;
+    // timeout for this response in seconds
+    uint64 timeout;
+    // gas limit for executing this response on destination which is the source of the request.
+    uint64 gaslimit;
+    // the amount put up to be paid to the relayer, this is in $DAI and charged to tx.origin
+    uint256 fee;
+    // who pays for this request?
+    address payer;
+}
+
+```

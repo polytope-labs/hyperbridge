@@ -8,8 +8,8 @@ use ismp::{
     messaging::Proof,
     module::IsmpModule,
     router::{
-        DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse, Request,
-        RequestResponse, Response, Timeout,
+        DispatchPost, DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse,
+        Request, RequestResponse, Response, Timeout,
     },
     util::{hash_post_response, hash_request, hash_response, Keccak256},
 };
@@ -140,6 +140,7 @@ pub struct Host {
     state_commitments: Rc<RefCell<HashMap<StateMachineHeight, StateCommitment>>>,
     consensus_update_time: Rc<RefCell<HashMap<ConsensusStateId, Duration>>>,
     frozen_state_machines: Rc<RefCell<HashMap<StateMachineId, bool>>>,
+    frozen_consensus_clients: Rc<RefCell<HashMap<ConsensusStateId, bool>>>,
     latest_state_height: Rc<RefCell<HashMap<StateMachineId, u64>>>,
     nonce: Rc<RefCell<u64>>,
 }
@@ -372,7 +373,7 @@ impl IsmpHost for Host {
     }
 
     fn allowed_proxy(&self) -> Option<StateMachine> {
-        Some(StateMachine::Kusama(2000))
+        self.consensus_state(*b"prox").map(|_| StateMachine::Kusama(2000)).ok()
     }
 
     fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {
@@ -380,7 +381,14 @@ impl IsmpHost for Host {
     }
 
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {
-        Box::new(MockRouter(self.clone()))
+        match self.allowed_proxy() {
+            Some(_) => Box::new(MockProxyRouter(self.clone())),
+            None => Box::new(MockRouter(self.clone())),
+        }
+    }
+
+    fn is_router(&self) -> bool {
+        self.allowed_proxy().is_some()
     }
 }
 
@@ -410,11 +418,56 @@ impl IsmpModule for MockModule {
     }
 }
 
+#[derive(Default)]
+pub struct MockProxyModule(pub Arc<Host>);
+
+impl IsmpModule for MockProxyModule {
+    fn on_accept(&self, _request: Post) -> Result<(), Error> {
+        let request = DispatchRequest::Post(DispatchPost {
+            dest: _request.dest,
+            from: _request.from,
+            to: _request.to,
+            timeout_timestamp: _request.timeout_timestamp,
+            data: _request.data,
+            gas_limit: _request.gas_limit,
+        });
+        let dispatcher = MockDispatcher(self.0.clone());
+        dispatcher.dispatch_request(request, [0; 32].into(), 0u32)
+    }
+
+    fn on_response(&self, _response: Response) -> Result<(), Error> {
+        let response = match _response {
+            Response::Post(res) => res,
+            _ => unreachable!(),
+        };
+        let post = Post {
+            source: response.request().dest_chain(),
+            dest: response.request().source_chain(),
+            from: response.request().destination_module(),
+            to: response.request().source_module(),
+            ..response.post
+        };
+        let dispatcher = MockDispatcher(self.0.clone());
+        dispatcher.dispatch_response(PostResponse { post, ..response }, [0; 32].into(), 0u32)
+    }
+
+    fn on_timeout(&self, _request: Timeout) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
 pub struct MockRouter(pub Host);
 
 impl IsmpRouter for MockRouter {
     fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
         Ok(Box::new(MockModule))
+    }
+}
+pub struct MockProxyRouter(pub Host);
+
+impl IsmpRouter for MockProxyRouter {
+    fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+        Ok(Box::new(MockProxyModule(Arc::new(self.0.clone()))))
     }
 }
 
@@ -431,10 +484,11 @@ impl IsmpDispatcher for MockDispatcher {
         _fee: Self::Balance,
     ) -> Result<(), Error> {
         let host = self.0.clone();
+        let source = host.allowed_proxy().unwrap_or(host.host_state_machine());
         let request = match request {
             DispatchRequest::Get(dispatch_get) => {
                 let get = Get {
-                    source: host.host_state_machine(),
+                    source,
                     dest: dispatch_get.dest,
                     nonce: host.next_nonce(),
                     from: dispatch_get.from,
@@ -447,7 +501,7 @@ impl IsmpDispatcher for MockDispatcher {
             },
             DispatchRequest::Post(dispatch_post) => {
                 let post = Post {
-                    source: host.host_state_machine(),
+                    source,
                     dest: dispatch_post.dest,
                     nonce: host.next_nonce(),
                     from: dispatch_post.from,

@@ -47,15 +47,21 @@ where
 
             let requests = requests
                 .into_iter()
-                .filter(|req| {
-                    // check if the destination chain matches the proof metadata
-                    // or if the proof metadata refers to the configured proxy
-                    // and we don't have a configured state machine client for the destination
-                    req.dest_chain() == timeout_proof.height.id.state_id ||
-                        host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-                            check_for_consensus_client(req.dest_chain())
-                })
-                .collect::<Vec<_>>();
+                .map(|req| {
+                    // check if the request destination chain matches the proof metadata 
+                    // or if the proof metadata refers to the configured proxy 
+                    // and we don't have a configured state machine client for the destination 
+                    if req.dest_chain() == timeout_proof.height.id.state_id ||
+                        (host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+                        check_for_consensus_client(req.dest_chain()))
+                    {
+                        Ok(req)
+                    } else {
+                        Err(Error::ImplementationSpecific("Timeout: Request does not meet the required criteria".into()))?
+                    }
+                }).collect::<Result<Vec<_>, Error>>()?;
+
+            
 
             for request in &requests {
                 // Ensure a commitment exists for all requests in the batch

@@ -297,6 +297,7 @@ where
     // Assert that request commitment was deleted
     let commitment = hash_request::<H>(&request);
     let res = host.request_commitment(commitment);
+
     assert!(matches!(res, Err(..)));
     Ok(())
 }
@@ -506,16 +507,15 @@ where
         timeout_proof: Proof { height: proxy.height, proof: vec![] },
     });
 
-    let res = handle_incoming_message(host, timeout_message).unwrap();
-
     // Assert that the dispatch results are empty which means the timeout message was ignored.
+    let res = handle_incoming_message(host, timeout_message).unwrap();
     let dispatch_results_length = match res {
         MessageResult::Timeout(dispatch_results) => dispatch_results.len(),
         _ => unreachable!(),
     };
 
     assert_eq!(dispatch_results_length, 0);
-
+    
     Ok(())
 }
 

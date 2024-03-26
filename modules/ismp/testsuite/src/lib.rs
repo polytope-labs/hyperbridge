@@ -719,27 +719,62 @@ pub fn sanity_check_for_proxies<H: IsmpHost>(
 
     // Request message handling check
     let request_message = Message::Request(RequestMessage {
-        requests: vec![post.clone()],
+        requests: vec![post],
         proof: Proof { height: intermediate_state.height, proof: vec![] },
         signer: vec![0u8; 32],
     });
 
     handle_incoming_message(host, request_message).unwrap();
-    assert!(host.request_receipt(&Request::Post(post.clone())).is_some());
+    // Post request redispatched by proxy state machine
+    let dispatch_post = Post {
+        source: proxy_state_machine,
+        dest: StateMachine::Polygon,
+        nonce: 0,
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+        gas_limit: 0,
+    };
+    let request = Request::Post(dispatch_post.clone());
+    let commitment = hash_request::<H>(&request);
+    // Assert that dispatched request was acknowledged
+    assert!(host.request_commitment(commitment).is_ok());
 
-    let response = PostResponse { post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
+    let response =
+        PostResponse { post: dispatch_post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
     // Response message handling check
     let response_message = Message::Response(ResponseMessage {
-        datagram: RequestResponse::Response(vec![Response::Post(response.clone())]),
-        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        datagram: RequestResponse::Response(vec![Response::Post(response)]),
+        proof: Proof { height: proxy.height, proof: vec![] },
         signer: vec![],
     });
 
     handle_incoming_message(host, response_message).unwrap();
 
+    // Redispatched response
+    let dispatched_response = Post {
+        source: StateMachine::Polygon,
+        dest: proxy_state_machine,
+        nonce: 0,
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+        gas_limit: 0,
+    };
+    let response = PostResponse {
+        post: dispatched_response,
+        response: vec![],
+        timeout_timestamp: 0,
+        gas_limit: 0,
+    };
+
     assert_ne!(response.dest_chain(), host.host_state_machine());
     // Assert that response was acknowledged
-    assert!(host.response_receipt(&Response::Post(response)).is_some());
+    let commitment = hash_post_response::<H>(&response);
+    host.response_commitment(commitment)
+        .map_err(|_| "Expected Request commitment to be found in storage")?;
 
     Ok(())
 }

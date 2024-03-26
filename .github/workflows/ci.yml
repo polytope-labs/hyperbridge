@@ -149,7 +149,7 @@ jobs:
           components: rustfmt
 
       - name: Cargo fmt
-        run: cargo +nightly fmt --all --check
+        run: cargo fmt --all --check
 
   unit-tests:
     name: Unit Tests

@@ -2,6 +2,7 @@ use crate::{
     providers::interface::{Client, RequestOrResponse},
     types::BoxStream,
 };
+use ethereum_trie::StorageProof;
 use ethers::prelude::Middleware;
 
 use crate::{
@@ -134,22 +135,14 @@ impl Client for EvmClient {
         let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
         let locations = keys.iter().map(|key| H256::from_slice(key)).collect();
         let proof = self.client.get_proof(self.host_address, locations, Some(at.into())).await?;
-        for (index, key) in keys.into_iter().enumerate() {
-            map.insert(
-                key,
-                proof
-                    .storage_proof
-                    .get(index)
-                    .cloned()
-                    .ok_or_else(|| {
-                        anyhow!("Invalid key supplied, storage proof could not be retrieved")
-                    })?
-                    .proof
-                    .into_iter()
-                    .map(|bytes| bytes.0.into())
-                    .collect(),
-            );
+        let mut storage_proofs = vec![];
+        for proof in proof.storage_proof {
+            storage_proofs
+                .push(StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.0.into())));
         }
+
+        let storage_proof = StorageProof::merge(storage_proofs);
+        map.insert(self.host_address.0.to_vec(), storage_proof.into_nodes().into_iter().collect());
 
         let state_proof = EvmStateProof {
             contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),

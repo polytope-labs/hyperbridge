@@ -37,6 +37,7 @@ ethers = { workspace = true, features = ["ws"] }
 
 ismp = { path = "../ismp/core", default-features = false }
 ismp-solidity-abi = { path = "../../evm/abi", default-features = false }
+ethereum-trie = { path = "../trees/ethereum", default-features = false }
 
 [dependencies.reconnecting-jsonrpsee-ws-client]
 git = "https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client"

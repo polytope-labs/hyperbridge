@@ -5484,6 +5484,7 @@ version = "0.3.17"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
+ "ethereum-trie",
  "ethers",
  "fluvio-wasm-timer",
  "futures",

@@ -213,7 +213,7 @@ where
         Ok(Box::new(SubstrateStateMachine::<T>::default()))
     }
 
-    fn consensus_client_id(&self) -> [u8; 4] { 
+    fn consensus_client_id(&self) -> [u8; 4] {
         PARACHAIN_CONSENSUS_ID
     }
 }

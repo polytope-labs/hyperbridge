@@ -1,10 +1,10 @@
 use crate::{
     providers::interface::{Client, RequestOrResponse, WithMetadata},
     runtime::{self},
-    types::{BoxStream, EventMetadata, Extrinsic, HashAlgorithm},
+    types::{BoxStream, EventMetadata, Extrinsic, HashAlgorithm, SubstrateStateProof},
 };
 use anyhow::{anyhow, Error};
-use codec::Encode;
+use codec::{Decode, Encode};
 use core::time::Duration;
 use ethers::prelude::{H160, H256};
 use futures::{stream, StreamExt, TryStreamExt};
@@ -147,7 +147,9 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
         let params = rpc_params![at, keys];
         let response: RpcProof = self.client.rpc().request("ismp_queryStateProof", params).await?;
-        Ok(response.proof)
+        let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
+        let proof = SubstrateStateProof { hasher: self.hashing.clone(), storage_proof };
+        Ok(proof.encode())
     }
 
     async fn query_response_receipt(&self, request_commitment: H256) -> Result<H160, Error> {

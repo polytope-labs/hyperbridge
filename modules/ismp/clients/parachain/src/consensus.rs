@@ -20,6 +20,7 @@ use core::{marker::PhantomData, time::Duration};
 use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
 use codec::{Decode, Encode};
 use core::fmt::Debug;
+use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
 use ismp::{
     consensus::{
         ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -29,8 +30,7 @@ use ismp::{
     host::{IsmpHost, StateMachine},
     messaging::StateCommitmentHeight,
 };
-use ismp::ISMP_ID;
-use parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
+use pallet_ismp::primitives::ISMP_ID;
 use primitive_types::H256;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_runtime::{
@@ -211,6 +211,10 @@ where
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         // todo: check the supported parachains from the runtime before returning.
         Ok(Box::new(SubstrateStateMachine::<T>::default()))
+    }
+
+    fn consensus_client_id(&self) -> [u8; 4] { 
+        PARACHAIN_CONSENSUS_ID
     }
 }
 /// This returns the storage key for a parachain header on the relay chain.

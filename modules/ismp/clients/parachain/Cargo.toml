@@ -29,7 +29,7 @@ sp-runtime = { workspace = true }
 sp-consensus-aura = { workspace = true }
 
 # cumulus
-parachain-system = { package = "cumulus-pallet-parachain-system", workspace = true,  default-features = false }
+cumulus-pallet-parachain-system = { workspace = true,  default-features = false }
 cumulus-primitives-core = { workspace = true, default-features = false }
 
 # local
@@ -42,7 +42,7 @@ std = [
     "frame-support/std",
     "frame-system/std",
     "scale-info/std",
-    "parachain-system/std",
+    "cumulus-pallet-parachain-system/std",
     "cumulus-primitives-core/std",
     "ismp/std",
     "sp-trie/std",

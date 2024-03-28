@@ -18,6 +18,7 @@
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.0",
+    "typescript": "^5.4.3",
     "vocs": "latest"
   },
   "devDependencies": {

@@ -225,6 +225,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return the host timestamp
      */
     function timestamp() external view returns (uint256) {
+        // begone
         return block.timestamp;
     }
 

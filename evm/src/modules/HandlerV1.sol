@@ -117,7 +117,7 @@ contract HandlerV1 is IHandler, Context {
      * @param host - `IsmpHost`
      * @param response - batch post responses
      */
-    function handlePostResponses(IIsmpHost host, PostResponseMessage memory response) external notFrozen(host) {
+    function handlePostResponses(IIsmpHost host, PostResponseMessage calldata response) external notFrozen(host) {
         uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(response.proof.height);
         uint256 challengePeriod = host.challengePeriod();
         require(challengePeriod == 0 || delay > challengePeriod, "IHandler: still in challenge period");
@@ -157,7 +157,7 @@ contract HandlerV1 is IHandler, Context {
      * @param host - IsmpHost
      * @param message - batch post request timeouts
      */
-    function handlePostRequestTimeouts(IIsmpHost host, PostRequestTimeoutMessage memory message)
+    function handlePostRequestTimeouts(IIsmpHost host, PostRequestTimeoutMessage calldata message)
         external
         notFrozen(host)
     {
@@ -196,7 +196,7 @@ contract HandlerV1 is IHandler, Context {
      * @param host - Ismp host
      * @param message - batch post response timeouts
      */
-    function handlePostResponseTimeouts(IIsmpHost host, PostResponseTimeoutMessage memory message)
+    function handlePostResponseTimeouts(IIsmpHost host, PostResponseTimeoutMessage calldata message)
         external
         notFrozen(host)
     {
@@ -235,7 +235,7 @@ contract HandlerV1 is IHandler, Context {
      * @param host - Ismp host
      * @param message - batch get responses
      */
-    function handleGetResponses(IIsmpHost host, GetResponseMessage memory message) external notFrozen(host) {
+    function handleGetResponses(IIsmpHost host, GetResponseMessage calldata message) external notFrozen(host) {
         uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(message.height);
         uint256 challengePeriod = host.challengePeriod();
         require(challengePeriod == 0 || delay > challengePeriod, "IHandler: still in challenge period");
@@ -271,7 +271,7 @@ contract HandlerV1 is IHandler, Context {
      * @param host - Ismp host
      * @param message - batch get request timeouts
      */
-    function handleGetRequestTimeouts(IIsmpHost host, GetTimeoutMessage memory message) external notFrozen(host) {
+    function handleGetRequestTimeouts(IIsmpHost host, GetTimeoutMessage calldata message) external notFrozen(host) {
         uint256 timeoutsLength = message.timeouts.length;
 
         for (uint256 i = 0; i < timeoutsLength; i++) {

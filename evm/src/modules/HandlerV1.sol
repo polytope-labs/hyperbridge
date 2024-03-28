@@ -48,8 +48,9 @@ contract HandlerV1 is IHandler, Context {
      * @param host - `IsmpHost`
      * @param proof - consensus proof
      */
-    function handleConsensus(IIsmpHost host, bytes memory proof) external notFrozen(host) {
-        uint256 delay = host.timestamp() - host.consensusUpdateTime();
+    function handleConsensus(IIsmpHost host, bytes calldata proof) external notFrozen(host) {
+        uint256 timestamp = block.timestamp;
+        uint256 delay = timestamp - host.consensusUpdateTime();
 
         // not today, time traveling validators
         require(delay < host.unStakingPeriod(), "IHandler: still in challenge period");
@@ -57,13 +58,13 @@ contract HandlerV1 is IHandler, Context {
         (bytes memory verifiedState, IntermediateState memory intermediate) =
             IConsensusClient(host.consensusClient()).verifyConsensus(host.consensusState(), proof);
         host.storeConsensusState(verifiedState);
-        host.storeConsensusUpdateTime(host.timestamp());
+        host.storeConsensusUpdateTime(timestamp);
 
         if (intermediate.height > host.latestStateMachineHeight()) {
             StateMachineHeight memory stateMachineHeight =
                 StateMachineHeight({stateMachineId: intermediate.stateMachineId, height: intermediate.height});
             host.storeStateMachineCommitment(stateMachineHeight, intermediate.commitment);
-            host.storeStateMachineCommitmentUpdateTime(stateMachineHeight, host.timestamp());
+            host.storeStateMachineCommitmentUpdateTime(stateMachineHeight, timestamp);
             host.storeLatestStateMachineHeight(stateMachineHeight.height);
 
             emit StateMachineUpdated({
@@ -78,8 +79,9 @@ contract HandlerV1 is IHandler, Context {
      * @param host - `IsmpHost`
      * @param request - batch post requests
      */
-    function handlePostRequests(IIsmpHost host, PostRequestMessage memory request) external notFrozen(host) {
-        uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(request.proof.height);
+    function handlePostRequests(IIsmpHost host, PostRequestMessage calldata request) external notFrozen(host) {
+        uint256 timestamp = block.timestamp;
+        uint256 delay = timestamp - host.stateMachineCommitmentUpdateTime(request.proof.height);
         uint256 challengePeriod = host.challengePeriod();
         require(challengePeriod == 0 || delay > challengePeriod, "IHandler: still in challenge period");
 
@@ -91,7 +93,7 @@ contract HandlerV1 is IHandler, Context {
             // check destination
             require(leaf.request.dest.equals(host.host()), "IHandler: Invalid request destination");
             // check time-out
-            require(leaf.request.timeout() > host.timestamp(), "IHandler: Request timed out");
+            require(leaf.request.timeout() > timestamp, "IHandler: Request timed out");
             // duplicate request?
             bytes32 commitment = leaf.request.hash();
             require(host.requestReceipts(commitment) == address(0), "IHandler: Duplicate request");
@@ -118,7 +120,8 @@ contract HandlerV1 is IHandler, Context {
      * @param response - batch post responses
      */
     function handlePostResponses(IIsmpHost host, PostResponseMessage calldata response) external notFrozen(host) {
-        uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(response.proof.height);
+        uint256 timestamp = block.timestamp;
+        uint256 delay = timestamp - host.stateMachineCommitmentUpdateTime(response.proof.height);
         uint256 challengePeriod = host.challengePeriod();
         require(challengePeriod == 0 || delay > challengePeriod, "IHandler: still in challenge period");
 
@@ -128,7 +131,7 @@ contract HandlerV1 is IHandler, Context {
         for (uint256 i = 0; i < responsesLength; i++) {
             PostResponseLeaf memory leaf = response.responses[i];
             // check time-out
-            require(leaf.response.timeout() > host.timestamp(), "IHandler: Response timed out");
+            require(leaf.response.timeout() > timestamp, "IHandler: Response timed out");
             // known request? also serves as a source check
             bytes32 requestCommitment = leaf.response.request.hash();
             FeeMetadata memory meta = host.requestCommitments(requestCommitment);
@@ -161,7 +164,7 @@ contract HandlerV1 is IHandler, Context {
         external
         notFrozen(host)
     {
-        uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(message.height);
+        uint256 delay = block.timestamp - host.stateMachineCommitmentUpdateTime(message.height);
         uint256 challengePeriod = host.challengePeriod();
         require(challengePeriod == 0 || delay > challengePeriod, "IHandler: still in challenge period");
 
@@ -200,7 +203,7 @@ contract HandlerV1 is IHandler, Context {
         external
         notFrozen(host)
     {
-        uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(message.height);
+        uint256 delay = block.timestamp - host.stateMachineCommitmentUpdateTime(message.height);
         uint256 challengePeriod = host.challengePeriod();
         require(challengePeriod == 0 || delay > challengePeriod, "IHandler: still in challenge period");
 
@@ -236,7 +239,8 @@ contract HandlerV1 is IHandler, Context {
      * @param message - batch get responses
      */
     function handleGetResponses(IIsmpHost host, GetResponseMessage calldata message) external notFrozen(host) {
-        uint256 delay = host.timestamp() - host.stateMachineCommitmentUpdateTime(message.height);
+        uint256 timestamp = block.timestamp;
+        uint256 delay = timestamp - host.stateMachineCommitmentUpdateTime(message.height);
         uint256 challengePeriod = host.challengePeriod();
         require(challengePeriod == 0 || delay > challengePeriod, "IHandler: still in challenge period");
 
@@ -249,7 +253,7 @@ contract HandlerV1 is IHandler, Context {
         for (uint256 i = 0; i < responsesLength; i++) {
             GetRequest memory request = message.requests[i];
             // timed-out?
-            require(request.timeout() > host.timestamp(), "IHandler: GET request timed out");
+            require(request.timeout() > timestamp, "IHandler: GET request timed out");
 
             // known request? also serves as source check
             bytes32 requestCommitment = request.hash();
@@ -273,6 +277,7 @@ contract HandlerV1 is IHandler, Context {
      */
     function handleGetRequestTimeouts(IIsmpHost host, GetTimeoutMessage calldata message) external notFrozen(host) {
         uint256 timeoutsLength = message.timeouts.length;
+        uint256 timestamp = block.timestamp;
 
         for (uint256 i = 0; i < timeoutsLength; i++) {
             GetRequest memory request = message.timeouts[i];
@@ -280,7 +285,7 @@ contract HandlerV1 is IHandler, Context {
             FeeMetadata memory meta = host.requestCommitments(requestCommitment);
             require(meta.sender != address(0), "IHandler: Unknown request");
 
-            require(host.timestamp() > request.timeout(), "IHandler: GET request not timed out");
+            require(timestamp > request.timeout(), "IHandler: GET request not timed out");
             host.dispatchIncoming(request, meta, requestCommitment);
         }
     }

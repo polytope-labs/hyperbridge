@@ -7,7 +7,7 @@ description: Request and Response timeouts
 
 Blockchains may become incapable of processing transactions for a vareity of reasons. These might include _liveness failures_, which can occur when the state transition function becomes unable to produce new blocks, consensus faults, transaction fee spikes that make transaction execution unprofitable, or a doomsday scenario such as a nation state sanctioned attack.
 
-Regardless of the reason, if the destination chain cannot process incoming ISMP requests, the framework provides a timeout mechanism. This feature allows for the safe reversion of state changes on the source chain that were executed prior to dispatching the request, as if no issue ever occurred.
+Regardless of the reason, if the destination becomes incapable of processing incoming ISMP requests, the framework provides a timeout mechanism. This feature allows for the safe reversion of state changes on the source chain that were executed prior to dispatching the request, as if no issue ever occurred.
 
 `PostRequest`, `PostResponse`, and `GetRequest` all have the ability to time out due to their `timeout_timestamp` value. This value stipulates the lifespan of a message. A `PostRequest` and `PostResponse` will time out when their destination's `host.timestamp()` surpasses the `timeout_timestamp`. This asserts that the destination has indeed not processed the relevant messages. Conversely, a `GetRequest` times out when its source's `host.timestamp()` surpasses the sending chain's `timeout_timestamp`.
 
@@ -56,7 +56,8 @@ The `handle_timeouts` is used to notify onchain `IsmpModule`s of outgoing reques
 - Assert that the configured `challenge_period` for the `StateCommitment` has elapsed
 - Assert that the messages have indeed timed out
 - Assert that the claimed messages are known by the host
-- Assert that the relevant state proofs for the messages verify
+- Assert that the relevant state machine's time has advanced past the `timeout_timestamp` of specified messages.
+- Assert that the relevant non-membership proofs for the messages are valid
 - Finally dispatch the timeouts to the relevant `IsmpModule::on_timeout` and delete the commitments for the outgoing messages.
 
 :::danger

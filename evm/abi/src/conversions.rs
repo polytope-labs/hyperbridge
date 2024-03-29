@@ -203,7 +203,6 @@ impl From<router::PostResponse> for PostResponse {
             request: value.post.into(),
             response: value.response.into(),
             timeout_timestamp: value.timeout_timestamp.into(),
-            gaslimit: value.gas_limit.into(),
         }
     }
 }
@@ -218,7 +217,6 @@ impl From<router::Post> for PostRequest {
             to: value.to.into(),
             timeout_timestamp: value.timeout_timestamp.into(),
             body: value.data.into(),
-            gaslimit: value.gas_limit.into(),
         }
     }
 }
@@ -236,7 +234,6 @@ impl TryFrom<PostRequest> for router::Post {
             to: value.to.to_vec(),
             timeout_timestamp: value.timeout_timestamp.into(),
             data: value.body.to_vec(),
-            gas_limit: value.gaslimit.into(),
         })
     }
 }
@@ -281,7 +278,6 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
                     keys: get.keys.into_iter().map(|key| key.0.into()).collect(),
                     height: get.height.low_u64(),
                     timeout_timestamp: get.timeout_timestamp.low_u64(),
-                    gas_limit: get.gaslimit.low_u64(),
                 })),
             EvmHostEvents::PostRequestEventFilter(post) =>
                 Ok(ismp::events::Event::PostRequest(post.try_into()?)),
@@ -297,11 +293,9 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
                         to: resp.to.0.into(),
                         timeout_timestamp: resp.timeout_timestamp.low_u64(),
                         data: resp.data.0.into(),
-                        gas_limit: resp.gaslimit.low_u64(),
                     },
                     response: resp.response.0.into(),
                     timeout_timestamp: resp.res_timeout_timestamp.low_u64(),
-                    gas_limit: resp.res_gaslimit.low_u64(),
                 })),
             EvmHostEvents::PostRequestHandledFilter(handled) =>
                 Ok(ismp::events::Event::PostRequestHandled(ismp::events::RequestResponseHandled {
@@ -357,7 +351,6 @@ impl TryFrom<PostRequestEventFilter> for router::Post {
             to: post.to.0.into(),
             timeout_timestamp: post.timeout_timestamp.low_u64(),
             data: post.data.0.into(),
-            gas_limit: post.gaslimit.low_u64(),
         })
     }
 }

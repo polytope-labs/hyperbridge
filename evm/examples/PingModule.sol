@@ -70,7 +70,6 @@ contract PingModule is IIsmpModule {
             request: response.request,
             response: response.response,
             timeout: response.timeoutTimestamp,
-            gaslimit: response.gaslimit,
             fee: 0,
             payer: tx.origin
         });
@@ -84,7 +83,6 @@ contract PingModule is IIsmpModule {
             dest: request.dest,
             timeout: request.timeoutTimestamp,
             to: request.to,
-            gaslimit: request.gaslimit,
             fee: 0,
             payer: tx.origin
         });
@@ -98,7 +96,6 @@ contract PingModule is IIsmpModule {
             height: request.height,
             keys: request.keys,
             timeout: request.timeoutTimestamp,
-            gaslimit: request.gaslimit,
             fee: 0,
             payer: tx.origin
         });
@@ -116,7 +113,6 @@ contract PingModule is IIsmpModule {
                 // instance of this pallet on another chain.
                 to: abi.encodePacked(address(pingMessage.module)),
                 // unused for now
-                gaslimit: 0,
                 fee: pingMessage.fee,
                 payer: tx.origin
             });
@@ -131,7 +127,6 @@ contract PingModule is IIsmpModule {
             timeout: 0,
             // timeout: 60 * 60, // one hour
             to: bytes("ismp-ast"), // ismp demo pallet
-            gaslimit: 0,
             fee: 0,
             payer: tx.origin
         });

@@ -140,7 +140,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 indexed nonce,
         uint256 timeoutTimestamp,
         bytes data,
-        uint256 gaslimit,
         uint256 fee
     );
 
@@ -153,9 +152,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 indexed nonce,
         uint256 timeoutTimestamp,
         bytes data,
-        uint256 gaslimit,
         bytes response,
-        uint256 resGaslimit,
         uint256 resTimeoutTimestamp,
         uint256 fee
     );
@@ -169,7 +166,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 indexed nonce,
         uint256 height,
         uint256 timeoutTimestamp,
-        uint256 gaslimit,
         uint256 fee
     );
 
@@ -603,8 +599,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             from: abi.encodePacked(_msgSender()),
             to: post.to,
             timeoutTimestamp: timeout,
-            body: post.body,
-            gaslimit: post.gaslimit
+            body: post.body
         });
 
         // make the commitment
@@ -618,7 +613,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             request.nonce,
             request.timeoutTimestamp,
             request.body,
-            request.gaslimit,
             post.fee
         );
     }
@@ -642,8 +636,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             from: abi.encodePacked(_msgSender()),
             timeoutTimestamp: timeout,
             keys: get.keys,
-            height: get.height,
-            gaslimit: get.gaslimit
+            height: get.height
         });
 
         // make the commitment
@@ -657,7 +650,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             request.nonce,
             request.height,
             request.timeoutTimestamp,
-            request.gaslimit,
             get.fee
         );
     }
@@ -685,13 +677,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint64 timeout = post.timeout == 0
             ? 0
             : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, post.timeout));
-        PostResponse memory response = PostResponse({
-            request: post.request,
-            response: post.response,
-            timeoutTimestamp: timeout,
-            gaslimit: post.gaslimit
-        });
-        commitment = response.hash();
+        PostResponse memory response =
+            PostResponse({request: post.request, response: post.response, timeoutTimestamp:timeout});
         FeeMetadata memory meta = FeeMetadata({fee: post.fee, sender: post.payer});
         _responseCommitments[commitment] = meta;
         _responded[receipt] = true;
@@ -704,10 +691,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             response.request.nonce,
             response.request.timeoutTimestamp,
             response.request.body,
-            response.request.gaslimit,
             response.response,
             response.timeoutTimestamp,
-            response.gaslimit,
             meta.fee // sigh solidity
         );
     }

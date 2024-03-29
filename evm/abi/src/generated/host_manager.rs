@@ -41,7 +41,6 @@ pub mod host_manager {
                                 ::ethers::core::abi::ethabi::ParamType::Bytes,
                                 ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                 ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                             ],),
                             internal_type: ::core::option::Option::Some(
                                 ::std::borrow::ToOwned::to_owned("struct PostRequest"),
@@ -70,7 +69,6 @@ pub mod host_manager {
                                             ::ethers::core::abi::ethabi::ParamType::Bytes,
                                         ),
                                     ),
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                     ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                 ],),
                                 ::ethers::core::abi::ethabi::ParamType::Array(
@@ -109,7 +107,6 @@ pub mod host_manager {
                                     ),
                                 ),
                                 ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                             ],),
                             internal_type: ::core::option::Option::Some(
                                 ::std::borrow::ToOwned::to_owned("struct GetRequest"),
@@ -134,7 +131,6 @@ pub mod host_manager {
                                 ::ethers::core::abi::ethabi::ParamType::Bytes,
                                 ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                 ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                             ],),
                             internal_type: ::core::option::Option::Some(
                                 ::std::borrow::ToOwned::to_owned("struct PostRequest"),
@@ -160,10 +156,8 @@ pub mod host_manager {
                                     ::ethers::core::abi::ethabi::ParamType::Bytes,
                                     ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                     ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                 ],),
                                 ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                 ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                             ],),
                             internal_type: ::core::option::Option::Some(
@@ -190,10 +184,8 @@ pub mod host_manager {
                                     ::ethers::core::abi::ethabi::ParamType::Bytes,
                                     ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                     ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                    ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                 ],),
                                 ::ethers::core::abi::ethabi::ParamType::Bytes,
-                                ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                                 ::ethers::core::abi::ethabi::ParamType::Uint(64usize),
                             ],),
                             internal_type: ::core::option::Option::Some(
@@ -331,58 +323,58 @@ pub mod host_manager {
             let deployer = ::ethers::contract::ContractDeployer::new(deployer);
             Ok(deployer)
         }
-        ///Calls the contract's `onAccept` (0x4e87ba19) function
+        ///Calls the contract's `onAccept` (0xeaee1caa) function
         pub fn on_accept(
             &self,
             request: PostRequest,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([78, 135, 186, 25], (request,))
+                .method_hash([234, 238, 28, 170], (request,))
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `onGetResponse` (0xf370fdbb) function
+        ///Calls the contract's `onGetResponse` (0xdeae54f5) function
         pub fn on_get_response(
             &self,
             p0: GetResponse,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([243, 112, 253, 187], (p0,))
+                .method_hash([222, 174, 84, 245], (p0,))
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `onGetTimeout` (0x4c46c035) function
+        ///Calls the contract's `onGetTimeout` (0xc492e426) function
         pub fn on_get_timeout(
             &self,
             p0: GetRequest,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([76, 70, 192, 53], (p0,))
+                .method_hash([196, 146, 228, 38], (p0,))
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `onPostRequestTimeout` (0xd63bcf18) function
+        ///Calls the contract's `onPostRequestTimeout` (0xbc0dd447) function
         pub fn on_post_request_timeout(
             &self,
             p0: PostRequest,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([214, 59, 207, 24], (p0,))
+                .method_hash([188, 13, 212, 71], (p0,))
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `onPostResponse` (0xafb760ac) function
+        ///Calls the contract's `onPostResponse` (0xfeff7fa8) function
         pub fn on_post_response(
             &self,
             p0: PostResponse,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([175, 183, 96, 172], (p0,))
+                .method_hash([254, 255, 127, 168], (p0,))
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `onPostResponseTimeout` (0x12b2524f) function
+        ///Calls the contract's `onPostResponseTimeout` (0x0bc37bab) function
         pub fn on_post_response_timeout(
             &self,
             p0: PostResponse,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([18, 178, 82, 79], (p0,))
+                .method_hash([11, 195, 123, 171], (p0,))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `params` (0xcff0ab96) function
@@ -407,7 +399,7 @@ pub mod host_manager {
         }
     }
     ///Container type for all input parameters for the `onAccept` function with signature
-    /// `onAccept((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and selector `0x4e87ba19`
+    /// `onAccept((bytes,bytes,uint64,bytes,bytes,uint64,bytes))` and selector `0xeaee1caa`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -418,16 +410,13 @@ pub mod host_manager {
         Eq,
         Hash,
     )]
-    #[ethcall(
-        name = "onAccept",
-        abi = "onAccept((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))"
-    )]
+    #[ethcall(name = "onAccept", abi = "onAccept((bytes,bytes,uint64,bytes,bytes,uint64,bytes))")]
     pub struct OnAcceptCall {
         pub request: PostRequest,
     }
     ///Container type for all input parameters for the `onGetResponse` function with signature
-    /// `onGetResponse(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64),(bytes,bytes)[]))`
-    /// and selector `0xf370fdbb`
+    /// `onGetResponse(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(bytes,bytes)[]))` and
+    /// selector `0xdeae54f5`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -440,12 +429,11 @@ pub mod host_manager {
     )]
     #[ethcall(
         name = "onGetResponse",
-        abi = "onGetResponse(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64),(bytes,bytes)[]))"
+        abi = "onGetResponse(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(bytes,bytes)[]))"
     )]
     pub struct OnGetResponseCall(pub GetResponse);
     ///Container type for all input parameters for the `onGetTimeout` function with signature
-    /// `onGetTimeout((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64))` and selector
-    /// `0x4c46c035`
+    /// `onGetTimeout((bytes,bytes,uint64,bytes,uint64,bytes[],uint64))` and selector `0xc492e426`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -458,12 +446,12 @@ pub mod host_manager {
     )]
     #[ethcall(
         name = "onGetTimeout",
-        abi = "onGetTimeout((bytes,bytes,uint64,bytes,uint64,bytes[],uint64,uint64))"
+        abi = "onGetTimeout((bytes,bytes,uint64,bytes,uint64,bytes[],uint64))"
     )]
     pub struct OnGetTimeoutCall(pub GetRequest);
     ///Container type for all input parameters for the `onPostRequestTimeout` function with
-    /// signature `onPostRequestTimeout((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))` and
-    /// selector `0xd63bcf18`
+    /// signature `onPostRequestTimeout((bytes,bytes,uint64,bytes,bytes,uint64,bytes))` and selector
+    /// `0xbc0dd447`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -476,12 +464,12 @@ pub mod host_manager {
     )]
     #[ethcall(
         name = "onPostRequestTimeout",
-        abi = "onPostRequestTimeout((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64))"
+        abi = "onPostRequestTimeout((bytes,bytes,uint64,bytes,bytes,uint64,bytes))"
     )]
     pub struct OnPostRequestTimeoutCall(pub PostRequest);
     ///Container type for all input parameters for the `onPostResponse` function with signature
-    /// `onPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))`
-    /// and selector `0xafb760ac`
+    /// `onPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64))` and selector
+    /// `0xfeff7fa8`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -494,12 +482,12 @@ pub mod host_manager {
     )]
     #[ethcall(
         name = "onPostResponse",
-        abi = "onPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))"
+        abi = "onPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64))"
     )]
     pub struct OnPostResponseCall(pub PostResponse);
     ///Container type for all input parameters for the `onPostResponseTimeout` function with
-    /// signature `onPostResponseTimeout(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),
-    /// bytes,uint64,uint64))` and selector `0x12b2524f`
+    /// signature `onPostResponseTimeout(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,
+    /// uint64))` and selector `0x0bc37bab`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -512,7 +500,7 @@ pub mod host_manager {
     )]
     #[ethcall(
         name = "onPostResponseTimeout",
-        abi = "onPostResponseTimeout(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64))"
+        abi = "onPostResponseTimeout(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64))"
     )]
     pub struct OnPostResponseTimeoutCall(pub PostResponse);
     ///Container type for all input parameters for the `params` function with signature `params()`

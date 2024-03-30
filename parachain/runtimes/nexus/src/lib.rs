@@ -787,7 +787,7 @@ impl_runtime_apis! {
             raw_events.filter_map(|e| {
                 let frame_system::EventRecord { event, phase, ..} = *e;
                 let Phase::ApplyExtrinsic(index) = phase else {
-                    unreachable!("ISMP events are always dispatched by extrinsics");
+                    None?
                 };
 
                 match event {

@@ -185,7 +185,8 @@ pub mod pallet {
                 _ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
             };
 
-            if let Err(_) = res {
+            if let Err(err) = res {
+                log::error!(target: "ismp", "Pallet Relayer Fees error {err:?}");
                 Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?
             }
 
@@ -363,7 +364,7 @@ where
             &withdrawal_proof.dest_proof,
             dest_keys.clone().into_iter().chain(slot_2_keys).collect(),
         )?;
-        let result = Self::validate_results(
+        let (result, commitments) = Self::validate_results(
             &withdrawal_proof,
             source_keys,
             dest_keys,
@@ -380,12 +381,8 @@ where
             });
         }
 
-        for key in withdrawal_proof.commitments {
-            match key {
-                Key::Request(req) => Claimed::<T>::insert(req, true),
-                Key::Response { response_commitment, .. } =>
-                    Claimed::<T>::insert(response_commitment, true),
-            }
+        for commitment in commitments {
+            Claimed::<T>::insert(commitment, true)
         }
 
         for address in result.keys().collect::<hashbrown::HashSet<_>>().into_iter() {
@@ -516,18 +513,24 @@ where
         dest_keys: Vec<Vec<u8>>,
         source_result: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
         dest_result: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
-    ) -> Result<BTreeMap<Vec<u8>, U256>, Error<T>> {
+    ) -> Result<(BTreeMap<Vec<u8>, U256>, Vec<H256>), Error<T>> {
         let mut result = BTreeMap::new();
+        // Only store commitments that were claimed
+        let mut commitments = Vec::new();
         for ((key, source_key), dest_key) in
             proof.commitments.clone().into_iter().zip(source_keys).zip(dest_keys)
         {
             match key {
-                Key::Request(_) => {
-                    let encoded_metadata = source_result
-                        .get(&source_key)
-                        .cloned()
-                        .flatten()
-                        .ok_or_else(|| Error::<T>::ProofValidationError)?;
+                Key::Request(commitment) => {
+                    let encoded_metadata =
+                        if let Some(encoded) = source_result.get(&source_key).cloned().flatten() {
+                            encoded
+                        } else {
+                            // If fee is a null value skip it, evm returns non membership proof for
+                            // zero values
+                            continue
+                        };
+
                     let fee = {
                         match proof.source_proof.height.id.state_id {
                             StateMachine::Ethereum(_) |
@@ -582,13 +585,15 @@ where
                     };
                     let entry = result.entry(address).or_insert(U256::zero());
                     *entry += fee;
+                    commitments.push(commitment);
                 },
                 Key::Response { response_commitment, .. } => {
-                    let encoded_metadata = source_result
-                        .get(&source_key)
-                        .cloned()
-                        .flatten()
-                        .ok_or_else(|| Error::<T>::ProofValidationError)?;
+                    let encoded_metadata =
+                        if let Some(encoded) = source_result.get(&source_key).cloned().flatten() {
+                            encoded
+                        } else {
+                            continue
+                        };
                     let fee = {
                         match proof.source_proof.height.id.state_id {
                             StateMachine::Ethereum(_) |
@@ -659,11 +664,12 @@ where
                     }
                     let entry = result.entry(relayer).or_insert(0u32.into());
                     *entry += fee;
+                    commitments.push(response_commitment);
                 },
             }
         }
 
-        Ok(result)
+        Ok((result, commitments))
     }
 }
 

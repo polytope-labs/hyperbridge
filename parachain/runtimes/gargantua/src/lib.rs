@@ -212,7 +212,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("gargantua"),
     impl_name: create_runtime_str!("gargantua"),
     authoring_version: 1,
-    spec_version: 223,
+    spec_version: 224,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -778,7 +778,7 @@ impl_runtime_apis! {
             raw_events.filter_map(|e| {
                 let frame_system::EventRecord { event, phase, ..} = *e;
                 let Phase::ApplyExtrinsic(index) = phase else {
-                    unreachable!("ISMP events are always dispatched by extrinsics");
+                    None?
                 };
 
                 match event {

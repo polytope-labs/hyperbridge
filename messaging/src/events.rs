@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Error};
-use futures::stream::FuturesUnordered;
+use anyhow::anyhow;
+use futures::stream::FuturesOrdered;
 use ismp::{
 	consensus::StateMachineHeight,
 	events::{Event as IsmpEvent, PostRequestHandled, StateMachineUpdated},
@@ -15,6 +15,7 @@ use tesseract_primitives::{
 	config::{Chain, RelayerConfig},
 	Cost, Hasher, IsmpHost, IsmpProvider, Query,
 };
+use tokio_stream::StreamExt;
 
 /// Short description of a request/response event
 #[derive(Debug)]
@@ -64,7 +65,7 @@ impl From<IsmpEvent> for Event {
 /// The [`state_machine_height`] parameter is the latest available height of [`source`] on
 /// the counterparty chain
 /// Returns a tuple where the first item are messages to be submitted to the sink
-/// and the second items are messages to be submitted to the source
+/// and the second tuple are currently unprofitable messages
 pub async fn translate_events_to_messages<A, B>(
 	source: &A,
 	sink: &B,
@@ -73,7 +74,7 @@ pub async fn translate_events_to_messages<A, B>(
 	config: RelayerConfig,
 	coprocessor: Chain,
 	client_map: &HashMap<StateMachine, AnyClient>,
-) -> Result<Vec<Message>, anyhow::Error>
+) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
 	B: IsmpHost + IsmpProvider + 'static,
@@ -92,15 +93,14 @@ where
 	// Fetch message proofs for estimating gas concurrently
 	let batch_size = source.max_concurrent_queries();
 	for chunk in events.chunks(batch_size) {
-		use tokio_stream::StreamExt;
-		let processes: FuturesUnordered<tokio::task::JoinHandle<Result<_, Error>>> = chunk
+		let processes = chunk
 			.into_iter()
 			.map(|event| {
 				let source = source.clone();
 				let event = event.clone();
 				let sink = sink.clone();
 				let config = config.clone();
-				tokio::spawn(async move {
+				async move {
 					match event {
 						IsmpEvent::PostRequest(post) => {
 							// Skip timed out requests
@@ -112,7 +112,7 @@ where
 									post.timeout_timestamp,
 									counterparty_timestamp.as_secs()
 								);
-								return Ok(None)
+								return Ok::<_, anyhow::Error>(None);
 							}
 
 							if !is_allowed_module(config, &post.from) {
@@ -120,7 +120,7 @@ where
 									"Request from module {}, filtered by module filter",
 									hex::encode(&post.from),
 								);
-								return Ok(None)
+								return Ok(None);
 							}
 
 							let req = Request::Post(post.clone());
@@ -155,7 +155,7 @@ where
 									post_response.timeout_timestamp,
 									counterparty_timestamp.as_secs()
 								);
-								return Ok(None)
+								return Ok(None);
 							}
 
 							if !is_allowed_module(config, &post_response.source_module()) {
@@ -163,7 +163,7 @@ where
 									"Request from module {}, filtered by module filter",
 									hex::encode(&post_response.source_module()),
 								);
-								return Ok(None)
+								return Ok(None);
 							}
 
 							let resp = Response::Post(post_response.clone());
@@ -189,19 +189,15 @@ where
 						},
 						_ => Ok(None),
 					}
-				})
+				}
 			})
-			.collect::<FuturesUnordered<_>>();
+			.collect::<FuturesOrdered<_>>();
 
-		let results = processes
-			.collect::<Result<Vec<_>, _>>()
-			.await?
-			.into_iter()
-			.collect::<Result<Vec<_>, _>>()?;
+		let mut results = processes.collect::<Result<Vec<_>, _>>().await?.into_iter().flatten();
 
-		for res in results {
-			match res {
-				Some((Message::Request(req_msg), query)) => {
+		while let Some((msg, query)) = results.next() {
+			match msg {
+				Message::Request(req_msg) => {
 					post_request_queries.push(query);
 					post_requests.push(
 						req_msg
@@ -212,7 +208,7 @@ where
 					);
 					request_messages.push(Message::Request(req_msg))
 				},
-				Some((Message::Response(resp_msg), query)) => {
+				Message::Response(resp_msg) => {
 					response_queries.push(query);
 					let response = match resp_msg.datagram {
 						RequestResponse::Response(ref resps) => resps
@@ -224,10 +220,12 @@ where
 					post_responses.push(response);
 					response_messages.push(Message::Response(resp_msg))
 				},
-				_ => {},
+				_ => Err(anyhow!("Unexpected message: {msg:?}"))?,
 			}
 		}
 	}
+
+	let mut unprofitable = vec![];
 
 	let (post_requests, post_request_queries, post_responses, response_queries) = {
 		tracing::trace!(
@@ -245,9 +243,11 @@ where
 		)
 		.await?;
 
+		unprofitable.extend(post_request_queries_to_push_with_option.unprofitable_msgs);
+
 		let post_request_to_push: Vec<Post> = post_requests
 			.into_iter()
-			.zip(post_request_queries_to_push_with_option.iter())
+			.zip(post_request_queries_to_push_with_option.queries.iter())
 			.filter_map(
 				|(current_post, current_query)| {
 					if current_query.is_some() {
@@ -260,6 +260,7 @@ where
 			.collect();
 
 		let post_request_queries_to_push: Vec<Query> = post_request_queries_to_push_with_option
+			.queries
 			.into_iter()
 			.filter_map(|query| query)
 			.collect();
@@ -274,9 +275,11 @@ where
 		)
 		.await?;
 
+		unprofitable.extend(post_response_successful_query.unprofitable_msgs);
+
 		let post_response_to_push: Vec<Response> = post_responses
 			.into_iter()
-			.zip(post_response_successful_query.iter())
+			.zip(post_response_successful_query.queries.iter())
 			.filter_map(
 				|(current_post, current_query)| {
 					if current_query.is_some() {
@@ -288,8 +291,11 @@ where
 			)
 			.collect();
 
-		let post_response_queries_to_push: Vec<Query> =
-			post_response_successful_query.into_iter().filter_map(|query| query).collect();
+		let post_response_queries_to_push: Vec<Query> = post_response_successful_query
+			.queries
+			.into_iter()
+			.filter_map(|query| query)
+			.collect();
 		(
 			post_request_to_push,
 			post_request_queries_to_push,
@@ -336,7 +342,7 @@ where
 		}
 	}
 
-	Ok(messages)
+	Ok((messages, unprofitable))
 }
 
 /// Return true for Request and Response events designated for the counterparty
@@ -354,11 +360,16 @@ pub fn filter_events(router_id: StateMachine, counterparty: StateMachine, ev: &I
 	}
 }
 
-fn chunk_size(state_machine: StateMachine) -> usize {
+pub fn chunk_size(state_machine: StateMachine) -> usize {
 	match state_machine {
 		StateMachine::Ethereum(_) | StateMachine::Bsc => 100,
 		_ => 200,
 	}
+}
+
+pub struct ProfitabilityResult {
+	pub queries: Vec<Option<Query>>,
+	pub unprofitable_msgs: Vec<Message>,
 }
 
 pub async fn return_successful_queries<A>(
@@ -368,74 +379,106 @@ pub async fn return_successful_queries<A>(
 	minimum_profit_percentage: u32,
 	coprocessor: Chain,
 	client_map: &HashMap<StateMachine, AnyClient>,
-) -> Result<Vec<Option<Query>>, anyhow::Error>
+) -> Result<ProfitabilityResult, anyhow::Error>
 where
-	A: IsmpHost + IsmpProvider,
+	A: IsmpProvider + Clone + 'static,
 {
 	let mut queries_to_be_relayed = Vec::new();
+	let mut unprofitable_msgs = Vec::new();
 	let gas_estimates = sink.estimate_gas(messages.clone()).await?;
-	for (index, estimate) in gas_estimates.into_iter().enumerate() {
-		if estimate.successful_execution &&
-			coprocessor.state_machine() != sink.state_machine_id().state_id
-		{
-			let total_gas_to_be_expended_in_usd = estimate.execution_cost;
-			// what kind of message is this?
-			let og_source = if let Some(client) = client_map.get(&queries[index].source_chain) {
-				client
-			} else {
-				tracing::info!("Skipping tx because fee metadata cannot be queried, client for {:?} was not provided", queries[index].source_chain);
-				queries_to_be_relayed.push(None);
-				continue
-			};
-			let mut fee_metadata: Cost = if matches!(messages[index], Message::Request(_)) {
-				og_source.query_request_fee_metadata(queries[index].commitment).await?.into()
-			} else {
-				og_source.query_response_fee_metadata(queries[index].commitment).await?.into()
-			};
 
-			let profit = (U256::from(minimum_profit_percentage) *
-				total_gas_to_be_expended_in_usd.0) /
-				U256::from(100);
-			// 0 profit percentage means we want to relay all requests for free
-			let fee_with_profit: Cost = total_gas_to_be_expended_in_usd + profit;
+	// We'll be querying from possibly multiple chains, Let's take the average tracing batch size
+	// from all clients and use that as the max concurrency
+	let batch_size = client_map
+		.values()
+		.into_iter()
+		.fold(0, |acc, next| acc + next.max_concurrent_queries()) /
+		client_map.len();
+	for chunk in gas_estimates
+		.into_iter()
+		.zip(messages.into_iter())
+		.zip(queries.into_iter())
+		.collect::<Vec<_>>()
+		.chunks(batch_size)
+	{
+		let processes = chunk
+			.into_iter().cloned()
+			.map(|((est, msg), query)| {
+				let sink = sink.clone();
+				let client_map = client_map.clone();
+				async move {
+					if !est.successful_execution {
+						tracing::info!("Skipping Failed tx");
+						return Ok((None, None))
+					}
 
-			if minimum_profit_percentage == 0 {
-				fee_metadata = U256::MAX.into()
-			};
-			if fee_metadata < fee_with_profit {
-				tracing::info!("Skipping unprofitable tx. Expected ${fee_with_profit}, user provided ${fee_metadata}");
-				queries_to_be_relayed.push(None)
-			} else {
-				tracing::trace!(
-					"Pushing tx to {:?} with cost ${fee_with_profit}",
-					sink.state_machine_id().state_id
-				);
-				queries_to_be_relayed.push(Some(queries[index].clone()));
+					let value = if coprocessor.state_machine() != sink.state_machine_id().state_id {
+						let total_gas_to_be_expended_in_usd = est.execution_cost;
+						// what kind of message is this?
+						let Some(og_source)  = client_map.get(&query.source_chain) else {
+							tracing::info!("Skipping tx because fee metadata cannot be queried, client for {:?} was not provided", query.source_chain);
+							return Ok((None, None))
+						};
+
+						let mut fee_metadata: Cost = match msg {
+							Message::Request(_) => og_source.query_request_fee_metadata(query.commitment).await?.into(),
+							Message::Response(_) => og_source.query_response_fee_metadata(query.commitment).await?.into(),
+							_ => Err(anyhow!("Unexpected message: {msg:?}"))?
+						};
+
+						let profit = (U256::from(minimum_profit_percentage) *
+							total_gas_to_be_expended_in_usd.0) /
+							U256::from(100);
+						// 0 profit percentage means we want to relay all requests for free
+						let fee_with_profit: Cost = total_gas_to_be_expended_in_usd + profit;
+						if minimum_profit_percentage == 0 {
+							fee_metadata = U256::MAX.into()
+						};
+
+						if fee_metadata < fee_with_profit {
+							tracing::info!("Skipping unprofitable tx. Expected ${fee_with_profit}, user provided ${fee_metadata}");
+							(None, Some(msg))
+						} else {
+							tracing::trace!(
+								"Pushing tx to {:?} with cost ${fee_with_profit} and profit: ${}",
+									sink.state_machine_id().state_id, Cost(profit)
+							);
+							(Some(query), None)
+						}
+
+						} else {
+							// We only deliver sucessful messages to hyperbridge
+							tracing::trace!("Pushing tx to {:?}", sink.state_machine_id().state_id);
+							(Some(query), None)
+						};
+
+					return Ok::<_, anyhow::Error>(value)
+				}
+			})
+			.collect::<FuturesOrdered<_>>();
+
+		let results = processes.collect::<Result<Vec<_>, _>>().await?;
+
+		for (query, unprofitable_msg) in results {
+			queries_to_be_relayed.push(query);
+			if let Some(msg) = unprofitable_msg {
+				unprofitable_msgs.push(msg);
 			}
-		} else if estimate.successful_execution &&
-			coprocessor.state_machine() == sink.state_machine_id().state_id
-		// We only deliver sucessful messages to hyperbridge
-		{
-			tracing::trace!("Pushing tx to {:?}", sink.state_machine_id().state_id);
-			queries_to_be_relayed.push(Some(queries[index].clone()));
-		} else {
-			tracing::info!("Skipping Failed tx");
-			queries_to_be_relayed.push(None)
 		}
 	}
 
-	Ok(queries_to_be_relayed)
+	Ok(ProfitabilityResult { queries: queries_to_be_relayed, unprofitable_msgs })
 }
 
 fn is_allowed_module(config: RelayerConfig, module: &Vec<u8>) -> bool {
 	match config.module_filter {
 		Some(ref filters) =>
 			if !filters.is_empty() {
-				filters.iter().find(|filter| **filter == *module).is_some()
-			} else {
-				true
+				return filters.iter().find(|filter| **filter == *module).is_some();
 			},
 		// if no filter is provided, allow all modules
-		None => true,
-	}
+		_ => {},
+	};
+
+	true
 }

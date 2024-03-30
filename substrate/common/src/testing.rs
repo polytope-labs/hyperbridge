@@ -119,7 +119,7 @@ where
 			values.append(&mut val);
 			total += values.len();
 			if total >= count {
-				return Ok(values)
+				return Ok(values);
 			}
 		}
 		Err(anyhow::Error::msg("Stream ended"))

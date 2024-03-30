@@ -25,7 +25,7 @@ use crate::{
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 
-use futures::stream::{self, FuturesUnordered};
+use futures::stream::{self, FuturesOrdered};
 use hex_literal::hex;
 use ismp::{
 	consensus::{
@@ -193,7 +193,7 @@ where
 		let batch_size = 50;
 		let mut gas_estimates = vec![];
 		for chunk in messages.chunks(batch_size) {
-			let processes: FuturesUnordered<
+			let processes: FuturesOrdered<
 				tokio::task::JoinHandle<Result<EstimateGasReturnParams, Error>>,
 			> = chunk
 				.into_iter()
@@ -215,7 +215,7 @@ where
 						}
 					})
 				})
-				.collect::<FuturesUnordered<_>>();
+				.collect::<FuturesOrdered<_>>();
 
 			let estimates = processes
 				.collect::<Result<Vec<_>, _>>()
@@ -266,7 +266,7 @@ where
 				};
 
 				if header.number().into() <= latest_height {
-					return Some((Ok(None), (latest_height, interval, client)))
+					return Some((Ok(None), (latest_height, interval, client)));
 				}
 
 				let event = StateMachineUpdated {

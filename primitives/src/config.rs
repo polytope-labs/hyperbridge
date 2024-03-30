@@ -39,6 +39,8 @@ pub struct RelayerConfig {
 	pub withdrawal_frequency: Option<u64>,
 	/// Minimum amount to withdraw when auto-withdrawing
 	pub minimum_withdrawal_amount: Option<u64>,
+	/// How frequently to retry unprofitable messages in seconds.
+	pub unprofitable_retry_frequency: Option<u64>,
 	/// Delivery endpoints: chains you intend to deliver messages to
 	pub delivery_endpoints: Vec<StateMachine>,
 }

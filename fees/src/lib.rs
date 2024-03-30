@@ -23,7 +23,7 @@ use primitive_types::H256;
 use prisma_client_rust::{query_core::RawQuery, BatchItem, Direction, PrismaValue, Raw};
 use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 use tesseract_evm::EvmConfig;
 use tesseract_primitives::{HyperbridgeClaim, IsmpProvider, TxReceipt, WithdrawFundsResult};
 use tesseract_substrate::SubstrateConfig;
@@ -309,6 +309,85 @@ impl TransactionPayment {
 		Ok(ids)
 	}
 
+	/// Fetch all unprofitable messages from the db, returns their id so they can be deleted.
+	pub async fn unprofitable_messages(
+		&self,
+		dest: &StateMachine,
+	) -> Result<Vec<(Message, i32)>, anyhow::Error> {
+		let data = self
+			.db
+			.unprofitable_messages()
+			.find_many(vec![db::unprofitable_messages::WhereParam::Dest(StringFilter::Equals(
+				dest.to_string(),
+			))])
+			.exec()
+			.await?;
+		// Dedup data
+		let mut ids = vec![];
+		let mut duplicates = vec![];
+		let mut data_set = BTreeSet::new();
+		data.into_iter().for_each(|data| {
+			let new = data_set.insert(data.encoded);
+			if new {
+				ids.push(data.id)
+			} else {
+				duplicates.push(data.id);
+			}
+		});
+		// Delete any duplicates in background
+		// A previous delete operation could have failed causing us to have duplicate messages in
+		// the db
+		let tx = self.clone();
+		tokio::spawn(async move {
+			let _ = tx.delete_unprofitable_messages(duplicates).await;
+		});
+
+		let unprofitable = data_set
+			.into_iter()
+			.zip(ids)
+			.map(|(encoded, id)| Ok((Message::decode(&mut &encoded[..])?, id)))
+			.collect::<Result<Vec<_>, anyhow::Error>>()?;
+
+		Ok(unprofitable)
+	}
+
+	/// Delete any unprofitable message
+	pub async fn delete_unprofitable_messages(
+		&self,
+		unprofitable: Vec<i32>,
+	) -> Result<(), anyhow::Error> {
+		let actions = unprofitable
+			.into_iter()
+			.map(|item| {
+				self.db
+					.unprofitable_messages()
+					.delete(db::unprofitable_messages::UniqueWhereParam::IdEquals(item))
+			})
+			.collect::<Vec<_>>();
+
+		self.db._batch(actions).await?;
+
+		Ok(())
+	}
+
+	/// Store unprofitable messages
+	pub async fn store_unprofitable_messages(
+		&self,
+		unprofitable: Vec<Message>,
+		dest: StateMachine,
+	) -> Result<Vec<i32>, anyhow::Error> {
+		let actions = unprofitable
+			.into_iter()
+			.map(|item| {
+				self.db.unprofitable_messages().create(dest.to_string(), item.encode(), vec![])
+			})
+			.collect::<Vec<_>>();
+
+		let ids = self.db._batch(actions).await?.into_iter().map(|record| record.id).collect();
+
+		Ok(ids)
+	}
+
 	/// Create payment claim proof for all deliveries of requests and responses from source to dest
 	/// a number of days The default is 30 days
 	pub async fn create_claim_proof<A: IsmpProvider, B: IsmpProvider, H: HyperbridgeClaim>(
@@ -344,7 +423,7 @@ impl TransactionPayment {
 			.await?;
 
 		if request_entries.is_empty() && response_entries.is_empty() {
-			return Ok(Default::default())
+			return Ok(Default::default());
 		}
 
 		let requests = request_entries.iter().filter_map(|data| {

@@ -31,7 +31,7 @@ use ethers::{
 		GethDebugTracerConfig, GethDebugTracerType, GethDebugTracingOptions, Log,
 	},
 };
-use futures::{stream, stream::FuturesUnordered};
+use futures::stream::{self, FuturesOrdered};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight},
 	host::{Ethereum, StateMachine},
@@ -447,7 +447,7 @@ where
 						})
 					})
 				})
-				.collect::<FuturesUnordered<_>>();
+				.collect::<FuturesOrdered<_>>();
 
 			let estimates = processes
 				.collect::<Result<Vec<_>, _>>()

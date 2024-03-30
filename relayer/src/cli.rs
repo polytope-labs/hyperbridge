@@ -145,7 +145,7 @@ impl Cli {
 				if !config.relayer.delivery_endpoints.is_empty() &&
 					!config.relayer.delivery_endpoints.contains(&state_machine)
 				{
-					continue
+					continue;
 				}
 
 				let mut hyperbridge = hyperbridge_config

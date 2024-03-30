@@ -24,7 +24,7 @@ async fn main() -> Result<(), anyhow::Error> {
 			Subcommand::AccumulateFees(cmd) =>
 				cmd.accumulate_fees(cli.config.clone(), cli.db.clone()).await?,
 		}
-		return Ok(())
+		return Ok(());
 	}
 	cli.run().await
 }

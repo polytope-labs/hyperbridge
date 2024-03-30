@@ -232,6 +232,7 @@ pub trait IsmpProvider: Send + Sync {
 	fn initial_height(&self) -> u64;
 
 	/// Should return a numerical estimate of the gas to be consumed for a batch of messages.
+	/// NOTE: Results must be returned in the same order as the messages
 	async fn estimate_gas(
 		&self,
 		msg: Vec<Message>,
@@ -435,7 +436,7 @@ pub async fn wait_for_state_machine_update<C: IsmpProvider>(
 		match res {
 			Ok(event) =>
 				if event.latest_height >= height {
-					return Ok(event.latest_height)
+					return Ok(event.latest_height);
 				},
 			Err(err) => {
 				log::error!("State machine update stream returned an error {err:?}")

@@ -16,12 +16,16 @@
 //! ISMP Message relay
 
 mod events;
+mod retries;
 
 use anyhow::anyhow;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::events::{filter_events, translate_events_to_messages, Event};
+use crate::{
+	events::{filter_events, translate_events_to_messages, Event},
+	retries::spawn_unprofitable_retries_task,
+};
 use futures::StreamExt;
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
 use tesseract_client::AnyClient;
@@ -74,6 +78,7 @@ where
 		let chain_b = chain_b.clone();
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
+		let config = config.clone();
 		let sender = sender.clone();
 		tokio::spawn(async move {
 			let _ = handle_notification(
@@ -95,11 +100,31 @@ where
 		let hyperbridge = chain_a.clone();
 		let dest = chain_b.clone();
 		let client_map = client_map.clone();
+		let tx_payment = tx_payment.clone();
 
 		tokio::spawn(async move {
 			fee_accumulation(receiver, dest, hyperbridge, client_map, tx_payment).await
 		})
 	};
+
+	// Spawn retries for unprofitable messages
+	{
+		let hyperbridge = chain_a.clone();
+		let dest = chain_b.clone();
+		let client_map = client_map.clone();
+		let tx_payment = tx_payment.clone();
+		let config = config.clone();
+		let sender = sender.clone();
+		spawn_unprofitable_retries_task(
+			dest,
+			hyperbridge,
+			client_map,
+			tx_payment,
+			config,
+			coprocessor,
+			sender,
+		)?;
+	}
 
 	// if one task completes, abort the other
 	tokio::select! {
@@ -219,7 +244,7 @@ where
 			*previous_height..=state_machine_update.latest_height
 		);
 		*previous_height = state_machine_update.latest_height;
-		return Ok(())
+		return Ok(());
 	}
 	// Advance latest known height by relayer
 	*previous_height = state_machine_update.latest_height;
@@ -243,7 +268,7 @@ where
 	// messages. This is so that calls to debug_traceCall can succeed
 	wait_for_challenge_period(chain_a, last_consensus_update, challenge_period).await?;
 
-	let messages = translate_events_to_messages(
+	let (messages, unprofitable) = translate_events_to_messages(
 		chain_b,
 		chain_a,
 		events,
@@ -291,6 +316,19 @@ where
 		}
 	}
 
+	// Store currently unprofitable in messages in db
+	if !unprofitable.is_empty() {
+		tracing::trace!(target: "tesseract", "Persisting {} unprofitable messages going to {} to the db", unprofitable.len(), chain_a.name());
+		if let Err(err) = tx_payment
+			.store_unprofitable_messages(unprofitable, chain_a.state_machine_id().state_id)
+			.await
+		{
+			tracing::error!(
+				"Encountered an error while storing unprofitable messages inside the database {err:?}"
+			)
+		}
+	}
+
 	Ok(())
 }
 
@@ -306,7 +344,7 @@ async fn fee_accumulation<
 ) -> Result<(), anyhow::Error> {
 	while let Some(receipts) = receiver.recv().await {
 		if receipts.is_empty() {
-			continue
+			continue;
 		}
 		// Spawn a new task so fee accumulation can be done concurrently
 		tokio::spawn({
@@ -360,7 +398,7 @@ async fn fee_accumulation<
 								"Failed to store some delivered messages to database: {err:?}"
 							)
 						}
-						return
+						return;
 					},
 				};
 

@@ -28,12 +28,12 @@ where
 	A: IsmpHost + IsmpProvider + 'static,
 	B: IsmpHost + IsmpProvider + 'static,
 {
-	let timeout = config.consensus_stream_timeout.unwrap_or(600);
 	let task_a = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
+		let config = config.clone();
 		tokio::spawn(async move {
-			let _ = handle_notification(chain_a, chain_b, timeout).await?;
+			let _ = handle_notification(chain_a, chain_b, config).await?;
 			Ok::<_, anyhow::Error>(())
 		})
 	};
@@ -42,7 +42,7 @@ where
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
 		tokio::spawn(async move {
-			let _ = handle_notification(chain_b, chain_a, timeout).await?;
+			let _ = handle_notification(chain_b, chain_a, config).await?;
 			Ok::<_, anyhow::Error>(())
 		})
 	};
@@ -63,7 +63,7 @@ where
 async fn handle_notification<A, B>(
 	chain_a: A,
 	chain_b: B,
-	timeout: u64,
+	config: RelayerConfig,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpHost + IsmpProvider + 'static,
@@ -74,7 +74,8 @@ where
 		.await
 		.map_err(|err| anyhow!("ConsensusMessage stream subscription failed: {err:?}"))?;
 	loop {
-		let timeout = tokio::time::sleep(Duration::from_secs(timeout.into()));
+		let timeout =
+			tokio::time::sleep(Duration::from_secs(config.consensus_stream_timeout.unwrap_or(600)));
 		tokio::select! {
 			_ = timeout => {
 				// If timeout elapses and consensus stream has not yielded recreate the stream
@@ -89,8 +90,8 @@ where
 							"🛰️ Transmitting consensus message from {} to {}",
 							chain_a.name(), chain_b.name()
 						);
-						if let Err(err) = chain_b.submit(vec![Message::Consensus(consensus_message)]).await
-						{
+						let res = chain_b.submit(vec![Message::Consensus(consensus_message)]).await;
+						if let Err(err) = res {
 							log::error!("Failed to submit transaction to {}: {err:?}", chain_b.name())
 						}
 					}

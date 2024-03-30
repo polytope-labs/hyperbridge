@@ -77,7 +77,7 @@ pub async fn submit_messages<I: IsmpHost>(
 							if err.code == 429 {
 								// we should retry.
 								log::info!("Retrying tx submission, got error: {err:?}");
-								return submit_messages(&client, messages).await
+								return submit_messages(&client, messages).await;
 							}
 						}
 					},
@@ -330,7 +330,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 												StateMachine::Kusama(id) => id.into(),
 												_ => {
 													log::error!("Expected polkadot or kusama state machines");
-													continue
+													continue;
 												},
 											}
 										},
@@ -374,7 +374,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 							Ok(reqs) => reqs,
 							Err(err) => {
 								log::error!("Failed to error {err:?}");
-								continue
+								continue;
 							},
 						};
 
@@ -385,7 +385,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 								Ok(proof) => proof,
 								_ => {
 									log::error!("Failed to decode membership proof");
-									continue
+									continue;
 								},
 							};
 						let message = GetResponseMessage {
@@ -403,7 +403,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 											log::error!(
 												"Expected polkadot or kusama state machines"
 											);
-											continue
+											continue;
 										},
 									}
 								},
@@ -435,7 +435,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 						Ok(proof) => proof,
 						_ => {
 							log::error!("Failed to decode membership proof");
-							continue
+							continue;
 						},
 					};
 				let message = PostRequestTimeoutMessage {
@@ -446,7 +446,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 								StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
 								_ => {
 									log::error!("Expected polkadot or kusama state machines");
-									continue
+									continue;
 								},
 							}
 						},
@@ -470,7 +470,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 						Ok(proof) => proof,
 						_ => {
 							log::error!("Failed to decode membership proof");
-							continue
+							continue;
 						},
 					};
 				let message = PostResponseTimeoutMessage {
@@ -481,7 +481,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 								StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
 								_ => {
 									log::error!("Expected polkadot or kusama state machines");
-									continue
+									continue;
 								},
 							}
 						},

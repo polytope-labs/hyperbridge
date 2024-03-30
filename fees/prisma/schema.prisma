@@ -23,3 +23,9 @@ model PendingWithdrawal {
   dest    String
   encoded Bytes
 }
+
+model UnprofitableMessages {
+  id        Int    @id @default(autoincrement())
+  dest      String
+  encoded   Bytes
+}

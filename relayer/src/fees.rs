@@ -243,6 +243,16 @@ impl AccumulateFees {
 				let tx = tx.clone();
 				async move {
 					let lambda = || async {
+						// lets try to deliver any pending requests in the db
+						let (pending_withdrawals, ids): (Vec<_>, Vec<_>) = tx.pending_withdrawals(&chain).await?.into_iter().unzip();
+						for pending in pending_withdrawals {
+							deliver_post_request(&client, &hyperbridge, pending).await?;
+						}
+						// can this fail?
+						if let Err(e) = tx.delete_pending_withdrawals(ids).await {
+							tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
+						}
+
 						let amount = hyperbridge.available_amount(&client, &chain).await?;
 
 						if amount == U256::zero() {
@@ -325,7 +335,9 @@ where
 							deliver_post_request(&client, &hyperbridge, pending).await?;
 						}
 						// can this fail?
-						moved_db.delete_pending_withdrawals(ids).await?;
+						if let Err(e) = moved_db.delete_pending_withdrawals(ids).await {
+							tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
+						}
 
 						let amount = hyperbridge.available_amount(&client, &chain).await?;
 						if amount < min_amount {
@@ -390,13 +402,22 @@ async fn deliver_post_request<C: IsmpProvider, D: IsmpProvider>(
 			.state_machine_update_notification(hyperbridge.state_machine_id())
 			.await?;
 
-		while let Some(Ok(event)) = stream.next().await {
-			if event.latest_height < result.block {
-				continue;
-			} else {
-				log::info!("Found a state machine update: {}", event.latest_height);
-				latest_height = event.latest_height;
-				break;
+		while let Some(res) = stream.next().await {
+			match res {
+				Ok(event) =>
+					if event.latest_height < result.block {
+						continue;
+					} else {
+						log::info!("Found a state machine update: {}", event.latest_height);
+						latest_height = event.latest_height;
+						break;
+					},
+				Err(_) => {
+					log::error!(
+						"An error occured waiting for state machine update from {}, Retrying",
+						dest_chain.name()
+					);
+				},
 			}
 		}
 	}

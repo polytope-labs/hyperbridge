@@ -64,4 +64,8 @@ std = [
     "state-machine-manager/std"
 ]
 
-
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]

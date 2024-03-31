@@ -51,10 +51,12 @@ pub mod pallet {
     #[pallet::error]
     pub enum Error<T> {
         /// Account Already Whitelisted
-        AccountAlreadyWhitelisted,
-        /// Account not whitelisted to freeze state machine
-        AccountNotWhitelisted,
-        /// State commitment wasn't found
+        AlreadyAdded,
+        /// Account wasn't found in the set.
+        NotInSet,
+        /// An accounnt not in the fishermen set attempted to execute a veto
+        UnauthorizedAction,
+        /// State commitment was not found
         VetoFailed,
     }
 
@@ -77,10 +79,7 @@ pub mod pallet {
         pub fn add(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
             T::AdminOrigin::ensure_origin(origin)?;
 
-            ensure!(
-                !WhitelistedAccount::<T>::contains_key(&account),
-                Error::<T>::AccountAlreadyWhitelisted
-            );
+            ensure!(!WhitelistedAccount::<T>::contains_key(&account), Error::<T>::AlreadyAdded);
             WhitelistedAccount::<T>::insert(&account, ());
 
             Self::deposit_event(Event::Added { account });
@@ -93,10 +92,7 @@ pub mod pallet {
         pub fn remove(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
             T::AdminOrigin::ensure_origin(origin)?;
 
-            ensure!(
-                WhitelistedAccount::<T>::contains_key(&account),
-                Error::<T>::AccountNotWhitelisted
-            );
+            ensure!(WhitelistedAccount::<T>::contains_key(&account), Error::<T>::NotInSet);
             WhitelistedAccount::<T>::remove(&account);
 
             Self::deposit_event(Event::Removed { account });
@@ -118,7 +114,7 @@ pub mod pallet {
             let account = ensure_signed(origin)?;
             ensure!(
                 WhitelistedAccount::<T>::contains_key(&account),
-                Error::<T>::AccountNotWhitelisted
+                Error::<T>::UnauthorizedAction
             );
 
             let ismp_host = Host::<T>::default();

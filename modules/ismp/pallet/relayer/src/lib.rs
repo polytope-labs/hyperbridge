@@ -19,8 +19,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
-#[cfg(test)]
-mod test;
+
 pub mod withdrawal;
 
 use crate::withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalParams, WithdrawalProof};

@@ -69,7 +69,7 @@ use frame_system::{
     EnsureRoot, Phase,
 };
 use pallet_ismp::{
-    mmr_primitives::{Leaf, LeafIndex},
+    mmr::primitives::{Leaf, LeafIndex},
     primitives::Proof,
 };
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;

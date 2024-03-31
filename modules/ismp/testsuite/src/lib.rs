@@ -196,7 +196,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
         .unwrap();
     host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
         .unwrap();
-    host.freeze_state_machine(intermediate_state.height.id).unwrap();
+    host.delete_state_commitment(intermediate_state.height).unwrap();
 
     let post = Post {
         source: host.host_state_machine(),
@@ -218,7 +218,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
 
     let res = handle_incoming_message(host, request_message);
 
-    assert!(matches!(res, Err(ismp::error::Error::FrozenStateMachine { .. })));
+    assert!(matches!(res, Err(ismp::error::Error::StateCommitmentNotFound { .. })));
 
     // Response message handling check
     let response_message = Message::Response(ResponseMessage {
@@ -233,7 +233,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     });
 
     let res = handle_incoming_message(host, response_message);
-    assert!(matches!(res, Err(ismp::error::Error::FrozenStateMachine { .. })));
+    assert!(matches!(res, Err(ismp::error::Error::StateCommitmentNotFound { .. })));
 
     // Timeout mesaage handling check
     let timeout_message = Message::Timeout(TimeoutMessage::Post {
@@ -242,7 +242,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     });
 
     let res = handle_incoming_message(host, timeout_message);
-    assert!(matches!(res, Err(ismp::error::Error::FrozenStateMachine { .. })));
+    assert!(matches!(res, Err(ismp::error::Error::StateCommitmentNotFound { .. })));
 
     Ok(())
 }

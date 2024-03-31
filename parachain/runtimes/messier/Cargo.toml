@@ -74,15 +74,15 @@ pallet-collator-selection = { workspace = true }
 parachain-info = { workspace = true }
 parachains-common = { workspace = true  }
 
-# polytope-labs
-ismp = { path = "../../../modules/ismp/core", default-features = false }
-
 # ismp modules
-pallet-ismp = { path = "../../../modules/ismp/pallet", default-features = false }
-ismp-demo = { path = "../../../modules/ismp/pallet/demo", default-features = false }
-ismp-runtime-api = { path = "../../../modules/ismp/pallet/runtime-api", default-features = false }
-ismp-sync-committee = { path = "../../../modules/ismp/clients/sync-committee", default-features = false }
-ismp-bsc-pos = { path = "../../../modules/ismp/clients/bsc-pos", default-features = false }
+ismp = { workspace = true  }
+pallet-ismp = { workspace = true  }
+pallet-ismp-demo = { workspace = true  }
+pallet-ismp-runtime-api = { workspace = true  }
+ismp-sync-committee = { workspace = true  }
+ismp-bsc = { workspace = true  }
+pallet-ismp-relayer = { workspace = true  }
+ismp-host-executive = { workspace = true  }
 
 [features]
 default = [
@@ -117,8 +117,8 @@ std = [
 	"pallet-transaction-payment/std",
 	"pallet-xcm/std",
 	"pallet-ismp/std",
-	"ismp-runtime-api/std",
-	"ismp-demo/std",
+	"pallet-ismp-runtime-api/std",
+	"pallet-ismp-demo/std",
 	"parachain-info/std",
 	"polkadot-parachain-primitives/std",
 	"polkadot-runtime-common/std",
@@ -137,10 +137,13 @@ std = [
 	"staging-xcm-builder/std",
 	"staging-xcm-executor/std",
 	"staging-xcm/std",
-	"pallet-message-queue/std",
 	"ismp-sync-committee/std",
-	"ismp-bsc-pos/std",
-	"parachains-common/std"
+	"pallet-message-queue/std",
+	"parachains-common/std",
+	"sp-genesis-builder/std",
+	"ismp-bsc/std",
+	"pallet-ismp-relayer/std",
+	"ismp-host-executive/std"
 ]
 
 runtime-benchmarks = [
@@ -172,13 +175,15 @@ try-runtime = [
 	"pallet-authorship/try-runtime",
 	"pallet-balances/try-runtime",
 	"pallet-collator-selection/try-runtime",
+	"pallet-ismp/try-runtime",
+	"ismp-sync-committee/try-runtime",
+	"pallet-ismp-demo/try-runtime",
+	"pallet-ismp-relayer/try-runtime",
+	"ismp-host-executive/try-runtime",
 	"pallet-session/try-runtime",
 	"pallet-sudo/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
-	"pallet-ismp/try-runtime",
-	"ismp-sync-committee/try-runtime",
-	"ismp-demo/try-runtime",
 	"pallet-xcm/try-runtime",
 	"parachain-info/try-runtime",
 ]

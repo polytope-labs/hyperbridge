@@ -9,7 +9,7 @@ use ethereum_trie::{keccak::KeccakHasher, MemoryDB, StorageProof};
 use frame_support::{
     crypto::ecdsa::ECDSAExt,
     parameter_types,
-    traits::{ConstU32, ConstU64, Get},
+    traits::{ConstU32, ConstU64},
 };
 use frame_system::EnsureRoot;
 use ismp::{
@@ -47,7 +47,7 @@ use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 
 use frame_support::derive_impl;
 use ismp::host::Ethereum;
-use ismp_bsc_pos::BSC_CONSENSUS_ID;
+use ismp_bsc::BSC_CONSENSUS_ID;
 use ismp_sync_committee::{constants::sepolia::Sepolia, BEACON_CONSENSUS_ID};
 use pallet_ismp::{
     dispatcher::LeafMetadata,
@@ -64,17 +64,9 @@ frame_support::construct_runtime!(
         Ismp: pallet_ismp::{Pallet, Storage, Call, Event<T>},
         Balances: pallet_balances,
         PalletFees: pallet_ismp_relayer,
-        StateMachineManager: state_machine_manager
+        StateMachineManager: ismp_host_executive
     }
 );
-
-pub struct StateMachineProvider;
-
-impl Get<StateMachine> for StateMachineProvider {
-    fn get() -> StateMachine {
-        StateMachine::Kusama(100)
-    }
-}
 
 #[derive(Default)]
 pub struct MockConsensusClient;
@@ -177,15 +169,13 @@ impl pallet_ismp::Config for Test {
     type ConsensusClients = (
         MockConsensusClient,
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Test>, Sepolia>,
-        ismp_bsc_pos::BscClient<Host<Test>>,
+        ismp_bsc::BscClient<Host<Test>>,
     );
     type WeightInfo = ();
     type WeightProvider = ();
 }
 
-impl state_machine_manager::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
-}
+impl ismp_host_executive::Config for Test {}
 
 impl pallet_ismp_relayer::Config for Test {
     type RuntimeEvent = RuntimeEvent;
@@ -527,7 +517,7 @@ fn test_evm_accumulate_fees() {
             Duration::from_secs(100),
         )
             .unwrap();
-        let bsc_consensus_state = ismp_bsc_pos::ConsensusState {
+        let bsc_consensus_state = ismp_bsc::ConsensusState {
             current_validators: vec![],
             next_validators: None,
             finalized_height: 0,
@@ -609,7 +599,7 @@ fn test_evm_accumulate_fees_with_zero_fee_values() {
             Duration::from_secs(100),
         )
             .unwrap();
-        let bsc_consensus_state = ismp_bsc_pos::ConsensusState {
+        let bsc_consensus_state = ismp_bsc::ConsensusState {
             current_validators: vec![],
             next_validators: None,
             finalized_height: 0,

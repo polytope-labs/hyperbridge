@@ -2,7 +2,7 @@
 mod test;
 
 use anyhow::anyhow;
-use bsc_pos_verifier::primitives::{compute_epoch, parse_extra, BscClientUpdate, EPOCH_LENGTH};
+use bsc_verifier::primitives::{compute_epoch, parse_extra, BscClientUpdate, EPOCH_LENGTH};
 use ethers::{
     prelude::Provider,
     providers::{Http, Middleware},

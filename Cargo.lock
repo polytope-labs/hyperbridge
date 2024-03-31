@@ -1239,11 +1239,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "bsc-pos-prover"
+name = "bsc-prover"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bsc-pos-verifier",
+ "bsc-verifier",
  "dotenv",
  "ethers",
  "geth-primitives",
@@ -1256,7 +1256,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "bsc-pos-verifier"
+name = "bsc-verifier"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
@@ -4850,10 +4850,8 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bsc-pos",
- "ismp-demo",
- "ismp-polygon-pos",
- "ismp-runtime-api",
+ "ismp-bsc",
+ "ismp-host-executive",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
@@ -4861,7 +4859,9 @@ dependencies = [
  "pallet-balances",
  "pallet-collator-selection",
  "pallet-ismp",
+ "pallet-ismp-demo",
  "pallet-ismp-relayer",
+ "pallet-ismp-runtime-api",
  "pallet-message-queue",
  "pallet-session",
  "pallet-sudo",
@@ -4892,7 +4892,6 @@ dependencies = [
  "staging-xcm",
  "staging-xcm-builder",
  "staging-xcm-executor",
- "state-machine-manager",
  "substrate-wasm-builder",
 ]
 
@@ -5429,12 +5428,12 @@ dependencies = [
  "frame-benchmarking-cli",
  "futures",
  "gargantua-runtime",
- "ismp-rpc",
- "ismp-runtime-api",
  "jsonrpsee 0.16.3",
  "log",
  "messier-runtime",
  "nexus-runtime",
+ "pallet-ismp-rpc",
+ "pallet-ismp-runtime-api",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
  "polkadot-cli",
@@ -5820,11 +5819,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "ismp-bsc-pos"
+name = "ismp-bsc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bsc-pos-verifier",
+ "bsc-verifier",
  "frame-support",
  "frame-system",
  "geth-primitives",
@@ -5844,17 +5843,15 @@ name = "ismp-casper-ffg"
 version = "0.1.0"
 
 [[package]]
-name = "ismp-demo"
+name = "ismp-host-executive"
 version = "0.1.0"
 dependencies = [
  "frame-support",
  "frame-system",
  "ismp",
- "pallet-balances",
  "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
- "sp-core 28.0.0",
  "sp-runtime 31.0.1",
 ]
 
@@ -5904,60 +5901,6 @@ name = "ismp-parachain-runtime-api"
 version = "0.1.0"
 dependencies = [
  "sp-api",
-]
-
-[[package]]
-name = "ismp-polygon-pos"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "frame-support",
- "frame-system",
- "geth-primitives",
- "ismp",
- "ismp-sync-committee",
- "log",
- "pallet-balances",
- "pallet-ismp",
- "pallet-timestamp",
- "parity-scale-codec",
- "polygon-pos-verifier",
- "scale-info",
- "sp-core 28.0.0",
- "sp-runtime 31.0.1",
-]
-
-[[package]]
-name = "ismp-rpc"
-version = "0.1.0"
-dependencies = [
- "frame-system",
- "hex-literal 0.3.4",
- "ismp",
- "ismp-runtime-api",
- "jsonrpsee 0.16.3",
- "pallet-ismp",
- "parity-scale-codec",
- "sc-client-api",
- "serde",
- "serde_json",
- "sp-api",
- "sp-blockchain",
- "sp-core 28.0.0",
- "sp-runtime 31.0.1",
-]
-
-[[package]]
-name = "ismp-runtime-api"
-version = "0.1.0"
-dependencies = [
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "serde",
- "sp-api",
- "sp-core 28.0.0",
- "sp-std 14.0.0",
 ]
 
 [[package]]
@@ -7297,9 +7240,8 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bsc-pos",
- "ismp-demo",
- "ismp-runtime-api",
+ "ismp-bsc",
+ "ismp-host-executive",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
@@ -7307,6 +7249,9 @@ dependencies = [
  "pallet-balances",
  "pallet-collator-selection",
  "pallet-ismp",
+ "pallet-ismp-demo",
+ "pallet-ismp-relayer",
+ "pallet-ismp-runtime-api",
  "pallet-message-queue",
  "pallet-session",
  "pallet-sudo",
@@ -7800,9 +7745,8 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bsc-pos",
- "ismp-demo",
- "ismp-runtime-api",
+ "ismp-bsc",
+ "ismp-host-executive",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
@@ -7810,6 +7754,9 @@ dependencies = [
  "pallet-balances",
  "pallet-collator-selection",
  "pallet-ismp",
+ "pallet-ismp-demo",
+ "pallet-ismp-relayer",
+ "pallet-ismp-runtime-api",
  "pallet-message-queue",
  "pallet-session",
  "pallet-sudo",
@@ -8627,6 +8574,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-fishermen"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-io 30.0.0",
+ "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+]
+
+[[package]]
 name = "pallet-grandpa"
 version = "28.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8736,6 +8699,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-ismp-demo"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-balances",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
 name = "pallet-ismp-relayer"
 version = "0.1.0"
 dependencies = [
@@ -8750,8 +8728,8 @@ dependencies = [
  "hashbrown 0.14.3",
  "hex",
  "ismp",
- "ismp-bsc-pos",
- "ismp-polygon-pos",
+ "ismp-bsc",
+ "ismp-host-executive",
  "ismp-sync-committee",
  "log",
  "pallet-balances",
@@ -8764,9 +8742,41 @@ dependencies = [
  "sp-runtime 31.0.1",
  "sp-std 14.0.0",
  "sp-trie 29.0.0",
- "state-machine-manager",
  "substrate-state-machine",
  "trie-db 0.28.0",
+]
+
+[[package]]
+name = "pallet-ismp-rpc"
+version = "0.1.0"
+dependencies = [
+ "frame-system",
+ "hex-literal 0.3.4",
+ "ismp",
+ "jsonrpsee 0.16.3",
+ "pallet-ismp",
+ "pallet-ismp-runtime-api",
+ "parity-scale-codec",
+ "sc-client-api",
+ "serde",
+ "serde_json",
+ "sp-api",
+ "sp-blockchain",
+ "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
+name = "pallet-ismp-runtime-api"
+version = "0.1.0"
+dependencies = [
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "serde",
+ "sp-api",
+ "sp-core 28.0.0",
+ "sp-std 14.0.0",
 ]
 
 [[package]]
@@ -11024,24 +11034,6 @@ dependencies = [
  "cpufeatures",
  "opaque-debug 0.3.0",
  "universal-hash",
-]
-
-[[package]]
-name = "polygon-pos-verifier"
-version = "0.1.0"
-dependencies = [
- "alloy-primitives",
- "alloy-rlp",
- "alloy-rlp-derive",
- "anyhow",
- "ethabi",
- "geth-primitives",
- "ismp",
- "log",
- "parity-scale-codec",
- "scale-info",
- "sp-core 28.0.0",
- "sp-io 30.0.0",
 ]
 
 [[package]]
@@ -16010,19 +16002,6 @@ dependencies = [
  "sp-std 14.0.0",
  "sp-weights 27.0.0",
  "staging-xcm",
-]
-
-[[package]]
-name = "state-machine-manager"
-version = "0.1.0"
-dependencies = [
- "frame-support",
- "frame-system",
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "scale-info",
- "sp-runtime 31.0.1",
 ]
 
 [[package]]

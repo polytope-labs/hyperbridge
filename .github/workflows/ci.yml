@@ -298,7 +298,7 @@ jobs:
 
       - name: Binance Smart Chain integration tests
         run: |
-          cargo test -p bsc-pos-prover -- --nocapture --ignored
+          cargo test -p bsc-prover -- --nocapture --ignored
 
   check-solidity:
     name: Check ismp-solidity

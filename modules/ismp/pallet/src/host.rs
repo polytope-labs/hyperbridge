@@ -217,13 +217,8 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
-    fn freeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
-        FrozenStateMachine::<T>::insert(state_machine, true);
-        Ok(())
-    }
-
-    fn unfreeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
-        FrozenStateMachine::<T>::remove(&state_machine);
+    fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
+        StateCommitments::<T>::remove(height);
         Ok(())
     }
 

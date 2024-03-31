@@ -40,40 +40,18 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
     }
 
-    /// Host Manager Address on different chains
+    /// Host Manager Addresses on different chains
     #[pallet::storage]
     #[pallet::getter(fn host_manager)]
-    pub type HostManager<T: Config> =
+    pub type HostManagers<T: Config> =
         StorageMap<_, Twox64Concat, StateMachine, Vec<u8>, OptionQuery>;
 
     #[pallet::error]
-    pub enum Error<T> {
-        /// Account Already Whitelisted
-        AccountAlreadyWhitelisted,
-        /// Account not whitelisted to freeze state machine
-        AccountNotWhitelisted,
-        /// State Machine Already Frozen
-        StateMachineAlreadyFrozen,
-        /// State Machine Not Frozen
-        StateMachineNotFrozen,
-        /// Error Freezing State Machine
-        ErrorFreezingStateMachine,
-        /// Error Unfreezing State Machine
-        ErrorUnFreezingStateMachine,
-    }
+    pub enum Error<T> {}
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
-    pub enum Event<T: Config> {
-        /// An account `account` has been whitelisted
-        AccountWhitelisted { account: T::AccountId },
-        /// An account `account` has been removed from whitelisted accounts
-        AccountRemovedFromWhitelistedAccount { account: T::AccountId },
-        /// `state_machine` is frozen
-        StateMachineFrozen { state_machine: StateMachineId },
-        ///  `state_machine` is unfrozen
-        StateMachineUnFrozen { state_machine: StateMachineId },
-    }
+    pub enum Event<T: Config> {}
 
     #[pallet::call]
     impl<T: Config> Pallet<T>
@@ -90,7 +68,7 @@ pub mod pallet {
             <T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
 
             for (state_machine, address) in addresses {
-                HostManager::<T>::insert(state_machine, address);
+                HostManagers::<T>::insert(state_machine, address);
             }
 
             Ok(())

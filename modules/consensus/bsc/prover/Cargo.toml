@@ -5,17 +5,15 @@ edition = "2021"
 description = "Prover for Binance Smart Chain Network's Consensus Protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-bsc-verifier = { workspace = true }
+bsc-verifier = { workspace = true, default-features = true }
 anyhow = "1.0.68"
 primitive-types = { version = "0.12.1", features = ["serde", "impl-codec"] }
 ethers = { workspace = true, features = ["ws", "default"] }
-ismp = { workspace = true }
-sp-core = { workspace = true }
-sync-committee-primitives  = { workspace = true }
-geth-primitives = { workspace = true }
+ismp = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true }
+sync-committee-primitives  = { workspace = true, default-features = true }
+geth-primitives = { workspace = true, default-features = true }
 tracing = "0.1.40"
 
 [dev-dependencies]

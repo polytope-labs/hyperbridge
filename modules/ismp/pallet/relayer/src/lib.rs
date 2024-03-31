@@ -32,6 +32,7 @@ use ismp::{
     messaging::Proof,
     router::{DispatchPost, DispatchRequest, IsmpDispatcher},
 };
+use ismp_host_executive::HostManager;
 use ismp_sync_committee::{
     presets::{
         REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
@@ -44,7 +45,6 @@ use pallet_ismp::{dispatcher::Dispatcher, host::Host};
 use sp_core::U256;
 use sp_runtime::DispatchError;
 use sp_std::prelude::*;
-use state_machine_manager::HostManager;
 
 pub const MODULE_ID: [u8; 32] = [1; 32];
 
@@ -66,7 +66,7 @@ pub mod pallet {
     /// The config trait
     #[pallet::config]
     pub trait Config:
-        frame_system::Config + pallet_ismp::Config + state_machine_manager::Config
+        frame_system::Config + pallet_ismp::Config + ismp_host_executive::Config
     {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;

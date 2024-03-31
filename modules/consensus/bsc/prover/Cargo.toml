@@ -1,5 +1,5 @@
 [package]
-name = "bsc-pos-prover"
+name = "bsc-prover"
 version = "0.1.0"
 edition = "2021"
 description = "Prover for Binance Smart Chain Network's Consensus Protocol"
@@ -8,14 +8,14 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bsc-pos-verifier = { path= "../verifier" }
+bsc-verifier = { workspace = true }
 anyhow = "1.0.68"
 primitive-types = { version = "0.12.1", features = ["serde", "impl-codec"] }
 ethers = { workspace = true, features = ["ws", "default"] }
-ismp = { path = "../../../ismp/core" }
+ismp = { workspace = true }
 sp-core = { workspace = true }
-sync-committee-primitives  = { path = "../../sync-committee/primitives" }
-geth-primitives = { path = "../../geth-primitives" }
+sync-committee-primitives  = { workspace = true }
+geth-primitives = { workspace = true }
 tracing = "0.1.40"
 
 [dev-dependencies]

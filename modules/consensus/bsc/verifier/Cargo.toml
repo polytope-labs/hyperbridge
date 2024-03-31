@@ -1,5 +1,5 @@
 [package]
-name = "bsc-pos-verifier"
+name = "bsc-verifier"
 version = "0.1.0"
 edition = "2021"
 description = "Verifier for the Binance Smart Chain Network's Consensus Proofs"

@@ -300,13 +300,8 @@ impl IsmpHost for Host {
         Ok(())
     }
 
-    fn freeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
-        self.frozen_state_machines.borrow_mut().insert(state_machine, true);
-        Ok(())
-    }
-
-    fn unfreeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
-        self.frozen_state_machines.borrow_mut().remove(&state_machine);
+    fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
+        self.state_commitments.borrow_mut().remove(&height);
         Ok(())
     }
 

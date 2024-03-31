@@ -1,5 +1,5 @@
 [package]
-name = "ismp-demo"
+name = "pallet-ismp-demo"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]

@@ -1,4 +1,4 @@
-use bsc_pos_verifier::{
+use bsc_verifier::{
     primitives::{compute_epoch, EPOCH_LENGTH},
     verify_bsc_header, NextValidators,
 };

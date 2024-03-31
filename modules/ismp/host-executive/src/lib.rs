@@ -28,7 +28,6 @@ pub mod pallet {
         consensus::StateMachineId,
         host::{IsmpHost, StateMachine},
     };
-    use pallet_ismp::host::Host;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -123,49 +122,49 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(2)]
-        #[pallet::weight({1_000_000})]
-        pub fn freeze_state_machine(
-            origin: OriginFor<T>,
-            state_machine: StateMachineId,
-        ) -> DispatchResult {
-            let account = ensure_signed(origin)?;
-            ensure!(
-                WhitelistedAccount::<T>::contains_key(&account),
-                Error::<T>::AccountNotWhitelisted
-            );
+        // #[pallet::call_index(2)]
+        // #[pallet::weight({1_000_000})]
+        // pub fn freeze_state_machine(
+        //     origin: OriginFor<T>,
+        //     state_machine: StateMachineId,
+        // ) -> DispatchResult {
+        //     let account = ensure_signed(origin)?;
+        //     ensure!(
+        //         WhitelistedAccount::<T>::contains_key(&account),
+        //         Error::<T>::AccountNotWhitelisted
+        //     );
+        //
+        //     let ismp_host = Host::<T>::default();
+        //     ismp_host
+        //         .is_state_machine_frozen(state_machine.clone())
+        //         .map_err(|_| Error::<T>::StateMachineAlreadyFrozen)?;
+        //     ismp_host
+        //         .delete_state_commitment(state_machine)
+        //         .map_err(|_| Error::<T>::ErrorFreezingStateMachine)?;
+        //
+        //     Self::deposit_event(Event::StateMachineFrozen { state_machine });
+        //     Ok(())
+        // }
 
-            let ismp_host = Host::<T>::default();
-            ismp_host
-                .is_state_machine_frozen(state_machine.clone())
-                .map_err(|_| Error::<T>::StateMachineAlreadyFrozen)?;
-            ismp_host
-                .freeze_state_machine(state_machine)
-                .map_err(|_| Error::<T>::ErrorFreezingStateMachine)?;
-
-            Self::deposit_event(Event::StateMachineFrozen { state_machine });
-            Ok(())
-        }
-
-        #[pallet::call_index(3)]
-        #[pallet::weight({1_000_000})]
-        pub fn unfreeze_state_machine(
-            origin: OriginFor<T>,
-            state_machine: StateMachineId,
-        ) -> DispatchResult {
-            T::AdminOrigin::ensure_origin(origin)?;
-
-            let ismp_host = Host::<T>::default();
-            let result = ismp_host.is_state_machine_frozen(state_machine.clone());
-            ensure!(result.is_err(), Error::<T>::StateMachineNotFrozen);
-            ismp_host
-                .unfreeze_state_machine(state_machine)
-                .map_err(|_| Error::<T>::ErrorUnFreezingStateMachine)?;
-
-            Self::deposit_event(Event::StateMachineUnFrozen { state_machine });
-
-            Ok(())
-        }
+        // #[pallet::call_index(3)]
+        // #[pallet::weight({1_000_000})]
+        // pub fn unfreeze_state_machine(
+        //     origin: OriginFor<T>,
+        //     state_machine: StateMachineId,
+        // ) -> DispatchResult {
+        //     T::AdminOrigin::ensure_origin(origin)?;
+        //
+        //     let ismp_host = Host::<T>::default();
+        //     let result = ismp_host.is_state_machine_frozen(state_machine.clone());
+        //     ensure!(result.is_err(), Error::<T>::StateMachineNotFrozen);
+        //     ismp_host
+        //         .unfreeze_state_machine(state_machine)
+        //         .map_err(|_| Error::<T>::ErrorUnFreezingStateMachine)?;
+        //
+        //     Self::deposit_event(Event::StateMachineUnFrozen { state_machine });
+        //
+        //     Ok(())
+        // }
 
         /// Set the host manager addresses for different state machines
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(addresses.len() as u64))]

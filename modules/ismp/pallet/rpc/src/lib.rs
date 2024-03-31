@@ -29,12 +29,12 @@ use ismp::{
     events::{Event, StateMachineUpdated},
     router::{Request, Response},
 };
-use ismp_runtime_api::IsmpRuntimeApi;
 use pallet_ismp::{
     mmr_primitives::{Leaf, NodeIndex},
     primitives::{LeafIndexAndPos, LeafIndexQuery},
     ProofKeys,
 };
+use pallet_ismp_runtime_api::IsmpRuntimeApi;
 use sc_client_api::{BlockBackend, ProofProvider};
 use serde::{Deserialize, Serialize};
 use sp_api::{ApiExt, ProvideRuntimeApi};

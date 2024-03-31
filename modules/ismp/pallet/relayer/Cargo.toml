@@ -11,12 +11,12 @@ sp-runtime = { workspace = true }
 sp-core = { workspace = true }
 sp-std = { workspace = true }
 sp-io = { workspace = true }
-pallet-ismp = { path = "../ismp/pallet", default-features = false }
-ismp-sync-committee = {path = "../ismp/clients/sync-committee", default-features = false }
-state-machine-manager = { path = "../state-machine-manager", default-features = false }
+pallet-ismp = { workspace = true }
+ismp-sync-committee = { workspace = true }
+ismp-host-executive = { workspace = true }
 
 # polytope labs
-ismp = { package = "ismp", path = "../ismp/core", default-features = false }
+ismp = { workspace = true }
 
 # crates.io
 codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
@@ -30,17 +30,16 @@ ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-featu
 
 
 [dev-dependencies]
-pallet-ismp = { path = "../ismp/pallet", features = [ "testing" ] }
+pallet-ismp = { path = "..", features = [ "testing" ] }
 pallet-timestamp = { workspace = true }
 pallet-balances = { workspace = true }
-ethereum-trie = { path = "../trees/ethereum" }
+ethereum-trie = { path = "../../../trees/ethereum" }
 trie-db = { workspace = true }
 hash-db = { workspace = true }
-ismp-bsc-pos = { path = "../ismp/clients/bsc-pos" }
-ismp-sync-committee = { path = "../ismp/clients/sync-committee" }
-ismp-polygon-pos = { path = "../ismp/clients/polygon-pos" }
+ismp-bsc = { workspace = true }
+ismp-sync-committee = { workspace = true }
 sp-trie = { workspace = true }
-substrate-state-machine = { path = "../ismp/pallet/state-machine" }
+substrate-state-machine = { workspace = true }
 hex = "0.4.3"
 
 [features]
@@ -61,7 +60,7 @@ std = [
     "alloy-rlp/std",
     "ethabi/std",
     "ismp-sync-committee/std",
-    "state-machine-manager/std"
+    "ismp-host-executive/std"
 ]
 
 try-runtime = [

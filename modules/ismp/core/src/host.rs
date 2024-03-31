@@ -140,11 +140,8 @@ pub trait IsmpHost: Keccak256 {
         state: StateCommitment,
     ) -> Result<(), Error>;
 
-    /// Freeze a state machine at the given height
-    fn freeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error>;
-
-    /// UnFreeze a state machine at the given height
-    fn unfreeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error>;
+    /// Deletes a state commitment, ideally because it was invalid.
+    fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error>;
 
     /// Freeze a consensus state with the given identifier
     fn freeze_consensus_client(&self, consensus_state_id: ConsensusStateId) -> Result<(), Error>;

@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    # runtime
+     # runtime
      "parachain/runtimes/gargantua",
      "parachain/runtimes/messier",
      "parachain/runtimes/nexus",
@@ -13,6 +13,8 @@ members = [
      "modules/ismp/core",
      "modules/ismp/pallet",
      "modules/ismp/pallet/relayer",
+     "modules/ismp/pallet/fishermen",
+     "modules/ismp/pallet/host-executive",
      "modules/ismp/pallet/rpc",
      "modules/ismp/pallet/runtime-api",
      "modules/ismp/pallet/demo",
@@ -35,14 +37,13 @@ members = [
      "modules/consensus/bsc/verifier",
      "modules/consensus/bsc/prover",
      "modules/ismp/clients/bsc",
-     "modules/ismp/host-executive",
      "modules/trees/mmr",
 
      # evm stuff
      "evm/integration-tests",
      "evm/abi",
 
-     # hyper-client
+     # hyperclient
      "modules/client"
 ]
 
@@ -206,7 +207,7 @@ pallet-ismp-rpc = { path = "./modules/ismp/pallet/rpc" }
 pallet-ismp-runtime-api = { path = "./modules/ismp/pallet/runtime-api", default-features = false }
 
 ismp-testsuite = { path = "./modules/ismp/testsuite" }
-ismp-host-executive = { path = "./modules/ismp/host-executive", default-features = false }
+ismp-host-executive = { path = "modules/ismp/pallet/host-executive", default-features = false }
 
 ethereum-trie = { path = "./modules/trees/ethereum", default-features = false }
 mmr-utils = { path = "./modules/trees/mmr", default-features = false }

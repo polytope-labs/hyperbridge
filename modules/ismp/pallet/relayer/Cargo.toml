@@ -2,6 +2,8 @@
 name = "pallet-ismp-relayer"
 version = "0.1.0"
 edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+description = "Pallet for tracking relayer deliveries and managing their associated fees"
 
 [dependencies]
 # substrate

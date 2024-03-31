@@ -6,7 +6,7 @@ extern crate alloc;
 use core::marker::PhantomData;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
-use bsc_pos_verifier::{
+use bsc_verifier::{
     primitives::{compute_epoch, BscClientUpdate, EPOCH_LENGTH},
     verify_bsc_header, NextValidators, VerificationResult,
 };

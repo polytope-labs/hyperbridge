@@ -12,6 +12,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+//! The pallet-ismp-relayer allows relayers track their deliveries and withdraw their accrued
+//! revenues.
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -32,6 +36,7 @@ use ismp::{
     messaging::Proof,
     router::{DispatchPost, DispatchRequest, IsmpDispatcher},
 };
+use ismp_host_executive::HostManagers;
 use ismp_sync_committee::{
     presets::{
         REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
@@ -44,7 +49,6 @@ use pallet_ismp::{dispatcher::Dispatcher, host::Host};
 use sp_core::U256;
 use sp_runtime::DispatchError;
 use sp_std::prelude::*;
-use state_machine_manager::HostManager;
 
 pub const MODULE_ID: [u8; 32] = [1; 32];
 
@@ -66,7 +70,7 @@ pub mod pallet {
     /// The config trait
     #[pallet::config]
     pub trait Config:
-        frame_system::Config + pallet_ismp::Config + state_machine_manager::Config
+        frame_system::Config + pallet_ismp::Config + ismp_host_executive::Config
     {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -279,7 +283,7 @@ where
             StateMachine::Grandpa(_) |
             StateMachine::Kusama(_) |
             StateMachine::Polkadot(_) => MODULE_ID.to_vec(),
-            _ => HostManager::<T>::get(withdrawal_data.dest_chain)
+            _ => HostManagers::<T>::get(withdrawal_data.dest_chain)
                 .ok_or_else(|| Error::<T>::MissingMangerAddress)?,
         };
         Nonce::<T>::try_mutate(address.clone(), withdrawal_data.dest_chain, |value| {

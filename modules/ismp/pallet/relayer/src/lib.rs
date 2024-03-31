@@ -36,7 +36,7 @@ use ismp::{
     messaging::Proof,
     router::{DispatchPost, DispatchRequest, IsmpDispatcher},
 };
-use ismp_host_executive::HostManager;
+use ismp_host_executive::HostManagers;
 use ismp_sync_committee::{
     presets::{
         REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
@@ -283,7 +283,7 @@ where
             StateMachine::Grandpa(_) |
             StateMachine::Kusama(_) |
             StateMachine::Polkadot(_) => MODULE_ID.to_vec(),
-            _ => HostManager::<T>::get(withdrawal_data.dest_chain)
+            _ => HostManagers::<T>::get(withdrawal_data.dest_chain)
                 .ok_or_else(|| Error::<T>::MissingMangerAddress)?,
         };
         Nonce::<T>::try_mutate(address.clone(), withdrawal_data.dest_chain, |value| {

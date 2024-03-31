@@ -9,7 +9,7 @@ use ethereum_trie::{keccak::KeccakHasher, MemoryDB, StorageProof};
 use frame_support::{
     crypto::ecdsa::ECDSAExt,
     parameter_types,
-    traits::{ConstU32, ConstU64, Get},
+    traits::{ConstU32, ConstU64},
 };
 use frame_system::EnsureRoot;
 use ismp::{
@@ -175,9 +175,7 @@ impl pallet_ismp::Config for Test {
     type WeightProvider = ();
 }
 
-impl ismp_host_executive::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
-}
+impl ismp_host_executive::Config for Test {}
 
 impl pallet_ismp_relayer::Config for Test {
     type RuntimeEvent = RuntimeEvent;

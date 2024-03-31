@@ -233,7 +233,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     });
 
     let res = handle_incoming_message(host, response_message);
-    assert!(matches!(res, Err(ismp::error::Error::FrozenStateMachine { .. })));
+    assert!(matches!(res, Err(ismp::error::Error::StateCommitmentNotFound { .. })));
 
     // Timeout mesaage handling check
     let timeout_message = Message::Timeout(TimeoutMessage::Post {
@@ -242,7 +242,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     });
 
     let res = handle_incoming_message(host, timeout_message);
-    assert!(matches!(res, Err(ismp::error::Error::FrozenStateMachine { .. })));
+    assert!(matches!(res, Err(ismp::error::Error::StateCommitmentNotFound { .. })));
 
     Ok(())
 }

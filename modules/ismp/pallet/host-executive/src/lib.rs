@@ -27,7 +27,7 @@ pub mod pallet {
     use alloc::{collections::BTreeMap, vec::Vec};
     use frame_support::pallet_prelude::{OptionQuery, *};
     use frame_system::pallet_prelude::*;
-    use ismp::{consensus::StateMachineId, host::StateMachine};
+    use ismp::host::StateMachine;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -35,10 +35,7 @@ pub mod pallet {
 
     /// The config trait
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_ismp::Config {
-        /// The runtime event type.
-        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-    }
+    pub trait Config: frame_system::Config + pallet_ismp::Config {}
 
     /// Host Manager Addresses on different chains
     #[pallet::storage]
@@ -48,10 +45,6 @@ pub mod pallet {
 
     #[pallet::error]
     pub enum Error<T> {}
-
-    #[pallet::event]
-    #[pallet::generate_deposit(pub(super) fn deposit_event)]
-    pub enum Event<T: Config> {}
 
     #[pallet::call]
     impl<T: Config> Pallet<T>

@@ -81,9 +81,7 @@ impl pallet_ismp_relayer::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
 }
 
-impl ismp_host_executive::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-}
+impl ismp_host_executive::Config for Runtime {}
 
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {

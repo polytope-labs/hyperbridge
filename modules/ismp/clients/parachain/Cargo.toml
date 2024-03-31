@@ -55,3 +55,9 @@ std = [
     "serde",
     "substrate-state-machine/std"
 ]
+
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]

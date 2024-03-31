@@ -165,7 +165,7 @@ impl IsmpHost for Host {
             .borrow()
             .get(&height)
             .cloned()
-            .ok_or_else(|| Error::ImplementationSpecific("state commitment not found".into()))
+            .ok_or_else(|| Error::StateCommitmentNotFound { height })
     }
 
     fn consensus_update_time(&self, id: ConsensusStateId) -> Result<Duration, Error> {

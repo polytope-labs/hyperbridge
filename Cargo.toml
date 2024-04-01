@@ -26,6 +26,8 @@ members = [
      "modules/ismp/clients/parachain/inherent",
      "modules/ismp/clients/parachain/runtime-api",
      "modules/ismp/clients/state-machine/substrate",
+     "modules/ismp/pallet/call-decompressor",
+
 
      # modules
      "modules/trees/ethereum",

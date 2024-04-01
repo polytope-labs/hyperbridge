@@ -15,7 +15,7 @@
 
 #![cfg(test)]
 
-use crate::runtime::{assert_last_event, new_test_ext, RuntimeOrigin, Test};
+use crate::runtime::{new_test_ext, RuntimeOrigin, Test};
 use ismp::{
     consensus::{StateCommitment, StateMachineHeight, StateMachineId},
     error::Error,

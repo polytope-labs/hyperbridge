@@ -36,7 +36,7 @@ use pallet_ismp::{
 use pallet_ismp_relayer::{
     self as pallet_ismp_relayer, message,
     withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
-    Claimed, Fees, Nonce, Pallet,
+    Claimed,
 };
 use sp_core::{Pair, H160, H256, U256};
 use sp_trie::LayoutV0;
@@ -47,7 +47,6 @@ use crate::runtime::{
     new_test_ext, set_timestamp, RuntimeOrigin, Test, MOCK_CONSENSUS_CLIENT_ID,
     MOCK_CONSENSUS_STATE_ID,
 };
-use frame_support::derive_impl;
 use ismp::host::Ethereum;
 use ismp_bsc::BSC_CONSENSUS_ID;
 use ismp_sync_committee::BEACON_CONSENSUS_ID;

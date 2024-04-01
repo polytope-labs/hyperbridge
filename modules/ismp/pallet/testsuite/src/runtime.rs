@@ -33,7 +33,7 @@ use ismp::{
     host::{Ethereum, IsmpHost, StateMachine},
     messaging::{CreateConsensusState, Proof, StateCommitmentHeight},
     module::IsmpModule,
-    router::{IsmpRouter, Post, Request, RequestResponse, Response, Timeout},
+    router::{IsmpRouter, Post, RequestResponse, Response, Timeout},
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{host::Host, primitives::ModuleId};
@@ -43,7 +43,6 @@ use sp_core::{
     H256,
 };
 use sp_runtime::{
-    testing::Header,
     traits::{IdentityLookup, Keccak256},
     BuildStorage,
 };

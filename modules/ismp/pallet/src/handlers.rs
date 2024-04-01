@@ -3,7 +3,7 @@
 use crate::{
     dispatcher::{FeeMetadata, LeafMetadata},
     host::Host,
-    mmr_primitives::Leaf,
+    mmr::primitives::Leaf,
     Config, Event, Pallet, RequestCommitments, Responded, ResponseCommitments,
 };
 use alloc::string::ToString;

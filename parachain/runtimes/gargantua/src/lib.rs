@@ -69,7 +69,7 @@ use frame_system::{
     EnsureRoot, Phase,
 };
 use pallet_ismp::{
-    mmr_primitives::{Leaf, LeafIndex},
+    mmr::primitives::{Leaf, LeafIndex},
     primitives::Proof,
 };
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -567,7 +567,7 @@ construct_runtime!(
         IsmpSyncCommittee: ismp_sync_committee::pallet = 41,
         IsmpDemo: pallet_ismp_demo = 42,
         Relayer: pallet_ismp_relayer = 43,
-        StateMachineManager: ismp_host_executive = 45,
+        StateMachineManager: pallet_ismp_host_executive = 45,
     }
 );
 

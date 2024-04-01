@@ -13,8 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! pallet-fishermen enables fishermen keep hyperbridge safe by vetoing fraudulent state
-//! commitments.
+//! Enables fishermen keep hyperbridge safe by vetoing fraudulent state commitments.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -104,7 +103,7 @@ pub mod pallet {
         /// changes at the provided height. This allows them to veto the state commitment.
         /// They aren't required to provide any proofs for this.
         ///
-        /// This will eventually become permissionless once we introduce the `evm-block-executor`.
+        /// This will eventually become permissionless with the `evm-block-executor`.
         #[pallet::call_index(2)]
         #[pallet::weight({1_000_000})]
         pub fn veto_state_commitment(

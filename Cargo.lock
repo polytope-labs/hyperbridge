@@ -4851,7 +4851,6 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-bsc",
- "ismp-host-executive",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
@@ -4860,6 +4859,7 @@ dependencies = [
  "pallet-collator-selection",
  "pallet-ismp",
  "pallet-ismp-demo",
+ "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
  "pallet-message-queue",
@@ -5841,19 +5841,6 @@ dependencies = [
 [[package]]
 name = "ismp-casper-ffg"
 version = "0.1.0"
-
-[[package]]
-name = "ismp-host-executive"
-version = "0.1.0"
-dependencies = [
- "frame-support",
- "frame-system",
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "scale-info",
- "sp-runtime 31.0.1",
-]
 
 [[package]]
 name = "ismp-parachain"
@@ -7241,7 +7228,6 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-bsc",
- "ismp-host-executive",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
@@ -7250,6 +7236,7 @@ dependencies = [
  "pallet-collator-selection",
  "pallet-ismp",
  "pallet-ismp-demo",
+ "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
  "pallet-message-queue",
@@ -7746,7 +7733,6 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-bsc",
- "ismp-host-executive",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
@@ -7755,6 +7741,7 @@ dependencies = [
  "pallet-collator-selection",
  "pallet-ismp",
  "pallet-ismp-demo",
+ "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
  "pallet-message-queue",
@@ -8714,6 +8701,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-ismp-host-executive"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
 name = "pallet-ismp-relayer"
 version = "0.1.0"
 dependencies = [
@@ -8729,11 +8729,11 @@ dependencies = [
  "hex",
  "ismp",
  "ismp-bsc",
- "ismp-host-executive",
  "ismp-sync-committee",
  "log",
  "pallet-balances",
  "pallet-ismp",
+ "pallet-ismp-host-executive",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
@@ -8777,6 +8777,38 @@ dependencies = [
  "sp-api",
  "sp-core 28.0.0",
  "sp-std 14.0.0",
+]
+
+[[package]]
+name = "pallet-ismp-testsuite"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "ckb-merkle-mountain-range",
+ "env_logger",
+ "ethereum-trie",
+ "frame-support",
+ "frame-system",
+ "hash-db",
+ "hex",
+ "ismp",
+ "ismp-bsc",
+ "ismp-sync-committee",
+ "ismp-testsuite",
+ "pallet-balances",
+ "pallet-fishermen",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "pallet-ismp-relayer",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-io 30.0.0",
+ "sp-runtime 31.0.1",
+ "sp-trie 29.0.0",
+ "substrate-state-machine",
+ "trie-db 0.28.0",
 ]
 
 [[package]]

@@ -22,21 +22,14 @@
 extern crate alloc;
 extern crate core;
 
-pub mod benchmarking;
 pub mod dispatcher;
 mod errors;
 pub mod events;
 pub mod handlers;
 pub mod host;
-mod mmr;
-pub mod mmr_primitives;
-
-pub use mmr::mmr::ProofKeys;
-#[cfg(any(feature = "runtime-benchmarks", feature = "testing", test))]
-pub mod mocks;
+pub mod mmr;
+pub use mmr::ProofKeys;
 pub mod primitives;
-#[cfg(test)]
-pub mod tests;
 pub mod weight_info;
 
 pub use mmr::utils::NodesUtils;
@@ -58,8 +51,10 @@ use sp_core::{offchain::StorageKind, H256};
 // Re-export pallet items so that they can be accessed from the crate namespace.
 use crate::{
     errors::{HandlingError, ModuleCallbackResult},
-    mmr::mmr::Mmr,
-    mmr_primitives::{DataOrHash, Leaf, LeafIndex, NodeIndex},
+    mmr::{
+        primitives::{DataOrHash, Leaf, LeafIndex, NodeIndex},
+        Mmr,
+    },
     primitives::LeafIndexAndPos,
     weight_info::get_weight,
 };
@@ -87,7 +82,7 @@ pub mod pallet {
     use crate::{
         dispatcher::LeafMetadata,
         errors::HandlingError,
-        mmr_primitives::{LeafIndex, NodeIndex},
+        mmr::primitives::{LeafIndex, NodeIndex},
         primitives::{ConsensusClientProvider, WeightUsed, ISMP_ID},
         weight_info::{WeightInfo, WeightProvider},
     };

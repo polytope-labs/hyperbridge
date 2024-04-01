@@ -34,7 +34,7 @@ use ismp::{
 use merkle_mountain_range::MerkleProof;
 use pallet_ismp::{
     host::Host,
-    mmr_primitives::{DataOrHash, Leaf, MmrHasher},
+    mmr::primitives::{DataOrHash, Leaf, MmrHasher},
     primitives::{HashAlgorithm, MembershipProof, SubstrateStateProof},
 };
 use sp_runtime::traits::{BlakeTwo256, Keccak256};

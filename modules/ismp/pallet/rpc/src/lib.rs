@@ -30,7 +30,7 @@ use ismp::{
     router::{Request, Response},
 };
 use pallet_ismp::{
-    mmr_primitives::{Leaf, NodeIndex},
+    mmr::primitives::{Leaf, NodeIndex},
     primitives::{LeafIndexAndPos, LeafIndexQuery},
     ProofKeys,
 };

@@ -59,14 +59,10 @@ docker run polytopelabs/tesseract:latest --config=/path/to/config --db=/path/to/
 Unfortunately, tesseract is closed-souce for now. Tesseract source-code will be available on Hyperbridge mainnet launch.
 
 
-## System Requirements
-
-At the minimum, the hyperbridge relayer should be run on a machine with at least 4GB of RAM and a quad-core cpu. This relayer should also have at least a 100Mb/s connection if it is to query nodes over the internet.
-
-
 ## Running the relayer
 
 The tesseract relayer command line interface expects two arguments, which are the paths to it's configuration file and database file. Because it resides in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration files on your host into the docker conatiner. Tesseract will write it's database to that directory once it's initialized.
+
 
 
 ```bash
@@ -86,15 +82,19 @@ Access it's logs using
 docker logs -f tesseract
 ```
 
-## Ansible Playbooks
+### System Requirements
+
+At the minimum, the hyperbridge relayer should be run on a machine with at least 4GB of RAM and a quad-core cpu. This relayer should also have at least a 100Mb/s connection if it is to query nodes over the internet.
+
+### Ansible Playbooks
 
 A community member has graciously provided their ansible playbook for running the hyperbridge relayer. You can find it here:
 
 https://github.com/schmiatz/hyperbridge-relayer
 
-### Configuration
+## Configuration
 
-The configuration file is a toml file that at the moment, expects the following configuration options:
+The configuration file is a toml file that at the moment, that expects the following configuration options:
 
 
 ```toml
@@ -102,8 +102,10 @@ The configuration file is a toml file that at the moment, expects the following 
 [hyperbridge]
 # Hyperbridge chain spec, either one of Dev, Gargantua, Messier or Nexus
 chain = "Gargantua" # testnet
-# Hyperbidge node ws rpc endpoint.
+# Hyperbridge node ws rpc endpoint.
 rpc_ws = "ws://127.0.0.1:9944" # example endpoint
+# Sets the maximum size of an rpc request or response in bytes defaults to 150mb
+max_rpc_payload_size = 150000000
 
 [ethereum]
 # configuration type
@@ -217,6 +219,10 @@ signer = ""
 minimum_profit_percentage = 0
 # (Optional) If not empty, will filter requests to be delivered by originating module identifier (eg contract address)
 module_filter = []
+# How frequently to initiate withdrawals in seconds, defaults to 24 hours
+withdrawal_frequency = 86400
+# Minimum amount to withdraw when auto-withdrawing, defaults to $100
+minimum_withdrawal_amount = 100
 # (Optional) If not empty, only deliver to the specied state-machines
 delivery_endpoints = [
     { Ethereum = "ExecutionLayer" },
@@ -229,19 +235,18 @@ delivery_endpoints = [
 
 It is optional to provide the configuration option for any of the connected chains, The only consequence is your relayer will not deliver requests from the ommitted chain as it has no way of querying the associated fees for requests originating from this chain.
 
-You can get the etherscan API key by following [this guide](https://docs.etherscan.io/getting-started/viewing-api-usage-statistics) for the required network. Please note that since Ethereum and it's L2s all use Ether as the gas token. They can all share the same etherscan API key.
+You can obtain the required etherscan API key by following [this guide](https://docs.etherscan.io/getting-started/viewing-api-usage-statistics) for the appropriate network. Do note that since Ethereum and it's L2s all use Ether as the gas token. They can all share the same etherscan API key.
+
+### Contract addresses
 
 You can find the up-to-date contract addresses for the `Handler` & `IsmpHost` contracts [here](/evm/integration#gargantua-v2)
 
-### Withdrawing Fees
+## Withdrawing Fees
 
 Tesseract maintains a local sqlite database where it keeps track of successfully delivered messages. The withdrawal process happens in two phases, the first phase is the fee accumulation on hyperbridge, then withdrawal on any of the connected chains.
-<br />
-In the fee accumulation phase, tesseract submits state proofs of messages all delivered to hyperbridge using the `accumulate_fees` extrinsic on `pallet-ismp-relayer`. If the proof verification is successful, the total amount of unclaimed fees for the relayer address will be recorded.
-<br />
-The relayer can submit a withdrawal request from hyperbridge to any of the chains where it has unclaimed fees, an ISMP Post request with instructions to credit the relayer on the destination chain is dispatched, the request has a timeout of zero allowing it to be submitted to the destination at any time in the future without any risk of timing out. 
+In the fee accumulation phase, tesseract submits state proofs of messages all delivered to hyperbridge. If the proof verification is successful, the total amount of unclaimed fees for the relayer address is updated onchain. Next, the relayer can submit a withdrawal transaction to hyperbridge. This initiates potentially multiple ISMP requests to any chain where it has unclaimed fees, that instructs the Hyperbridge contract to credit the relayer their owed funds. This request will not timeout, allowing it to be submitted to the destination chain at any time.
 
-#### Accumulating fees on Hyperbridge
+### Accumulating fees
 Stop any running relayer instances, run the following command in the terminal and wait for it to complete. The command will submit proofs for messages delivered to all chains present in the config file.
 
 ```bash
@@ -253,13 +258,18 @@ When accumulating fees the required state machine update to verify the proofs mi
     docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --wait
 ```
 
-#### Initiating withdrawal from hyperbridge
-To initiate a withdrawal from hyperbridge, a relayer needs to submit a `relayer.withdraw_fees` extrinsic to hyperbridge. This extrinsic is unsigned and will not require any native tokens for execution fees.
-<br />
-Once the extrinsic is executed, hyperbridge dispatches a POST request that when executed on it's destination, will provide the relayer with the fees they've accrued. The relayer account must have sufficient funds to pay the request delivery on the withdrawal destination chain.
+### Initiating withdrawals
+To initiate a withdrawal from hyperbridge, a relayer needs to submit a transaction to hyperbridge with triggers the withdrawal request. This extrinsic is unsigned and will not require any native tokens for execution fees.Once the extrinsic is executed, hyperbridge dispatches a POST request that when executed on it's destination, will provide the relayer with the fees they've accrued. The relayer account must have sufficient funds to deliver this request to it's destination chain.
 <br />
 To use this feature run the following command:
 
 ```bash
     docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --withdraw
 ```
+
+
+### Automatic accumulation and withdrawals
+
+The relayer also runs background tasks for automatic fee accumulation and withdrawals. Whenever a batch of messages is successfully delivered, the fee accumulation task receives the delivery receipts and starts the process of accumulating the fees on hyperbridge. This process happens concurrently for all successfully delivered message batches. For redundancy, the delivery receipts are stored in the database prior to accumulation so they can be retried manually if any error is encountered.  
+<br/>
+Withdrawing fees from hyperbridge is triggered at fixed intervals based on the configured `withdrawal_frequency` and  `minimum_withdrawal_amount`. Feel free to the adjust these values as desired. The task will only make a withdrawal attempt if your balance on hyperbridge is greater than or equal to the configured `minimum_withdrawal_amount`. Any failed withdrawal attempts will be retried each time the withdrawal task is triggered. The manual processes described in the previous sections can be used as fallbacks when errors are encountered by their automated conterparts.  

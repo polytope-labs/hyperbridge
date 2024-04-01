@@ -1,10 +1,12 @@
+///! This module contains the internal implementation of HyperClient.
 use crate::{
-    providers::global::{wait_for_challenge_period, Client},
-    types::{BoxStream, ClientConfig, MessageStatus, TimeoutStatus},
-    Keccak256,
+    providers::interface::RequestOrResponse,
+    providers::interface::{wait_for_challenge_period, Client},
+    types::{BoxStream, MessageStatus, TimeoutStatus},
+    types::{MessageStatusWithMetadata, PostStreamState},
+    HyperClient, Keccak256,
 };
 use anyhow::anyhow;
-///! This module contains the internal implementation of HyperClient.
 use ethers::prelude::H160;
 use futures::{stream, StreamExt};
 use ismp::{
@@ -14,19 +16,19 @@ use ismp::{
     util::hash_request,
 };
 
+use ismp::events::Event;
+use std::time::Duration;
+
 /// `query_request_status_internal` is an internal function that
 /// checks the status of a message
 pub async fn query_request_status_internal(
+    client: &HyperClient,
     post: Post,
-    config: ClientConfig,
 ) -> Result<MessageStatus, anyhow::Error> {
-    let dest_client = config.dest_chain().await?;
-    let hyperbridge_client = config.hyperbridge_client().await?;
-
-    let destination_current_timestamp = dest_client.query_timestamp().await?;
+    let destination_current_timestamp = client.dest.query_timestamp().await?;
     let req = Request::Post(post.clone());
     let hash = hash_request::<Keccak256>(&req);
-    let relayer_address = dest_client.query_request_receipt(hash).await?;
+    let relayer_address = client.dest.query_request_receipt(hash).await?;
 
     if relayer_address != H160::zero() {
         // This means the message has gotten the destination chain
@@ -39,8 +41,8 @@ pub async fn query_request_status_internal(
         return Ok(MessageStatus::Timeout);
     }
 
-    let hyperbridge_current_timestamp = hyperbridge_client.query_timestamp().await?;
-    let relayer = hyperbridge_client.query_request_receipt(hash).await?;
+    let hyperbridge_current_timestamp = client.hyperbridge.query_timestamp().await?;
+    let relayer = client.hyperbridge.query_request_receipt(hash).await?;
 
     if relayer != H160::zero() {
         return Ok(MessageStatus::HyperbridgeDelivered);
@@ -56,16 +58,13 @@ pub async fn query_request_status_internal(
 
 /// `query_response_status_internal` function returns the status of a response
 pub async fn query_response_status_internal(
-    config: ClientConfig,
+    hyperclient: &HyperClient,
     post_response: PostResponse,
 ) -> Result<MessageStatus, anyhow::Error> {
-    let dest_client = config.dest_chain().await?;
-    let hyperbridge_client = config.hyperbridge_client().await?;
-
-    let response_destination_timeout = dest_client.query_timestamp().await?;
+    let response_destination_timeout = hyperclient.dest.query_timestamp().await?;
     let res = Response::Post(post_response.clone());
     let req_hash = hash_request::<Keccak256>(&res.request());
-    let response_receipt_relayer = dest_client.query_response_receipt(req_hash).await?;
+    let response_receipt_relayer = hyperclient.dest.query_response_receipt(req_hash).await?;
 
     if response_receipt_relayer != H160::zero() {
         return Ok(MessageStatus::DestinationDelivered);
@@ -76,13 +75,13 @@ pub async fn query_response_status_internal(
         return Ok(MessageStatus::Timeout);
     }
 
-    let relayer = hyperbridge_client.query_response_receipt(req_hash).await?;
+    let relayer = hyperclient.hyperbridge.query_response_receipt(req_hash).await?;
 
     if relayer != H160::zero() {
         return Ok(MessageStatus::HyperbridgeDelivered);
     }
 
-    let hyperbridge_current_timestamp = hyperbridge_client.latest_timestamp().await?;
+    let hyperbridge_current_timestamp = hyperclient.hyperbridge.latest_timestamp().await?;
 
     if hyperbridge_current_timestamp.as_secs() > post_response.timeout_timestamp {
         // the request timed out before getting to hyper bridge
@@ -109,12 +108,13 @@ pub enum TimeoutStreamState {
 /// to the source chain This future does not check the request timeout status, only call it after
 /// you have confirmed the request timeout status using `query_request_status`
 pub async fn timeout_request_stream(
+    hyperclient: &HyperClient,
     post: Post,
-    config: ClientConfig,
 ) -> Result<BoxStream<TimeoutStatus>, anyhow::Error> {
-    let dest_client = config.dest_chain().await?;
-    let hyperbridge_client = config.hyperbridge_client().await?;
-    let source_client = config.source_chain().await?;
+    let dest_client = hyperclient.dest.clone();
+    let hyperbridge_client = hyperclient.hyperbridge.clone();
+    let source_client = hyperclient.source.clone();
+
     let stream = stream::unfold(TimeoutStreamState::Pending, move |state| {
         let dest_client = dest_client.clone();
         let hyperbridge_client = hyperbridge_client.clone();
@@ -127,6 +127,27 @@ pub async fn timeout_request_stream(
                     TimeoutStreamState::Pending => {
                         let relayer = hyperbridge_client.query_request_receipt(hash).await?;
                         if relayer != H160::zero() {
+                            let height = hyperbridge_client
+                                .query_latest_state_machine_height(dest_client.state_machine_id())
+                                .await?;
+
+                            let state_commitment = hyperbridge_client
+                                .query_state_machine_commitment(StateMachineHeight {
+                                    id: dest_client.state_machine_id(),
+                                    height,
+                                })
+                                .await?;
+
+                            if state_commitment.timestamp > post.timeout_timestamp {
+                                // early return if the destination has already finalized the height
+                                return Ok(Some((
+                                    Ok(TimeoutStatus::DestinationFinalized {
+                                        meta: Default::default(),
+                                    }),
+                                    TimeoutStreamState::DestinationFinalized(height),
+                                )))
+                            }
+
                             let mut stream = hyperbridge_client
                                 .state_machine_update_notification(dest_client.state_machine_id())
                                 .await?;
@@ -135,14 +156,14 @@ pub async fn timeout_request_stream(
                                 match event {
                                     Ok(ev) => {
                                         let state_machine_height = StateMachineHeight {
-                                            id: ev.state_machine_id,
-                                            height: ev.latest_height,
+                                            id: ev.event.state_machine_id,
+                                            height: ev.event.latest_height,
                                         };
                                         let commitment = hyperbridge_client
                                             .query_state_machine_commitment(state_machine_height)
                                             .await?;
                                         if commitment.timestamp > post.timeout_timestamp {
-                                            valid_proof_height = Some(ev.latest_height);
+                                            valid_proof_height = Some(ev);
                                             break
                                         }
                                     },
@@ -155,16 +176,18 @@ pub async fn timeout_request_stream(
                                         ))),
                                 }
                             }
-                            Ok(valid_proof_height.map(|height| {
+                            Ok(valid_proof_height.map(|ev| {
                                 (
-                                    Ok(TimeoutStatus::DestinationFinalized),
-                                    TimeoutStreamState::DestinationFinalized(height),
+                                    Ok(TimeoutStatus::DestinationFinalized { meta: ev.meta }),
+                                    TimeoutStreamState::DestinationFinalized(
+                                        ev.event.latest_height,
+                                    ),
                                 )
                             }))
                         } else {
                             let height = hyperbridge_client.query_latest_block_height().await?;
                             Ok(Some((
-                                Ok(TimeoutStatus::HyperbridgeTimedout),
+                                Ok(TimeoutStatus::HyperbridgeTimedout { meta: Default::default() }),
                                 TimeoutStreamState::HyperbridgeTimedout(height),
                             )))
                         }
@@ -194,14 +217,47 @@ pub async fn timeout_request_stream(
                             challenge_period,
                         )
                         .await?;
-                        hyperbridge_client.submit(message).await?;
-                        let next_height = hyperbridge_client.query_latest_block_height().await?;
+                        let meta = hyperbridge_client.submit(message).await?;
                         Ok(Some((
-                            Ok(TimeoutStatus::HyperbridgeTimedout),
-                            TimeoutStreamState::HyperbridgeTimedout(next_height),
+                            Ok(TimeoutStatus::HyperbridgeTimedout { meta }),
+                            TimeoutStreamState::HyperbridgeTimedout(meta.block_number),
                         )))
                     },
                     TimeoutStreamState::HyperbridgeTimedout(hyperbridge_height) => {
+                        let latest_hyperbridge_height = source_client
+                            .query_latest_state_machine_height(
+                                hyperbridge_client.state_machine_id(),
+                            )
+                            .await?;
+                        // check if the height has already been finalized
+                        if latest_hyperbridge_height >= hyperbridge_height {
+                            let latest_height = source_client.query_latest_block_height().await?;
+                            let meta = source_client
+                                .query_ismp_event((latest_height - 500)..=latest_height)
+                                .await?
+                                .into_iter()
+                                .find_map(|event| match event.event {
+                                    Event::StateMachineUpdated(updated)
+                                        if updated.latest_height >= hyperbridge_height =>
+                                        Some(event.meta),
+                                    _ => None,
+                                });
+
+                            let Some(meta) = meta else {
+                                return Ok(Some((
+                                    Ok(TimeoutStatus::HyperbridgeFinalized {
+                                        meta: Default::default(),
+                                    }),
+                                    TimeoutStreamState::HyperbridgeFinalized(latest_height),
+                                )));
+                            };
+
+                            return Ok(Some((
+                                Ok(TimeoutStatus::HyperbridgeFinalized { meta: meta.clone() }),
+                                TimeoutStreamState::HyperbridgeFinalized(meta.block_number),
+                            )));
+                        }
+
                         let mut state_machine_update_stream = source_client
                             .state_machine_update_notification(
                                 hyperbridge_client.state_machine_id(),
@@ -213,16 +269,16 @@ pub async fn timeout_request_stream(
                             match event {
                                 Ok(ev) => {
                                     let state_machine_height = StateMachineHeight {
-                                        id: ev.state_machine_id,
-                                        height: ev.latest_height,
+                                        id: ev.event.state_machine_id,
+                                        height: ev.event.latest_height,
                                     };
                                     let commitment = source_client
                                         .query_state_machine_commitment(state_machine_height)
                                         .await?;
                                     if commitment.timestamp > post.timeout_timestamp &&
-                                        ev.latest_height >= hyperbridge_height
+                                        ev.event.latest_height >= hyperbridge_height
                                     {
-                                        valid_proof_height = Some(ev.latest_height);
+                                        valid_proof_height = Some(ev);
                                         break
                                     }
                                 },
@@ -233,10 +289,11 @@ pub async fn timeout_request_stream(
                                     ))),
                             }
                         }
-                        Ok(valid_proof_height.map(|height| {
+
+                        Ok(valid_proof_height.map(|event| {
                             (
-                                Ok(TimeoutStatus::HyperbridgeFinalized),
-                                TimeoutStreamState::HyperbridgeFinalized(height),
+                                Ok(TimeoutStatus::HyperbridgeFinalized { meta: event.meta }),
+                                TimeoutStreamState::HyperbridgeFinalized(event.event.latest_height),
                             )
                         }))
                     },
@@ -262,9 +319,10 @@ pub async fn timeout_request_stream(
                             source_client.query_state_machine_update_time(height).await?;
                         wait_for_challenge_period(&source_client, update_time, challenge_period)
                             .await?;
-                        let message = source_client.encode(message)?;
+                        let calldata = source_client.encode(message)?;
+
                         Ok(Some((
-                            Ok(TimeoutStatus::TimeoutMessage(message)),
+                            Ok(TimeoutStatus::TimeoutMessage { calldata }),
                             TimeoutStreamState::End,
                         )))
                     },
@@ -272,13 +330,364 @@ pub async fn timeout_request_stream(
                 }
             };
 
-            let response = lambda().await;
-            match response {
-                Ok(res) => res,
-                Err(e) => Some((Err(anyhow!("Encountered an error in stream {e:?}")), state)),
-            }
+            lambda().await.unwrap_or_else(|e| {
+                Some((
+                    Err(anyhow!("Encountered an error in stream {e:?}")),
+                    TimeoutStreamState::End,
+                ))
+            })
         }
     });
 
     Ok(Box::pin(stream))
+}
+
+/// returns the query stream for a post
+pub async fn request_status_stream(
+    hyperclient: &HyperClient,
+    post: Post,
+    post_request_height: u64,
+) -> BoxStream<MessageStatusWithMetadata> {
+    let source_client = hyperclient.source.clone();
+    let dest_client = hyperclient.dest.clone();
+    let hyperbridge_client = hyperclient.hyperbridge.clone();
+
+    let stream = stream::unfold(PostStreamState::Pending, move |post_request_status| {
+        let dest_client = dest_client.clone();
+        let hyperbridge_client = hyperbridge_client.clone();
+        let source_client = source_client.clone();
+        let req = Request::Post(post.clone());
+        let hash = hash_request::<Keccak256>(&req);
+        let post = post.clone();
+        async move {
+            let lambda = || async {
+                match post_request_status {
+                    PostStreamState::Pending => {
+                        let destination_current_timestamp = dest_client.query_timestamp().await?;
+                        let relayer_address = dest_client.query_request_receipt(hash).await?;
+
+                        if relayer_address != H160::zero() {
+                            // This means the message has gotten to the destination chain
+                            return Ok::<
+                                Option<(Result<_, anyhow::Error>, PostStreamState)>,
+                                anyhow::Error,
+                            >(Some((
+                                Ok(MessageStatusWithMetadata::DestinationDelivered {
+                                    meta: Default::default(),
+                                }),
+                                PostStreamState::End,
+                            )))
+                        }
+
+                        if destination_current_timestamp.as_secs() >= post.timeout_timestamp {
+                            // Checking to see if the message has timed-out
+                            return Ok(Some((
+                                Ok(MessageStatusWithMetadata::Timeout),
+                                PostStreamState::End,
+                            )))
+                        }
+
+                        let hyperbridge_current_timestamp =
+                            hyperbridge_client.query_timestamp().await?;
+                        let relayer = hyperbridge_client.query_request_receipt(hash).await?;
+
+                        if relayer != H160::zero() {
+                            // This means the message has gotten to the destination chain
+                            return Ok::<
+                                Option<(Result<_, anyhow::Error>, PostStreamState)>,
+                                anyhow::Error,
+                            >(Some((
+                                Ok(MessageStatusWithMetadata::HyperbridgeDelivered {
+                                    meta: Default::default(),
+                                }),
+                                PostStreamState::HyperbridgeDelivered(
+                                    hyperbridge_client.query_latest_block_height().await?,
+                                ),
+                            )))
+                        }
+
+                        if hyperbridge_current_timestamp.as_secs() >= post.timeout_timestamp {
+                            // Checking to see if the message has timed-out
+                            return Ok(Some((
+                                Ok(MessageStatusWithMetadata::Timeout),
+                                PostStreamState::End,
+                            )))
+                        }
+
+                        let mut state_machine_updated_stream = hyperbridge_client
+                            .state_machine_update_notification(source_client.state_machine_id())
+                            .await?;
+
+                        while let Some(item) = state_machine_updated_stream.next().await {
+                            match item {
+                                Ok(state_machine_update) => {
+                                    if state_machine_update.event.latest_height >=
+                                        post_request_height &&
+                                        state_machine_update.event.state_machine_id.state_id ==
+                                            post.source
+                                    {
+                                        return Ok(Some((
+                                            Ok(MessageStatusWithMetadata::SourceFinalized {
+                                                finalized_height: state_machine_update
+                                                    .event
+                                                    .latest_height,
+                                                meta: state_machine_update.meta,
+                                            }),
+                                            PostStreamState::SourceFinalized(
+                                                state_machine_update.meta.block_number,
+                                            ),
+                                        )))
+                                    }
+                                },
+                                Err(e) =>
+                                    return Ok(Some((
+                                        Err(anyhow!(
+                                            "Encountered an error {:?}: in {:?}",
+                                            PostStreamState::Pending,
+                                            e
+                                        )),
+                                        post_request_status,
+                                    ))),
+                            };
+                        }
+
+                        Ok(None)
+                    },
+
+                    PostStreamState::SourceFinalized(finalized_height) => {
+                        let relayer = hyperbridge_client.query_request_receipt(hash).await?;
+
+                        if relayer != H160::zero() {
+                            let latest_height =
+                                hyperbridge_client.query_latest_block_height().await?;
+
+                            let meta = dest_client
+                                .query_ismp_event(finalized_height..=latest_height)
+                                .await?
+                                .into_iter()
+                                .find_map(|event| match event.event {
+                                    Event::PostRequest(post_event)
+                                        if post.source == post_event.source &&
+                                            post.nonce == post_event.nonce =>
+                                        Some(event.meta),
+                                    _ => None,
+                                });
+
+                            return Ok(Some((
+                                Ok(MessageStatusWithMetadata::HyperbridgeDelivered {
+                                    meta: meta.unwrap_or_default(),
+                                }),
+                                PostStreamState::HyperbridgeDelivered(
+                                    meta.map(|m| m.block_number).unwrap_or(latest_height),
+                                ),
+                            )));
+                        }
+
+                        let mut stream = hyperbridge_client
+                            .ismp_events_stream(
+                                RequestOrResponse::Request(post.clone()),
+                                finalized_height,
+                            )
+                            .await?;
+                        while let Some(event) = stream.next().await {
+                            match event {
+                                Ok(event) => {
+                                    return Ok(Some((
+                                        Ok(MessageStatusWithMetadata::HyperbridgeDelivered {
+                                            meta: event.meta.clone(),
+                                        }),
+                                        PostStreamState::HyperbridgeDelivered(
+                                            event.meta.block_number,
+                                        ),
+                                    )));
+                                },
+                                Err(e) => tracing::info!(
+                                    "Encountered waiting for message on hyperbridge: {e:?}"
+                                ),
+                            }
+                        }
+
+                        Ok(None)
+                    },
+
+                    PostStreamState::HyperbridgeDelivered(height) => {
+                        let res = dest_client.query_request_receipt(hash).await?;
+                        if res != H160::zero() {
+                            return Ok(Some((
+                                Ok(MessageStatusWithMetadata::DestinationDelivered {
+                                    meta: Default::default(),
+                                }),
+                                PostStreamState::End,
+                            )));
+                        }
+
+                        let latest_hyperbridge_height = dest_client
+                            .query_latest_state_machine_height(
+                                hyperbridge_client.state_machine_id(),
+                            )
+                            .await?;
+                        // check if the height has already been finalized
+                        if latest_hyperbridge_height >= height {
+                            let latest_height = dest_client.query_latest_block_height().await?;
+                            let meta = dest_client
+                                .query_ismp_event((latest_height - 500)..=latest_height)
+                                .await?
+                                .into_iter()
+                                .find_map(|event| match event.event {
+                                    Event::StateMachineUpdated(updated)
+                                        if updated.latest_height >= height =>
+                                        Some((event.meta, updated)),
+                                    _ => None,
+                                });
+
+                            let Some((meta, update)) = meta else {
+                                return Ok(Some((
+                                    Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
+                                        finalized_height: height,
+                                        meta: Default::default(),
+                                    }),
+                                    PostStreamState::HyperbridgeFinalized(latest_height),
+                                )));
+                            };
+
+                            return Ok(Some((
+                                Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
+                                    finalized_height: update.latest_height,
+                                    meta: meta.clone(),
+                                }),
+                                PostStreamState::HyperbridgeFinalized(meta.block_number),
+                            )));
+                        }
+
+                        let mut stream = dest_client
+                            .state_machine_update_notification(
+                                hyperbridge_client.state_machine_id(),
+                            )
+                            .await?;
+                        while let Some(update) = stream.next().await {
+                            match update {
+                                Ok(event) =>
+                                    if event.event.latest_height >= height {
+                                        return Ok(Some((
+                                            Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
+                                                finalized_height: event.event.latest_height,
+                                                meta: event.meta,
+                                            }),
+                                            PostStreamState::HyperbridgeFinalized(
+                                                event.meta.block_number,
+                                            ),
+                                        )));
+                                    } else {
+                                        continue
+                                    },
+                                Err(e) =>
+                                    return Ok(Some((
+                                        Err(anyhow!(
+                                            "Encountered an error {:?}: in {:?}",
+                                            PostStreamState::HyperbridgeDelivered(height),
+                                            e
+                                        )),
+                                        post_request_status,
+                                    ))),
+                            }
+                        }
+                        Ok(None)
+                    },
+
+                    PostStreamState::HyperbridgeFinalized(finalized_height) => {
+                        let res = dest_client.query_request_receipt(hash).await?;
+                        let request_commitment =
+                            hash_request::<Keccak256>(&Request::Post(post.clone()));
+                        if res != H160::zero() {
+                            let latest_height = dest_client.query_latest_block_height().await?;
+                            let meta = dest_client
+                                .query_ismp_event(finalized_height..=latest_height)
+                                .await?
+                                .into_iter()
+                                .find_map(|event| match event.event {
+                                    Event::PostRequestHandled(handled)
+                                        if handled.commitment == request_commitment =>
+                                        Some(event.meta),
+                                    _ => None,
+                                })
+                                .unwrap_or_default();
+                            return Ok(Some((
+                                Ok(MessageStatusWithMetadata::DestinationDelivered { meta }),
+                                PostStreamState::DestinationDelivered,
+                            )));
+                        }
+                        let mut stream =
+                            dest_client.post_request_handled_stream(hash, finalized_height).await?;
+
+                        while let Some(event) = stream.next().await {
+                            match event {
+                                Ok(event) => return Ok(Some((
+                                    Ok(MessageStatusWithMetadata::DestinationDelivered {
+                                        meta: event.meta,
+                                    }),
+                                    PostStreamState::DestinationDelivered,
+                                ))),
+                                Err(e) =>  tracing::info!(
+                                    "Encountered an error waiting for message delivery to destination {e:?}",
+                                ),
+                            }
+                        }
+
+                        Ok(None)
+                    },
+
+                    PostStreamState::DestinationDelivered | PostStreamState::End =>
+                        Ok::<Option<(Result<_, _>, PostStreamState)>, anyhow::Error>(None),
+                }
+            };
+
+            // terminate the stream once an error is encountered
+            lambda().await.unwrap_or_else(|e| {
+                Some((Err(anyhow!("Encountered an error in stream {e:?}")), PostStreamState::End))
+            })
+        }
+    });
+
+    Box::pin(stream)
+}
+
+/// This returns a stream that yields when the provided timeout value is reached on the chain for
+/// the provided [`Client`]
+pub async fn request_timeout_stream(
+    timeout: u64,
+    client: impl Client + Clone,
+) -> BoxStream<MessageStatusWithMetadata> {
+    let stream = stream::unfold(client, move |client| async move {
+        let lambda = || async {
+            let current_timestamp = client.query_timestamp().await?.as_secs();
+
+            return if current_timestamp > timeout {
+                Ok(true)
+            } else {
+                let sleep_time = timeout - current_timestamp;
+                let _ = wasm_timer::Delay::new(Duration::from_secs(sleep_time)).await;
+                Ok::<_, anyhow::Error>(false)
+            };
+        };
+
+        let response = lambda().await;
+
+        let value = match response {
+            Ok(true) => Some((Ok(Some(MessageStatusWithMetadata::Timeout)), client)),
+            Ok(false) => Some((Ok(None), client)),
+            Err(e) =>
+                Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), client)),
+        };
+
+        return value
+    })
+    .filter_map(|item| async move {
+        match item {
+            Ok(None) => None,
+            Ok(Some(event)) => Some(Ok(event)),
+            Err(err) => Some(Err(err)),
+        }
+    });
+
+    Box::pin(stream)
 }

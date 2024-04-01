@@ -66,10 +66,10 @@ use frame_support::{
 };
 use frame_system::{
     limits::{BlockLength, BlockWeights},
-    EnsureRoot,
+    EnsureRoot, Phase,
 };
 use pallet_ismp::{
-    mmr_primitives::{Leaf, LeafIndex},
+    mmr::primitives::{Leaf, LeafIndex},
     primitives::Proof,
 };
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -212,7 +212,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("gargantua"),
     impl_name: create_runtime_str!("gargantua"),
     authoring_version: 1,
-    spec_version: 210,
+    spec_version: 224,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -565,9 +565,9 @@ construct_runtime!(
         // ISMP stuff
         Ismp: pallet_ismp = 40,
         IsmpSyncCommittee: ismp_sync_committee::pallet = 41,
-        IsmpDemo: ismp_demo = 42,
+        IsmpDemo: pallet_ismp_demo = 42,
         Relayer: pallet_ismp_relayer = 43,
-        StateMachineManager: state_machine_manager = 45,
+        StateMachineManager: pallet_ismp_host_executive = 45,
     }
 );
 
@@ -735,7 +735,7 @@ impl_runtime_apis! {
         }
     }
 
-    impl ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
+    impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
         /// Return the number of MMR leaves.
         fn mmr_leaf_count() -> Result<LeafIndex, pallet_ismp::primitives::Error> {
             Ok(Ismp::mmr_leaf_count())
@@ -766,6 +766,27 @@ impl_runtime_apis! {
                 match event {
                     RuntimeEvent::Ismp(event) => {
                         pallet_ismp::events::to_core_protocol_event(event)
+                    },
+                    _ => None
+                }
+            }).collect()
+        }
+
+        /// Fetch all ISMP events and their extrinsic metadata
+        fn block_events_with_metadata() -> Vec<(pallet_ismp::events::Event, u32)> {
+            let raw_events = frame_system::Pallet::<Self>::read_events_no_consensus().into_iter();
+            raw_events.filter_map(|e| {
+                let frame_system::EventRecord { event, phase, ..} = *e;
+                let Phase::ApplyExtrinsic(index) = phase else {
+                    None?
+                };
+
+                match event {
+                    RuntimeEvent::Ismp(event) => {
+                        pallet_ismp::events::to_core_protocol_event(event)
+                            .map(|event| {
+                            (event, index)
+                        })
                     },
                     _ => None
                 }

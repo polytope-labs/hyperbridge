@@ -67,10 +67,10 @@ use frame_support::{
 };
 use frame_system::{
     limits::{BlockLength, BlockWeights},
-    EnsureRoot,
+    EnsureRoot, Phase,
 };
 use pallet_ismp::{
-    mmr_primitives::{Leaf, LeafIndex},
+    mmr::primitives::{Leaf, LeafIndex},
     primitives::Proof,
     ProofKeys,
 };
@@ -581,8 +581,7 @@ construct_runtime!(
         // ISMP stuff
         Ismp: pallet_ismp = 40,
         IsmpSyncCommittee: ismp_sync_committee::pallet::{Pallet, Call} = 41,
-        IsmpDemo: ismp_demo = 42,
-        IsmpPolygonPos: ismp_polygon_pos::pallet = 43,
+        IsmpDemo: pallet_ismp_demo = 42,
     }
 );
 
@@ -760,7 +759,7 @@ impl_runtime_apis! {
         }
     }
 
-    impl ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
+    impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
         /// Return the number of MMR leaves.
         fn mmr_leaf_count() -> Result<LeafIndex, pallet_ismp::primitives::Error> {
             Ok(Ismp::mmr_leaf_count())
@@ -775,11 +774,32 @@ impl_runtime_apis! {
             Ismp::get_challenge_period(consensus_state_id)
         }
 
-/// Generate a proof for the provided leaf indices
+        /// Generate a proof for the provided leaf indices
         fn generate_proof(
             keys: ProofKeys
         ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), pallet_ismp::primitives::Error> {
             Ismp::generate_proof(keys)
+        }
+
+        /// Fetch all ISMP events and their extrinsic metadata
+        fn block_events_with_metadata() -> Vec<(pallet_ismp::events::Event, u32)> {
+            let raw_events = frame_system::Pallet::<Self>::read_events_no_consensus().into_iter();
+            raw_events.filter_map(|e| {
+                let frame_system::EventRecord { event, phase, ..} = *e;
+                let Phase::ApplyExtrinsic(index) = phase else {
+                    None?
+                };
+
+                match event {
+                    RuntimeEvent::Ismp(event) => {
+                        pallet_ismp::events::to_core_protocol_event(event)
+                            .map(|event| {
+                            (event, index)
+                        })
+                    },
+                    _ => None
+                }
+            }).collect()
         }
 
         /// Fetch all ISMP events

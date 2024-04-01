@@ -1,0 +1,38 @@
+[package]
+name = "pallet-ismp-testsuite"
+version = "0.1.0"
+edition = "2021"
+description = "Testsuite for the ismp pallet crates"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+codec = { workspace = true, default-features = true }
+scale-info = { workspace = true, default-features = true }
+alloy-primitives = { version = "0.6.0", default-features = false, features = ["rlp"] }
+
+frame-support = { workspace = true, default-features = true }
+frame-system = { workspace = true, default-features = true }
+pallet-balances = { workspace = true, default-features = true }
+pallet-timestamp = { workspace = true, default-features = true }
+sp-core = { workspace = true, default-features = true }
+sp-io = { workspace = true, default-features = true }
+sp-trie = { workspace = true, default-features = true }
+sp-runtime = { workspace = true, default-features = true }
+merkle-mountain-range = { workspace = true, default-features = true }
+trie-db = { workspace = true }
+hash-db = { workspace = true }
+
+ismp = { workspace = true, default-features = true }
+ismp-testsuite = { workspace = true, default-features = true }
+pallet-ismp-host-executive = { workspace = true, default-features = true }
+ismp-sync-committee = { workspace = true, default-features = true }
+ismp-bsc = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true, features = ["testing"] }
+ethereum-trie = { workspace = true, default-features = true }
+substrate-state-machine = { workspace = true, default-features = true }
+pallet-ismp-relayer = { workspace = true, default-features = true }
+pallet-fishermen = { workspace = true, default-features = true }
+
+[dev-dependencies]
+env_logger = "0.10.0"
+hex = "0.4.3"

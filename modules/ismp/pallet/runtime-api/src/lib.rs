@@ -23,7 +23,7 @@ use ismp::{
     router::{Request, Response},
 };
 use pallet_ismp::{
-    mmr_primitives::{Leaf, LeafIndex},
+    mmr::primitives::{Leaf, LeafIndex},
     primitives::{Error, Proof},
     ProofKeys,
 };
@@ -47,6 +47,9 @@ sp_api::decl_runtime_apis! {
 
         /// Fetch all ISMP events
         fn block_events() -> Vec<pallet_ismp::events::Event>;
+
+        /// Fetch all ISMP events and their extrinsic metadata
+        fn block_events_with_metadata() -> Vec<(pallet_ismp::events::Event, u32)>;
 
         /// Return the scale encoded consensus state
         fn consensus_state(id: ConsensusClientId) -> Option<Vec<u8>>;

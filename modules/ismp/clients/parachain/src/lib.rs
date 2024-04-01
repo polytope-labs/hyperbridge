@@ -34,6 +34,7 @@ use pallet_ismp::host::Host;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
+    use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
     use cumulus_primitives_core::relay_chain;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
@@ -41,7 +42,6 @@ pub mod pallet {
         host::IsmpHost,
         messaging::{ConsensusMessage, Message},
     };
-    use parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -49,7 +49,7 @@ pub mod pallet {
     /// The config trait
     #[pallet::config]
     pub trait Config:
-        frame_system::Config + pallet_ismp::Config + parachain_system::Config
+        frame_system::Config + pallet_ismp::Config + cumulus_pallet_parachain_system::Config
     {
         /// The overarching event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -202,8 +202,6 @@ pub mod pallet {
         }
     }
 }
-
-pub use pallet::*;
 
 impl<T: Config> Pallet<T> {
     /// Returns the list of parachains who's consensus updates will be inserted by the inherent

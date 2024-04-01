@@ -84,9 +84,9 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-version = "0.7.7"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a824f2aa7e75a0c98c5a504fceb80649e9c35265d44525b5f94de4771a395cd"
+checksum = "891477e0c6a8957309ee5c45a6368af3ae14bb510732d2684ffa19af310920f9"
 dependencies = [
  "getrandom 0.2.12",
  "once_cell",
@@ -95,9 +95,9 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-version = "0.8.7"
+version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77c3a9648d43b9cd48db467b3f87fdd6e146bcc88ab0180006cef2179fe11d01"
+checksum = "d713b3834d76b85304d4d525563c1276e2e30dc97cc67bfb4585a4a29fc2c89f"
 dependencies = [
  "cfg-if",
  "getrandom 0.2.12",
@@ -1239,11 +1239,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "bsc-pos-prover"
+name = "bsc-prover"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bsc-pos-verifier",
+ "bsc-verifier",
  "dotenv",
  "ethers",
  "geth-primitives",
@@ -1252,10 +1252,11 @@ dependencies = [
  "sp-core 28.0.0",
  "sync-committee-primitives",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
-name = "bsc-pos-verifier"
+name = "bsc-verifier"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
@@ -4879,10 +4880,7 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bsc-pos",
- "ismp-demo",
- "ismp-polygon-pos",
- "ismp-runtime-api",
+ "ismp-bsc",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
@@ -4890,7 +4888,10 @@ dependencies = [
  "pallet-balances",
  "pallet-collator-selection",
  "pallet-ismp",
+ "pallet-ismp-demo",
+ "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
+ "pallet-ismp-runtime-api",
  "pallet-message-queue",
  "pallet-session",
  "pallet-sudo",
@@ -4921,7 +4922,6 @@ dependencies = [
  "staging-xcm",
  "staging-xcm-builder",
  "staging-xcm-executor",
- "state-machine-manager",
  "substrate-wasm-builder",
 ]
 
@@ -5152,7 +5152,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http",
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "slab",
  "tokio",
  "tokio-util",
@@ -5194,7 +5194,7 @@ version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
 dependencies = [
- "ahash 0.7.7",
+ "ahash 0.7.8",
 ]
 
 [[package]]
@@ -5203,7 +5203,7 @@ version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43a3c133739dddd0d2990f9a4bdf8eb4b21ef50e4851ca85ab661199821d510e"
 dependencies = [
- "ahash 0.8.7",
+ "ahash 0.8.9",
  "serde",
 ]
 
@@ -5213,7 +5213,7 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "290f1a1d9242c78d09ce40a5e87e7554ee637af1351968159f4952f028f75604"
 dependencies = [
- "ahash 0.8.7",
+ "ahash 0.8.9",
  "allocator-api2",
  "serde",
 ]
@@ -5440,7 +5440,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.3.5"
+version = "0.3.7"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -5458,12 +5458,12 @@ dependencies = [
  "frame-benchmarking-cli",
  "futures",
  "gargantua-runtime",
- "ismp-rpc",
- "ismp-runtime-api",
  "jsonrpsee 0.16.3",
  "log",
  "messier-runtime",
  "nexus-runtime",
+ "pallet-ismp-rpc",
+ "pallet-ismp-runtime-api",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
  "polkadot-cli",
@@ -5509,30 +5509,28 @@ dependencies = [
 
 [[package]]
 name = "hyperclient"
-version = "0.1.0"
+version = "0.3.17"
 dependencies = [
  "anyhow",
- "async-trait",
  "console_error_panic_hook",
+ "ethereum-trie",
  "ethers",
  "fluvio-wasm-timer",
  "futures",
  "getrandom 0.2.12",
  "hashbrown 0.14.3",
  "hex",
- "hex-literal 0.3.4",
+ "hex-literal 0.4.1",
  "ismp",
  "ismp-solidity-abi",
  "js-sys",
  "parity-scale-codec",
  "primitive-types",
  "reconnecting-jsonrpsee-ws-client",
- "reqwest",
  "serde",
  "serde-wasm-bindgen",
- "sp-core 28.0.0",
+ "serde_json",
  "subxt",
- "tiny-keccak",
  "tokio",
  "tracing",
  "tracing-wasm",
@@ -5698,9 +5696,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.1.0"
+version = "2.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d530e1a18b1cb4c484e6e34556a0d948706958449fca0cab753d649f2bce3d1f"
+checksum = "7b0b929d511467233429c45a44ac1dcaa21ba0f5ba11e4879e6ed28ddb4f9df4"
 dependencies = [
  "equivalent",
  "hashbrown 0.14.3",
@@ -5851,11 +5849,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "ismp-bsc-pos"
+name = "ismp-bsc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bsc-pos-verifier",
+ "bsc-verifier",
  "frame-support",
  "frame-system",
  "geth-primitives",
@@ -5875,72 +5873,51 @@ name = "ismp-casper-ffg"
 version = "0.1.0"
 
 [[package]]
-name = "ismp-demo"
+name = "ismp-parachain"
 version = "0.1.0"
 dependencies = [
+ "cumulus-pallet-parachain-system",
+ "cumulus-primitives-core",
  "frame-support",
  "frame-system",
+ "hex-literal 0.4.1",
  "ismp",
- "pallet-balances",
  "pallet-ismp",
  "parity-scale-codec",
+ "primitive-types",
  "scale-info",
- "sp-core 28.0.0",
+ "serde",
+ "sp-consensus-aura",
+ "sp-inherents",
+ "sp-io 30.0.0",
  "sp-runtime 31.0.1",
+ "sp-trie 29.0.0",
+ "substrate-state-machine",
 ]
 
 [[package]]
-name = "ismp-polygon-pos"
+name = "ismp-parachain-inherent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "frame-support",
- "frame-system",
- "geth-primitives",
+ "async-trait",
+ "cumulus-primitives-core",
+ "cumulus-relay-chain-interface",
  "ismp",
- "ismp-sync-committee",
- "log",
- "pallet-balances",
- "pallet-ismp",
- "pallet-timestamp",
+ "ismp-parachain",
+ "ismp-parachain-runtime-api",
  "parity-scale-codec",
- "polygon-pos-verifier",
- "scale-info",
- "sp-core 28.0.0",
- "sp-runtime 31.0.1",
-]
-
-[[package]]
-name = "ismp-rpc"
-version = "0.1.0"
-dependencies = [
- "frame-system",
- "hex-literal 0.3.4",
- "ismp",
- "ismp-runtime-api",
- "jsonrpsee 0.16.3",
- "pallet-ismp",
- "parity-scale-codec",
- "sc-client-api",
- "serde",
- "serde_json",
  "sp-api",
  "sp-blockchain",
- "sp-core 28.0.0",
+ "sp-inherents",
  "sp-runtime 31.0.1",
 ]
 
 [[package]]
-name = "ismp-runtime-api"
+name = "ismp-parachain-runtime-api"
 version = "0.1.0"
 dependencies = [
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "serde",
  "sp-api",
- "sp-core 28.0.0",
- "sp-std 14.0.0",
 ]
 
 [[package]]
@@ -7280,10 +7257,7 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bsc-pos",
- "ismp-demo",
- "ismp-polygon-pos",
- "ismp-runtime-api",
+ "ismp-bsc",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
@@ -7291,6 +7265,10 @@ dependencies = [
  "pallet-balances",
  "pallet-collator-selection",
  "pallet-ismp",
+ "pallet-ismp-demo",
+ "pallet-ismp-host-executive",
+ "pallet-ismp-relayer",
+ "pallet-ismp-runtime-api",
  "pallet-message-queue",
  "pallet-session",
  "pallet-sudo",
@@ -7784,10 +7762,7 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bsc-pos",
- "ismp-demo",
- "ismp-polygon-pos",
- "ismp-runtime-api",
+ "ismp-bsc",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
@@ -7795,6 +7770,10 @@ dependencies = [
  "pallet-balances",
  "pallet-collator-selection",
  "pallet-ismp",
+ "pallet-ismp-demo",
+ "pallet-ismp-host-executive",
+ "pallet-ismp-relayer",
+ "pallet-ismp-runtime-api",
  "pallet-message-queue",
  "pallet-session",
  "pallet-sudo",
@@ -8154,7 +8133,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f60e64a3808b5bb2786b9da09fc70714952aabcdd0eeba6f1718e3dbc34ad5b"
 dependencies = [
  "expander 2.0.0",
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "itertools 0.11.0",
  "petgraph",
  "proc-macro-crate 1.3.1",
@@ -8612,6 +8591,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-fishermen"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-io 30.0.0",
+ "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+]
+
+[[package]]
 name = "pallet-grandpa"
 version = "28.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8721,6 +8716,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-ismp-demo"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-balances",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
+name = "pallet-ismp-host-executive"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
 name = "pallet-ismp-relayer"
 version = "0.1.0"
 dependencies = [
@@ -8735,12 +8758,12 @@ dependencies = [
  "hashbrown 0.14.3",
  "hex",
  "ismp",
- "ismp-bsc-pos",
- "ismp-polygon-pos",
+ "ismp-bsc",
  "ismp-sync-committee",
  "log",
  "pallet-balances",
  "pallet-ismp",
+ "pallet-ismp-host-executive",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
@@ -8749,7 +8772,71 @@ dependencies = [
  "sp-runtime 31.0.1",
  "sp-std 14.0.0",
  "sp-trie 29.0.0",
- "state-machine-manager",
+ "substrate-state-machine",
+ "trie-db 0.28.0",
+]
+
+[[package]]
+name = "pallet-ismp-rpc"
+version = "0.1.0"
+dependencies = [
+ "frame-system",
+ "hex-literal 0.3.4",
+ "ismp",
+ "jsonrpsee 0.16.3",
+ "pallet-ismp",
+ "pallet-ismp-runtime-api",
+ "parity-scale-codec",
+ "sc-client-api",
+ "serde",
+ "serde_json",
+ "sp-api",
+ "sp-blockchain",
+ "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
+name = "pallet-ismp-runtime-api"
+version = "0.1.0"
+dependencies = [
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "serde",
+ "sp-api",
+ "sp-core 28.0.0",
+ "sp-std 14.0.0",
+]
+
+[[package]]
+name = "pallet-ismp-testsuite"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "ckb-merkle-mountain-range",
+ "env_logger",
+ "ethereum-trie",
+ "frame-support",
+ "frame-system",
+ "hash-db",
+ "hex",
+ "ismp",
+ "ismp-bsc",
+ "ismp-sync-committee",
+ "ismp-testsuite",
+ "pallet-balances",
+ "pallet-fishermen",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "pallet-ismp-relayer",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-io 30.0.0",
+ "sp-runtime 31.0.1",
+ "sp-trie 29.0.0",
  "substrate-state-machine",
  "trie-db 0.28.0",
 ]
@@ -9727,7 +9814,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1d3afd2628e69da2be385eb6f2fd57c8ac7977ceeff6dc166ff1657b0e386a9"
 dependencies = [
  "fixedbitset",
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
 ]
 
 [[package]]
@@ -11009,24 +11096,6 @@ dependencies = [
  "cpufeatures",
  "opaque-debug 0.3.0",
  "universal-hash",
-]
-
-[[package]]
-name = "polygon-pos-verifier"
-version = "0.1.0"
-dependencies = [
- "alloy-primitives",
- "alloy-rlp",
- "alloy-rlp-derive",
- "anyhow",
- "ethabi",
- "geth-primitives",
- "ismp",
- "log",
- "parity-scale-codec",
- "scale-info",
- "sp-core 28.0.0",
- "sp-io 30.0.0",
 ]
 
 [[package]]
@@ -12831,7 +12900,7 @@ version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a824457a3384e7bc19d7ee587dffa5b646deb81a2351be0dd075c2110a3d677a"
 dependencies = [
- "ahash 0.8.7",
+ "ahash 0.8.9",
  "array-bytes 6.2.2",
  "async-trait",
  "dyn-clone",
@@ -13120,7 +13189,7 @@ version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd92792f3a04fcb1f21018c9f8a5d6d438d705a2548ffcdc7730280c667b8386"
 dependencies = [
- "ahash 0.8.7",
+ "ahash 0.8.9",
  "futures",
  "futures-timer",
  "libp2p",
@@ -13740,7 +13809,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "772575a524feeb803e5b0fcbc6dd9f367e579488197c94c6e4023aad2305774d"
 dependencies = [
- "ahash 0.8.7",
+ "ahash 0.8.9",
  "cfg-if",
  "hashbrown 0.13.2",
 ]
@@ -14043,11 +14112,11 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.111"
+version = "1.0.114"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "176e46fa42316f18edd598015a5166857fc835ec732f5215eac6b7bdbf0a84f4"
+checksum = "c5f09b1bd632ef549eaa9f60a1f8de742bdbc698e6cee2095fc84dde5f549ae0"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "itoa",
  "ryu",
  "serde",
@@ -15691,7 +15760,7 @@ version = "22.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48e4eeb7ef23f79eba8609db79ef9cef242f994f1f87a3c0387b4b5f177fda74"
 dependencies = [
- "ahash 0.8.7",
+ "ahash 0.8.9",
  "hash-db",
  "hashbrown 0.13.2",
  "lazy_static",
@@ -15715,7 +15784,7 @@ version = "29.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2e4d24d84a0beb44a71dcac1b41980e1edf7fb722c7f3046710136a283cd479b"
 dependencies = [
- "ahash 0.8.7",
+ "ahash 0.8.9",
  "hash-db",
  "lazy_static",
  "memory-db",
@@ -15995,19 +16064,6 @@ dependencies = [
  "sp-std 14.0.0",
  "sp-weights 27.0.0",
  "staging-xcm",
-]
-
-[[package]]
-name = "state-machine-manager"
-version = "0.1.0"
-dependencies = [
- "frame-support",
- "frame-system",
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "scale-info",
- "sp-runtime 31.0.1",
 ]
 
 [[package]]
@@ -16479,6 +16535,7 @@ dependencies = [
  "sync-committee-verifier",
  "tokio",
  "tokio-stream",
+ "tracing",
 ]
 
 [[package]]
@@ -16898,7 +16955,7 @@ version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd79e69d3b627db300ff956027cc6c3798cef26d22526befdfcd12feeb6d2257"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "serde",
  "serde_spanned",
  "toml_datetime",
@@ -16932,7 +16989,7 @@ version = "0.19.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b5bb770da30e5cbfde35a2d7b9b8a2c4b8ef89548a7a6aeab5c9a576e3e7421"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "serde",
  "serde_spanned",
  "toml_datetime",
@@ -16945,7 +17002,7 @@ version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "396e4d48bbb2b7554c944bde63101b5ae446cff6ec4a24227428f15eb72ef338"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "serde",
  "serde_spanned",
  "toml_datetime",
@@ -16958,7 +17015,7 @@ version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a8534fd7f78b5405e860340ad6575217ce99f38d4d5c8f2442cb5ecb50090e1"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.5",
  "toml_datetime",
  "winnow",
 ]

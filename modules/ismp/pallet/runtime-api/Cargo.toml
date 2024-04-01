@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "ismp-runtime-api"
+name = "pallet-ismp-runtime-api"
 version = "0.1.0"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 

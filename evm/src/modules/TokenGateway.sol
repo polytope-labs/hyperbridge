@@ -69,15 +69,17 @@ struct Asset {
     bytes32 foreignIdentifier;
 }
 
-enum OnAcceptActions {
-    /// Incoming asset from a chain
+enum OnAcceptActions
+/// Incoming asset from a chain
+{
     IncomingAsset,
     /// Governance actions
     GovernanceAction
 }
 
-enum GovernanceActions {
-    /// Some new assets are now supported by gateway
+enum GovernanceActions
+/// Some new assets are now supported by gateway
+{
     NewAssets,
     /// Governance has decided to adjust liquidity fee paid to relayers
     AdjustLiquidityFee,

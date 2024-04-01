@@ -6,10 +6,9 @@ use ismp::{
     router::{Post, PostResponse},
 };
 use primitive_types::H160;
-use wasm_bindgen::prelude::wasm_bindgen;
+use serde::{Deserialize, Serialize};
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
 pub struct JsChainConfig {
     pub rpc_url: String,
     pub state_machine: String,
@@ -18,14 +17,12 @@ pub struct JsChainConfig {
     pub consensus_state_id: Vec<u8>,
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
 pub struct JsHyperbridgeConfig {
     pub rpc_url: String,
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Default, Deserialize, Serialize)]
 pub struct JsClientConfig {
     pub source: JsChainConfig,
     pub dest: JsChainConfig,
@@ -101,8 +98,7 @@ impl TryFrom<JsClientConfig> for ClientConfig {
     }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Default, Deserialize, Serialize)]
 pub struct JsPost {
     /// The source state machine of this request.
     pub source: String,
@@ -121,6 +117,8 @@ pub struct JsPost {
     /// Gas limit for executing the request on destination
     /// This value should be zero if destination module is not a contract
     pub gas_limit: u64,
+    /// Height at which this request was emitted on the source chain
+    pub height: u64,
 }
 
 impl TryFrom<JsPost> for Post {
@@ -141,9 +139,8 @@ impl TryFrom<JsPost> for Post {
     }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Eq, PartialEq)]
-pub struct JsResponse {
+#[derive(Clone, Eq, PartialEq, Default, Deserialize)]
+pub struct JsPostResponse {
     /// The request that triggered this response.
     pub post: JsPost,
     /// The response message.
@@ -154,10 +151,10 @@ pub struct JsResponse {
     pub gas_limit: u64,
 }
 
-impl TryFrom<JsResponse> for PostResponse {
+impl TryFrom<JsPostResponse> for PostResponse {
     type Error = anyhow::Error;
 
-    fn try_from(value: JsResponse) -> Result<Self, Self::Error> {
+    fn try_from(value: JsPostResponse) -> Result<Self, Self::Error> {
         let response = PostResponse {
             post: value.post.try_into()?,
             response: value.response,
@@ -172,7 +169,7 @@ impl TryFrom<JsResponse> for PostResponse {
 #[cfg(test)]
 mod tests {
     use crate::{
-        interfaces::{JsChainConfig, JsClientConfig, JsHyperbridgeConfig, JsPost, JsResponse},
+        interfaces::{JsChainConfig, JsClientConfig, JsHyperbridgeConfig, JsPost, JsPostResponse},
         types::{ChainConfig, ClientConfig, EvmConfig, HashAlgorithm, SubstrateConfig},
     };
     use ethers::prelude::H160;
@@ -256,7 +253,7 @@ mod tests {
             gas_limit: 6000,
         };
 
-        let js_post_response = JsResponse {
+        let js_post_response = JsPostResponse {
             post: JsPost {
                 source: "BSC".to_string(),
                 dest: "KUSAMA-2000".to_string(),
@@ -266,6 +263,7 @@ mod tests {
                 timeout_timestamp: 1_600_000,
                 data: vec![40; 256],
                 gas_limit: 5000,
+                height: 0,
             },
             response: vec![80; 256],
             timeout_timestamp: 4_500_000,

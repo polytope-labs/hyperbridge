@@ -1186,6 +1186,27 @@ pub mod api {
                         ],
                     )
                 }
+                #[doc = " Fetch all ISMP events and their extrinsic metadata"]
+                pub fn block_events_with_metadata(
+                    &self,
+                ) -> ::subxt::runtime_api::Payload<
+                    types::BlockEventsWithMetadata,
+                    ::std::vec::Vec<(
+                        runtime_types::pallet_ismp::events::Event,
+                        ::core::primitive::u32,
+                    )>,
+                > {
+                    ::subxt::runtime_api::Payload::new_static(
+                        "IsmpRuntimeApi",
+                        "block_events_with_metadata",
+                        types::BlockEventsWithMetadata {},
+                        [
+                            184u8, 38u8, 1u8, 33u8, 104u8, 234u8, 182u8, 34u8, 225u8, 16u8, 28u8,
+                            64u8, 110u8, 242u8, 9u8, 154u8, 217u8, 90u8, 36u8, 19u8, 178u8, 125u8,
+                            189u8, 103u8, 184u8, 247u8, 146u8, 29u8, 188u8, 26u8, 192u8, 69u8,
+                        ],
+                    )
+                }
                 #[doc = " Return the scale encoded consensus state"]
                 pub fn consensus_state(
                     &self,
@@ -1350,6 +1371,17 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct BlockEvents {}
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Debug,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub struct BlockEventsWithMetadata {}
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,
                     :: subxt :: ext :: codec :: Encode,

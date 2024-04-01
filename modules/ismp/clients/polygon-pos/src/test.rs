@@ -154,6 +154,9 @@ fn verify_fraud_proof() {
         nonce: Default::default(),
         base_fee_per_gas: None,
         withdrawals_hash: None,
+        blob_gas_used: None,
+        excess_blob_gas_used: None,
+        parent_beacon_root: None,
     };
 
     // Fraud Proof Scenario 1: Different blocks same signer

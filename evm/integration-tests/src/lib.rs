@@ -5,7 +5,7 @@ mod tests;
 
 pub use ethers::{abi::Token, types::U256, utils::keccak256};
 use merkle_mountain_range::{util::MemMMR, Error, Merge};
-use pallet_ismp::mmr_primitives::{DataOrHash, MmrHasher};
+use pallet_ismp::mmr::primitives::{DataOrHash, MmrHasher};
 use primitive_types::H256;
 use rs_merkle::Hasher;
 

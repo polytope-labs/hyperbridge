@@ -22,7 +22,7 @@ use frame_support::{
     traits::{ConstU32, ConstU64, Get},
     PalletId,
 };
-use frame_system::EnsureRoot;
+use frame_system::{EnsureRoot, EventRecord};
 use ismp::{
     consensus::{
         ConsensusClient, ConsensusClientId, StateCommitment, StateMachineClient,
@@ -59,8 +59,17 @@ frame_support::construct_runtime!(
         Ismp: pallet_ismp,
         Balances: pallet_balances,
         Relayer: pallet_ismp_relayer,
+        Fishermen: pallet_fishermen,
     }
 );
+
+/// Verify the the last event emitted
+pub fn assert_last_event<T: frame_system::Config>(generic_event: T::RuntimeEvent) {
+    let events = frame_system::Pallet::<T>::events();
+    dbg!(&events);
+    let EventRecord { event, .. } = &events[events.len() - 1];
+    assert_eq!(event, &generic_event);
+}
 
 pub struct StateMachineProvider;
 
@@ -101,6 +110,10 @@ impl pallet_balances::Config for Test {
     type MaxReserves = ConstU32<50>;
     type MaxHolds = ConstU32<1>;
     type MaxFreezes = ();
+}
+
+impl pallet_fishermen::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
 }
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
@@ -163,7 +176,7 @@ impl pallet_ismp_relayer::Config for Test {
     type RuntimeEvent = RuntimeEvent;
 }
 
-impl ismp_host_executive::Config for Test {}
+impl pallet_ismp_host_executive::Config for Test {}
 
 #[derive(Default)]
 pub struct ModuleRouter;

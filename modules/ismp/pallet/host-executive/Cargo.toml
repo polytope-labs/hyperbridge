@@ -1,5 +1,5 @@
 [package]
-name = "ismp-host-executive"
+name = "pallet-ismp-host-executive"
 version = "0.1.0"
 edition = "2021"
 description = "The host executive is responsible for tracking all connected hosts and is responsible for updating them"

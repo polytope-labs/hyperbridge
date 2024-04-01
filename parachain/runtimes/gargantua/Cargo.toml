@@ -81,7 +81,7 @@ pallet-ismp-runtime-api = { workspace = true  }
 ismp-sync-committee = { workspace = true  }
 ismp-bsc = { workspace = true  }
 pallet-ismp-relayer = { workspace = true  }
-ismp-host-executive = { workspace = true  }
+pallet-ismp-host-executive = { workspace = true  }
 
 [features]
 default = [
@@ -142,7 +142,7 @@ std = [
 	"sp-genesis-builder/std",
 	"ismp-bsc/std",
 	"pallet-ismp-relayer/std",
-	"ismp-host-executive/std"
+	"pallet-ismp-host-executive/std"
 ]
 
 runtime-benchmarks = [
@@ -180,7 +180,7 @@ try-runtime = [
 	"ismp-sync-committee/try-runtime",
 	"pallet-ismp-demo/try-runtime",
 	"pallet-ismp-relayer/try-runtime",
-	"ismp-host-executive/try-runtime",
+	"pallet-ismp-host-executive/try-runtime",
 	"pallet-session/try-runtime",
 	"pallet-sudo/try-runtime",
 	"pallet-timestamp/try-runtime",

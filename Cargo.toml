@@ -180,39 +180,49 @@ trie-db = { version = "0.28.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
 codec = { version = "3.1.3", package = "parity-scale-codec", default-features = false }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 
 # local dependencies
+# ismp core
+ismp = { path = "./modules/ismp/core", default-features = false }
+ismp-testsuite = { path = "./modules/ismp/testsuite" }
+
 hyperclient = { path = "./modules/client", default-features = false }
+
+# consensus provers & verifiers
 beefy-verifier-primitives = { path = "./modules/consensus/beefy/primitives", default-features = false }
 beefy-prover = { path = "./modules/consensus/beefy/prover" }
 bsc-prover = { path = "./modules/consensus/bsc/prover" }
 bsc-verifier = { path = "./modules/consensus/bsc/verifier", default-features = false }
 geth-primitives = { path = "./modules/consensus/geth-primitives", default-features = false }
-
 sync-committee-primitives = { path = "./modules/consensus/sync-committee/primitives", default-features = false }
 sync-committee-prover = { path = "./modules/consensus/sync-committee/prover" }
 sync-committee-verifier = { path = "./modules/consensus/sync-committee/verifier", default-features = false }
 
-ismp = { path = "./modules/ismp/core", default-features = false }
+# consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
 ismp-parachain = { path = "./modules/ismp/clients/parachain", default-features = false }
 ismp-parachain-inherent = { path = "./modules/ismp/clients/parachain/inherent" }
 ismp-parachain-runtime-api = { path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
+
+# state machine clients
 substrate-state-machine = { path = "./modules/ismp/clients/state-machine/substrate", default-features = false }
 
+# pallets
 pallet-ismp = { path = "./modules/ismp/pallet", default-features = false }
+pallet-fishermen = { path = "./modules/ismp/pallet/fishermen", default-features = false }
 pallet-ismp-demo = { path = "./modules/ismp/pallet/demo", default-features = false }
 pallet-ismp-relayer = { path = "./modules/ismp/pallet/relayer", default-features = false }
 pallet-ismp-rpc = { path = "./modules/ismp/pallet/rpc" }
 pallet-ismp-runtime-api = { path = "./modules/ismp/pallet/runtime-api", default-features = false }
+pallet-ismp-host-executive = { path = "modules/ismp/pallet/host-executive", default-features = false }
 
-ismp-testsuite = { path = "./modules/ismp/testsuite" }
-ismp-host-executive = { path = "modules/ismp/pallet/host-executive", default-features = false }
-
+# merkle trees
 ethereum-trie = { path = "./modules/trees/ethereum", default-features = false }
 mmr-utils = { path = "./modules/trees/mmr", default-features = false }
 
+# runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }
 messier-runtime = { path = "./parachain/runtimes/messier", default-features = false }
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }

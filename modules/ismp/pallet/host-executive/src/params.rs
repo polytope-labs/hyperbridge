@@ -171,20 +171,26 @@ impl TryFrom<HostParam> for HostParamRlp {
 
     fn try_from(value: HostParam) -> Result<Self, anyhow::Error> {
         Ok(HostParamRlp {
-            default_timeout: value.default_timeout.try_into()?,
-            base_get_request_fee: value.base_get_request_fee.try_into()?,
-            per_byte_fee: value.per_byte_fee.try_into()?,
-            fee_token_address: value.fee_token_address.0.try_into()?,
-            admin: value.admin.0.try_into()?,
-            handler: value.handler.0.try_into()?,
-            host_manager: value.host_manager.0.try_into()?,
-            un_staking_period: value.un_staking_period.try_into()?,
-            challenge_period: value.challenge_period.try_into()?,
-            consensus_client: value.consensus_client.0.try_into()?,
-            consensus_state: value.consensus_state.to_vec().try_into()?,
-            last_updated: value.last_updated.try_into()?,
-            latest_state_machine_height: value.latest_state_machine_height.try_into()?,
-            hyperbridge: value.hyperbridge.to_vec().try_into()?,
+            default_timeout: value.default_timeout.try_into().map_err(anyhow::Error::msg)?,
+            base_get_request_fee: value
+                .base_get_request_fee
+                .try_into()
+                .map_err(anyhow::Error::msg)?,
+            per_byte_fee: value.per_byte_fee.try_into().map_err(anyhow::Error::msg)?,
+            fee_token_address: value.fee_token_address.0.try_into().map_err(anyhow::Error::msg)?,
+            admin: value.admin.0.try_into().map_err(anyhow::Error::msg)?,
+            handler: value.handler.0.try_into().map_err(anyhow::Error::msg)?,
+            host_manager: value.host_manager.0.try_into().map_err(anyhow::Error::msg)?,
+            un_staking_period: value.un_staking_period.try_into().map_err(anyhow::Error::msg)?,
+            challenge_period: value.challenge_period.try_into().map_err(anyhow::Error::msg)?,
+            consensus_client: value.consensus_client.0.try_into().map_err(anyhow::Error::msg)?,
+            consensus_state: value.consensus_state.to_vec().into(),
+            last_updated: value.last_updated.try_into().map_err(anyhow::Error::msg)?,
+            latest_state_machine_height: value
+                .latest_state_machine_height
+                .try_into()
+                .map_err(anyhow::Error::msg)?,
+            hyperbridge: value.hyperbridge.to_vec().into(),
         })
     }
 }

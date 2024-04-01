@@ -28,7 +28,7 @@ pub use params::*;
 pub mod pallet {
     use super::*;
     use crate::params::*;
-    use alloc::{collections::BTreeMap, vec::Vec};
+    use alloc::{collections::BTreeMap, vec, vec::Vec};
     use alloy_rlp::Encodable;
     use frame_support::{
         pallet_prelude::{OptionQuery, *},

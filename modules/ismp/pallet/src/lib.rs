@@ -22,7 +22,6 @@
 extern crate alloc;
 extern crate core;
 
-pub mod benchmarking;
 pub mod dispatcher;
 mod errors;
 pub mod events;

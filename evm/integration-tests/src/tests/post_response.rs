@@ -23,7 +23,7 @@ use ismp_solidity_abi::{
     shared_types::{PostRequest, PostResponse, StateCommitment, StateMachineHeight},
 };
 
-use pallet_ismp::mmr_primitives::{DataOrHash, Leaf};
+use pallet_ismp::mmr::primitives::{DataOrHash, Leaf};
 use primitive_types::H256;
 use std::{env, path::PathBuf};
 

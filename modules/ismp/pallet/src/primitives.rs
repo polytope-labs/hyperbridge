@@ -14,7 +14,7 @@
 // limitations under the License.
 
 //! Pallet primitives
-use crate::mmr_primitives::NodeIndex;
+use crate::mmr::primitives::NodeIndex;
 use alloc::format;
 use codec::{Decode, Encode};
 use core::time::Duration;

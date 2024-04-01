@@ -1,6 +1,6 @@
 use crate::{Keccak256, Mmr};
 use ismp_solidity_abi::{beefy::StateMachineHeight, handler::Proof};
-use pallet_ismp::mmr_primitives::DataOrHash;
+use pallet_ismp::mmr::primitives::DataOrHash;
 use primitive_types::{H256, U256};
 use sp_core::KeccakHasher;
 use sp_trie::{LayoutV0, MemoryDB, StorageProof, TrieDBBuilder, EMPTY_PREFIX};

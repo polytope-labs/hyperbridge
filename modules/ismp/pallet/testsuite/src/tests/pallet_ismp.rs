@@ -13,51 +13,39 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{mocks::*, *};
+#![cfg(test)]
+
+use crate::runtime::*;
 use frame_support::pallet_prelude::Hooks;
+use pallet_ismp::{
+    dispatcher::{Dispatcher, FeeMetadata},
+    host::Host,
+    mmr::primitives::{DataOrHash, MmrHasher},
+    IntermediateLeaves, NodesUtils, ProofKeys, RequestCommitments, RequestReceipts,
+};
+
 use std::{
     ops::Range,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use crate::{
-    dispatcher::Dispatcher,
-    mmr_primitives::MmrHasher,
-    mocks::mocks::{setup_mock_client, MOCK_CONSENSUS_STATE_ID},
-};
-
 use ismp::{
-    consensus::StateMachineHeight,
-    host::{Ethereum, StateMachine},
+    consensus::{StateMachineHeight, StateMachineId},
+    host::{Ethereum, IsmpHost, StateMachine},
     messaging::{Proof, ResponseMessage, TimeoutMessage},
-    router::{DispatchGet, DispatchRequest, GetResponse, IsmpDispatcher, Post, RequestResponse},
+    router::{
+        DispatchGet, DispatchRequest, GetResponse, IsmpDispatcher, Post, Request, RequestResponse,
+    },
     util::hash_request,
 };
 
-use crate::dispatcher::{FeeMetadata, LeafMetadata};
+use ismp::{messaging::Message, router::Response};
 use ismp_testsuite::{
     check_challenge_period, check_client_expiry, frozen_check, post_request_timeout_check,
     post_response_timeout_check, write_outgoing_commitments,
 };
 use merkle_mountain_range::MerkleProof;
-use sp_core::{
-    crypto::AccountId32,
-    offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
-    H256,
-};
-use sp_runtime::BuildStorage;
-
-pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
-    let mut ext = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap().into();
-    register_offchain_ext(&mut ext);
-    ext
-}
-
-fn register_offchain_ext(ext: &mut sp_io::TestExternalities) {
-    let (offchain, _offchain_state) = TestOffchainExt::with_offchain_db(ext.offchain_db());
-    ext.register_extension(OffchainDbExt::new(offchain.clone()));
-    ext.register_extension(OffchainWorkerExt::new(offchain));
-}
+use sp_core::{crypto::AccountId32, H256};
 
 fn on_initialize() {
     let number = frame_system::Pallet::<Test>::block_number() + 1;
@@ -72,7 +60,6 @@ fn push_leaves(range: Range<u64>) -> (Vec<H256>, Vec<u64>) {
     // given
     let mut commitments = vec![];
     let mut positions = vec![];
-    let mut leaves = vec![];
     for nonce in range {
         let post = Post {
             source: StateMachine::Kusama(2000),
@@ -87,18 +74,14 @@ fn push_leaves(range: Range<u64>) -> (Vec<H256>, Vec<u64>) {
 
         let request = Request::Post(post);
         let commitment = hash_request::<Host<Test>>(&request);
-        let leaf = Leaf::Request(request);
-        leaves.push(leaf.clone());
 
-        let res = Pallet::<Test>::mmr_push(leaf).unwrap();
-        positions.push(res.pos);
-        RequestCommitments::<Test>::insert(
-            commitment,
-            LeafMetadata {
-                mmr: res,
-                meta: FeeMetadata { origin: AccountId32::new([0u8; 32]), fee: 10u128 },
-            },
-        );
+        pallet_ismp::Pallet::<Test>::dispatch_request(
+            request,
+            FeeMetadata { origin: AccountId32::new([0u8; 32]), fee: 10u128 },
+        )
+        .unwrap();
+        let metadata = RequestCommitments::<Test>::get(commitment).expect("Should exist");
+        positions.push(metadata.mmr.pos);
         commitments.push(commitment)
     }
 
@@ -114,7 +97,7 @@ fn should_generate_proofs_correctly_for_single_leaf_mmr() {
         // push some leaves into the mmr
         let positions = push_leaves(0..12);
         Ismp::on_finalize(frame_system::Pallet::<Test>::block_number() + 1);
-        let root = Pallet::<Test>::mmr_root();
+        let root = pallet_ismp::Pallet::<Test>::mmr_root();
         (root, positions)
     });
     ext.persist_offchain_overlay();
@@ -124,7 +107,8 @@ fn should_generate_proofs_correctly_for_single_leaf_mmr() {
 
     ext.execute_with(move || {
         let (leaves, proof) =
-            Pallet::<Test>::generate_proof(ProofKeys::Requests(vec![commitments[0]])).unwrap();
+            pallet_ismp::Pallet::<Test>::generate_proof(ProofKeys::Requests(vec![commitments[0]]))
+                .unwrap();
         let mmr_size = NodesUtils::new(proof.leaf_count).size();
         let nodes = proof.items.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
         let proof = MerkleProof::<DataOrHash, MmrHasher<Host<Test>>>::new(mmr_size, nodes);
@@ -149,7 +133,7 @@ fn should_generate_and_verify_batch_proof_correctly() {
         // push some leaves into the mmr
         let positions = push_leaves(0..12);
         Ismp::on_finalize(frame_system::Pallet::<Test>::block_number() + 1);
-        let root = Pallet::<Test>::mmr_root();
+        let root = pallet_ismp::Pallet::<Test>::mmr_root();
         (root, positions)
     });
     ext.persist_offchain_overlay();
@@ -162,7 +146,7 @@ fn should_generate_and_verify_batch_proof_correctly() {
             commitments[5],
         ]);
         let indices = vec![positions[0], positions[3], positions[2], positions[5]];
-        let (leaves, proof) = Pallet::<Test>::generate_proof(proof_key).unwrap();
+        let (leaves, proof) = pallet_ismp::Pallet::<Test>::generate_proof(proof_key).unwrap();
 
         let mmr_size = NodesUtils::new(proof.leaf_count).size();
         let nodes = proof.items.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
@@ -195,7 +179,7 @@ fn should_generate_and_verify_batch_proof_for_leaves_inserted_across_multiple_bl
         on_initialize();
         let (commitments_second, positions_second) = push_leaves(100..200);
         Ismp::on_finalize(frame_system::Pallet::<Test>::block_number() + 1);
-        let root = Pallet::<Test>::mmr_root();
+        let root = pallet_ismp::Pallet::<Test>::mmr_root();
         positions.extend_from_slice(&positions_second);
         commitments.extend_from_slice(&commitments_second);
         (root, (commitments, positions))
@@ -210,7 +194,7 @@ fn should_generate_and_verify_batch_proof_for_leaves_inserted_across_multiple_bl
             commitments[50],
             commitments[195],
         ]);
-        let (leaves, proof) = Pallet::<Test>::generate_proof(proof_key).unwrap();
+        let (leaves, proof) = pallet_ismp::Pallet::<Test>::generate_proof(proof_key).unwrap();
 
         let mmr_size = NodesUtils::new(proof.leaf_count).size();
         let nodes = proof.items.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
@@ -366,7 +350,7 @@ fn should_handle_get_request_timeouts_correctly() {
         let timeout_msg = TimeoutMessage::Get { requests: requests.clone() };
 
         set_timestamp(Some(Duration::from_secs(100_000_000).as_millis() as u64));
-        Pallet::<Test>::handle_messages(vec![Message::Timeout(timeout_msg)]).unwrap();
+        pallet_ismp::Pallet::<Test>::handle_messages(vec![Message::Timeout(timeout_msg)]).unwrap();
         for request in requests {
             // commitments should not be found in storage after timeout has been processed
             let commitment = hash_request::<Host<Test>>(&request);
@@ -431,7 +415,7 @@ fn should_handle_get_request_responses_correctly() {
             signer: vec![],
         };
 
-        Pallet::<Test>::handle_messages(vec![Message::Response(response)]).unwrap();
+        pallet_ismp::Pallet::<Test>::handle_messages(vec![Message::Response(response)]).unwrap();
 
         for request in requests {
             let Request::Get(get) = request else { panic!("Shouldn't be possible") };

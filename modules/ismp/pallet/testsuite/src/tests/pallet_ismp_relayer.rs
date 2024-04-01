@@ -1,201 +1,56 @@
-use crate::{
-    self as pallet_ismp_relayer, message,
-    withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
-    Claimed, Fees, Nonce, Pallet,
-};
+// Copyright (C) 2023 Polytope Labs.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#![cfg(test)]
+
 use alloy_primitives::hex;
 use codec::{Decode, Encode};
 use ethereum_trie::{keccak::KeccakHasher, MemoryDB, StorageProof};
-use frame_support::{
-    crypto::ecdsa::ECDSAExt,
-    parameter_types,
-    traits::{ConstU32, ConstU64},
-};
-use frame_system::EnsureRoot;
+use frame_support::crypto::ecdsa::ECDSAExt;
 use ismp::{
-    consensus::{
-        ConsensusClient, ConsensusClientId, StateCommitment, StateMachineClient,
-        StateMachineHeight, StateMachineId, VerifiedCommitments,
-    },
-    error::Error,
+    consensus::{StateCommitment, StateMachineHeight, StateMachineId},
     host::{IsmpHost, StateMachine},
     messaging::Proof,
-    module::IsmpModule,
-    router::{IsmpRouter, Post, Request},
+    router::{Post, Request},
     util::{hash_post_response, hash_request},
 };
 use ismp_sync_committee::types::EvmStateProof;
 use pallet_ismp::{
     dispatcher::FeeMetadata,
     host::Host,
-    mocks::{
-        mocks::{set_timestamp, MockModule},
-        ExistentialDeposit,
-    },
     primitives::{HashAlgorithm, SubstrateStateProof},
     RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipt, ResponseReceipts,
 };
-use sp_core::{crypto::AccountId32, Pair, H160, H256, U256};
-use sp_runtime::{
-    traits::{IdentityLookup, Keccak256},
-    BuildStorage,
+use pallet_ismp_relayer::{
+    self as pallet_ismp_relayer, message,
+    withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
+    Claimed,
 };
+use sp_core::{Pair, H160, H256, U256};
 use sp_trie::LayoutV0;
 use std::time::Duration;
-use substrate_state_machine::SubstrateStateMachine;
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 
-use frame_support::derive_impl;
+use crate::runtime::{
+    new_test_ext, set_timestamp, RuntimeOrigin, Test, MOCK_CONSENSUS_CLIENT_ID,
+    MOCK_CONSENSUS_STATE_ID,
+};
 use ismp::host::Ethereum;
 use ismp_bsc::BSC_CONSENSUS_ID;
-use ismp_sync_committee::{constants::sepolia::Sepolia, BEACON_CONSENSUS_ID};
-use pallet_ismp::{
-    dispatcher::LeafMetadata,
-    mocks::mocks::{MOCK_CONSENSUS_CLIENT_ID, MOCK_CONSENSUS_STATE_ID},
-    primitives::LeafIndexAndPos,
-};
-
-type Block = frame_system::mocking::MockBlock<Test>;
-
-frame_support::construct_runtime!(
-    pub enum Test {
-        System: frame_system::{Pallet, Call, Config<T>, Storage, Event<T>},
-        Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent},
-        Ismp: pallet_ismp::{Pallet, Storage, Call, Event<T>},
-        Balances: pallet_balances,
-        PalletFees: pallet_ismp_relayer,
-        StateMachineManager: ismp_host_executive
-    }
-);
-
-#[derive(Default)]
-pub struct MockConsensusClient;
-
-impl ConsensusClient for MockConsensusClient {
-    fn verify_consensus(
-        &self,
-        _host: &dyn IsmpHost,
-        _cs_id: ismp::consensus::ConsensusStateId,
-        _trusted_consensus_state: Vec<u8>,
-        _proof: Vec<u8>,
-    ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-        Ok(Default::default())
-    }
-
-    fn verify_fraud_proof(
-        &self,
-        _host: &dyn IsmpHost,
-        _trusted_consensus_state: Vec<u8>,
-        _proof_1: Vec<u8>,
-        _proof_2: Vec<u8>,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn consensus_client_id(&self) -> ConsensusClientId {
-        MOCK_CONSENSUS_CLIENT_ID
-    }
-
-    fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-        Ok(Box::new(SubstrateStateMachine::<Test>::default()))
-    }
-}
-
-#[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
-impl frame_system::Config for Test {
-    type BaseCallFilter = frame_support::traits::Everything;
-    type RuntimeOrigin = RuntimeOrigin;
-    type RuntimeCall = RuntimeCall;
-    type Hash = H256;
-    type Hashing = Keccak256;
-    type AccountId = AccountId32;
-    type Lookup = IdentityLookup<Self::AccountId>;
-    type RuntimeEvent = RuntimeEvent;
-    type BlockHashCount = ConstU64<250>;
-    type DbWeight = ();
-    type BlockWeights = ();
-    type BlockLength = ();
-    type Version = ();
-    type Nonce = u64;
-    type Block = Block;
-    type PalletInfo = PalletInfo;
-    type AccountData = pallet_balances::AccountData<pallet_ismp::mocks::Balance>;
-    type OnNewAccount = ();
-    type OnKilledAccount = ();
-    type SystemWeightInfo = ();
-    type SS58Prefix = ();
-    type OnSetCode = ();
-    type MaxConsumers = ConstU32<16>;
-}
-
-impl pallet_timestamp::Config for Test {
-    type Moment = u64;
-    type OnTimestampSet = ();
-    type MinimumPeriod = ConstU64<1>;
-    type WeightInfo = ();
-}
-
-impl pallet_balances::Config for Test {
-    /// The ubiquitous event type.
-    type RuntimeEvent = RuntimeEvent;
-    type RuntimeHoldReason = RuntimeHoldReason;
-    type RuntimeFreezeReason = RuntimeFreezeReason;
-    type WeightInfo = pallet_balances::weights::SubstrateWeight<Test>;
-    /// The type for recording an account's balance.
-    type Balance = pallet_ismp::mocks::Balance;
-    type DustRemoval = ();
-    type ExistentialDeposit = ExistentialDeposit;
-    type AccountStore = System;
-    type ReserveIdentifier = [u8; 8];
-    type FreezeIdentifier = ();
-    type MaxLocks = ConstU32<50>;
-    type MaxReserves = ConstU32<50>;
-    type MaxHolds = ConstU32<1>;
-    type MaxFreezes = ();
-}
-
-parameter_types! {
-    pub const Coprocessor: Option<StateMachine> = None;
-}
-
-impl pallet_ismp::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
-    const INDEXING_PREFIX: &'static [u8] = b"ISMP";
-    type AdminOrigin = EnsureRoot<AccountId32>;
-    type HostStateMachine = pallet_ismp::mocks::StateMachineProvider;
-    type TimeProvider = Timestamp;
-    type Coprocessor = pallet_ismp::mocks::Coprocessor;
-    type Router = pallet_ismp::mocks::ModuleRouter;
-    type ConsensusClients = (
-        MockConsensusClient,
-        ismp_sync_committee::SyncCommitteeConsensusClient<Host<Test>, Sepolia>,
-        ismp_bsc::BscClient<Host<Test>>,
-    );
-    type WeightInfo = ();
-    type WeightProvider = ();
-}
-
-impl ismp_host_executive::Config for Test {}
-
-impl pallet_ismp_relayer::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
-}
-
-#[derive(Default)]
-pub struct ModuleRouter;
-
-impl IsmpRouter for ModuleRouter {
-    fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, ismp::error::Error> {
-        Ok(Box::new(MockModule))
-    }
-}
-
-pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
-    frame_system::GenesisConfig::<pallet_ismp::mocks::Test>::default()
-        .build_storage()
-        .unwrap()
-        .into()
-}
+use ismp_sync_committee::BEACON_CONSENSUS_ID;
+use pallet_ismp::{dispatcher::LeafMetadata, primitives::LeafIndexAndPos};
 
 #[test]
 fn test_withdrawal_proof() {
@@ -407,14 +262,18 @@ fn test_withdrawal_proof() {
             },
         };
 
-        Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), withdrawal_proof).unwrap();
+        pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(
+            RuntimeOrigin::none(),
+            withdrawal_proof,
+        )
+        .unwrap();
 
         assert_eq!(
-            Fees::<Test>::get(StateMachine::Kusama(2000), vec![1; 32]),
+            pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Kusama(2000), vec![1; 32]),
             U256::from(5000u128)
         );
         assert_eq!(
-            Fees::<Test>::get(StateMachine::Kusama(2000), vec![2; 32]),
+            pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Kusama(2000), vec![2; 32]),
             U256::from(5000u128)
         );
     })
@@ -426,7 +285,11 @@ fn test_withdrawal_fees() {
     ext.execute_with(|| {
         let pair = sp_core::ecdsa::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
         let address = pair.public().to_eth_address().unwrap();
-        Fees::<Test>::insert(StateMachine::Kusama(2000), address.to_vec(), U256::from(5000u128));
+        pallet_ismp_relayer::Fees::<Test>::insert(
+            StateMachine::Kusama(2000),
+            address.to_vec(),
+            U256::from(5000u128),
+        );
         let message = message(0, StateMachine::Kusama(2000), 2000u128.into());
         let signature = pair.sign_prehashed(&message).0.to_vec();
 
@@ -437,17 +300,26 @@ fn test_withdrawal_fees() {
             gas_limit: 10_000_000,
         };
 
-        Pallet::<Test>::withdraw_fees(RuntimeOrigin::none(), withdrawal_input.clone()).unwrap();
+        pallet_ismp_relayer::Pallet::<Test>::withdraw_fees(
+            RuntimeOrigin::none(),
+            withdrawal_input.clone(),
+        )
+        .unwrap();
         assert_eq!(
-            Fees::<Test>::get(StateMachine::Kusama(2000), address.to_vec()),
+            pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Kusama(2000), address.to_vec()),
             3_000u128.into()
         );
 
-        assert_eq!(Nonce::<Test>::get(address.to_vec(), StateMachine::Kusama(2000)), 1);
-
-        assert!(
-            Pallet::<Test>::withdraw_fees(RuntimeOrigin::none(), withdrawal_input.clone()).is_err()
+        assert_eq!(
+            pallet_ismp_relayer::Nonce::<Test>::get(address.to_vec(), StateMachine::Kusama(2000)),
+            1
         );
+
+        assert!(pallet_ismp_relayer::Pallet::<Test>::withdraw_fees(
+            RuntimeOrigin::none(),
+            withdrawal_input.clone()
+        )
+        .is_err());
     })
 }
 
@@ -550,14 +422,14 @@ fn test_evm_accumulate_fees() {
 
         host.store_challenge_period(claim_proof.dest_proof.height.id.consensus_state_id, 0).unwrap();
 
-        Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).unwrap();
+        pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).unwrap();
 
         assert_eq!(
-            Fees::<Test>::get(StateMachine::Bsc, vec![125, 114, 152, 63, 237, 193, 243, 50, 229, 80, 6, 254, 162, 162, 175, 193, 72, 246, 97, 66]),
+            pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Bsc, vec![125, 114, 152, 63, 237, 193, 243, 50, 229, 80, 6, 254, 162, 162, 175, 193, 72, 246, 97, 66]),
             U256::from(50_000_000_000_000_000_000u128)
         );
 
-        assert!(Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).is_err());
+        assert!(pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).is_err());
     })
 }
 
@@ -632,7 +504,7 @@ fn test_evm_accumulate_fees_with_zero_fee_values() {
 
         host.store_challenge_period(claim_proof.dest_proof.height.id.consensus_state_id, 0).unwrap();
 
-        Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).unwrap();
+        pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).unwrap();
         assert_eq!(claim_proof.commitments.len(), 6);
         assert_eq!(Claimed::<Test>::iter().count(), 5);
     })

@@ -15,7 +15,7 @@ sp-std = { workspace = true }
 sp-io = { workspace = true }
 pallet-ismp = { workspace = true }
 ismp-sync-committee = { workspace = true }
-ismp-host-executive = { workspace = true }
+pallet-ismp-host-executive = { workspace = true }
 
 # polytope labs
 ismp = { workspace = true }
@@ -62,7 +62,7 @@ std = [
     "alloy-rlp/std",
     "ethabi/std",
     "ismp-sync-committee/std",
-    "ismp-host-executive/std"
+    "pallet-ismp-host-executive/std"
 ]
 
 try-runtime = [

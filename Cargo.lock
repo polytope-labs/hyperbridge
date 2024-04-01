@@ -1377,6 +1377,7 @@ dependencies = [
 name = "call-decompressor"
 version = "0.1.0"
 dependencies = [
+ "as-any",
  "compression",
  "frame-support",
  "frame-system",

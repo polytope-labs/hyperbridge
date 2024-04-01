@@ -39,7 +39,7 @@ members = [
      "modules/consensus/bsc/prover",
      "modules/ismp/clients/bsc",
      "modules/trees/mmr",
-     "modules/call-decompressor",
+    "modules/ismp/pallet/call-decompressor",
 
      # evm stuff
      "evm/integration-tests",

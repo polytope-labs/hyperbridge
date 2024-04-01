@@ -46,7 +46,7 @@ members = [
 
      # hyper-client 
     "modules/client"
-]
+, "modules/call-decompressor"]
 
 # Config for 'cargo dist'
 [workspace.metadata.dist]

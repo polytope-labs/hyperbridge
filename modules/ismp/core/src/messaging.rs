@@ -151,6 +151,15 @@ pub enum TimeoutMessage {
 }
 
 impl TimeoutMessage {
+    /// Get all the inner requests
+    pub fn requests(&self) -> Vec<Request> {
+        match self {
+            TimeoutMessage::Post { requests, .. } | TimeoutMessage::Get { requests, .. } =>
+                requests.clone(),
+            TimeoutMessage::PostResponse { responses, .. } =>
+                responses.clone().into_iter().map(|res| res.request()).collect(),
+        }
+    }
     /// Returns the associated proof
     pub fn timeout_proof(&self) -> Result<&Proof, Error> {
         match self {

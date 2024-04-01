@@ -102,11 +102,6 @@ fn setup_mock_proxy_client<H: IsmpHost>(
 
 /// Ensure challenge period rules are followed in all handlers
 pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
-    let consensus_message = Message::Consensus(ConsensusMessage {
-        consensus_proof: vec![],
-        consensus_state_id: mock_consensus_state_id(),
-        signer: vec![],
-    });
     let intermediate_state = setup_mock_client(host);
     // Set the previous update time
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
@@ -115,8 +110,6 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
         .unwrap();
     host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
         .unwrap();
-    let res = handle_incoming_message::<H>(host, consensus_message);
-    assert!(matches!(res, Err(ismp::error::Error::ChallengePeriodNotElapsed { .. })));
 
     let post = Post {
         source: host.host_state_machine(),

@@ -156,7 +156,7 @@ parameter_types! {
 
 impl pallet_ismp::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    const INDEXING_PREFIX: &'static [u8] = b"ISMP";
+    const PALLET_PREFIX: &'static [u8] = b"ISMP";
     type AdminOrigin = EnsureRoot<AccountId32>;
     type HostStateMachine = StateMachineProvider;
     type Coprocessor = Coprocessor;

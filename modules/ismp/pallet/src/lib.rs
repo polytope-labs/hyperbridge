@@ -29,6 +29,7 @@ pub mod handlers;
 pub mod host;
 pub mod mmr;
 pub use mmr::ProofKeys;
+pub mod child_trie;
 pub mod primitives;
 pub mod weight_info;
 
@@ -77,10 +78,11 @@ use sp_std::prelude::*;
 #[frame_support::pallet]
 pub mod pallet {
 
+    use self::primitives::IsmpConsensusLog;
+
     // Import various types used to declare pallet in scope.
     use super::*;
     use crate::{
-        dispatcher::LeafMetadata,
         errors::HandlingError,
         mmr::primitives::{LeafIndex, NodeIndex},
         primitives::{ConsensusClientProvider, WeightUsed, ISMP_ID},
@@ -98,15 +100,15 @@ pub mod pallet {
         messaging::Message,
         router::IsmpRouter,
     };
-    use sp_core::H256;
+    use sp_core::{storage::ChildInfo, H256};
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_balances::Config {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        /// Prefix for elements stored in the Off-chain DB via Indexing API.
-        const INDEXING_PREFIX: &'static [u8];
+        /// Prefix for elements stored in the Off-chain DB via Indexing API and child trie
+        const PALLET_PREFIX: &'static [u8];
 
         /// Admin origin for privileged actions
         type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
@@ -218,38 +220,11 @@ pub mod pallet {
     pub type StateMachineUpdateTime<T: Config> =
         StorageMap<_, Twox64Concat, StateMachineHeight, u64, OptionQuery>;
 
-    /// Commitments for outgoing requests
-    /// The key is the request commitment
-    #[pallet::storage]
-    #[pallet::getter(fn request_commitments)]
-    pub type RequestCommitments<T: Config> =
-        StorageMap<_, Identity, H256, LeafMetadata<T>, OptionQuery>;
-
     /// Tracks requests that have been responded to
     /// The key is the request commitment
     #[pallet::storage]
     #[pallet::getter(fn responded)]
     pub type Responded<T: Config> = StorageMap<_, Identity, H256, bool, ValueQuery>;
-
-    /// Commitments for outgoing responses
-    /// The key is the response commitment
-    #[pallet::storage]
-    #[pallet::getter(fn response_commitments)]
-    pub type ResponseCommitments<T: Config> =
-        StorageMap<_, Identity, H256, LeafMetadata<T>, OptionQuery>;
-
-    /// Receipts for incoming requests
-    /// The key is the request commitment
-    #[pallet::storage]
-    #[pallet::getter(fn request_receipts)]
-    pub type RequestReceipts<T: Config> = StorageMap<_, Identity, H256, Vec<u8>, OptionQuery>;
-
-    /// Receipts for incoming responses
-    /// The key is the request commitment
-    #[pallet::storage]
-    #[pallet::getter(fn response_receipts)]
-    pub type ResponseReceipts<T: Config> =
-        StorageMap<_, Identity, H256, ResponseReceipt, OptionQuery>;
 
     /// Latest nonce for messages sent from this chain
     #[pallet::storage]
@@ -342,7 +317,13 @@ pub mod pallet {
                 H256::default()
             };
 
-            let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, root.encode());
+            let child_trie_root = frame_support::storage::child::root(
+                &ChildInfo::new_default(T::PALLET_PREFIX),
+                Default::default(),
+            );
+            let log = IsmpConsensusLog { child_trie_root, mmr_root: root.encode() };
+
+            let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
             <frame_system::Pallet<T>>::deposit_log(digest);
         }
 
@@ -657,12 +638,12 @@ impl<T: Config> Pallet<T> {
 
     /// Returns the offchain key for a request or response leaf index
     pub fn full_leaf_offchain_key(commitment: H256) -> Vec<u8> {
-        (T::INDEXING_PREFIX, commitment).encode()
+        (T::PALLET_PREFIX, commitment).encode()
     }
 
     /// Returns the offchain key for a request or response leaf index
     pub fn intermediate_node_offchain_key(position: NodeIndex) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "intermediate_nodes", position).encode()
+        (T::PALLET_PREFIX, "intermediate_nodes", position).encode()
     }
 
     /// Gets the request from the offchain storage

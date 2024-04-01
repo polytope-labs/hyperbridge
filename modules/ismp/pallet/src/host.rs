@@ -15,11 +15,11 @@
 
 //! Host implementation for ISMP
 use crate::{
-    primitives::ConsensusClientProvider, ChallengePeriod, Config, ConsensusClientUpdateTime,
-    ConsensusStateClient, ConsensusStates, FrozenConsensusClients, FrozenStateMachine,
-    LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts, Responded,
-    ResponseCommitments, ResponseReceipt, ResponseReceipts, StateCommitments,
-    StateMachineUpdateTime, UnbondingPeriod,
+    child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
+    primitives::ConsensusClientProvider,
+    ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
+    FrozenConsensusClients, FrozenStateMachine, LatestStateMachineHeight, Nonce, Responded,
+    ResponseReceipt, StateCommitments, StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use core::time::Duration;

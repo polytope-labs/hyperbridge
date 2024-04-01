@@ -127,6 +127,14 @@ pub struct WeightUsed {
 /// The `ConsensusEngineId` of ISMP digest in the parachain header.
 pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";
 
+/// Consensus log digest for pallet ismp
+#[derive(Encode, Decode, Clone, scale_info::TypeInfo)]
+pub struct IsmpConsensusLog {
+    /// Child trie root hash
+    pub child_trie_root: Vec<u8>,
+    /// Mmr root hash
+    pub mmr_root: Vec<u8>,
+}
 /// Queries a request leaf in the mmr
 #[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]

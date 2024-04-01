@@ -33,6 +33,7 @@ use ismp::{
 };
 use merkle_mountain_range::MerkleProof;
 use pallet_ismp::{
+    child_trie::{RequestReceipts, ResponseReceipts},
     host::Host,
     mmr::primitives::{DataOrHash, Leaf, MmrHasher},
     primitives::{HashAlgorithm, MembershipProof, SubstrateStateProof},
@@ -104,9 +105,7 @@ where
                         Request::Post(post) => {
                             let request = Request::Post(post);
                             let commitment = hash_request::<Host<T>>(&request);
-                            keys.push(pallet_ismp::RequestReceipts::<T>::hashed_key_for(
-                                commitment,
-                            ));
+                            keys.push(RequestReceipts::<T>::storage_key(commitment));
                         },
                         Request::Get(_) => continue,
                     }
@@ -116,9 +115,7 @@ where
                     match res {
                         Response::Post(post_response) => {
                             let commitment = hash_post_response::<Host<T>>(&post_response);
-                            keys.push(pallet_ismp::ResponseReceipts::<T>::hashed_key_for(
-                                commitment,
-                            ));
+                            keys.push(ResponseReceipts::<T>::storage_key(commitment));
                         },
                         Response::Get(_) => continue,
                     }

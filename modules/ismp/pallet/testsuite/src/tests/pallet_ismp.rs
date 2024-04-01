@@ -18,10 +18,11 @@
 use crate::runtime::*;
 use frame_support::pallet_prelude::Hooks;
 use pallet_ismp::{
+    child_trie::{RequestCommitments, RequestReceipts},
     dispatcher::{Dispatcher, FeeMetadata},
     host::Host,
     mmr::primitives::{DataOrHash, MmrHasher},
-    IntermediateLeaves, NodesUtils, ProofKeys, RequestCommitments, RequestReceipts,
+    IntermediateLeaves, NodesUtils, ProofKeys,
 };
 
 use std::{
@@ -247,7 +248,6 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
 }
 
 #[test]
-#[ignore]
 fn should_reject_updates_within_challenge_period() {
     let mut ext = new_test_ext();
 

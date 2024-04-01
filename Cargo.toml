@@ -46,6 +46,7 @@ members = [
 
     # hyperclient
     "modules/client",
+    "modules/call-decompressor",
 ]
 
 # Config for 'cargo dist'

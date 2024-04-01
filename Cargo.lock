@@ -1374,6 +1374,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "call-decompressor"
+version = "0.1.0"
+dependencies = [
+ "as-any",
+ "compression",
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "pallet-ismp-relayer",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-io 30.0.0",
+ "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+]
+
+[[package]]
 name = "camino"
 version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5422,7 +5441,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.3.8"
+version = "0.3.7"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -8399,25 +8418,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-call-decompressor"
-version = "0.1.0"
-dependencies = [
- "as-any",
- "compression",
- "frame-support",
- "frame-system",
- "ismp",
- "pallet-ismp",
- "pallet-ismp-relayer",
- "parity-scale-codec",
- "scale-info",
- "sp-core 28.0.0",
- "sp-io 30.0.0",
- "sp-runtime 31.0.1",
- "sp-std 14.0.0",
-]
-
-[[package]]
 name = "pallet-child-bounties"
 version = "27.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8735,12 +8735,17 @@ dependencies = [
 name = "pallet-ismp-host-executive"
 version = "0.1.0"
 dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "anyhow",
  "frame-support",
  "frame-system",
  "ismp",
  "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
+ "sp-core 28.0.0",
  "sp-runtime 31.0.1",
 ]
 

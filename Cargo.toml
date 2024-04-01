@@ -19,6 +19,7 @@ members = [
     "modules/ismp/pallet/runtime-api",
     "modules/ismp/pallet/demo",
     "modules/ismp/pallet/testsuite",
+    "modules/ismp/pallet/call-decompressor",
     "modules/ismp/testsuite",
     "modules/ismp/clients/sync-committee",
     "modules/ismp/clients/casper-ffg",
@@ -46,7 +47,6 @@ members = [
 
     # hyperclient
     "modules/client",
-    "modules/call-decompressor",
 ]
 
 # Config for 'cargo dist'

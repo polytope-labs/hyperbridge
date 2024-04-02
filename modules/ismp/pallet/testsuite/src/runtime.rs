@@ -182,6 +182,8 @@ impl pallet_ismp_relayer::Config for Test {
 
 impl pallet_ismp_host_executive::Config for Test {}
 
+impl pallet_call_decompressor::Config for Test {}
+
 #[derive(Default)]
 pub struct ModuleRouter;
 
@@ -255,8 +257,9 @@ impl ConsensusClient for MockConsensusClient {
 
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, IsmpError> {
         let state_machine: Box<dyn StateMachineClient> = match _id {
-            StateMachine::Kusama(2000) | StateMachine::Kusama(2001) =>
-                Box::new(SubstrateStateMachine::<Test>::default()),
+            StateMachine::Kusama(2000) | StateMachine::Kusama(2001) => {
+                Box::new(SubstrateStateMachine::<Test>::default())
+            },
             _ => Box::new(MockStateMachine),
         };
         Ok(state_machine)

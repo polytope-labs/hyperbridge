@@ -1374,25 +1374,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "call-decompressor"
-version = "0.1.0"
-dependencies = [
- "as-any",
- "compression",
- "frame-support",
- "frame-system",
- "ismp",
- "pallet-ismp",
- "pallet-ismp-relayer",
- "parity-scale-codec",
- "scale-info",
- "sp-core 28.0.0",
- "sp-io 30.0.0",
- "sp-runtime 31.0.1",
- "sp-std 14.0.0",
-]
-
-[[package]]
 name = "camino"
 version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8840,6 +8821,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "ckb-merkle-mountain-range",
+ "compression",
  "env_logger",
  "ethereum-trie",
  "frame-support",
@@ -8851,6 +8833,7 @@ dependencies = [
  "ismp-sync-committee",
  "ismp-testsuite",
  "pallet-balances",
+ "pallet-call-decompressor",
  "pallet-fishermen",
  "pallet-ismp",
  "pallet-ismp-host-executive",

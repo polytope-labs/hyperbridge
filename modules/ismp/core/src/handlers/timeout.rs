@@ -21,11 +21,10 @@ use crate::{
     handlers::{validate_state_machine, MessageResult},
     host::{IsmpHost, StateMachine},
     messaging::TimeoutMessage,
-    module::DispatchError,
     router::Response,
     util::{hash_post_response, hash_request},
 };
-use alloc::{format, vec::Vec};
+use alloc::vec::Vec;
 
 /// This function handles timeouts
 pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, Error>
@@ -85,18 +84,10 @@ where
                 .into_iter()
                 .map(|request| {
                     let cb = router.module_for_id(request.source_module())?;
-                    let res = cb
-                        .on_timeout(request.clone().into())
-                        .map(|_| {
-                            let commitment = hash_request::<H>(&request);
-                            Event::PostRequestTimeoutHandled(TimeoutHandled { commitment })
-                        })
-                        .map_err(|e| DispatchError {
-                            msg: format!("{e:?}"),
-                            nonce: request.nonce(),
-                            source_chain: request.source_chain(),
-                            dest_chain: request.dest_chain(),
-                        });
+                    let res = cb.on_timeout(request.clone().into()).map(|_| {
+                        let commitment = hash_request::<H>(&request);
+                        Event::PostRequestTimeoutHandled(TimeoutHandled { commitment })
+                    });
                     if res.is_ok() {
                         host.delete_request_commitment(&request)?;
                         // If the request was routed we delete it's receipt
@@ -152,18 +143,10 @@ where
                 .into_iter()
                 .map(|response| {
                     let cb = router.module_for_id(response.source_module())?;
-                    let res = cb
-                        .on_timeout(response.clone().into())
-                        .map(|_| {
-                            let commitment = hash_post_response::<H>(&response);
-                            Event::PostResponseTimeoutHandled(TimeoutHandled { commitment })
-                        })
-                        .map_err(|e| DispatchError {
-                            msg: format!("{e:?}"),
-                            nonce: response.nonce(),
-                            source_chain: response.source_chain(),
-                            dest_chain: response.dest_chain(),
-                        });
+                    let res = cb.on_timeout(response.clone().into()).map(|_| {
+                        let commitment = hash_post_response::<H>(&response);
+                        Event::PostResponseTimeoutHandled(TimeoutHandled { commitment })
+                    });
                     if res.is_ok() {
                         host.delete_response_commitment(&response)?;
                         // If the response was routed we delete it's receipt
@@ -197,18 +180,10 @@ where
                 .into_iter()
                 .map(|request| {
                     let cb = router.module_for_id(request.source_module())?;
-                    let res = cb
-                        .on_timeout(request.clone().into())
-                        .map(|_| {
-                            let commitment = hash_request::<H>(&request);
-                            Event::GetRequestTimeoutHandled(TimeoutHandled { commitment })
-                        })
-                        .map_err(|e| DispatchError {
-                            msg: format!("{e:?}"),
-                            nonce: request.nonce(),
-                            source_chain: request.source_chain(),
-                            dest_chain: request.dest_chain(),
-                        });
+                    let res = cb.on_timeout(request.clone().into()).map(|_| {
+                        let commitment = hash_request::<H>(&request);
+                        Event::GetRequestTimeoutHandled(TimeoutHandled { commitment })
+                    });
                     if res.is_ok() {
                         host.delete_request_commitment(&request)?;
                     }

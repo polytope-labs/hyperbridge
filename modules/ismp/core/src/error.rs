@@ -160,4 +160,15 @@ pub enum Error {
         /// Consensus state Id
         consensus_state_id: ConsensusStateId,
     },
+    /// Error from dispatching a request to a module
+    ModuleDispatchError {
+        /// Descriptive error message
+        msg: String,
+        /// Request nonce
+        nonce: u64,
+        /// Source chain for request or response
+        source_chain: StateMachine,
+        /// Destination chain for request or response
+        dest_chain: StateMachine,
+    },
 }

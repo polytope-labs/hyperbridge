@@ -20,7 +20,9 @@ pub struct StateMachineUpdated {
 }
 
 /// Emitted when a request or response is successfully handled.
-#[derive(Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize, PartialEq, Eq,
+)]
 pub struct RequestResponseHandled {
     /// The commitment to the request or response
     pub commitment: H256,
@@ -29,7 +31,9 @@ pub struct RequestResponseHandled {
 }
 
 /// Emitted when a timeout is successfully handled.
-#[derive(Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize, PartialEq, Eq,
+)]
 pub struct TimeoutHandled {
     /// The commitment to the request or response
     pub commitment: H256,

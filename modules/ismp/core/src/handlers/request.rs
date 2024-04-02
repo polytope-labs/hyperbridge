@@ -21,11 +21,10 @@ use crate::{
     handlers::{validate_state_machine, MessageResult},
     host::{IsmpHost, StateMachine},
     messaging::RequestMessage,
-    module::DispatchError,
     router::{Request, RequestResponse},
     util::hash_request,
 };
-use alloc::{format, vec::Vec};
+use alloc::vec::Vec;
 
 /// Validate the state machine, verify the request message and dispatch the message to the modules
 pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, Error>
@@ -89,12 +88,7 @@ where
                 Ok(res)
             };
 
-            let res = lambda().and_then(|res| res).map_err(|e| DispatchError {
-                msg: format!("{e:?}"),
-                nonce: request.nonce,
-                source_chain: request.source,
-                dest_chain: request.dest,
-            });
+            let res = lambda().and_then(|res| res);
             res
         })
         .collect::<Vec<_>>();

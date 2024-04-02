@@ -416,6 +416,18 @@ where
                         state_machine_id,
                         latest_height,
                     })),
+                    pallet_ismp::events::Event::PostRequestHandled(handled) =>
+                        Some(Event::PostRequestHandled(handled)),
+                    pallet_ismp::events::Event::PostResponseHandled(handled) =>
+                        Some(Event::PostResponseHandled(handled)),
+                    pallet_ismp::events::Event::GetResponseHandled(handled) =>
+                        Some(Event::GetResponseHandled(handled)),
+                    pallet_ismp::events::Event::PostRequestTimeoutHandled(handled) =>
+                        Some(Event::PostRequestTimeoutHandled(handled)),
+                    pallet_ismp::events::Event::PostResponseTimeoutHandled(handled) =>
+                        Some(Event::PostResponseTimeoutHandled(handled)),
+                    pallet_ismp::events::Event::GetRequestTimeoutHandled(handled) =>
+                        Some(Event::GetRequestTimeoutHandled(handled)),
                 })
                 .collect();
 
@@ -526,6 +538,18 @@ where
                         state_machine_id,
                         latest_height,
                     })),
+                    pallet_ismp::events::Event::PostRequestHandled(handled) =>
+                        Some(Event::PostRequestHandled(handled)),
+                    pallet_ismp::events::Event::PostResponseHandled(handled) =>
+                        Some(Event::PostResponseHandled(handled)),
+                    pallet_ismp::events::Event::GetResponseHandled(handled) =>
+                        Some(Event::GetResponseHandled(handled)),
+                    pallet_ismp::events::Event::PostRequestTimeoutHandled(handled) =>
+                        Some(Event::PostRequestTimeoutHandled(handled)),
+                    pallet_ismp::events::Event::PostResponseTimeoutHandled(handled) =>
+                        Some(Event::PostResponseTimeoutHandled(handled)),
+                    pallet_ismp::events::Event::GetRequestTimeoutHandled(handled) =>
+                        Some(Event::GetRequestTimeoutHandled(handled)),
                 };
 
                 if let Some(event) = event {

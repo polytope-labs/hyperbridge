@@ -19,7 +19,6 @@ use ismp::{
     consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
     error::Error as IsmpError,
     host::StateMachine,
-    module::DispatchResult,
 };
 use sp_std::prelude::*;
 
@@ -95,13 +94,16 @@ pub enum HandlingError {
     },
     InsufficientProofHeight,
     ModuleNotFound(Vec<u8>),
-}
-
-#[derive(Debug)]
-pub enum ModuleCallbackResult {
-    Response(Vec<DispatchResult>),
-    Request(Vec<DispatchResult>),
-    Timeout(Vec<DispatchResult>),
+    ModuleDispatchError {
+        /// Descriptive error message
+        msg: Vec<u8>,
+        /// Request nonce
+        nonce: u64,
+        /// Source chain for request or response
+        source_chain: StateMachine,
+        /// Destination chain for request or response
+        dest_chain: StateMachine,
+    },
 }
 
 impl From<ismp::error::Error> for HandlingError {
@@ -169,6 +171,13 @@ impl From<ismp::error::Error> for HandlingError {
             IsmpError::DuplicateConsensusStateId { .. } => HandlingError::InsufficientProofHeight,
             IsmpError::UnnbondingPeriodNotConfigured { .. } =>
                 HandlingError::InsufficientProofHeight,
+            IsmpError::ModuleDispatchError { msg, nonce, source_chain, dest_chain } =>
+                HandlingError::ModuleDispatchError {
+                    msg: msg.as_bytes().to_vec(),
+                    nonce,
+                    source_chain,
+                    dest_chain,
+                },
         }
     }
 }

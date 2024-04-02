@@ -21,11 +21,10 @@ use crate::{
     handlers::{validate_state_machine, MessageResult},
     host::{IsmpHost, StateMachine},
     messaging::{sufficient_proof_height, ResponseMessage},
-    module::DispatchError,
     router::{GetResponse, Request, RequestResponse, Response},
     util::{hash_request, hash_response},
 };
-use alloc::{format, vec::Vec};
+use alloc::vec::Vec;
 
 /// Validate the state machine, verify the response message and dispatch the message to the modules
 pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, Error>
@@ -80,21 +79,13 @@ where
                 .into_iter()
                 .map(|response| {
                     let cb = router.module_for_id(response.destination_module())?;
-                    let res = cb
-                        .on_response(response.clone())
-                        .map(|_| {
-                            let commitment = hash_response::<H>(&response);
-                            Event::PostResponseHandled(RequestResponseHandled {
-                                commitment,
-                                relayer: signer.clone(),
-                            })
+                    let res = cb.on_response(response.clone()).map(|_| {
+                        let commitment = hash_response::<H>(&response);
+                        Event::PostResponseHandled(RequestResponseHandled {
+                            commitment,
+                            relayer: signer.clone(),
                         })
-                        .map_err(|e| DispatchError {
-                            msg: format!("{e:?}"),
-                            nonce: response.nonce(),
-                            source_chain: response.source_chain(),
-                            dest_chain: response.dest_chain(),
-                        });
+                    });
                     if res.is_ok() {
                         host.store_response_receipt(&response, &msg.signer)?;
                     }
@@ -149,12 +140,6 @@ where
                                 commitment,
                                 relayer: signer.clone(),
                             })
-                        })
-                        .map_err(|e| DispatchError {
-                            msg: format!("{e:?}"),
-                            nonce: request.nonce,
-                            source_chain: request.source,
-                            dest_chain: request.dest,
                         });
                     let response = Response::Get(GetResponse {
                         get: request.clone(),

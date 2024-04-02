@@ -28,6 +28,7 @@ pub mod events;
 pub mod handlers;
 pub mod host;
 pub mod mmr;
+use events::deposit_ismp_events;
 pub use mmr::ProofKeys;
 pub mod child_trie;
 pub mod primitives;
@@ -52,7 +53,7 @@ use log::debug;
 use sp_core::{offchain::StorageKind, H256};
 // Re-export pallet items so that they can be accessed from the crate namespace.
 use crate::{
-    errors::{HandlingError, ModuleCallbackResult},
+    errors::HandlingError,
     mmr::{
         primitives::{DataOrHash, Leaf, LeafIndex, NodeIndex},
         Mmr,
@@ -84,11 +85,11 @@ pub mod pallet {
     // Import various types used to declare pallet in scope.
     use super::*;
     use crate::{
+        child_trie::CHILD_TRIE_PREFIX,
         errors::HandlingError,
         mmr::primitives::{LeafIndex, NodeIndex},
         primitives::{ConsensusClientProvider, WeightUsed, ISMP_ID},
         weight_info::WeightProvider,
-        child_trie::CHILD_TRIE_PREFIX
     };
     use frame_support::{pallet_prelude::*, traits::UnixTime};
     use frame_system::pallet_prelude::*;
@@ -97,11 +98,10 @@ pub mod pallet {
             ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
             StateMachineId,
         },
+        events::{RequestResponseHandled, TimeoutHandled},
         handlers,
         host::StateMachine,
-        messaging::{
-            ConsensusMessage, FraudProofMessage, Message, RequestMessage, ResponseMessage,
-        },
+        messaging::{ConsensusMessage, FraudProofMessage, Message, RequestMessage},
         router::IsmpRouter,
     };
     use sp_core::{storage::ChildInfo, H256};
@@ -462,41 +462,17 @@ pub mod pallet {
             errors: Vec<HandlingError>,
         },
         /// Post Request Handled
-        PostRequestHandled {
-            /// Commitment to the post
-            commitment: H256,
-            /// Relayer address who delivered the message
-            relayer: Vec<u8>
-        },
+        PostRequestHandled(RequestResponseHandled),
         /// Post Response Handled
-        PostResponseHandled {
-            /// Commitment to the response
-            commitment: H256,
-            /// Relayer address who delivered the message
-            relayer: Vec<u8>
-        },
+        PostResponseHandled(RequestResponseHandled),
         /// Get Response Handled
-        GetResponseHandled {
-            /// Commitment to the get request
-            commitment: H256,
-            /// Relayer address who delivered the message
-            relayer: Vec<u8>
-        },
+        GetResponseHandled(RequestResponseHandled),
         /// Post request timeout handled
-        PostRequestTimeoutHandled {
-            /// Commitment to the post request
-            commitment: H256
-        },
+        PostRequestTimeoutHandled(TimeoutHandled),
         /// Post response timeout handled
-        PostResponseTimeoutHandled {
-            /// Commitment to the response
-            commitment: H256
-        },
+        PostResponseTimeoutHandled(TimeoutHandled),
         /// Get request timeout handled
-        GetRequestTimeoutHandled {
-            /// Commitment to the get request
-            commitment: H256
-        },
+        GetRequestTimeoutHandled(TimeoutHandled),
     }
 
     /// Pallet errors
@@ -643,15 +619,9 @@ impl<T: Config> Pallet<T> {
                         })
                     }
                 },
-                Ok(MessageResult::Response(res)) => {
-                    debug!(target: "ismp", "Module Callback Results {:?}", ModuleCallbackResult::Response(res));
-                },
-                Ok(MessageResult::Request(res)) => {
-                    debug!(target: "ismp", "Module Callback Results {:?}", ModuleCallbackResult::Request(res));
-                },
-                Ok(MessageResult::Timeout(res)) => {
-                    debug!(target: "ismp", "Module Callback Results {:?}", ModuleCallbackResult::Timeout(res));
-                },
+                Ok(MessageResult::Response(res)) => deposit_ismp_events::<T>(res, &mut errors),
+                Ok(MessageResult::Request(res)) => deposit_ismp_events::<T>(res, &mut errors),
+                Ok(MessageResult::Timeout(res)) => deposit_ismp_events::<T>(res, &mut errors),
                 Ok(MessageResult::FrozenClient(id)) =>
                     Self::deposit_event(Event::<T>::ConsensusClientFrozen {
                         consensus_client_id: id,
@@ -663,7 +633,7 @@ impl<T: Config> Pallet<T> {
         }
 
         if !errors.is_empty() {
-            debug!(target: "pallet-ismp", "Handling Errors {:?}", errors);
+            debug!(target: "ismp", "Handling Errors {:?}", errors);
             Self::deposit_event(Event::<T>::Errors { errors })
         }
 
@@ -703,11 +673,6 @@ impl<T: Config> Pallet<T> {
     /// Returns the offchain key for a request or response leaf index
     pub fn full_leaf_offchain_key(commitment: H256) -> Vec<u8> {
         (T::INDEXING_PREFIX, commitment).encode()
-    }
-
-    /// Returns the offchain key for a request or response leaf index
-    pub fn intermediate_node_offchain_key(position: NodeIndex) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "intermediate_nodes", position).encode()
     }
 
     /// Gets the request from the offchain storage

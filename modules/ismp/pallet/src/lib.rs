@@ -321,7 +321,11 @@ pub mod pallet {
                 &ChildInfo::new_default(CHILD_TRIE_PREFIX),
                 Default::default(),
             );
-            let log = IsmpConsensusLog { child_trie_root, mmr_root: root.encode() };
+
+            let log = IsmpConsensusLog {
+                child_trie_root: H256::from_slice(&child_trie_root),
+                mmr_root: root,
+            };
 
             let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
             <frame_system::Pallet<T>>::deposit_log(digest);

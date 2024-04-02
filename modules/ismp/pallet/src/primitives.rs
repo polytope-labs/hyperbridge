@@ -131,9 +131,9 @@ pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";
 #[derive(Encode, Decode, Clone, scale_info::TypeInfo)]
 pub struct IsmpConsensusLog {
     /// Mmr root hash
-    pub mmr_root: Vec<u8>,
+    pub mmr_root: H256,
     /// Child trie root hash
-    pub child_trie_root: Vec<u8>,
+    pub child_trie_root: H256,
 }
 
 /// Queries a request leaf in the mmr

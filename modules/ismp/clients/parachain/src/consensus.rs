@@ -156,7 +156,7 @@ where
                     {
                         let log = IsmpConsensusLog::decode(&mut &value[..]);
                         if let Ok(log) = log {
-                            overlay_root = H256::from_slice(&log.child_trie_root);
+                            overlay_root = log.child_trie_root;
                         } else {
                             Err(Error::ImplementationSpecific(
                                 "Header contains an invalid ismp consensus log".into(),

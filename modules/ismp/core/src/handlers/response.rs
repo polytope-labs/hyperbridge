@@ -32,15 +32,15 @@ where
     H: IsmpHost,
 {
     let proof = msg.proof();
-    let state_machine = validate_state_machine(host, proof.height)?;
-    let state = host.state_machine_commitment(proof.height)?;
+    let state_machine = validate_state_machine(host, proof.height())?;
+    let state = host.state_machine_commitment(proof.height())?;
 
     let consensus_clients = host.consensus_clients();
 
     let check_for_consensus_client = |state_machine: StateMachine| {
         consensus_clients
             .iter()
-            .find_map(|client| client.state_machine(state_machine).ok())
+            .find_map(|client| client.state_machine(host, state_machine).ok())
             .is_none()
     };
 
@@ -58,8 +58,8 @@ where
                         !response.timed_out(host.timestamp()) &&
                         // either the proof metadata matches the source chain, or it's coming from a proxy
                         // in which case, we must NOT have a configured state machine for the source
-                        (response.source_chain() == msg.proof.height.id.state_id ||
-                            host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+                        (response.source_chain() == msg.proof.height().id.state_id ||
+                            host.is_allowed_proxy(&msg.proof.height().id.state_id) &&
                                 check_for_consensus_client(response.source_chain()))
                 })
                 .cloned()
@@ -102,7 +102,8 @@ where
             let requests = requests
                 .into_iter()
                 .filter(|req| {
-                    !req.timed_out(host.timestamp()) && req.dest_chain() == proof.height.id.state_id
+                    !req.timed_out(host.timestamp()) &&
+                        req.dest_chain() == proof.height().id.state_id
                 })
                 .filter_map(|req| match req {
                     Request::Post(_) => None,

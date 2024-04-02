@@ -170,14 +170,14 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
 
     fn state_machine(
         &self,
+        _host: &dyn IsmpHost,
         id: ismp::host::StateMachine,
     ) -> Result<Box<dyn StateMachineClient>, ismp::error::Error> {
         match id {
             StateMachine::Bsc => Ok(Box::new(<EvmStateMachine<H>>::default())),
-            state_machine =>
-                return Err(Error::ImplementationSpecific(alloc::format!(
-                    "Unsupported state machine: {state_machine:?}"
-                ))),
+            state_machine => Err(Error::ImplementationSpecific(alloc::format!(
+                "Unsupported state machine: {state_machine:?}"
+            ))),
         }
     }
 }
@@ -193,7 +193,7 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
         root: StateCommitment,
         proof: &Proof,
     ) -> Result<(), Error> {
-        let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
+        let consensus_state = host.consensus_state(proof.height().id.consensus_state_id)?;
         let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
             Error::ImplementationSpecific("Cannot decode consensus state".to_string())
         })?;
@@ -212,7 +212,7 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
         root: StateCommitment,
         proof: &Proof,
     ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
-        let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
+        let consensus_state = host.consensus_state(proof.height().id.consensus_state_id)?;
         let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
             Error::ImplementationSpecific("Cannot decode consensus state".to_string())
         })?;

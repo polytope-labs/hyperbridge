@@ -202,7 +202,7 @@ pub async fn timeout_request_stream(
                         };
                         let message = Message::Timeout(TimeoutMessage::Post {
                             requests: vec![req.clone()],
-                            timeout_proof: Proof { height, proof },
+                            timeout_proof: Proof::StateProof { height, proof },
                         });
                         let challenge_period = hyperbridge_client
                             .query_challenge_period(
@@ -308,7 +308,7 @@ pub async fn timeout_request_stream(
                         };
                         let message = Message::Timeout(TimeoutMessage::Post {
                             requests: vec![req],
-                            timeout_proof: Proof { height, proof },
+                            timeout_proof: Proof::StateProof { height, proof },
                         });
                         let challenge_period = source_client
                             .query_challenge_period(

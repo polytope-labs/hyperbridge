@@ -167,7 +167,6 @@ impl pallet_ismp::Config for Test {
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Test>, Sepolia>,
         ismp_bsc::BscClient<Host<Test>>,
     );
-    type WeightInfo = ();
     type WeightProvider = ();
 }
 
@@ -248,7 +247,11 @@ impl ConsensusClient for MockConsensusClient {
         MOCK_CONSENSUS_CLIENT_ID
     }
 
-    fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, IsmpError> {
+    fn state_machine(
+        &self,
+        _host: &dyn IsmpHost,
+        _id: StateMachine,
+    ) -> Result<Box<dyn StateMachineClient>, IsmpError> {
         let state_machine: Box<dyn StateMachineClient> = match _id {
             StateMachine::Kusama(2000) | StateMachine::Kusama(2001) =>
                 Box::new(SubstrateStateMachine::<Test>::default()),

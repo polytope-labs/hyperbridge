@@ -53,6 +53,19 @@ use ismp_bsc::BSC_CONSENSUS_ID;
 use ismp_sync_committee::BEACON_CONSENSUS_ID;
 use pallet_ismp::{dispatcher::LeafMetadata, primitives::LeafIndexAndPos};
 
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+struct ProofV1 {
+    height: StateMachineHeight,
+    proof: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+struct WithdrawalProofV1 {
+    pub commitments: Vec<Key>,
+    pub source_proof: ProofV1,
+    pub dest_proof: ProofV1,
+}
+
 #[test]
 fn test_withdrawal_proof() {
     let mut ext = new_test_ext();
@@ -191,7 +204,11 @@ fn test_withdrawal_proof() {
                 },
                 height: 1,
             },
-            StateCommitment { timestamp: 100, overlay_root: None, state_root: source_root },
+            StateCommitment {
+                timestamp: 100,
+                overlay_root: Some(source_root),
+                state_root: Default::default(),
+            },
         )
         .unwrap();
 
@@ -203,7 +220,11 @@ fn test_withdrawal_proof() {
                 },
                 height: 1,
             },
-            StateCommitment { timestamp: 100, overlay_root: None, state_root: dest_root },
+            StateCommitment {
+                timestamp: 100,
+                overlay_root: Some(dest_root),
+                state_root: Default::default(),
+            },
         )
         .unwrap();
 
@@ -241,7 +262,7 @@ fn test_withdrawal_proof() {
 
         let withdrawal_proof = WithdrawalProof {
             commitments: keys,
-            source_proof: Proof {
+            source_proof: Proof::OverlayProof {
                 height: StateMachineHeight {
                     id: StateMachineId {
                         state_id: StateMachine::Kusama(2000),
@@ -251,7 +272,7 @@ fn test_withdrawal_proof() {
                 },
                 proof: source_state_proof.encode(),
             },
-            dest_proof: Proof {
+            dest_proof: Proof::OverlayProof {
                 height: StateMachineHeight {
                     id: StateMachineId {
                         state_id: StateMachine::Kusama(2001),
@@ -338,7 +359,7 @@ fn test_evm_accumulate_fees() {
 
         dbg!(claim_proof.len());
 
-        let mut claim_proof = WithdrawalProof::decode(&mut &*claim_proof).unwrap();
+        let mut claim_proof = WithdrawalProofV1::decode(&mut &*claim_proof).unwrap();
 
         let mut source_evm_proof = EvmStateProof::decode(&mut &*claim_proof.source_proof.proof).unwrap();
         let mut dest_evm_proof = EvmStateProof::decode(&mut &*claim_proof.dest_proof.proof).unwrap();
@@ -423,14 +444,20 @@ fn test_evm_accumulate_fees() {
 
         host.store_challenge_period(claim_proof.dest_proof.height.id.consensus_state_id, 0).unwrap();
 
-        pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).unwrap();
+        let withdrawal_proof = WithdrawalProof {
+            commitments: claim_proof.commitments,
+            source_proof: Proof::StateProof { height: claim_proof.source_proof.height, proof: claim_proof.source_proof.proof },
+            dest_proof: Proof::StateProof { height: claim_proof.dest_proof.height, proof: claim_proof.dest_proof.proof },
+        };
+
+        pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), withdrawal_proof.clone()).unwrap();
 
         assert_eq!(
             pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Bsc, vec![125, 114, 152, 63, 237, 193, 243, 50, 229, 80, 6, 254, 162, 162, 175, 193, 72, 246, 97, 66]),
             U256::from(50_000_000_000_000_000_000u128)
         );
 
-        assert!(pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).is_err());
+        assert!(pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), withdrawal_proof.clone()).is_err());
     })
 }
 
@@ -446,7 +473,7 @@ fn test_evm_accumulate_fees_with_zero_fee_values() {
         let op_host = H160::from(hex!("1D14e30e440B8DBA9765108eC291B7b66F98Fd09"));
         let bsc_host =  H160::from(hex!("4e5bbdd9fE89F54157DDb64b21eD4D1CA1CDf9a6"));
 
-        let claim_proof = WithdrawalProof::decode(&mut &*claim_proof).unwrap();
+        let claim_proof = WithdrawalProofV1::decode(&mut &*claim_proof).unwrap();
 
         let host = Host::<Test>::default();
         host.store_state_machine_commitment(
@@ -505,8 +532,15 @@ fn test_evm_accumulate_fees_with_zero_fee_values() {
 
         host.store_challenge_period(claim_proof.dest_proof.height.id.consensus_state_id, 0).unwrap();
 
-        pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).unwrap();
-        assert_eq!(claim_proof.commitments.len(), 6);
+        let withdrawal_proof = WithdrawalProof {
+            commitments: claim_proof.commitments,
+            source_proof: Proof::StateProof { height: claim_proof.source_proof.height, proof: claim_proof.source_proof.proof },
+            dest_proof: Proof::StateProof { height: claim_proof.dest_proof.height, proof: claim_proof.dest_proof.proof },
+        };
+
+
+        pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), withdrawal_proof.clone()).unwrap();
+        assert_eq!(withdrawal_proof.commitments.len(), 6);
         assert_eq!(Claimed::<Test>::iter().count(), 5);
     })
 }

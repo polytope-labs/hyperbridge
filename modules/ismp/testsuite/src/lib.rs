@@ -125,7 +125,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
     // Request message handling check
     let request_message = Message::Request(RequestMessage {
         requests: vec![post.clone()],
-        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        proof: Proof::OverlayProof { height: intermediate_state.height, proof: vec![] },
         signer: vec![],
     });
 
@@ -141,7 +141,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
             timeout_timestamp: 0,
             gas_limit: 0,
         })]),
-        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        proof: Proof::OverlayProof { height: intermediate_state.height, proof: vec![] },
         signer: vec![],
     });
 
@@ -151,7 +151,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
     // Timeout mesaage handling check
     let timeout_message = Message::Timeout(TimeoutMessage::Post {
         requests: vec![request],
-        timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
+        timeout_proof: Proof::OverlayProof { height: intermediate_state.height, proof: vec![] },
     });
 
     let res = handle_incoming_message(host, timeout_message);
@@ -205,7 +205,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     // Request message handling check
     let request_message = Message::Request(RequestMessage {
         requests: vec![post.clone()],
-        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        proof: Proof::OverlayProof { height: intermediate_state.height, proof: vec![] },
         signer: vec![],
     });
 
@@ -221,7 +221,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
             timeout_timestamp: 0,
             gas_limit: 0,
         })]),
-        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        proof: Proof::OverlayProof { height: intermediate_state.height, proof: vec![] },
         signer: vec![],
     });
 
@@ -231,7 +231,7 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     // Timeout mesaage handling check
     let timeout_message = Message::Timeout(TimeoutMessage::Post {
         requests: vec![request],
-        timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
+        timeout_proof: Proof::OverlayProof { height: intermediate_state.height, proof: vec![] },
     });
 
     let res = handle_incoming_message(host, timeout_message);
@@ -282,7 +282,7 @@ where
     // Timeout message handling check
     let timeout_message = Message::Timeout(TimeoutMessage::Post {
         requests: vec![request.clone()],
-        timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
+        timeout_proof: Proof::OverlayProof { height: intermediate_state.height, proof: vec![] },
     });
 
     handle_incoming_message(host, timeout_message).unwrap();
@@ -323,7 +323,7 @@ where
 
     let request_message = Message::Request(RequestMessage {
         requests: vec![request.clone()],
-        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        proof: Proof::OverlayProof { height: intermediate_state.height, proof: vec![] },
         signer: vec![],
     });
 
@@ -339,7 +339,7 @@ where
 
     let timeout_message = Message::Timeout(TimeoutMessage::PostResponse {
         responses: vec![response.clone()],
-        timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
+        timeout_proof: Proof::OverlayProof { height: intermediate_state.height, proof: vec![] },
     });
 
     handle_incoming_message(host, timeout_message).unwrap();
@@ -453,12 +453,12 @@ where
 
     let proxy_consensus_client_id = consensus_clients
         .iter()
-        .find(|client| client.state_machine(proxy_state_machine).ok().is_some())
+        .find(|client| client.state_machine(host, proxy_state_machine).ok().is_some())
         .expect("The proxy consensus client should be set for this test")
         .consensus_client_id();
     let destination_consensus_client_id = consensus_clients
         .iter()
-        .find(|client| client.state_machine(direct_conn_state_machine).ok().is_some())
+        .find(|client| client.state_machine(host, direct_conn_state_machine).ok().is_some())
         .expect("The directly connected chain's consensus client should be set for this test")
         .consensus_client_id();
 
@@ -496,7 +496,7 @@ where
 
     let timeout_message = Message::Timeout(TimeoutMessage::Post {
         requests: vec![request.clone()],
-        timeout_proof: Proof { height: proxy.height, proof: vec![] },
+        timeout_proof: Proof::OverlayProof { height: proxy.height, proof: vec![] },
     });
 
     let res = handle_incoming_message(host, timeout_message).unwrap();
@@ -552,12 +552,12 @@ where
 
     let proxy_consensus_client_id = consensus_clients
         .iter()
-        .find(|client| client.state_machine(proxy_state_machine).ok().is_some())
+        .find(|client| client.state_machine(host, proxy_state_machine).ok().is_some())
         .expect("The proxy consensus client should be set for this test")
         .consensus_client_id();
     let destination_consensus_client_id = consensus_clients
         .iter()
-        .find(|client| client.state_machine(direct_conn_state_machine).ok().is_some())
+        .find(|client| client.state_machine(host, direct_conn_state_machine).ok().is_some())
         .expect("The proxy destination chain's consensus client should be set for this test")
         .consensus_client_id();
 
@@ -579,7 +579,7 @@ where
 
     let request_message = Message::Request(RequestMessage {
         requests: vec![request.clone()],
-        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        proof: Proof::OverlayProof { height: intermediate_state.height, proof: vec![] },
         signer: vec![],
     });
 
@@ -595,7 +595,7 @@ where
 
     let timeout_message = Message::Timeout(TimeoutMessage::PostResponse {
         responses: vec![response.clone()],
-        timeout_proof: Proof { height: proxy.height, proof: vec![] },
+        timeout_proof: Proof::OverlayProof { height: proxy.height, proof: vec![] },
     });
 
     let res = handle_incoming_message(host, timeout_message).unwrap();

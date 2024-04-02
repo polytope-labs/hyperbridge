@@ -26,6 +26,7 @@ use alloy_rlp::Decodable;
 use codec::Decode;
 use ethabi::ethereum_types::{H256, U256};
 use ethereum_trie::{EIP1186Layout, StorageProof};
+use frame_support::ensure;
 use ismp::{
     consensus::{
         ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
@@ -62,10 +63,12 @@ pub fn construct_intermediate_state(
 }
 
 pub(super) fn decode_evm_state_proof(proof: &Proof) -> Result<EvmStateProof, Error> {
-    let proof_vec = proof.proof.clone();
-    let evm_state_proof = EvmStateProof::decode(&mut &proof_vec[..]).map_err(|_| {
-        Error::ImplementationSpecific(format!("Cannot decode evm state proof {:?}", proof_vec))
-    })?;
+    ensure!(
+        matches!(proof, Proof::StateProof { .. }),
+        Error::ImplementationSpecific("Expected State Proof".to_string())
+    );
+    let evm_state_proof = EvmStateProof::decode(&mut &proof.proof()[..])
+        .map_err(|_| Error::ImplementationSpecific(format!("Cannot decode evm state proof")))?;
 
     Ok(evm_state_proof)
 }

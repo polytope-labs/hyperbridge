@@ -66,7 +66,6 @@ impl pallet_ismp::Config for Runtime {
         ismp_bsc::BscClient<Host<Runtime>>,
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Sepolia>,
     );
-    type WeightInfo = ();
     type WeightProvider = ();
 }
 

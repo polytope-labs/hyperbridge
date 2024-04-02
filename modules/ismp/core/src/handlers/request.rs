@@ -30,10 +30,10 @@ pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, Error>
 where
     H: IsmpHost,
 {
-    let state_machine = validate_state_machine(host, msg.proof.height)?;
+    let state_machine = validate_state_machine(host, msg.proof.height())?;
 
     // Verify membership proof
-    let state = host.state_machine_commitment(msg.proof.height)?;
+    let state = host.state_machine_commitment(msg.proof.height())?;
     state_machine.verify_membership(
         host,
         RequestResponse::Request(msg.requests.clone().into_iter().map(Request::Post).collect()),
@@ -45,7 +45,7 @@ where
     let check_for_consensus_client = |state_machine: StateMachine| {
         consensus_clients
             .iter()
-            .find_map(|client| client.state_machine(state_machine).ok())
+            .find_map(|client| client.state_machine(host, state_machine).ok())
             .is_none()
     };
 
@@ -65,8 +65,8 @@ where
                 host.is_router()) &&
                 // either the proof metadata matches the source chain, or it's coming from a proxy
                 // in which case, we must NOT have a configured state machine for the source
-                (req.source_chain() == msg.proof.height.id.state_id ||
-                host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+                (req.source_chain() == msg.proof.height().id.state_id ||
+                host.is_allowed_proxy(&msg.proof.height().id.state_id) &&
                     check_for_consensus_client(req.source_chain()))
         })
         .map(|request| {

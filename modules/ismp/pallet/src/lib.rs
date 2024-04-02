@@ -86,7 +86,7 @@ pub mod pallet {
         errors::HandlingError,
         mmr::primitives::{LeafIndex, NodeIndex},
         primitives::{ConsensusClientProvider, WeightUsed, ISMP_ID},
-        weight_info::{WeightInfo, WeightProvider},
+        weight_info::WeightProvider,
     };
     use frame_support::{pallet_prelude::*, traits::UnixTime};
     use frame_system::pallet_prelude::*;
@@ -127,9 +127,6 @@ pub mod pallet {
 
         /// Provides concrete implementations of consensus clients
         type ConsensusClients: ConsensusClientProvider;
-
-        /// Weight Info
-        type WeightInfo: WeightInfo;
 
         /// Weight provider for consensus clients and module callbacks
         type WeightProvider: WeightProvider;
@@ -259,8 +256,7 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
             IntermediateNumberOfLeaves::<T>::put(Self::number_of_leaves());
-            // todo: return correct Mmr finalization weight here
-            <T as Config>::WeightInfo::on_finalize(Self::number_of_leaves() as u32)
+            Weight::default()
         }
 
         fn on_finalize(_n: BlockNumberFor<T>) {
@@ -354,7 +350,7 @@ pub mod pallet {
         }
 
         /// Create a consensus client, using a subjectively chosen consensus state.
-        #[pallet::weight(<T as Config>::WeightInfo::create_consensus_client())]
+        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
         #[pallet::call_index(1)]
         pub fn create_consensus_client(
             origin: OriginFor<T>,

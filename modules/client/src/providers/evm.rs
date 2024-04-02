@@ -21,7 +21,7 @@ use ismp::{
     consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
     events::{Event, StateMachineUpdated},
     host::StateMachine,
-    messaging::{Message, Proof, TimeoutMessage},
+    messaging::{Message, TimeoutMessage},
     router::Request,
 };
 use ismp_solidity_abi::{
@@ -130,7 +130,7 @@ impl Client for EvmClient {
         Ok(relayer)
     }
 
-    async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Proof, Error> {
+    async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
         use codec::Encode;
         let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
         let locations = keys.iter().map(|key| H256::from_slice(key)).collect();
@@ -148,10 +148,7 @@ impl Client for EvmClient {
             contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
             storage_proof: map,
         };
-        Ok(Proof::StateProof {
-            height: StateMachineHeight { id: self.state_machine_id(), height: at },
-            proof: state_proof.encode(),
-        })
+        Ok(state_proof.encode())
     }
 
     async fn query_response_receipt(&self, request_commitment: H256) -> Result<H160, Error> {
@@ -413,7 +410,7 @@ impl Client for EvmClient {
                     .collect();
 
                 let state_proof: SubstrateStateProof =
-                    match codec::Decode::decode(&mut timeout_proof.proof()) {
+                    match codec::Decode::decode(&mut timeout_proof.proof.as_slice()) {
                         Ok(proof) => proof,
                         _ => Err(anyhow!("Error decoding proof"))?,
                     };
@@ -421,14 +418,14 @@ impl Client for EvmClient {
                     timeouts: post_requests,
                     height: ismp_solidity_abi::shared_types::StateMachineHeight {
                         state_machine_id: {
-                            match timeout_proof.height().id.state_id {
+                            match timeout_proof.height.id.state_id {
                                 StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
                                 _ => Err(anyhow!("Expected polkadot or kusama state machines"))?,
                             }
                         },
-                        height: timeout_proof.height().height.into(),
+                        height: timeout_proof.height.height.into(),
                     },
-                    proof: state_proof.storage_proof.into_iter().map(|key| key.into()).collect(),
+                    proof: state_proof.storage_proof().into_iter().map(|key| key.into()).collect(),
                 };
                 let call = contract.handle_post_request_timeouts(self.host_address, message);
 
@@ -438,7 +435,7 @@ impl Client for EvmClient {
                 let post_responses = responses.into_iter().map(|res| res.into()).collect();
 
                 let state_proof: SubstrateStateProof =
-                    match codec::Decode::decode(&mut timeout_proof.proof()) {
+                    match codec::Decode::decode(&mut timeout_proof.proof.as_slice()) {
                         Ok(proof) => proof,
                         _ => Err(anyhow!("Expected polkadot or kusama state machines"))?,
                     };
@@ -446,14 +443,14 @@ impl Client for EvmClient {
                     timeouts: post_responses,
                     height: ismp_solidity_abi::shared_types::StateMachineHeight {
                         state_machine_id: {
-                            match timeout_proof.height().id.state_id {
+                            match timeout_proof.height.id.state_id {
                                 StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
                                 _ => Err(anyhow!("Expected polkadot or kusama state machines"))?,
                             }
                         },
-                        height: timeout_proof.height().height.into(),
+                        height: timeout_proof.height.height.into(),
                     },
-                    proof: state_proof.storage_proof.into_iter().map(|key| key.into()).collect(),
+                    proof: state_proof.storage_proof().into_iter().map(|key| key.into()).collect(),
                 };
                 let call = contract.handle_post_response_timeouts(self.host_address, message);
                 Ok(call.tx.data().cloned().expect("Infallible").to_vec())

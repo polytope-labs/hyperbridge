@@ -6,7 +6,7 @@ use ethers::{prelude::H256, types::H160};
 use ismp::{
     consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
     events::{Event, StateMachineUpdated},
-    messaging::{Message, Proof},
+    messaging::Message,
     router::{Post, PostResponse},
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
@@ -42,7 +42,8 @@ pub trait Client: Clone + Send + Sync + 'static {
     async fn query_request_receipt(&self, request_hash: H256) -> Result<H160, anyhow::Error>;
 
     // Queries state proof for some keys
-    async fn query_state_proof(&self, at: u64, key: Vec<Vec<u8>>) -> Result<Proof, anyhow::Error>;
+    async fn query_state_proof(&self, at: u64, key: Vec<Vec<u8>>)
+        -> Result<Vec<u8>, anyhow::Error>;
 
     // Query the response receipt from the ISMP host on the destination chain
     async fn query_response_receipt(&self, request_commitment: H256)

@@ -11,7 +11,7 @@ use ethers::prelude::H160;
 use futures::{stream, StreamExt};
 use ismp::{
     consensus::StateMachineHeight,
-    messaging::{Message, TimeoutMessage},
+    messaging::{Message, Proof, TimeoutMessage},
     router::{Post, PostResponse, Request, Response},
     util::hash_request,
 };
@@ -202,7 +202,7 @@ pub async fn timeout_request_stream(
                         };
                         let message = Message::Timeout(TimeoutMessage::Post {
                             requests: vec![req.clone()],
-                            timeout_proof: proof,
+                            timeout_proof: Proof { height, proof },
                         });
                         let challenge_period = hyperbridge_client
                             .query_challenge_period(
@@ -308,7 +308,7 @@ pub async fn timeout_request_stream(
                         };
                         let message = Message::Timeout(TimeoutMessage::Post {
                             requests: vec![req],
-                            timeout_proof: proof,
+                            timeout_proof: Proof { height, proof },
                         });
                         let challenge_period = source_client
                             .query_challenge_period(

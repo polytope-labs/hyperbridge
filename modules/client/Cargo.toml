@@ -36,6 +36,7 @@ console_error_panic_hook = "0.1.7"
 ethers = { workspace = true, features = ["ws"] }
 
 ismp = { path = "../ismp/core", default-features = false }
+pallet-ismp = { path = "../ismp/pallet", default-features = false, features = ["disable-panic-handler"] }
 ismp-solidity-abi = { path = "../../evm/abi", default-features = false }
 ethereum-trie = { path = "../trees/ethereum", default-features = false }
 

@@ -14,7 +14,7 @@ use ismp::{
     consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
     events::{Event, StateMachineUpdated},
     host::{Ethereum, StateMachine},
-    messaging::{Message, Proof},
+    messaging::Message,
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use reconnecting_jsonrpsee_ws_client::{Client as ReconnectClient, SubscriptionId};
@@ -135,7 +135,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         }
     }
 
-    async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Proof, Error> {
+    async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
         /// Contains a scale encoded Mmr Proof or Trie proof
         #[derive(Serialize, Deserialize)]
         pub struct RpcProof {
@@ -149,11 +149,9 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let response: RpcProof =
             self.client.rpc().request("ismp_queryChildTrieProof", params).await?;
         let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
-        let proof = SubstrateStateProof { hasher: self.hashing.clone(), storage_proof };
-        Ok(Proof::OverlayProof {
-            height: StateMachineHeight { id: self.state_machine_id(), height: at },
-            proof: proof.encode(),
-        })
+        let proof =
+            SubstrateStateProof::OverlayProof { hasher: self.hashing.clone(), storage_proof };
+        Ok(proof.encode())
     }
 
     async fn query_response_receipt(&self, request_commitment: H256) -> Result<H160, Error> {

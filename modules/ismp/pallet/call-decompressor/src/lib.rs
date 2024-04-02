@@ -49,18 +49,12 @@ pub mod pallet {
 
     #[pallet::error]
     pub enum Error<T> {
-        /// Call Identifier not suported
-        CallIdentifierNotSupported,
-        /// Unsupported ISMP Call
+        /// Unsupported Call
         CallNotSupported,
-        /// Invalid IsmpTransaction
-        InvalidIsmpTransaction,
         /// Error executing Call
         ErrorExecutingCall,
-        /// Error Decoding Call Identifier
-        ErrorDecodingCallIdentifier,
-        /// Compression Failed
-        CompressionFailed,
+        /// Decompression Failed
+        DecompressionFailed,
         /// Error Decoding Call
         ErrorDecodingCall,
     }
@@ -168,7 +162,7 @@ where
             .cloned()
             .decode(&mut ZlibDecoder::new())
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| Error::<T>::CompressionFailed)?;
+            .map_err(|_| Error::<T>::DecompressionFailed)?;
 
         Ok(decompressed_call)
     }

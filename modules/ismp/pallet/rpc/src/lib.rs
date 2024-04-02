@@ -30,12 +30,13 @@ use ismp::{
     router::{Request, Response},
 };
 use pallet_ismp::{
+    child_trie::CHILD_TRIE_PREFIX,
     mmr::primitives::{Leaf, NodeIndex},
     primitives::{LeafIndexAndPos, LeafIndexQuery},
     ProofKeys,
 };
 use pallet_ismp_runtime_api::IsmpRuntimeApi;
-use sc_client_api::{BlockBackend, ProofProvider};
+use sc_client_api::{BlockBackend, ChildInfo, ProofProvider};
 use serde::{Deserialize, Serialize};
 use sp_api::{ApiExt, ProvideRuntimeApi};
 use sp_blockchain::HeaderBackend;
@@ -132,9 +133,13 @@ where
     #[method(name = "ismp_queryMmrProof")]
     fn query_mmr_proof(&self, height: u32, keys: ProofKeys) -> Result<Proof>;
 
-    /// Query membership or non-membership proof for some keys
+    /// Query state proof from global state trie
     #[method(name = "ismp_queryStateProof")]
     fn query_state_proof(&self, height: u32, keys: Vec<Vec<u8>>) -> Result<Proof>;
+
+    /// Query pallet ismp child trie proof
+    #[method(name = "ismp_queryChildTrieProof")]
+    fn query_child_trie_proof(&self, height: u32, keys: Vec<Vec<u8>>) -> Result<Proof>;
 
     /// Query scale encoded consensus state
     #[method(name = "ismp_queryConsensusState")]
@@ -249,7 +254,22 @@ where
             .client
             .read_proof(at, &mut keys.iter().map(|key| key.as_slice()))
             .map(|proof| proof.into_iter_nodes().collect())
-            .map_err(|_| runtime_error_into_rpc_error("Error reading state proof"))?;
+            .map_err(|_| runtime_error_into_rpc_error("Error generating state proof"))?;
+        Ok(Proof { proof: proof.encode(), height })
+    }
+
+    fn query_child_trie_proof(&self, height: u32, keys: Vec<Vec<u8>>) -> Result<Proof> {
+        let at = self.client.block_hash(height.into()).ok().flatten().ok_or_else(|| {
+            runtime_error_into_rpc_error("Could not find valid blockhash for provided height")
+        })?;
+        let child_info = ChildInfo::new_default(CHILD_TRIE_PREFIX);
+        let proof: Vec<_> = self
+            .client
+            .read_child_proof(at, &child_info, &mut keys.iter().map(|key| key.as_slice()))
+            .map(|proof| proof.into_iter_nodes().collect())
+            .map_err(|_| {
+                runtime_error_into_rpc_error("Error reading generating child trie proof")
+            })?;
         Ok(Proof { proof: proof.encode(), height })
     }
 

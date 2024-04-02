@@ -21,7 +21,7 @@ use ismp::{
     consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
     events::{Event, StateMachineUpdated},
     host::StateMachine,
-    messaging::{Message, TimeoutMessage},
+    messaging::{Message, Proof, TimeoutMessage},
     router::Request,
 };
 use ismp_solidity_abi::{
@@ -130,7 +130,7 @@ impl Client for EvmClient {
         Ok(relayer)
     }
 
-    async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
+    async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Proof, Error> {
         use codec::Encode;
         let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
         let locations = keys.iter().map(|key| H256::from_slice(key)).collect();
@@ -148,7 +148,10 @@ impl Client for EvmClient {
             contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
             storage_proof: map,
         };
-        Ok(state_proof.encode())
+        Ok(Proof::StateProof {
+            height: StateMachineHeight { id: self.state_machine_id(), height: at },
+            proof: state_proof.encode(),
+        })
     }
 
     async fn query_response_receipt(&self, request_commitment: H256) -> Result<H160, Error> {

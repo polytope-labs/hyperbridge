@@ -45,6 +45,7 @@ use ismp::{
     handlers::{handle_incoming_message, MessageResult},
     messaging::CreateConsensusState,
     router::{Request, Response},
+    util::hash_request,
 };
 use log::debug;
 use sp_core::{offchain::StorageKind, H256};
@@ -93,9 +94,11 @@ pub mod pallet {
             ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
             StateMachineId,
         },
-        handlers::{self},
+        handlers,
         host::StateMachine,
-        messaging::Message,
+        messaging::{
+            ConsensusMessage, FraudProofMessage, Message, RequestMessage, ResponseMessage,
+        },
         router::IsmpRouter,
     };
     use sp_core::H256;
@@ -538,7 +541,35 @@ pub mod pallet {
                     TransactionValidityError::Invalid(InvalidTransaction::BadProof)
                 })?;
 
-            let msg_hash = sp_io::hashing::keccak_256(&messages.encode()).to_vec();
+            let mut requests = messages
+                .into_iter()
+                .map(|message| match message {
+                    Message::Consensus(ConsensusMessage { consensus_proof, .. }) =>
+                        vec![H256(sp_io::hashing::keccak_256(&consensus_proof))],
+                    Message::FraudProof(FraudProofMessage { proof_1, proof_2, .. }) => vec![
+                        H256(sp_io::hashing::keccak_256(&proof_1)),
+                        H256(sp_io::hashing::keccak_256(&proof_2)),
+                    ],
+                    Message::Request(RequestMessage { requests, .. }) => requests
+                        .into_iter()
+                        .map(|post| hash_request::<Host<T>>(&Request::Post(post.clone())))
+                        .collect::<Vec<_>>(),
+                    Message::Response(message) => message
+                        .requests()
+                        .iter()
+                        .map(|request| hash_request::<Host<T>>(request))
+                        .collect::<Vec<_>>(),
+                    Message::Timeout(message) => message
+                        .requests()
+                        .iter()
+                        .map(|request| hash_request::<Host<T>>(request))
+                        .collect::<Vec<_>>(),
+                })
+                .collect::<Vec<_>>();
+            requests.sort();
+
+            // this is so we can reject duplicate batches at the mempool level
+            let msg_hash = sp_io::hashing::keccak_256(&requests.encode()).to_vec();
 
             Ok(ValidTransaction {
                 priority: 100,

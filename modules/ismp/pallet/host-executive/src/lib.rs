@@ -17,17 +17,32 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+mod params;
+
 extern crate alloc;
 
 pub use pallet::*;
+pub use params::*;
 
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use alloc::{collections::BTreeMap, vec::Vec};
-    use frame_support::pallet_prelude::{OptionQuery, *};
+    use crate::params::*;
+    use alloc::{collections::BTreeMap, vec, vec::Vec};
+    use alloy_rlp::Encodable;
+    use frame_support::{
+        pallet_prelude::{OptionQuery, *},
+        PalletId,
+    };
     use frame_system::pallet_prelude::*;
-    use ismp::host::StateMachine;
+    use ismp::{
+        host::StateMachine,
+        router::{DispatchPost, DispatchRequest, IsmpDispatcher},
+    };
+    use pallet_ismp::{dispatcher::Dispatcher, primitives::ModuleId};
+
+    /// ISMP module identifier
+    pub const PALLET_ID: ModuleId = ModuleId::Pallet(PalletId(*b"hostexec"));
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -39,30 +54,75 @@ pub mod pallet {
 
     /// Host Manager Addresses on different chains
     #[pallet::storage]
-    #[pallet::getter(fn host_manager)]
-    pub type HostManagers<T: Config> =
-        StorageMap<_, Twox64Concat, StateMachine, Vec<u8>, OptionQuery>;
+    #[pallet::getter(fn host_params)]
+    pub type HostParams<T: Config> =
+        StorageMap<_, Twox64Concat, StateMachine, HostParam, OptionQuery>;
 
     #[pallet::error]
-    pub enum Error<T> {}
+    pub enum Error<T> {
+        /// Could not commit the outgoing request
+        DispatchFailed,
+        /// The requested state machine was unrecognized
+        UnknownStateMachine,
+    }
 
     #[pallet::call]
     impl<T: Config> Pallet<T>
     where
-        <T as frame_system::Config>::AccountId: From<[u8; 32]>,
+        T::AccountId: From<[u8; 32]>,
     {
-        /// Set the host manager addresses for different state machines
-        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(addresses.len() as u64))]
-        #[pallet::call_index(4)]
-        pub fn set_host_manger_addresses(
+        /// Set the host params for all the different state machines
+        #[pallet::weight(T::DbWeight::get().writes(1))]
+        #[pallet::call_index(0)]
+        pub fn set_host_params(
             origin: OriginFor<T>,
-            addresses: BTreeMap<StateMachine, Vec<u8>>,
+            params: BTreeMap<StateMachine, HostParam>,
         ) -> DispatchResult {
-            <T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
+            T::AdminOrigin::ensure_origin(origin)?;
 
-            for (state_machine, address) in addresses {
-                HostManagers::<T>::insert(state_machine, address);
+            for (state_machine, params) in params {
+                HostParams::<T>::insert(state_machine, params);
             }
+
+            Ok(())
+        }
+
+        /// Set the host params for the provided state machine
+        #[pallet::weight(T::DbWeight::get().writes(1))]
+        #[pallet::call_index(1)]
+        pub fn update_host_params(
+            origin: OriginFor<T>,
+            state_machine: StateMachine,
+            update: HostParamUpdate,
+        ) -> DispatchResult {
+            T::AdminOrigin::ensure_origin(origin)?;
+
+            let mut params = HostParams::<T>::get(&state_machine)
+                .ok_or_else(|| Error::<T>::UnknownStateMachine)?;
+
+            params.update(update);
+
+            let mut data = vec![1u8]; // enum variant for the host manager
+            HostParamRlp::try_from(params.clone())
+                .expect("u128 will always fit inside a U256; qed")
+                .encode(&mut data);
+            let dispatcher = Dispatcher::<T>::default();
+            dispatcher
+                .dispatch_request(
+                    DispatchRequest::Post(DispatchPost {
+                        dest: state_machine,
+                        from: PALLET_ID.to_bytes(),
+                        to: params.host_manager.0.to_vec(),
+                        timeout_timestamp: 0,
+                        gas_limit: 0,
+                        data,
+                    }),
+                    [0u8; 32].into(),
+                    Default::default(),
+                )
+                .map_err(|_| Error::<T>::DispatchFailed)?;
+
+            HostParams::<T>::insert(state_machine, params);
 
             Ok(())
         }

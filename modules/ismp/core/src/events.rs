@@ -60,7 +60,7 @@ pub enum Event {
     /// Emitted when a post response timeout is handled
     PostResponseTimeoutHandled(TimeoutHandled),
     /// Emitted when a get request is handled
-    GetResponseHandled(RequestResponseHandled),
+    GetRequestHandled(RequestResponseHandled),
     /// Emitted when a get request timeout is handled
     GetRequestTimeoutHandled(TimeoutHandled),
 }

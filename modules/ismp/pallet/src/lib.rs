@@ -470,7 +470,7 @@ pub mod pallet {
         /// Post Response Handled
         PostResponseHandled(RequestResponseHandled),
         /// Get Response Handled
-        GetResponseHandled(RequestResponseHandled),
+        GetRequestHandled(RequestResponseHandled),
         /// Post request timeout handled
         PostRequestTimeoutHandled(TimeoutHandled),
         /// Post response timeout handled

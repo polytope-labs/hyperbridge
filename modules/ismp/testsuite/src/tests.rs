@@ -17,7 +17,6 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
 }
 
 #[test]
-#[ignore]
 fn should_reject_updates_within_challenge_period() {
     let host = Host::default();
     check_challenge_period(&host).unwrap()

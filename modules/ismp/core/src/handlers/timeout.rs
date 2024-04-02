@@ -44,18 +44,18 @@ where
         TimeoutMessage::Post { requests, timeout_proof } => {
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
+            let is_valid_batch = requests.iter().all(|req| {
+                // check if the destination chain matches the proof metadata
+                // or if the proof metadata refers to the configured proxy
+                // and we don't have a configured state machine client for the destination
+                req.dest_chain() == timeout_proof.height.id.state_id ||
+                    host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+                        check_for_consensus_client(req.dest_chain())
+            });
 
-            let requests = requests
-                .into_iter()
-                .filter(|req| {
-                    // check if the destination chain matches the proof metadata
-                    // or if the proof metadata refers to the configured proxy
-                    // and we don't have a configured state machine client for the destination
-                    req.dest_chain() == timeout_proof.height.id.state_id ||
-                        host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-                            check_for_consensus_client(req.dest_chain())
-                })
-                .collect::<Vec<_>>();
+            if !is_valid_batch {
+                Err(Error::ImplementationSpecific("Invalid message batch".to_string()))?
+            }
 
             for request in &requests {
                 // Ensure a commitment exists for all requests in the batch
@@ -103,17 +103,18 @@ where
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
 
-            let responses = responses
-                .into_iter()
-                .filter(|res| {
-                    // check if the destination chain matches the proof metadata
-                    // or if the proof metadata refers to the configured proxy
-                    // and we don't have a configured state machine client for the destination
-                    res.dest_chain() == timeout_proof.height.id.state_id ||
-                        host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-                            check_for_consensus_client(res.dest_chain())
-                })
-                .collect::<Vec<_>>();
+            let is_valid_batch = responses.iter().all(|res| {
+                // check if the destination chain matches the proof metadata
+                // or if the proof metadata refers to the configured proxy
+                // and we don't have a configured state machine client for the destination
+                res.dest_chain() == timeout_proof.height.id.state_id ||
+                    host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+                        check_for_consensus_client(res.dest_chain())
+            });
+
+            if !is_valid_batch {
+                Err(Error::ImplementationSpecific("Invalid message batch".to_string()))?
+            }
 
             for response in &responses {
                 // Ensure a commitment exists for all responses in the batch

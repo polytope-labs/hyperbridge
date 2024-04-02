@@ -303,11 +303,21 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
                     gas_limit: resp.res_gaslimit.low_u64(),
                 })),
             EvmHostEvents::PostRequestHandledFilter(handled) =>
-                Ok(ismp::events::Event::PostRequestHandled(ismp::events::PostRequestHandled {
+                Ok(ismp::events::Event::PostRequestHandled(ismp::events::RequestResponseHandled {
                     commitment: handled.commitment.into(),
                     relayer: handled.relayer.as_bytes().to_vec(),
                 })),
-            event => Err(anyhow!("Unsupported event {event:?}")),
+            EvmHostEvents::GetRequestHandledFilter(handled) =>
+                Ok(ismp::events::Event::GetRequestHandled(ismp::events::RequestResponseHandled {
+                    commitment: handled.commitment.into(),
+                    relayer: handled.relayer.as_bytes().to_vec(),
+                })),
+
+            EvmHostEvents::PostResponseHandledFilter(handled) =>
+                Ok(ismp::events::Event::PostResponseHandled(ismp::events::RequestResponseHandled {
+                    commitment: handled.commitment.into(),
+                    relayer: handled.relayer.as_bytes().to_vec(),
+                })),
         }
     }
 }

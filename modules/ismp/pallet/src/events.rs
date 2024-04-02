@@ -62,7 +62,7 @@ pub enum Event {
     /// Post Response Handled
     PostResponseHandled(RequestResponseHandled),
     /// Get Response Handled
-    GetResponseHandled(RequestResponseHandled),
+    GetRequestHandled(RequestResponseHandled),
     /// Post request timeout handled
     PostRequestTimeoutHandled(TimeoutHandled),
     /// Post response timeout handled
@@ -82,7 +82,7 @@ pub fn to_core_protocol_event<T: Config>(event: PalletEvent<T>) -> Option<Event>
             Some(Event::Request { dest_chain, source_chain, request_nonce, commitment }),
         PalletEvent::GetRequestTimeoutHandled(handled) =>
             Some(Event::GetRequestTimeoutHandled(handled)),
-        PalletEvent::GetResponseHandled(handled) => Some(Event::GetResponseHandled(handled)),
+        PalletEvent::GetRequestHandled(handled) => Some(Event::GetRequestHandled(handled)),
         PalletEvent::PostRequestHandled(handled) => Some(Event::PostRequestHandled(handled)),
         PalletEvent::PostResponseHandled(handled) => Some(Event::PostResponseHandled(handled)),
         PalletEvent::PostRequestTimeoutHandled(handled) =>
@@ -112,8 +112,8 @@ pub fn deposit_ismp_events<T: Config>(
                     Pallet::<T>::deposit_event(PalletEvent::<T>::PostResponseTimeoutHandled(
                         handled,
                     )),
-                ismp::events::Event::GetResponseHandled(handled) =>
-                    Pallet::<T>::deposit_event(PalletEvent::<T>::GetResponseHandled(handled)),
+                ismp::events::Event::GetRequestHandled(handled) =>
+                    Pallet::<T>::deposit_event(PalletEvent::<T>::GetRequestHandled(handled)),
                 ismp::events::Event::GetRequestTimeoutHandled(handled) =>
                     Pallet::<T>::deposit_event(PalletEvent::<T>::GetRequestTimeoutHandled(handled)),
                 _ => {},

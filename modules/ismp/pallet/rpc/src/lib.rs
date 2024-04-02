@@ -420,8 +420,8 @@ where
                         Some(Event::PostRequestHandled(handled)),
                     pallet_ismp::events::Event::PostResponseHandled(handled) =>
                         Some(Event::PostResponseHandled(handled)),
-                    pallet_ismp::events::Event::GetResponseHandled(handled) =>
-                        Some(Event::GetResponseHandled(handled)),
+                    pallet_ismp::events::Event::GetRequestHandled(handled) =>
+                        Some(Event::GetRequestHandled(handled)),
                     pallet_ismp::events::Event::PostRequestTimeoutHandled(handled) =>
                         Some(Event::PostRequestTimeoutHandled(handled)),
                     pallet_ismp::events::Event::PostResponseTimeoutHandled(handled) =>
@@ -542,8 +542,8 @@ where
                         Some(Event::PostRequestHandled(handled)),
                     pallet_ismp::events::Event::PostResponseHandled(handled) =>
                         Some(Event::PostResponseHandled(handled)),
-                    pallet_ismp::events::Event::GetResponseHandled(handled) =>
-                        Some(Event::GetResponseHandled(handled)),
+                    pallet_ismp::events::Event::GetRequestHandled(handled) =>
+                        Some(Event::GetRequestHandled(handled)),
                     pallet_ismp::events::Event::PostRequestTimeoutHandled(handled) =>
                         Some(Event::PostRequestTimeoutHandled(handled)),
                     pallet_ismp::events::Event::PostResponseTimeoutHandled(handled) =>

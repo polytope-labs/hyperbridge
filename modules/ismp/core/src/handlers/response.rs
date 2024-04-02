@@ -49,22 +49,22 @@ where
         RequestResponse::Response(responses) => {
             // For a response to be valid a request commitment must be present in storage
             // Also we must not have received a response for this request
-            let responses = responses
-                .iter()
-                .filter(|response| {
-                    let request = response.request();
-                    let commitment = hash_request::<H>(&request);
-                    host.request_commitment(commitment).is_ok() &&
-                        host.response_receipt(&response).is_none() &&
-                        !response.timed_out(host.timestamp()) &&
-                        // either the proof metadata matches the source chain, or it's coming from a proxy
-                        // in which case, we must NOT have a configured state machine for the source
-                        (response.source_chain() == msg.proof.height.id.state_id ||
-                            host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-                                check_for_consensus_client(response.source_chain()))
-                })
-                .cloned()
-                .collect::<Vec<_>>();
+            let is_valid_batch = responses.iter().all(|response| {
+                let request = response.request();
+                let commitment = hash_request::<H>(&request);
+                host.request_commitment(commitment).is_ok() &&
+                    host.response_receipt(&response).is_none() &&
+                    !response.timed_out(host.timestamp()) &&
+                    // either the proof metadata matches the source chain, or it's coming from a proxy
+                    // in which case, we must NOT have a configured state machine for the source
+                    (response.source_chain() == msg.proof.height.id.state_id ||
+                        host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+                            check_for_consensus_client(response.source_chain()))
+            });
+
+            if !is_valid_batch {
+                Err(Error::ImplementationSpecific("Invalid message batch".to_string()))?
+            }
 
             // Verify membership proof
             state_machine.verify_membership(
@@ -76,6 +76,7 @@ where
 
             let router = host.ismp_router();
             responses
+                .clone()
                 .into_iter()
                 .map(|response| {
                     let cb = router.module_for_id(response.destination_module())?;
@@ -94,11 +95,16 @@ where
                 .collect::<Result<Vec<_>, _>>()?
         },
         RequestResponse::Request(requests) => {
+            let is_valid_batch = requests.iter().all(|req| {
+                !req.timed_out(host.timestamp()) && req.dest_chain() == proof.height.id.state_id
+            });
+
+            if !is_valid_batch {
+                Err(Error::ImplementationSpecific("Invalid message batch".to_string()))?
+            }
+
             let requests = requests
                 .into_iter()
-                .filter(|req| {
-                    !req.timed_out(host.timestamp()) && req.dest_chain() == proof.height.id.state_id
-                })
                 .filter_map(|req| match req {
                     Request::Post(_) => None,
                     Request::Get(get) => {
@@ -136,7 +142,7 @@ where
                         .on_response(Response::Get(GetResponse { get: request.clone(), values }))
                         .map(|_| {
                             let commitment = hash_request::<H>(&wrapped_req);
-                            Event::GetResponseHandled(RequestResponseHandled {
+                            Event::GetRequestHandled(RequestResponseHandled {
                                 commitment,
                                 relayer: signer.clone(),
                             })

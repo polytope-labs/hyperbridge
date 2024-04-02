@@ -24,7 +24,7 @@ use ismp::{
     consensus::{
         ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
     },
-    handlers::{handle_incoming_message, MessageResult},
+    handlers::handle_incoming_message,
     host::{Ethereum, IsmpHost, StateMachine},
     messaging::{
         ConsensusMessage, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage,
@@ -265,7 +265,7 @@ where
     };
     let post = Post {
         source: host.host_state_machine(),
-        dest: StateMachine::Kusama(2000),
+        dest: intermediate_state.height.id.state_id,
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
@@ -499,15 +499,9 @@ where
         timeout_proof: Proof { height: proxy.height, proof: vec![] },
     });
 
-    let res = handle_incoming_message(host, timeout_message).unwrap();
+    let res = handle_incoming_message(host, timeout_message);
 
-    // Assert that the dispatch results are empty which means the timeout message was ignored.
-    let dispatch_results_length = match res {
-        MessageResult::Timeout(dispatch_results) => dispatch_results.len(),
-        _ => unreachable!(),
-    };
-
-    assert_eq!(dispatch_results_length, 0);
+    assert!(res.is_err());
 
     Ok(())
 }
@@ -598,15 +592,9 @@ where
         timeout_proof: Proof { height: proxy.height, proof: vec![] },
     });
 
-    let res = handle_incoming_message(host, timeout_message).unwrap();
+    let res = handle_incoming_message(host, timeout_message);
 
-    // Assert that the dispatch results are empty
-    let dispatch_results_length = match res {
-        MessageResult::Timeout(dispatch_results) => dispatch_results.len(),
-        _ => unreachable!(),
-    };
-
-    assert_eq!(dispatch_results_length, 0);
+    assert!(res.is_err());
 
     Ok(())
 }

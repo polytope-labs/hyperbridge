@@ -24,7 +24,7 @@ use crate::{
     router::{Request, RequestResponse},
     util::hash_request,
 };
-use alloc::vec::Vec;
+use alloc::string::ToString;
 
 /// Validate the state machine, verify the request message and dispatch the message to the modules
 pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, Error>
@@ -52,25 +52,29 @@ where
     };
 
     let router = host.ismp_router();
+    let is_valid_batch = msg.requests.iter().all(|req| {
+        let req = Request::Post(req.clone());
+        // If a receipt exists for any request then it's a duplicate and it is not dispatched
+        host.request_receipt(&req).is_none() &&
+            // can't dispatch timed out requests
+            !req.timed_out(host.timestamp()) &&
+            // either the host is a router and can accept requests on behalf of any chain
+            // or the request must be intended for this chain
+            (req.dest_chain() == host.host_state_machine() ||
+            host.is_router()) &&
+            // either the proof metadata matches the source chain, or it's coming from a proxy
+            // in which case, we must NOT have a configured state machine for the source
+            (req.source_chain() == msg.proof.height.id.state_id ||
+            host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+                check_for_consensus_client(req.source_chain()))
+    });
+    if !is_valid_batch {
+        Err(Error::ImplementationSpecific("Invalid message batch".to_string()))?
+    }
+
     let result = msg
         .requests
         .into_iter()
-        .filter(|req| {
-            let req = Request::Post(req.clone());
-            // If a receipt exists for any request then it's a duplicate and it is not dispatched
-            host.request_receipt(&req).is_none() &&
-                // can't dispatch timed out requests
-                !req.timed_out(host.timestamp()) &&
-                // either the host is a router and can accept requests on behalf of any chain
-                // or the request must be intended for this chain
-                (req.dest_chain() == host.host_state_machine() ||
-                host.is_router()) &&
-                // either the proof metadata matches the source chain, or it's coming from a proxy
-                // in which case, we must NOT have a configured state machine for the source
-                (req.source_chain() == msg.proof.height.id.state_id ||
-                host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-                    check_for_consensus_client(req.source_chain()))
-        })
         .map(|request| {
             let wrapped_req = Request::Post(request.clone());
             let lambda = || {

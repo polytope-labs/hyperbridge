@@ -66,8 +66,7 @@ contract BaseTest is Test {
         gateway = new TokenGateway(address(this));
         Asset[] memory assets = new Asset[](1);
         assets[0] = Asset({
-            localIdentifier: keccak256("USD.h"),
-            foreignIdentifier: keccak256("USD.h"),
+            identifier: keccak256("USD.h"),
             erc20: address(0),
             erc6160: address(feeToken)
         });

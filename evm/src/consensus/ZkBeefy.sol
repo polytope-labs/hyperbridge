@@ -32,6 +32,7 @@ struct BeefyConsensusProof {
 contract ZkBeefyV1 is IConsensusClient {
     using HeaderImpl for Header;
     /// Slot duration in milliseconds
+
     uint256 public constant SLOT_DURATION = 12000;
     /// The PayloadId for the mmr root.
     bytes2 public constant MMR_ROOT_PAYLOAD_ID = bytes2("mh");

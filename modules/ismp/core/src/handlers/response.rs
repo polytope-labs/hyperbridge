@@ -16,6 +16,7 @@
 //! The ISMP response handler
 
 use crate::{
+    alloc::string::ToString,
     error::Error,
     events::{Event, RequestResponseHandled},
     handlers::{validate_state_machine, MessageResult},

@@ -16,6 +16,7 @@
 //! The ISMP request timeout handler
 
 use crate::{
+    alloc::string::ToString,
     error::Error,
     events::{Event, TimeoutHandled},
     handlers::{validate_state_machine, MessageResult},

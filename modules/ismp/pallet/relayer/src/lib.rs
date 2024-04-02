@@ -44,7 +44,7 @@ use ismp_sync_committee::{
 };
 pub use pallet::*;
 use pallet_ismp::{dispatcher::Dispatcher, host::Host};
-use pallet_ismp_host_executive::HostManagers;
+use pallet_ismp_host_executive::HostParams;
 use sp_core::U256;
 use sp_runtime::DispatchError;
 use sp_std::prelude::*;
@@ -282,8 +282,11 @@ where
             StateMachine::Grandpa(_) |
             StateMachine::Kusama(_) |
             StateMachine::Polkadot(_) => MODULE_ID.to_vec(),
-            _ => HostManagers::<T>::get(withdrawal_data.dest_chain)
-                .ok_or_else(|| Error::<T>::MissingMangerAddress)?,
+            _ => HostParams::<T>::get(withdrawal_data.dest_chain)
+                .ok_or_else(|| Error::<T>::MissingMangerAddress)?
+                .host_manager
+                .0
+                .to_vec(),
         };
         Nonce::<T>::try_mutate(address.clone(), withdrawal_data.dest_chain, |value| {
             *value += 1;

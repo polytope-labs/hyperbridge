@@ -59,15 +59,20 @@ frame_support::construct_runtime!(
         Balances: pallet_balances,
         Relayer: pallet_ismp_relayer,
         Fishermen: pallet_fishermen,
+        HostExecutive: pallet_ismp_host_executive,
     }
 );
 
 /// Verify the the last event emitted
 pub fn assert_last_event<T: frame_system::Config>(generic_event: T::RuntimeEvent) {
+    assert_eq!(last_event::<T>(), generic_event);
+}
+
+/// Verify the the last event emitted
+pub fn last_event<T: frame_system::Config>() -> T::RuntimeEvent {
     let events = frame_system::Pallet::<T>::events();
-    dbg!(&events);
     let EventRecord { event, .. } = &events[events.len() - 1];
-    assert_eq!(event, &generic_event);
+    event.clone()
 }
 
 pub struct StateMachineProvider;
@@ -337,8 +342,10 @@ where
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
-    let mut ext = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap().into();
+    let storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+    let mut ext = sp_io::TestExternalities::new(storage);
     register_offchain_ext(&mut ext);
+    ext.execute_with(|| System::set_block_number(1));
     ext
 }
 

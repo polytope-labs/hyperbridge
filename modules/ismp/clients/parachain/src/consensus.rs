@@ -219,7 +219,9 @@ where
         };
 
         if !Parachains::<T>::contains_key(&para_id) {
-            Err(Error::ImplementationSpecific(format!("Parachain not supported")))?
+            Err(Error::ImplementationSpecific(format!(
+                "Parachain with id {para_id} not registered"
+            )))?
         }
         Ok(Box::new(SubstrateStateMachine::<T>::default()))
     }

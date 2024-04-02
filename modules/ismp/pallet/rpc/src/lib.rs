@@ -36,7 +36,7 @@ use pallet_ismp::{
     ProofKeys,
 };
 use pallet_ismp_runtime_api::IsmpRuntimeApi;
-use sc_client_api::{BlockBackend, ChildInfo, ProofProvider};
+use sc_client_api::{Backend, BlockBackend, ChildInfo, ProofProvider, StateBackend};
 use serde::{Deserialize, Serialize};
 use sp_api::{ApiExt, ProvideRuntimeApi};
 use sp_blockchain::HeaderBackend;
@@ -45,7 +45,9 @@ use sp_core::{
     H256,
 };
 use sp_runtime::traits::{Block as BlockT, Hash, Header};
+use sp_trie::LayoutV0;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
+use trie_db::{Recorder, Trie, TrieDBBuilder};
 
 /// A type that could be a block number or a block hash
 #[derive(Clone, Hash, Debug, PartialEq, Eq, Copy, Serialize, Deserialize)]
@@ -181,23 +183,30 @@ where
 }
 
 /// An implementation of ISMP specific RPC methods.
-pub struct IsmpRpcHandler<C, B, S> {
+pub struct IsmpRpcHandler<C, B, S, T> {
     client: Arc<C>,
+    backend: Arc<T>,
     offchain_db: OffchainDb<S>,
     _marker: std::marker::PhantomData<B>,
 }
 
-impl<C, B, S> IsmpRpcHandler<C, B, S> {
+impl<C, B, S, T> IsmpRpcHandler<C, B, S, T> {
     /// Create new `IsmpRpcHandler` with the given reference to the client.
-    pub fn new(client: Arc<C>, offchain_storage: S) -> Self {
-        Self { client, offchain_db: OffchainDb::new(offchain_storage), _marker: Default::default() }
+    pub fn new(client: Arc<C>, backend: Arc<T>, offchain_storage: S) -> Self {
+        Self {
+            client,
+            offchain_db: OffchainDb::new(offchain_storage),
+            backend,
+            _marker: Default::default(),
+        }
     }
 }
 
-impl<C, Block, S> IsmpApiServer<Block::Hash> for IsmpRpcHandler<C, Block, S>
+impl<C, Block, S, T> IsmpApiServer<Block::Hash> for IsmpRpcHandler<C, Block, S, T>
 where
     Block: BlockT,
     S: OffchainStorage + Clone + Send + Sync + 'static,
+    T: Backend<Block> + Send + Sync + 'static,
     C: Send
         + Sync
         + 'static
@@ -263,14 +272,42 @@ where
             runtime_error_into_rpc_error("Could not find valid blockhash for provided height")
         })?;
         let child_info = ChildInfo::new_default(CHILD_TRIE_PREFIX);
-        let proof: Vec<_> = self
+        let storage_proof = self
             .client
             .read_child_proof(at, &child_info, &mut keys.iter().map(|key| key.as_slice()))
-            .map(|proof| proof.into_iter_nodes().collect())
-            .map_err(|_| {
-                runtime_error_into_rpc_error("Error reading generating child trie proof")
-            })?;
-        Ok(Proof { proof: proof.encode(), height })
+            .map_err(|_| runtime_error_into_rpc_error("Error generating child trie proof"))?;
+        let state = self
+            .backend
+            .state_at(at)
+            .map_err(|_| runtime_error_into_rpc_error("Error accessing state backend"))?;
+        let child_root = state
+            .storage(child_info.prefixed_storage_key().as_slice())
+            .map_err(|_| runtime_error_into_rpc_error("Error reading child trie root"))?
+            .map(|r| {
+                let mut hash = <<Block::Header as Header>::Hashing as Hash>::Output::default();
+
+                // root is fetched from DB, not writable by runtime, so it's always valid.
+                hash.as_mut().copy_from_slice(&r[..]);
+
+                hash
+            })
+            .ok_or_else(|| runtime_error_into_rpc_error("Error reading child trie root"))?;
+
+        let db = storage_proof.into_memory_db::<<Block::Header as Header>::Hashing>();
+
+        let mut recorder = Recorder::<LayoutV0<<Block::Header as Header>::Hashing>>::default();
+        let trie =
+            TrieDBBuilder::<LayoutV0<<Block::Header as Header>::Hashing>>::new(&db, &child_root)
+                .with_recorder(&mut recorder)
+                .build();
+        for key in keys {
+            let _ = trie
+                .get(&key)
+                .map_err(|_| runtime_error_into_rpc_error("Error generating child trie proof"))?;
+        }
+
+        let proof_nodes = recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
+        Ok(Proof { proof: proof_nodes.encode(), height })
     }
 
     fn query_consensus_state(

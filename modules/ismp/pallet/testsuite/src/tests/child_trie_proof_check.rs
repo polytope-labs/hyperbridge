@@ -6,8 +6,10 @@ use sp_runtime::{traits::BlakeTwo256, StateVersion};
 use sp_state_machine::{
     prove_child_read, read_proof_check, Backend, TrieBackend, TrieBackendBuilder,
 };
-use sp_trie::{trie_types::TrieDBMutBuilderV0, KeySpacedDBMut, PrefixedMemoryDB};
-use trie_db::TrieMut;
+use sp_trie::{
+    trie_types::TrieDBMutBuilderV0, KeySpacedDBMut, LayoutV0, PrefixedMemoryDB, StorageProof,
+};
+use trie_db::{Recorder, Trie, TrieDBBuilder, TrieMut};
 
 const CHILD_KEY_1: &[u8] = b"sub1";
 
@@ -67,6 +69,19 @@ fn prove_child_read_proof_works_with_child_trie_root() {
         .child_storage_root(child_info, std::iter::empty(), StateVersion::V0)
         .0;
     let storage_proof = prove_child_read(remote_backend, child_info, &[b"value3"]).unwrap();
+    dbg!(storage_proof.clone().into_nodes().len());
+
+    let db = storage_proof.into_memory_db::<BlakeTwo256>();
+
+    let mut recorder = Recorder::<LayoutV0<BlakeTwo256>>::default();
+    let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &child_root)
+        .with_recorder(&mut recorder)
+        .build();
+    let _ = trie.get(b"value3").unwrap();
+    let _ = trie.get(b"value2").unwrap();
+    let proof_nodes = recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
+    let storage_proof = StorageProof::new(proof_nodes);
+    dbg!(storage_proof.clone().into_nodes().len());
     let local_result1 =
         read_proof_check::<BlakeTwo256, _>(child_root, storage_proof.clone(), &[b"value3"])
             .unwrap();

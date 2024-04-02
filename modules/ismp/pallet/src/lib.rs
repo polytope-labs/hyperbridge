@@ -107,8 +107,8 @@ pub mod pallet {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        /// Prefix for elements stored in the Off-chain DB via Indexing API and child trie
-        const PALLET_PREFIX: &'static [u8];
+        /// Prefix for elements stored in the Off-chain DB via Indexing API
+        const INDEXING_PREFIX: &'static [u8];
 
         /// Admin origin for privileged actions
         type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
@@ -314,7 +314,7 @@ pub mod pallet {
             };
 
             let child_trie_root = frame_support::storage::child::root(
-                &ChildInfo::new_default(T::PALLET_PREFIX),
+                &ChildInfo::new_default(T::INDEXING_PREFIX),
                 Default::default(),
             );
             let log = IsmpConsensusLog { child_trie_root, mmr_root: root.encode() };
@@ -634,12 +634,12 @@ impl<T: Config> Pallet<T> {
 
     /// Returns the offchain key for a request or response leaf index
     pub fn full_leaf_offchain_key(commitment: H256) -> Vec<u8> {
-        (T::PALLET_PREFIX, commitment).encode()
+        (T::INDEXING_PREFIX, commitment).encode()
     }
 
     /// Returns the offchain key for a request or response leaf index
     pub fn intermediate_node_offchain_key(position: NodeIndex) -> Vec<u8> {
-        (T::PALLET_PREFIX, "intermediate_nodes", position).encode()
+        (T::INDEXING_PREFIX, "intermediate_nodes", position).encode()
     }
 
     /// Gets the request from the offchain storage

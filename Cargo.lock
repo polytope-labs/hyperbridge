@@ -8751,6 +8751,7 @@ name = "pallet-ismp-rpc"
 version = "0.1.0"
 dependencies = [
  "frame-system",
+ "hash-db",
  "hex-literal 0.3.4",
  "ismp",
  "jsonrpsee 0.16.3",
@@ -8758,12 +8759,16 @@ dependencies = [
  "pallet-ismp-runtime-api",
  "parity-scale-codec",
  "sc-client-api",
+ "sc-rpc",
  "serde",
  "serde_json",
  "sp-api",
  "sp-blockchain",
  "sp-core 28.0.0",
  "sp-runtime 31.0.1",
+ "sp-storage 19.0.0",
+ "sp-trie 29.0.0",
+ "trie-db 0.28.0",
 ]
 
 [[package]]

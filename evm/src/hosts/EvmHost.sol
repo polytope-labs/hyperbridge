@@ -678,6 +678,38 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @dev Increase the relayer fee for a previously dispatched request.
+     * This is provided for use only on pending requests, such that when they timeout,
+     * the user can recover the entire relayer fee.
+     *
+     * If called on an already delivered request, these funds will be seen as a donation to the hyperbridge protocol.
+     * @param commitment - The request commitment
+     * @param amount - The amount to add for request delivery and execution.
+     */
+    function fundRequest(bytes32 commitment, uint256 amount) public {
+        FeeMetadata memory metadata = _requestCommitments[commitment];
+
+        require(metadata.sender != address(0), "Unknown request");
+        require(metadata.sender != _msgSender(), "User can only fund own requests");
+        require(IERC20(dai()).transferFrom(_msgSender(), address(this), amount), "Payer has insufficient funds");
+
+        metadata.fee += amount;
+        _requestCommitments[commitment] = metadata;
+    }
+
+    /**
+     * @dev A fisherman has determined that some [`StateCommitment`]
+     *  (which is ideally still in it's challenge period)
+     *  is infact fraudulent and misrepresentative of the state
+     *  changes at the provided height. This allows them to veto the state commitment.
+     *  They aren't required to provide any proofs for this.
+     */
+    function vetoStateCommitment(StateMachineHeight memory height) public onlyAdmin {
+        delete _stateCommitments[height.stateMachineId][height.height];
+        delete _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
+    }
+
+    /**
      * @dev Get next available nonce for outgoing requests.
      */
     function _nextNonce() private returns (uint256) {

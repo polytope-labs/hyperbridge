@@ -16,7 +16,7 @@
 
 extern crate alloc;
 
-use codec::{Decode, Encode};
+use codec::Decode;
 use compression::prelude::{DecodeExt, ZlibDecoder};
 use frame_support::{dispatch::DispatchResult, traits::IsSubType};
 pub use pallet::*;
@@ -32,7 +32,7 @@ use sp_runtime::{
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use frame_support::{__private::sp_io, pallet_prelude::*, traits::IsSubType};
+    use frame_support::{pallet_prelude::*, traits::IsSubType};
     use frame_system::pallet_prelude::*;
     use sp_core::H256;
 
@@ -101,7 +101,9 @@ pub mod pallet {
         }
 
         fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-            let Call::decompress_call { compressed } = call;
+            let Call::decompress_call { compressed } = call else {
+                return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
+            };
 
             let decompressed = Self::decompress(compressed.clone())
                 .map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
@@ -109,7 +111,7 @@ pub mod pallet {
             let runtime_call = T::RuntimeCall::decode(&mut &decompressed[..])
                 .map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
 
-            let hash = if let Some(call) =
+            let provides = if let Some(call) =
                 IsSubType::<pallet_ismp::Call<T>>::is_sub_type(&runtime_call).cloned()
             {
                 let _: Result<(), TransactionValidityError> = match call {
@@ -134,7 +136,7 @@ pub mod pallet {
                     <pallet_ismp_relayer::Pallet<T> as ValidateUnsigned>::validate_unsigned(
                         source, &call,
                     )
-                    .map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call));
+                    .map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
 
                 provides
             } else {

@@ -93,7 +93,7 @@ uint256 constant BODY_BYTES_SIZE = 161;
 /// The TokenGateway allows users send either ERC20 or ERC6160 tokens
 /// using Hyperbridge as a message-passing layer.
 contract TokenGateway is BaseIsmpModule {
-    event LiquidityProvided(address relayer, address beneficiary, uint256 amount);
+    event LiquidityProvided(address relayer, uint256 amount);
 
     using Bytes for bytes;
 
@@ -117,7 +117,7 @@ contract TokenGateway is BaseIsmpModule {
 
     // User has received some assets, source chain & nonce
     event AssetReceived(bytes source, uint256 nonce);
-    event Teleport(address from, uint256 amount, uint256 fee, uint64 timeout);
+    event Teleport(address from, bytes dest, uint256 amount, uint256 fee, uint64 timeout);
 
     // restricts call to `IIsmpHost`
     modifier onlyIsmpHost() {
@@ -199,7 +199,7 @@ contract TokenGateway is BaseIsmpModule {
         // Your money is now on its way
         IDispatcher(_host).dispatch(request);
 
-        emit Teleport(from, params.amount, params.fee, params.timeout);
+        emit Teleport(from, params.dest, params.amount, params.fee, params.timeout);
     }
 
     function onAccept(PostRequest calldata request) external override onlyIsmpHost {
@@ -255,7 +255,7 @@ contract TokenGateway is BaseIsmpModule {
                 "Gateway: Insufficient relayer balance"
             );
             
-            emit LiquidityProvided(tx.origin, body.to, _amountToTransfer);
+            emit LiquidityProvided(tx.origin, _amountToTransfer);
 
             // hand the relayer the erc6160, so they can redeem on the source chain
             IERC6160Ext20(erc6160).mint(tx.origin, body.amount, "");
@@ -279,8 +279,6 @@ contract TokenGateway is BaseIsmpModule {
             _relayerFeePercentage = abi.decode(request.body[2:], (uint256));
         } else if (action == GovernanceActions.AdjustProtocolFee) {
             _protocolFeePercentage = abi.decode(request.body[2:], (uint256));
-        } else if (action == GovernanceActions.RemoveAsset) {
-            resetAsset(abi.decode(request.body[2:], (Asset[])));
         } else {
             revert("Unknown Action");
         }
@@ -330,16 +328,6 @@ contract TokenGateway is BaseIsmpModule {
 
             _erc20s[asset.identifier] = asset.erc20;
             _erc6160s[asset.identifier] = asset.erc6160;
-        }
-    }
-
-    function resetAsset(Asset[] memory assets) private {
-        uint256 length = assets.length;
-        for (uint256 i = 0; i < length; i++) {
-            Asset memory asset = assets[i];
-
-            _erc20s[asset.identifier] = address(0);
-            _erc6160s[asset.identifier] = address(0);
         }
     }
 }

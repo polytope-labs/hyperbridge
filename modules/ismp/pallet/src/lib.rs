@@ -84,11 +84,11 @@ pub mod pallet {
     // Import various types used to declare pallet in scope.
     use super::*;
     use crate::{
+        child_trie::CHILD_TRIE_PREFIX,
         errors::HandlingError,
         mmr::primitives::{LeafIndex, NodeIndex},
         primitives::{ConsensusClientProvider, WeightUsed, ISMP_ID},
         weight_info::WeightProvider,
-        child_trie::CHILD_TRIE_PREFIX
     };
     use frame_support::{pallet_prelude::*, traits::UnixTime};
     use frame_system::pallet_prelude::*;
@@ -466,36 +466,36 @@ pub mod pallet {
             /// Commitment to the post
             commitment: H256,
             /// Relayer address who delivered the message
-            relayer: Vec<u8>
+            relayer: Vec<u8>,
         },
         /// Post Response Handled
         PostResponseHandled {
             /// Commitment to the response
             commitment: H256,
             /// Relayer address who delivered the message
-            relayer: Vec<u8>
+            relayer: Vec<u8>,
         },
         /// Get Response Handled
         GetResponseHandled {
             /// Commitment to the get request
             commitment: H256,
             /// Relayer address who delivered the message
-            relayer: Vec<u8>
+            relayer: Vec<u8>,
         },
         /// Post request timeout handled
         PostRequestTimeoutHandled {
             /// Commitment to the post request
-            commitment: H256
+            commitment: H256,
         },
         /// Post response timeout handled
         PostResponseTimeoutHandled {
             /// Commitment to the response
-            commitment: H256
+            commitment: H256,
         },
         /// Get request timeout handled
         GetRequestTimeoutHandled {
             /// Commitment to the get request
-            commitment: H256
+            commitment: H256,
         },
     }
 

@@ -21,32 +21,18 @@ use compression::prelude::{DecodeExt, ZlibDecoder};
 use frame_support::{dispatch::DispatchResult, traits::IsSubType};
 pub use pallet::*;
 use sp_core::H256;
-use sp_runtime::traits::ValidateUnsigned;
-use sp_runtime::transaction_validity::{
-    InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
+use sp_runtime::{
+    traits::ValidateUnsigned,
+    transaction_validity::{
+        InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
+    },
+    DispatchError,
 };
-use sp_runtime::DispatchError;
-
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub enum CallIdentifier {
-    IsmpHandleMessage,
-    AccumulateRelayerFees,
-}
-
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub struct CompressedCall {
-    /// The supported pallet call
-    pub call_identifier: CallIdentifier,
-    /// Compressed bytes representation of the call to decompress
-    pub compressed_bytes: Vec<u8>,
-}
 
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use frame_support::__private::sp_io;
-    use frame_support::pallet_prelude::*;
-    use frame_support::traits::IsSubType;
+    use frame_support::{__private::sp_io, pallet_prelude::*, traits::IsSubType};
     use frame_system::pallet_prelude::*;
     use sp_core::H256;
 
@@ -90,9 +76,9 @@ pub mod pallet {
     {
         #[pallet::call_index(0)]
         #[pallet::weight({1_000_000})]
-        pub fn decompress_call(origin: OriginFor<T>, compressed_bytes: Vec<u8>) -> DispatchResult {
+        pub fn decompress_call(origin: OriginFor<T>, compressed: Vec<u8>) -> DispatchResult {
             ensure_none(origin)?;
-            let call_bytes = Self::decompress(compressed_bytes)?;
+            let call_bytes = Self::decompress(compressed)?;
             Self::decode_and_execute(call_bytes)?;
             Ok(())
         }
@@ -115,64 +101,50 @@ pub mod pallet {
         }
 
         fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-            match call {
-                Call::decompress_call { compressed_bytes } => {
-                    let decompressed = Self::decompress(compressed_bytes.clone())
+            let Call::decompress_call { compressed } = call;
+
+            let decompressed = Self::decompress(compressed.clone())
+                .map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
+
+            let runtime_call = T::RuntimeCall::decode(&mut &decompressed[..])
+                .map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
+
+            let hash = if let Some(call) =
+                IsSubType::<pallet_ismp::Call<T>>::is_sub_type(&runtime_call).cloned()
+            {
+                let _: Result<(), TransactionValidityError> = match call {
+                    pallet_ismp::Call::handle { messages: _ } => Ok(()),
+                    _ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
+                };
+
+                let ValidTransaction { provides, .. } =
+                    <pallet_ismp::Pallet<T> as ValidateUnsigned>::validate_unsigned(source, &call)
                         .map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
 
-                    let runtime_call =
-                        <T as frame_system::Config>::RuntimeCall::decode(&mut &decompressed[..])
-                            .map_err(|_| {
-                                TransactionValidityError::Invalid(InvalidTransaction::Call)
-                            })?;
+                provides
+            } else if let Some(call) =
+                IsSubType::<pallet_ismp_relayer::Call<T>>::is_sub_type(&runtime_call).cloned()
+            {
+                let _: Result<(), TransactionValidityError> = match call.clone() {
+                    pallet_ismp_relayer::Call::accumulate_fees { withdrawal_proof: _ } => Ok(()),
+                    _ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
+                };
 
-                    let ismp_call = Self::convert_to_ismp_call(runtime_call.clone());
+                let ValidTransaction { provides, .. } =
+                    <pallet_ismp_relayer::Pallet<T> as ValidateUnsigned>::validate_unsigned(
+                        source, &call,
+                    )
+                    .map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call));
 
-                    if let Some(call) = ismp_call {
-                        let _: Result<(), TransactionValidityError> = match call {
-                            pallet_ismp::Call::handle { messages: _ } => Ok(()),
-                            _ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
-                        };
-
-                        let _ = <pallet_ismp::Pallet<T> as ValidateUnsigned>::validate_unsigned(
-                            source, &call,
-                        )
-                        .map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
-                    }
-
-                    let ismp_relayer_call =
-                        Self::convert_to_ismp_relayer_call(runtime_call.clone());
-
-                    if let Some(call) = ismp_relayer_call {
-                        let _: Result<(), TransactionValidityError> = match call.clone() {
-                            pallet_ismp_relayer::Call::accumulate_fees { withdrawal_proof: _ } => {
-                                Ok(())
-                            },
-                            _ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
-                        };
-
-                        let _ = <pallet_ismp_relayer::Pallet<T> as ValidateUnsigned>::validate_unsigned(
-                            source,
-                            &call
-                        ).map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call));
-                    } else {
-                        return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
-                    }
-                },
-                _ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
+                provides
+            } else {
+                return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
             };
-
-            let encoding = match call {
-                Call::decompress_call { compressed_bytes } => compressed_bytes.encode(),
-                _ => unreachable!(),
-            };
-
-            let msg_hash = sp_io::hashing::keccak_256(&encoding).to_vec();
 
             Ok(ValidTransaction {
                 priority: 100,
                 requires: vec![],
-                provides: vec![msg_hash],
+                provides,
                 longevity: TransactionLongevity::MAX,
                 propagate: true,
             })
@@ -202,27 +174,25 @@ where
     pub fn decode_and_execute(call_bytes: Vec<u8>) -> DispatchResult {
         let runtime_call = <T as frame_system::Config>::RuntimeCall::decode(&mut &call_bytes[..])
             .map_err(|_| Error::<T>::ErrorDecodingCall)?;
-        let ismp_call = Self::convert_to_ismp_call(runtime_call.clone());
 
-        if let Some(call) = ismp_call {
+        if let Some(call) = IsSubType::<pallet_ismp::Call<T>>::is_sub_type(&runtime_call).cloned() {
             match call {
-                pallet_ismp::Call::handle { messages } => {
+                pallet_ismp::Call::handle { messages } =>
                     <pallet_ismp::Pallet<T>>::handle(frame_system::RawOrigin::None.into(), messages)
-                        .map_err(|_| Error::<T>::ErrorExecutingCall)?
-                },
+                        .map_err(|_| Error::<T>::ErrorExecutingCall)?,
                 _ => Err(Error::<T>::CallNotSupported)?,
             };
         }
 
-        let ismp_relayer_call = Self::convert_to_ismp_relayer_call(runtime_call);
-        if let Some(call) = ismp_relayer_call {
+        if let Some(call) =
+            IsSubType::<pallet_ismp_relayer::Call<T>>::is_sub_type(&runtime_call).cloned()
+        {
             match call {
-                pallet_ismp_relayer::Call::accumulate_fees { withdrawal_proof } => {
+                pallet_ismp_relayer::Call::accumulate_fees { withdrawal_proof } =>
                     <pallet_ismp_relayer::Pallet<T>>::accumulate_fees(
                         frame_system::RawOrigin::None.into(),
                         withdrawal_proof,
-                    )?
-                },
+                    )?,
                 _ => Err(Error::<T>::CallNotSupported)?,
             };
         } else {
@@ -230,15 +200,5 @@ where
         }
 
         Ok(())
-    }
-
-    pub fn convert_to_ismp_call(runtime_call: T::RuntimeCall) -> Option<pallet_ismp::Call<T>> {
-        IsSubType::<pallet_ismp::Call<T>>::is_sub_type(&runtime_call).cloned()
-    }
-
-    pub fn convert_to_ismp_relayer_call(
-        runtime_call: T::RuntimeCall,
-    ) -> Option<pallet_ismp_relayer::Call<T>> {
-        IsSubType::<pallet_ismp_relayer::Call<T>>::is_sub_type(&runtime_call).cloned()
     }
 }

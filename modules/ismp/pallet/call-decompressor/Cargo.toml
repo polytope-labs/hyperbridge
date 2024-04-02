@@ -13,18 +13,16 @@ sp-runtime = { workspace = true }
 sp-core = { workspace = true }
 sp-std = { workspace = true }
 sp-io = { workspace = true }
-pallet-ismp = { path = "..", default-features = false }
-pallet-ismp-relayer = {path = "../relayer", default-features = false }
-as-any = "0.3.1"
-
 
 # polytope labs
-ismp = { package = "ismp", path = "../../core", default-features = false }
+ismp = { workspace = true }
+pallet-ismp = { workspace = true }
+pallet-ismp-relayer = { workspace = true }
 
 # crates.io
 codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
-compression = { version = "0.1.5", default-features = false, features = ["zlib"] }
+brotli = { version = "3.4.0", default-features = false }
 
 [features]
 default = ["std"]
@@ -39,8 +37,8 @@ std = [
     "sp-io/std",
     "ismp/std",
     "pallet-ismp/std",
-    "compression/std",
-    "pallet-ismp-relayer/std"
+    "pallet-ismp-relayer/std",
+    "brotli/std"
 ]
 
 

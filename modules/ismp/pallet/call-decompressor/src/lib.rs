@@ -17,7 +17,6 @@
 extern crate alloc;
 
 use codec::Decode;
-use compression::prelude::{DecodeExt, ZlibDecoder};
 use frame_support::{dispatch::DispatchResult, traits::IsSubType};
 pub use pallet::*;
 use sp_core::H256;
@@ -28,6 +27,7 @@ use sp_runtime::{
     },
     DispatchError,
 };
+use brotli::{BrotliDecompress};
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -157,14 +157,13 @@ where
     <T as frame_system::Config>::RuntimeCall: IsSubType<pallet_ismp_relayer::Call<T>>,
 {
     pub fn decompress(compressed_bytes: Vec<u8>) -> Result<Vec<u8>, DispatchError> {
-        let decompressed_call = compressed_bytes
-            .iter()
-            .cloned()
-            .decode(&mut ZlibDecoder::new())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| Error::<T>::DecompressionFailed)?;
+        let mut decompressed_call:Vec<u8> = Vec::new();
+        let boxed_data: Box<[u8]> = compressed_bytes.clone().into_boxed_slice();
 
-        Ok(decompressed_call)
+        return match BrotliDecompress(&mut boxed_data.as_ref(), &mut decompressed_call) {
+            Ok(_) => Ok(decompressed_call.into_boxed_slice().to_vec()),
+            Err(_) => Err(Error::<T>::DecompressionFailed)?,
+        };
     }
 
     pub fn decode_and_execute(call_bytes: Vec<u8>) -> DispatchResult {

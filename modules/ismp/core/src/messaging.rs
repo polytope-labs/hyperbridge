@@ -118,7 +118,7 @@ impl ResponseMessage {
 /// Returns an error if the proof height is less than any of the retrieval heights specified in the
 /// get requests
 pub fn sufficient_proof_height(requests: &[Get], proof: &Proof) -> Result<(), Error> {
-    if !requests.iter().all(|get| get.height == proof.height().height) {
+    if !requests.iter().all(|get| get.height == proof.height.height) {
         Err(Error::InsufficientProofHeight)?
     }
 
@@ -165,39 +165,11 @@ impl TimeoutMessage {
 /// Proof holds the relevant proof data for the context in which it's used.
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
-pub enum Proof {
-    /// A proof to be verified against the overlay root
-    OverlayProof {
-        /// State machine height
-        height: StateMachineHeight,
-        /// Scale encoded proof
-        proof: Vec<u8>,
-    },
-    /// A proof to be verified against the state root
-    StateProof {
-        /// State machine height
-        height: StateMachineHeight,
-        /// Scale encoded proof
-        proof: Vec<u8>,
-    },
-}
-
-impl Proof {
-    /// State machine height for proof
-    pub fn height(&self) -> StateMachineHeight {
-        match self {
-            Self::OverlayProof { height, .. } => *height,
-            Self::StateProof { height, .. } => *height,
-        }
-    }
-
+pub struct Proof {
+    /// State machine height
+    pub height: StateMachineHeight,
     /// Scale encoded proof
-    pub fn proof(&self) -> &[u8] {
-        match self {
-            Self::OverlayProof { proof, .. } => proof,
-            Self::StateProof { proof, .. } => proof,
-        }
-    }
+    pub proof: Vec<u8>,
 }
 
 /// The Overaching ISMP message type.

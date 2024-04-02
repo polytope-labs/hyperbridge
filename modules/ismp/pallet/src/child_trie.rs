@@ -1,5 +1,6 @@
 //! pallet Ismp child trie
 
+use alloc::vec::Vec;
 use core::marker::PhantomData;
 use frame_support::storage::{child, storage_prefix};
 use sp_core::{storage::ChildInfo, H256};

@@ -60,11 +60,7 @@ impl ConsensusClient for MockClient {
         MOCK_CONSENSUS_CLIENT_ID
     }
 
-    fn state_machine(
-        &self,
-        _host: &dyn IsmpHost,
-        _id: StateMachine,
-    ) -> Result<Box<dyn StateMachineClient>, Error> {
+    fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         match _id {
             StateMachine::Ethereum(Ethereum::ExecutionLayer) =>
                 Ok(Box::new(MockStateMachineClient)),
@@ -98,11 +94,7 @@ impl ConsensusClient for MockProxyClient {
         MOCK_PROXY_CONSENSUS_CLIENT_ID
     }
 
-    fn state_machine(
-        &self,
-        _host: &dyn IsmpHost,
-        _id: StateMachine,
-    ) -> Result<Box<dyn StateMachineClient>, Error> {
+    fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         match _id {
             StateMachine::Kusama(2000) => Ok(Box::new(MockStateMachineClient)),
             _ => Err(Error::ImplementationSpecific("Invalid state machine".to_string())),

@@ -17,10 +17,11 @@
 
 use crate::{
     error::Error,
+    events::{Event, TimeoutHandled},
     handlers::{validate_state_machine, MessageResult},
     host::{IsmpHost, StateMachine},
     messaging::TimeoutMessage,
-    module::{DispatchError, DispatchSuccess},
+    module::DispatchError,
     router::Response,
     util::{hash_post_response, hash_request},
 };
@@ -36,14 +37,14 @@ where
     let check_for_consensus_client = |state_machine: StateMachine| {
         consensus_clients
             .iter()
-            .find_map(|client| client.state_machine(host, state_machine).ok())
+            .find_map(|client| client.state_machine(state_machine).ok())
             .is_none()
     };
 
     let results = match msg {
         TimeoutMessage::Post { requests, timeout_proof } => {
-            let state_machine = validate_state_machine(host, timeout_proof.height())?;
-            let state = host.state_machine_commitment(timeout_proof.height())?;
+            let state_machine = validate_state_machine(host, timeout_proof.height)?;
+            let state = host.state_machine_commitment(timeout_proof.height)?;
 
             let requests = requests
                 .into_iter()
@@ -51,8 +52,8 @@ where
                     // check if the destination chain matches the proof metadata
                     // or if the proof metadata refers to the configured proxy
                     // and we don't have a configured state machine client for the destination
-                    req.dest_chain() == timeout_proof.height().id.state_id ||
-                        host.is_allowed_proxy(&timeout_proof.height().id.state_id) &&
+                    req.dest_chain() == timeout_proof.height.id.state_id ||
+                        host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
                             check_for_consensus_client(req.dest_chain())
                 })
                 .collect::<Vec<_>>();
@@ -86,10 +87,9 @@ where
                     let cb = router.module_for_id(request.source_module())?;
                     let res = cb
                         .on_timeout(request.clone().into())
-                        .map(|_| DispatchSuccess {
-                            dest_chain: request.dest_chain(),
-                            source_chain: request.source_chain(),
-                            nonce: request.nonce(),
+                        .map(|_| {
+                            let commitment = hash_request::<H>(&request);
+                            Event::PostRequestTimeoutHandled(TimeoutHandled { commitment })
                         })
                         .map_err(|e| DispatchError {
                             msg: format!("{e:?}"),
@@ -109,8 +109,8 @@ where
                 .collect::<Result<Vec<_>, _>>()?
         },
         TimeoutMessage::PostResponse { responses, timeout_proof } => {
-            let state_machine = validate_state_machine(host, timeout_proof.height())?;
-            let state = host.state_machine_commitment(timeout_proof.height())?;
+            let state_machine = validate_state_machine(host, timeout_proof.height)?;
+            let state = host.state_machine_commitment(timeout_proof.height)?;
 
             let responses = responses
                 .into_iter()
@@ -118,8 +118,8 @@ where
                     // check if the destination chain matches the proof metadata
                     // or if the proof metadata refers to the configured proxy
                     // and we don't have a configured state machine client for the destination
-                    res.dest_chain() == timeout_proof.height().id.state_id ||
-                        host.is_allowed_proxy(&timeout_proof.height().id.state_id) &&
+                    res.dest_chain() == timeout_proof.height.id.state_id ||
+                        host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
                             check_for_consensus_client(res.dest_chain())
                 })
                 .collect::<Vec<_>>();
@@ -154,10 +154,9 @@ where
                     let cb = router.module_for_id(response.source_module())?;
                     let res = cb
                         .on_timeout(response.clone().into())
-                        .map(|_| DispatchSuccess {
-                            dest_chain: response.dest_chain(),
-                            source_chain: response.source_chain(),
-                            nonce: response.nonce(),
+                        .map(|_| {
+                            let commitment = hash_post_response::<H>(&response);
+                            Event::PostResponseTimeoutHandled(TimeoutHandled { commitment })
                         })
                         .map_err(|e| DispatchError {
                             msg: format!("{e:?}"),
@@ -200,10 +199,9 @@ where
                     let cb = router.module_for_id(request.source_module())?;
                     let res = cb
                         .on_timeout(request.clone().into())
-                        .map(|_| DispatchSuccess {
-                            dest_chain: request.dest_chain(),
-                            source_chain: request.source_chain(),
-                            nonce: request.nonce(),
+                        .map(|_| {
+                            let commitment = hash_request::<H>(&request);
+                            Event::GetRequestTimeoutHandled(TimeoutHandled { commitment })
                         })
                         .map_err(|e| DispatchError {
                             msg: format!("{e:?}"),

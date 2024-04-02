@@ -5494,6 +5494,7 @@ dependencies = [
  "ismp",
  "ismp-solidity-abi",
  "js-sys",
+ "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",
  "reconnecting-jsonrpsee-ws-client",

@@ -204,11 +204,7 @@ impl<
         BEACON_CONSENSUS_ID
     }
 
-    fn state_machine(
-        &self,
-        _host: &dyn IsmpHost,
-        id: StateMachine,
-    ) -> Result<Box<dyn StateMachineClient>, Error> {
+    fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         match id {
             StateMachine::Ethereum(_) => Ok(Box::new(<EvmStateMachine<H>>::default())),
             _ => Err(Error::ImplementationSpecific("State machine not supported".to_string())),
@@ -227,14 +223,14 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
         root: StateCommitment,
         proof: &Proof,
     ) -> Result<(), Error> {
-        let consensus_state = host.consensus_state(proof.height().id.consensus_state_id)?;
+        let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
         let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
             Error::ImplementationSpecific("Cannot decode consensus state".to_string())
         })?;
 
         let contract_address = consensus_state
             .ismp_contract_addresses
-            .get(&proof.height().id.state_id)
+            .get(&proof.height.id.state_id)
             .cloned()
             .ok_or_else(|| {
                 Error::ImplementationSpecific("Ismp contract address not found".to_string())
@@ -255,13 +251,13 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
         root: StateCommitment,
         proof: &Proof,
     ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
-        let consensus_state = host.consensus_state(proof.height().id.consensus_state_id)?;
+        let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
         let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
             Error::ImplementationSpecific("Cannot decode consensus state".to_string())
         })?;
         let ismp_address = consensus_state
             .ismp_contract_addresses
-            .get(&proof.height().id.state_id)
+            .get(&proof.height.id.state_id)
             .cloned()
             .ok_or_else(|| {
                 Error::ImplementationSpecific("Ismp contract address not found".to_string())

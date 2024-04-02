@@ -60,12 +60,12 @@ where
         state: StateCommitment,
         proof: &Proof,
     ) -> Result<(), Error> {
+        let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
+            .map_err(|e| Error::ImplementationSpecific(format!("failed to decode proof: {e:?}")))?;
         ensure!(
-            matches!(proof, Proof::OverlayProof { .. }),
+            matches!(state_proof, SubstrateStateProof::OverlayProof { .. }),
             Error::ImplementationSpecific("Expected Overlay Proof".to_string())
         );
-        let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof())
-            .map_err(|e| Error::ImplementationSpecific(format!("failed to decode proof: {e:?}")))?;
         let root = state.overlay_root.ok_or_else(|| {
             Error::ImplementationSpecific(
                 "Child trie root is not available for provided state commitment".into(),
@@ -87,9 +87,10 @@ where
                 })
                 .collect::<Vec<Vec<u8>>>(),
         };
-        let _ = match state_proof.hasher {
+        let _ = match state_proof.hasher() {
             HashAlgorithm::Keccak => {
-                let db = StorageProof::new(state_proof.storage_proof).into_memory_db::<Keccak256>();
+                let db =
+                    StorageProof::new(state_proof.storage_proof()).into_memory_db::<Keccak256>();
                 let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root).build();
                 keys.into_iter()
                     .map(|key| {
@@ -106,7 +107,7 @@ where
             },
             HashAlgorithm::Blake2 => {
                 let db =
-                    StorageProof::new(state_proof.storage_proof).into_memory_db::<BlakeTwo256>();
+                    StorageProof::new(state_proof.storage_proof()).into_memory_db::<BlakeTwo256>();
 
                 let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
                 keys.into_iter()
@@ -163,19 +164,20 @@ where
         root: StateCommitment,
         proof: &Proof,
     ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
-        let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof())
+        let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
             .map_err(|e| Error::ImplementationSpecific(format!("failed to decode proof: {e:?}")))?;
-        let root = match proof {
-            Proof::OverlayProof { .. } => root.overlay_root.ok_or_else(|| {
+        let root = match &state_proof {
+            SubstrateStateProof::OverlayProof { .. } => root.overlay_root.ok_or_else(|| {
                 Error::ImplementationSpecific(
                     "Child trie root is not available for provided state commitment".into(),
                 )
             })?,
-            Proof::StateProof { .. } => root.state_root,
+            SubstrateStateProof::StateProof { .. } => root.state_root,
         };
-        let data = match state_proof.hasher {
+        let data = match state_proof.hasher() {
             HashAlgorithm::Keccak => {
-                let db = StorageProof::new(state_proof.storage_proof).into_memory_db::<Keccak256>();
+                let db =
+                    StorageProof::new(state_proof.storage_proof()).into_memory_db::<Keccak256>();
                 let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root).build();
                 keys.into_iter()
                     .map(|key| {
@@ -190,7 +192,7 @@ where
             },
             HashAlgorithm::Blake2 => {
                 let db =
-                    StorageProof::new(state_proof.storage_proof).into_memory_db::<BlakeTwo256>();
+                    StorageProof::new(state_proof.storage_proof()).into_memory_db::<BlakeTwo256>();
 
                 let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
                 keys.into_iter()

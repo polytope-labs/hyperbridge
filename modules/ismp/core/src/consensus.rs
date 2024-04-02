@@ -152,11 +152,7 @@ pub trait ConsensusClient {
 
     /// Return an implementation of a [`StateMachineClient`] for the given state machine.
     /// Return an error if the identifier is unknown.
-    fn state_machine(
-        &self,
-        host: &dyn IsmpHost,
-        id: StateMachine,
-    ) -> Result<Box<dyn StateMachineClient>, Error>;
+    fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error>;
 }
 
 /// A state machine client. An abstraction for the mechanism of state proof verification for state

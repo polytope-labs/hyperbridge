@@ -402,7 +402,7 @@ fn should_handle_get_request_responses_correctly() {
 
         let response = ResponseMessage {
             datagram: RequestResponse::Request(requests.clone()),
-            proof: Proof::OverlayProof {
+            proof: Proof {
                 height: StateMachineHeight {
                     id: StateMachineId {
                         state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),

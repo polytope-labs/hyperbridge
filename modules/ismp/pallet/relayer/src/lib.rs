@@ -344,10 +344,10 @@ where
         ensure!(!withdrawal_proof.commitments.is_empty(), Error::<T>::MissingCommitments);
         let source_keys = Self::get_commitment_keys(&withdrawal_proof);
         let dest_keys = Self::get_receipt_keys(&withdrawal_proof);
-        let state_machine = withdrawal_proof.source_proof.height().id.state_id;
+        let state_machine = withdrawal_proof.source_proof.height.id.state_id;
         // For evm chains each response receipt occupies two slots
         let mut slot_2_keys = alloc::vec![];
-        match &withdrawal_proof.dest_proof.height().id.state_id {
+        match &withdrawal_proof.dest_proof.height.id.state_id {
             StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                 for (key, commitment) in dest_keys.iter().zip(withdrawal_proof.commitments.iter()) {
                     match commitment {
@@ -403,10 +403,10 @@ where
         keys: Vec<Vec<u8>>,
     ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, DispatchError> {
         let ismp_host = Host::<T>::default();
-        let state_machine = validate_state_machine(&ismp_host, proof.height())
+        let state_machine = validate_state_machine(&ismp_host, proof.height)
             .map_err(|_| Error::<T>::ProofValidationError)?;
         let state = ismp_host
-            .state_machine_commitment(proof.height())
+            .state_machine_commitment(proof.height)
             .map_err(|_| Error::<T>::ProofValidationError)?;
         let result = state_machine
             .verify_state_proof(&ismp_host, keys, state, proof)
@@ -419,7 +419,7 @@ where
         let mut keys = vec![];
         for key in &proof.commitments {
             match key {
-                Key::Request(commitment) => match proof.source_proof.height().id.state_id {
+                Key::Request(commitment) => match proof.source_proof.height.id.state_id {
                     StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                         keys.push(
                             derive_unhashed_map_key::<Host<T>>(
@@ -438,7 +438,7 @@ where
                     ),
                 },
                 Key::Response { response_commitment, .. } => {
-                    match proof.source_proof.height().id.state_id {
+                    match proof.source_proof.height.id.state_id {
                         StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                             keys.push(
                                 derive_unhashed_map_key::<Host<T>>(
@@ -469,7 +469,7 @@ where
         let mut keys = vec![];
         for key in &proof.commitments {
             match key {
-                Key::Request(commitment) => match proof.dest_proof.height().id.state_id {
+                Key::Request(commitment) => match proof.dest_proof.height.id.state_id {
                     StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                         keys.push(
                             derive_unhashed_map_key::<Host<T>>(
@@ -488,7 +488,7 @@ where
                     ),
                 },
                 Key::Response { request_commitment, .. } => {
-                    match proof.dest_proof.height().id.state_id {
+                    match proof.dest_proof.height.id.state_id {
                         StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                             keys.push(
                                 derive_unhashed_map_key::<Host<T>>(
@@ -539,7 +539,7 @@ where
                         };
 
                     let fee = {
-                        match proof.source_proof.height().id.state_id {
+                        match proof.source_proof.height.id.state_id {
                             StateMachine::Ethereum(_) |
                             StateMachine::Polygon |
                             StateMachine::Bsc => {
@@ -570,7 +570,7 @@ where
                         .flatten()
                         .ok_or_else(|| Error::<T>::ProofValidationError)?;
                     let address = {
-                        match proof.dest_proof.height().id.state_id {
+                        match proof.dest_proof.height.id.state_id {
                             StateMachine::Ethereum(_) |
                             StateMachine::Polygon |
                             StateMachine::Bsc => {
@@ -602,7 +602,7 @@ where
                             continue
                         };
                     let fee = {
-                        match proof.source_proof.height().id.state_id {
+                        match proof.source_proof.height.id.state_id {
                             StateMachine::Ethereum(_) |
                             StateMachine::Polygon |
                             StateMachine::Bsc => {
@@ -633,7 +633,7 @@ where
                         .flatten()
                         .ok_or_else(|| Error::<T>::ProofValidationError)?;
                     let (relayer, res) = {
-                        match proof.dest_proof.height().id.state_id {
+                        match proof.dest_proof.height.id.state_id {
                             StateMachine::Ethereum(_) |
                             StateMachine::Polygon |
                             StateMachine::Bsc => {

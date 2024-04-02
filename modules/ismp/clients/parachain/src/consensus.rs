@@ -209,18 +209,10 @@ where
         Ok(())
     }
 
-    fn state_machine(
-        &self,
-        host: &dyn IsmpHost,
-        id: StateMachine,
-    ) -> Result<Box<dyn StateMachineClient>, Error> {
+    fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         let para_id = match id {
-            StateMachine::Polkadot(id)
-                if matches!(host.host_state_machine(), StateMachine::Polkadot(_)) =>
-                id,
-            StateMachine::Kusama(id)
-                if matches!(host.host_state_machine(), StateMachine::Kusama(_)) =>
-                id,
+            StateMachine::Polkadot(id) => id,
+            StateMachine::Kusama(id) => id,
             _ => Err(Error::ImplementationSpecific(format!(
                 "State Machine is not supported by this consensus client"
             )))?,

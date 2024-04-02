@@ -17,12 +17,13 @@
 
 use crate::{
     error::Error,
+    events::{Event, RequestResponseHandled},
     handlers::{validate_state_machine, MessageResult},
     host::{IsmpHost, StateMachine},
     messaging::{sufficient_proof_height, ResponseMessage},
-    module::{DispatchError, DispatchSuccess},
+    module::DispatchError,
     router::{GetResponse, Request, RequestResponse, Response},
-    util::hash_request,
+    util::{hash_request, hash_response},
 };
 use alloc::{format, vec::Vec};
 
@@ -31,16 +32,17 @@ pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, Error>
 where
     H: IsmpHost,
 {
+    let signer = msg.signer.clone();
     let proof = msg.proof();
-    let state_machine = validate_state_machine(host, proof.height())?;
-    let state = host.state_machine_commitment(proof.height())?;
+    let state_machine = validate_state_machine(host, proof.height)?;
+    let state = host.state_machine_commitment(proof.height)?;
 
     let consensus_clients = host.consensus_clients();
 
     let check_for_consensus_client = |state_machine: StateMachine| {
         consensus_clients
             .iter()
-            .find_map(|client| client.state_machine(host, state_machine).ok())
+            .find_map(|client| client.state_machine(state_machine).ok())
             .is_none()
     };
 
@@ -58,8 +60,8 @@ where
                         !response.timed_out(host.timestamp()) &&
                         // either the proof metadata matches the source chain, or it's coming from a proxy
                         // in which case, we must NOT have a configured state machine for the source
-                        (response.source_chain() == msg.proof.height().id.state_id ||
-                            host.is_allowed_proxy(&msg.proof.height().id.state_id) &&
+                        (response.source_chain() == msg.proof.height.id.state_id ||
+                            host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
                                 check_for_consensus_client(response.source_chain()))
                 })
                 .cloned()
@@ -80,10 +82,12 @@ where
                     let cb = router.module_for_id(response.destination_module())?;
                     let res = cb
                         .on_response(response.clone())
-                        .map(|_| DispatchSuccess {
-                            dest_chain: response.dest_chain(),
-                            source_chain: response.source_chain(),
-                            nonce: response.nonce(),
+                        .map(|_| {
+                            let commitment = hash_response::<H>(&response);
+                            Event::PostResponseHandled(RequestResponseHandled {
+                                commitment,
+                                relayer: signer.clone(),
+                            })
                         })
                         .map_err(|e| DispatchError {
                             msg: format!("{e:?}"),
@@ -102,8 +106,7 @@ where
             let requests = requests
                 .into_iter()
                 .filter(|req| {
-                    !req.timed_out(host.timestamp()) &&
-                        req.dest_chain() == proof.height().id.state_id
+                    !req.timed_out(host.timestamp()) && req.dest_chain() == proof.height.id.state_id
                 })
                 .filter_map(|req| match req {
                     Request::Post(_) => None,
@@ -132,6 +135,7 @@ where
             requests
                 .into_iter()
                 .map(|request| {
+                    let wrapped_req = Request::Get(request.clone());
                     let keys = request.keys.clone();
                     let values = state_machine.verify_state_proof(host, keys, state, &proof)?;
 
@@ -139,10 +143,12 @@ where
                     let cb = router.module_for_id(request.from.clone())?;
                     let res = cb
                         .on_response(Response::Get(GetResponse { get: request.clone(), values }))
-                        .map(|_| DispatchSuccess {
-                            dest_chain: request.dest,
-                            source_chain: request.source,
-                            nonce: request.nonce,
+                        .map(|_| {
+                            let commitment = hash_request::<H>(&wrapped_req);
+                            Event::GetResponseHandled(RequestResponseHandled {
+                                commitment,
+                                relayer: signer.clone(),
+                            })
                         })
                         .map_err(|e| DispatchError {
                             msg: format!("{e:?}"),

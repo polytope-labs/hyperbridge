@@ -87,6 +87,7 @@ pub mod pallet {
         mmr::primitives::{LeafIndex, NodeIndex},
         primitives::{ConsensusClientProvider, WeightUsed, ISMP_ID},
         weight_info::WeightProvider,
+        child_trie::CHILD_TRIE_PREFIX
     };
     use frame_support::{pallet_prelude::*, traits::UnixTime};
     use frame_system::pallet_prelude::*;
@@ -314,7 +315,7 @@ pub mod pallet {
             };
 
             let child_trie_root = frame_support::storage::child::root(
-                &ChildInfo::new_default(T::INDEXING_PREFIX),
+                &ChildInfo::new_default(CHILD_TRIE_PREFIX),
                 Default::default(),
             );
             let log = IsmpConsensusLog { child_trie_root, mmr_root: root.encode() };
@@ -456,6 +457,42 @@ pub mod pallet {
         Errors {
             /// Message handling errors
             errors: Vec<HandlingError>,
+        },
+        /// Post Request Handled
+        PostRequestHandled {
+            /// Commitment to the post
+            commitment: H256,
+            /// Relayer address who delivered the message
+            relayer: Vec<u8>
+        },
+        /// Post Response Handled
+        PostResponseHandled {
+            /// Commitment to the response
+            commitment: H256,
+            /// Relayer address who delivered the message
+            relayer: Vec<u8>
+        },
+        /// Get Response Handled
+        GetResponseHandled {
+            /// Commitment to the get request
+            commitment: H256,
+            /// Relayer address who delivered the message
+            relayer: Vec<u8>
+        },
+        /// Post request timeout handled
+        PostRequestTimeoutHandled {
+            /// Commitment to the post request
+            commitment: H256
+        },
+        /// Post response timeout handled
+        PostResponseTimeoutHandled {
+            /// Commitment to the response
+            commitment: H256
+        },
+        /// Get request timeout handled
+        GetRequestTimeoutHandled {
+            /// Commitment to the get request
+            commitment: H256
         },
     }
 

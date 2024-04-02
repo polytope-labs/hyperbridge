@@ -17,11 +17,13 @@
 
 use crate::{
     error::Error,
+    events::{Event, RequestResponseHandled},
     handlers::{validate_state_machine, MessageResult},
     host::{IsmpHost, StateMachine},
     messaging::RequestMessage,
-    module::{DispatchError, DispatchSuccess},
+    module::DispatchError,
     router::{Request, RequestResponse},
+    util::hash_request,
 };
 use alloc::{format, vec::Vec};
 
@@ -30,10 +32,11 @@ pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, Error>
 where
     H: IsmpHost,
 {
-    let state_machine = validate_state_machine(host, msg.proof.height())?;
+    let signer = msg.signer.clone();
+    let state_machine = validate_state_machine(host, msg.proof.height)?;
 
     // Verify membership proof
-    let state = host.state_machine_commitment(msg.proof.height())?;
+    let state = host.state_machine_commitment(msg.proof.height)?;
     state_machine.verify_membership(
         host,
         RequestResponse::Request(msg.requests.clone().into_iter().map(Request::Post).collect()),
@@ -45,7 +48,7 @@ where
     let check_for_consensus_client = |state_machine: StateMachine| {
         consensus_clients
             .iter()
-            .find_map(|client| client.state_machine(host, state_machine).ok())
+            .find_map(|client| client.state_machine(state_machine).ok())
             .is_none()
     };
 
@@ -65,20 +68,23 @@ where
                 host.is_router()) &&
                 // either the proof metadata matches the source chain, or it's coming from a proxy
                 // in which case, we must NOT have a configured state machine for the source
-                (req.source_chain() == msg.proof.height().id.state_id ||
-                host.is_allowed_proxy(&msg.proof.height().id.state_id) &&
+                (req.source_chain() == msg.proof.height.id.state_id ||
+                host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
                     check_for_consensus_client(req.source_chain()))
         })
         .map(|request| {
+            let wrapped_req = Request::Post(request.clone());
             let lambda = || {
                 let cb = router.module_for_id(request.to.clone())?;
-                let res = cb.on_accept(request.clone()).map(|_| DispatchSuccess {
-                    dest_chain: request.dest,
-                    source_chain: request.source,
-                    nonce: request.nonce,
+                let res = cb.on_accept(request.clone()).map(|_| {
+                    let commitment = hash_request::<H>(&wrapped_req);
+                    Event::PostRequestHandled(RequestResponseHandled {
+                        commitment,
+                        relayer: signer.clone(),
+                    })
                 });
                 if res.is_ok() {
-                    host.store_request_receipt(&Request::Post(request.clone()), &msg.signer)?;
+                    host.store_request_receipt(&wrapped_req, &msg.signer)?;
                 }
                 Ok(res)
             };

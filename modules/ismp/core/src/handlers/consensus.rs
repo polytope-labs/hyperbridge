@@ -23,7 +23,7 @@ use crate::{
     host::IsmpHost,
     messaging::{ConsensusMessage, CreateConsensusState, FraudProofMessage},
 };
-use alloc::string::ToString;
+use alloc::{string::ToString, vec};
 
 /// This function handles verification of consensus messages for consensus clients
 pub fn update_client<H>(host: &H, msg: ConsensusMessage) -> Result<MessageResult, Error>

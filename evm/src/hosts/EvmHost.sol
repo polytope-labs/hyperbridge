@@ -551,7 +551,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
             if (meta.fee > 0) {
                 // refund relayer fee
-                IERC20(dai()).transfer(meta.sender, meta.fee);
+                IERC20(feeToken()).transfer(meta.sender, meta.fee);
             }
 
             emit PostRequestTimeoutHandled({commitment: commitment});
@@ -577,7 +577,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
             if (meta.fee > 0) {
                 // refund relayer fee
-                IERC20(dai()).transfer(meta.sender, meta.fee);
+                IERC20(feeToken()).transfer(meta.sender, meta.fee);
             }
 
             emit PostResponseTimeoutHandled({commitment: commitment});
@@ -726,7 +726,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         require(metadata.sender != address(0), "Unknown request");
         require(metadata.sender != _msgSender(), "User can only fund own requests");
-        require(IERC20(dai()).transferFrom(_msgSender(), address(this), amount), "Payer has insufficient funds");
+        require(IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount), "Payer has insufficient funds");
 
         metadata.fee += amount;
         _requestCommitments[commitment] = metadata;

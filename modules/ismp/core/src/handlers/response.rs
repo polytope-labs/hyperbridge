@@ -24,7 +24,7 @@ use crate::{
     router::{GetResponse, Request, RequestResponse, Response},
     util::{hash_request, hash_response},
 };
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 /// Validate the state machine, verify the response message and dispatch the message to the modules
 pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, Error>

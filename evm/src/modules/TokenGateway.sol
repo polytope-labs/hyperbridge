@@ -82,9 +82,7 @@ enum GovernanceActions
     /// Governance has decided to adjust liquidity fee paid to relayers
     AdjustLiquidityFee,
     ///  Governance has decided to adjust it's own protocol fee
-    AdjustProtocolFee,
-    /// Assets can be removed from the gateway through governance action
-    RemoveAsset
+    AdjustProtocolFee
 }
 
 // Abi-encoded size of Body struct

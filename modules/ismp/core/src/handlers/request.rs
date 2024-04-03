@@ -46,18 +46,18 @@ where
         let req = Request::Post(req.clone());
         // If a receipt exists for any request then it's a duplicate and it is not dispatched
         if host.request_receipt(&req).is_some() {
-            Err(Error::DuplicateRequest { req: req.clone().into() })?
+            Err(Error::DuplicateRequest { meta: req.clone().into() })?
         }
 
         // can't dispatch timed out requests
         if req.timed_out(host.timestamp()) {
-            Err(Error::RequestTimeout { req: req.clone().into() })?
+            Err(Error::RequestTimeout { meta: req.clone().into() })?
         }
 
         // either the host is a router and can accept requests on behalf of any chain
         // or the request must be intended for this chain
         if req.dest_chain() != host.host_state_machine() && !host.is_router() {
-            Err(Error::InvalidRequestDestination { req: req.clone().into() })?
+            Err(Error::InvalidRequestDestination { meta: req.clone().into() })?
         }
 
         // check if the source chain does not match the proof metadata in which case
@@ -67,7 +67,7 @@ where
             !(host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
                 check_state_machine_client(req.source_chain()))
         {
-            Err(Error::RequestProxyProhibited { req: req.clone().into() })?
+            Err(Error::RequestProxyProhibited { meta: req.clone().into() })?
         }
     }
 

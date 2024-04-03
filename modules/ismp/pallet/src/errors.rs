@@ -45,19 +45,16 @@ pub enum HandlingError {
         id: StateMachineId,
     },
     RequestCommitmentNotFound {
-        nonce: u64,
-        source: StateMachine,
-        dest: StateMachine,
+        /// The Request metadata
+        meta: Meta,
     },
     RequestVerificationFailed {
-        nonce: u64,
-        source: StateMachine,
-        dest: StateMachine,
+        /// The Request metadata
+        meta: Meta,
     },
     ResponseVerificationFailed {
-        nonce: u64,
-        source: StateMachine,
-        dest: StateMachine,
+        /// The response metadata
+        meta: Meta,
     },
     ConsensusProofVerificationFailed {
         id: ConsensusClientId,
@@ -82,98 +79,92 @@ pub enum HandlingError {
         id: ConsensusClientId,
     },
     RequestTimeoutNotElapsed {
-        nonce: u64,
-        source: StateMachine,
-        dest: StateMachine,
+        /// The Request metadata
+        meta: Meta,
         timeout_timestamp: u64,
         state_machine_time: u64,
     },
     RequestTimeoutVerificationFailed {
-        nonce: u64,
-        source: StateMachine,
-        dest: StateMachine,
+        /// The Request metadata
+        meta: Meta,
     },
     InsufficientProofHeight,
     ModuleNotFound(Vec<u8>),
     ModuleDispatchError {
         /// Descriptive error message
         msg: Vec<u8>,
-        /// Request nonce
-        nonce: u64,
-        /// Source chain for request or response
-        source_chain: StateMachine,
-        /// Destination chain for request or response
-        dest_chain: StateMachine,
+        /// the request metadata metadata
+        meta: Meta,
     },
     /// Request commitment for a response does not exist
     UnsolicitedResponse {
-        /// Unsolicited response
-        res: Meta,
+        /// Unsolicited response metadata
+        meta: Meta,
     },
     /// Timed out request found in batch
     RequestTimeout {
-        /// Timed out Request
-        req: Meta,
+        /// Timed out Request metadata
+        meta: Meta,
     },
     /// Timed out response found in batch
     ResponseTimeout {
-        /// Timed out Response
-        response: Meta,
+        /// Timed out Response metdata
+        meta: Meta,
     },
     /// Duplicate request
     DuplicateRequest {
-        /// Duplicate request
-        req: Meta,
+        /// Duplicate request metadata
+        meta: Meta,
     },
     /// Duplicate response
     DuplicateResponse {
-        /// Duplicate response
-        res: Meta,
+        /// Duplicate response metadata
+        meta: Meta,
     },
     /// Request source does not match proof metadata
     RequestProofMetadataNotValid {
-        /// The Request
-        req: Meta,
+        /// The Request metadata
+        meta: Meta,
     },
     /// Response source does not match proof metadata
     ResponseProofMetadataNotValid {
-        /// The Response
-        res: Meta,
+        /// The Response metadata
+        meta: Meta,
     },
     /// Proxy cannot be used when a direct connection exists
     RequestProxyProhibited {
-        /// The Request
-        req: Meta,
+        /// The Request metadata
+        meta: Meta,
     },
     /// Proxy cannot be used when a direct connection exists
     ResponseProxyProhibited {
-        /// The Response
-        res: Meta,
+        /// The Response metadata
+        meta: Meta,
     },
     /// Host is not a proxy and destination chain does is not the host
     InvalidRequestDestination {
-        /// The Request
-        req: Meta,
+        /// The Request metadata
+        meta: Meta,
     },
     /// The response destination does not match
     InvalidResponseDestination {
-        /// The response
-        res: Meta,
+        /// The response metadata
+        meta: Meta,
     },
     /// Expected get request found post
     InvalidResponseType {
-        /// The request
-        req: Meta,
+        /// The request metadata
+        meta: Meta,
     },
     /// Attempted to respond to/timeout an unknown request
     UnknownRequest {
-        /// Unknown request
-        req: Meta,
+        /// Unknown request metadata
+        meta: Meta,
     },
     /// Attempted to time-out an unknown response
     UnknownResponse {
-        /// Unknown response
-        res: Meta,
+        /// Unknown response metadata
+        meta: Meta,
     },
 }
 
@@ -197,12 +188,12 @@ impl From<ismp::error::Error> for HandlingError {
             IsmpError::FrozenConsensusClient { consensus_state_id } =>
                 HandlingError::FrozenConsensusClient { id: consensus_state_id },
             IsmpError::FrozenStateMachine { id } => HandlingError::FrozenStateMachine { id },
-            IsmpError::RequestCommitmentNotFound { req: Meta { nonce, source, dest } } =>
-                HandlingError::RequestCommitmentNotFound { nonce, source, dest },
-            IsmpError::RequestVerificationFailed { req: Meta { nonce, source, dest } } =>
-                HandlingError::ResponseVerificationFailed { nonce, source, dest },
-            IsmpError::ResponseVerificationFailed { req: Meta { nonce, source, dest } } =>
-                HandlingError::ResponseVerificationFailed { nonce, source, dest },
+            IsmpError::RequestCommitmentNotFound { meta } =>
+                HandlingError::RequestCommitmentNotFound { meta },
+            IsmpError::RequestVerificationFailed { meta } =>
+                HandlingError::ResponseVerificationFailed { meta },
+            IsmpError::ResponseVerificationFailed { meta } =>
+                HandlingError::ResponseVerificationFailed { meta },
             IsmpError::ConsensusProofVerificationFailed { id } =>
                 HandlingError::ConsensusProofVerificationFailed { id },
             IsmpError::ExpiredConsensusClient { id } =>
@@ -218,19 +209,14 @@ impl From<ismp::error::Error> for HandlingError {
                 HandlingError::NonMembershipProofVerificationFailed { msg: msg.as_bytes().to_vec() },
             IsmpError::CannotCreateAlreadyExistingConsensusClient { id } =>
                 HandlingError::CannotCreateAlreadyExistingConsensusClient { id },
-            IsmpError::RequestTimeoutNotElapsed {
-                meta: Meta { nonce, source, dest },
-                timeout_timestamp,
-                state_machine_time,
-            } => HandlingError::RequestTimeoutNotElapsed {
-                nonce,
-                source,
-                dest,
-                timeout_timestamp: timeout_timestamp.as_secs(),
-                state_machine_time: state_machine_time.as_secs(),
-            },
-            IsmpError::RequestTimeoutVerificationFailed { req: Meta { nonce, source, dest } } =>
-                HandlingError::RequestTimeoutVerificationFailed { nonce, source, dest },
+            IsmpError::RequestTimeoutNotElapsed { meta, timeout_timestamp, state_machine_time } =>
+                HandlingError::RequestTimeoutNotElapsed {
+                    meta,
+                    timeout_timestamp: timeout_timestamp.as_secs(),
+                    state_machine_time: state_machine_time.as_secs(),
+                },
+            IsmpError::RequestTimeoutVerificationFailed { meta } =>
+                HandlingError::RequestTimeoutVerificationFailed { meta },
             IsmpError::InsufficientProofHeight => HandlingError::InsufficientProofHeight,
             IsmpError::ModuleNotFound(id) => HandlingError::ModuleNotFound(id),
             IsmpError::ConsensusStateIdNotRecognized { .. } =>
@@ -240,31 +226,27 @@ impl From<ismp::error::Error> for HandlingError {
             IsmpError::DuplicateConsensusStateId { .. } => HandlingError::InsufficientProofHeight,
             IsmpError::UnnbondingPeriodNotConfigured { .. } =>
                 HandlingError::InsufficientProofHeight,
-            IsmpError::ModuleDispatchError { msg, nonce, source_chain, dest_chain } =>
-                HandlingError::ModuleDispatchError {
-                    msg: msg.as_bytes().to_vec(),
-                    nonce,
-                    source_chain,
-                    dest_chain,
-                },
-            IsmpError::UnsolicitedResponse { res } => HandlingError::UnsolicitedResponse { res },
-            IsmpError::RequestTimeout { req } => HandlingError::RequestTimeout { req },
-            IsmpError::ResponseTimeout { response } => HandlingError::ResponseTimeout { response },
-            IsmpError::DuplicateRequest { req } => HandlingError::DuplicateRequest { req },
-            IsmpError::DuplicateResponse { res } => HandlingError::DuplicateResponse { res },
-            IsmpError::RequestProofMetadataNotValid { req } =>
-                HandlingError::RequestProofMetadataNotValid { req },
-            IsmpError::RequestProxyProhibited { req } =>
-                HandlingError::RequestProxyProhibited { req },
-            IsmpError::ResponseProxyProhibited { res } =>
-                HandlingError::ResponseProxyProhibited { res },
-            IsmpError::InvalidRequestDestination { req } =>
-                HandlingError::InvalidRequestDestination { req },
-            IsmpError::InvalidResponseDestination { res } =>
-                HandlingError::InvalidResponseDestination { res },
-            IsmpError::InvalidResponseType { req } => HandlingError::InvalidResponseType { req },
-            IsmpError::UnknownRequest { req } => HandlingError::UnknownRequest { req },
-            IsmpError::UnknownResponse { res } => HandlingError::UnknownResponse { res },
+            IsmpError::ModuleDispatchError { msg, meta } =>
+                HandlingError::ModuleDispatchError { msg: msg.as_bytes().to_vec(), meta },
+            IsmpError::UnsolicitedResponse { meta } => HandlingError::UnsolicitedResponse { meta },
+            IsmpError::RequestTimeout { meta } => HandlingError::RequestTimeout { meta },
+            IsmpError::ResponseTimeout { response } =>
+                HandlingError::ResponseTimeout { meta: response },
+            IsmpError::DuplicateRequest { meta } => HandlingError::DuplicateRequest { meta },
+            IsmpError::DuplicateResponse { meta } => HandlingError::DuplicateResponse { meta },
+            IsmpError::RequestProofMetadataNotValid { meta } =>
+                HandlingError::RequestProofMetadataNotValid { meta },
+            IsmpError::RequestProxyProhibited { meta } =>
+                HandlingError::RequestProxyProhibited { meta },
+            IsmpError::ResponseProxyProhibited { meta } =>
+                HandlingError::ResponseProxyProhibited { meta },
+            IsmpError::InvalidRequestDestination { meta } =>
+                HandlingError::InvalidRequestDestination { meta },
+            IsmpError::InvalidResponseDestination { meta } =>
+                HandlingError::InvalidResponseDestination { meta },
+            IsmpError::InvalidResponseType { meta } => HandlingError::InvalidResponseType { meta },
+            IsmpError::UnknownRequest { meta } => HandlingError::UnknownRequest { meta },
+            IsmpError::UnknownResponse { meta } => HandlingError::UnknownResponse { meta },
         }
     }
 }

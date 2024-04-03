@@ -53,13 +53,13 @@ where
                     !(host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
                         check_state_machine_client(request.dest_chain()))
                 {
-                    Err(Error::RequestProxyProhibited { req: request.into() })?
+                    Err(Error::RequestProxyProhibited { meta: request.into() })?
                 }
 
                 // Ensure a commitment exists for all requests in the batch
                 let commitment = hash_request::<H>(request);
                 if host.request_commitment(commitment).is_err() {
-                    Err(Error::UnknownRequest { req: request.into() })?
+                    Err(Error::UnknownRequest { meta: request.into() })?
                 }
 
                 if !request.timed_out(state.timestamp()) {
@@ -111,13 +111,13 @@ where
                         check_state_machine_client(response.dest_chain()))
                 {
                     Err(Error::ResponseProxyProhibited {
-                        res: Response::Post(response.clone()).into(),
+                        meta: Response::Post(response.clone()).into(),
                     })?
                 }
                 // Ensure a commitment exists for all responses in the batch
                 let commitment = hash_post_response::<H>(response);
                 if host.response_commitment(commitment).is_err() {
-                    Err(Error::UnknownResponse { res: Response::Post(response.clone()).into() })?
+                    Err(Error::UnknownResponse { meta: Response::Post(response.clone()).into() })?
                 }
 
                 if response.timeout() > state.timestamp() {
@@ -163,7 +163,7 @@ where
                 let commitment = hash_request::<H>(request);
                 // if we have a commitment, it came from us
                 if host.request_commitment(commitment).is_err() {
-                    Err(Error::UnknownRequest { req: request.into() })?
+                    Err(Error::UnknownRequest { meta: request.into() })?
                 }
 
                 // Ensure the get timeout has elapsed on the host

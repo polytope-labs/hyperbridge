@@ -52,11 +52,11 @@ where
                 let commitment = hash_request::<H>(&request);
 
                 if host.request_commitment(commitment).is_err() {
-                    Err(Error::UnsolicitedResponse { res: response.into() })?
+                    Err(Error::UnsolicitedResponse { meta: response.into() })?
                 }
 
                 if host.response_receipt(&response).is_some() {
-                    Err(Error::DuplicateResponse { res: response.into() })?
+                    Err(Error::DuplicateResponse { meta: response.into() })?
                 }
 
                 if response.timed_out(host.timestamp()) {
@@ -70,7 +70,7 @@ where
                     !(host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
                         check_state_machine_client(response.source_chain()))
                 {
-                    Err(Error::ResponseProxyProhibited { res: response.into() })?
+                    Err(Error::ResponseProxyProhibited { meta: response.into() })?
                 }
             }
 
@@ -106,27 +106,27 @@ where
             let mut get_requests = vec![];
             for req in requests.iter() {
                 let Request::Get(get) = req else {
-                    Err(Error::InvalidResponseType { req: req.into() })?
+                    Err(Error::InvalidResponseType { meta: req.into() })?
                 };
 
                 if req.timed_out(host.timestamp()) {
-                    Err(Error::RequestTimeout { req: req.into() })?
+                    Err(Error::RequestTimeout { meta: req.into() })?
                 }
 
                 if req.dest_chain() != proof.height.id.state_id {
-                    Err(Error::RequestProofMetadataNotValid { req: req.into() })?
+                    Err(Error::RequestProofMetadataNotValid { meta: req.into() })?
                 }
 
                 let commitment = hash_request::<H>(&Request::Get(get.clone()));
                 if host.request_commitment(commitment).is_err() {
-                    Err(Error::UnknownRequest { req: req.into() })?
+                    Err(Error::UnknownRequest { meta: req.into() })?
                 }
 
                 let res =
                     Response::Get(GetResponse { get: get.clone(), values: Default::default() });
 
                 if host.response_receipt(&res).is_some() {
-                    Err(Error::DuplicateResponse { res: res.into() })?
+                    Err(Error::DuplicateResponse { meta: res.into() })?
                 }
 
                 get_requests.push(get.clone());

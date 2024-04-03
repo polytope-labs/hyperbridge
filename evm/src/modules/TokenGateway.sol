@@ -8,6 +8,7 @@ import {BaseIsmpModule, PostRequest} from "ismp/IIsmpModule.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
+import {CallDispatcher} from "./CallDispatcher.sol";
 
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
 
@@ -28,6 +29,8 @@ struct TeleportParams {
     bytes dest;
     // timeout in seconds
     uint64 timeout;
+    // destination contract call data
+    bytes data;
 }
 
 struct Body {
@@ -41,6 +44,8 @@ struct Body {
     address from;
     // recipient address
     address to;
+    // calldata to be sent to the destination contract along aside with the asset
+    bytes data;
 }
 
 struct InitParams {
@@ -107,6 +112,8 @@ contract TokenGateway is BaseIsmpModule {
     uint256 private _protocolFeePercentage;
     /// local uniswap router
     IUniswapV2Router private _uniswapV2Router;
+    /// call dispatcher
+    CallDispatcher private _dispatcher;
 
     // mapping of token identifier to erc6160 contracts
     mapping(bytes32 => address) private _erc6160s;
@@ -180,7 +187,7 @@ contract TokenGateway is BaseIsmpModule {
         }
 
         bytes memory data = abi.encode(
-            Body({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem})
+            Body({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem, data: params.data})
         );
 
         DispatchPost memory request = DispatchPost({
@@ -267,6 +274,12 @@ contract TokenGateway is BaseIsmpModule {
             IERC6160Ext20(erc6160).mint(body.to, body.amount, "");
         } else {
             revert("Gateway: Unknown Token Identifier");
+        }
+
+        // after asset has been transferred, call can now be dispatched 
+        if (body.data.length > 0) {
+            // (if the call data is not empty)
+            _dispatcher.dispatch(body.to, body.data);
         }
 
         emit AssetReceived(request.source, request.nonce);

@@ -22,7 +22,7 @@ use crate::{
     messaging::Message,
 };
 
-use crate::{consensus::ConsensusStateId, module::DispatchResult};
+use crate::{consensus::ConsensusStateId, events::StateMachineUpdated, module::DispatchResult};
 use alloc::{boxed::Box, vec::Vec};
 pub use consensus::create_client;
 
@@ -54,7 +54,7 @@ pub struct ConsensusClientCreatedResult {
 #[derive(Debug)]
 pub enum MessageResult {
     /// The [`ConsensusMessage`] result
-    ConsensusMessage(ConsensusUpdateResult),
+    ConsensusMessage(Vec<Event>),
     /// Result of freezing a consensus state.
     FrozenClient(ConsensusStateId),
     /// The [`DispatchResult`] for requests

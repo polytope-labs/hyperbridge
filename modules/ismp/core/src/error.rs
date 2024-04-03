@@ -18,7 +18,7 @@
 use crate::{
     consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight, StateMachineId},
     host::StateMachine,
-    router::{Request, Response},
+    router::{PostResponse, Request, Response},
 };
 use alloc::{string::String, vec::Vec};
 use core::time::Duration;
@@ -172,6 +172,16 @@ pub enum Error {
         /// Destination chain for request or response
         dest_chain: StateMachine,
     },
+    /// Attempted to respond to/timeout an unknown request
+    UnknownRequest {
+        /// Unknown request
+        req: Request,
+    },
+    /// Attempted to time-out an unknown response
+    UnknownResponse {
+        /// Unknown response
+        res: PostResponse,
+    },
     /// Request commitment for a response does not exist
     UnsolicitedResponse {
         /// Unsolicited response
@@ -201,11 +211,6 @@ pub enum Error {
     RequestProofMetadataNotValid {
         /// The Request
         req: Request,
-    },
-    /// Response source does not match proof metadata
-    ResponseProofMetadataNotValid {
-        /// The Response
-        res: Response,
     },
     /// Proxy cannot be used when a direct connection exists
     RequestProxyProhibited {

@@ -50,12 +50,6 @@ where
                 // or if the proof metadata refers to the configured proxy
                 // and we don't have a configured state machine client for the destination
                 if request.dest_chain() != timeout_proof.height.id.state_id &&
-                    !host.is_allowed_proxy(&timeout_proof.height.id.state_id)
-                {
-                    Err(Error::RequestProofMetadataNotValid { req: request.clone() })?
-                }
-
-                if request.dest_chain() != timeout_proof.height.id.state_id &&
                     (host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
                         !check_for_consensus_client(request.dest_chain()))
                 {
@@ -64,7 +58,9 @@ where
 
                 // Ensure a commitment exists for all requests in the batch
                 let commitment = hash_request::<H>(request);
-                host.request_commitment(commitment)?;
+                if host.request_commitment(commitment).is_err() {
+                    Err(Error::UnknownRequest { req: request.clone() })?
+                }
 
                 if !request.timed_out(state.timestamp()) {
                     Err(Error::RequestTimeoutNotElapsed {
@@ -113,14 +109,6 @@ where
                 // or if the proof metadata refers to the configured proxy
                 // and we don't have a configured state machine client for the destination
                 if response.dest_chain() != timeout_proof.height.id.state_id &&
-                    !host.is_allowed_proxy(&timeout_proof.height.id.state_id)
-                {
-                    Err(Error::ResponseProofMetadataNotValid {
-                        res: Response::Post(response.clone()),
-                    })?
-                }
-
-                if response.dest_chain() != timeout_proof.height.id.state_id &&
                     (host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
                         !check_for_consensus_client(response.dest_chain()))
                 {
@@ -128,7 +116,9 @@ where
                 }
                 // Ensure a commitment exists for all responses in the batch
                 let commitment = hash_post_response::<H>(response);
-                host.response_commitment(commitment)?;
+                if host.response_commitment(commitment).is_err() {
+                    Err(Error::UnknownResponse { res: response.clone() })?
+                }
 
                 if response.timeout() > state.timestamp() {
                     Err(Error::RequestTimeoutNotElapsed {
@@ -174,7 +164,9 @@ where
             for request in &requests {
                 let commitment = hash_request::<H>(request);
                 // if we have a commitment, it came from us
-                host.request_commitment(commitment)?;
+                if host.request_commitment(commitment).is_err() {
+                    Err(Error::UnknownRequest { req: request.clone() })?
+                }
 
                 // Ensure the get timeout has elapsed on the host
                 if !request.timed_out(host.timestamp()) {
@@ -187,6 +179,7 @@ where
                     })?
                 }
             }
+
             let router = host.ismp_router();
             requests
                 .into_iter()

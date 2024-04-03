@@ -20,7 +20,7 @@ use crate::{
     events::{Event, RequestResponseHandled},
     handlers::{validate_state_machine, MessageResult},
     host::{IsmpHost, StateMachine},
-    messaging::{sufficient_proof_height, ResponseMessage},
+    messaging::ResponseMessage,
     router::{GetResponse, Request, RequestResponse, Response},
     util::{hash_request, hash_response},
 };
@@ -32,12 +32,12 @@ where
     H: IsmpHost,
 {
     let signer = msg.signer.clone();
+
     let proof = msg.proof();
     let state_machine = validate_state_machine(host, proof.height)?;
     let state = host.state_machine_commitment(proof.height)?;
 
     let consensus_clients = host.consensus_clients();
-
     let check_for_consensus_client = |state_machine: StateMachine| {
         consensus_clients
             .iter()
@@ -65,12 +65,6 @@ where
 
                 // either the proof metadata matches the source chain, or it's coming from a proxy
                 // in which case, we must NOT have a configured state machine for the source
-                if response.source_chain() != msg.proof.height.id.state_id &&
-                    !host.is_allowed_proxy(&msg.proof.height.id.state_id)
-                {
-                    Err(Error::ResponseProofMetadataNotValid { res: response.clone() })?
-                }
-
                 if response.source_chain() != msg.proof.height.id.state_id &&
                     (host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
                         !check_for_consensus_client(response.source_chain()))
@@ -108,7 +102,12 @@ where
                 .collect::<Result<Vec<_>, _>>()?
         },
         RequestResponse::Request(requests) => {
+            let mut get_requests = vec![];
             for req in requests.iter() {
+                let Request::Get(get) = req else {
+                    Err(Error::InvalidResponseType { req: req.clone() })?
+                };
+
                 if req.timed_out(host.timestamp()) {
                     Err(Error::RequestTimeout { req: req.clone() })?
                 }
@@ -117,38 +116,30 @@ where
                     Err(Error::RequestProofMetadataNotValid { req: req.clone() })?
                 }
 
-                if !req.is_type_get() {
-                    Err(Error::InvalidResponseType { req: req.clone() })?
+                let commitment = hash_request::<H>(&Request::Get(get.clone()));
+                if host.request_commitment(commitment).is_err() {
+                    Err(Error::UnknownRequest { req: req.clone() })?
                 }
+
+                let res =
+                    Response::Get(GetResponse { get: get.clone(), values: Default::default() });
+
+                if host.response_receipt(&res).is_some() {
+                    Err(Error::DuplicateResponse { res })?
+                }
+
+                get_requests.push(get.clone());
             }
 
-            let requests = requests
-                .into_iter()
-                .filter_map(|req| match req {
-                    Request::Post(_) => None,
-                    Request::Get(get) => {
-                        let commitment = hash_request::<H>(&Request::Get(get.clone()));
-                        if host.request_commitment(commitment).is_ok() &&
-                            host.response_receipt(&Response::Get(GetResponse {
-                                get: get.clone(),
-                                values: Default::default(),
-                            }))
-                            .is_none()
-                        {
-                            Some(get)
-                        } else {
-                            None
-                        }
-                    },
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            // Ensure the proof height is greater than each retrieval height specified in the Get
+            // Ensure the proof height is equal to each retrieval height specified in the Get
             // requests
-            sufficient_proof_height(&requests, &proof)?;
+            if !get_requests.iter().all(|get| get.height == proof.height.height) {
+                Err(Error::InsufficientProofHeight)?
+            }
+
             // Since each get request can  contain multiple storage keys, we should handle them
             // individually
-            requests
+            get_requests
                 .into_iter()
                 .map(|request| {
                     let wrapped_req = Request::Get(request.clone());

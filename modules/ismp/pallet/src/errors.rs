@@ -246,8 +246,6 @@ impl From<ismp::error::Error> for HandlingError {
             IsmpError::DuplicateResponse { res } => HandlingError::DuplicateResponse { res },
             IsmpError::RequestProofMetadataNotValid { req } =>
                 HandlingError::RequestProofMetadataNotValid { req },
-            IsmpError::ResponseProofMetadataNotValid { res } =>
-                HandlingError::ResponseProofMetadataNotValid { res },
             IsmpError::RequestProxyProhibited { req } =>
                 HandlingError::RequestProxyProhibited { req },
             IsmpError::ResponseProxyProhibited { res } =>

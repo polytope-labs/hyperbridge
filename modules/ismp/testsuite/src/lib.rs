@@ -747,7 +747,7 @@ where
 
     let res = handle_incoming_message(host, request_message);
 
-    assert!(matches!(res, Err(Error::RequestProofMetadataNotValid { .. })));
+    assert!(matches!(res, Err(Error::RequestProxyProhibited { .. })));
 
     Ok(())
 }
@@ -814,8 +814,7 @@ where
 
     let res = handle_incoming_message(host, timeout_message);
 
-    dbg!(&res);
-    assert!(matches!(res, Err(Error::ResponseProofMetadataNotValid { .. })));
+    assert!(matches!(res, Err(Error::ResponseProxyProhibited { .. })));
 
     Ok(())
 }

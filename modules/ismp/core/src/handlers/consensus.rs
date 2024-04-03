@@ -85,13 +85,7 @@ where
         }
     }
 
-    let result = ConsensusUpdateResult {
-        consensus_client_id,
-        consensus_state_id: msg.consensus_state_id,
-        state_updates,
-    };
-
-    Ok(MessageResult::ConsensusMessage(result))
+    Ok(MessageResult::ConsensusMessage(state_updates))
 }
 
 /// Handles the creation of consensus clients

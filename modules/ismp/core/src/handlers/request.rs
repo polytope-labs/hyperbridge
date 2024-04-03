@@ -32,16 +32,6 @@ where
     H: IsmpHost,
 {
     let signer = msg.signer.clone();
-    let state_machine = validate_state_machine(host, msg.proof.height)?;
-
-    // Verify membership proof
-    let state = host.state_machine_commitment(msg.proof.height)?;
-    state_machine.verify_membership(
-        host,
-        RequestResponse::Request(msg.requests.clone().into_iter().map(Request::Post).collect()),
-        state,
-        &msg.proof,
-    )?;
 
     let consensus_clients = host.consensus_clients();
     let check_for_consensus_client = |state_machine: StateMachine| {
@@ -72,13 +62,6 @@ where
 
         // either the proof metadata matches the source chain, or it's coming from a proxy
         // in which case, we must NOT have a configured state machine for the source
-
-        if req.source_chain() != msg.proof.height.id.state_id &&
-            !host.is_allowed_proxy(&msg.proof.height.id.state_id)
-        {
-            Err(Error::RequestProofMetadataNotValid { req: req.clone() })?
-        }
-
         if req.source_chain() != msg.proof.height.id.state_id &&
             (host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
                 !check_for_consensus_client(req.source_chain()))
@@ -86,6 +69,16 @@ where
             Err(Error::RequestProxyProhibited { req: req.clone() })?
         }
     }
+
+    // Verify membership proof
+    let state_machine = validate_state_machine(host, msg.proof.height)?;
+    let state = host.state_machine_commitment(msg.proof.height)?;
+    state_machine.verify_membership(
+        host,
+        RequestResponse::Request(msg.requests.clone().into_iter().map(Request::Post).collect()),
+        state,
+        &msg.proof,
+    )?;
 
     let result = msg
         .requests

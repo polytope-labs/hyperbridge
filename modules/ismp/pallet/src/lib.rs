@@ -616,7 +616,7 @@ impl<T: Config> Pallet<T> {
         for message in messages {
             match handle_incoming_message(&host, message.clone()) {
                 Ok(MessageResult::ConsensusMessage(res)) => deposit_ismp_events::<T>(
-                    res.state_updates.into_iter().map(|ev| Ok(ev)).collect(),
+                    res.into_iter().map(|ev| Ok(ev)).collect(),
                     &mut errors,
                 ),
                 Ok(MessageResult::Response(res)) => deposit_ismp_events::<T>(res, &mut errors),

@@ -143,6 +143,7 @@ pub struct Host {
     frozen_consensus_clients: Rc<RefCell<HashMap<ConsensusStateId, bool>>>,
     latest_state_height: Rc<RefCell<HashMap<StateMachineId, u64>>>,
     nonce: Rc<RefCell<u64>>,
+    pub proxy: Option<StateMachine>,
 }
 
 impl IsmpHost for Host {
@@ -375,7 +376,7 @@ impl IsmpHost for Host {
     }
 
     fn allowed_proxy(&self) -> Option<StateMachine> {
-        Some(StateMachine::Kusama(2000))
+        self.proxy.clone()
     }
 
     fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {

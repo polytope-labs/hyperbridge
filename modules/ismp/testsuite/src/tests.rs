@@ -5,7 +5,6 @@ use crate::{
     check_response_source, frozen_consensus_client_check, frozen_state_machine_check,
     missing_state_commitment_check,
     mocks::{Host, MockDispatcher},
-    no_proxy::{NoProxyDispatcher, NoProxyHost},
     post_request_timeout_check, post_response_timeout_check,
     prevent_request_processing_on_proxy_with_known_state_machine,
     prevent_request_timeout_on_proxy_with_known_state_machine,
@@ -65,47 +64,28 @@ fn should_process_post_response_timeouts_correctly() {
 
 #[test]
 fn should_prevent_request_timeout_on_proxy_with_known_state_machine() {
-    let host = Arc::new(Host::default());
-    let dispatcher = MockDispatcher(host.clone());
     let direct_conn_state_machine = StateMachine::Ethereum(Ethereum::ExecutionLayer);
-    prevent_request_timeout_on_proxy_with_known_state_machine(
-        &*host,
-        &dispatcher,
-        direct_conn_state_machine,
-    )
-    .unwrap()
+    prevent_request_timeout_on_proxy_with_known_state_machine(direct_conn_state_machine).unwrap()
 }
 
 #[test]
 fn should_prevent_request_processing_through_proxy_with_known_state_machine() {
-    let host = Arc::new(Host::default());
     let direct_conn_state_machine = StateMachine::Ethereum(Ethereum::ExecutionLayer);
-    prevent_request_processing_on_proxy_with_known_state_machine(&*host, direct_conn_state_machine)
-        .unwrap()
+    prevent_request_processing_on_proxy_with_known_state_machine(direct_conn_state_machine).unwrap()
 }
 
 #[test]
 fn should_prevent_response_timeout_on_proxy_with_known_state_machine() {
-    let host = Arc::new(Host::default());
-    let dispatcher = MockDispatcher(host.clone());
     let direct_conn_state_machine = StateMachine::Ethereum(Ethereum::ExecutionLayer);
-    prevent_response_timeout_on_proxy_with_known_state_machine(
-        &*host,
-        &dispatcher,
-        direct_conn_state_machine,
-    )
-    .unwrap()
+    prevent_response_timeout_on_proxy_with_known_state_machine(direct_conn_state_machine).unwrap()
 }
 
 #[test]
 fn should_prevent_request_processing_when_proof_metadata_is_mismatched() {
-    let host = Arc::new(NoProxyHost::default());
-    check_request_source_and_destination(&*host).unwrap()
+    check_request_source_and_destination().unwrap()
 }
 
 #[test]
 fn should_prevent_response_processing_when_proof_metadata_is_mismatched() {
-    let host = Arc::new(NoProxyHost::default());
-    let dispatcher = NoProxyDispatcher(host.clone());
-    check_response_source(&*host, &dispatcher).unwrap()
+    check_response_source().unwrap()
 }

@@ -16,11 +16,12 @@
 //! ISMP Testsuite
 
 pub mod mocks;
-pub mod no_proxy;
 #[cfg(test)]
 mod tests;
 
-use crate::mocks::{MOCK_CONSENSUS_CLIENT_ID, MOCK_PROXY_CONSENSUS_CLIENT_ID};
+use crate::mocks::{
+    Host, MockDispatcher, MOCK_CONSENSUS_CLIENT_ID, MOCK_PROXY_CONSENSUS_CLIENT_ID,
+};
 use ismp::{
     consensus::{
         ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
@@ -37,7 +38,7 @@ use ismp::{
     },
     util::{hash_post_response, hash_request},
 };
-use std::vec;
+use std::{sync::Arc, vec};
 
 fn mock_consensus_state_id() -> ConsensusStateId {
     *b"mock"
@@ -489,23 +490,18 @@ where
 /// the State machine for the host is assumed in this test to be ``StateMachine::Polkadot(1000)``
 /// The destination state machine for the test is assumed to be
 /// ``StateMachine::Ethereum(Ethereum::ExecutionLayer)``
-pub fn prevent_request_timeout_on_proxy_with_known_state_machine<H, D>(
-    host: &H,
-    dispatcher: &D,
+pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
     direct_conn_state_machine: StateMachine,
-) -> Result<(), &'static str>
-where
-    H: IsmpHost,
-    D: IsmpDispatcher,
-    D::Account: From<[u8; 32]>,
-    D::Balance: From<u32>,
-{
+) -> Result<(), &'static str> {
     let proxy_state_machine = StateMachine::Kusama(2000);
+    let mut host = Host::default();
+    host.proxy = Some(proxy_state_machine);
+    let dispatcher = MockDispatcher(Arc::new(host.clone()));
 
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
 
-    let proxy = setup_mock_proxy_client(host, proxy_state_machine);
+    let proxy = setup_mock_proxy_client(&host, proxy_state_machine);
 
     host.store_consensus_update_time(mock_proxy_consensus_state_id(), previous_update_time)
         .unwrap();
@@ -569,7 +565,7 @@ where
         timeout_proof: Proof { height: proxy.height, proof: vec![] },
     });
 
-    let res = handle_incoming_message(host, timeout_message);
+    let res = handle_incoming_message(&host, timeout_message);
 
     assert!(matches!(res, Err(Error::RequestProxyProhibited { .. })));
 
@@ -578,20 +574,15 @@ where
 
 /// This should prevent a response from timing out on a proxy when there exists a consensus client
 /// for the request destination
-pub fn prevent_response_timeout_on_proxy_with_known_state_machine<H, D>(
-    host: &H,
-    dispatcher: &D,
+pub fn prevent_response_timeout_on_proxy_with_known_state_machine(
     direct_conn_state_machine: StateMachine,
-) -> Result<(), &'static str>
-where
-    H: IsmpHost,
-    D: IsmpDispatcher,
-    D::Account: From<[u8; 32]>,
-    D::Balance: From<u32>,
-{
+) -> Result<(), &'static str> {
     let proxy_state_machine = StateMachine::Kusama(2000);
+    let mut host = Host::default();
+    host.proxy = Some(proxy_state_machine);
+    let dispatcher = MockDispatcher(Arc::new(host.clone()));
 
-    let intermediate_state = setup_mock_client(host);
+    let intermediate_state = setup_mock_client(&host);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
     host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
@@ -599,7 +590,7 @@ where
     host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
         .unwrap();
 
-    let proxy = setup_mock_proxy_client(host, proxy_state_machine);
+    let proxy = setup_mock_proxy_client(&host, proxy_state_machine);
 
     host.store_consensus_update_time(mock_proxy_consensus_state_id(), previous_update_time)
         .unwrap();
@@ -648,7 +639,7 @@ where
         signer: vec![],
     });
 
-    handle_incoming_message(host, request_message).unwrap();
+    handle_incoming_message(&host, request_message).unwrap();
     // Assert that request was acknowledged
     assert!(matches!(host.request_receipt(&Request::Post(request.clone())), Some(_)));
 
@@ -663,7 +654,7 @@ where
         timeout_proof: Proof { height: proxy.height, proof: vec![] },
     });
 
-    let res = handle_incoming_message(host, timeout_message);
+    let res = handle_incoming_message(&host, timeout_message);
 
     assert!(matches!(res, Err(Error::ResponseProxyProhibited { .. })));
 
@@ -676,18 +667,16 @@ pub fn sanity_check_for_proxies() {}
 
 /// This should prevent a request from being processed through a proxy when there exists a state
 /// machine client for the request source
-pub fn prevent_request_processing_on_proxy_with_known_state_machine<H>(
-    host: &H,
+pub fn prevent_request_processing_on_proxy_with_known_state_machine(
     direct_conn_state_machine: StateMachine,
-) -> Result<(), &'static str>
-where
-    H: IsmpHost,
-{
+) -> Result<(), &'static str> {
     let proxy_state_machine = StateMachine::Kusama(2000);
+    let mut host = Host::default();
+    host.proxy = Some(proxy_state_machine);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
 
-    let proxy = setup_mock_proxy_client(host, proxy_state_machine);
+    let proxy = setup_mock_proxy_client(&host, proxy_state_machine);
 
     host.store_consensus_update_time(mock_proxy_consensus_state_id(), previous_update_time)
         .unwrap();
@@ -736,7 +725,7 @@ where
         signer: vec![],
     });
 
-    let res = handle_incoming_message(host, request_message);
+    let res = handle_incoming_message(&host, request_message);
 
     assert!(matches!(res, Err(Error::RequestProxyProhibited { .. })));
 
@@ -746,11 +735,9 @@ where
 /// This should check that if a proxy isn't configured, requests are not valid if they don't come
 /// from the state machine claimed in the proof as well as check that the request destination
 /// matches the host state machine.
-pub fn check_request_source_and_destination<H>(host: &H) -> Result<(), &'static str>
-where
-    H: IsmpHost,
-{
-    let intermediate_state = setup_mock_client(host);
+pub fn check_request_source_and_destination() -> Result<(), &'static str> {
+    let host = Host::default();
+    let intermediate_state = setup_mock_client(&host);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
     host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
@@ -777,7 +764,7 @@ where
         signer: vec![],
     });
 
-    let res = handle_incoming_message(host, request_message);
+    let res = handle_incoming_message(&host, request_message);
 
     assert!(matches!(res, Err(Error::RequestProxyProhibited { .. })));
 
@@ -786,14 +773,10 @@ where
 
 /// This should check that if a proxy isn't configured, responses are not valid if they don't come
 /// from the state machine claimed in the proof
-pub fn check_response_source<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
-where
-    H: IsmpHost,
-    D: IsmpDispatcher,
-    D::Account: From<[u8; 32]>,
-    D::Balance: From<u32>,
-{
-    let intermediate_state = setup_mock_client(host);
+pub fn check_response_source() -> Result<(), &'static str> {
+    let host = Host::default();
+    let intermediate_state = setup_mock_client(&host);
+    let dispatcher = MockDispatcher(Arc::new(host.clone()));
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
     host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
@@ -837,7 +820,7 @@ where
         signer: vec![],
     });
 
-    let res = handle_incoming_message(host, timeout_message);
+    let res = handle_incoming_message(&host, timeout_message);
 
     dbg!(&res);
     assert!(matches!(res, Err(Error::ResponseProxyProhibited { .. })));

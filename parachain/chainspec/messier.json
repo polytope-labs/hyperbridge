@@ -5,7 +5,12 @@
   "bootNodes": [
     "/ip4/35.240.101.10/tcp/30333/p2p/12D3KooWKqypQcAhfyRdwug3rqFJpfT69kygzdGrHWFYB2Vg7C5e"
   ],
-  "telemetryEndpoints": null,
+  "telemetryEndpoints": [
+    [
+      "/dns/telemetry.polkadot.io/tcp/443/x-parity-wss/%2Fsubmit%2F",
+      0
+    ]
+  ],
   "protocolId": "messier",
   "properties": {
     "ss58Format": 42,

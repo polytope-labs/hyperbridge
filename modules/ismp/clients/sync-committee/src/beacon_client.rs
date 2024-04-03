@@ -207,8 +207,7 @@ impl<
     fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         match id {
             StateMachine::Ethereum(_) => Ok(Box::new(<EvmStateMachine<H>>::default())),
-            _ =>
-                return Err(Error::ImplementationSpecific("State machine not supported".to_string())),
+            _ => Err(Error::ImplementationSpecific("State machine not supported".to_string())),
         }
     }
 }

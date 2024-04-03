@@ -174,10 +174,9 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
     ) -> Result<Box<dyn StateMachineClient>, ismp::error::Error> {
         match id {
             StateMachine::Bsc => Ok(Box::new(<EvmStateMachine<H>>::default())),
-            state_machine =>
-                return Err(Error::ImplementationSpecific(alloc::format!(
-                    "Unsupported state machine: {state_machine:?}"
-                ))),
+            state_machine => Err(Error::ImplementationSpecific(alloc::format!(
+                "Unsupported state machine: {state_machine:?}"
+            ))),
         }
     }
 }

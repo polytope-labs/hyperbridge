@@ -140,8 +140,10 @@ pub struct Host {
     state_commitments: Rc<RefCell<HashMap<StateMachineHeight, StateCommitment>>>,
     consensus_update_time: Rc<RefCell<HashMap<ConsensusStateId, Duration>>>,
     frozen_state_machines: Rc<RefCell<HashMap<StateMachineId, bool>>>,
+    frozen_consensus_clients: Rc<RefCell<HashMap<ConsensusStateId, bool>>>,
     latest_state_height: Rc<RefCell<HashMap<StateMachineId, u64>>>,
     nonce: Rc<RefCell<u64>>,
+    pub proxy: Option<StateMachine>,
 }
 
 impl IsmpHost for Host {
@@ -217,6 +219,12 @@ impl IsmpHost for Host {
     }
 
     fn is_consensus_client_frozen(&self, _client: ConsensusStateId) -> Result<(), Error> {
+        let binding = self.frozen_consensus_clients.borrow();
+        let val = binding.get(&_client).unwrap_or(&false);
+        if *val {
+            Err(Error::FrozenConsensusClient { consensus_state_id: _client })?;
+        }
+
         Ok(())
     }
 
@@ -306,6 +314,7 @@ impl IsmpHost for Host {
     }
 
     fn freeze_consensus_client(&self, _client: ConsensusStateId) -> Result<(), Error> {
+        self.frozen_consensus_clients.borrow_mut().insert(_client, true);
         Ok(())
     }
 
@@ -363,11 +372,11 @@ impl IsmpHost for Host {
         _consensus_state_id: ConsensusStateId,
         _period: u64,
     ) -> Result<(), Error> {
-        todo!()
+        Ok(())
     }
 
     fn allowed_proxy(&self) -> Option<StateMachine> {
-        Some(StateMachine::Kusama(2000))
+        self.proxy.clone()
     }
 
     fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {
@@ -376,6 +385,11 @@ impl IsmpHost for Host {
 
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {
         Box::new(MockRouter(self.clone()))
+    }
+
+    fn freeze_state_machine_client(&self, state_machine: StateMachineId) -> Result<(), Error> {
+        self.frozen_state_machines.borrow_mut().insert(state_machine, true);
+        Ok(())
     }
 }
 

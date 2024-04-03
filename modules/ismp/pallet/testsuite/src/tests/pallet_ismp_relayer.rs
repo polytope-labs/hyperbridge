@@ -28,10 +28,11 @@ use ismp::{
 };
 use ismp_sync_committee::types::EvmStateProof;
 use pallet_ismp::{
+    child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
     dispatcher::FeeMetadata,
     host::Host,
     primitives::{HashAlgorithm, SubstrateStateProof},
-    RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipt, ResponseReceipts,
+    ResponseReceipt,
 };
 use pallet_ismp_relayer::{
     self as pallet_ismp_relayer, message,
@@ -114,8 +115,8 @@ fn test_withdrawal_proof() {
 
         // Insert requests and responses
         for request in &requests {
-            let request_commitment_key = RequestCommitments::<Test>::hashed_key_for(request);
-            let request_receipt_key = RequestReceipts::<Test>::hashed_key_for(request);
+            let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
+            let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
             let fee_metadata = FeeMetadata::<Test> { origin: [0; 32].into(), fee: 1000u128.into() };
             let leaf_meta =
                 LeafMetadata { mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 }, meta: fee_metadata };
@@ -124,8 +125,8 @@ fn test_withdrawal_proof() {
         }
 
         for (request, response) in &responses {
-            let response_commitment_key = ResponseCommitments::<Test>::hashed_key_for(response);
-            let response_receipt_key = ResponseReceipts::<Test>::hashed_key_for(request);
+            let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
+            let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
             let fee_metadata = FeeMetadata::<Test> { origin: [0; 32].into(), fee: 1000u128.into() };
             let leaf_meta =
                 LeafMetadata { mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 }, meta: fee_metadata };
@@ -150,8 +151,8 @@ fn test_withdrawal_proof() {
 
         for (index, request) in requests.iter().enumerate() {
             if index % 2 == 0 {
-                let request_commitment_key = RequestCommitments::<Test>::hashed_key_for(request);
-                let request_receipt_key = RequestReceipts::<Test>::hashed_key_for(request);
+                let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
+                let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
                 source_trie.get(&request_commitment_key).unwrap();
                 dest_trie.get(&request_receipt_key).unwrap();
                 keys.push(Key::Request(*request));
@@ -160,8 +161,8 @@ fn test_withdrawal_proof() {
 
         for (index, (request, response)) in responses.iter().enumerate() {
             if index % 2 == 0 {
-                let response_commitment_key = ResponseCommitments::<Test>::hashed_key_for(response);
-                let response_receipt_key = ResponseReceipts::<Test>::hashed_key_for(request);
+                let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
+                let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
                 source_trie.get(&response_commitment_key).unwrap();
                 dest_trie.get(&response_receipt_key).unwrap();
                 keys.push(Key::Response {
@@ -175,11 +176,15 @@ fn test_withdrawal_proof() {
             source_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
         let dest_keys_proof = dest_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
 
-        let source_state_proof =
-            SubstrateStateProof { hasher: HashAlgorithm::Keccak, storage_proof: source_keys_proof };
+        let source_state_proof = SubstrateStateProof::OverlayProof {
+            hasher: HashAlgorithm::Keccak,
+            storage_proof: source_keys_proof,
+        };
 
-        let dest_state_proof =
-            SubstrateStateProof { hasher: HashAlgorithm::Keccak, storage_proof: dest_keys_proof };
+        let dest_state_proof = SubstrateStateProof::OverlayProof {
+            hasher: HashAlgorithm::Keccak,
+            storage_proof: dest_keys_proof,
+        };
 
         let host = Host::<Test>::default();
         host.store_state_machine_commitment(
@@ -190,7 +195,11 @@ fn test_withdrawal_proof() {
                 },
                 height: 1,
             },
-            StateCommitment { timestamp: 100, overlay_root: None, state_root: source_root },
+            StateCommitment {
+                timestamp: 100,
+                overlay_root: Some(source_root),
+                state_root: Default::default(),
+            },
         )
         .unwrap();
 
@@ -202,7 +211,11 @@ fn test_withdrawal_proof() {
                 },
                 height: 1,
             },
-            StateCommitment { timestamp: 100, overlay_root: None, state_root: dest_root },
+            StateCommitment {
+                timestamp: 100,
+                overlay_root: Some(dest_root),
+                state_root: Default::default(),
+            },
         )
         .unwrap();
 
@@ -503,6 +516,8 @@ fn test_evm_accumulate_fees_with_zero_fee_values() {
         host.store_unbonding_period(claim_proof.dest_proof.height.id.consensus_state_id, 10_000_000_000).unwrap();
 
         host.store_challenge_period(claim_proof.dest_proof.height.id.consensus_state_id, 0).unwrap();
+
+
 
         pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).unwrap();
         assert_eq!(claim_proof.commitments.len(), 6);

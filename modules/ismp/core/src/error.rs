@@ -17,6 +17,7 @@
 
 use crate::{
     consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight, StateMachineId},
+    events::Meta,
     host::StateMachine,
 };
 use alloc::{string::String, vec::Vec};
@@ -63,30 +64,18 @@ pub enum Error {
     },
     /// The given request was not found
     RequestCommitmentNotFound {
-        /// The request nonce
-        nonce: u64,
-        /// The source state machine
-        source: StateMachine,
-        /// The destination state machine
-        dest: StateMachine,
+        /// The request metadata
+        meta: Meta,
     },
     /// The given request has failed state proof verification
     RequestVerificationFailed {
-        /// The request nonce
-        nonce: u64,
-        /// The source state machine
-        source: StateMachine,
-        /// The destination state machine
-        dest: StateMachine,
+        /// The request metadata
+        meta: Meta,
     },
     /// The given request has not yet timed-out
     RequestTimeoutNotElapsed {
-        /// The request nonce
-        nonce: u64,
-        /// The source state machine
-        source: StateMachine,
-        /// The destination state machine
-        dest: StateMachine,
+        /// The request metadata
+        meta: Meta,
         /// The timestamp at which the timeout elapses
         timeout_timestamp: Duration,
         /// The current time on the state machine
@@ -94,21 +83,13 @@ pub enum Error {
     },
     /// The given request has failed non-membership state proof verification
     RequestTimeoutVerificationFailed {
-        /// The request nonce
-        nonce: u64,
-        /// The source state machine
-        source: StateMachine,
-        /// The destination state machine
-        dest: StateMachine,
+        /// The request metadata
+        meta: Meta,
     },
     /// The given response has failed membership state proof verification
     ResponseVerificationFailed {
-        /// The request nonce
-        nonce: u64,
-        /// The source state machine
-        source: StateMachine,
-        /// The destination state machine
-        dest: StateMachine,
+        /// The response metadata
+        meta: Meta,
     },
     /// Failed to verify the consensus proof for the given consensus client
     ConsensusProofVerificationFailed {
@@ -148,16 +129,86 @@ pub enum Error {
         /// Consensus state Id
         consensus_state_id: ConsensusStateId,
     },
-
     /// Consensus state id already exists
     DuplicateConsensusStateId {
         /// Consensus state Id
         consensus_state_id: ConsensusStateId,
     },
-
     /// Unbonding period has not been configured for this consensus state
     UnnbondingPeriodNotConfigured {
         /// Consensus state Id
         consensus_state_id: ConsensusStateId,
+    },
+    /// Error from dispatching a request to a module
+    ModuleDispatchError {
+        /// Descriptive error message
+        msg: String,
+        /// the request metadata
+        meta: Meta,
+    },
+    /// Attempted to respond to/timeout an unknown request
+    UnknownRequest {
+        /// Unknown request metadata
+        meta: Meta,
+    },
+    /// Attempted to time-out an unknown response
+    UnknownResponse {
+        /// Unknown response metadata
+        meta: Meta,
+    },
+    /// Request commitment for a response does not exist
+    UnsolicitedResponse {
+        /// Unsolicited response metadata
+        meta: Meta,
+    },
+    /// Timed out request found in batch
+    RequestTimeout {
+        /// Timed out Request metadata
+        meta: Meta,
+    },
+    /// Timed out response found in batch
+    ResponseTimeout {
+        /// Timed out Response metadata
+        response: Meta,
+    },
+    /// Duplicate request
+    DuplicateRequest {
+        /// Duplicate request metadata
+        meta: Meta,
+    },
+    /// Duplicate response
+    DuplicateResponse {
+        /// Duplicate response metadata
+        meta: Meta,
+    },
+    /// Request source does not match proof metadata
+    RequestProofMetadataNotValid {
+        /// The Request metadata
+        meta: Meta,
+    },
+    /// Proxy cannot be used when a direct connection exists
+    RequestProxyProhibited {
+        /// The Request metadata
+        meta: Meta,
+    },
+    /// Proxy cannot be used when a direct connection exists
+    ResponseProxyProhibited {
+        /// The Response metadata
+        meta: Meta,
+    },
+    /// Host is not a proxy and destination chain does is not the host
+    InvalidRequestDestination {
+        /// The Request metadata
+        meta: Meta,
+    },
+    /// The response destination does not match
+    InvalidResponseDestination {
+        /// The response metadata
+        meta: Meta,
+    },
+    /// Expected get request found post
+    InvalidResponseType {
+        /// The request metadata
+        meta: Meta,
     },
 }

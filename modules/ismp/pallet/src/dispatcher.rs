@@ -14,7 +14,7 @@
 // limitations under the License.
 
 //! Implementation for the ISMP Router
-use crate::{host::Host, primitives::LeafIndexAndPos, Pallet, RequestReceipts};
+use crate::{child_trie::RequestReceipts, host::Host, primitives::LeafIndexAndPos, Pallet};
 use alloc::string::ToString;
 use codec::{Decode, Encode};
 use core::marker::PhantomData;

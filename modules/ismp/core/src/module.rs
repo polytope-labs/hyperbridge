@@ -17,37 +17,12 @@
 
 use crate::{
     error::Error,
-    host::StateMachine,
+    events::Event,
     router::{Post as PostRequest, Response, Timeout},
 };
-use alloc::string::String;
-
-/// The result of successfully dispatching a request or response
-#[derive(Debug, PartialEq, Eq)]
-pub struct DispatchSuccess {
-    /// Destination chain for request or response
-    pub dest_chain: StateMachine,
-    /// Source chain for request or response
-    pub source_chain: StateMachine,
-    /// Request nonce
-    pub nonce: u64,
-}
-
-/// The result of unsuccessfully dispatching a request or response
-#[derive(Debug, PartialEq, Eq)]
-pub struct DispatchError {
-    /// Descriptive error message
-    pub msg: String,
-    /// Request nonce
-    pub nonce: u64,
-    /// Source chain for request or response
-    pub source_chain: StateMachine,
-    /// Destination chain for request or response
-    pub dest_chain: StateMachine,
-}
 
 /// A type alias for dispatch results
-pub type DispatchResult = Result<DispatchSuccess, DispatchError>;
+pub type DispatchResult = Result<Event, Error>;
 
 /// Individual modules which live on a state machine must conform to this interface in order to send
 /// and receive ISMP requests and responses

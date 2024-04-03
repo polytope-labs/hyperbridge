@@ -49,24 +49,20 @@ contract HandlerV1 is IHandler, Context {
      * @param proof - consensus proof
      */
     function handleConsensus(IIsmpHost host, bytes calldata proof) external notFrozen(host) {
-        uint256 timestamp = block.timestamp;
-        uint256 delay = timestamp - host.consensusUpdateTime();
-
+        uint256 delay = block.timestamp - host.consensusUpdateTime();
         // not today, time traveling validators
         require(delay < host.unStakingPeriod(), "IHandler: still in challenge period");
 
         (bytes memory verifiedState, IntermediateState memory intermediate) =
             IConsensusClient(host.consensusClient()).verifyConsensus(host.consensusState(), proof);
         host.storeConsensusState(verifiedState);
-        host.storeConsensusUpdateTime(timestamp);
 
         if (intermediate.height > host.latestStateMachineHeight()) {
             StateMachineHeight memory stateMachineHeight =
                 StateMachineHeight({stateMachineId: intermediate.stateMachineId, height: intermediate.height});
             host.storeStateMachineCommitment(stateMachineHeight, intermediate.commitment);
-            host.storeStateMachineCommitmentUpdateTime(stateMachineHeight, timestamp);
-            host.storeLatestStateMachineHeight(stateMachineHeight.height);
 
+            // todo: remove, all events have been consolidated to the host
             emit StateMachineUpdated({
                 stateMachineId: stateMachineHeight.stateMachineId,
                 height: stateMachineHeight.height

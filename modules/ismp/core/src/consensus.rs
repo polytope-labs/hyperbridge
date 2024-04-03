@@ -151,7 +151,7 @@ pub trait ConsensusClient {
     fn consensus_client_id(&self) -> ConsensusClientId;
 
     /// Return an implementation of a [`StateMachineClient`] for the given state machine.
-    /// Return an error if the identifier is unknown.
+    /// NOTE:  Must return an error if the identifier is unknown or risk a critical vulnerability
     fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error>;
 }
 

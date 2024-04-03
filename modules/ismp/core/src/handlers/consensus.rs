@@ -18,11 +18,12 @@
 use crate::{
     consensus::{StateMachineHeight, StateMachineId},
     error::Error,
-    handlers::{ConsensusClientCreatedResult, ConsensusUpdateResult, MessageResult},
+    events::{Event, StateMachineUpdated},
+    handlers::{ConsensusClientCreatedResult, MessageResult},
     host::IsmpHost,
     messaging::{ConsensusMessage, CreateConsensusState, FraudProofMessage},
 };
-use alloc::{collections::BTreeSet, string::ToString};
+use alloc::{string::ToString, vec};
 
 /// This function handles verification of consensus messages for consensus clients
 pub fn update_client<H>(host: &H, msg: ConsensusMessage) -> Result<MessageResult, Error>
@@ -46,7 +47,7 @@ where
     host.store_consensus_state(msg.consensus_state_id, new_state)?;
     let timestamp = host.timestamp();
     host.store_consensus_update_time(msg.consensus_state_id, timestamp)?;
-    let mut state_updates = BTreeSet::new();
+    let mut state_updates = vec![];
     for (id, mut commitment_heights) in intermediate_states {
         commitment_heights.sort_unstable_by(|a, b| a.height.cmp(&b.height));
         let id = StateMachineId { state_id: id, consensus_state_id: msg.consensus_state_id };
@@ -76,19 +77,15 @@ where
 
         if let Some(latest_height) = last_commitment_height {
             let latest_height = StateMachineHeight { id, height: latest_height.height };
-            state_updates
-                .insert((StateMachineHeight { id, height: previous_latest_height }, latest_height));
+            state_updates.push(Event::StateMachineUpdated(StateMachineUpdated {
+                state_machine_id: id,
+                latest_height: latest_height.height,
+            }));
             host.store_latest_commitment_height(latest_height)?;
         }
     }
 
-    let result = ConsensusUpdateResult {
-        consensus_client_id,
-        consensus_state_id: msg.consensus_state_id,
-        state_updates,
-    };
-
-    Ok(MessageResult::ConsensusMessage(result))
+    Ok(MessageResult::ConsensusMessage(state_updates))
 }
 
 /// Handles the creation of consensus clients

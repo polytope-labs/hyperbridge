@@ -17,29 +17,19 @@
 use crate::{
     consensus::{ConsensusClientId, StateMachineClient, StateMachineHeight},
     error::Error,
+    events::Event,
     host::IsmpHost,
     messaging::Message,
 };
 
 use crate::{consensus::ConsensusStateId, module::DispatchResult};
-use alloc::{boxed::Box, collections::BTreeSet, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 pub use consensus::create_client;
 
 mod consensus;
 mod request;
 mod response;
 mod timeout;
-
-/// The result of successfully processing a [`ConsensusMessage`]
-#[derive(Debug)]
-pub struct ConsensusUpdateResult {
-    /// Consensus client Id
-    pub consensus_client_id: ConsensusClientId,
-    /// Consensus state Id
-    pub consensus_state_id: ConsensusStateId,
-    /// Tuple of previous latest height and new latest height for a state machine
-    pub state_updates: BTreeSet<(StateMachineHeight, StateMachineHeight)>,
-}
 
 /// The result of successfully processing a [`CreateConsensusClient`] message
 pub struct ConsensusClientCreatedResult {
@@ -53,7 +43,7 @@ pub struct ConsensusClientCreatedResult {
 #[derive(Debug)]
 pub enum MessageResult {
     /// The [`ConsensusMessage`] result
-    ConsensusMessage(ConsensusUpdateResult),
+    ConsensusMessage(Vec<Event>),
     /// Result of freezing a consensus state.
     FrozenClient(ConsensusStateId),
     /// The [`DispatchResult`] for requests

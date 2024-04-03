@@ -28,7 +28,9 @@ pub mod events;
 pub mod handlers;
 pub mod host;
 pub mod mmr;
+use events::deposit_ismp_events;
 pub use mmr::ProofKeys;
+pub mod child_trie;
 pub mod primitives;
 pub mod weight_info;
 
@@ -51,7 +53,7 @@ use log::debug;
 use sp_core::{offchain::StorageKind, H256};
 // Re-export pallet items so that they can be accessed from the crate namespace.
 use crate::{
-    errors::{HandlingError, ModuleCallbackResult},
+    errors::HandlingError,
     mmr::{
         primitives::{DataOrHash, Leaf, LeafIndex, NodeIndex},
         Mmr,
@@ -78,14 +80,16 @@ use sp_std::prelude::*;
 #[frame_support::pallet]
 pub mod pallet {
 
+    use self::primitives::IsmpConsensusLog;
+
     // Import various types used to declare pallet in scope.
     use super::*;
     use crate::{
-        dispatcher::LeafMetadata,
+        child_trie::CHILD_TRIE_PREFIX,
         errors::HandlingError,
         mmr::primitives::{LeafIndex, NodeIndex},
         primitives::{ConsensusClientProvider, WeightUsed, ISMP_ID},
-        weight_info::{WeightInfo, WeightProvider},
+        weight_info::WeightProvider,
     };
     use frame_support::{pallet_prelude::*, traits::UnixTime};
     use frame_system::pallet_prelude::*;
@@ -94,21 +98,20 @@ pub mod pallet {
             ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
             StateMachineId,
         },
+        events::{RequestResponseHandled, TimeoutHandled},
         handlers,
         host::StateMachine,
-        messaging::{
-            ConsensusMessage, FraudProofMessage, Message, RequestMessage, ResponseMessage,
-        },
+        messaging::{ConsensusMessage, FraudProofMessage, Message, RequestMessage},
         router::IsmpRouter,
     };
-    use sp_core::H256;
+    use sp_core::{storage::ChildInfo, H256};
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_balances::Config {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        /// Prefix for elements stored in the Off-chain DB via Indexing API.
+        /// Prefix for elements stored in the Off-chain DB via Indexing API
         const INDEXING_PREFIX: &'static [u8];
 
         /// Admin origin for privileged actions
@@ -128,9 +131,6 @@ pub mod pallet {
 
         /// Provides concrete implementations of consensus clients
         type ConsensusClients: ConsensusClientProvider;
-
-        /// Weight Info
-        type WeightInfo: WeightInfo;
 
         /// Weight provider for consensus clients and module callbacks
         type WeightProvider: WeightProvider;
@@ -221,38 +221,11 @@ pub mod pallet {
     pub type StateMachineUpdateTime<T: Config> =
         StorageMap<_, Twox64Concat, StateMachineHeight, u64, OptionQuery>;
 
-    /// Commitments for outgoing requests
-    /// The key is the request commitment
-    #[pallet::storage]
-    #[pallet::getter(fn request_commitments)]
-    pub type RequestCommitments<T: Config> =
-        StorageMap<_, Identity, H256, LeafMetadata<T>, OptionQuery>;
-
     /// Tracks requests that have been responded to
     /// The key is the request commitment
     #[pallet::storage]
     #[pallet::getter(fn responded)]
     pub type Responded<T: Config> = StorageMap<_, Identity, H256, bool, ValueQuery>;
-
-    /// Commitments for outgoing responses
-    /// The key is the response commitment
-    #[pallet::storage]
-    #[pallet::getter(fn response_commitments)]
-    pub type ResponseCommitments<T: Config> =
-        StorageMap<_, Identity, H256, LeafMetadata<T>, OptionQuery>;
-
-    /// Receipts for incoming requests
-    /// The key is the request commitment
-    #[pallet::storage]
-    #[pallet::getter(fn request_receipts)]
-    pub type RequestReceipts<T: Config> = StorageMap<_, Identity, H256, Vec<u8>, OptionQuery>;
-
-    /// Receipts for incoming responses
-    /// The key is the request commitment
-    #[pallet::storage]
-    #[pallet::getter(fn response_receipts)]
-    pub type ResponseReceipts<T: Config> =
-        StorageMap<_, Identity, H256, ResponseReceipt, OptionQuery>;
 
     /// Latest nonce for messages sent from this chain
     #[pallet::storage]
@@ -287,8 +260,7 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
             IntermediateNumberOfLeaves::<T>::put(Self::number_of_leaves());
-            // todo: return correct Mmr finalization weight here
-            <T as Config>::WeightInfo::on_finalize(Self::number_of_leaves() as u32)
+            Weight::default()
         }
 
         fn on_finalize(_n: BlockNumberFor<T>) {
@@ -345,7 +317,17 @@ pub mod pallet {
                 H256::default()
             };
 
-            let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, root.encode());
+            let child_trie_root = frame_support::storage::child::root(
+                &ChildInfo::new_default(CHILD_TRIE_PREFIX),
+                Default::default(),
+            );
+
+            let log = IsmpConsensusLog {
+                child_trie_root: H256::from_slice(&child_trie_root),
+                mmr_root: root,
+            };
+
+            let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
             <frame_system::Pallet<T>>::deposit_log(digest);
         }
 
@@ -376,7 +358,7 @@ pub mod pallet {
         }
 
         /// Create a consensus client, using a subjectively chosen consensus state.
-        #[pallet::weight(<T as Config>::WeightInfo::create_consensus_client())]
+        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
         #[pallet::call_index(1)]
         pub fn create_consensus_client(
             origin: OriginFor<T>,
@@ -483,6 +465,18 @@ pub mod pallet {
             /// Message handling errors
             errors: Vec<HandlingError>,
         },
+        /// Post Request Handled
+        PostRequestHandled(RequestResponseHandled),
+        /// Post Response Handled
+        PostResponseHandled(RequestResponseHandled),
+        /// Get Response Handled
+        GetRequestHandled(RequestResponseHandled),
+        /// Post request timeout handled
+        PostRequestTimeoutHandled(TimeoutHandled),
+        /// Post response timeout handled
+        PostResponseTimeoutHandled(TimeoutHandled),
+        /// Get request timeout handled
+        GetRequestTimeoutHandled(TimeoutHandled),
     }
 
     /// Pallet errors
@@ -623,23 +617,13 @@ impl<T: Config> Pallet<T> {
         let total_weight = get_weight::<T>(&messages);
         for message in messages {
             match handle_incoming_message(&host, message.clone()) {
-                Ok(MessageResult::ConsensusMessage(res)) => {
-                    for (_, latest_height) in res.state_updates.into_iter() {
-                        Self::deposit_event(Event::<T>::StateMachineUpdated {
-                            state_machine_id: latest_height.id,
-                            latest_height: latest_height.height,
-                        })
-                    }
-                },
-                Ok(MessageResult::Response(res)) => {
-                    debug!(target: "ismp", "Module Callback Results {:?}", ModuleCallbackResult::Response(res));
-                },
-                Ok(MessageResult::Request(res)) => {
-                    debug!(target: "ismp", "Module Callback Results {:?}", ModuleCallbackResult::Request(res));
-                },
-                Ok(MessageResult::Timeout(res)) => {
-                    debug!(target: "ismp", "Module Callback Results {:?}", ModuleCallbackResult::Timeout(res));
-                },
+                Ok(MessageResult::ConsensusMessage(res)) => deposit_ismp_events::<T>(
+                    res.into_iter().map(|ev| Ok(ev)).collect(),
+                    &mut errors,
+                ),
+                Ok(MessageResult::Response(res)) => deposit_ismp_events::<T>(res, &mut errors),
+                Ok(MessageResult::Request(res)) => deposit_ismp_events::<T>(res, &mut errors),
+                Ok(MessageResult::Timeout(res)) => deposit_ismp_events::<T>(res, &mut errors),
                 Ok(MessageResult::FrozenClient(id)) =>
                     Self::deposit_event(Event::<T>::ConsensusClientFrozen {
                         consensus_client_id: id,
@@ -651,7 +635,7 @@ impl<T: Config> Pallet<T> {
         }
 
         if !errors.is_empty() {
-            debug!(target: "pallet-ismp", "Handling Errors {:?}", errors);
+            debug!(target: "ismp", "Handling Errors {:?}", errors);
             Self::deposit_event(Event::<T>::Errors { errors })
         }
 
@@ -691,11 +675,6 @@ impl<T: Config> Pallet<T> {
     /// Returns the offchain key for a request or response leaf index
     pub fn full_leaf_offchain_key(commitment: H256) -> Vec<u8> {
         (T::INDEXING_PREFIX, commitment).encode()
-    }
-
-    /// Returns the offchain key for a request or response leaf index
-    pub fn intermediate_node_offchain_key(position: NodeIndex) -> Vec<u8> {
-        (T::INDEXING_PREFIX, "intermediate_nodes", position).encode()
     }
 
     /// Gets the request from the offchain storage

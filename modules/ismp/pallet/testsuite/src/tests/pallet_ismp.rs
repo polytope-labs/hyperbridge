@@ -18,10 +18,11 @@
 use crate::runtime::*;
 use frame_support::pallet_prelude::Hooks;
 use pallet_ismp::{
+    child_trie::{RequestCommitments, RequestReceipts},
     dispatcher::{Dispatcher, FeeMetadata},
     host::Host,
     mmr::primitives::{DataOrHash, MmrHasher},
-    IntermediateLeaves, NodesUtils, ProofKeys, RequestCommitments, RequestReceipts,
+    IntermediateLeaves, NodesUtils, ProofKeys,
 };
 
 use std::{
@@ -41,8 +42,8 @@ use ismp::{
 
 use ismp::{messaging::Message, router::Response};
 use ismp_testsuite::{
-    check_challenge_period, check_client_expiry, frozen_check, post_request_timeout_check,
-    post_response_timeout_check, write_outgoing_commitments,
+    check_challenge_period, check_client_expiry, missing_state_commitment_check,
+    post_request_timeout_check, post_response_timeout_check, write_outgoing_commitments,
 };
 use merkle_mountain_range::MerkleProof;
 use sp_core::{crypto::AccountId32, H256};
@@ -247,7 +248,6 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
 }
 
 #[test]
-#[ignore]
 fn should_reject_updates_within_challenge_period() {
     let mut ext = new_test_ext();
 
@@ -267,7 +267,7 @@ fn should_reject_messages_for_frozen_state_machines() {
         set_timestamp(None);
         let host = Host::<Test>::default();
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
-        frozen_check(&host).unwrap()
+        missing_state_commitment_check(&host).unwrap()
     })
 }
 

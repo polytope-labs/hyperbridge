@@ -23,19 +23,19 @@ extern crate alloc;
 use alloc::{collections::BTreeMap, format, vec, vec::Vec};
 use codec::Decode;
 use core::{fmt::Debug, marker::PhantomData};
+use frame_support::ensure;
 use ismp::{
     consensus::{StateCommitment, StateMachineClient},
     error::Error,
     host::IsmpHost,
     messaging::Proof,
     router::{Request, RequestResponse, Response},
-    util::{hash_post_response, hash_request},
+    util::{hash_post_response, hash_request, hash_response},
 };
-use merkle_mountain_range::MerkleProof;
 use pallet_ismp::{
+    child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
     host::Host,
-    mmr::primitives::{DataOrHash, Leaf, MmrHasher},
-    primitives::{HashAlgorithm, MembershipProof, SubstrateStateProof},
+    primitives::{HashAlgorithm, SubstrateStateProof},
 };
 use sp_runtime::traits::{BlakeTwo256, Keccak256};
 use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
@@ -60,37 +60,70 @@ where
         state: StateCommitment,
         proof: &Proof,
     ) -> Result<(), Error> {
-        let membership = MembershipProof::decode(&mut &*proof.proof).map_err(|e| {
-            Error::ImplementationSpecific(format!("Cannot decode membership proof: {e:?}"))
+        let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
+            .map_err(|e| Error::ImplementationSpecific(format!("failed to decode proof: {e:?}")))?;
+        ensure!(
+            matches!(state_proof, SubstrateStateProof::OverlayProof { .. }),
+            Error::ImplementationSpecific("Expected Overlay Proof".to_string())
+        );
+        let root = state.overlay_root.ok_or_else(|| {
+            Error::ImplementationSpecific(
+                "Child trie root is not available for provided state commitment".into(),
+            )
         })?;
-        let nodes = membership.proof.into_iter().map(|h| DataOrHash::Hash(h.into())).collect();
-        let proof = MerkleProof::<DataOrHash, MmrHasher<Host<T>>>::new(membership.mmr_size, nodes);
-        let leaves: Vec<(u64, DataOrHash)> = match item {
-            RequestResponse::Request(req) => membership
-                .leaf_indices
+        let keys = match item {
+            RequestResponse::Request(requests) => requests
                 .into_iter()
-                .zip(req.into_iter())
-                .map(|(pos, req)| (pos, DataOrHash::Data(Leaf::Request(req))))
-                .collect(),
-            RequestResponse::Response(res) => membership
-                .leaf_indices
+                .map(|request| {
+                    let commitment = hash_request::<Host<T>>(&request);
+                    RequestCommitments::<T>::storage_key(commitment)
+                })
+                .collect::<Vec<Vec<u8>>>(),
+            RequestResponse::Response(responses) => responses
                 .into_iter()
-                .zip(res.into_iter())
-                .map(|(pos, res)| (pos, DataOrHash::Data(Leaf::Response(res))))
-                .collect(),
+                .map(|response| {
+                    let commitment = hash_response::<Host<T>>(&response);
+                    ResponseCommitments::<T>::storage_key(commitment)
+                })
+                .collect::<Vec<Vec<u8>>>(),
         };
-        let root = state
-            .overlay_root
-            .ok_or_else(|| Error::ImplementationSpecific("ISMP root should not be None".into()))?;
+        let _ = match state_proof.hasher() {
+            HashAlgorithm::Keccak => {
+                let db =
+                    StorageProof::new(state_proof.storage_proof()).into_memory_db::<Keccak256>();
+                let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root).build();
+                keys.into_iter()
+                    .map(|key| {
+                        let value = trie.get(&key).map_err(|e| {
+                            Error::ImplementationSpecific(format!(
+                                "Error reading state proof: {e:?}"
+                            ))
+                        })?.ok_or_else(|| Error::ImplementationSpecific(format!(
+                            "Every key in a membership proof should have a value, found a key {:?} with None", key
+                        )))?;
+                        Ok((key, value))
+                    })
+                    .collect::<Result<BTreeMap<_, _>, _>>()?
+            },
+            HashAlgorithm::Blake2 => {
+                let db =
+                    StorageProof::new(state_proof.storage_proof()).into_memory_db::<BlakeTwo256>();
 
-        let calc_root = proof
-            .calculate_root(leaves.clone())
-            .map_err(|e| Error::ImplementationSpecific(format!("Error verifying mmr: {e:?}")))?;
-        let valid = calc_root.hash::<Host<T>>() == root.into();
-
-        if !valid {
-            Err(Error::ImplementationSpecific("Invalid membership proof".into()))?
-        }
+                let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
+                keys.into_iter()
+                    .map(|key| {
+                        let value = trie.get(&key).map_err(|e| {
+                            Error::ImplementationSpecific(format!(
+                                "Error reading state proof: {e:?}"
+                            ))
+                        })?.ok_or_else(|| Error::ImplementationSpecific(format!(
+                            "Every key in a membership proof should have a value, found a key {:?} with None", key
+                        )))?;
+                        Ok((key, value))
+                    })
+                    .collect::<Result<BTreeMap<_, _>, _>>()?
+            },
+        };
 
         Ok(())
     }
@@ -104,9 +137,7 @@ where
                         Request::Post(post) => {
                             let request = Request::Post(post);
                             let commitment = hash_request::<Host<T>>(&request);
-                            keys.push(pallet_ismp::RequestReceipts::<T>::hashed_key_for(
-                                commitment,
-                            ));
+                            keys.push(RequestReceipts::<T>::storage_key(commitment));
                         },
                         Request::Get(_) => continue,
                     }
@@ -116,9 +147,7 @@ where
                     match res {
                         Response::Post(post_response) => {
                             let commitment = hash_post_response::<Host<T>>(&post_response);
-                            keys.push(pallet_ismp::ResponseReceipts::<T>::hashed_key_for(
-                                commitment,
-                            ));
+                            keys.push(ResponseReceipts::<T>::storage_key(commitment));
                         },
                         Response::Get(_) => continue,
                     }
@@ -137,10 +166,19 @@ where
     ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
         let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
             .map_err(|e| Error::ImplementationSpecific(format!("failed to decode proof: {e:?}")))?;
-        let data = match state_proof.hasher {
+        let root = match &state_proof {
+            SubstrateStateProof::OverlayProof { .. } => root.overlay_root.ok_or_else(|| {
+                Error::ImplementationSpecific(
+                    "Child trie root is not available for provided state commitment".into(),
+                )
+            })?,
+            SubstrateStateProof::StateProof { .. } => root.state_root,
+        };
+        let data = match state_proof.hasher() {
             HashAlgorithm::Keccak => {
-                let db = StorageProof::new(state_proof.storage_proof).into_memory_db::<Keccak256>();
-                let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root.state_root).build();
+                let db =
+                    StorageProof::new(state_proof.storage_proof()).into_memory_db::<Keccak256>();
+                let trie = TrieDBBuilder::<LayoutV0<Keccak256>>::new(&db, &root).build();
                 keys.into_iter()
                     .map(|key| {
                         let value = trie.get(&key).map_err(|e| {
@@ -154,10 +192,9 @@ where
             },
             HashAlgorithm::Blake2 => {
                 let db =
-                    StorageProof::new(state_proof.storage_proof).into_memory_db::<BlakeTwo256>();
+                    StorageProof::new(state_proof.storage_proof()).into_memory_db::<BlakeTwo256>();
 
-                let trie =
-                    TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root.state_root).build();
+                let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
                 keys.into_iter()
                     .map(|key| {
                         let value = trie.get(&key).map_err(|e| {

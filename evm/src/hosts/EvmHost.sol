@@ -109,15 +109,29 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // emergency shutdown button, only the admin can do this
     bool private _frozen;
 
+
     // Emitted when an incoming POST request is handled
     event PostRequestHandled(bytes32 commitment, address relayer);
+
+    // Emitted when an outgoing POST request timeout is handled
+    event PostRequestTimeoutHandled(bytes32 commitment);
 
     // Emitted when an incoming POST response is handled
     event PostResponseHandled(bytes32 commitment, address relayer);
 
-    // Emitted when an outgoing Get request is handled
+    // Emitted when an outgoing POST timeout response is handled
+    event PostResponseTimeoutHandled(bytes32 commitment);
+
+    // Emitted when an outgoing GET request is handled
     event GetRequestHandled(bytes32 commitment, address relayer);
 
+    // Emitted when an outgoing GET request timeout is handled
+    event GetRequestTimeoutHandled(bytes32 commitment);
+
+    // Emitted when new heights are finalized
+    event StateMachineUpdated(uint256 stateMachineId, uint256 height);
+
+    // Emitted when a new POST request is dispatched
     event PostRequestEvent(
         bytes source,
         bytes dest,
@@ -130,6 +144,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 fee
     );
 
+    // Emitted when a new POST response is dispatched
     event PostResponseEvent(
         bytes source,
         bytes dest,
@@ -145,6 +160,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 fee
     );
 
+    // Emitted when a new GET request is dispatched
     event GetRequestEvent(
         bytes source,
         bytes dest,
@@ -357,10 +373,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Store the serialized consensus state
+     * @dev Store the serialized consensus state, alongside relevant metadata
      */
     function storeConsensusState(bytes memory state) external onlyHandler {
         _hostParams.consensusState = state;
+        _hostParams.lastUpdated = block.timestamp;
     }
 
     /**
@@ -379,13 +396,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Store the commitment at `state height`
+     * @dev Store the state commitment at given state height alongside relevant metadata. Assumes the state commitment is of the latest height.
      */
     function storeStateMachineCommitment(StateMachineHeight memory height, StateCommitment memory commitment)
         external
         onlyHandler
     {
         _stateCommitments[height.stateMachineId][height.height] = commitment;
+        _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = block.timestamp;
+        _hostParams.latestStateMachineHeight = height.height;
+
+        emit StateMachineUpdated({stateMachineId: height.stateMachineId, height: height.height});
     }
 
     /**
@@ -412,10 +433,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function setConsensusState(bytes memory state) public onlyAdmin {
         // if we're on mainnet, then consensus state can only be initialized once.
-        require(
-            chainId() == block.chainid ? _hostParams.consensusState.equals(new bytes(0)) : true, "Unauthorized action"
-        );
-
+        // and updated subsequently by either consensus proofs or cross-chain governance
+        if (chainId() == block.chainid) {
+            require(_hostParams.consensusState.equals(new bytes(0)), "Unauthorized action");
+        }
         _hostParams.latestStateMachineHeight = 0;
         _hostParams.consensusState = state;
     }
@@ -489,7 +510,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Dispatch an incoming get timeout to source module
+     * @dev Dispatch an incoming get timeout to the source module
      * @param request - get request
      */
     function dispatchIncoming(GetRequest memory request, FeeMetadata memory meta, bytes32 commitment)
@@ -503,13 +524,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             // delete memory of this request
             delete _requestCommitments[commitment];
 
-            // refund relayer fee
-            IERC20(feeToken()).transfer(meta.sender, meta.fee);
+            if (meta.fee > 0) {
+                // refund relayer fee
+                IERC20(feeToken()).transfer(meta.sender, meta.fee);
+            }
+
+            emit GetRequestTimeoutHandled({commitment: commitment});
         }
     }
 
     /**
-     * @dev Dispatch an incoming post timeout to source module
+     * @dev Dispatch an incoming post timeout to the source module
      * @param request - post timeout
      */
     function dispatchIncoming(PostRequest memory request, FeeMetadata memory meta, bytes32 commitment)
@@ -524,13 +549,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             // delete memory of this request
             delete _requestCommitments[commitment];
 
-            // refund relayer fee
-            IERC20(feeToken()).transfer(meta.sender, meta.fee);
+            if (meta.fee > 0) {
+                // refund relayer fee
+                IERC20(feeToken()).transfer(meta.sender, meta.fee);
+            }
+
+            emit PostRequestTimeoutHandled({commitment: commitment});
         }
     }
 
     /**
-     * @dev Dispatch an incoming post response timeout to source module
+     * @dev Dispatch an incoming post response timeout to the source module
      * @param response - timed-out post response
      */
     function dispatchIncoming(PostResponse memory response, FeeMetadata memory meta, bytes32 commitment)
@@ -546,8 +575,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             delete _responseCommitments[commitment];
             delete _responded[response.request.hash()];
 
-            // refund relayer fee
-            IERC20(feeToken()).transfer(meta.sender, meta.fee);
+            if (meta.fee > 0) {
+                // refund relayer fee
+                IERC20(feeToken()).transfer(meta.sender, meta.fee);
+            }
+
+            emit PostResponseTimeoutHandled({commitment: commitment});
         }
     }
 
@@ -575,7 +608,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         });
 
         // make the commitment
-        bytes32 commitment = request.hash();
+        commitment = request.hash();
         _requestCommitments[commitment] = FeeMetadata({sender: post.payer, fee: post.fee});
         emit PostRequestEvent(
             request.source,
@@ -614,7 +647,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         });
 
         // make the commitment
-        bytes32 commitment = request.hash();
+        commitment = request.hash();
         _requestCommitments[commitment] = FeeMetadata({sender: get.payer, fee: get.fee});
         emit GetRequestEvent(
             request.source,
@@ -658,7 +691,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             timeoutTimestamp: timeout,
             gaslimit: post.gaslimit
         });
-        bytes32 commitment = response.hash();
+        commitment = response.hash();
         FeeMetadata memory meta = FeeMetadata({fee: post.fee, sender: post.payer});
         _responseCommitments[commitment] = meta;
         _responded[receipt] = true;
@@ -677,6 +710,38 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             response.gaslimit,
             meta.fee // sigh solidity
         );
+    }
+
+    /**
+     * @dev Increase the relayer fee for a previously dispatched request.
+     * This is provided for use only on pending requests, such that when they timeout,
+     * the user can recover the entire relayer fee.
+     *
+     * If called on an already delivered request, these funds will be seen as a donation to the hyperbridge protocol.
+     * @param commitment - The request commitment
+     * @param amount - The amount to add for request delivery and execution.
+     */
+    function fundRequest(bytes32 commitment, uint256 amount) public {
+        FeeMetadata memory metadata = _requestCommitments[commitment];
+
+        require(metadata.sender != address(0), "Unknown request");
+        require(metadata.sender != _msgSender(), "User can only fund own requests");
+        require(IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount), "Payer has insufficient funds");
+
+        metadata.fee += amount;
+        _requestCommitments[commitment] = metadata;
+    }
+
+    /**
+     * @dev A fisherman has determined that some [`StateCommitment`]
+     *  (which is ideally still in it's challenge period)
+     *  is infact fraudulent and misrepresentative of the state
+     *  changes at the provided height. This allows them to veto the state commitment.
+     *  They aren't required to provide any proofs for this.
+     */
+    function vetoStateCommitment(StateMachineHeight memory height) public onlyAdmin {
+        delete _stateCommitments[height.stateMachineId][height.height];
+        delete _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
     }
 
     /**

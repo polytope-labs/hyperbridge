@@ -244,8 +244,7 @@ pub fn frozen_state_machine_check<H: IsmpHost>(host: &H) -> Result<(), &'static 
     });
 
     let res = handle_incoming_message(host, request_message);
-    dbg!(&res);
-    assert!(matches!(res, Err(ismp::error::Error::FrozenStateMachine { .. })));
+    assert!(matches!(res, Err(Error::FrozenStateMachine { .. })));
     Ok(())
 }
 

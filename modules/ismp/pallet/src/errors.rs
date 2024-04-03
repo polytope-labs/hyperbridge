@@ -197,11 +197,11 @@ impl From<ismp::error::Error> for HandlingError {
             IsmpError::FrozenConsensusClient { consensus_state_id } =>
                 HandlingError::FrozenConsensusClient { id: consensus_state_id },
             IsmpError::FrozenStateMachine { id } => HandlingError::FrozenStateMachine { id },
-            IsmpError::RequestCommitmentNotFound { nonce, source, dest } =>
+            IsmpError::RequestCommitmentNotFound { req: Meta { nonce, source, dest } } =>
                 HandlingError::RequestCommitmentNotFound { nonce, source, dest },
-            IsmpError::RequestVerificationFailed { nonce, source, dest } =>
+            IsmpError::RequestVerificationFailed { req: Meta { nonce, source, dest } } =>
                 HandlingError::ResponseVerificationFailed { nonce, source, dest },
-            IsmpError::ResponseVerificationFailed { nonce, source, dest } =>
+            IsmpError::ResponseVerificationFailed { req: Meta { nonce, source, dest } } =>
                 HandlingError::ResponseVerificationFailed { nonce, source, dest },
             IsmpError::ConsensusProofVerificationFailed { id } =>
                 HandlingError::ConsensusProofVerificationFailed { id },
@@ -219,9 +219,7 @@ impl From<ismp::error::Error> for HandlingError {
             IsmpError::CannotCreateAlreadyExistingConsensusClient { id } =>
                 HandlingError::CannotCreateAlreadyExistingConsensusClient { id },
             IsmpError::RequestTimeoutNotElapsed {
-                nonce,
-                source,
-                dest,
+                meta: Meta { nonce, source, dest },
                 timeout_timestamp,
                 state_machine_time,
             } => HandlingError::RequestTimeoutNotElapsed {
@@ -231,7 +229,7 @@ impl From<ismp::error::Error> for HandlingError {
                 timeout_timestamp: timeout_timestamp.as_secs(),
                 state_machine_time: state_machine_time.as_secs(),
             },
-            IsmpError::RequestTimeoutVerificationFailed { nonce, source, dest } =>
+            IsmpError::RequestTimeoutVerificationFailed { req: Meta { nonce, source, dest } } =>
                 HandlingError::RequestTimeoutVerificationFailed { nonce, source, dest },
             IsmpError::InsufficientProofHeight => HandlingError::InsufficientProofHeight,
             IsmpError::ModuleNotFound(id) => HandlingError::ModuleNotFound(id),

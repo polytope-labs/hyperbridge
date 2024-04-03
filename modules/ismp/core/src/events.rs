@@ -91,6 +91,12 @@ impl From<&Response> for Meta {
     }
 }
 
+impl From<&PostResponse> for Meta {
+    fn from(value: &PostResponse) -> Self {
+        Self { source: value.source_chain(), dest: value.dest_chain(), nonce: value.nonce() }
+    }
+}
+
 impl From<Request> for Meta {
     fn from(value: Request) -> Self {
         Self { source: value.source_chain(), dest: value.dest_chain(), nonce: value.nonce() }

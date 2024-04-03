@@ -64,9 +64,7 @@ where
 
                 if !request.timed_out(state.timestamp()) {
                     Err(Error::RequestTimeoutNotElapsed {
-                        nonce: request.nonce(),
-                        source: request.source_chain(),
-                        dest: request.dest_chain(),
+                        meta: request.into(),
                         timeout_timestamp: request.timeout(),
                         state_machine_time: state.timestamp(),
                     })?
@@ -124,9 +122,7 @@ where
 
                 if response.timeout() > state.timestamp() {
                     Err(Error::RequestTimeoutNotElapsed {
-                        nonce: response.nonce(),
-                        source: response.source_chain(),
-                        dest: response.dest_chain(),
+                        meta: response.into(),
                         timeout_timestamp: response.timeout(),
                         state_machine_time: state.timestamp(),
                     })?
@@ -173,9 +169,7 @@ where
                 // Ensure the get timeout has elapsed on the host
                 if !request.timed_out(host.timestamp()) {
                     Err(Error::RequestTimeoutNotElapsed {
-                        nonce: request.nonce(),
-                        source: request.source_chain(),
-                        dest: request.dest_chain(),
+                        meta: request.into(),
                         timeout_timestamp: request.timeout(),
                         state_machine_time: host.timestamp(),
                     })?

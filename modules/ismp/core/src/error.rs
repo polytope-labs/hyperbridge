@@ -64,30 +64,18 @@ pub enum Error {
     },
     /// The given request was not found
     RequestCommitmentNotFound {
-        /// The request nonce
-        nonce: u64,
-        /// The source state machine
-        source: StateMachine,
-        /// The destination state machine
-        dest: StateMachine,
+        /// The request metadata
+        req: Meta,
     },
     /// The given request has failed state proof verification
     RequestVerificationFailed {
-        /// The request nonce
-        nonce: u64,
-        /// The source state machine
-        source: StateMachine,
-        /// The destination state machine
-        dest: StateMachine,
+        /// The request metadata
+        req: Meta,
     },
     /// The given request has not yet timed-out
     RequestTimeoutNotElapsed {
-        /// The request nonce
-        nonce: u64,
-        /// The source state machine
-        source: StateMachine,
-        /// The destination state machine
-        dest: StateMachine,
+        /// The request metadata
+        meta: Meta,
         /// The timestamp at which the timeout elapses
         timeout_timestamp: Duration,
         /// The current time on the state machine
@@ -95,21 +83,13 @@ pub enum Error {
     },
     /// The given request has failed non-membership state proof verification
     RequestTimeoutVerificationFailed {
-        /// The request nonce
-        nonce: u64,
-        /// The source state machine
-        source: StateMachine,
-        /// The destination state machine
-        dest: StateMachine,
+        /// The request metadata
+        req: Meta,
     },
     /// The given response has failed membership state proof verification
     ResponseVerificationFailed {
-        /// The request nonce
-        nonce: u64,
-        /// The source state machine
-        source: StateMachine,
-        /// The destination state machine
-        dest: StateMachine,
+        /// The request metadata
+        req: Meta,
     },
     /// Failed to verify the consensus proof for the given consensus client
     ConsensusProofVerificationFailed {
@@ -149,13 +129,11 @@ pub enum Error {
         /// Consensus state Id
         consensus_state_id: ConsensusStateId,
     },
-
     /// Consensus state id already exists
     DuplicateConsensusStateId {
         /// Consensus state Id
         consensus_state_id: ConsensusStateId,
     },
-
     /// Unbonding period has not been configured for this consensus state
     UnnbondingPeriodNotConfigured {
         /// Consensus state Id

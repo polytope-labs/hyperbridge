@@ -144,11 +144,7 @@ impl<T: Config> IsmpHost for Host<T> {
         let commitment = hash_request::<Self>(req);
 
         let _ = RequestReceipts::<T>::get(commitment)
-            .ok_or_else(|| Error::RequestCommitmentNotFound {
-                nonce: req.nonce(),
-                source: req.source_chain(),
-                dest: req.dest_chain(),
-            })
+            .ok_or_else(|| Error::RequestCommitmentNotFound { req: req.into() })
             .ok()?;
 
         Some(())

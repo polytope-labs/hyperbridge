@@ -1,16 +1,15 @@
 use crate::providers::{evm::EvmClient, interface::Client, substrate::SubstrateClient};
-use alloc::collections::BTreeMap;
 use anyhow::anyhow;
-use codec::Encode;
+use codec::{Encode, Decode};
 use core::pin::Pin;
 use ethers::{types::H160, utils::keccak256};
 use futures::Stream;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
+pub use ismp_sync_committee::types::EvmStateProof;
 pub use pallet_ismp::primitives::{HashAlgorithm, SubstrateStateProof};
 use serde::{Deserialize, Serialize};
 use subxt::{
     config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
-    ext::codec::Decode,
     tx::TxPayload,
     utils::{AccountId32, MultiAddress, MultiSignature, H256},
     Config, Metadata,
@@ -229,14 +228,6 @@ pub struct Extrinsic {
     call_name: String,
     /// The encoded pallet call. Note that this should be the pallet call. Not runtime call
     encoded: Vec<u8>,
-}
-
-#[derive(Encode, Decode, Clone)]
-pub struct EvmStateProof {
-    /// Contract account proof
-    pub contract_proof: Vec<Vec<u8>>,
-    /// A map of storage key to the associated storage proof
-    pub storage_proof: BTreeMap<Vec<u8>, Vec<Vec<u8>>>,
 }
 
 // =======================================

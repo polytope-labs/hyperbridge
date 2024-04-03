@@ -16,7 +16,6 @@
 //! The ISMP request timeout handler
 
 use crate::{
-    alloc::string::ToString,
     error::Error,
     events::{Event, TimeoutHandled},
     handlers::{validate_state_machine, MessageResult},
@@ -55,7 +54,7 @@ where
             });
 
             if !is_valid_batch {
-                Err(Error::ImplementationSpecific("Invalid message batch".to_string()))?
+                Err(Error::InvalidPostRequestTimeoutMessages)?
             }
 
             for request in &requests {
@@ -114,7 +113,7 @@ where
             });
 
             if !is_valid_batch {
-                Err(Error::ImplementationSpecific("Invalid message batch".to_string()))?
+                Err(Error::InvalidPostResponseTimeoutMessages)?
             }
 
             for response in &responses {

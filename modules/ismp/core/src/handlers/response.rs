@@ -16,7 +16,6 @@
 //! The ISMP response handler
 
 use crate::{
-    alloc::string::ToString,
     error::Error,
     events::{Event, RequestResponseHandled},
     handlers::{validate_state_machine, MessageResult},
@@ -64,7 +63,7 @@ where
             });
 
             if !is_valid_batch {
-                Err(Error::ImplementationSpecific("Invalid message batch".to_string()))?
+                Err(Error::InvalidPostResponseMessages)?
             }
 
             // Verify membership proof
@@ -101,7 +100,7 @@ where
             });
 
             if !is_valid_batch {
-                Err(Error::ImplementationSpecific("Invalid message batch".to_string()))?
+                Err(Error::InvalidGetResponseMessages)?
             }
 
             let requests = requests

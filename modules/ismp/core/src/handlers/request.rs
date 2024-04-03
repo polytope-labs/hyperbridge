@@ -24,7 +24,7 @@ use crate::{
     router::{Request, RequestResponse},
     util::hash_request,
 };
-use alloc::{string::ToString, vec::Vec};
+use alloc::vec::Vec;
 
 /// Validate the state machine, verify the request message and dispatch the message to the modules
 pub fn handle<H>(host: &H, msg: RequestMessage) -> Result<MessageResult, Error>
@@ -69,7 +69,7 @@ where
                 check_for_consensus_client(req.source_chain()))
     });
     if !is_valid_batch {
-        Err(Error::ImplementationSpecific("Invalid message batch".to_string()))?
+        Err(Error::InvalidPostRequestMessages)?
     }
 
     let result = msg

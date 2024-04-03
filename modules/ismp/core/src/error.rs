@@ -171,4 +171,14 @@ pub enum Error {
         /// Destination chain for request or response
         dest_chain: StateMachine,
     },
+    /// A post request timeout message batch did not satisfy validity checks
+    InvalidPostRequestTimeoutMessages,
+    /// A post request message batch did not satisfy validity checks
+    InvalidPostRequestMessages,
+    /// A post response message batch did not satisfy validity checks
+    InvalidPostResponseMessages,
+    /// A get response message batch did not satisfy validity checks
+    InvalidGetResponseMessages,
+    /// A post response timeout message batch did not satisfy validity checks
+    InvalidPostResponseTimeoutMessages,
 }

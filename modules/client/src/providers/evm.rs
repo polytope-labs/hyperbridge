@@ -4,6 +4,10 @@ use crate::{
 };
 use ethereum_trie::StorageProof;
 use ethers::prelude::Middleware;
+use ismp_sync_committee::presets::{
+    REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
+    RESPONSE_RECEIPTS_SLOT,
+};
 
 use crate::{
     providers::interface::WithMetadata,
@@ -29,17 +33,6 @@ use ismp_solidity_abi::{
     handler::{GetTimeoutMessage, Handler, PostRequestTimeoutMessage, PostResponseTimeoutMessage},
 };
 use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
-
-// =======================================
-// CONSTANTS                            =
-// =======================================
-pub const REQUEST_COMMITMENTS_SLOT: u64 = 0;
-/// Slot index for response commitments map
-pub const RESPONSE_COMMITMENTS_SLOT: u64 = 1;
-/// Slot index for requests receipts map
-pub const REQUEST_RECEIPTS_SLOT: u64 = 2;
-/// Slot index for response receipts map
-pub const RESPONSE_RECEIPTS_SLOT: u64 = 3;
 
 #[derive(Debug, Clone)]
 pub struct EvmClient {

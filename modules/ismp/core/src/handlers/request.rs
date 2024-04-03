@@ -52,24 +52,39 @@ where
     };
 
     let router = host.ismp_router();
-    let is_valid_batch = msg.requests.iter().all(|req| {
+    for req in msg.requests.iter() {
         let req = Request::Post(req.clone());
         // If a receipt exists for any request then it's a duplicate and it is not dispatched
-        host.request_receipt(&req).is_none() &&
-            // can't dispatch timed out requests
-            !req.timed_out(host.timestamp()) &&
-            // either the host is a router and can accept requests on behalf of any chain
-            // or the request must be intended for this chain
-            (req.dest_chain() == host.host_state_machine() ||
-            host.is_router()) &&
-            // either the proof metadata matches the source chain, or it's coming from a proxy
-            // in which case, we must NOT have a configured state machine for the source
-            (req.source_chain() == msg.proof.height.id.state_id ||
-            host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-                check_for_consensus_client(req.source_chain()))
-    });
-    if !is_valid_batch {
-        Err(Error::InvalidPostRequestMessages)?
+        if host.request_receipt(&req).is_some() {
+            Err(Error::DuplicateRequest { req: req.clone() })?
+        }
+
+        // can't dispatch timed out requests
+        if req.timed_out(host.timestamp()) {
+            Err(Error::RequestTimeout { req: req.clone() })?
+        }
+
+        // either the host is a router and can accept requests on behalf of any chain
+        // or the request must be intended for this chain
+        if req.dest_chain() != host.host_state_machine() && !host.is_router() {
+            Err(Error::InvalidRequestDestination { req: req.clone() })?
+        }
+
+        // either the proof metadata matches the source chain, or it's coming from a proxy
+        // in which case, we must NOT have a configured state machine for the source
+
+        if req.source_chain() != msg.proof.height.id.state_id &&
+            !host.is_allowed_proxy(&msg.proof.height.id.state_id)
+        {
+            Err(Error::RequestProofMetadataNotValid { req: req.clone() })?
+        }
+
+        if req.source_chain() != msg.proof.height.id.state_id &&
+            (host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+                !check_for_consensus_client(req.source_chain()))
+        {
+            Err(Error::RequestProxyProhibited { req: req.clone() })?
+        }
     }
 
     let result = msg

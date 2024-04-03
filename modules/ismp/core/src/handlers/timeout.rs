@@ -44,20 +44,24 @@ where
         TimeoutMessage::Post { requests, timeout_proof } => {
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
-            let is_valid_batch = requests.iter().all(|req| {
+
+            for request in &requests {
                 // check if the destination chain matches the proof metadata
                 // or if the proof metadata refers to the configured proxy
                 // and we don't have a configured state machine client for the destination
-                req.dest_chain() == timeout_proof.height.id.state_id ||
-                    host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-                        check_for_consensus_client(req.dest_chain())
-            });
+                if request.dest_chain() != timeout_proof.height.id.state_id &&
+                    !host.is_allowed_proxy(&timeout_proof.height.id.state_id)
+                {
+                    Err(Error::RequestProofMetadataNotValid { req: request.clone() })?
+                }
 
-            if !is_valid_batch {
-                Err(Error::InvalidPostRequestTimeoutMessages)?
-            }
+                if request.dest_chain() != timeout_proof.height.id.state_id &&
+                    (host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+                        !check_for_consensus_client(request.dest_chain()))
+                {
+                    Err(Error::RequestProxyProhibited { req: request.clone() })?
+                }
 
-            for request in &requests {
                 // Ensure a commitment exists for all requests in the batch
                 let commitment = hash_request::<H>(request);
                 host.request_commitment(commitment)?;
@@ -76,7 +80,9 @@ where
             let keys = state_machine.state_trie_key(requests.clone().into());
             let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
             if values.into_iter().any(|(_key, val)| val.is_some()) {
-                Err(Error::ImplementationSpecific("Some Requests not timed out".into()))?
+                Err(Error::ImplementationSpecific(
+                    "Some Requests in the batch have been delivered".into(),
+                ))?
             }
 
             let router = host.ismp_router();
@@ -102,21 +108,24 @@ where
         TimeoutMessage::PostResponse { responses, timeout_proof } => {
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
-
-            let is_valid_batch = responses.iter().all(|res| {
+            for response in &responses {
                 // check if the destination chain matches the proof metadata
                 // or if the proof metadata refers to the configured proxy
                 // and we don't have a configured state machine client for the destination
-                res.dest_chain() == timeout_proof.height.id.state_id ||
-                    host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-                        check_for_consensus_client(res.dest_chain())
-            });
+                if response.dest_chain() != timeout_proof.height.id.state_id &&
+                    !host.is_allowed_proxy(&timeout_proof.height.id.state_id)
+                {
+                    Err(Error::ResponseProofMetadataNotValid {
+                        res: Response::Post(response.clone()),
+                    })?
+                }
 
-            if !is_valid_batch {
-                Err(Error::InvalidPostResponseTimeoutMessages)?
-            }
-
-            for response in &responses {
+                if response.dest_chain() != timeout_proof.height.id.state_id &&
+                    (host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+                        !check_for_consensus_client(response.dest_chain()))
+                {
+                    Err(Error::ResponseProxyProhibited { res: Response::Post(response.clone()) })?
+                }
                 // Ensure a commitment exists for all responses in the batch
                 let commitment = hash_post_response::<H>(response);
                 host.response_commitment(commitment)?;
@@ -136,7 +145,9 @@ where
             let keys = state_machine.state_trie_key(items.into());
             let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
             if values.into_iter().any(|(_key, val)| val.is_some()) {
-                Err(Error::ImplementationSpecific("Some Requests not timed out".into()))?
+                Err(Error::ImplementationSpecific(
+                    "Some responses in the batch have been delivered".into(),
+                ))?
             }
 
             let router = host.ismp_router();

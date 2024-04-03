@@ -24,6 +24,7 @@ use ismp::{
     consensus::{
         ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
     },
+    error::Error,
     handlers::handle_incoming_message,
     host::{Ethereum, IsmpHost, StateMachine},
     messaging::{
@@ -35,6 +36,7 @@ use ismp::{
     },
     util::{hash_post_response, hash_request},
 };
+use mocks::STANDALONE_CLIENT_ID;
 use std::vec;
 
 fn mock_consensus_state_id() -> ConsensusStateId {
@@ -43,6 +45,10 @@ fn mock_consensus_state_id() -> ConsensusStateId {
 
 fn mock_proxy_consensus_state_id() -> ConsensusStateId {
     *b"prox"
+}
+
+fn stanalone_consensus_state_id() -> ConsensusStateId {
+    *b"lone"
 }
 
 fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
@@ -94,6 +100,30 @@ fn setup_mock_proxy_client<H: IsmpHost>(
         .unwrap();
     host.store_state_machine_commitment(proxy.height, proxy.commitment).unwrap();
     proxy
+}
+
+fn setup_standalone_client<H: IsmpHost>(host: &H) -> IntermediateState {
+    let int_state = IntermediateState {
+        height: StateMachineHeight {
+            id: StateMachineId {
+                state_id: StateMachine::Kusama(4500),
+                consensus_state_id: stanalone_consensus_state_id(),
+            },
+            height: 1,
+        },
+        commitment: StateCommitment {
+            timestamp: 1000,
+            overlay_root: None,
+            state_root: Default::default(),
+        },
+    };
+
+    host.store_consensus_state(stanalone_consensus_state_id(), vec![]).unwrap();
+    host.store_consensus_state_id(stanalone_consensus_state_id(), STANDALONE_CLIENT_ID)
+        .unwrap();
+    host.store_state_machine_commitment(int_state.height, int_state.commitment)
+        .unwrap();
+    int_state
 }
 
 /*
@@ -501,7 +531,7 @@ where
 
     let res = handle_incoming_message(host, timeout_message);
 
-    assert!(res.is_err());
+    assert!(matches!(res, Err(Error::RequestProxyProhibited { .. })));
 
     Ok(())
 }
@@ -594,19 +624,198 @@ where
 
     let res = handle_incoming_message(host, timeout_message);
 
-    assert!(res.is_err());
+    assert!(matches!(res, Err(Error::ResponseProxyProhibited { .. })));
 
     Ok(())
 }
-/// This should check that if a proxy isn't configured, requests are not valid if they don't come
-/// from the state machine claimed in the proof as well as check that the request destination
-/// matches the host state machine.
-pub fn check_request_source_and_destination() {}
-
-/// This should check that if a proxy isn't configured, responses are not valid if they don't come
-/// from the state machine claimed in the proof
-pub fn check_response_source() {}
 
 /// Check that proxies can dispatch requests & responses.
 // check that state machine can dispatch request and responses
 pub fn sanity_check_for_proxies() {}
+
+/// This should prevent a request from being processed through a proxy when there exists a state
+/// machine client for the request source
+pub fn prevent_request_processing_on_proxy_with_known_state_machine<H>(
+    host: &H,
+    proxy_state_machine: StateMachine,
+    direct_conn_state_machine: StateMachine,
+) -> Result<(), &'static str>
+where
+    H: IsmpHost,
+{
+    let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+    let previous_update_time = host.timestamp() - (challenge_period * 2);
+
+    let proxy = setup_mock_proxy_client(host, proxy_state_machine);
+
+    host.store_consensus_update_time(mock_proxy_consensus_state_id(), previous_update_time)
+        .unwrap();
+    host.store_state_machine_update_time(proxy.height, previous_update_time)
+        .unwrap();
+
+    // check for the two consensus clients and also add the clinet the other one
+    //assert that one consensus client is for the proxy and the other is for the destination chain
+
+    let consensus_clients = host.consensus_clients();
+    assert!(consensus_clients.len() > 1);
+
+    // assert that destination chain concensus client is in the Host list of clients
+    // destination chain concensus in this test is assumed to be MOCK_CONSENSUS_CLIENT_ID
+
+    let proxy_consensus_client_id = consensus_clients
+        .iter()
+        .find(|client| client.state_machine(proxy_state_machine).ok().is_some())
+        .expect("The proxy consensus client should be set for this test")
+        .consensus_client_id();
+    let destination_consensus_client_id = consensus_clients
+        .iter()
+        .find(|client| client.state_machine(direct_conn_state_machine).ok().is_some())
+        .expect("The directly connected chain's consensus client should be set for this test")
+        .consensus_client_id();
+
+    // For our test case we assert that there exists distinct consensus clients for the proxy and
+    // the direct connection
+
+    assert_ne!(proxy_consensus_client_id, destination_consensus_client_id);
+
+    let request = Post {
+        source: direct_conn_state_machine,
+        dest: host.host_state_machine(),
+        nonce: 0,
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+        gas_limit: 0,
+    };
+
+    let request_message = Message::Request(RequestMessage {
+        requests: vec![request.clone()],
+        proof: Proof { height: proxy.height, proof: vec![] },
+        signer: vec![],
+    });
+
+    let res = handle_incoming_message(host, request_message);
+
+    assert!(matches!(res, Err(Error::RequestProxyProhibited { .. })));
+
+    Ok(())
+}
+
+/// This should check that if a proxy isn't configured, requests are not valid if they don't come
+/// from the state machine claimed in the proof as well as check that the request destination
+/// matches the host state machine.
+pub fn check_request_source_and_destination<H>(host: &H) -> Result<(), &'static str>
+where
+    H: IsmpHost,
+{
+    let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+    let previous_update_time = host.timestamp() - (challenge_period * 2);
+
+    let proof_chain = setup_standalone_client(host);
+
+    host.store_consensus_update_time(stanalone_consensus_state_id(), previous_update_time)
+        .unwrap();
+    host.store_state_machine_update_time(proof_chain.height, previous_update_time)
+        .unwrap();
+
+    // check for the two consensus clients and also add the clinet the other one
+    //assert that one consensus client is for the proxy and the other is for the destination chain
+
+    let consensus_clients = host.consensus_clients();
+    assert!(consensus_clients.len() > 1);
+
+    // We assert that the proof state machine is not a proxy
+    assert!(!host.is_allowed_proxy(&proof_chain.height.id.state_id));
+
+    let request = Post {
+        source: StateMachine::Kusama(13000),
+        dest: host.host_state_machine(),
+        nonce: 0,
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+        gas_limit: 0,
+    };
+
+    let request_message = Message::Request(RequestMessage {
+        requests: vec![request.clone()],
+        proof: Proof { height: proof_chain.height, proof: vec![] },
+        signer: vec![],
+    });
+
+    let res = handle_incoming_message(host, request_message);
+
+    assert!(matches!(res, Err(Error::RequestProofMetadataNotValid { .. })));
+
+    Ok(())
+}
+
+/// This should check that if a proxy isn't configured, responses are not valid if they don't come
+/// from the state machine claimed in the proof
+pub fn check_response_source<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
+where
+    H: IsmpHost,
+    D: IsmpDispatcher,
+    D::Account: From<[u8; 32]>,
+    D::Balance: From<u32>,
+{
+    let intermediate_state = setup_mock_client(host);
+    let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+    let previous_update_time = host.timestamp() - (challenge_period * 2);
+    host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
+        .unwrap();
+    host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
+        .unwrap();
+
+    let proof_chain = setup_standalone_client(host);
+
+    host.store_consensus_update_time(stanalone_consensus_state_id(), previous_update_time)
+        .unwrap();
+    host.store_state_machine_update_time(proof_chain.height, previous_update_time)
+        .unwrap();
+
+    // We assert that the proof state machine is not a proxy
+    assert!(!host.is_allowed_proxy(&proof_chain.height.id.state_id));
+
+    let post = Post {
+        source: host.host_state_machine(),
+        dest: StateMachine::Polkadot(900),
+        nonce: 0,
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+        gas_limit: 0,
+    };
+
+    let dispatch_post = DispatchPost {
+        dest: StateMachine::Polkadot(900),
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+        gas_limit: 0,
+    };
+
+    let dispatch_request = DispatchRequest::Post(dispatch_post);
+    dispatcher
+        .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
+        .unwrap();
+
+    let response = PostResponse { post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
+
+    let timeout_message = Message::Response(ResponseMessage {
+        datagram: RequestResponse::Response(vec![Response::Post(response)]),
+        proof: Proof { height: proof_chain.height, proof: vec![] },
+        signer: vec![],
+    });
+
+    let res = handle_incoming_message(host, timeout_message);
+
+    dbg!(&res);
+    assert!(matches!(res, Err(Error::ResponseProofMetadataNotValid { .. })));
+
+    Ok(())
+}

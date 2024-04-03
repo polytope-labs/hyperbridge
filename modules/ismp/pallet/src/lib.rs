@@ -615,14 +615,10 @@ impl<T: Config> Pallet<T> {
         let total_weight = get_weight::<T>(&messages);
         for message in messages {
             match handle_incoming_message(&host, message.clone()) {
-                Ok(MessageResult::ConsensusMessage(res)) => {
-                    for (_, latest_height) in res.state_updates.into_iter() {
-                        Self::deposit_event(Event::<T>::StateMachineUpdated {
-                            state_machine_id: latest_height.id,
-                            latest_height: latest_height.height,
-                        })
-                    }
-                },
+                Ok(MessageResult::ConsensusMessage(res)) => deposit_ismp_events::<T>(
+                    res.state_updates.into_iter().map(|ev| Ok(ev)).collect(),
+                    &mut errors,
+                ),
                 Ok(MessageResult::Response(res)) => deposit_ismp_events::<T>(res, &mut errors),
                 Ok(MessageResult::Request(res)) => deposit_ismp_events::<T>(res, &mut errors),
                 Ok(MessageResult::Timeout(res)) => deposit_ismp_events::<T>(res, &mut errors),

@@ -47,23 +47,36 @@ where
 
     let result = match &msg.datagram {
         RequestResponse::Response(responses) => {
-            // For a response to be valid a request commitment must be present in storage
-            // Also we must not have received a response for this request
-            let is_valid_batch = responses.iter().all(|response| {
+            for response in responses.iter() {
                 let request = response.request();
                 let commitment = hash_request::<H>(&request);
-                host.request_commitment(commitment).is_ok() &&
-                    host.response_receipt(&response).is_none() &&
-                    !response.timed_out(host.timestamp()) &&
-                    // either the proof metadata matches the source chain, or it's coming from a proxy
-                    // in which case, we must NOT have a configured state machine for the source
-                    (response.source_chain() == msg.proof.height.id.state_id ||
-                        host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-                            check_for_consensus_client(response.source_chain()))
-            });
 
-            if !is_valid_batch {
-                Err(Error::InvalidPostResponseMessages)?
+                if host.request_commitment(commitment).is_err() {
+                    Err(Error::UnsolicitedResponse { res: response.clone() })?
+                }
+
+                if host.response_receipt(&response).is_some() {
+                    Err(Error::DuplicateResponse { res: response.clone() })?
+                }
+
+                if response.timed_out(host.timestamp()) {
+                    Err(Error::ResponseTimeout { response: response.clone() })?
+                }
+
+                // either the proof metadata matches the source chain, or it's coming from a proxy
+                // in which case, we must NOT have a configured state machine for the source
+                if response.source_chain() != msg.proof.height.id.state_id &&
+                    !host.is_allowed_proxy(&msg.proof.height.id.state_id)
+                {
+                    Err(Error::ResponseProofMetadataNotValid { res: response.clone() })?
+                }
+
+                if response.source_chain() != msg.proof.height.id.state_id &&
+                    (host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+                        !check_for_consensus_client(response.source_chain()))
+                {
+                    Err(Error::ResponseProxyProhibited { res: response.clone() })?
+                }
             }
 
             // Verify membership proof
@@ -95,12 +108,18 @@ where
                 .collect::<Result<Vec<_>, _>>()?
         },
         RequestResponse::Request(requests) => {
-            let is_valid_batch = requests.iter().all(|req| {
-                !req.timed_out(host.timestamp()) && req.dest_chain() == proof.height.id.state_id
-            });
+            for req in requests.iter() {
+                if req.timed_out(host.timestamp()) {
+                    Err(Error::RequestTimeout { req: req.clone() })?
+                }
 
-            if !is_valid_batch {
-                Err(Error::InvalidGetResponseMessages)?
+                if req.dest_chain() != proof.height.id.state_id {
+                    Err(Error::RequestProofMetadataNotValid { req: req.clone() })?
+                }
+
+                if !req.is_type_get() {
+                    Err(Error::InvalidResponseType { req: req.clone() })?
+                }
             }
 
             let requests = requests

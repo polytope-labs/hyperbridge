@@ -19,6 +19,7 @@ use ismp::{
     consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
     error::Error as IsmpError,
     host::StateMachine,
+    router::{Request, Response},
 };
 use sp_std::prelude::*;
 
@@ -104,16 +105,66 @@ pub enum HandlingError {
         /// Destination chain for request or response
         dest_chain: StateMachine,
     },
-    /// A post request timeout message batch did not satisfy validity checks
-    InvalidPostRequestTimeoutMessages,
-    /// A post request message batch did not satisfy validity checks
-    InvalidPostRequestMessages,
-    /// A post response message batch did not satisfy validity checks
-    InvalidPostResponseMessages,
-    /// A get response message batch did not satisfy validity checks
-    InvalidGetResponseMessages,
-    /// A post response timeout message batch did not satisfy validity checks
-    InvalidPostResponseTimeoutMessages,
+    /// Request commitment for a response does not exist
+    UnsolicitedResponse {
+        /// Unsolicited response
+        res: Response,
+    },
+    /// Timed out request found in batch
+    RequestTimeout {
+        /// Timed out Request
+        req: Request,
+    },
+    /// Timed out response found in batch
+    ResponseTimeout {
+        /// Timed out Response
+        response: Response,
+    },
+    /// Duplicate request
+    DuplicateRequest {
+        /// Duplicate request
+        req: Request,
+    },
+    /// Duplicate response
+    DuplicateResponse {
+        /// Duplicate response
+        res: Response,
+    },
+    /// Request source does not match proof metadata
+    RequestProofMetadataNotValid {
+        /// The Request
+        req: Request,
+    },
+    /// Response source does not match proof metadata
+    ResponseProofMetadataNotValid {
+        /// The Response
+        res: Response,
+    },
+    /// Proxy cannot be used when a direct connection exists
+    RequestProxyProhibited {
+        /// The Request
+        req: Request,
+    },
+    /// Proxy cannot be used when a direct connection exists
+    ResponseProxyProhibited {
+        /// The Response
+        res: Response,
+    },
+    /// Host is not a proxy and destination chain does is not the host
+    InvalidRequestDestination {
+        /// The Request
+        req: Request,
+    },
+    /// The response destination does not match
+    InvalidResponseDestination {
+        /// The response
+        res: Response,
+    },
+    /// Expected get request found post
+    InvalidResponseType {
+        /// The request
+        req: Request,
+    },
 }
 
 impl From<ismp::error::Error> for HandlingError {
@@ -188,13 +239,24 @@ impl From<ismp::error::Error> for HandlingError {
                     source_chain,
                     dest_chain,
                 },
-            IsmpError::InvalidGetResponseMessages => HandlingError::InvalidGetResponseMessages,
-            IsmpError::InvalidPostRequestMessages => HandlingError::InvalidPostRequestMessages,
-            IsmpError::InvalidPostRequestTimeoutMessages =>
-                HandlingError::InvalidPostRequestTimeoutMessages,
-            IsmpError::InvalidPostResponseMessages => HandlingError::InvalidPostResponseMessages,
-            IsmpError::InvalidPostResponseTimeoutMessages =>
-                HandlingError::InvalidPostResponseTimeoutMessages,
+            IsmpError::UnsolicitedResponse { res } => HandlingError::UnsolicitedResponse { res },
+            IsmpError::RequestTimeout { req } => HandlingError::RequestTimeout { req },
+            IsmpError::ResponseTimeout { response } => HandlingError::ResponseTimeout { response },
+            IsmpError::DuplicateRequest { req } => HandlingError::DuplicateRequest { req },
+            IsmpError::DuplicateResponse { res } => HandlingError::DuplicateResponse { res },
+            IsmpError::RequestProofMetadataNotValid { req } =>
+                HandlingError::RequestProofMetadataNotValid { req },
+            IsmpError::ResponseProofMetadataNotValid { res } =>
+                HandlingError::ResponseProofMetadataNotValid { res },
+            IsmpError::RequestProxyProhibited { req } =>
+                HandlingError::RequestProxyProhibited { req },
+            IsmpError::ResponseProxyProhibited { res } =>
+                HandlingError::ResponseProxyProhibited { res },
+            IsmpError::InvalidRequestDestination { req } =>
+                HandlingError::InvalidRequestDestination { req },
+            IsmpError::InvalidResponseDestination { res } =>
+                HandlingError::InvalidResponseDestination { res },
+            IsmpError::InvalidResponseType { req } => HandlingError::InvalidResponseType { req },
         }
     }
 }

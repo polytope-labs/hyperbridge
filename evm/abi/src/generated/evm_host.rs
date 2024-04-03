@@ -1776,7 +1776,7 @@ pub mod evm_host {
                 .method_hash([154, 132, 37, 188], ())
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `dispatch` (0x15750c19) function
+        ///Calls the contract's `dispatch` (0x09605fa2) function
         pub fn dispatch_0(
             &self,
             get: DispatchGet,
@@ -2679,6 +2679,90 @@ pub mod evm_host {
         pub meta: FeeMetadata,
         pub commitment: [u8; 32],
     }
+    ///Container type for all input parameters for the `dispatchIncoming` function with signature
+    /// `dispatchIncoming((bytes,bytes,uint64,bytes,bytes,uint64,bytes),(uint256,address),bytes32)`
+    /// and selector `0x7686a06a`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(
+        name = "dispatchIncoming",
+        abi = "dispatchIncoming((bytes,bytes,uint64,bytes,bytes,uint64,bytes),(uint256,address),bytes32)"
+    )]
+    pub struct DispatchIncoming4Call {
+        pub request: GetRequest,
+        pub meta: FeeMetadata,
+        pub commitment: [u8; 32],
+    }
+    ///Container type for all input parameters for the `dispatchIncoming` function with signature
+    /// `dispatchIncoming((bytes,bytes,uint64,bytes,bytes,uint64,bytes))` and selector `0xbf01beb1`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(
+        name = "dispatchIncoming",
+        abi = "dispatchIncoming((bytes,bytes,uint64,bytes,bytes,uint64,bytes))"
+    )]
+    pub struct DispatchIncoming1Call {
+        pub request: GetRequest,
+    }
+    ///Container type for all input parameters for the `dispatchIncoming` function with signature
+    /// `dispatchIncoming((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(uint256,address),
+    /// bytes32)` and selector `0xd0f9fcc2`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(
+        name = "dispatchIncoming",
+        abi = "dispatchIncoming((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(uint256,address),bytes32)"
+    )]
+    pub struct DispatchIncoming5Call {
+        pub request: GetRequest,
+        pub meta: FeeMetadata,
+        pub commitment: [u8; 32],
+    }
+    ///Container type for all input parameters for the `dispatchIncoming` function with signature
+    /// `dispatchIncoming(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(bytes,bytes)[]),
+    /// (uint256,address))` and selector `0xfe827fc4`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(
+        name = "dispatchIncoming",
+        abi = "dispatchIncoming(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(bytes,bytes)[]),(uint256,address))"
+    )]
+    pub struct DispatchIncoming2Call {
+        pub response: GetResponse,
+        pub meta: FeeMetadata,
+    }
     ///Container type for all input parameters for the `feeToken` function with signature
     /// `feeToken()` and selector `0x647846a5`
     #[derive(
@@ -3119,6 +3203,7 @@ pub mod evm_host {
         DispatchIncoming4(DispatchIncoming4Call),
         DispatchIncoming1(DispatchIncoming1Call),
         DispatchIncoming5(DispatchIncoming5Call),
+        DispatchIncoming2(DispatchIncoming2Call),
         FeeToken(FeeTokenCall),
         Frozen(FrozenCall),
         FundRequest(FundRequestCall),
@@ -3216,6 +3301,11 @@ pub mod evm_host {
                 <DispatchIncoming5Call as ::ethers::core::abi::AbiDecode>::decode(data)
             {
                 return Ok(Self::DispatchIncoming5(decoded));
+            }
+            if let Ok(decoded) =
+                <DispatchIncoming2Call as ::ethers::core::abi::AbiDecode>::decode(data)
+            {
+                return Ok(Self::DispatchIncoming2(decoded));
             }
             if let Ok(decoded) = <FeeTokenCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::FeeToken(decoded));
@@ -3357,6 +3447,7 @@ pub mod evm_host {
                 Self::DispatchIncoming4(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::DispatchIncoming1(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::DispatchIncoming5(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::DispatchIncoming2(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::FeeToken(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Frozen(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::FundRequest(element) => ::ethers::core::abi::AbiEncode::encode(element),
@@ -3417,6 +3508,7 @@ pub mod evm_host {
                 Self::DispatchIncoming4(element) => ::core::fmt::Display::fmt(element, f),
                 Self::DispatchIncoming1(element) => ::core::fmt::Display::fmt(element, f),
                 Self::DispatchIncoming5(element) => ::core::fmt::Display::fmt(element, f),
+                Self::DispatchIncoming2(element) => ::core::fmt::Display::fmt(element, f),
                 Self::FeeToken(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Frozen(element) => ::core::fmt::Display::fmt(element, f),
                 Self::FundRequest(element) => ::core::fmt::Display::fmt(element, f),
@@ -3523,6 +3615,11 @@ pub mod evm_host {
     impl ::core::convert::From<DispatchIncoming5Call> for EvmHostCalls {
         fn from(value: DispatchIncoming5Call) -> Self {
             Self::DispatchIncoming5(value)
+        }
+    }
+    impl ::core::convert::From<DispatchIncoming2Call> for EvmHostCalls {
+        fn from(value: DispatchIncoming2Call) -> Self {
+            Self::DispatchIncoming2(value)
         }
     }
     impl ::core::convert::From<FeeTokenCall> for EvmHostCalls {
@@ -3752,7 +3849,7 @@ pub mod evm_host {
     )]
     pub struct ConsensusUpdateTimeReturn(pub ::ethers::core::types::U256);
     ///Container type for all return fields from the `dispatch` function with signature
-    /// `dispatch((bytes,uint64,bytes[],uint64,uint64,uint256,address))` and selector `0x15750c19`
+    /// `dispatch((bytes,uint64,bytes[],uint64,uint256,address))` and selector `0x09605fa2`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -3767,8 +3864,8 @@ pub mod evm_host {
         pub commitment: [u8; 32],
     }
     ///Container type for all return fields from the `dispatch` function with signature
-    /// `dispatch(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64,uint256,
-    /// address))` and selector `0x3fac32c9`
+    /// `dispatch(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64,uint256,address))` and
+    /// selector `0x94480805`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -3783,7 +3880,7 @@ pub mod evm_host {
         pub commitment: [u8; 32],
     }
     ///Container type for all return fields from the `dispatch` function with signature
-    /// `dispatch((bytes,bytes,bytes,uint64,uint64,uint256,address))` and selector `0x6a79c915`
+    /// `dispatch((bytes,bytes,bytes,uint64,uint256,address))` and selector `0xb8f3e8f5`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,

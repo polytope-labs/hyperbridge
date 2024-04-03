@@ -199,7 +199,6 @@ pub fn frozen_consensus_client_check<H: IsmpHost>(host: &H) -> Result<(), &'stat
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
     // Request message handling check
     let request_message = Message::Request(RequestMessage {
@@ -233,7 +232,6 @@ pub fn frozen_state_machine_check<H: IsmpHost>(host: &H) -> Result<(), &'static 
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
     // Request message handling check
     let request_message = Message::Request(RequestMessage {
@@ -701,7 +699,6 @@ pub fn prevent_request_processing_on_proxy_with_known_state_machine(
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
 
     let request_message = Message::Request(RequestMessage {
@@ -740,7 +737,6 @@ pub fn check_request_source_and_destination() -> Result<(), &'static str> {
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
 
     let request_message = Message::Request(RequestMessage {
@@ -780,7 +776,6 @@ pub fn check_response_source() -> Result<(), &'static str> {
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
 
     let dispatch_post = DispatchPost {
@@ -789,7 +784,6 @@ pub fn check_response_source() -> Result<(), &'static str> {
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
 
     let dispatch_request = DispatchRequest::Post(dispatch_post);
@@ -797,7 +791,7 @@ pub fn check_response_source() -> Result<(), &'static str> {
         .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
         .unwrap();
 
-    let response = PostResponse { post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
+    let response = PostResponse { post, response: vec![], timeout_timestamp: 0 };
 
     let timeout_message = Message::Response(ResponseMessage {
         datagram: RequestResponse::Response(vec![Response::Post(response)]),

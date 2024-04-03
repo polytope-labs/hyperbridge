@@ -75,7 +75,7 @@ async fn verify_bsc_pos_headers() {
                 );
                 if result.is_ok() {
                     println!("VALIDATOR SET ROTATED SUCCESSFULLY");
-                    return
+                    return;
                 }
             }
             let result = verify_bsc_header::<Host>(&validators, update).unwrap();

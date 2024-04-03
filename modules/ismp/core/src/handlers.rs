@@ -125,7 +125,7 @@ where
             consensus_state_id: proof_height.id.consensus_state_id,
             current_time: host.timestamp(),
             update_time: host.state_machine_update_time(proof_height)?,
-        })
+        });
     }
 
     consensus_client.state_machine(proof_height.id.state_id)

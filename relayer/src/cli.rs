@@ -186,12 +186,13 @@ impl Cli {
 			let pair = ecdsa::Pair::from_seed(&SECRET_KEY);
 			let mut message = Message { signature: vec![], metadata };
 			message.signature = pair.sign(message.metadata.encode().as_slice()).to_raw_vec();
-			ClientBuilder::new("http://34.77.39.71:3000")
+			ClientBuilder::new(" https://hyperbridge-telemetry.blockops.network/")
 				.namespace("/")
 				.auth(json::to_value(message.clone())?)
 				.reconnect(true)
 				.reconnect_on_disconnect(true)
 				.max_reconnect_attempts(255)
+				.on("open", |_, _| log::info!("Connected to telemetry"))
 				.on("error", |_err, _| {
 					log::error!("Disconnected from telemetry with: {:#?}, reconnecting.", _err)
 				})

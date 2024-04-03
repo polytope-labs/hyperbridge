@@ -167,26 +167,6 @@ pub mod evm_host {
                     ],
                 ),
                 (
-                    ::std::borrow::ToOwned::to_owned("dai"),
-                    ::std::vec![
-                        ::ethers::core::abi::ethabi::Function {
-                            name: ::std::borrow::ToOwned::to_owned("dai"),
-                            inputs: ::std::vec![],
-                            outputs: ::std::vec![
-                                ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::string::String::new(),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Address,
-                                    internal_type: ::core::option::Option::Some(
-                                        ::std::borrow::ToOwned::to_owned("address"),
-                                    ),
-                                },
-                            ],
-                            constant: ::core::option::Option::None,
-                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
-                        },
-                    ],
-                ),
-                (
                     ::std::borrow::ToOwned::to_owned("dispatch"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Function {
@@ -214,7 +194,17 @@ pub mod evm_host {
                                     ),
                                 },
                             ],
-                            outputs: ::std::vec![],
+                            outputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("commitment"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
+                                        32usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bytes32"),
+                                    ),
+                                },
+                            ],
                             constant: ::core::option::Option::None,
                             state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
                         },
@@ -251,7 +241,17 @@ pub mod evm_host {
                                     ),
                                 },
                             ],
-                            outputs: ::std::vec![],
+                            outputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("commitment"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
+                                        32usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bytes32"),
+                                    ),
+                                },
+                            ],
                             constant: ::core::option::Option::None,
                             state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
                         },
@@ -276,7 +276,17 @@ pub mod evm_host {
                                     ),
                                 },
                             ],
-                            outputs: ::std::vec![],
+                            outputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("commitment"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
+                                        32usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bytes32"),
+                                    ),
+                                },
+                            ],
                             constant: ::core::option::Option::None,
                             state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
                         },
@@ -551,6 +561,26 @@ pub mod evm_host {
                             outputs: ::std::vec![],
                             constant: ::core::option::Option::None,
                             state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("feeToken"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("feeToken"),
+                            inputs: ::std::vec![],
+                            outputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::string::String::new(),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Address,
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("address"),
+                                    ),
+                                },
+                            ],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
                         },
                     ],
                 ),
@@ -1786,19 +1816,11 @@ pub mod evm_host {
                 .method_hash([154, 132, 37, 188], ())
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `dai` (0xf4b9fa75) function
-        pub fn dai(
-            &self,
-        ) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::Address> {
-            self.0
-                .method_hash([244, 185, 250, 117], ())
-                .expect("method not found (this should never happen)")
-        }
         ///Calls the contract's `dispatch` (0x15750c19) function
         pub fn dispatch_0(
             &self,
             get: DispatchGet,
-        ) -> ::ethers::contract::builders::ContractCall<M, ()> {
+        ) -> ::ethers::contract::builders::ContractCall<M, [u8; 32]> {
             self.0
                 .method_hash([21, 117, 12, 25], (get,))
                 .expect("method not found (this should never happen)")
@@ -1807,7 +1829,7 @@ pub mod evm_host {
         pub fn dispatch_1(
             &self,
             post: DispatchPost,
-        ) -> ::ethers::contract::builders::ContractCall<M, ()> {
+        ) -> ::ethers::contract::builders::ContractCall<M, [u8; 32]> {
             self.0
                 .method_hash([63, 172, 50, 201], (post,))
                 .expect("method not found (this should never happen)")
@@ -1816,7 +1838,7 @@ pub mod evm_host {
         pub fn dispatch_2(
             &self,
             post: DispatchPost,
-        ) -> ::ethers::contract::builders::ContractCall<M, ()> {
+        ) -> ::ethers::contract::builders::ContractCall<M, [u8; 32]> {
             self.0
                 .method_hash([106, 121, 201, 21], (post,))
                 .expect("method not found (this should never happen)")
@@ -1880,6 +1902,14 @@ pub mod evm_host {
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
                 .method_hash([233, 92, 134, 108], (response, meta, commitment))
+                .expect("method not found (this should never happen)")
+        }
+        ///Calls the contract's `feeToken` (0x647846a5) function
+        pub fn fee_token(
+            &self,
+        ) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::Address> {
+            self.0
+                .method_hash([100, 120, 70, 165], ())
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `frozen` (0x054f7d9c) function
@@ -2599,20 +2629,6 @@ pub mod evm_host {
     )]
     #[ethcall(name = "consensusUpdateTime", abi = "consensusUpdateTime()")]
     pub struct ConsensusUpdateTimeCall;
-    ///Container type for all input parameters for the `dai` function with signature `dai()` and
-    /// selector `0xf4b9fa75`
-    #[derive(
-        Clone,
-        ::ethers::contract::EthCall,
-        ::ethers::contract::EthDisplay,
-        Default,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-    )]
-    #[ethcall(name = "dai", abi = "dai()")]
-    pub struct DaiCall;
     ///Container type for all input parameters for the `dispatch` function with signature
     /// `dispatch((bytes,uint64,bytes[],uint64,uint64,uint256,address))` and selector `0x15750c19`
     #[derive(
@@ -2798,6 +2814,20 @@ pub mod evm_host {
         pub meta: FeeMetadata,
         pub commitment: [u8; 32],
     }
+    ///Container type for all input parameters for the `feeToken` function with signature
+    /// `feeToken()` and selector `0x647846a5`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(name = "feeToken", abi = "feeToken()")]
+    pub struct FeeTokenCall;
     ///Container type for all input parameters for the `frozen` function with signature `frozen()`
     /// and selector `0x054f7d9c`
     #[derive(
@@ -3216,7 +3246,6 @@ pub mod evm_host {
         ConsensusClient(ConsensusClientCall),
         ConsensusState(ConsensusStateCall),
         ConsensusUpdateTime(ConsensusUpdateTimeCall),
-        Dai(DaiCall),
         Dispatch0(Dispatch0Call),
         Dispatch1(Dispatch1Call),
         Dispatch2(Dispatch2Call),
@@ -3226,6 +3255,7 @@ pub mod evm_host {
         DispatchIncoming2(DispatchIncoming2Call),
         DispatchIncoming1(DispatchIncoming1Call),
         DispatchIncoming5(DispatchIncoming5Call),
+        FeeToken(FeeTokenCall),
         Frozen(FrozenCall),
         FundRequest(FundRequestCall),
         Host(HostCall),
@@ -3289,9 +3319,6 @@ pub mod evm_host {
             {
                 return Ok(Self::ConsensusUpdateTime(decoded));
             }
-            if let Ok(decoded) = <DaiCall as ::ethers::core::abi::AbiDecode>::decode(data) {
-                return Ok(Self::Dai(decoded));
-            }
             if let Ok(decoded) = <Dispatch0Call as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::Dispatch0(decoded));
             }
@@ -3330,6 +3357,9 @@ pub mod evm_host {
                 <DispatchIncoming5Call as ::ethers::core::abi::AbiDecode>::decode(data)
             {
                 return Ok(Self::DispatchIncoming5(decoded));
+            }
+            if let Ok(decoded) = <FeeTokenCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+                return Ok(Self::FeeToken(decoded));
             }
             if let Ok(decoded) = <FrozenCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::Frozen(decoded));
@@ -3460,7 +3490,6 @@ pub mod evm_host {
                 Self::ConsensusState(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::ConsensusUpdateTime(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
-                Self::Dai(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Dispatch0(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Dispatch1(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Dispatch2(element) => ::ethers::core::abi::AbiEncode::encode(element),
@@ -3470,6 +3499,7 @@ pub mod evm_host {
                 Self::DispatchIncoming2(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::DispatchIncoming1(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::DispatchIncoming5(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::FeeToken(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Frozen(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::FundRequest(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Host(element) => ::ethers::core::abi::AbiEncode::encode(element),
@@ -3521,7 +3551,6 @@ pub mod evm_host {
                 Self::ConsensusClient(element) => ::core::fmt::Display::fmt(element, f),
                 Self::ConsensusState(element) => ::core::fmt::Display::fmt(element, f),
                 Self::ConsensusUpdateTime(element) => ::core::fmt::Display::fmt(element, f),
-                Self::Dai(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Dispatch0(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Dispatch1(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Dispatch2(element) => ::core::fmt::Display::fmt(element, f),
@@ -3531,6 +3560,7 @@ pub mod evm_host {
                 Self::DispatchIncoming2(element) => ::core::fmt::Display::fmt(element, f),
                 Self::DispatchIncoming1(element) => ::core::fmt::Display::fmt(element, f),
                 Self::DispatchIncoming5(element) => ::core::fmt::Display::fmt(element, f),
+                Self::FeeToken(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Frozen(element) => ::core::fmt::Display::fmt(element, f),
                 Self::FundRequest(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Host(element) => ::core::fmt::Display::fmt(element, f),
@@ -3598,11 +3628,6 @@ pub mod evm_host {
             Self::ConsensusUpdateTime(value)
         }
     }
-    impl ::core::convert::From<DaiCall> for EvmHostCalls {
-        fn from(value: DaiCall) -> Self {
-            Self::Dai(value)
-        }
-    }
     impl ::core::convert::From<Dispatch0Call> for EvmHostCalls {
         fn from(value: Dispatch0Call) -> Self {
             Self::Dispatch0(value)
@@ -3646,6 +3671,11 @@ pub mod evm_host {
     impl ::core::convert::From<DispatchIncoming5Call> for EvmHostCalls {
         fn from(value: DispatchIncoming5Call) -> Self {
             Self::DispatchIncoming5(value)
+        }
+    }
+    impl ::core::convert::From<FeeTokenCall> for EvmHostCalls {
+        fn from(value: FeeTokenCall) -> Self {
+            Self::FeeToken(value)
         }
     }
     impl ::core::convert::From<FrozenCall> for EvmHostCalls {
@@ -3869,8 +3899,8 @@ pub mod evm_host {
         Hash,
     )]
     pub struct ConsensusUpdateTimeReturn(pub ::ethers::core::types::U256);
-    ///Container type for all return fields from the `dai` function with signature `dai()` and
-    /// selector `0xf4b9fa75`
+    ///Container type for all return fields from the `dispatch` function with signature
+    /// `dispatch((bytes,uint64,bytes[],uint64,uint64,uint256,address))` and selector `0x15750c19`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -3881,7 +3911,53 @@ pub mod evm_host {
         Eq,
         Hash,
     )]
-    pub struct DaiReturn(pub ::ethers::core::types::Address);
+    pub struct Dispatch0Return {
+        pub commitment: [u8; 32],
+    }
+    ///Container type for all return fields from the `dispatch` function with signature
+    /// `dispatch(((bytes,bytes,uint64,bytes,bytes,uint64,bytes,uint64),bytes,uint64,uint64,uint256,
+    /// address))` and selector `0x3fac32c9`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct Dispatch1Return {
+        pub commitment: [u8; 32],
+    }
+    ///Container type for all return fields from the `dispatch` function with signature
+    /// `dispatch((bytes,bytes,bytes,uint64,uint64,uint256,address))` and selector `0x6a79c915`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct Dispatch2Return {
+        pub commitment: [u8; 32],
+    }
+    ///Container type for all return fields from the `feeToken` function with signature
+    /// `feeToken()` and selector `0x647846a5`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct FeeTokenReturn(pub ::ethers::core::types::Address);
     ///Container type for all return fields from the `frozen` function with signature `frozen()`
     /// and selector `0x054f7d9c`
     #[derive(

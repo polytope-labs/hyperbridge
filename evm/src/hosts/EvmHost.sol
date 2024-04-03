@@ -608,7 +608,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         });
 
         // make the commitment
-        bytes32 commitment = request.hash();
+        commitment = request.hash();
         _requestCommitments[commitment] = FeeMetadata({sender: post.payer, fee: post.fee});
         emit PostRequestEvent(
             request.source,
@@ -647,7 +647,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         });
 
         // make the commitment
-        bytes32 commitment = request.hash();
+        commitment = request.hash();
         _requestCommitments[commitment] = FeeMetadata({sender: get.payer, fee: get.fee});
         emit GetRequestEvent(
             request.source,
@@ -691,7 +691,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             timeoutTimestamp: timeout,
             gaslimit: post.gaslimit
         });
-        bytes32 commitment = response.hash();
+        commitment = response.hash();
         FeeMetadata memory meta = FeeMetadata({fee: post.fee, sender: post.payer});
         _responseCommitments[commitment] = meta;
         _responded[receipt] = true;

@@ -510,7 +510,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Dispatch an incoming get timeout to source module
+     * @dev Dispatch an incoming get timeout to the source module
      * @param request - get request
      */
     function dispatchIncoming(GetRequest memory request, FeeMetadata memory meta, bytes32 commitment)
@@ -524,15 +524,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             // delete memory of this request
             delete _requestCommitments[commitment];
 
-            // refund relayer fee
-            IERC20(dai()).transfer(meta.sender, meta.fee);
+            if (meta.fee > 0) {
+                // refund relayer fee
+                IERC20(dai()).transfer(meta.sender, meta.fee);
+            }
 
             emit GetRequestTimeoutHandled({commitment: commitment});
         }
     }
 
     /**
-     * @dev Dispatch an incoming post timeout to source module
+     * @dev Dispatch an incoming post timeout to the source module
      * @param request - post timeout
      */
     function dispatchIncoming(PostRequest memory request, FeeMetadata memory meta, bytes32 commitment)
@@ -547,15 +549,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             // delete memory of this request
             delete _requestCommitments[commitment];
 
-            // refund relayer fee
-            IERC20(dai()).transfer(meta.sender, meta.fee);
+            if (meta.fee > 0) {
+                // refund relayer fee
+                IERC20(dai()).transfer(meta.sender, meta.fee);
+            }
 
             emit PostRequestTimeoutHandled({commitment: commitment});
         }
     }
 
     /**
-     * @dev Dispatch an incoming post response timeout to source module
+     * @dev Dispatch an incoming post response timeout to the source module
      * @param response - timed-out post response
      */
     function dispatchIncoming(PostResponse memory response, FeeMetadata memory meta, bytes32 commitment)
@@ -571,8 +575,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             delete _responseCommitments[commitment];
             delete _responded[response.request.hash()];
 
-            // refund relayer fee
-            IERC20(dai()).transfer(meta.sender, meta.fee);
+            if (meta.fee > 0) {
+                // refund relayer fee
+                IERC20(dai()).transfer(meta.sender, meta.fee);
+            }
 
             emit PostResponseTimeoutHandled({commitment: commitment});
         }

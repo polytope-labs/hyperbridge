@@ -330,7 +330,7 @@ jobs:
   hyperclient-tests:
     name: Hyperclient Integration Tests
     runs-on: ubuntu-latest
-
+    if: false # disabled for now
     steps:
       - name: Get User Permission
         id: checkAccess

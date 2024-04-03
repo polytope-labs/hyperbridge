@@ -146,9 +146,11 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         }
 
         let params = rpc_params![at, keys];
-        let response: RpcProof = self.client.rpc().request("ismp_queryStateProof", params).await?;
+        let response: RpcProof =
+            self.client.rpc().request("ismp_queryChildTrieProof", params).await?;
         let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
-        let proof = SubstrateStateProof { hasher: self.hashing.clone(), storage_proof };
+        let proof =
+            SubstrateStateProof::OverlayProof { hasher: self.hashing.clone(), storage_proof };
         Ok(proof.encode())
     }
 
@@ -337,23 +339,19 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     }
 
     fn request_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
-        let addr = runtime::api::storage().ismp().request_commitments(&commitment);
-        self.client.storage().address_bytes(&addr).expect("Infallible")
+        pallet_ismp::child_trie::request_commitment_storage_key(commitment)
     }
 
     fn request_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
-        let addr = runtime::api::storage().ismp().request_receipts(&commitment);
-        self.client.storage().address_bytes(&addr).expect("Infallible")
+        pallet_ismp::child_trie::request_receipt_storage_key(commitment)
     }
 
     fn response_commitment_full_key(&self, commitment: H256) -> Vec<u8> {
-        let addr = runtime::api::storage().ismp().response_commitments(&commitment);
-        self.client.storage().address_bytes(&addr).expect("Infallible")
+        pallet_ismp::child_trie::response_commitment_storage_key(commitment)
     }
 
     fn response_receipt_full_key(&self, commitment: H256) -> Vec<u8> {
-        let addr = runtime::api::storage().ismp().response_receipts(&commitment);
-        self.client.storage().address_bytes(&addr).expect("Infallible")
+        pallet_ismp::child_trie::response_receipt_storage_key(commitment)
     }
 
     fn encode(&self, msg: Message) -> Result<Vec<u8>, Error> {

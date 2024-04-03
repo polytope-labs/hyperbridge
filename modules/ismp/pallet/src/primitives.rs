@@ -127,6 +127,15 @@ pub struct WeightUsed {
 /// The `ConsensusEngineId` of ISMP digest in the parachain header.
 pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";
 
+/// Consensus log digest for pallet ismp
+#[derive(Encode, Decode, Clone, scale_info::TypeInfo)]
+pub struct IsmpConsensusLog {
+    /// Mmr root hash
+    pub mmr_root: H256,
+    /// Child trie root hash
+    pub child_trie_root: H256,
+}
+
 /// Queries a request leaf in the mmr
 #[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
@@ -157,8 +166,9 @@ pub struct LeafIndexAndPos {
 }
 
 /// Hashing algorithm for the state proof
-#[derive(Debug, Encode, Decode, Clone)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[derive(
+    Debug, Encode, Decode, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq, Eq,
+)]
 pub enum HashAlgorithm {
     /// For chains that use keccak as their hashing algo
     Keccak,
@@ -168,11 +178,39 @@ pub enum HashAlgorithm {
 
 /// Holds the relevant data needed for state proof verification
 #[derive(Debug, Encode, Decode, Clone)]
-pub struct SubstrateStateProof {
-    /// Algorithm to use for state proof verification
-    pub hasher: HashAlgorithm,
-    /// Storage proof for the parachain headers
-    pub storage_proof: Vec<Vec<u8>>,
+pub enum SubstrateStateProof {
+    /// uses overlay root for verification
+    OverlayProof {
+        /// Algorithm to use for state proof verification
+        hasher: HashAlgorithm,
+        /// Storage proof for the parachain headers
+        storage_proof: Vec<Vec<u8>>,
+    },
+    /// Uses state root for verification
+    StateProof {
+        /// Algorithm to use for state proof verification
+        hasher: HashAlgorithm,
+        /// Storage proof for the parachain headers
+        storage_proof: Vec<Vec<u8>>,
+    },
+}
+
+impl SubstrateStateProof {
+    /// Returns hash algo
+    pub fn hasher(&self) -> HashAlgorithm {
+        match self {
+            Self::OverlayProof { hasher, .. } => *hasher,
+            Self::StateProof { hasher, .. } => *hasher,
+        }
+    }
+
+    /// Returns storage proof
+    pub fn storage_proof(self) -> Vec<Vec<u8>> {
+        match self {
+            Self::OverlayProof { storage_proof, .. } => storage_proof,
+            Self::StateProof { storage_proof, .. } => storage_proof,
+        }
+    }
 }
 
 /// Holds the relevant data needed for request/response proof verification

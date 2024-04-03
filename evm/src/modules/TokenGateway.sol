@@ -76,8 +76,8 @@ enum OnAcceptActions
 }
 
 enum GovernanceActions
+/// Some new assets are now supported by gateway
 {
-    /// Some new assets are now supported by gateway
     NewAssets,
     /// Governance has decided to adjust liquidity fee paid to relayers
     AdjustLiquidityFee,
@@ -115,7 +115,7 @@ contract TokenGateway is BaseIsmpModule {
 
     // User has received some assets, source chain & nonce
     event AssetReceived(bytes source, uint256 nonce);
-    event Teleport(address from, bytes dest, uint256 amount, uint256 fee, uint64 timeout);
+    event Teleport(address from, address to, uint256 amount, bool redeem, bytes32 requestCommitment);
 
     // restricts call to `IIsmpHost`
     modifier onlyIsmpHost() {
@@ -159,7 +159,7 @@ contract TokenGateway is BaseIsmpModule {
         address from = msg.sender;
         address erc20 = _erc20s[params.assetId];
         address erc6160 = _erc6160s[params.assetId];
-        address feeToken = IIsmpHost(_host).dai();
+        address feeToken = IIsmpHost(_host).feeToken();
 
         if (erc20 != address(0) && !params.redeem) {
             require(IERC20(erc20).transferFrom(from, address(this), params.amount), "Insufficient user balance");
@@ -195,9 +195,15 @@ contract TokenGateway is BaseIsmpModule {
         });
 
         // Your money is now on its way
-        IDispatcher(_host).dispatch(request);
+        bytes32 commitment = IDispatcher(_host).dispatch(request);
 
-        emit Teleport(from, params.dest, params.amount, params.fee, params.timeout);
+        emit Teleport({
+            from: from,
+            to: params.to,
+            amount: params.amount,
+            redeem: params.redeem,
+            requestCommitment: commitment
+        });
     }
 
     function onAccept(PostRequest calldata request) external override onlyIsmpHost {
@@ -252,7 +258,7 @@ contract TokenGateway is BaseIsmpModule {
                 IERC20(erc20).transferFrom(tx.origin, body.to, _amountToTransfer),
                 "Gateway: Insufficient relayer balance"
             );
-            
+
             emit LiquidityProvided(tx.origin, _amountToTransfer);
 
             // hand the relayer the erc6160, so they can redeem on the source chain

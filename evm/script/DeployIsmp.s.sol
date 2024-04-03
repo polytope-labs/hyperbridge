@@ -127,11 +127,7 @@ contract DeployScript is Script {
         feeToken.grantRole(MINTER_ROLE, address(faucet));
 
         Asset[] memory assets = new Asset[](1);
-        assets[0] = Asset({
-            identifier: keccak256("USD.h"),
-            erc20: address(0),
-            erc6160: address(feeToken)
-        });
+        assets[0] = Asset({identifier: keccak256("USD.h"), erc20: address(0), erc6160: address(feeToken)});
 
         // initialize gateway
         gateway.init(

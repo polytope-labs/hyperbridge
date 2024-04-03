@@ -65,11 +65,7 @@ contract BaseTest is Test {
         manager.setIsmpHost(address(host));
         gateway = new TokenGateway(address(this));
         Asset[] memory assets = new Asset[](1);
-        assets[0] = Asset({
-            identifier: keccak256("USD.h"),
-            erc20: address(0),
-            erc6160: address(feeToken)
-        });
+        assets[0] = Asset({identifier: keccak256("USD.h"), erc20: address(0), erc6160: address(feeToken)});
 
         gateway.init(
             InitParams({

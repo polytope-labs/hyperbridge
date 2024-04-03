@@ -109,7 +109,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // emergency shutdown button, only the admin can do this
     bool private _frozen;
 
-
     // Emitted when an incoming POST request is handled
     event PostRequestHandled(bytes32 commitment, address relayer);
 
@@ -678,7 +677,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             ? 0
             : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, post.timeout));
         PostResponse memory response =
-            PostResponse({request: post.request, response: post.response, timeoutTimestamp:timeout});
+            PostResponse({request: post.request, response: post.response, timeoutTimestamp: timeout});
         FeeMetadata memory meta = FeeMetadata({fee: post.fee, sender: post.payer});
         _responseCommitments[commitment] = meta;
         _responded[receipt] = true;

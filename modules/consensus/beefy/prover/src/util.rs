@@ -68,7 +68,7 @@ pub async fn fetch_timestamp_extrinsic_with_proof<T: Config>(
 
     let (ext, proof) = {
         if extrinsics.is_empty() {
-            return Err(anyhow!("Block has no extrinsics"))
+            return Err(anyhow!("Block has no extrinsics"));
         }
         let timestamp_ext = extrinsics[0].clone();
         let mut db = sp_trie::MemoryDB::<Keccak256>::default();

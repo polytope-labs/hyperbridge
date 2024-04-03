@@ -531,8 +531,9 @@ pub mod pallet {
                     MessageResult::Response(results) |
                     MessageResult::Timeout(results) =>
                         results.into_iter().map(|result| result.map(|_| ())).collect::<Vec<_>>(),
-                    MessageResult::ConsensusMessage(_) | MessageResult::FrozenClient(_) =>
-                        vec![Ok(())],
+                    MessageResult::ConsensusMessage(_) | MessageResult::FrozenClient(_) => {
+                        vec![Ok(())]
+                    },
                 })
                 .flatten()
                 .collect::<Result<Vec<_>, _>>()
@@ -544,8 +545,9 @@ pub mod pallet {
             let mut requests = messages
                 .into_iter()
                 .map(|message| match message {
-                    Message::Consensus(ConsensusMessage { consensus_proof, .. }) =>
-                        vec![H256(sp_io::hashing::keccak_256(&consensus_proof))],
+                    Message::Consensus(ConsensusMessage { consensus_proof, .. }) => {
+                        vec![H256(sp_io::hashing::keccak_256(&consensus_proof))]
+                    },
                     Message::FraudProof(FraudProofMessage { proof_1, proof_2, .. }) => vec![
                         H256(sp_io::hashing::keccak_256(&proof_1)),
                         H256(sp_io::hashing::keccak_256(&proof_2)),

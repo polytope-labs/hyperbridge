@@ -59,7 +59,7 @@ impl BscPosProver {
         let target_hash = H256::from_slice(&parse_extra_data.vote_data.target_hash.0);
 
         if source_hash == Default::default() || target_hash == Default::default() {
-            return Ok(None)
+            return Ok(None);
         }
 
         let source_header = self
@@ -136,7 +136,7 @@ impl BscPosProver {
 pub fn get_rotation_block(mut block: u64, validator_size: u64) -> u64 {
     loop {
         if block % EPOCH_LENGTH == (validator_size / 2) {
-            break
+            break;
         }
         block += 1
     }

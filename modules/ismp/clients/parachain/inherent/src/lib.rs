@@ -50,7 +50,7 @@ impl ConsensusInherentProvider {
         let para_ids = client.runtime_api().para_ids(head)?;
 
         if para_ids.is_empty() {
-            return Ok(ConsensusInherentProvider(None))
+            return Ok(ConsensusInherentProvider(None));
         }
 
         let keys = para_ids.iter().map(|id| parachain_header_storage_key(*id).0).collect();

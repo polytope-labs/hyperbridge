@@ -179,7 +179,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                             tracing::error!(
                                 "Error encountered while watching finalized heads: {_err:?}"
                             );
-                            return Some((Ok(None), (latest_height, subscription, client)))
+                            return Some((Ok(None), (latest_height, subscription, client)));
                         },
                         None => return None,
                     };
@@ -192,7 +192,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                                 tracing::error!(
                                     "Error encountered while querying ismp events {_err:?}"
                                 );
-                                return Some((Ok(None), (latest_height, subscription, client)))
+                                return Some((Ok(None), (latest_height, subscription, client)));
                             },
                         };
 
@@ -288,7 +288,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                         tracing::error!(
                             "Error encountered while fetching finalized header: {_err:?}"
                         );
-                        return Some((Ok(None), (latest_height, subscription, client)))
+                        return Some((Ok(None), (latest_height, subscription, client)));
                     },
                     None => return None,
                 };
@@ -300,7 +300,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
                     Ok(e) => e,
                     Err(_err) => {
                         tracing::error!("Error encountered while querying ismp events {_err:?}");
-                        return Some((Ok(None), (latest_height, subscription, client)))
+                        return Some((Ok(None), (latest_height, subscription, client)));
                     },
                 };
 

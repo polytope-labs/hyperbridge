@@ -13,6 +13,8 @@ import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
 import {IHandler} from "ismp/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "ismp/Message.sol";
 
+import "forge-std/console.sol";
+
 // The IsmpHost parameters
 struct HostParams {
     // default timeout in seconds for requests.
@@ -556,6 +558,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param post - post request
      */
     function dispatch(DispatchPost memory post) external returns (bytes32 commitment) {
+        // console.log("This is the body lenght for a post request");
+        console.logBytes(post.body);
+        console.logUint(post.body.length);
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
         require(IERC20(feeToken()).transferFrom(post.payer, address(this), fee), "Payer has insufficient funds");
 
@@ -575,7 +580,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         });
 
         // make the commitment
-        bytes32 commitment = request.hash();
+        commitment = request.hash();
+
         _requestCommitments[commitment] = FeeMetadata({sender: post.payer, fee: post.fee});
         emit PostRequestEvent(
             request.source,
@@ -614,7 +620,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         });
 
         // make the commitment
-        bytes32 commitment = request.hash();
+        commitment = request.hash();
         _requestCommitments[commitment] = FeeMetadata({sender: get.payer, fee: get.fee});
         emit GetRequestEvent(
             request.source,
@@ -658,7 +664,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             timeoutTimestamp: timeout,
             gaslimit: post.gaslimit
         });
-        bytes32 commitment = response.hash();
+        commitment = response.hash();
         FeeMetadata memory meta = FeeMetadata({fee: post.fee, sender: post.payer});
         _responseCommitments[commitment] = meta;
         _responded[receipt] = true;

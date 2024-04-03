@@ -8,7 +8,7 @@ import {BaseIsmpModule, PostRequest} from "ismp/IIsmpModule.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import {CallDispatcher} from "./CallDispatcher.sol";
+import {CallDispatcher, ICallDispatcher} from "./CallDispatcher.sol";
 
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
 
@@ -29,11 +29,59 @@ struct TeleportParams {
     bytes dest;
     // timeout in seconds
     uint64 timeout;
+}
+
+struct TeleportParamsWithCall {
+    // amount to be sent
+    uint256 amount;
+    // Relayer fee
+    uint256 fee;
+    // The token identifier
+    bytes32 assetId;
+    // Redeem Erc20 on the destination?
+    bool redeem;
+    // recipient address
+    address to;
+    // The Erc20 token to be used to swap for a fee
+    address feeToken;
+    // recipient state machine
+    bytes dest;
+    // timeout in seconds
+    uint64 timeout;
     // destination contract call data
     bytes data;
 }
 
+
+struct InternalTeleportParams {
+    address erc20;
+    bool redeem;
+    address from;
+    uint256 amount;
+    uint256 fee;
+    address hostFeeToken;
+    address feeTokenFromParams;
+    address erc6160;
+    bytes dest;
+    bytes data;
+    uint64 timeout;
+    address to;
+}
+
 struct Body {
+    // amount to be sent
+    uint256 amount;
+    // The token identifier
+    bytes32 assetId;
+    // flag to redeem the erc20 asset on the destination
+    bool redeem;
+    // sender address
+    address from;
+    // recipient address
+    address to;
+}
+
+struct BodyWithCall {
     // amount to be sent
     uint256 amount;
     // The token identifier
@@ -61,6 +109,8 @@ struct InitParams {
     uint256 protocolFeePercentage;
     /// List of supported assets
     Asset[] assets;
+    /// Address of the call dispatcher contract
+    address callDispatcher;
 }
 
 struct Asset {
@@ -113,7 +163,7 @@ contract TokenGateway is BaseIsmpModule {
     /// local uniswap router
     IUniswapV2Router private _uniswapV2Router;
     /// call dispatcher
-    CallDispatcher private _dispatcher;
+    ICallDispatcher private _dispatcher;
 
     // mapping of token identifier to erc6160 contracts
     mapping(bytes32 => address) private _erc6160s;
@@ -151,6 +201,7 @@ contract TokenGateway is BaseIsmpModule {
         _protocolFeePercentage = initialParams.protocolFeePercentage;
         _relayerFeePercentage = initialParams.relayerFeePercentage;
         _uniswapV2Router = IUniswapV2Router(initialParams.uniswapV2Router);
+        _dispatcher = ICallDispatcher(initialParams.callDispatcher);
 
         setAssets(initialParams.assets);
 
@@ -168,33 +219,86 @@ contract TokenGateway is BaseIsmpModule {
         address erc6160 = _erc6160s[params.assetId];
         address feeToken = IIsmpHost(_host).feeToken();
 
-        if (erc20 != address(0) && !params.redeem) {
-            require(IERC20(erc20).transferFrom(from, address(this), params.amount), "Insufficient user balance");
+        bytes memory data = abi.encode(
+            Body({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem})
+        );
+
+        _teleport(
+            InternalTeleportParams(
+                erc20,
+                params.redeem,
+                from,
+                params.amount,
+                params.fee,
+                feeToken,
+                params.feeToken,
+                erc6160,
+                params.dest,
+                data,
+                params.timeout,
+                params.to
+            )
+        );
+    }
+
+    function teleportWithCall(TeleportParamsWithCall memory params) public {
+        require(params.to != address(0), "Burn your funds some other way");
+        require(params.amount > 100_000, "Amount too low");
+        require(params.feeToken != address(0), "Fee token not selected");
+
+        address from = msg.sender;
+        address erc20 = _erc20s[params.assetId];
+        address erc6160 = _erc6160s[params.assetId];
+        address feeToken = IIsmpHost(_host).feeToken();
+
+        bytes memory data = abi.encode(
+            BodyWithCall({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem, data: params.data})
+        );
+
+        _teleport(
+            InternalTeleportParams(
+                erc20,
+                params.redeem,
+                from,
+                params.amount,
+                params.fee,
+                feeToken,
+                params.feeToken,
+                erc6160,
+                params.dest,
+                data,
+                params.timeout,
+                params.to
+            )
+        );
+    }
+
+    function _teleport(
+        InternalTeleportParams memory params
+    ) private {
+        if (params.erc20 != address(0) && !params.redeem) {
+            require(IERC20(params.erc20).transferFrom(params.from, address(this), params.amount), "Insufficient user balance");
 
             // Calculate output fee in DAI before swap:
             // We can use swapTokensForExactTokens() on Uniswap since we know the output amount
             uint256 _fee = calculateBridgeFee(params.fee);
 
             // only swap if the feeToken is not the token intended for fee
-            if (feeToken != params.feeToken) {
-                require(handleSwap(from, params.feeToken, feeToken, _fee), "Token swap failed");
+            if (params.hostFeeToken != params.feeTokenFromParams) {
+                require(handleSwap(params.from, params.feeTokenFromParams, params.hostFeeToken, _fee), "Token swap failed");
             }
-        } else if (erc6160 != address(0)) {
+        } else if (params.erc6160 != address(0)) {
             // we're sending an erc6160 asset so we should redeem on the destination if we can.
-            IERC6160Ext20(erc6160).burn(from, params.amount, "");
+            IERC6160Ext20(params.erc6160).burn(params.from, params.amount, "");
         } else {
             revert("Unknown Token Identifier");
         }
-
-        bytes memory data = abi.encode(
-            Body({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem, data: params.data})
-        );
 
         DispatchPost memory request = DispatchPost({
             dest: params.dest,
             to: abi.encodePacked(address(this)),
             // add enum variant for body
-            body: bytes.concat(hex"00", data),
+            body: bytes.concat(hex"00", params.data),
             timeout: params.timeout,
             fee: params.fee,
             gaslimit: uint64(0),
@@ -205,7 +309,7 @@ contract TokenGateway is BaseIsmpModule {
         bytes32 commitment = IDispatcher(_host).dispatch(request);
 
         emit Teleport({
-            from: from,
+            from: params.from,
             to: params.to,
             amount: params.amount,
             redeem: params.redeem,
@@ -217,7 +321,12 @@ contract TokenGateway is BaseIsmpModule {
         OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
 
         if (action == OnAcceptActions.IncomingAsset) {
-            handleIncomingAsset(request);
+            if (request.body.length > BODY_BYTES_SIZE) {
+                handleIncomingAssetWithCall(request);
+            } else {
+                handleIncomingAssetWithoutCall(request);
+            }
+            
         } else if (action == OnAcceptActions.GovernanceAction) {
             handleGovernance(request);
         } else {
@@ -241,48 +350,74 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    function handleIncomingAsset(PostRequest calldata request) private {
+    function handleIncomingAssetWithoutCall(PostRequest calldata request) private {
         /// TokenGateway only accepts incoming assets from it's instances on other chains.
         require(request.from.equals(abi.encodePacked(address(this))), "Unauthorized request");
         Body memory body = abi.decode(request.body[1:], (Body));
 
-        address erc20 = _erc20s[body.assetId];
-        address erc6160 = _erc6160s[body.assetId];
+        _handleIncomingAsset(
+            body.assetId,
+            body.redeem,
+            body.amount,
+            body.to
+        );
+        
+        emit AssetReceived(request.source, request.nonce);
+    }
 
-        if (erc20 != address(0) && body.redeem) {
+    function handleIncomingAssetWithCall(PostRequest calldata request) private {
+        /// TokenGateway only accepts incoming assets from it's instances on other chains.
+        require(request.from.equals(abi.encodePacked(address(this))), "Unauthorized request");
+        BodyWithCall memory body = abi.decode(request.body[1:], (BodyWithCall));
+
+        _handleIncomingAsset(
+            body.assetId,
+            body.redeem,
+            body.amount,
+            body.to
+        );
+
+        // dispatching low level call
+        _dispatcher.dispatch(body.to, body.data);
+
+        emit AssetReceived(request.source, request.nonce);
+    }
+
+    function _handleIncomingAsset(
+        bytes32 assetId,
+        bool redeem,
+        uint256 amount,
+        address to
+    ) private {
+        address erc20 = _erc20s[assetId];
+        address erc6160 = _erc6160s[assetId];
+
+        if (erc20 != address(0) && redeem) {
             // a relayer/user is redeeming the native asset
-            uint256 _protocolRedeemFee = calculateProtocolFee(body.amount);
-            uint256 _amountToTransfer = body.amount - _protocolRedeemFee;
+            uint256 _protocolRedeemFee = calculateProtocolFee(amount);
+            uint256 _amountToTransfer = amount - _protocolRedeemFee;
 
-            require(IERC20(erc20).transfer(body.to, _amountToTransfer), "Gateway: Insufficient Balance");
-        } else if (erc20 != address(0) && erc6160 != address(0) && !body.redeem) {
+            require(IERC20(erc20).transfer(to, _amountToTransfer), "Gateway: Insufficient Balance");
+        } else if (erc20 != address(0) && erc6160 != address(0) && !redeem) {
             // user is swapping, relayers should double as liquidity providers.
-            uint256 _protocolLiquidityFee = calculateRelayerLiquidityFee(body.amount);
-            uint256 _amountToTransfer = body.amount - _protocolLiquidityFee;
+            uint256 _protocolLiquidityFee = calculateRelayerLiquidityFee(amount);
+            uint256 _amountToTransfer = amount - _protocolLiquidityFee;
 
             require(
                 // we assume that the relayer is an EOA
-                IERC20(erc20).transferFrom(tx.origin, body.to, _amountToTransfer),
+                IERC20(erc20).transferFrom(tx.origin, to, _amountToTransfer),
                 "Gateway: Insufficient relayer balance"
             );
 
             emit LiquidityProvided(tx.origin, _amountToTransfer);
 
             // hand the relayer the erc6160, so they can redeem on the source chain
-            IERC6160Ext20(erc6160).mint(tx.origin, body.amount, "");
+            IERC6160Ext20(erc6160).mint(tx.origin, amount, "");
         } else if (erc6160 != address(0)) {
-            IERC6160Ext20(erc6160).mint(body.to, body.amount, "");
+            IERC6160Ext20(erc6160).mint(to, amount, "");
         } else {
             revert("Gateway: Unknown Token Identifier");
         }
-
-        // after asset has been transferred, call can now be dispatched 
-        if (body.data.length > 0) {
-            // (if the call data is not empty)
-            _dispatcher.dispatch(body.to, body.data);
-        }
-
-        emit AssetReceived(request.source, request.nonce);
     }
 
     function handleGovernance(PostRequest calldata request) private {

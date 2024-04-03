@@ -143,7 +143,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
         let header_2_hash = Header::from(&header_2).hash::<H>();
 
         if header_1_hash == header_2_hash {
-            return Err(Error::ImplementationSpecific("Invalid Fraud proof".to_string()))
+            return Err(Error::ImplementationSpecific("Invalid Fraud proof".to_string()));
         }
 
         let consensus_state =

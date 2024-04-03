@@ -95,7 +95,7 @@ pub async fn fetch_next_beefy_justification<T: Config>(
             .flatten()
             .expect("Should find a valid block");
         if latest_client_height >= block.block.header.number().into() {
-            return Ok(None)
+            return Ok(None);
         }
 
         let justifications = block.justifications;
@@ -114,7 +114,7 @@ pub async fn fetch_next_beefy_justification<T: Config>(
                     &mut &*beefy_justification.unwrap(),
                 )
                 .expect("Beefy justification should decode correctly");
-            break (signed_commitment, block_hash)
+            break (signed_commitment, block_hash);
         }
         block_hash = SubstrateHeader::<u32, T::Hasher>::decode(&mut &*block.block.header.encode())
             .expect("infallible")

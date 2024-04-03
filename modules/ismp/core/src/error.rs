@@ -65,12 +65,12 @@ pub enum Error {
     /// The given request was not found
     RequestCommitmentNotFound {
         /// The request metadata
-        req: Meta,
+        meta: Meta,
     },
     /// The given request has failed state proof verification
     RequestVerificationFailed {
         /// The request metadata
-        req: Meta,
+        meta: Meta,
     },
     /// The given request has not yet timed-out
     RequestTimeoutNotElapsed {
@@ -84,12 +84,12 @@ pub enum Error {
     /// The given request has failed non-membership state proof verification
     RequestTimeoutVerificationFailed {
         /// The request metadata
-        req: Meta,
+        meta: Meta,
     },
     /// The given response has failed membership state proof verification
     ResponseVerificationFailed {
-        /// The request metadata
-        req: Meta,
+        /// The response metadata
+        meta: Meta,
     },
     /// Failed to verify the consensus proof for the given consensus client
     ConsensusProofVerificationFailed {
@@ -143,76 +143,72 @@ pub enum Error {
     ModuleDispatchError {
         /// Descriptive error message
         msg: String,
-        /// Request nonce
-        nonce: u64,
-        /// Source chain for request or response
-        source_chain: StateMachine,
-        /// Destination chain for request or response
-        dest_chain: StateMachine,
+        /// the request metadata
+        meta: Meta,
     },
     /// Attempted to respond to/timeout an unknown request
     UnknownRequest {
-        /// Unknown request
-        req: Meta,
+        /// Unknown request metadata
+        meta: Meta,
     },
     /// Attempted to time-out an unknown response
     UnknownResponse {
-        /// Unknown response
-        res: Meta,
+        /// Unknown response metadata
+        meta: Meta,
     },
     /// Request commitment for a response does not exist
     UnsolicitedResponse {
-        /// Unsolicited response
-        res: Meta,
+        /// Unsolicited response metadata
+        meta: Meta,
     },
     /// Timed out request found in batch
     RequestTimeout {
-        /// Timed out Request
-        req: Meta,
+        /// Timed out Request metadata
+        meta: Meta,
     },
     /// Timed out response found in batch
     ResponseTimeout {
-        /// Timed out Response
+        /// Timed out Response metadata
         response: Meta,
     },
     /// Duplicate request
     DuplicateRequest {
-        /// Duplicate request
-        req: Meta,
+        /// Duplicate request metadata
+        meta: Meta,
     },
     /// Duplicate response
     DuplicateResponse {
-        /// Duplicate response
-        res: Meta,
+        /// Duplicate response metadata
+        meta: Meta,
     },
     /// Request source does not match proof metadata
     RequestProofMetadataNotValid {
-        /// The Request
-        req: Meta,
+        /// The Request metadata
+        meta: Meta,
     },
     /// Proxy cannot be used when a direct connection exists
     RequestProxyProhibited {
-        /// The Request
-        req: Meta,
+        /// The Request metadata
+        meta: Meta,
     },
     /// Proxy cannot be used when a direct connection exists
     ResponseProxyProhibited {
-        /// The Response
-        res: Meta,
+        /// The Response metadata
+        meta: Meta,
     },
     /// Host is not a proxy and destination chain does is not the host
     InvalidRequestDestination {
-        /// The Request
-        req: Meta,
+        /// The Request metadata
+        meta: Meta,
     },
     /// The response destination does not match
     InvalidResponseDestination {
-        /// The response
-        res: Meta,
+        /// The response metadata
+        meta: Meta,
     },
     /// Expected get request found post
     InvalidResponseType {
-        /// The request
-        req: Meta,
+        /// The request metadata
+        meta: Meta,
     },
 }

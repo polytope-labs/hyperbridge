@@ -109,14 +109,26 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // emergency shutdown button, only the admin can do this
     bool private _frozen;
 
+    // Emitted when an incoming POST request timeout is handled
+    event PostRequestTimeoutHandled(bytes32 commitment);
+
     // Emitted when an incoming POST request is handled
     event PostRequestHandled(bytes32 commitment, address relayer);
 
     // Emitted when an incoming POST response is handled
     event PostResponseHandled(bytes32 commitment, address relayer);
 
+    // Emitted when an incoming POST timeout response is handled
+    event PostResponseTimeoutHandled(bytes32 commitment);
+
     // Emitted when an outgoing Get request is handled
     event GetRequestHandled(bytes32 commitment, address relayer);
+
+    // Emitted when an outgoing Get request is handled
+    event GetRequestTimeoutHandled(bytes32 commitment);
+
+    // Emitted when new heights are finalized
+    event StateMachineUpdated(uint256 stateMachineId, uint256 height);
 
     event PostRequestEvent(
         bytes source,
@@ -357,10 +369,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Store the serialized consensus state
+     * @dev Store the serialized consensus state, alongside relevant metadata
      */
     function storeConsensusState(bytes memory state) external onlyHandler {
         _hostParams.consensusState = state;
+        _hostParams.lastUpdated = block.timestamp;
     }
 
     /**
@@ -379,13 +392,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Store the commitment at `state height`
+     * @dev Store the state commitment at given state height alongside relevant metadata. Assumes the state commitment is of the latest height.
      */
     function storeStateMachineCommitment(StateMachineHeight memory height, StateCommitment memory commitment)
         external
         onlyHandler
     {
         _stateCommitments[height.stateMachineId][height.height] = commitment;
+        _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = block.timestamp;
+        _hostParams.latestStateMachineHeight = height.height;
+
+        emit StateMachineUpdated({stateMachineId: height.stateMachineId, height: height.height});
     }
 
     /**
@@ -412,10 +429,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function setConsensusState(bytes memory state) public onlyAdmin {
         // if we're on mainnet, then consensus state can only be initialized once.
-        require(
-            chainId() == block.chainid ? _hostParams.consensusState.equals(new bytes(0)) : true, "Unauthorized action"
-        );
-
+        // and updated subsequently by either consensus proofs or cross-chain governance
+        if (chainId() == block.chainid) {
+            require(_hostParams.consensusState.equals(new bytes(0)), "Unauthorized action");
+        }
         _hostParams.latestStateMachineHeight = 0;
         _hostParams.consensusState = state;
     }
@@ -505,6 +522,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
             // refund relayer fee
             IERC20(dai()).transfer(meta.sender, meta.fee);
+
+            emit GetRequestTimeoutHandled({commitment: commitment});
         }
     }
 
@@ -526,6 +545,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
             // refund relayer fee
             IERC20(dai()).transfer(meta.sender, meta.fee);
+
+            emit PostRequestTimeoutHandled({commitment: commitment});
         }
     }
 
@@ -548,6 +569,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
             // refund relayer fee
             IERC20(dai()).transfer(meta.sender, meta.fee);
+
+            emit PostResponseTimeoutHandled({commitment: commitment});
         }
     }
 

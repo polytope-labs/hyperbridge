@@ -10,7 +10,7 @@ pub use pallet_ismp::primitives::{HashAlgorithm, SubstrateStateProof};
 use serde::{Deserialize, Serialize};
 use subxt::{
     config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
-    ext::{codec, codec::Decode},
+    ext::codec::Decode,
     tx::TxPayload,
     utils::{AccountId32, MultiAddress, MultiSignature, H256},
     Config, Metadata,

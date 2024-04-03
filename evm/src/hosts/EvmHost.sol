@@ -109,27 +109,29 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // emergency shutdown button, only the admin can do this
     bool private _frozen;
 
-    // Emitted when an incoming POST request timeout is handled
-    event PostRequestTimeoutHandled(bytes32 commitment);
 
     // Emitted when an incoming POST request is handled
     event PostRequestHandled(bytes32 commitment, address relayer);
 
+    // Emitted when an outgoing POST request timeout is handled
+    event PostRequestTimeoutHandled(bytes32 commitment);
+
     // Emitted when an incoming POST response is handled
     event PostResponseHandled(bytes32 commitment, address relayer);
 
-    // Emitted when an incoming POST timeout response is handled
+    // Emitted when an outgoing POST timeout response is handled
     event PostResponseTimeoutHandled(bytes32 commitment);
 
-    // Emitted when an outgoing Get request is handled
+    // Emitted when an outgoing GET request is handled
     event GetRequestHandled(bytes32 commitment, address relayer);
 
-    // Emitted when an outgoing Get request is handled
+    // Emitted when an outgoing GET request timeout is handled
     event GetRequestTimeoutHandled(bytes32 commitment);
 
     // Emitted when new heights are finalized
     event StateMachineUpdated(uint256 stateMachineId, uint256 height);
 
+    // Emitted when a new POST request is dispatched
     event PostRequestEvent(
         bytes source,
         bytes dest,
@@ -142,6 +144,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 fee
     );
 
+    // Emitted when a new POST response is dispatched
     event PostResponseEvent(
         bytes source,
         bytes dest,
@@ -157,6 +160,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 fee
     );
 
+    // Emitted when a new GET request is dispatched
     event GetRequestEvent(
         bytes source,
         bytes dest,

@@ -1,137 +1,29 @@
 use ismp::{
     consensus::{
-        ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
-        StateMachineHeight, StateMachineId, VerifiedCommitments,
+        ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
+        StateMachineId,
     },
     error::Error,
-    host::{Ethereum, IsmpHost, StateMachine},
-    messaging::Proof,
+    host::{IsmpHost, StateMachine},
     module::IsmpModule,
     router::{
-        DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse, Request,
-        RequestResponse, Response, Timeout,
+        DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse, Request, Response,
     },
     util::{hash_post_response, hash_request, hash_response, Keccak256},
 };
 use primitive_types::H256;
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap},
     rc::Rc,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-#[derive(Default)]
-pub struct MockClient;
-#[derive(Default)]
-pub struct MockProxyClient;
-
-pub const MOCK_CONSENSUS_CLIENT_ID: [u8; 4] = [1u8; 4];
-pub const MOCK_PROXY_CONSENSUS_CLIENT_ID: [u8; 4] = [2u8; 4];
-
-#[derive(codec::Encode, codec::Decode)]
-pub struct MockConsensusState {
-    frozen_height: Option<u64>,
-}
-
-impl ConsensusClient for MockClient {
-    fn verify_consensus(
-        &self,
-        _host: &dyn IsmpHost,
-        _consensus_state_id: ConsensusStateId,
-        _trusted_consensus_state: Vec<u8>,
-        _proof: Vec<u8>,
-    ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-        Ok(Default::default())
-    }
-
-    fn verify_fraud_proof(
-        &self,
-        _host: &dyn IsmpHost,
-        _trusted_consensus_state: Vec<u8>,
-        _proof_1: Vec<u8>,
-        _proof_2: Vec<u8>,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn consensus_client_id(&self) -> ConsensusClientId {
-        MOCK_CONSENSUS_CLIENT_ID
-    }
-
-    fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-        match _id {
-            StateMachine::Ethereum(Ethereum::ExecutionLayer) =>
-                Ok(Box::new(MockStateMachineClient)),
-            _ => Err(Error::ImplementationSpecific("Invalid state machine".to_string())),
-        }
-    }
-}
-
-impl ConsensusClient for MockProxyClient {
-    fn verify_consensus(
-        &self,
-        _host: &dyn IsmpHost,
-        _consensus_state_id: ConsensusStateId,
-        _trusted_consensus_state: Vec<u8>,
-        _proof: Vec<u8>,
-    ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-        Ok(Default::default())
-    }
-
-    fn verify_fraud_proof(
-        &self,
-        _host: &dyn IsmpHost,
-        _trusted_consensus_state: Vec<u8>,
-        _proof_1: Vec<u8>,
-        _proof_2: Vec<u8>,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn consensus_client_id(&self) -> ConsensusClientId {
-        MOCK_PROXY_CONSENSUS_CLIENT_ID
-    }
-
-    fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-        match _id {
-            StateMachine::Kusama(2000) => Ok(Box::new(MockStateMachineClient)),
-            _ => Err(Error::ImplementationSpecific("Invalid state machine".to_string())),
-        }
-    }
-}
-
-pub struct MockStateMachineClient;
-
-impl StateMachineClient for MockStateMachineClient {
-    fn verify_membership(
-        &self,
-        _host: &dyn IsmpHost,
-        _item: RequestResponse,
-        _root: StateCommitment,
-        _proof: &Proof,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
-        Default::default()
-    }
-
-    fn verify_state_proof(
-        &self,
-        _host: &dyn IsmpHost,
-        _keys: Vec<Vec<u8>>,
-        _root: StateCommitment,
-        _proof: &Proof,
-    ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
-        Ok(Default::default())
-    }
-}
+use crate::mocks::{MockClient, MockModule, MockProxyClient};
 
 #[derive(Default, Clone, Debug)]
-pub struct Host {
+pub struct NoProxyHost {
     requests: Rc<RefCell<BTreeSet<H256>>>,
     receipts: Rc<RefCell<HashMap<H256, ()>>>,
     responses: Rc<RefCell<BTreeSet<H256>>>,
@@ -145,7 +37,7 @@ pub struct Host {
     nonce: Rc<RefCell<u64>>,
 }
 
-impl IsmpHost for Host {
+impl IsmpHost for NoProxyHost {
     fn host_state_machine(&self) -> StateMachine {
         StateMachine::Polkadot(1000)
     }
@@ -375,7 +267,7 @@ impl IsmpHost for Host {
     }
 
     fn allowed_proxy(&self) -> Option<StateMachine> {
-        Some(StateMachine::Kusama(2000))
+        None
     }
 
     fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {
@@ -383,7 +275,7 @@ impl IsmpHost for Host {
     }
 
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {
-        Box::new(MockRouter(self.clone()))
+        Box::new(NoProxyMockRouter(self.clone()))
     }
 
     fn freeze_state_machine_client(&self, state_machine: StateMachineId) -> Result<(), Error> {
@@ -392,7 +284,7 @@ impl IsmpHost for Host {
     }
 }
 
-impl Keccak256 for Host {
+impl Keccak256 for NoProxyHost {
     fn keccak256(bytes: &[u8]) -> H256
     where
         Self: Sized,
@@ -401,34 +293,17 @@ impl Keccak256 for Host {
     }
 }
 
-#[derive(Default)]
-pub struct MockModule;
+pub struct NoProxyMockRouter(pub NoProxyHost);
 
-impl IsmpModule for MockModule {
-    fn on_accept(&self, _request: Post) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn on_response(&self, _response: Response) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn on_timeout(&self, _request: Timeout) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
-pub struct MockRouter(pub Host);
-
-impl IsmpRouter for MockRouter {
+impl IsmpRouter for NoProxyMockRouter {
     fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
         Ok(Box::new(MockModule))
     }
 }
 
-pub struct MockDispatcher(pub Arc<Host>);
+pub struct NoProxyDispatcher(pub Arc<NoProxyHost>);
 
-impl IsmpDispatcher for MockDispatcher {
+impl IsmpDispatcher for NoProxyDispatcher {
     type Account = Vec<u8>;
     type Balance = u32;
 
@@ -467,7 +342,7 @@ impl IsmpDispatcher for MockDispatcher {
                 Request::Post(post)
             },
         };
-        let hash = hash_request::<Host>(&request);
+        let hash = hash_request::<NoProxyHost>(&request);
         host.requests.borrow_mut().insert(hash);
         Ok(())
     }
@@ -480,7 +355,7 @@ impl IsmpDispatcher for MockDispatcher {
     ) -> Result<(), Error> {
         let host = self.0.clone();
         let response = Response::Post(response);
-        let hash = hash_response::<Host>(&response);
+        let hash = hash_response::<NoProxyHost>(&response);
         if host.responses.borrow().contains(&hash) {
             return Err(Error::ImplementationSpecific("Duplicate response".to_string()));
         }

@@ -5983,6 +5983,7 @@ name = "ismp-testsuite"
 version = "0.1.0"
 dependencies = [
  "ismp",
+ "once_cell",
  "parity-scale-codec",
  "primitive-types",
  "sp-core 28.0.0",

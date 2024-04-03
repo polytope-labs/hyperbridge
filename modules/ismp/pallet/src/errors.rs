@@ -18,8 +18,8 @@ use codec::{Decode, Encode};
 use ismp::{
     consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
     error::Error as IsmpError,
+    events::Meta,
     host::StateMachine,
-    router::{Request, Response},
 };
 use sp_std::prelude::*;
 
@@ -108,62 +108,72 @@ pub enum HandlingError {
     /// Request commitment for a response does not exist
     UnsolicitedResponse {
         /// Unsolicited response
-        res: Response,
+        res: Meta,
     },
     /// Timed out request found in batch
     RequestTimeout {
         /// Timed out Request
-        req: Request,
+        req: Meta,
     },
     /// Timed out response found in batch
     ResponseTimeout {
         /// Timed out Response
-        response: Response,
+        response: Meta,
     },
     /// Duplicate request
     DuplicateRequest {
         /// Duplicate request
-        req: Request,
+        req: Meta,
     },
     /// Duplicate response
     DuplicateResponse {
         /// Duplicate response
-        res: Response,
+        res: Meta,
     },
     /// Request source does not match proof metadata
     RequestProofMetadataNotValid {
         /// The Request
-        req: Request,
+        req: Meta,
     },
     /// Response source does not match proof metadata
     ResponseProofMetadataNotValid {
         /// The Response
-        res: Response,
+        res: Meta,
     },
     /// Proxy cannot be used when a direct connection exists
     RequestProxyProhibited {
         /// The Request
-        req: Request,
+        req: Meta,
     },
     /// Proxy cannot be used when a direct connection exists
     ResponseProxyProhibited {
         /// The Response
-        res: Response,
+        res: Meta,
     },
     /// Host is not a proxy and destination chain does is not the host
     InvalidRequestDestination {
         /// The Request
-        req: Request,
+        req: Meta,
     },
     /// The response destination does not match
     InvalidResponseDestination {
         /// The response
-        res: Response,
+        res: Meta,
     },
     /// Expected get request found post
     InvalidResponseType {
         /// The request
-        req: Request,
+        req: Meta,
+    },
+    /// Attempted to respond to/timeout an unknown request
+    UnknownRequest {
+        /// Unknown request
+        req: Meta,
+    },
+    /// Attempted to time-out an unknown response
+    UnknownResponse {
+        /// Unknown response
+        res: Meta,
     },
 }
 
@@ -255,6 +265,8 @@ impl From<ismp::error::Error> for HandlingError {
             IsmpError::InvalidResponseDestination { res } =>
                 HandlingError::InvalidResponseDestination { res },
             IsmpError::InvalidResponseType { req } => HandlingError::InvalidResponseType { req },
+            IsmpError::UnknownRequest { req } => HandlingError::UnknownRequest { req },
+            IsmpError::UnknownResponse { res } => HandlingError::UnknownResponse { res },
         }
     }
 }

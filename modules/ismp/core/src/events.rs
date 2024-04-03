@@ -2,7 +2,8 @@
 
 use crate::{
     consensus::StateMachineId,
-    router::{Get, Post, PostResponse},
+    host::StateMachine,
+    router::{Get, Post, PostResponse, Request, Response},
 };
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
@@ -63,4 +64,41 @@ pub enum Event {
     GetRequestHandled(RequestResponseHandled),
     /// Emitted when a get request timeout is handled
     GetRequestTimeoutHandled(TimeoutHandled),
+}
+
+/// Minimal version of requests and responses
+#[derive(
+    Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize, PartialEq, Eq,
+)]
+pub struct Meta {
+    /// Request or response source chain
+    pub source: StateMachine,
+    /// Request or response dest chain
+    pub dest: StateMachine,
+    /// Request  nonce
+    pub nonce: u64,
+}
+
+impl From<&Request> for Meta {
+    fn from(value: &Request) -> Self {
+        Self { source: value.source_chain(), dest: value.dest_chain(), nonce: value.nonce() }
+    }
+}
+
+impl From<&Response> for Meta {
+    fn from(value: &Response) -> Self {
+        Self { source: value.source_chain(), dest: value.dest_chain(), nonce: value.nonce() }
+    }
+}
+
+impl From<Request> for Meta {
+    fn from(value: Request) -> Self {
+        Self { source: value.source_chain(), dest: value.dest_chain(), nonce: value.nonce() }
+    }
+}
+
+impl From<Response> for Meta {
+    fn from(value: Response) -> Self {
+        Self { source: value.source_chain(), dest: value.dest_chain(), nonce: value.nonce() }
+    }
 }

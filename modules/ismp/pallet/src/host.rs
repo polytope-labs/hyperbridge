@@ -302,6 +302,11 @@ impl<T: Config> IsmpHost for Host<T> {
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {
         Box::new(T::Router::default())
     }
+
+    fn freeze_state_machine_client(&self, state_machine: StateMachineId) -> Result<(), Error> {
+        FrozenStateMachine::<T>::insert(state_machine, true);
+        Ok(())
+    }
 }
 
 impl<T: Config> ismp::util::Keccak256 for Host<T> {

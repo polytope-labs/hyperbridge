@@ -32,9 +32,9 @@ where
     H: IsmpHost,
 {
     let signer = msg.signer.clone();
-
+    let state_machine = validate_state_machine(host, msg.proof.height)?;
     let consensus_clients = host.consensus_clients();
-    let check_for_consensus_client = |state_machine: StateMachine| {
+    let check_state_machine_client = |state_machine: StateMachine| {
         consensus_clients
             .iter()
             .find_map(|client| client.state_machine(state_machine).ok())
@@ -46,32 +46,33 @@ where
         let req = Request::Post(req.clone());
         // If a receipt exists for any request then it's a duplicate and it is not dispatched
         if host.request_receipt(&req).is_some() {
-            Err(Error::DuplicateRequest { req: req.clone() })?
+            Err(Error::DuplicateRequest { req: req.clone().into() })?
         }
 
         // can't dispatch timed out requests
         if req.timed_out(host.timestamp()) {
-            Err(Error::RequestTimeout { req: req.clone() })?
+            Err(Error::RequestTimeout { req: req.clone().into() })?
         }
 
         // either the host is a router and can accept requests on behalf of any chain
         // or the request must be intended for this chain
         if req.dest_chain() != host.host_state_machine() && !host.is_router() {
-            Err(Error::InvalidRequestDestination { req: req.clone() })?
+            Err(Error::InvalidRequestDestination { req: req.clone().into() })?
         }
 
-        // either the proof metadata matches the source chain, or it's coming from a proxy
-        // in which case, we must NOT have a configured state machine for the source
+        // check if the source chain does not match the proof metadata in which case
+        // the proof metadata must be the configured proxy
+        // and we must not have a configured state machine client for the destination
         if req.source_chain() != msg.proof.height.id.state_id &&
-            (host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-                !check_for_consensus_client(req.source_chain()))
+            !(host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+                check_state_machine_client(req.source_chain()))
         {
-            Err(Error::RequestProxyProhibited { req: req.clone() })?
+            Err(Error::RequestProxyProhibited { req: req.clone().into() })?
         }
     }
 
     // Verify membership proof
-    let state_machine = validate_state_machine(host, msg.proof.height)?;
+
     let state = host.state_machine_commitment(msg.proof.height)?;
     state_machine.verify_membership(
         host,

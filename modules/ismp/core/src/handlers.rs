@@ -22,7 +22,7 @@ use crate::{
     messaging::Message,
 };
 
-use crate::{consensus::ConsensusStateId, events::StateMachineUpdated, module::DispatchResult};
+use crate::{consensus::ConsensusStateId, module::DispatchResult};
 use alloc::{boxed::Box, vec::Vec};
 pub use consensus::create_client;
 
@@ -30,17 +30,6 @@ mod consensus;
 mod request;
 mod response;
 mod timeout;
-
-/// The result of successfully processing a [`ConsensusMessage`]
-#[derive(Debug)]
-pub struct ConsensusUpdateResult {
-    /// Consensus client Id
-    pub consensus_client_id: ConsensusClientId,
-    /// Consensus state Id
-    pub consensus_state_id: ConsensusStateId,
-    /// State machine updated events
-    pub state_updates: Vec<Event>,
-}
 
 /// The result of successfully processing a [`CreateConsensusClient`] message
 pub struct ConsensusClientCreatedResult {

@@ -16,6 +16,7 @@
 //! ISMP Testsuite
 
 pub mod mocks;
+pub mod no_proxy;
 #[cfg(test)]
 mod tests;
 
@@ -36,7 +37,6 @@ use ismp::{
     },
     util::{hash_post_response, hash_request},
 };
-use mocks::STANDALONE_CLIENT_ID;
 use std::vec;
 
 fn mock_consensus_state_id() -> ConsensusStateId {
@@ -45,10 +45,6 @@ fn mock_consensus_state_id() -> ConsensusStateId {
 
 fn mock_proxy_consensus_state_id() -> ConsensusStateId {
     *b"prox"
-}
-
-fn stanalone_consensus_state_id() -> ConsensusStateId {
-    *b"lone"
 }
 
 fn setup_mock_client<H: IsmpHost>(host: &H) -> IntermediateState {
@@ -102,30 +98,6 @@ fn setup_mock_proxy_client<H: IsmpHost>(
     proxy
 }
 
-fn setup_standalone_client<H: IsmpHost>(host: &H) -> IntermediateState {
-    let int_state = IntermediateState {
-        height: StateMachineHeight {
-            id: StateMachineId {
-                state_id: StateMachine::Kusama(4500),
-                consensus_state_id: stanalone_consensus_state_id(),
-            },
-            height: 1,
-        },
-        commitment: StateCommitment {
-            timestamp: 1000,
-            overlay_root: None,
-            state_root: Default::default(),
-        },
-    };
-
-    host.store_consensus_state(stanalone_consensus_state_id(), vec![]).unwrap();
-    host.store_consensus_state_id(stanalone_consensus_state_id(), STANDALONE_CLIENT_ID)
-        .unwrap();
-    host.store_state_machine_commitment(int_state.height, int_state.commitment)
-        .unwrap();
-    int_state
-}
-
 /*
     Consensus Client and State Machine checks
 */
@@ -142,8 +114,8 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
         .unwrap();
 
     let post = Post {
-        source: host.host_state_machine(),
-        dest: StateMachine::Kusama(2000),
+        source: intermediate_state.height.id.state_id,
+        dest: host.host_state_machine(),
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
@@ -209,8 +181,76 @@ pub fn check_client_expiry<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Frozen state machine checks in message handlers
-pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
+pub fn frozen_consensus_client_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
+    let intermediate_state = setup_mock_client(host);
+    // Set the previous update time
+    let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+    let previous_update_time = host.timestamp() - (challenge_period * 2);
+    host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
+        .unwrap();
+    host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
+        .unwrap();
+    host.freeze_consensus_client(mock_consensus_state_id()).unwrap();
+
+    let post = Post {
+        source: intermediate_state.height.id.state_id,
+        dest: host.host_state_machine(),
+        nonce: 0,
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+        gas_limit: 0,
+    };
+    // Request message handling check
+    let request_message = Message::Request(RequestMessage {
+        requests: vec![post.clone()],
+        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        signer: vec![],
+    });
+
+    let res = handle_incoming_message(host, request_message);
+    dbg!(&res);
+    assert!(matches!(res, Err(ismp::error::Error::FrozenConsensusClient { .. })));
+    Ok(())
+}
+
+pub fn frozen_state_machine_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
+    let intermediate_state = setup_mock_client(host);
+    // Set the previous update time
+    let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
+    let previous_update_time = host.timestamp() - (challenge_period * 2);
+    host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
+        .unwrap();
+    host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
+        .unwrap();
+    host.freeze_state_machine_client(intermediate_state.height.id).unwrap();
+
+    let post = Post {
+        source: intermediate_state.height.id.state_id,
+        dest: host.host_state_machine(),
+        nonce: 0,
+        from: vec![0u8; 32],
+        to: vec![0u8; 32],
+        timeout_timestamp: 0,
+        data: vec![0u8; 64],
+        gas_limit: 0,
+    };
+    // Request message handling check
+    let request_message = Message::Request(RequestMessage {
+        requests: vec![post.clone()],
+        proof: Proof { height: intermediate_state.height, proof: vec![] },
+        signer: vec![],
+    });
+
+    let res = handle_incoming_message(host, request_message);
+    dbg!(&res);
+    assert!(matches!(res, Err(ismp::error::Error::FrozenStateMachine { .. })));
+    Ok(())
+}
+
+/// Missing state commitments
+pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     let intermediate_state = setup_mock_client(host);
     // Set the previous update time
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
@@ -222,8 +262,8 @@ pub fn frozen_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
     host.delete_state_commitment(intermediate_state.height).unwrap();
 
     let post = Post {
-        source: host.host_state_machine(),
-        dest: StateMachine::Kusama(2000),
+        source: intermediate_state.height.id.state_id,
+        dest: host.host_state_machine(),
         nonce: 0,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
@@ -453,7 +493,6 @@ where
 pub fn prevent_request_timeout_on_proxy_with_known_state_machine<H, D>(
     host: &H,
     dispatcher: &D,
-    proxy_state_machine: StateMachine,
     direct_conn_state_machine: StateMachine,
 ) -> Result<(), &'static str>
 where
@@ -462,6 +501,8 @@ where
     D::Account: From<[u8; 32]>,
     D::Balance: From<u32>,
 {
+    let proxy_state_machine = StateMachine::Kusama(2000);
+
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
 
@@ -541,7 +582,6 @@ where
 pub fn prevent_response_timeout_on_proxy_with_known_state_machine<H, D>(
     host: &H,
     dispatcher: &D,
-    proxy_state_machine: StateMachine,
     direct_conn_state_machine: StateMachine,
 ) -> Result<(), &'static str>
 where
@@ -550,6 +590,8 @@ where
     D::Account: From<[u8; 32]>,
     D::Balance: From<u32>,
 {
+    let proxy_state_machine = StateMachine::Kusama(2000);
+
     let intermediate_state = setup_mock_client(host);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
@@ -637,12 +679,12 @@ pub fn sanity_check_for_proxies() {}
 /// machine client for the request source
 pub fn prevent_request_processing_on_proxy_with_known_state_machine<H>(
     host: &H,
-    proxy_state_machine: StateMachine,
     direct_conn_state_machine: StateMachine,
 ) -> Result<(), &'static str>
 where
     H: IsmpHost,
 {
+    let proxy_state_machine = StateMachine::Kusama(2000);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
 
@@ -709,24 +751,15 @@ pub fn check_request_source_and_destination<H>(host: &H) -> Result<(), &'static 
 where
     H: IsmpHost,
 {
+    let intermediate_state = setup_mock_client(host);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
-
-    let proof_chain = setup_standalone_client(host);
-
-    host.store_consensus_update_time(stanalone_consensus_state_id(), previous_update_time)
+    host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
         .unwrap();
-    host.store_state_machine_update_time(proof_chain.height, previous_update_time)
+    host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
         .unwrap();
-
-    // check for the two consensus clients and also add the clinet the other one
-    //assert that one consensus client is for the proxy and the other is for the destination chain
-
-    let consensus_clients = host.consensus_clients();
-    assert!(consensus_clients.len() > 1);
-
-    // We assert that the proof state machine is not a proxy
-    assert!(!host.is_allowed_proxy(&proof_chain.height.id.state_id));
+    //  Assert that No proxy is configured
+    assert!(host.allowed_proxy().is_none());
 
     let request = Post {
         source: StateMachine::Kusama(13000),
@@ -741,7 +774,7 @@ where
 
     let request_message = Message::Request(RequestMessage {
         requests: vec![request.clone()],
-        proof: Proof { height: proof_chain.height, proof: vec![] },
+        proof: Proof { height: intermediate_state.height, proof: vec![] },
         signer: vec![],
     });
 
@@ -769,15 +802,8 @@ where
     host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
         .unwrap();
 
-    let proof_chain = setup_standalone_client(host);
-
-    host.store_consensus_update_time(stanalone_consensus_state_id(), previous_update_time)
-        .unwrap();
-    host.store_state_machine_update_time(proof_chain.height, previous_update_time)
-        .unwrap();
-
-    // We assert that the proof state machine is not a proxy
-    assert!(!host.is_allowed_proxy(&proof_chain.height.id.state_id));
+    // We assert that no proxy is configured
+    assert!(host.allowed_proxy().is_none());
 
     let post = Post {
         source: host.host_state_machine(),
@@ -808,12 +834,13 @@ where
 
     let timeout_message = Message::Response(ResponseMessage {
         datagram: RequestResponse::Response(vec![Response::Post(response)]),
-        proof: Proof { height: proof_chain.height, proof: vec![] },
+        proof: Proof { height: intermediate_state.height, proof: vec![] },
         signer: vec![],
     });
 
     let res = handle_incoming_message(host, timeout_message);
 
+    dbg!(&res);
     assert!(matches!(res, Err(Error::ResponseProxyProhibited { .. })));
 
     Ok(())

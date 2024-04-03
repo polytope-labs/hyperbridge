@@ -38,7 +38,7 @@ where
     let state = host.state_machine_commitment(proof.height)?;
 
     let consensus_clients = host.consensus_clients();
-    let check_for_consensus_client = |state_machine: StateMachine| {
+    let check_state_machine_client = |state_machine: StateMachine| {
         consensus_clients
             .iter()
             .find_map(|client| client.state_machine(state_machine).ok())
@@ -52,24 +52,25 @@ where
                 let commitment = hash_request::<H>(&request);
 
                 if host.request_commitment(commitment).is_err() {
-                    Err(Error::UnsolicitedResponse { res: response.clone() })?
+                    Err(Error::UnsolicitedResponse { res: response.into() })?
                 }
 
                 if host.response_receipt(&response).is_some() {
-                    Err(Error::DuplicateResponse { res: response.clone() })?
+                    Err(Error::DuplicateResponse { res: response.into() })?
                 }
 
                 if response.timed_out(host.timestamp()) {
-                    Err(Error::ResponseTimeout { response: response.clone() })?
+                    Err(Error::ResponseTimeout { response: response.into() })?
                 }
 
-                // either the proof metadata matches the source chain, or it's coming from a proxy
-                // in which case, we must NOT have a configured state machine for the source
+                // check if the source chain does not match the proof metadata in which case
+                // the proof metadata must be the configured proxy
+                // and we must not have a configured state machine client for the destination
                 if response.source_chain() != msg.proof.height.id.state_id &&
-                    (host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-                        !check_for_consensus_client(response.source_chain()))
+                    !(host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+                        check_state_machine_client(response.source_chain()))
                 {
-                    Err(Error::ResponseProxyProhibited { res: response.clone() })?
+                    Err(Error::ResponseProxyProhibited { res: response.into() })?
                 }
             }
 
@@ -105,27 +106,27 @@ where
             let mut get_requests = vec![];
             for req in requests.iter() {
                 let Request::Get(get) = req else {
-                    Err(Error::InvalidResponseType { req: req.clone() })?
+                    Err(Error::InvalidResponseType { req: req.into() })?
                 };
 
                 if req.timed_out(host.timestamp()) {
-                    Err(Error::RequestTimeout { req: req.clone() })?
+                    Err(Error::RequestTimeout { req: req.into() })?
                 }
 
                 if req.dest_chain() != proof.height.id.state_id {
-                    Err(Error::RequestProofMetadataNotValid { req: req.clone() })?
+                    Err(Error::RequestProofMetadataNotValid { req: req.into() })?
                 }
 
                 let commitment = hash_request::<H>(&Request::Get(get.clone()));
                 if host.request_commitment(commitment).is_err() {
-                    Err(Error::UnknownRequest { req: req.clone() })?
+                    Err(Error::UnknownRequest { req: req.into() })?
                 }
 
                 let res =
                     Response::Get(GetResponse { get: get.clone(), values: Default::default() });
 
                 if host.response_receipt(&res).is_some() {
-                    Err(Error::DuplicateResponse { res })?
+                    Err(Error::DuplicateResponse { res: res.into() })?
                 }
 
                 get_requests.push(get.clone());

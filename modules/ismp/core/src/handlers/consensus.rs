@@ -19,7 +19,7 @@ use crate::{
     consensus::{StateMachineHeight, StateMachineId},
     error::Error,
     events::{Event, StateMachineUpdated},
-    handlers::{ConsensusClientCreatedResult, ConsensusUpdateResult, MessageResult},
+    handlers::{ConsensusClientCreatedResult, MessageResult},
     host::IsmpHost,
     messaging::{ConsensusMessage, CreateConsensusState, FraudProofMessage},
 };

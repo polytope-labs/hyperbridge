@@ -33,7 +33,7 @@ where
 {
     let consensus_clients = host.consensus_clients();
 
-    let check_for_consensus_client = |state_machine: StateMachine| {
+    let check_state_machine_client = |state_machine: StateMachine| {
         consensus_clients
             .iter()
             .find_map(|client| client.state_machine(state_machine).ok())
@@ -46,20 +46,20 @@ where
             let state = host.state_machine_commitment(timeout_proof.height)?;
 
             for request in &requests {
-                // check if the destination chain matches the proof metadata
-                // or if the proof metadata refers to the configured proxy
-                // and we don't have a configured state machine client for the destination
+                // check if the destination chain does not match the proof metadata in which case
+                // the proof metadata must be the configured proxy
+                // and we must not have a configured state machine client for the destination
                 if request.dest_chain() != timeout_proof.height.id.state_id &&
-                    (host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-                        !check_for_consensus_client(request.dest_chain()))
+                    !(host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+                        check_state_machine_client(request.dest_chain()))
                 {
-                    Err(Error::RequestProxyProhibited { req: request.clone() })?
+                    Err(Error::RequestProxyProhibited { req: request.into() })?
                 }
 
                 // Ensure a commitment exists for all requests in the batch
                 let commitment = hash_request::<H>(request);
                 if host.request_commitment(commitment).is_err() {
-                    Err(Error::UnknownRequest { req: request.clone() })?
+                    Err(Error::UnknownRequest { req: request.into() })?
                 }
 
                 if !request.timed_out(state.timestamp()) {
@@ -105,19 +105,21 @@ where
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
             for response in &responses {
-                // check if the destination chain matches the proof metadata
-                // or if the proof metadata refers to the configured proxy
-                // and we don't have a configured state machine client for the destination
+                // check if the destination chain does not match the proof metadata in which case
+                // the proof metadata must be the configured proxy
+                // and we must not have a configured state machine client for the destination
                 if response.dest_chain() != timeout_proof.height.id.state_id &&
-                    (host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-                        !check_for_consensus_client(response.dest_chain()))
+                    !(host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+                        check_state_machine_client(response.dest_chain()))
                 {
-                    Err(Error::ResponseProxyProhibited { res: Response::Post(response.clone()) })?
+                    Err(Error::ResponseProxyProhibited {
+                        res: Response::Post(response.clone()).into(),
+                    })?
                 }
                 // Ensure a commitment exists for all responses in the batch
                 let commitment = hash_post_response::<H>(response);
                 if host.response_commitment(commitment).is_err() {
-                    Err(Error::UnknownResponse { res: response.clone() })?
+                    Err(Error::UnknownResponse { res: Response::Post(response.clone()).into() })?
                 }
 
                 if response.timeout() > state.timestamp() {
@@ -165,7 +167,7 @@ where
                 let commitment = hash_request::<H>(request);
                 // if we have a commitment, it came from us
                 if host.request_commitment(commitment).is_err() {
-                    Err(Error::UnknownRequest { req: request.clone() })?
+                    Err(Error::UnknownRequest { req: request.into() })?
                 }
 
                 // Ensure the get timeout has elapsed on the host

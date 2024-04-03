@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use codec::Encode;
+use pallet_ismp::child_trie::{request_receipt_storage_key, response_receipt_storage_key};
 use sp_core::{storage::ChildInfo, H256};
 use sp_runtime::{traits::BlakeTwo256, StateVersion};
 use sp_state_machine::{
@@ -94,4 +95,16 @@ fn prove_child_read_proof_works_with_child_trie_root() {
         vec![(b"value3".to_vec(), Some(vec![142; 33]))],
     );
     assert_eq!(local_result2.into_iter().collect::<Vec<_>>(), vec![(b"value2".to_vec(), None)]);
+}
+
+#[test]
+fn child_trie_storage_key_prefix() {
+    let request_receipt_storage_prefix = request_receipt_storage_key(H256::zero())[0..32].to_vec();
+
+    let response_receipt_storage_prefix =
+        response_receipt_storage_key(H256::zero())[0..32].to_vec();
+
+    dbg!(hex::encode(request_receipt_storage_prefix));
+
+    dbg!(hex::encode(response_receipt_storage_prefix));
 }

@@ -24,7 +24,7 @@ pub struct ResponseCommitments<T: Config>(PhantomData<T>);
 pub struct ResponseReceipts<T: Config>(PhantomData<T>);
 
 /// Constant pallet ismp name for all substrate chains
-pub const PALLET_NAME: &'static str = "ismp";
+pub const PALLET_NAME: &'static str = "Ismp";
 /// Child trie prefix for all substrate chains
 pub const CHILD_TRIE_PREFIX: &'static [u8] = b"ISMP";
 

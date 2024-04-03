@@ -1,6 +1,6 @@
 use crate::providers::{evm::EvmClient, interface::Client, substrate::SubstrateClient};
 use anyhow::anyhow;
-use codec::{Encode, Decode};
+use codec::{Decode, Encode};
 use core::pin::Pin;
 use ethers::{types::H160, utils::keccak256};
 use futures::Stream;

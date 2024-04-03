@@ -236,7 +236,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
         match res {
             Ok(_) => {
                 tracing::info!("\n\nGot State Machine update for BSC\n\n");
-                break
+                break;
             },
             _ => {},
         }

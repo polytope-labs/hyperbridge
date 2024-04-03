@@ -534,7 +534,7 @@ where
                         } else {
                             // If fee is a null value skip it, evm returns non membership proof for
                             // zero values
-                            continue
+                            continue;
                         };
 
                     let fee = {
@@ -598,7 +598,7 @@ where
                         if let Some(encoded) = source_result.get(&source_key).cloned().flatten() {
                             encoded
                         } else {
-                            continue
+                            continue;
                         };
                     let fee = {
                         match proof.source_proof.height.id.state_id {

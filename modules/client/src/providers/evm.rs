@@ -217,7 +217,7 @@ impl Client for EvmClient {
 
                 // in case we get old heights, best to ignore them
                 if block_number < latest_height {
-                    return Some((Ok(None), (block_number, interval, client)))
+                    return Some((Ok(None), (block_number, interval, client)));
                 }
 
                 let contract = EvmHost::new(client.host_address, client.client.clone());
@@ -250,7 +250,7 @@ impl Client for EvmClient {
                                         block_number: meta.block_number.as_u64(),
                                     },
                                     event: filter,
-                                })
+                                });
                             }
 
                             None
@@ -308,7 +308,7 @@ impl Client for EvmClient {
 
                 // in case we get old heights, best to ignore them
                 if block_number < latest_height {
-                    return Some((Ok(None), (block_number, interval, client)))
+                    return Some((Ok(None), (block_number, interval, client)));
                 }
 
                 let contract = Handler::new(client.ismp_handler, client.client.clone());

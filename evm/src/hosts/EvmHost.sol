@@ -109,27 +109,29 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // emergency shutdown button, only the admin can do this
     bool private _frozen;
 
-    // Emitted when an incoming POST request timeout is handled
-    event PostRequestTimeoutHandled(bytes32 commitment);
 
     // Emitted when an incoming POST request is handled
     event PostRequestHandled(bytes32 commitment, address relayer);
 
+    // Emitted when an outgoing POST request timeout is handled
+    event PostRequestTimeoutHandled(bytes32 commitment);
+
     // Emitted when an incoming POST response is handled
     event PostResponseHandled(bytes32 commitment, address relayer);
 
-    // Emitted when an incoming POST timeout response is handled
+    // Emitted when an outgoing POST timeout response is handled
     event PostResponseTimeoutHandled(bytes32 commitment);
 
-    // Emitted when an outgoing Get request is handled
+    // Emitted when an outgoing GET request is handled
     event GetRequestHandled(bytes32 commitment, address relayer);
 
-    // Emitted when an outgoing Get request is handled
+    // Emitted when an outgoing GET request timeout is handled
     event GetRequestTimeoutHandled(bytes32 commitment);
 
     // Emitted when new heights are finalized
     event StateMachineUpdated(uint256 stateMachineId, uint256 height);
 
+    // Emitted when a new POST request is dispatched
     event PostRequestEvent(
         bytes source,
         bytes dest,
@@ -142,6 +144,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 fee
     );
 
+    // Emitted when a new POST response is dispatched
     event PostResponseEvent(
         bytes source,
         bytes dest,
@@ -157,6 +160,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 fee
     );
 
+    // Emitted when a new GET request is dispatched
     event GetRequestEvent(
         bytes source,
         bytes dest,
@@ -506,7 +510,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Dispatch an incoming get timeout to source module
+     * @dev Dispatch an incoming get timeout to the source module
      * @param request - get request
      */
     function dispatchIncoming(GetRequest memory request, FeeMetadata memory meta, bytes32 commitment)
@@ -520,15 +524,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             // delete memory of this request
             delete _requestCommitments[commitment];
 
-            // refund relayer fee
-            IERC20(dai()).transfer(meta.sender, meta.fee);
+            if (meta.fee > 0) {
+                // refund relayer fee
+                IERC20(dai()).transfer(meta.sender, meta.fee);
+            }
 
             emit GetRequestTimeoutHandled({commitment: commitment});
         }
     }
 
     /**
-     * @dev Dispatch an incoming post timeout to source module
+     * @dev Dispatch an incoming post timeout to the source module
      * @param request - post timeout
      */
     function dispatchIncoming(PostRequest memory request, FeeMetadata memory meta, bytes32 commitment)
@@ -543,15 +549,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             // delete memory of this request
             delete _requestCommitments[commitment];
 
-            // refund relayer fee
-            IERC20(dai()).transfer(meta.sender, meta.fee);
+            if (meta.fee > 0) {
+                // refund relayer fee
+                IERC20(dai()).transfer(meta.sender, meta.fee);
+            }
 
             emit PostRequestTimeoutHandled({commitment: commitment});
         }
     }
 
     /**
-     * @dev Dispatch an incoming post response timeout to source module
+     * @dev Dispatch an incoming post response timeout to the source module
      * @param response - timed-out post response
      */
     function dispatchIncoming(PostResponse memory response, FeeMetadata memory meta, bytes32 commitment)
@@ -567,8 +575,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             delete _responseCommitments[commitment];
             delete _responded[response.request.hash()];
 
-            // refund relayer fee
-            IERC20(dai()).transfer(meta.sender, meta.fee);
+            if (meta.fee > 0) {
+                // refund relayer fee
+                IERC20(dai()).transfer(meta.sender, meta.fee);
+            }
 
             emit PostResponseTimeoutHandled({commitment: commitment});
         }

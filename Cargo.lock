@@ -5493,6 +5493,7 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-solidity-abi",
+ "ismp-sync-committee",
  "js-sys",
  "pallet-ismp",
  "parity-scale-codec",

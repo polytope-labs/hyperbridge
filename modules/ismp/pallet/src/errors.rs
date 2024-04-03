@@ -104,6 +104,16 @@ pub enum HandlingError {
         /// Destination chain for request or response
         dest_chain: StateMachine,
     },
+    /// A post request timeout message batch did not satisfy validity checks
+    InvalidPostRequestTimeoutMessages,
+    /// A post request message batch did not satisfy validity checks
+    InvalidPostRequestMessages,
+    /// A post response message batch did not satisfy validity checks
+    InvalidPostResponseMessages,
+    /// A get response message batch did not satisfy validity checks
+    InvalidGetResponseMessages,
+    /// A post response timeout message batch did not satisfy validity checks
+    InvalidPostResponseTimeoutMessages,
 }
 
 impl From<ismp::error::Error> for HandlingError {
@@ -178,6 +188,13 @@ impl From<ismp::error::Error> for HandlingError {
                     source_chain,
                     dest_chain,
                 },
+            IsmpError::InvalidGetResponseMessages => HandlingError::InvalidGetResponseMessages,
+            IsmpError::InvalidPostRequestMessages => HandlingError::InvalidPostRequestMessages,
+            IsmpError::InvalidPostRequestTimeoutMessages =>
+                HandlingError::InvalidPostRequestTimeoutMessages,
+            IsmpError::InvalidPostResponseMessages => HandlingError::InvalidPostResponseMessages,
+            IsmpError::InvalidPostResponseTimeoutMessages =>
+                HandlingError::InvalidPostResponseTimeoutMessages,
         }
     }
 }

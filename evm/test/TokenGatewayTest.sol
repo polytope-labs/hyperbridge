@@ -47,7 +47,7 @@ contract TokenGatewayTest is BaseTest {
 
         bytes memory stakeCalldata = abi.encodeWithSignature("recordStake(address)", address(miniStaking));
 
-        gateway.teleportWithCall(
+        gateway.teleport(
             TeleportParams({
                 feeToken: address(feeToken),
                 amount: 1000 * 1e18, // $1000

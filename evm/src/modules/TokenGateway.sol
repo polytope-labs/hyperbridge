@@ -200,40 +200,10 @@ contract TokenGateway is BaseIsmpModule {
         address erc6160 = _erc6160s[params.assetId];
         address feeToken = IIsmpHost(_host).feeToken();
 
-        bytes memory data = abi.encode(
-            Body({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem})
-        );
-
-        _teleport(
-            InternalTeleportParams(
-                erc20,
-                params.redeem,
-                from,
-                params.amount,
-                params.fee,
-                feeToken,
-                params.feeToken,
-                erc6160,
-                params.dest,
-                data,
-                params.timeout,
-                params.to
-            )
-        );
-    }
-
-    function teleportWithCall(TeleportParams memory params) public {
-        require(params.to != address(0), "Burn your funds some other way");
-        require(params.amount > 100_000, "Amount too low");
-        require(params.feeToken != address(0), "Fee token not selected");
-
-        address from = msg.sender;
-        address erc20 = _erc20s[params.assetId];
-        address erc6160 = _erc6160s[params.assetId];
-        address feeToken = IIsmpHost(_host).feeToken();
-
-        bytes memory data = abi.encode(
+        bytes memory data = params.data.length > 0 ? abi.encode(
             BodyWithCall({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem, data: params.data})
+        ) : abi.encode(
+            Body({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem})
         );
 
         _teleport(

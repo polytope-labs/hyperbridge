@@ -37,5 +37,5 @@ pallet-call-decompressor = { workspace = true, default-features = true }
 [dev-dependencies]
 env_logger = "0.10.0"
 hex = "0.4.3"
-compression = "0.1.5"
-brotli = "3.4.0"
+zstd-safe = { version = "7.1.0" }
+ruzstd = "0.6.0"

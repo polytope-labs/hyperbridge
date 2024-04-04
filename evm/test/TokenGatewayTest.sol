@@ -70,7 +70,6 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(gateway)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"00", abi.encode(body)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: new bytes(0),
                 timeoutTimestamp: 0
@@ -97,7 +96,6 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(gateway)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"00", abi.encode(body)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: new bytes(0),
                 timeoutTimestamp: 0
@@ -311,7 +309,6 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(gateway)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"00", abi.encode(body)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: new bytes(0),
                 timeoutTimestamp: 0
@@ -336,7 +333,6 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(this)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"00", abi.encode(body)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: new bytes(0),
                 timeoutTimestamp: 0

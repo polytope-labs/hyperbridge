@@ -56,7 +56,6 @@ contract CrossChainMessenger is IIsmpModule {
             // instance of this pallet on another chain.
             to: abi.encodePacked(address(this)),
             // unused for now
-            gaslimit: 0,
             fee: 0,
             payer: address(this)
         });

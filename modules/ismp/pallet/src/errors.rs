@@ -19,7 +19,6 @@ use ismp::{
     consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
     error::Error as IsmpError,
     events::Meta,
-    host::StateMachine,
 };
 use sp_std::prelude::*;
 

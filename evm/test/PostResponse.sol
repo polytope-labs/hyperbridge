@@ -45,9 +45,11 @@ contract PostResponseTest is BaseTest {
         handler.handleConsensus(host, consensusProof1);
         vm.warp(10);
         handler.handlePostRequests(host, request);
-        response.timeoutTimestamp -= 10;
-        testModule.dispatchPostResponse(response);
-        response.timeoutTimestamp += 10;
+        assert(host.requestReceipts(request.requests[0].request.hash()) == tx.origin);
+
+        response.timeoutTimestamp -= uint64(block.timestamp);
+        bytes32 commitment = testModule.dispatchPostResponse(response);
+        response.timeoutTimestamp += uint64(block.timestamp);
         // we should know this response
         assert(host.responseCommitments(response.hash()).sender != address(0));
 

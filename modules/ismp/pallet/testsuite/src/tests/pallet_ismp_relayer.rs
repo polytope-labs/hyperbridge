@@ -69,7 +69,6 @@ fn test_withdrawal_proof() {
                     to: vec![],
                     timeout_timestamp: 0,
                     data: vec![],
-                    gas_limit: 0,
                 };
                 hash_request::<Host<Test>>(&Request::Post(post))
             })
@@ -86,13 +85,11 @@ fn test_withdrawal_proof() {
                     to: vec![],
                     timeout_timestamp: 0,
                     data: vec![],
-                    gas_limit: 0,
                 };
                 let response = ismp::router::PostResponse {
                     post: post.clone(),
                     response: vec![0; 32],
                     timeout_timestamp: nonce,
-                    gas_limit: nonce,
                 };
                 (
                     hash_request::<Host<Test>>(&Request::Post(post)),
@@ -310,7 +307,6 @@ fn test_withdrawal_fees() {
             signature: Signature::Ethereum { address: address.to_vec(), signature },
             dest_chain: StateMachine::Kusama(2000),
             amount: U256::from(2000u128),
-            gas_limit: 10_000_000,
         };
 
         pallet_ismp_relayer::Pallet::<Test>::withdraw_fees(

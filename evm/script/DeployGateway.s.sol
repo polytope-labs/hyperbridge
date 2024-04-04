@@ -29,22 +29,23 @@ contract DeployScript is Script {
         string memory host = vm.envString("HOST");
         // todo:
         address uniRouter = address(1);
+        address callDispatcher = address(1);
 
         if (Strings.equal(host, "sepolia") || Strings.equal(host, "ethereum")) {
             vm.startBroadcast(uint256(privateKey));
-            deployGateway(SEPOLIA_HOST, admin, uniRouter);
+            deployGateway(SEPOLIA_HOST, admin, uniRouter, callDispatcher);
         } else if (Strings.equal(host, "arbitrum-sepolia")) {
             vm.startBroadcast(uint256(privateKey));
-            deployGateway(ARB_SEPOLIA_HOST, admin, uniRouter);
+            deployGateway(ARB_SEPOLIA_HOST, admin, uniRouter, callDispatcher);
         } else if (Strings.equal(host, "optimism-sepolia")) {
             vm.startBroadcast(uint256(privateKey));
-            deployGateway(OP_SEPOLIA_HOST, admin, uniRouter);
+            deployGateway(OP_SEPOLIA_HOST, admin, uniRouter, callDispatcher);
         } else if (Strings.equal(host, "base-sepolia")) {
             vm.startBroadcast(uint256(privateKey));
-            deployGateway(BASE_SEPOLIA_HOST, admin, uniRouter);
+            deployGateway(BASE_SEPOLIA_HOST, admin, uniRouter, callDispatcher);
         } else if (Strings.equal(host, "bsc-testnet")) {
             vm.startBroadcast(uint256(privateKey));
-            deployGateway(BSC_TESTNET_HOST, admin, uniRouter);
+            deployGateway(BSC_TESTNET_HOST, admin, uniRouter, callDispatcher);
         }
     }
 
@@ -53,7 +54,7 @@ contract DeployScript is Script {
         c.setIsmpHost(host);
     }
 
-    function deployGateway(address host, address admin, address uniRouter) public {
+    function deployGateway(address host, address admin, address uniRouter, address callDispatcher) public {
         uint256 paraId = vm.envUint("PARA_ID");
 
         ERC6160Ext20 feeToken = new ERC6160Ext20{salt: salt}(admin, "Hyperbridge USD", "USD.h");
@@ -77,7 +78,8 @@ contract DeployScript is Script {
                 uniswapV2Router: uniRouter,
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300, // 0.3
-                assets: assets
+                assets: assets,
+                callDispatcher: callDispatcher
             })
         );
     }

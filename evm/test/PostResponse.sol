@@ -48,7 +48,7 @@ contract PostResponseTest is BaseTest {
         assert(host.requestReceipts(request.requests[0].request.hash()) == tx.origin);
 
         response.timeoutTimestamp -= uint64(block.timestamp);
-        bytes32 commitment = testModule.dispatchPostResponse(response);
+        testModule.dispatchPostResponse(response);
         response.timeoutTimestamp += uint64(block.timestamp);
         // we should know this response
         assert(host.responseCommitments(response.hash()).sender != address(0));

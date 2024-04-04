@@ -4856,6 +4856,7 @@ dependencies = [
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",
+ "pallet-call-decompressor",
  "pallet-collator-selection",
  "pallet-ismp",
  "pallet-ismp-demo",
@@ -5410,7 +5411,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -7236,6 +7237,7 @@ dependencies = [
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",
+ "pallet-call-decompressor",
  "pallet-collator-selection",
  "pallet-ismp",
  "pallet-ismp-demo",
@@ -7316,9 +7318,9 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "miniz_oxide"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7810e0be55b428ada41041c41f32c9f1a42817901b4ccf45fa3d4b6561e74c7"
+checksum = "9d811f3e15f28568be3407c8e7fdb6514c1cda3cb30683f15b6a1a1dc4ea14a7"
 dependencies = [
  "adler",
 ]
@@ -7741,6 +7743,7 @@ dependencies = [
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",
+ "pallet-call-decompressor",
  "pallet-collator-selection",
  "pallet-ismp",
  "pallet-ismp-demo",
@@ -8390,6 +8393,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-call-decompressor"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "pallet-ismp-relayer",
+ "parity-scale-codec",
+ "ruzstd 0.6.0",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+]
+
+[[package]]
 name = "pallet-child-bounties"
 version = "27.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8809,12 +8829,14 @@ dependencies = [
  "ismp-sync-committee",
  "ismp-testsuite",
  "pallet-balances",
+ "pallet-call-decompressor",
  "pallet-fishermen",
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-timestamp",
  "parity-scale-codec",
+ "ruzstd 0.6.0",
  "scale-info",
  "sp-core 28.0.0",
  "sp-io 30.0.0",
@@ -8823,6 +8845,7 @@ dependencies = [
  "sp-trie 29.0.0",
  "substrate-state-machine",
  "trie-db 0.28.0",
+ "zstd-safe 7.1.0",
 ]
 
 [[package]]
@@ -12434,6 +12457,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruzstd"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5174a470eeb535a721ae9fdd6e291c2411a906b96592182d05217591d5c5cf7b"
+dependencies = [
+ "byteorder",
+ "derive_more",
+ "twox-hash",
+]
+
+[[package]]
 name = "rw-stream-sink"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14399,7 +14433,7 @@ dependencies = [
  "pin-project",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
- "ruzstd",
+ "ruzstd 0.4.0",
  "schnorrkel 0.10.2",
  "serde",
  "serde_json",
@@ -14453,7 +14487,7 @@ dependencies = [
  "poly1305",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
- "ruzstd",
+ "ruzstd 0.4.0",
  "schnorrkel 0.10.2",
  "serde",
  "serde_json",
@@ -18743,10 +18777,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "zstd-sys"
-version = "2.0.9+zstd.1.5.5"
+name = "zstd-safe"
+version = "7.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e16efa8a874a0481a574084d34cc26fdb3b99627480f785888deb6386506656"
+checksum = "1cd99b45c6bc03a018c8b8a86025678c87e55526064e38f9df301989dce7ec0a"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.0.10+zstd.1.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c253a4914af5bafc8fa8c86ee400827e83cf6ec01195ec1f1ed8441bf00d65aa"
 dependencies = [
  "cc",
  "pkg-config",

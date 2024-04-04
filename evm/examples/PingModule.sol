@@ -73,8 +73,7 @@ contract PingModule is IIsmpModule {
             fee: 0,
             payer: tx.origin
         });
-        IDispatcher(_host).dispatch(post);
-        return response.hash();
+        return IDispatcher(_host).dispatch(post);
     }
 
     function dispatch(PostRequest memory request) public returns (bytes32) {
@@ -86,8 +85,8 @@ contract PingModule is IIsmpModule {
             fee: 0,
             payer: tx.origin
         });
-        IDispatcher(_host).dispatch(post);
-        return request.hash();
+
+        return IDispatcher(_host).dispatch(post);
     }
 
     function dispatch(GetRequest memory request) public returns (bytes32) {
@@ -99,8 +98,8 @@ contract PingModule is IIsmpModule {
             fee: 0,
             payer: tx.origin
         });
-        IDispatcher(_host).dispatch(get);
-        return request.hash();
+
+        return IDispatcher(_host).dispatch(get);
     }
 
     function ping(PingMessage memory pingMessage) public {

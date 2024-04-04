@@ -678,6 +678,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, post.timeout));
         PostResponse memory response =
             PostResponse({request: post.request, response: post.response, timeoutTimestamp: timeout});
+        commitment = response.hash();
+
         FeeMetadata memory meta = FeeMetadata({fee: post.fee, sender: post.payer});
         _responseCommitments[commitment] = meta;
         _responded[receipt] = true;

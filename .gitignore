@@ -10,6 +10,7 @@
 /pallet-ismp/evm/solidity/out
 /pallet-ismp/evm/solidity/cache
 .env*
+.vscode
 
 evm/out/
 evm/cache/

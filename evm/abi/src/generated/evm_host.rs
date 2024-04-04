@@ -2662,8 +2662,7 @@ pub mod evm_host {
     )]
     #[ethcall(name = "consensusUpdateTime", abi = "consensusUpdateTime()")]
     pub struct ConsensusUpdateTimeCall;
-    ///Container type for all input parameters for the `dispatch` function with signature
-    /// `dispatch((bytes,uint64,bytes[],uint64,uint256,address))` and selector `0x09605fa2`
+    ///Container type for all input parameters for the `dispatch` function with signature `dispatch((bytes,uint64,bytes[],uint64,uint256,address))` and selector `0x09605fa2`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -2674,13 +2673,14 @@ pub mod evm_host {
         Eq,
         Hash
     )]
-    #[ethcall(name = "dispatch", abi = "dispatch((bytes,uint64,bytes[],uint64,uint256,address))")]
+    #[ethcall(
+        name = "dispatch",
+        abi = "dispatch((bytes,uint64,bytes[],uint64,uint256,address))"
+    )]
     pub struct Dispatch0Call {
         pub get: DispatchGet,
     }
-    ///Container type for all input parameters for the `dispatch` function with signature
-    /// `dispatch(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64,uint256,address))` and
-    /// selector `0x94480805`
+    ///Container type for all input parameters for the `dispatch` function with signature `dispatch(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64,uint256,address))` and selector `0x94480805`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -2698,8 +2698,7 @@ pub mod evm_host {
     pub struct Dispatch1Call {
         pub post: DispatchPost,
     }
-    ///Container type for all input parameters for the `dispatch` function with signature
-    /// `dispatch((bytes,bytes,bytes,uint64,uint256,address))` and selector `0xb8f3e8f5`
+    ///Container type for all input parameters for the `dispatch` function with signature `dispatch((bytes,bytes,bytes,uint64,uint256,address))` and selector `0xb8f3e8f5`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -2710,13 +2709,14 @@ pub mod evm_host {
         Eq,
         Hash
     )]
-    #[ethcall(name = "dispatch", abi = "dispatch((bytes,bytes,bytes,uint64,uint256,address))")]
+    #[ethcall(
+        name = "dispatch",
+        abi = "dispatch((bytes,bytes,bytes,uint64,uint256,address))"
+    )]
     pub struct Dispatch2Call {
         pub post: DispatchPost,
     }
-    ///Container type for all input parameters for the `dispatchIncoming` function with signature
-    /// `dispatchIncoming(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64))` and
-    /// selector `0x08316bca`
+    ///Container type for all input parameters for the `dispatchIncoming` function with signature `dispatchIncoming(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64))` and selector `0x08316bca`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -2734,9 +2734,7 @@ pub mod evm_host {
     pub struct DispatchIncoming0Call {
         pub response: GetResponse,
     }
-    ///Container type for all input parameters for the `dispatchIncoming` function with signature
-    /// `dispatchIncoming(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),(uint256,
-    /// address),bytes32)` and selector `0x4e9b74ec`
+    ///Container type for all input parameters for the `dispatchIncoming` function with signature `dispatchIncoming(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),(uint256,address),bytes32)` and selector `0x4e9b74ec`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -2756,9 +2754,7 @@ pub mod evm_host {
         pub meta: FeeMetadata,
         pub commitment: [u8; 32],
     }
-    ///Container type for all input parameters for the `dispatchIncoming` function with signature
-    /// `dispatchIncoming((bytes,bytes,uint64,bytes,bytes,uint64,bytes),(uint256,address),bytes32)`
-    /// and selector `0x7686a06a`
+    ///Container type for all input parameters for the `dispatchIncoming` function with signature `dispatchIncoming((bytes,bytes,uint64,bytes,bytes,uint64,bytes),(uint256,address),bytes32)` and selector `0x7686a06a`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -2778,8 +2774,7 @@ pub mod evm_host {
         pub meta: FeeMetadata,
         pub commitment: [u8; 32],
     }
-    ///Container type for all input parameters for the `dispatchIncoming` function with signature
-    /// `dispatchIncoming((bytes,bytes,uint64,bytes,bytes,uint64,bytes))` and selector `0xbf01beb1`
+    ///Container type for all input parameters for the `dispatchIncoming` function with signature `dispatchIncoming((bytes,bytes,uint64,bytes,bytes,uint64,bytes))` and selector `0xbf01beb1`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -2797,9 +2792,7 @@ pub mod evm_host {
     pub struct DispatchIncoming1Call {
         pub request: GetRequest,
     }
-    ///Container type for all input parameters for the `dispatchIncoming` function with signature
-    /// `dispatchIncoming((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(uint256,address),
-    /// bytes32)` and selector `0xd0f9fcc2`
+    ///Container type for all input parameters for the `dispatchIncoming` function with signature `dispatchIncoming((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(uint256,address),bytes32)` and selector `0xd0f9fcc2`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -2819,9 +2812,7 @@ pub mod evm_host {
         pub meta: FeeMetadata,
         pub commitment: [u8; 32],
     }
-    ///Container type for all input parameters for the `dispatchIncoming` function with signature
-    /// `dispatchIncoming(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(bytes,bytes)[]),
-    /// (uint256,address))` and selector `0xfe827fc4`
+    ///Container type for all input parameters for the `dispatchIncoming` function with signature `dispatchIncoming(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(bytes,bytes)[]),(uint256,address))` and selector `0xfe827fc4`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -3341,14 +3332,14 @@ pub mod evm_host {
             ) {
                 return Ok(Self::Dispatch2(decoded));
             }
-            if let Ok(decoded) =
-                <DispatchIncoming0Call as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <DispatchIncoming0Call as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::DispatchIncoming0(decoded));
             }
-            if let Ok(decoded) =
-                <DispatchIncoming3Call as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <DispatchIncoming3Call as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::DispatchIncoming3(decoded));
             }
             if let Ok(decoded) = <DispatchIncoming4Call as ::ethers::core::abi::AbiDecode>::decode(
@@ -3356,9 +3347,9 @@ pub mod evm_host {
             ) {
                 return Ok(Self::DispatchIncoming4(decoded));
             }
-            if let Ok(decoded) =
-                <DispatchIncoming1Call as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <DispatchIncoming1Call as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::DispatchIncoming1(decoded));
             }
             if let Ok(decoded) = <DispatchIncoming5Call as ::ethers::core::abi::AbiDecode>::decode(
@@ -3366,12 +3357,14 @@ pub mod evm_host {
             ) {
                 return Ok(Self::DispatchIncoming5(decoded));
             }
-            if let Ok(decoded) =
-                <DispatchIncoming2Call as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <DispatchIncoming2Call as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::DispatchIncoming2(decoded));
             }
-            if let Ok(decoded) = <FeeTokenCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+            if let Ok(decoded) = <FeeTokenCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::FeeToken(decoded));
             }
             if let Ok(decoded) = <FrozenCall as ::ethers::core::abi::AbiDecode>::decode(
@@ -3515,21 +3508,48 @@ pub mod evm_host {
                     ::ethers::core::abi::AbiEncode::encode(element)
                 }
                 Self::ChainId(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::ChallengePeriod(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::ConsensusClient(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::ConsensusState(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::ConsensusUpdateTime(element) =>
-                    ::ethers::core::abi::AbiEncode::encode(element),
-                Self::Dispatch0(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::Dispatch1(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::Dispatch2(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::DispatchIncoming0(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::DispatchIncoming3(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::DispatchIncoming4(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::DispatchIncoming1(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::DispatchIncoming5(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::DispatchIncoming2(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::FeeToken(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::ChallengePeriod(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::ConsensusClient(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::ConsensusState(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::ConsensusUpdateTime(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::Dispatch0(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::Dispatch1(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::Dispatch2(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::DispatchIncoming0(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::DispatchIncoming3(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::DispatchIncoming4(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::DispatchIncoming1(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::DispatchIncoming5(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::DispatchIncoming2(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::FeeToken(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
                 Self::Frozen(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::FundRequest(element) => {
                     ::ethers::core::abi::AbiEncode::encode(element)
@@ -3982,8 +4002,7 @@ pub mod evm_host {
         Hash
     )]
     pub struct ConsensusUpdateTimeReturn(pub ::ethers::core::types::U256);
-    ///Container type for all return fields from the `dispatch` function with signature
-    /// `dispatch((bytes,uint64,bytes[],uint64,uint256,address))` and selector `0x09605fa2`
+    ///Container type for all return fields from the `dispatch` function with signature `dispatch((bytes,uint64,bytes[],uint64,uint256,address))` and selector `0x09605fa2`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -3997,9 +4016,7 @@ pub mod evm_host {
     pub struct Dispatch0Return {
         pub commitment: [u8; 32],
     }
-    ///Container type for all return fields from the `dispatch` function with signature
-    /// `dispatch(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64,uint256,address))` and
-    /// selector `0x94480805`
+    ///Container type for all return fields from the `dispatch` function with signature `dispatch(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64,uint256,address))` and selector `0x94480805`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -4013,8 +4030,7 @@ pub mod evm_host {
     pub struct Dispatch1Return {
         pub commitment: [u8; 32],
     }
-    ///Container type for all return fields from the `dispatch` function with signature
-    /// `dispatch((bytes,bytes,bytes,uint64,uint256,address))` and selector `0xb8f3e8f5`
+    ///Container type for all return fields from the `dispatch` function with signature `dispatch((bytes,bytes,bytes,uint64,uint256,address))` and selector `0xb8f3e8f5`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -4246,8 +4262,7 @@ pub mod evm_host {
         pub fee: ::ethers::core::types::U256,
         pub payer: ::ethers::core::types::Address,
     }
-    ///`DispatchPostResponse((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64,uint256,
-    /// address)`
+    ///`DispatchPostResponse((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64,uint256,address)`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,

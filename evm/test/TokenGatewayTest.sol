@@ -61,7 +61,6 @@ contract TokenGatewayTest is BaseTest {
         );
 
         assert(feeToken.balanceOf(address(this)) == 0);
-
         assert(feeToken.balanceOf(address(host)) == messagingFee);
     }
 

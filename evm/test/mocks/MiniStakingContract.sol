@@ -5,7 +5,6 @@ pragma solidity 0.8.17;
 import {ERC20, IERC20} from "openzeppelin/token/ERC20/ERC20.sol";
 import "forge-std/console.sol";
 
-
 contract MiniStaking is ERC20 {
     uint8 constant _decimals = 18;
     address stakingAddress;

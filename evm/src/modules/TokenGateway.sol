@@ -33,7 +33,6 @@ struct TeleportParams {
     bytes data;
 }
 
-
 struct InternalTeleportParams {
     address erc20;
     bool redeem;
@@ -200,35 +199,26 @@ contract TokenGateway is BaseIsmpModule {
         address erc6160 = _erc6160s[params.assetId];
         address feeToken = IIsmpHost(_host).feeToken();
 
-        bytes memory data = params.data.length > 0 ? abi.encode(
-            BodyWithCall({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem, data: params.data})
-        ) : abi.encode(
-            Body({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem})
-        );
-
-        _teleport(
-            InternalTeleportParams(
-                erc20,
-                params.redeem,
-                from,
-                params.amount,
-                params.fee,
-                feeToken,
-                params.feeToken,
-                erc6160,
-                params.dest,
-                data,
-                params.timeout,
-                params.to
+        bytes memory data = params.data.length > 0
+            ? abi.encode(
+                BodyWithCall({
+                    from: from,
+                    to: params.to,
+                    amount: params.amount,
+                    assetId: params.assetId,
+                    redeem: params.redeem,
+                    data: params.data
+                })
             )
-        );
-    }
+            : abi.encode(
+                Body({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem})
+            );
 
-    function _teleport(
-        InternalTeleportParams memory params
-    ) private {
         if (params.erc20 != address(0) && !params.redeem) {
-            require(IERC20(params.erc20).transferFrom(params.from, address(this), params.amount), "Insufficient user balance");
+            require(
+                IERC20(params.erc20).transferFrom(params.from, address(this), params.amount),
+                "Insufficient user balance"
+            );
 
             // Calculate output fee in DAI before swap:
             // We can use swapTokensForExactTokens() on Uniswap since we know the output amount
@@ -236,7 +226,9 @@ contract TokenGateway is BaseIsmpModule {
 
             // only swap if the feeToken is not the token intended for fee
             if (params.hostFeeToken != params.feeTokenFromParams) {
-                require(handleSwap(params.from, params.feeTokenFromParams, params.hostFeeToken, _fee), "Token swap failed");
+                require(
+                    handleSwap(params.from, params.feeTokenFromParams, params.hostFeeToken, _fee), "Token swap failed"
+                );
             }
         } else if (params.erc6160 != address(0)) {
             // we're sending an erc6160 asset so we should redeem on the destination if we can.
@@ -276,7 +268,6 @@ contract TokenGateway is BaseIsmpModule {
             } else {
                 handleIncomingAssetWithoutCall(request);
             }
-            
         } else if (action == OnAcceptActions.GovernanceAction) {
             handleGovernance(request);
         } else {
@@ -305,13 +296,8 @@ contract TokenGateway is BaseIsmpModule {
         require(request.from.equals(abi.encodePacked(address(this))), "Unauthorized request");
         Body memory body = abi.decode(request.body[1:], (Body));
 
-        _handleIncomingAsset(
-            body.assetId,
-            body.redeem,
-            body.amount,
-            body.to
-        );
-        
+        _handleIncomingAsset(body.assetId, body.redeem, body.amount, body.to);
+
         emit AssetReceived(request.source, request.nonce);
     }
 
@@ -320,12 +306,7 @@ contract TokenGateway is BaseIsmpModule {
         require(request.from.equals(abi.encodePacked(address(this))), "Unauthorized request");
         BodyWithCall memory body = abi.decode(request.body[1:], (BodyWithCall));
 
-        _handleIncomingAsset(
-            body.assetId,
-            body.redeem,
-            body.amount,
-            body.to
-        );
+        _handleIncomingAsset(body.assetId, body.redeem, body.amount, body.to);
 
         // dispatching low level call
         _dispatcher.dispatch(body.to, body.data);
@@ -333,12 +314,7 @@ contract TokenGateway is BaseIsmpModule {
         emit AssetReceived(request.source, request.nonce);
     }
 
-    function _handleIncomingAsset(
-        bytes32 assetId,
-        bool redeem,
-        uint256 amount,
-        address to
-    ) private {
+    function _handleIncomingAsset(bytes32 assetId, bool redeem, uint256 amount, address to) private {
         address erc20 = _erc20s[assetId];
         address erc6160 = _erc6160s[assetId];
 

@@ -31,8 +31,6 @@ contract DeployScript is Script {
         address uniRouter = address(1);
         address callDispatcher = address(1);
 
-
-
         if (Strings.equal(host, "sepolia") || Strings.equal(host, "ethereum")) {
             vm.startBroadcast(uint256(privateKey));
             deployGateway(SEPOLIA_HOST, admin, uniRouter, callDispatcher);

@@ -17,7 +17,6 @@ import {StateMachine} from "ismp/StateMachine.sol";
 import {ERC20Token} from "./mocks/ERC20Token.sol";
 import {MiniStaking} from "./mocks/MiniStakingContract.sol";
 
-
 contract BaseTest is Test {
     /// @notice The Id of Role required to mint token
     bytes32 public constant MINTER_ROLE = keccak256("MINTER ROLE");
@@ -38,12 +37,11 @@ contract BaseTest is Test {
     ERC20Token stakedToken;
     MiniStaking miniStaking;
 
-
     function setUp() public virtual {
         consensusClient = new TestConsensusClient();
         handler = new HandlerV1();
         feeToken = new FeeToken(address(this), "HyperUSD", "USD.h");
-        
+
         mockUSDC = new MockUSCDC("MockUSDC", "USDC.h");
         CallDispatcher dispatcher = new CallDispatcher();
 

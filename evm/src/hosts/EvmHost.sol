@@ -13,8 +13,6 @@ import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
 import {IHandler} from "ismp/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "ismp/Message.sol";
 
-
-
 // The IsmpHost parameters
 struct HostParams {
     // default timeout in seconds for requests.

@@ -3,7 +3,6 @@ pragma solidity 0.8.17;
 
 import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
 
-
 /// @notice This contract is used to dispatch calls to other contracts.
 contract CallDispatcher is ICallDispatcher {
     /// @dev funtion returns `success = false` if the target is not a contract and reverts if the call to the target contract fails.

@@ -25,7 +25,6 @@ async fn test_get_timeout() -> Result<(), anyhow::Error> {
         from: destination.as_bytes().to_vec(),
         keys: vec![key.clone()],
         timeout_timestamp: 100,
-        gas_limit: 0,
         height: 0,
     };
 
@@ -36,7 +35,6 @@ async fn test_get_timeout() -> Result<(), anyhow::Error> {
         keys: get.keys.into_iter().map(Into::into).collect(),
         from: get.from.into(),
         timeout_timestamp: get.timeout_timestamp,
-        gaslimit: get.gas_limit,
         height: get.height,
     };
 

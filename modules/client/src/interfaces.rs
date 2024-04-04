@@ -114,9 +114,6 @@ pub struct JsPost {
     pub timeout_timestamp: u64,
     /// Encoded Request.
     pub data: Vec<u8>,
-    /// Gas limit for executing the request on destination
-    /// This value should be zero if destination module is not a contract
-    pub gas_limit: u64,
     /// Height at which this request was emitted on the source chain
     pub height: u64,
 }
@@ -133,7 +130,6 @@ impl TryFrom<JsPost> for Post {
             to: value.to,
             timeout_timestamp: value.timeout_timestamp,
             data: value.data,
-            gas_limit: value.gas_limit,
         };
         Ok(post)
     }
@@ -147,8 +143,6 @@ pub struct JsPostResponse {
     pub response: Vec<u8>,
     /// Timestamp at which this response expires in seconds.
     pub timeout_timestamp: u64,
-    /// Gas limit for executing the response on destination, only used for solidity modules.
-    pub gas_limit: u64,
 }
 
 impl TryFrom<JsPostResponse> for PostResponse {
@@ -159,7 +153,6 @@ impl TryFrom<JsPostResponse> for PostResponse {
             post: value.post.try_into()?,
             response: value.response,
             timeout_timestamp: value.timeout_timestamp,
-            gas_limit: value.gas_limit,
         };
 
         Ok(response)
@@ -246,11 +239,9 @@ mod tests {
                 to: vec![15; 20],
                 timeout_timestamp: 1_600_000,
                 data: vec![40; 256],
-                gas_limit: 5000,
             },
             response: vec![80; 256],
             timeout_timestamp: 4_500_000,
-            gas_limit: 6000,
         };
 
         let js_post_response = JsPostResponse {
@@ -262,12 +253,10 @@ mod tests {
                 to: vec![15; 20],
                 timeout_timestamp: 1_600_000,
                 data: vec![40; 256],
-                gas_limit: 5000,
                 height: 0,
             },
             response: vec![80; 256],
             timeout_timestamp: 4_500_000,
-            gas_limit: 6000,
         };
 
         assert_eq!(post_response, js_post_response.try_into().unwrap())

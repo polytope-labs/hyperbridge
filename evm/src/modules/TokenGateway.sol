@@ -123,20 +123,20 @@ struct Asset {
 }
 
 enum OnAcceptActions
-/// Incoming asset from a chain
+// Incoming asset from a chain
 {
     IncomingAsset,
-    /// Governance actions
+    // Governance actions
     GovernanceAction
 }
 
 enum GovernanceActions
-/// Some new assets are now supported by gateway
+// Some new assets are now supported by gateway
 {
     NewAssets,
-    /// Governance has decided to adjust liquidity fee paid to relayers
+    // Governance has decided to adjust liquidity fee paid to relayers
     AdjustLiquidityFee,
-    ///  Governance has decided to adjust it's own protocol fee
+    //  Governance has decided to adjust it's own protocol fee
     AdjustProtocolFee
 }
 
@@ -301,7 +301,6 @@ contract TokenGateway is BaseIsmpModule {
             body: bytes.concat(hex"00", params.data),
             timeout: params.timeout,
             fee: params.fee,
-            gaslimit: uint64(0),
             payer: msg.sender
         });
 

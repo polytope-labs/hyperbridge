@@ -44,8 +44,7 @@ pub mod pallet {
     /// Set of whitelisted fishermen accounts
     #[pallet::storage]
     #[pallet::getter(fn whitelist)]
-    pub type WhitelistedAccount<T: Config> =
-        StorageMap<_, Twox64Concat, T::AccountId, (), OptionQuery>;
+    pub type Fishermen<T: Config> = StorageMap<_, Twox64Concat, T::AccountId, (), OptionQuery>;
 
     #[pallet::error]
     pub enum Error<T> {
@@ -78,8 +77,8 @@ pub mod pallet {
         pub fn add(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
             T::AdminOrigin::ensure_origin(origin)?;
 
-            ensure!(!WhitelistedAccount::<T>::contains_key(&account), Error::<T>::AlreadyAdded);
-            WhitelistedAccount::<T>::insert(&account, ());
+            ensure!(!Fishermen::<T>::contains_key(&account), Error::<T>::AlreadyAdded);
+            Fishermen::<T>::insert(&account, ());
 
             Self::deposit_event(Event::Added { account });
             Ok(())
@@ -91,8 +90,8 @@ pub mod pallet {
         pub fn remove(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
             T::AdminOrigin::ensure_origin(origin)?;
 
-            ensure!(WhitelistedAccount::<T>::contains_key(&account), Error::<T>::NotInSet);
-            WhitelistedAccount::<T>::remove(&account);
+            ensure!(Fishermen::<T>::contains_key(&account), Error::<T>::NotInSet);
+            Fishermen::<T>::remove(&account);
 
             Self::deposit_event(Event::Removed { account });
             Ok(())
@@ -111,10 +110,7 @@ pub mod pallet {
             height: StateMachineHeight,
         ) -> DispatchResult {
             let account = ensure_signed(origin)?;
-            ensure!(
-                WhitelistedAccount::<T>::contains_key(&account),
-                Error::<T>::UnauthorizedAction
-            );
+            ensure!(Fishermen::<T>::contains_key(&account), Error::<T>::UnauthorizedAction);
 
             let ismp_host = Host::<T>::default();
             let commitment =

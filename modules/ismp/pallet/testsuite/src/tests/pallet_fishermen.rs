@@ -32,7 +32,7 @@ fn test_can_veto_state_commitments() {
 
         // add a new fisherman
         pallet_fishermen::Pallet::<Test>::add(RuntimeOrigin::root(), account.clone()).unwrap();
-        assert_eq!(pallet_fishermen::WhitelistedAccount::<Test>::get(account.clone()), Some(()));
+        assert_eq!(pallet_fishermen::Fishermen::<Test>::get(account.clone()), Some(()));
 
         // sanity check, can't add it again
         let result = pallet_fishermen::Pallet::<Test>::add(RuntimeOrigin::root(), account.clone());
@@ -89,6 +89,6 @@ fn test_can_veto_state_commitments() {
         assert!(matches!(result, Err(Error::StateCommitmentNotFound { .. })));
 
         pallet_fishermen::Pallet::<Test>::remove(RuntimeOrigin::root(), account.clone()).unwrap();
-        assert_eq!(pallet_fishermen::WhitelistedAccount::<Test>::get(account), None);
+        assert_eq!(pallet_fishermen::Fishermen::<Test>::get(account), None);
     })
 }

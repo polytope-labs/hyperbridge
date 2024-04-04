@@ -459,7 +459,6 @@ impl Client for EvmClient {
                             from: get.from.into(),
                             keys: get.keys.into_iter().map(|key| key.into()).collect(),
                             timeout_timestamp: get.timeout_timestamp,
-                            gaslimit: get.gas_limit.into(),
                             height: get.height.into(),
                         }),
                         _ => None,

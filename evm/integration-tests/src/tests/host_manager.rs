@@ -31,7 +31,6 @@ async fn test_host_manager_withdraw() -> Result<(), anyhow::Error> {
         to: vec![],
         timeout_timestamp: 100,
         data,
-        gas_limit: 0,
     };
 
     let request: PostRequest = post.into();
@@ -64,7 +63,6 @@ async fn test_host_manager_unauthorized_request() -> Result<(), anyhow::Error> {
         to: vec![],
         timeout_timestamp: 100,
         data,
-        gas_limit: 0,
     };
 
     let request: PostRequest = post.into();
@@ -105,7 +103,6 @@ async fn test_host_manager_insufficient_balance() -> Result<(), anyhow::Error> {
         to: vec![],
         timeout_timestamp: 100,
         data,
-        gas_limit: 0,
     };
 
     let request: PostRequest = post.into();
@@ -143,7 +140,6 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
         to: vec![],
         timeout_timestamp: 100,
         data,
-        gas_limit: 0,
     };
 
     let request: PostRequest = post.into();

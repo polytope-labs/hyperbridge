@@ -6,7 +6,7 @@ import "forge-std/Test.sol";
 
 import {BaseTest} from "./BaseTest.sol";
 import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
-import {TeleportParams, Body, BODY_BYTES_SIZE, Asset, TeleportParamsWithCall, BodyWithCall} from "../src/modules/TokenGateway.sol";
+import {TeleportParams, Body, BODY_BYTES_SIZE, Asset, BodyWithCall} from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 
 contract TokenGatewayTest is BaseTest {
@@ -27,7 +27,8 @@ contract TokenGatewayTest is BaseTest {
                 fee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: address(this),
-                assetId: keccak256("USD.h")
+                assetId: keccak256("USD.h"),
+                data: new bytes(0)
             })
         );
 
@@ -47,7 +48,7 @@ contract TokenGatewayTest is BaseTest {
         bytes memory stakeCalldata = abi.encodeWithSignature("recordStake(address)", address(miniStaking));
 
         gateway.teleportWithCall(
-            TeleportParamsWithCall({
+            TeleportParams({
                 feeToken: address(feeToken),
                 amount: 1000 * 1e18, // $1000
                 redeem: false,
@@ -77,7 +78,8 @@ contract TokenGatewayTest is BaseTest {
                 fee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: address(this),
-                assetId: keccak256("USD.h")
+                assetId: keccak256("USD.h"),
+                data: new bytes(0)
             })
         );
     }

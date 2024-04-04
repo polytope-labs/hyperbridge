@@ -29,25 +29,6 @@ struct TeleportParams {
     bytes dest;
     // timeout in seconds
     uint64 timeout;
-}
-
-struct TeleportParamsWithCall {
-    // amount to be sent
-    uint256 amount;
-    // Relayer fee
-    uint256 fee;
-    // The token identifier
-    bytes32 assetId;
-    // Redeem Erc20 on the destination?
-    bool redeem;
-    // recipient address
-    address to;
-    // The Erc20 token to be used to swap for a fee
-    address feeToken;
-    // recipient state machine
-    bytes dest;
-    // timeout in seconds
-    uint64 timeout;
     // destination contract call data
     bytes data;
 }
@@ -241,7 +222,7 @@ contract TokenGateway is BaseIsmpModule {
         );
     }
 
-    function teleportWithCall(TeleportParamsWithCall memory params) public {
+    function teleportWithCall(TeleportParams memory params) public {
         require(params.to != address(0), "Burn your funds some other way");
         require(params.amount > 100_000, "Amount too low");
         require(params.feeToken != address(0), "Fee token not selected");

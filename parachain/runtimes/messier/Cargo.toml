@@ -83,6 +83,7 @@ ismp-sync-committee = { workspace = true  }
 ismp-bsc = { workspace = true  }
 pallet-ismp-relayer = { workspace = true  }
 pallet-ismp-host-executive = { workspace = true  }
+pallet-call-decompressor = { workspace = true }
 
 [features]
 default = [
@@ -143,7 +144,8 @@ std = [
 	"sp-genesis-builder/std",
 	"ismp-bsc/std",
 	"pallet-ismp-relayer/std",
-	"pallet-ismp-host-executive/std"
+	"pallet-ismp-host-executive/std",
+	"pallet-call-decompressor/std"
 ]
 
 runtime-benchmarks = [

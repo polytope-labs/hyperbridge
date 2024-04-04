@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![cfg(test)]
+
 use crate::runtime::{new_test_ext, RuntimeOrigin, Test};
 use crate::tests::pallet_ismp_relayer::{encode_accumulate_fees_call, read_file_string};
 use ruzstd::StreamingDecoder;

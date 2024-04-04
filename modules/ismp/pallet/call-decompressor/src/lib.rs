@@ -72,8 +72,6 @@ pub mod pallet {
         ErrorDecodingCall,
         /// Call Size Out Of Bound
         CallSizeOutOfBound,
-        /// Error Reading Buffer
-        ErrorReadingBuffer,
     }
 
     #[pallet::call]
@@ -86,7 +84,7 @@ pub mod pallet {
         <T as frame_system::Config>::RuntimeCall: IsSubType<pallet_ismp_relayer::Call<T>>,
     {
         /**
-           The `encoded_call_size` in bytes
+           The `encoded_call_size` which is the size of the not compressed(decompressed) encoded call in bytes
         */
         #[pallet::call_index(0)]
         #[pallet::weight({1_000_000})]
@@ -188,11 +186,11 @@ where
         compressed_bytes: Vec<u8>,
         encoded_call_size: u32,
     ) -> Result<Vec<u8>, DispatchError> {
-        let decoder = StreamingDecoder::new(compressed_bytes.as_slice())
-            .map_err(|_| Error::<T>::DecompressionFailed);
+        let mut decoder = StreamingDecoder::new(compressed_bytes.as_slice())
+            .map_err(|_| Error::<T>::DecompressionFailed)?;
 
         let mut result = vec![0u8; encoded_call_size as usize];
-        let _ = decoder?.read(&mut result).map_err(|_| Error::<T>::ErrorReadingBuffer);
+        let _ = decoder.read(&mut result);
         Ok(result)
     }
 
@@ -208,9 +206,7 @@ where
                 },
                 _ => Err(Error::<T>::CallNotSupported)?,
             };
-        }
-
-        if let Some(call) =
+        } else if let Some(call) =
             IsSubType::<pallet_ismp_relayer::Call<T>>::is_sub_type(&runtime_call).cloned()
         {
             match call {

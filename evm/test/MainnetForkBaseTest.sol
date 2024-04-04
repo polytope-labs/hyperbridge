@@ -13,23 +13,7 @@ import {TokenGateway, Asset, InitParams} from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 
-interface IERC20 {
-    event Transfer(address indexed from, address indexed to, uint256 value);
-
-    event Approval(address indexed owner, address indexed spender, uint256 value);
-
-    function totalSupply() external view returns (uint256);
-
-    function balanceOf(address account) external view returns (uint256);
-
-    function transfer(address to, uint256 amount) external returns (bool);
-
-    function allowance(address owner, address spender) external view returns (uint256);
-
-    function approve(address spender, uint256 amount) external returns (bool);
- 
-    function transferFrom(address from,address to,uint256 amount) external returns (bool);
-}
+import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 
 contract MainnetForkBaseTest is Test {
     /// @notice The Id of Role required to mint token

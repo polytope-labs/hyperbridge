@@ -199,25 +199,18 @@ contract TokenGateway is BaseIsmpModule {
                 Body({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem})
             );
 
-        if (params.erc20 != address(0) && !params.redeem) {
-            require(
-                IERC20(params.erc20).transferFrom(params.from, address(this), params.amount),
-                "Insufficient user balance"
-            );
+        if (erc20 != address(0) && !params.redeem) {
+            require(IERC20(erc20).transferFrom(from, address(this), params.amount), "Insufficient user balance");
 
-            // Calculate output fee in DAI before swap:
-            // We can use swapTokensForExactTokens() on Uniswap since we know the output amount
-            uint256 _fee = calculateBridgeFee(params.fee);
+            // Calculate output fee in the fee token before swap:
+            uint256 _fee = calculateBridgeFee(params.fee, data);
 
             // only swap if the feeToken is not the token intended for fee
-            if (params.hostFeeToken != params.feeTokenFromParams) {
-                require(
-                    handleSwap(params.from, params.feeTokenFromParams, params.hostFeeToken, _fee), "Token swap failed"
-                );
+            if (feeToken != params.feeToken) {
+                require(handleSwap(from, params.feeToken, feeToken, _fee), "Token swap failed");
             }
-        } else if (params.erc6160 != address(0)) {
-            // we're sending an erc6160 asset so we should redeem on the destination if we can.
-            IERC6160Ext20(params.erc6160).burn(params.from, params.amount, "");
+        } else if (erc6160 != address(0)) {
+            IERC6160Ext20(erc6160).burn(from, params.amount, "");
         } else {
             revert("Unknown Token Identifier");
         }
@@ -225,18 +218,16 @@ contract TokenGateway is BaseIsmpModule {
         DispatchPost memory request = DispatchPost({
             dest: params.dest,
             to: abi.encodePacked(address(this)),
-            // add enum variant for body
-            body: bytes.concat(hex"00", params.data),
+            body: bytes.concat(hex"00", data), // add enum variant for body
             timeout: params.timeout,
             fee: params.fee,
             payer: msg.sender
         });
 
-        // Your money is now on its way
         bytes32 commitment = IDispatcher(_host).dispatch(request);
 
         emit Teleport({
-            from: params.from,
+            from: from,
             to: params.to,
             amount: params.amount,
             redeem: params.redeem,
@@ -369,9 +360,9 @@ contract TokenGateway is BaseIsmpModule {
         return true;
     }
 
-    function calculateBridgeFee(uint256 _relayerFee) private view returns (uint256) {
+    function calculateBridgeFee(uint256 _relayerFee, bytes memory data) private view returns (uint256) {
         // Multiply the perByteFee by the byte size of the body struct, and sum with relayer fee
-        uint256 _fee = (IIsmpHost(_host).perByteFee() * BODY_BYTES_SIZE) + _relayerFee;
+        uint256 _fee = (IIsmpHost(_host).perByteFee() * data.length + 1) + _relayerFee;
 
         return _fee;
     }

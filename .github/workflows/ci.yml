@@ -146,10 +146,11 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly
           components: rustfmt
 
       - name: Cargo fmt
-        run: cargo fmt --all --check
+        run: cargo +nightly fmt --all --check
 
   unit-tests:
     name: Unit Tests

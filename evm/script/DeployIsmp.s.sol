@@ -27,6 +27,7 @@ import {ZkBeefyV1} from "../src/consensus/ZkBeefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
+import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
 
 bytes32 constant MINTER_ROLE = keccak256("MINTER ROLE");
 bytes32 constant BURNER_ROLE = keccak256("BURNER ROLE");
@@ -86,7 +87,10 @@ contract DeployScript is Script {
         PingModule module = new PingModule{salt: salt}(admin);
         module.setIsmpHost(hostAddress);
 
-        deployGateway(feeToken, hostAddress);
+        // deploy the call dispatcher
+        CallDispatcher dispatcher = new CallDispatcher{salt: salt}();
+
+        deployGateway(feeToken, hostAddress, address(dispatcher));
 
         vm.stopBroadcast();
     }
@@ -115,7 +119,7 @@ contract DeployScript is Script {
         revert("Unknown host");
     }
 
-    function deployGateway(ERC6160Ext20 feeToken, address hostAddress) public {
+    function deployGateway(ERC6160Ext20 feeToken, address hostAddress, address dispatcher) public {
         // deploy token gateway
         TokenGateway gateway = new TokenGateway{salt: salt}(admin);
         feeToken.grantRole(MINTER_ROLE, address(gateway));
@@ -136,7 +140,8 @@ contract DeployScript is Script {
                 uniswapV2Router: address(1),
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300, // 0.3
-                assets: assets
+                assets: assets,
+                callDispatcher: dispatcher
             })
         );
     }

@@ -6,6 +6,7 @@ import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
 import {PingModule} from "../examples/PingModule.sol";
 import {HandlerV1} from "../src/modules/HandlerV1.sol";
+import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {MockUSCDC} from "./MockUSDC.sol";
 import {HostParams} from "../src/hosts/EvmHost.sol";
@@ -13,6 +14,8 @@ import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
 import {TokenGateway, Asset, InitParams} from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
+import {ERC20Token} from "./mocks/ERC20Token.sol";
+import {MiniStaking} from "./mocks/MiniStakingContract.sol";
 
 contract BaseTest is Test {
     /// @notice The Id of Role required to mint token
@@ -31,13 +34,16 @@ contract BaseTest is Test {
     FeeToken internal feeToken;
     MockUSCDC internal mockUSDC;
     TokenGateway internal gateway;
+    ERC20Token stakedToken;
+    MiniStaking miniStaking;
 
     function setUp() public virtual {
         consensusClient = new TestConsensusClient();
         handler = new HandlerV1();
         feeToken = new FeeToken(address(this), "HyperUSD", "USD.h");
-        
+
         mockUSDC = new MockUSCDC("MockUSDC", "USDC.h");
+        CallDispatcher dispatcher = new CallDispatcher();
 
         HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
         HostManager manager = new HostManager(gParams);
@@ -80,13 +86,16 @@ contract BaseTest is Test {
                 uniswapV2Router: address(1),
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300, // 0.3
-                assets: assets
+                assets: assets,
+                callDispatcher: address(dispatcher)
             })
         );
 
         feeToken.grantRole(MINTER_ROLE, address(this));
         feeToken.grantRole(MINTER_ROLE, address(gateway));
         feeToken.grantRole(BURNER_ROLE, address(gateway));
+
+        miniStaking = new MiniStaking(address(feeToken));
     }
 
     function module() public view returns (address) {

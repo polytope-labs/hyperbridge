@@ -25,7 +25,6 @@ import {PolygonHost} from "../src/hosts/Polygon.sol";
 import {RococoVerifier} from "../src/consensus/verifiers/RococoVerifier.sol";
 import {ZkBeefyV1} from "../src/consensus/ZkBeefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
-import {GovernableToken} from "../src/modules/GovernableToken.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
 

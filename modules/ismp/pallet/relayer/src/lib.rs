@@ -310,7 +310,6 @@ where
             to: relayer_manager_address,
             timeout_timestamp: 0,
             data,
-            gas_limit: withdrawal_data.gas_limit,
         };
 
         // Account is not useful in this case

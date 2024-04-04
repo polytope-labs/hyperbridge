@@ -113,7 +113,6 @@ pub mod pallet {
                         from: PALLET_ID.to_bytes(),
                         to: params.host_manager.0.to_vec(),
                         timeout_timestamp: 0,
-                        gas_limit: 0,
                         data,
                     }),
                     [0u8; 32].into(),

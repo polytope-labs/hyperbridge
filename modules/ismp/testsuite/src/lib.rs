@@ -122,7 +122,6 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
     let request = Request::Post(post.clone());
     // Request message handling check
@@ -142,7 +141,6 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
             post,
             response: vec![],
             timeout_timestamp: 0,
-            gas_limit: 0,
         })]),
         proof: Proof { height: intermediate_state.height, proof: vec![] },
         signer: vec![],
@@ -201,7 +199,6 @@ pub fn frozen_consensus_client_check<H: IsmpHost>(host: &H) -> Result<(), &'stat
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
     // Request message handling check
     let request_message = Message::Request(RequestMessage {
@@ -235,7 +232,6 @@ pub fn frozen_state_machine_check<H: IsmpHost>(host: &H) -> Result<(), &'static 
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
     // Request message handling check
     let request_message = Message::Request(RequestMessage {
@@ -269,7 +265,6 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
     let request = Request::Post(post.clone());
     // Request message handling check
@@ -289,7 +284,6 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
             post,
             response: vec![],
             timeout_timestamp: 0,
-            gas_limit: 0,
         })]),
         proof: Proof { height: intermediate_state.height, proof: vec![] },
         signer: vec![],
@@ -331,7 +325,6 @@ where
         to: vec![0u8; 32],
         timeout_timestamp: intermediate_state.commitment.timestamp,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
     let post = Post {
         source: host.host_state_machine(),
@@ -341,7 +334,6 @@ where
         to: vec![0u8; 32],
         timeout_timestamp: intermediate_state.commitment.timestamp,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
     let request = Request::Post(post);
     let dispatch_request = DispatchRequest::Post(dispatch_post);
@@ -388,7 +380,6 @@ where
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
 
     let request_message = Message::Request(RequestMessage {
@@ -401,8 +392,7 @@ where
     // Assert that request was acknowledged
     assert!(matches!(host.request_receipt(&Request::Post(request.clone())), Some(_)));
 
-    let response =
-        PostResponse { post: request, response: vec![], timeout_timestamp: 100, gas_limit: 0 };
+    let response = PostResponse { post: request, response: vec![], timeout_timestamp: 100 };
     dispatcher
         .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
         .unwrap();
@@ -440,7 +430,6 @@ where
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
     let dispatch_request = DispatchRequest::Post(post);
     // Dispatch the request the first time
@@ -456,7 +445,6 @@ where
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
     let request = Request::Post(post);
     let commitment = hash_request::<H>(&request);
@@ -470,9 +458,8 @@ where
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
-    let response = PostResponse { post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
+    let response = PostResponse { post, response: vec![], timeout_timestamp: 0 };
     // Dispatch the outgoing response for the first time
     dispatcher
         .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
@@ -539,7 +526,6 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
         to: vec![0u8; 32],
         timeout_timestamp: proxy.commitment.timestamp,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
 
     let post = Post {
@@ -550,7 +536,6 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
         to: vec![0u8; 32],
         timeout_timestamp: proxy.commitment.timestamp,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
 
     let request = Request::Post(post.clone());
@@ -630,7 +615,6 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine(
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
 
     let request_message = Message::Request(RequestMessage {
@@ -643,8 +627,7 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine(
     // Assert that request was acknowledged
     assert!(matches!(host.request_receipt(&Request::Post(request.clone())), Some(_)));
 
-    let response =
-        PostResponse { post: request, response: vec![], timeout_timestamp: 100, gas_limit: 0 };
+    let response = PostResponse { post: request, response: vec![], timeout_timestamp: 100 };
     dispatcher
         .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
         .unwrap();
@@ -716,7 +699,6 @@ pub fn prevent_request_processing_on_proxy_with_known_state_machine(
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
 
     let request_message = Message::Request(RequestMessage {
@@ -755,7 +737,6 @@ pub fn check_request_source_and_destination() -> Result<(), &'static str> {
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
 
     let request_message = Message::Request(RequestMessage {
@@ -795,7 +776,6 @@ pub fn check_response_source() -> Result<(), &'static str> {
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
 
     let dispatch_post = DispatchPost {
@@ -804,7 +784,6 @@ pub fn check_response_source() -> Result<(), &'static str> {
         to: vec![0u8; 32],
         timeout_timestamp: 0,
         data: vec![0u8; 64],
-        gas_limit: 0,
     };
 
     let dispatch_request = DispatchRequest::Post(dispatch_post);
@@ -812,7 +791,7 @@ pub fn check_response_source() -> Result<(), &'static str> {
         .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
         .unwrap();
 
-    let response = PostResponse { post, response: vec![], timeout_timestamp: 0, gas_limit: 0 };
+    let response = PostResponse { post, response: vec![], timeout_timestamp: 0 };
 
     let timeout_message = Message::Response(ResponseMessage {
         datagram: RequestResponse::Response(vec![Response::Post(response)]),

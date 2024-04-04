@@ -18,7 +18,6 @@
 use crate::{
     consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight, StateMachineId},
     events::Meta,
-    host::StateMachine,
 };
 use alloc::{string::String, vec::Vec};
 use core::time::Duration;

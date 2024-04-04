@@ -54,8 +54,7 @@ contract MockHost {
             from: abi.encodePacked(tx.origin),
             to: post.to,
             timeoutTimestamp: timeout,
-            body: post.body,
-            gaslimit: post.gaslimit
+            body: post.body
         });
         MockAutoRelayer(relayer).autoRelay(request);
     }

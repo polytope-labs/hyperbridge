@@ -12,7 +12,6 @@ import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
 import {TokenGateway, Asset, InitParams} from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
-
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 
 contract MainnetForkBaseTest is Test {

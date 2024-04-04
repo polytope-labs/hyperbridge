@@ -132,7 +132,6 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(gateway)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"0100", abi.encode(assets)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: hyperbridge,
                 timeoutTimestamp: 0
@@ -172,7 +171,6 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(gateway)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"0100", abi.encode(assets)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: new bytes(0),
                 timeoutTimestamp: 0
@@ -204,7 +202,6 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(gateway)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"0100", abi.encode(assets)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: hyperbridge,
                 timeoutTimestamp: 0
@@ -240,14 +237,13 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(gateway)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"0101", abi.encode(400)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: hyperbridge,
                 timeoutTimestamp: 0
             })
         ); 
     
-        uint256 slot = 3;
+         uint256 slot = 3;
          bytes32 slotValue = vm.load(address(gateway), bytes32(slot));
 
          uint256 relayerFeePercentage = uint256(slotValue);
@@ -269,7 +265,6 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(gateway)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"0102", abi.encode(500)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: hyperbridge,
                 timeoutTimestamp: 0
@@ -286,13 +281,6 @@ contract TokenGatewayTest is BaseTest {
          assert(protocolFeePercentage == 500);
         
     }
-
-    // Test for Unknown  Action on Accept
-
-
-
-    // Test for Unknown  Action on Accept for Governance 
-
 
     function testOnlyHostCanCallOnAccept() public {
         Body memory body = Body({

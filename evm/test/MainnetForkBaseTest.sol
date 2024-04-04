@@ -59,8 +59,10 @@ contract MainnetForkBaseTest is Test {
 
         string memory fork_url = vm.envString("MAINNET_FORK_URL");
 
+        // mainnet fork creation
         mainnetFork = vm.createFork(fork_url);
 
+        // mainnet fork selection
         vm.selectFork(mainnetFork);
 
         consensusClient = new TestConsensusClient();

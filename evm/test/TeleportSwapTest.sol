@@ -13,9 +13,10 @@ contract TeleportSwapTest is MainnetForkBaseTest {
     function testCanTeleportAssetsUsingUsdcForFee() public {
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
-        
+
         address mainnetUsdcHolder = address(0xf584F8728B874a6a5c7A8d4d387C9aae9172D621);
 
+        // mainnet forking - impersonation
         vm.startPrank(mainnetUsdcHolder);
 
         dai.approve(address(gateway), 10000 * 1e18);

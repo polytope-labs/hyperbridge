@@ -18,7 +18,7 @@ use crate::{
     AccountId, Balance, Balances, Ismp, ParachainInfo, Runtime, RuntimeEvent, Timestamp,
 };
 
-use frame_support::pallet_prelude::Get;
+use frame_support::pallet_prelude::{ConstU32, Get};
 use frame_system::EnsureRoot;
 use ismp::{
     error::Error,
@@ -82,6 +82,10 @@ impl pallet_ismp_relayer::Config for Runtime {
 }
 
 impl pallet_ismp_host_executive::Config for Runtime {}
+
+impl pallet_call_decompressor::Config for Runtime {
+    type MaxCallSize = ConstU32<2>;
+}
 
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {

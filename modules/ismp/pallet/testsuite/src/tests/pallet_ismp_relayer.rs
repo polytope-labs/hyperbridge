@@ -605,8 +605,6 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
 }
 
 fn read_file_string(path: &str) -> String {
-    println!("Current working directory: {:?}", env::current_dir());
-
     let mut file = File::open(path).unwrap();
 
     let mut contents = String::new();

@@ -4856,6 +4856,7 @@ dependencies = [
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",
+ "pallet-call-decompressor",
  "pallet-collator-selection",
  "pallet-ismp",
  "pallet-ismp-demo",

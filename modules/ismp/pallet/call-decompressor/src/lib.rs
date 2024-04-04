@@ -37,7 +37,7 @@ use sp_runtime::{
     DispatchError,
 };
 
-const CALL_SIZE_MB: u32 = 1000 * 1000;
+const ONE_MB: u32 = 1_000_000;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -56,6 +56,7 @@ pub mod pallet {
     pub trait Config:
         frame_system::Config + pallet_ismp::Config + pallet_ismp_relayer::Config
     {
+        /// Represents the maximum call size in megabytes(MB)
         type MaxCallSize: Get<u32>;
     }
 
@@ -71,6 +72,8 @@ pub mod pallet {
         ErrorDecodingCall,
         /// Call Size Out Of Bound
         CallSizeOutOfBound,
+        /// Error Reading Buffer
+        ErrorReadingBuffer,
     }
 
     #[pallet::call]
@@ -83,21 +86,21 @@ pub mod pallet {
         <T as frame_system::Config>::RuntimeCall: IsSubType<pallet_ismp_relayer::Call<T>>,
     {
         /**
-           The `original_call_size` should be in bytes
+           The `encoded_call_size` in bytes
         */
         #[pallet::call_index(0)]
         #[pallet::weight({1_000_000})]
         pub fn decompress_call(
             origin: OriginFor<T>,
             compressed: Vec<u8>,
-            original_call_size: u32,
+            encoded_call_size: u32,
         ) -> DispatchResult {
             ensure_none(origin)?;
             ensure!(
-                original_call_size < T::MaxCallSize::get() * CALL_SIZE_MB,
+                encoded_call_size < T::MaxCallSize::get() * ONE_MB,
                 Error::<T>::CallSizeOutOfBound
             );
-            let call_bytes = Self::decompress(compressed, original_call_size)?;
+            let call_bytes = Self::decompress(compressed, encoded_call_size)?;
             Self::decode_and_execute(call_bytes)?;
             Ok(())
         }
@@ -120,11 +123,11 @@ pub mod pallet {
         }
 
         fn validate_unsigned(source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-            let Call::decompress_call { compressed, original_call_size } = call else {
+            let Call::decompress_call { compressed, encoded_call_size } = call else {
                 return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
             };
 
-            let decompressed = Self::decompress(compressed.clone(), original_call_size.clone())
+            let decompressed = Self::decompress(compressed.clone(), encoded_call_size.clone())
                 .map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
 
             let runtime_call = T::RuntimeCall::decode(&mut &decompressed[..])
@@ -183,12 +186,13 @@ where
 {
     pub fn decompress(
         compressed_bytes: Vec<u8>,
-        original_call_size: u32,
+        encoded_call_size: u32,
     ) -> Result<Vec<u8>, DispatchError> {
-        let mut decoder = StreamingDecoder::new(compressed_bytes.as_slice()).unwrap();
+        let decoder = StreamingDecoder::new(compressed_bytes.as_slice())
+            .map_err(|_| Error::<T>::DecompressionFailed);
 
-        let mut result = vec![0u8; original_call_size as usize];
-        decoder.read(&mut result).unwrap();
+        let mut result = vec![0u8; encoded_call_size as usize];
+        let _ = decoder?.read(&mut result).map_err(|_| Error::<T>::ErrorReadingBuffer);
         Ok(result)
     }
 
@@ -198,9 +202,10 @@ where
 
         if let Some(call) = IsSubType::<pallet_ismp::Call<T>>::is_sub_type(&runtime_call).cloned() {
             match call {
-                pallet_ismp::Call::handle { messages } =>
+                pallet_ismp::Call::handle { messages } => {
                     <pallet_ismp::Pallet<T>>::handle(frame_system::RawOrigin::None.into(), messages)
-                        .map_err(|_| Error::<T>::ErrorExecutingCall)?,
+                        .map_err(|_| Error::<T>::ErrorExecutingCall)?
+                },
                 _ => Err(Error::<T>::CallNotSupported)?,
             };
         }
@@ -209,11 +214,12 @@ where
             IsSubType::<pallet_ismp_relayer::Call<T>>::is_sub_type(&runtime_call).cloned()
         {
             match call {
-                pallet_ismp_relayer::Call::accumulate_fees { withdrawal_proof } =>
+                pallet_ismp_relayer::Call::accumulate_fees { withdrawal_proof } => {
                     <pallet_ismp_relayer::Pallet<T>>::accumulate_fees(
                         frame_system::RawOrigin::None.into(),
                         withdrawal_proof,
-                    )?,
+                    )?
+                },
                 _ => Err(Error::<T>::CallNotSupported)?,
             };
         } else {

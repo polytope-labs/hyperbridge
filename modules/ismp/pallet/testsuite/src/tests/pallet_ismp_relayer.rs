@@ -41,7 +41,6 @@ use pallet_ismp_relayer::{
 };
 use sp_core::{Pair, H160, H256, U256};
 use sp_trie::LayoutV0;
-use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::time::Duration;
@@ -613,7 +612,7 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
     claim_proof
 }
 
-fn read_file_string(path: &str) -> String {
+pub fn read_file_string(path: &str) -> String {
     let mut file = File::open(path).unwrap();
 
     let mut contents = String::new();
@@ -630,10 +629,4 @@ pub fn encode_accumulate_fees_call() -> Vec<u8> {
     });
 
     call.encode()
-
-
-        pallet_ismp_relayer::Pallet::<Test>::accumulate_fees(RuntimeOrigin::none(), claim_proof.clone()).unwrap();
-        assert_eq!(claim_proof.commitments.len(), 6);
-        assert_eq!(Claimed::<Test>::iter().count(), 5);
-    })
 }

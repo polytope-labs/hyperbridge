@@ -33,21 +33,6 @@ struct TeleportParams {
     bytes data;
 }
 
-struct InternalTeleportParams {
-    address erc20;
-    bool redeem;
-    address from;
-    uint256 amount;
-    uint256 fee;
-    address hostFeeToken;
-    address feeTokenFromParams;
-    address erc6160;
-    bytes dest;
-    bytes data;
-    uint64 timeout;
-    address to;
-}
-
 struct Body {
     // amount to be sent
     uint256 amount;

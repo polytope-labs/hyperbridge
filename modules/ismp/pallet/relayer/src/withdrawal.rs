@@ -43,8 +43,6 @@ pub struct WithdrawalInputData {
     pub dest_chain: StateMachine,
     /// Amount to withdraw
     pub amount: U256,
-    /// gas limit for evm withdrawals
-    pub gas_limit: u64,
 }
 
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]

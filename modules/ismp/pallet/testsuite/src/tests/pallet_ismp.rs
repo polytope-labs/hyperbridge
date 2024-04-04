@@ -70,7 +70,6 @@ fn push_leaves(range: Range<u64>) -> (Vec<H256>, Vec<u64>) {
             to: vec![18; 32],
             timeout_timestamp: 100 * nonce,
             data: vec![2u8; 64],
-            gas_limit: 0,
         };
 
         let request = Request::Post(post);
@@ -238,7 +237,6 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
             to: vec![0u8; 32],
             timeout_timestamp: 0,
             data: vec![0u8; 64],
-            gas_limit: 0,
         };
 
         let request_commitment = hash_request::<Host<Test>>(&Request::Post(post.clone()));
@@ -323,7 +321,6 @@ fn should_handle_get_request_timeouts_correctly() {
                 let msg = DispatchGet {
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     from: vec![0u8; 32],
-                    gas_limit: 0,
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 2,
                     timeout_timestamp: 1000,
@@ -341,7 +338,6 @@ fn should_handle_get_request_timeouts_correctly() {
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 2,
                     timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() + 1000,
-                    gas_limit: 0,
                 };
                 ismp::router::Request::Get(get)
             })
@@ -372,7 +368,6 @@ fn should_handle_get_request_responses_correctly() {
                 let msg = DispatchGet {
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     from: vec![0u8; 32],
-                    gas_limit: 0,
 
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 3,
@@ -388,7 +383,6 @@ fn should_handle_get_request_responses_correctly() {
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     nonce: i,
                     from: vec![0u8; 32],
-                    gas_limit: 0,
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 3,
                     timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +

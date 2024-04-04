@@ -16,12 +16,6 @@ contract TeleportSwapTest is MainnetForkBaseTest {
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
 
-        uint256 usdcBalanceBefore = usdc.balanceOf(mainnetUsdcHolder);
-        console.log("USDC Holder Balance before", usdcBalanceBefore / 1e6);
-
-        uint256 daiBalanceBefore = dai.balanceOf(mainnetUsdcHolder);
-        console.log("DAI Holder Balance before", daiBalanceBefore / 1e18);
-
         vm.startPrank(mainnetUsdcHolder);
 
         dai.approve(address(gateway), 10000 * 1e18);

@@ -17,7 +17,7 @@ struct TeleportParams {
     // Relayer fee
     uint256 fee;
     // The token identifier
-    bytes32 tokenId;
+    bytes32 assetId;
     // Redeem Erc20 on the destination?
     bool redeem;
     // recipient address
@@ -34,7 +34,7 @@ struct Body {
     // amount to be sent
     uint256 amount;
     // The token identifier
-    bytes32 tokenId;
+    bytes32 assetId;
     // flag to redeem the erc20 asset on the destination
     bool redeem;
     // sender address
@@ -63,27 +63,25 @@ struct Asset {
     address erc20;
     /// ERC6160 token contract address for the asset
     address erc6160;
-    /// Asset's local identifier
-    bytes32 localIdentifier;
-    /// Asset's foreign identifier
-    bytes32 foreignIdentifier;
+    /// Asset's identifier
+    bytes32 identifier;
 }
 
 enum OnAcceptActions
-/// Incoming asset from a chain
+// Incoming asset from a chain
 {
     IncomingAsset,
-    /// Governance actions
+    // Governance actions
     GovernanceAction
 }
 
 enum GovernanceActions
-/// Some new assets are now supported by gateway
+// Some new assets are now supported by gateway
 {
     NewAssets,
-    /// Governance has decided to adjust liquidity fee paid to relayers
+    // Governance has decided to adjust liquidity fee paid to relayers
     AdjustLiquidityFee,
-    ///  Governance has decided to adjust it's own protocol fee
+    //  Governance has decided to adjust it's own protocol fee
     AdjustProtocolFee
 }
 
@@ -93,6 +91,8 @@ uint256 constant BODY_BYTES_SIZE = 161;
 /// The TokenGateway allows users send either ERC20 or ERC6160 tokens
 /// using Hyperbridge as a message-passing layer.
 contract TokenGateway is BaseIsmpModule {
+    event LiquidityProvided(address relayer, uint256 amount);
+
     using Bytes for bytes;
 
     /// StateMachine identifier for hyperbridge
@@ -112,11 +112,10 @@ contract TokenGateway is BaseIsmpModule {
     mapping(bytes32 => address) private _erc6160s;
     // mapping of token identifier to erc20 contracts
     mapping(bytes32 => address) private _erc20s;
-    // foreign to local asset identifier mapping
-    mapping(bytes32 => bytes32) private _assets;
 
     // User has received some assets, source chain & nonce
     event AssetReceived(bytes source, uint256 nonce);
+    event Teleport(address from, address to, uint256 amount, bool redeem, bytes32 requestCommitment);
 
     // restricts call to `IIsmpHost`
     modifier onlyIsmpHost() {
@@ -158,9 +157,9 @@ contract TokenGateway is BaseIsmpModule {
         require(params.feeToken != address(0), "Fee token not selected");
 
         address from = msg.sender;
-        address erc20 = _erc20s[params.tokenId];
-        address erc6160 = _erc6160s[params.tokenId];
-        address feeToken = IIsmpHost(_host).dai();
+        address erc20 = _erc20s[params.assetId];
+        address erc6160 = _erc6160s[params.assetId];
+        address feeToken = IIsmpHost(_host).feeToken();
 
         if (erc20 != address(0) && !params.redeem) {
             require(IERC20(erc20).transferFrom(from, address(this), params.amount), "Insufficient user balance");
@@ -181,7 +180,7 @@ contract TokenGateway is BaseIsmpModule {
         }
 
         bytes memory data = abi.encode(
-            Body({from: from, to: params.to, amount: params.amount, tokenId: params.tokenId, redeem: params.redeem})
+            Body({from: from, to: params.to, amount: params.amount, assetId: params.assetId, redeem: params.redeem})
         );
 
         DispatchPost memory request = DispatchPost({
@@ -191,12 +190,19 @@ contract TokenGateway is BaseIsmpModule {
             body: bytes.concat(hex"00", data),
             timeout: params.timeout,
             fee: params.fee,
-            gaslimit: uint64(0),
             payer: msg.sender
         });
 
         // Your money is now on its way
-        IDispatcher(_host).dispatch(request);
+        bytes32 commitment = IDispatcher(_host).dispatch(request);
+
+        emit Teleport({
+            from: from,
+            to: params.to,
+            amount: params.amount,
+            redeem: params.redeem,
+            requestCommitment: commitment
+        });
     }
 
     function onAccept(PostRequest calldata request) external override onlyIsmpHost {
@@ -215,8 +221,8 @@ contract TokenGateway is BaseIsmpModule {
         // The money could not be sent, this would allow users to get their money back.
         Body memory body = abi.decode(request.body[1:], (Body));
 
-        address erc20 = _erc20s[body.tokenId];
-        address erc6160 = _erc6160s[body.tokenId];
+        address erc20 = _erc20s[body.assetId];
+        address erc6160 = _erc6160s[body.assetId];
 
         if (erc20 != address(0) && !body.redeem) {
             require(IERC20(erc20).transfer(body.from, body.amount), "Gateway: Insufficient Balance");
@@ -232,9 +238,8 @@ contract TokenGateway is BaseIsmpModule {
         require(request.from.equals(abi.encodePacked(address(this))), "Unauthorized request");
         Body memory body = abi.decode(request.body[1:], (Body));
 
-        bytes32 localAsset = _assets[body.tokenId];
-        address erc20 = _erc20s[localAsset];
-        address erc6160 = _erc6160s[localAsset];
+        address erc20 = _erc20s[body.assetId];
+        address erc6160 = _erc6160s[body.assetId];
 
         if (erc20 != address(0) && body.redeem) {
             // a relayer/user is redeeming the native asset
@@ -252,6 +257,8 @@ contract TokenGateway is BaseIsmpModule {
                 IERC20(erc20).transferFrom(tx.origin, body.to, _amountToTransfer),
                 "Gateway: Insufficient relayer balance"
             );
+
+            emit LiquidityProvided(tx.origin, _amountToTransfer);
 
             // hand the relayer the erc6160, so they can redeem on the source chain
             IERC6160Ext20(erc6160).mint(tx.origin, body.amount, "");
@@ -322,9 +329,8 @@ contract TokenGateway is BaseIsmpModule {
         for (uint256 i = 0; i < length; i++) {
             Asset memory asset = assets[i];
 
-            _erc20s[asset.localIdentifier] = asset.erc20;
-            _erc6160s[asset.localIdentifier] = asset.erc6160;
-            _assets[asset.foreignIdentifier] = asset.localIdentifier;
+            _erc20s[asset.identifier] = asset.erc20;
+            _erc6160s[asset.identifier] = asset.erc6160;
         }
     }
 }

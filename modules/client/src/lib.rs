@@ -68,9 +68,6 @@ interface IPostRequest {
     data: Uint8Array;
     // Timestamp which this request expires in seconds.
     timeout_timestamp: bigint;
-    // Gas limit for executing the request on destination
-    // This value should be zero if destination module is not a contract
-    gas_limit: bigint;
     // Height at which this request was emitted on the source
     height: bigint;
 }
@@ -82,8 +79,6 @@ interface IPostResponse {
     response: Uint8Array;
     // Timestamp at which this response expires in seconds.
     timeout_timestamp: bigint;
-    // Gas limit for executing the response on destination, only used for solidity modules.
-    gas_limit: bigint;
 }
 
 type MessageStatus =  Pending | SourceFinalized | HyperbridgeDelivered | HyperbridgeFinalized | DestinationDelivered | Timeout;

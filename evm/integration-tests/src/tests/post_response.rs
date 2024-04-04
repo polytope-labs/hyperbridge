@@ -44,15 +44,10 @@ async fn test_post_response_proof() -> Result<(), anyhow::Error> {
         to: module.as_bytes().to_vec(),
         timeout_timestamp: 30,
         data: vec![2u8; 32],
-        gas_limit: 100,
     };
 
-    let post_response = router::PostResponse {
-        post: post.clone(),
-        response: vec![1u8; 64],
-        timeout_timestamp: 0,
-        gas_limit: 0,
-    };
+    let post_response =
+        router::PostResponse { post: post.clone(), response: vec![1u8; 64], timeout_timestamp: 0 };
     let response = DataOrHash::Data(Leaf::Response(router::Response::Post(post_response.clone())));
 
     // create the mmr tree and insert it
@@ -126,7 +121,6 @@ async fn test_post_response_timeout() -> Result<(), anyhow::Error> {
         to: destination.as_bytes().to_vec(),
         timeout_timestamp: 100,
         data: vec![],
-        gas_limit: 0,
     };
     let request = DataOrHash::Data(Leaf::Request(Request::Post(post.clone())));
     let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 1)?;
@@ -153,8 +147,7 @@ async fn test_post_response_timeout() -> Result<(), anyhow::Error> {
         }],
     };
 
-    let response =
-        router::PostResponse { post, response: vec![], timeout_timestamp: 200, gas_limit: 0 };
+    let response = router::PostResponse { post, response: vec![], timeout_timestamp: 200 };
     let commitment = hash_response::<Keccak256>(&Response::Post(response.clone()));
     let mut key = storage_prefix.clone();
     key.extend_from_slice(commitment.as_ref());
@@ -217,7 +210,6 @@ async fn test_post_response_malicious_timeout() -> Result<(), anyhow::Error> {
         to: destination.as_bytes().to_vec(),
         timeout_timestamp: 100,
         data: vec![],
-        gas_limit: 0,
     };
     let request = DataOrHash::Data(Leaf::Request(Request::Post(post.clone())));
     let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 1)?;
@@ -244,8 +236,7 @@ async fn test_post_response_malicious_timeout() -> Result<(), anyhow::Error> {
         }],
     };
 
-    let response =
-        router::PostResponse { post, response: vec![], timeout_timestamp: 200, gas_limit: 0 };
+    let response = router::PostResponse { post, response: vec![], timeout_timestamp: 200 };
     let commitment = hash_response::<Keccak256>(&Response::Post(response.clone()));
     let mut key = storage_prefix.clone();
     key.extend_from_slice(commitment.as_ref());

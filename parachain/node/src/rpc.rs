@@ -82,6 +82,7 @@ where
     module.merge(
         IsmpRpcHandler::new(
             client,
+            backend.clone(),
             backend
                 .offchain_storage()
                 .ok_or("Backend doesn't provide the required offchain storage")?,

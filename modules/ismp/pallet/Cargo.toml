@@ -26,7 +26,7 @@ scale-info = { workspace = true }
 # crates.io
 fortuples = "0.9.1"
 log = { version = "0.4.17", default-features = false }
-serde = { version = "1.0.136", features = ["derive"], optional = true }
+serde = { version = "1.0.136", features = ["derive"], default-features = false }
 derive_more = { version = "0.99.17", default-features = false, features = ["from", "into", "display"] }
 enum-as-inner = "=0.5.1"
 
@@ -51,10 +51,13 @@ std = [
     "ismp/std",
     "merkle-mountain-range/std",
     "sp-api/std",
-    "serde",
+    "serde/default",
     "pallet-balances/std",
     "sp-consensus-aura/std"
 ]
+
+disable-panic-handler = ["sp-io/disable_panic_handler", "sp-io/disable_oom", "sp-io/disable_allocator"]
+
 
 testing = ["pallet-timestamp/std"]
 

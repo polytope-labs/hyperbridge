@@ -19,6 +19,7 @@ pub(crate) mod storage;
 pub(crate) mod utils;
 
 use crate::{
+    child_trie::{RequestCommitments, ResponseCommitments},
     host::Host,
     mmr::{
         primitives::{DataOrHash, Leaf, MmrHasher, NodeIndex},
@@ -106,7 +107,7 @@ where
             ProofKeys::Requests(commitments) => commitments
                 .into_iter()
                 .map(|commitment| {
-                    let val = Pallet::<T>::request_commitments(commitment)
+                    let val = RequestCommitments::<T>::get(commitment)
                         .ok_or_else(|| Error::LeafNotFound)?
                         .mmr;
                     Ok(val)
@@ -115,7 +116,7 @@ where
             ProofKeys::Responses(commitments) => commitments
                 .into_iter()
                 .map(|commitment| {
-                    let val = Pallet::<T>::response_commitments(commitment)
+                    let val = ResponseCommitments::<T>::get(commitment)
                         .ok_or_else(|| Error::LeafNotFound)?
                         .mmr;
                     Ok(val)

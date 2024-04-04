@@ -26,7 +26,7 @@ contract TokenGatewayTest is BaseTest {
                 fee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: address(this),
-                tokenId: keccak256("USD.h")
+                assetId: keccak256("USD.h")
             })
         );
 
@@ -48,7 +48,7 @@ contract TokenGatewayTest is BaseTest {
                 fee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: address(this),
-                tokenId: keccak256("USD.h")
+                assetId: keccak256("USD.h")
             })
         );
     }
@@ -57,7 +57,7 @@ contract TokenGatewayTest is BaseTest {
         assert(feeToken.balanceOf(address(this)) == 0);
 
         Body memory body = Body({
-            tokenId: keccak256("USD.h"),
+            assetId: keccak256("USD.h"),
             to: address(this),
             redeem: false,
             amount: 1_000 * 1e18,
@@ -70,7 +70,6 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(gateway)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"00", abi.encode(body)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: new bytes(0),
                 timeoutTimestamp: 0
@@ -84,7 +83,7 @@ contract TokenGatewayTest is BaseTest {
         assert(feeToken.balanceOf(address(this)) == 0);
 
         Body memory body = Body({
-            tokenId: keccak256("USD.h"),
+            assetId: keccak256("USD.h"),
             to: address(this),
             redeem: false,
             amount: 1_000 * 1e18,
@@ -97,7 +96,6 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(gateway)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"00", abi.encode(body)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: new bytes(0),
                 timeoutTimestamp: 0
@@ -109,7 +107,7 @@ contract TokenGatewayTest is BaseTest {
 
     function testOnlyHostCanCallOnAccept() public {
         Body memory body = Body({
-            tokenId: keccak256("USD.h"),
+            assetId: keccak256("USD.h"),
             to: address(this),
             redeem: false,
             amount: 1_000 * 1e18,
@@ -122,7 +120,6 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(gateway)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"00", abi.encode(body)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: new bytes(0),
                 timeoutTimestamp: 0
@@ -132,7 +129,7 @@ contract TokenGatewayTest is BaseTest {
 
     function testWillRejectRequestFromUnkownApplication() public {
         Body memory body = Body({
-            tokenId: keccak256("USD.h"),
+            assetId: keccak256("USD.h"),
             to: address(this),
             redeem: false,
             amount: 1_000 * 1e18,
@@ -147,7 +144,6 @@ contract TokenGatewayTest is BaseTest {
                 from: abi.encodePacked(address(this)),
                 dest: new bytes(0),
                 body: bytes.concat(hex"00", abi.encode(body)),
-                gaslimit: uint64(0),
                 nonce: 0,
                 source: new bytes(0),
                 timeoutTimestamp: 0

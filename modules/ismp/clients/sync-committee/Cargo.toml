@@ -63,6 +63,8 @@ std = [
     "geth-primitives/std"
 ]
 
+disable-panic-handler = ["sp-io/disable_panic_handler", "sp-io/disable_oom", "sp-io/disable_allocator"]
+
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",

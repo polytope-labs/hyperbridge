@@ -30,7 +30,7 @@ use ismp::{
     host::{IsmpHost, StateMachine},
     messaging::StateCommitmentHeight,
 };
-use pallet_ismp::primitives::ISMP_ID;
+use pallet_ismp::primitives::{IsmpConsensusLog, ISMP_ID};
 use primitive_types::H256;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_runtime::{
@@ -42,7 +42,7 @@ use sp_runtime::{
 use sp_trie::StorageProof;
 use substrate_state_machine::{read_proof_check, SubstrateStateMachine};
 
-use crate::RelayChainOracle;
+use crate::{Parachains, RelayChainOracle};
 
 /// The parachain consensus client implementation for ISMP.
 pub struct ParachainConsensusClient<T, R>(PhantomData<(T, R)>);
@@ -154,13 +154,14 @@ where
                     DigestItem::Consensus(consensus_engine_id, value)
                         if *consensus_engine_id == ISMP_ID =>
                     {
-                        if value.len() != 32 {
+                        let log = IsmpConsensusLog::decode(&mut &value[..]);
+                        if let Ok(log) = log {
+                            overlay_root = log.child_trie_root;
+                        } else {
                             Err(Error::ImplementationSpecific(
-                                "Header contains an invalid ismp root".into(),
+                                "Header contains an invalid ismp consensus log".into(),
                             ))?
                         }
-
-                        overlay_root = H256::from_slice(&value);
                     },
                     // don't really care about the rest
                     _ => {},
@@ -208,8 +209,20 @@ where
         Ok(())
     }
 
-    fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-        // todo: check the supported parachains from the runtime before returning.
+    fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+        let para_id = match id {
+            StateMachine::Polkadot(id) => id,
+            StateMachine::Kusama(id) => id,
+            _ => Err(Error::ImplementationSpecific(format!(
+                "State Machine is not supported by this consensus client"
+            )))?,
+        };
+
+        if !Parachains::<T>::contains_key(&para_id) {
+            Err(Error::ImplementationSpecific(format!(
+                "Parachain with id {para_id} not registered"
+            )))?
+        }
         Ok(Box::new(SubstrateStateMachine::<T>::default()))
     }
 

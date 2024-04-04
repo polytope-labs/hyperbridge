@@ -25,7 +25,6 @@ import {PolygonHost} from "../src/hosts/Polygon.sol";
 import {RococoVerifier} from "../src/consensus/verifiers/RococoVerifier.sol";
 import {ZkBeefyV1} from "../src/consensus/ZkBeefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
-import {GovernableToken} from "../src/modules/GovernableToken.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
 
@@ -127,12 +126,7 @@ contract DeployScript is Script {
         feeToken.grantRole(MINTER_ROLE, address(faucet));
 
         Asset[] memory assets = new Asset[](1);
-        assets[0] = Asset({
-            localIdentifier: keccak256("USD.h"),
-            foreignIdentifier: keccak256("USD.h"),
-            erc20: address(0),
-            erc6160: address(feeToken)
-        });
+        assets[0] = Asset({identifier: keccak256("USD.h"), erc20: address(0), erc6160: address(feeToken)});
 
         // initialize gateway
         gateway.init(

@@ -143,7 +143,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
         let header_2_hash = Header::from(&header_2).hash::<H>();
 
         if header_1_hash == header_2_hash {
-            return Err(Error::ImplementationSpecific("Invalid Fraud proof".to_string()))
+            return Err(Error::ImplementationSpecific("Invalid Fraud proof".to_string()));
         }
 
         let consensus_state =
@@ -174,10 +174,9 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
     ) -> Result<Box<dyn StateMachineClient>, ismp::error::Error> {
         match id {
             StateMachine::Bsc => Ok(Box::new(<EvmStateMachine<H>>::default())),
-            state_machine =>
-                return Err(Error::ImplementationSpecific(alloc::format!(
-                    "Unsupported state machine: {state_machine:?}"
-                ))),
+            state_machine => Err(Error::ImplementationSpecific(alloc::format!(
+                "Unsupported state machine: {state_machine:?}"
+            ))),
         }
     }
 }

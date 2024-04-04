@@ -310,7 +310,6 @@ where
             to: relayer_manager_address,
             timeout_timestamp: 0,
             data,
-            gas_limit: withdrawal_data.gas_limit,
         };
 
         // Account is not useful in this case
@@ -436,8 +435,9 @@ where
                     StateMachine::Polkadot(_) |
                     StateMachine::Kusama(_) |
                     StateMachine::Grandpa(_) |
-                    StateMachine::Beefy(_) =>
-                        keys.push(pallet_ismp::RequestCommitments::<T>::hashed_key_for(commitment)),
+                    StateMachine::Beefy(_) => keys.push(
+                        pallet_ismp::child_trie::RequestCommitments::<T>::storage_key(*commitment),
+                    ),
                 },
                 Key::Response { response_commitment, .. } => {
                     match proof.source_proof.height.id.state_id {
@@ -454,10 +454,11 @@ where
                         StateMachine::Polkadot(_) |
                         StateMachine::Kusama(_) |
                         StateMachine::Grandpa(_) |
-                        StateMachine::Beefy(_) =>
-                            keys.push(pallet_ismp::ResponseCommitments::<T>::hashed_key_for(
-                                response_commitment,
-                            )),
+                        StateMachine::Beefy(_) => keys.push(
+                            pallet_ismp::child_trie::ResponseCommitments::<T>::storage_key(
+                                *response_commitment,
+                            ),
+                        ),
                     }
                 },
             }
@@ -484,8 +485,9 @@ where
                     StateMachine::Beefy(_) |
                     StateMachine::Grandpa(_) |
                     StateMachine::Kusama(_) |
-                    StateMachine::Polkadot(_) =>
-                        keys.push(pallet_ismp::RequestReceipts::<T>::hashed_key_for(commitment)),
+                    StateMachine::Polkadot(_) => keys.push(
+                        pallet_ismp::child_trie::RequestReceipts::<T>::storage_key(*commitment),
+                    ),
                 },
                 Key::Response { request_commitment, .. } => {
                     match proof.dest_proof.height.id.state_id {
@@ -502,9 +504,10 @@ where
                         StateMachine::Beefy(_) |
                         StateMachine::Grandpa(_) |
                         StateMachine::Kusama(_) |
-                        StateMachine::Polkadot(_) => keys.push(
-                            pallet_ismp::ResponseReceipts::<T>::hashed_key_for(request_commitment),
-                        ),
+                        StateMachine::Polkadot(_) =>
+                            keys.push(pallet_ismp::child_trie::ResponseReceipts::<T>::storage_key(
+                                *request_commitment,
+                            )),
                     }
                 },
             }
@@ -534,7 +537,7 @@ where
                         } else {
                             // If fee is a null value skip it, evm returns non membership proof for
                             // zero values
-                            continue
+                            continue;
                         };
 
                     let fee = {
@@ -598,7 +601,7 @@ where
                         if let Some(encoded) = source_result.get(&source_key).cloned().flatten() {
                             encoded
                         } else {
-                            continue
+                            continue;
                         };
                     let fee = {
                         match proof.source_proof.height.id.state_id {

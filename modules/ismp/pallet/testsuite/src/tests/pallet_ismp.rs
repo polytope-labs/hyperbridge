@@ -18,10 +18,11 @@
 use crate::runtime::*;
 use frame_support::pallet_prelude::Hooks;
 use pallet_ismp::{
+    child_trie::{RequestCommitments, RequestReceipts},
     dispatcher::{Dispatcher, FeeMetadata},
     host::Host,
     mmr::primitives::{DataOrHash, MmrHasher},
-    IntermediateLeaves, NodesUtils, ProofKeys, RequestCommitments, RequestReceipts,
+    IntermediateLeaves, NodesUtils, ProofKeys,
 };
 
 use std::{
@@ -41,8 +42,8 @@ use ismp::{
 
 use ismp::{messaging::Message, router::Response};
 use ismp_testsuite::{
-    check_challenge_period, check_client_expiry, frozen_check, post_request_timeout_check,
-    post_response_timeout_check, write_outgoing_commitments,
+    check_challenge_period, check_client_expiry, missing_state_commitment_check,
+    post_request_timeout_check, post_response_timeout_check, write_outgoing_commitments,
 };
 use merkle_mountain_range::MerkleProof;
 use sp_core::{crypto::AccountId32, H256};
@@ -69,7 +70,6 @@ fn push_leaves(range: Range<u64>) -> (Vec<H256>, Vec<u64>) {
             to: vec![18; 32],
             timeout_timestamp: 100 * nonce,
             data: vec![2u8; 64],
-            gas_limit: 0,
         };
 
         let request = Request::Post(post);
@@ -237,7 +237,6 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
             to: vec![0u8; 32],
             timeout_timestamp: 0,
             data: vec![0u8; 64],
-            gas_limit: 0,
         };
 
         let request_commitment = hash_request::<Host<Test>>(&Request::Post(post.clone()));
@@ -247,7 +246,6 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
 }
 
 #[test]
-#[ignore]
 fn should_reject_updates_within_challenge_period() {
     let mut ext = new_test_ext();
 
@@ -267,7 +265,7 @@ fn should_reject_messages_for_frozen_state_machines() {
         set_timestamp(None);
         let host = Host::<Test>::default();
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
-        frozen_check(&host).unwrap()
+        missing_state_commitment_check(&host).unwrap()
     })
 }
 
@@ -323,7 +321,6 @@ fn should_handle_get_request_timeouts_correctly() {
                 let msg = DispatchGet {
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     from: vec![0u8; 32],
-                    gas_limit: 0,
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 2,
                     timeout_timestamp: 1000,
@@ -341,7 +338,6 @@ fn should_handle_get_request_timeouts_correctly() {
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 2,
                     timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() + 1000,
-                    gas_limit: 0,
                 };
                 ismp::router::Request::Get(get)
             })
@@ -372,7 +368,6 @@ fn should_handle_get_request_responses_correctly() {
                 let msg = DispatchGet {
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     from: vec![0u8; 32],
-                    gas_limit: 0,
 
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 3,
@@ -388,7 +383,6 @@ fn should_handle_get_request_responses_correctly() {
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
                     nonce: i,
                     from: vec![0u8; 32],
-                    gas_limit: 0,
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 3,
                     timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs()

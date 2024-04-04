@@ -173,7 +173,6 @@ impl pallet_ismp::Config for Test {
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Test>, Sepolia>,
         ismp_bsc::BscClient<Host<Test>>,
     );
-    type WeightInfo = ();
     type WeightProvider = ();
 }
 

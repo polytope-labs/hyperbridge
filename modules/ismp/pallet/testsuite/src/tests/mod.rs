@@ -1,3 +1,4 @@
+mod child_trie_proof_check;
 mod pallet_call_decompressor;
 mod pallet_fishermen;
 mod pallet_ismp;

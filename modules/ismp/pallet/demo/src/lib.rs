@@ -158,7 +158,6 @@ pub mod pallet {
                 to: PALLET_ID.to_bytes(),
                 timeout_timestamp: params.timeout,
                 data: payload.encode(),
-                gas_limit: 0,
             };
 
             // dispatch the request
@@ -196,7 +195,6 @@ pub mod pallet {
                 keys: params.keys,
                 height: params.height as u64,
                 timeout_timestamp: params.timeout,
-                gas_limit: 0,
             };
 
             let dispatcher = T::IsmpDispatcher::default();
@@ -217,7 +215,6 @@ pub mod pallet {
                 to: params.module.0.to_vec(),
                 timeout_timestamp: params.timeout,
                 data: b"Hello from polkadot".to_vec(),
-                gas_limit: 10_000_000,
             };
             let dispatcher = T::IsmpDispatcher::default();
             for _ in 0..params.count {

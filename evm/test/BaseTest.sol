@@ -7,6 +7,7 @@ import {TestHost} from "./TestHost.sol";
 import {PingModule} from "../examples/PingModule.sol";
 import {HandlerV1} from "../src/modules/HandlerV1.sol";
 import {FeeToken} from "./FeeToken.sol";
+import {MockUSCDC} from "./MockUSDC.sol";
 import {HostParams} from "../src/hosts/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
 import {TokenGateway, Asset, InitParams} from "../src/modules/TokenGateway.sol";
@@ -28,12 +29,15 @@ contract BaseTest is Test {
     HandlerV1 internal handler;
     PingModule internal testModule;
     FeeToken internal feeToken;
+    MockUSCDC internal mockUSDC;
     TokenGateway internal gateway;
 
     function setUp() public virtual {
         consensusClient = new TestConsensusClient();
         handler = new HandlerV1();
         feeToken = new FeeToken(address(this), "HyperUSD", "USD.h");
+        
+        mockUSDC = new MockUSCDC("MockUSDC", "USDC.h");
 
         HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
         HostManager manager = new HostManager(gParams);
@@ -59,6 +63,8 @@ contract BaseTest is Test {
         // approve the host address to spend the fee token.
         feeToken.superApprove(tx.origin, address(host));
         feeToken.superApprove(address(this), address(host));
+
+        mockUSDC.superApprove(tx.origin, address(host));
 
         testModule = new PingModule(address(this));
         testModule.setIsmpHost(address(host));

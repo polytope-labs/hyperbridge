@@ -15,11 +15,12 @@
 
 #![cfg(test)]
 
-use crate::runtime::{new_test_ext, RuntimeOrigin, Test};
-use crate::tests::pallet_ismp_relayer::{encode_accumulate_fees_call, read_file_string};
+use crate::{
+    runtime::{new_test_ext, RuntimeOrigin, Test},
+    tests::pallet_ismp_relayer::{encode_accumulate_fees_call, read_file_string},
+};
 use ruzstd::StreamingDecoder;
-use std::io::Read;
-use std::time::Instant;
+use std::{io::Read, time::Instant};
 use zstd_safe::WriteBuf;
 
 #[test]

@@ -375,6 +375,7 @@ contract TokenGatewayTest is BaseTest {
 
         vm.prank(address(host));
 
+        // Adding Erc20 token to the existing `USD.h` asset using governance action
         gateway.onAccept(
             PostRequest({
                 to: abi.encodePacked(address(0)),
@@ -387,30 +388,16 @@ contract TokenGatewayTest is BaseTest {
             })
         );
 
-        Body memory body = Body({
-            assetId: keccak256("USD.h"),
-            to: address(this),
-            redeem: false,
-            amount: 1_000 * 1e18,
-            from: address(this)
-        });
+        // Send in ERC20assets to gateway contract, this is mimicking a user who locked there asset on this chain, 
+        // now the relayer is bringing the ERC6160 asset obatined from the other chain for providing this liquidity.
+        mockUSDC.mint(address(gateway), 1_000 * 1e18);
 
-        vm.prank(address(host));
-        gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"00", abi.encode(body)),
-                nonce: 0,
-                source: new bytes(0),
-                timeoutTimestamp: 0
-            })
-        );
+        // Relayer USDC receaiving address
+        address relayer_vault = address(1);
 
         Body memory redeemBody = Body({
             assetId: keccak256("USD.h"),
-            to: address(this),
+            to: relayer_vault,
             redeem: true,
             amount: 1_000 * 1e18,
             from: address(this)
@@ -428,8 +415,10 @@ contract TokenGatewayTest is BaseTest {
                 timeoutTimestamp: 0
             })
         );
-        uint256 protocolFee = 1 * 1e15;
-        assert(mockUSDC.balanceOf(address(this)) == 1_000 * 1e18 - protocolFee);
+        
+        uint256 protocolFee = 1_000 * 1e18 / 1000; // 0.1% of the total amount
+        assert(mockUSDC.balanceOf(address(relayer_vault)) == 1_000 * 1e18 - protocolFee); // this should be the protocol fee
+        assert(mockUSDC.balanceOf(address(gateway)) == protocolFee); // this should be the remaining amount
     }
 
     // function testUserSwap() public {

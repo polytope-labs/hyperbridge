@@ -200,22 +200,20 @@ where
 
         if let Some(call) = IsSubType::<pallet_ismp::Call<T>>::is_sub_type(&runtime_call).cloned() {
             match call {
-                pallet_ismp::Call::handle { messages } => {
+                pallet_ismp::Call::handle { messages } =>
                     <pallet_ismp::Pallet<T>>::handle(frame_system::RawOrigin::None.into(), messages)
-                        .map_err(|_| Error::<T>::ErrorExecutingCall)?
-                },
+                        .map_err(|_| Error::<T>::ErrorExecutingCall)?,
                 _ => Err(Error::<T>::CallNotSupported)?,
             };
         } else if let Some(call) =
             IsSubType::<pallet_ismp_relayer::Call<T>>::is_sub_type(&runtime_call).cloned()
         {
             match call {
-                pallet_ismp_relayer::Call::accumulate_fees { withdrawal_proof } => {
+                pallet_ismp_relayer::Call::accumulate_fees { withdrawal_proof } =>
                     <pallet_ismp_relayer::Pallet<T>>::accumulate_fees(
                         frame_system::RawOrigin::None.into(),
                         withdrawal_proof,
-                    )?
-                },
+                    )?,
                 _ => Err(Error::<T>::CallNotSupported)?,
             };
         } else {

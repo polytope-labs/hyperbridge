@@ -196,14 +196,6 @@ alloy-primitives = { version = "0.6.0", default-features = false, features = [
     "rlp",
 ] }
 
-# Orml depedencies
-
-orml-traits = { version = "0.7.0", default-features = false }
-orml-unknown-tokens = { version = "0.7.0", default-features = false }
-orml-xcm-support = { version = "0.7.0", default-features = false }
-orml-xtokens = { version = "0.7.0", default-features = false }
-orml-tokens = { version = "0.7.0", default-features = false }
-
 
 # local dependencies
 # ismp core

@@ -41,9 +41,7 @@ use pallet_ismp_relayer::{
 };
 use sp_core::{Pair, H160, H256, U256};
 use sp_trie::LayoutV0;
-use std::fs::File;
-use std::io::Read;
-use std::time::Duration;
+use std::{fs::File, io::Read, time::Duration};
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 
 use crate::runtime::{

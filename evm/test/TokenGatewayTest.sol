@@ -360,4 +360,127 @@ contract TokenGatewayTest is BaseTest {
             })
         );
     }
+
+    function testRelayerRedeemLiquidity() public {
+        Asset memory asset =
+            Asset({erc20: address(mockUSDC), erc6160: address(feeToken), identifier: keccak256("USD.h")});
+
+        Asset[] memory assets = new Asset[](1);
+        assets[0] = asset;
+
+        bytes memory hyperbridge = host.hyperbridge();
+
+        feeToken.mint(address(this), 1_000 * 1e18, "");
+        mockUSDC.mint(address(this), 1_000_000 * 1e18);
+
+        vm.prank(address(host));
+
+        gateway.onAccept(
+            PostRequest({
+                to: abi.encodePacked(address(0)),
+                from: abi.encodePacked(address(gateway)),
+                dest: new bytes(0),
+                body: bytes.concat(hex"0100", abi.encode(assets)),
+                nonce: 0,
+                source: hyperbridge,
+                timeoutTimestamp: 0
+            })
+        );
+
+        Body memory body = Body({
+            assetId: keccak256("USD.h"),
+            to: address(this),
+            redeem: false,
+            amount: 1_000 * 1e18,
+            from: address(this)
+        });
+
+        vm.prank(address(host));
+        gateway.onAccept(
+            PostRequest({
+                to: abi.encodePacked(address(0)),
+                from: abi.encodePacked(address(gateway)),
+                dest: new bytes(0),
+                body: bytes.concat(hex"00", abi.encode(body)),
+                nonce: 0,
+                source: new bytes(0),
+                timeoutTimestamp: 0
+            })
+        );
+
+        Body memory redeemBody = Body({
+            assetId: keccak256("USD.h"),
+            to: address(this),
+            redeem: true,
+            amount: 1_000 * 1e18,
+            from: address(this)
+        });
+
+        vm.prank(address(host));
+        gateway.onAccept(
+            PostRequest({
+                to: abi.encodePacked(address(0)),
+                from: abi.encodePacked(address(gateway)),
+                dest: new bytes(0),
+                body: bytes.concat(hex"00", abi.encode(redeemBody)),
+                nonce: 0,
+                source: new bytes(0),
+                timeoutTimestamp: 0
+            })
+        );
+        uint256 protocolFee = 1 * 1e15;
+        assert(mockUSDC.balanceOf(address(this)) == 1_000 * 1e18 - protocolFee);
+    }
+
+    // function testUserSwap() public {
+    //     Asset memory asset =
+    //         Asset({erc20: address(mockUSDC), erc6160: address(feeToken), identifier: keccak256("USD.h")});
+
+    //     Asset[] memory assets = new Asset[](1);
+    //     assets[0] = asset;
+
+    //     bytes memory hyperbridge = host.hyperbridge();
+    //     // relayer fee + per-byte fee
+    //     uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
+    //     feeToken.mint(address(this), 1_000 * 1e18 + messagingFee, "");
+    //     // mockUSDC.mint(msg.sender, 1_000 * 1e18);
+
+    //     vm.prank(address(host));
+
+    //     gateway.onAccept(
+    //         PostRequest({
+    //             to: abi.encodePacked(address(0)),
+    //             from: abi.encodePacked(address(gateway)),
+    //             dest: new bytes(0),
+    //             body: bytes.concat(hex"0100", abi.encode(assets)),
+    //             nonce: 0,
+    //             source: hyperbridge,
+    //             timeoutTimestamp: 0
+    //         })
+    //     );
+
+    //     Body memory body = Body({
+    //         assetId: keccak256("USD.h"),
+    //         to: address(this),
+    //         redeem: false,
+    //         amount: 1_000 * 1e18,
+    //         from: address(this)
+    //     });
+
+    //     vm.prank(address(host));
+    //     gateway.onAccept(
+    //         PostRequest({
+    //             to: abi.encodePacked(address(0)),
+    //             from: abi.encodePacked(address(gateway)),
+    //             dest: new bytes(0),
+    //             body: bytes.concat(hex"00", abi.encode(body)),
+    //             nonce: 0,
+    //             source: new bytes(0),
+    //             timeoutTimestamp: 0
+    //         })
+    //     );
+
+    //     assert(feeToken.balanceOf(address(this)) == 1_000 * 1e18 + messagingFee);
+    //     assert(feeToken.balanceOf(address(host)) == 0);
+    // }
 }

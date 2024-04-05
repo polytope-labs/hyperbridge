@@ -71,6 +71,7 @@ contract BaseTest is Test {
         feeToken.superApprove(address(this), address(host));
 
         mockUSDC.superApprove(tx.origin, address(host));
+        mockUSDC.superApprove(address(this), address(host));
 
         testModule = new PingModule(address(this));
         testModule.setIsmpHost(address(host));

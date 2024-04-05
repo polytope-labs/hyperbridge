@@ -63,6 +63,24 @@ export default defineConfig({
       link: "/",
     },
     {
+      text: "Getting Started",
+      collapsed: true,
+      items: [
+        {
+          text: "Bridges",
+          link: "/introduction/bridges"
+        },
+        {
+          text: "What is Hyperbridge?",
+          link: "/introduction/what-is-hyperbridge"
+        },
+        {
+          text: "Glossary",
+          link: "/introduction/glossary"
+        }
+      ]
+    },
+    {
       text: "Protocol",
       collapsed: true,
       items: [
@@ -109,6 +127,7 @@ export default defineConfig({
           text: "Proxies",
           link: "/protocol/proxies",
         },
+
       ],
     },
     {

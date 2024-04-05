@@ -194,9 +194,9 @@ contract TokenGatewayTest is BaseTest {
         );
 
         bytes32 key = keccak256("USD.h");
-        bytes32 Erc6160Asset = getMappingValue(address(gateway), 7, key);
+        bytes32 Erc6160Asset = getMappingValue(address(gateway), 8, key);
 
-        bytes32 Erc20Asset = getMappingValue(address(gateway), 8, key);
+        bytes32 Erc20Asset = getMappingValue(address(gateway), 9, key);
 
         address erc6160Asset = address(uint160(uint256(Erc6160Asset)));
         address erc20Asset = address(uint160(uint256(Erc20Asset)));

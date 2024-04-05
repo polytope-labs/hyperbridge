@@ -129,6 +129,8 @@ contract TokenGateway is BaseIsmpModule {
     IUniswapV2Router private _uniswapV2Router;
     /// call dispatcher
     ICallDispatcher private _dispatcher;
+    // Maximum slippage of 0.5%
+    uint256 maxSlippagePercentage = 50; // 0.5 * 100
 
     // mapping of token identifier to erc6160 contracts
     mapping(bytes32 => address) private _erc6160s;
@@ -348,14 +350,17 @@ contract TokenGateway is BaseIsmpModule {
 
         uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(_toTokenAmountOut, path)[0];
 
-        // How do we handle cases of slippage - Todo: Handle Slippage
+        // Handling Slippage Implementation
+        uint slippageAmount = (_fromTokenAmountIn * maxSlippagePercentage) / 10000; // Adjusted for percentage times 100
+        uint amountInMax = _fromTokenAmountIn + slippageAmount;
+
         require(
-            IERC20(_fromToken).transferFrom(_sender, address(this), _fromTokenAmountIn),
+            IERC20(_fromToken).transferFrom(_sender, address(this), amountInMax),
             "insufficient intended fee token"
         );
-        require(IERC20(_fromToken).approve(address(_uniswapV2Router), _fromTokenAmountIn), "approve failed.");
+        require(IERC20(_fromToken).approve(address(_uniswapV2Router), amountInMax), "approve failed.");
 
-        _uniswapV2Router.swapTokensForExactTokens(_toTokenAmountOut, _fromTokenAmountIn, path, _sender, block.timestamp);
+        _uniswapV2Router.swapTokensForExactTokens(_toTokenAmountOut, amountInMax, path, _sender, block.timestamp + 300);
 
         return true;
     }

@@ -31,6 +31,9 @@ struct TeleportParams {
     uint64 timeout;
     // destination contract call data
     bytes data;
+    // calculated amountInMax: 
+    // used if selected fee token is not expected fee token
+    uint256 amountInMax;
 }
 
 struct Body {
@@ -129,8 +132,6 @@ contract TokenGateway is BaseIsmpModule {
     IUniswapV2Router private _uniswapV2Router;
     /// call dispatcher
     ICallDispatcher private _dispatcher;
-    // Maximum slippage of 0.5%
-    uint256 maxSlippagePercentage = 50; // 0.5 * 100
 
     // mapping of token identifier to erc6160 contracts
     mapping(bytes32 => address) private _erc6160s;
@@ -209,7 +210,7 @@ contract TokenGateway is BaseIsmpModule {
 
             // only swap if the feeToken is not the token intended for fee
             if (feeToken != params.feeToken) {
-                require(handleSwap(from, params.feeToken, feeToken, _fee), "Token swap failed");
+                require(handleSwap(from, params.feeToken, feeToken, _fee, params.amountInMax), "Token swap failed");
             }
         } else if (erc6160 != address(0)) {
             IERC6160Ext20(erc6160).burn(from, params.amount, "");
@@ -340,7 +341,7 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    function handleSwap(address _sender, address _fromToken, address _toToken, uint256 _toTokenAmountOut)
+    function handleSwap(address _sender, address _fromToken, address _toToken, uint256 _toTokenAmountOut, uint256 _amountInMax)
         private
         returns (bool)
     {
@@ -348,19 +349,13 @@ contract TokenGateway is BaseIsmpModule {
         path[0] = _fromToken;
         path[1] = _toToken;
 
-        uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(_toTokenAmountOut, path)[0];
-
-        // Handling Slippage Implementation
-        uint slippageAmount = (_fromTokenAmountIn * maxSlippagePercentage) / 10000; // Adjusted for percentage times 100
-        uint amountInMax = _fromTokenAmountIn + slippageAmount;
-
         require(
-            IERC20(_fromToken).transferFrom(_sender, address(this), amountInMax),
+            IERC20(_fromToken).transferFrom(_sender, address(this), _amountInMax),
             "insufficient intended fee token"
         );
-        require(IERC20(_fromToken).approve(address(_uniswapV2Router), amountInMax), "approve failed.");
+        require(IERC20(_fromToken).approve(address(_uniswapV2Router), _amountInMax), "approve failed.");
 
-        _uniswapV2Router.swapTokensForExactTokens(_toTokenAmountOut, amountInMax, path, _sender, block.timestamp + 300);
+        _uniswapV2Router.swapTokensForExactTokens(_toTokenAmountOut, _amountInMax, path, _sender, block.timestamp + 300);
 
         return true;
     }

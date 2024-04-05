@@ -10,11 +10,24 @@ import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/modules/TokenGateway
 import {StateMachine} from "ismp/StateMachine.sol";
 
 contract TeleportSwapTest is MainnetForkBaseTest {
+    // Maximum slippage of 0.5%
+    uint256 maxSlippagePercentage = 50; // 0.5 * 100
+
     function testCanTeleportAssetsUsingUsdcForFee() public {
+        address mainnetUsdcHolder = address(0xf584F8728B874a6a5c7A8d4d387C9aae9172D621);
+        
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
 
-        address mainnetUsdcHolder = address(0xf584F8728B874a6a5c7A8d4d387C9aae9172D621);
+        address[] memory path = new address[](2);
+        path[0] = address(usdc);
+        path[1] = address(feeToken);
+
+        uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(messagingFee, path)[0];
+
+        // Handling Slippage Implementation
+        uint _slippageAmount = (_fromTokenAmountIn * maxSlippagePercentage) / 10000; // Adjusted for percentage times 100
+        uint _amountInMax = _fromTokenAmountIn + _slippageAmount;
 
         // mainnet forking - impersonation
         vm.startPrank(mainnetUsdcHolder);
@@ -33,7 +46,8 @@ contract TeleportSwapTest is MainnetForkBaseTest {
                 timeout: 0,
                 to: address(this),
                 assetId: keccak256("USD.h"),
-                data: new bytes(0)
+                data: new bytes(0),
+                amountInMax: _amountInMax
             })
         );
 

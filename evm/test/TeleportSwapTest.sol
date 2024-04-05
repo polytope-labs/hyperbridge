@@ -32,7 +32,8 @@ contract TeleportSwapTest is MainnetForkBaseTest {
                 fee: 9 * 1e17, // $0.9
                 timeout: 0,
                 to: address(this),
-                assetId: keccak256("USD.h")
+                assetId: keccak256("USD.h"),
+                data: new bytes(0)
             })
         );
 

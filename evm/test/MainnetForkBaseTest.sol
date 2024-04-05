@@ -6,6 +6,7 @@ import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
 import {PingModule} from "../examples/PingModule.sol";
 import {HandlerV1} from "../src/modules/HandlerV1.sol";
+import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {HostParams} from "../src/hosts/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
@@ -50,6 +51,7 @@ contract MainnetForkBaseTest is Test {
 
         consensusClient = new TestConsensusClient();
         handler = new HandlerV1();
+        CallDispatcher dispatcher = new CallDispatcher();
 
         HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
         HostManager manager = new HostManager(gParams);
@@ -88,7 +90,8 @@ contract MainnetForkBaseTest is Test {
                 uniswapV2Router: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D,
                 protocolFeePercentage: 100, // 0.1
                 relayerFeePercentage: 300, // 0.3
-                assets: assets
+                assets: assets,
+                callDispatcher: address(dispatcher)
             })
         );
     }

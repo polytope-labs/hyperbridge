@@ -417,59 +417,74 @@ contract TokenGatewayTest is BaseTest {
         );
         
         uint256 protocolFee = 1_000 * 1e18 / 1000; // 0.1% of the total amount
-        assert(mockUSDC.balanceOf(address(relayer_vault)) == 1_000 * 1e18 - protocolFee); // this should be the protocol fee
-        assert(mockUSDC.balanceOf(address(gateway)) == protocolFee); // this should be the remaining amount
+        assert(mockUSDC.balanceOf(address(gateway)) == protocolFee); // this should be the protocol fee 
+        assert(mockUSDC.balanceOf(address(relayer_vault)) == 1_000 * 1e18 - protocolFee); // this should be the remaining amount
     }
 
-    // function testUserSwap() public {
-    //     Asset memory asset =
-    //         Asset({erc20: address(mockUSDC), erc6160: address(feeToken), identifier: keccak256("USD.h")});
+    function testHandleIncomingAssetWithSwap() public {
+        // Adding new Asset to the gateway
+        Asset memory asset =
+            Asset({erc20: address(hyperInu), erc6160: address(hyperInu_h), identifier: keccak256("HyperInu.h")});
 
-    //     Asset[] memory assets = new Asset[](1);
-    //     assets[0] = asset;
+        Asset[] memory assets = new Asset[](1);
+        assets[0] = asset;
 
-    //     bytes memory hyperbridge = host.hyperbridge();
-    //     // relayer fee + per-byte fee
-    //     uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
-    //     feeToken.mint(address(this), 1_000 * 1e18 + messagingFee, "");
-    //     // mockUSDC.mint(msg.sender, 1_000 * 1e18);
+        bytes memory hyperbridge = host.hyperbridge();
 
-    //     vm.prank(address(host));
+        // relayer fee + per-byte fee
+        uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
+        feeToken.mint(address(this), 1_000 * 1e18 + messagingFee, "");
 
-    //     gateway.onAccept(
-    //         PostRequest({
-    //             to: abi.encodePacked(address(0)),
-    //             from: abi.encodePacked(address(gateway)),
-    //             dest: new bytes(0),
-    //             body: bytes.concat(hex"0100", abi.encode(assets)),
-    //             nonce: 0,
-    //             source: hyperbridge,
-    //             timeoutTimestamp: 0
-    //         })
-    //     );
 
-    //     Body memory body = Body({
-    //         assetId: keccak256("USD.h"),
-    //         to: address(this),
-    //         redeem: false,
-    //         amount: 1_000 * 1e18,
-    //         from: address(this)
-    //     });
+        vm.prank(address(host));
+        gateway.onAccept(
+            PostRequest({
+                to: abi.encodePacked(address(0)),
+                from: abi.encodePacked(address(gateway)),
+                dest: new bytes(0),
+                body: bytes.concat(hex"0100", abi.encode(assets)),
+                nonce: 0,
+                source: hyperbridge,
+                timeoutTimestamp: 0
+            })
+        );
 
-    //     vm.prank(address(host));
-    //     gateway.onAccept(
-    //         PostRequest({
-    //             to: abi.encodePacked(address(0)),
-    //             from: abi.encodePacked(address(gateway)),
-    //             dest: new bytes(0),
-    //             body: bytes.concat(hex"00", abi.encode(body)),
-    //             nonce: 0,
-    //             source: new bytes(0),
-    //             timeoutTimestamp: 0
-    //         })
-    //     );
 
-    //     assert(feeToken.balanceOf(address(this)) == 1_000 * 1e18 + messagingFee);
-    //     assert(feeToken.balanceOf(address(host)) == 0);
-    // }
+        address user_vault = address(1);
+        address relayer_address = address(tx.origin);
+
+        hyperInu.mint(relayer_address, 1_000 * 1e18);
+        hyperInu.superApprove(relayer_address, address(gateway));
+
+ 
+        Body memory body = Body({
+            assetId: keccak256("HyperInu.h"),
+            to: user_vault,
+            redeem: false,
+            amount: 1_000 * 1e18,
+            from: address(this)
+        });
+
+        uint256 relayerBalanceBefore = hyperInu_h.balanceOf(relayer_address);
+
+        vm.prank(address(host));
+        gateway.onAccept(
+            PostRequest({
+                to: abi.encodePacked(address(0)),
+                from: abi.encodePacked(address(gateway)),
+                dest: new bytes(0),
+                body: bytes.concat(hex"00", abi.encode(body)),
+                nonce: 0,
+                source: new bytes(0),
+                timeoutTimestamp: 0
+            })
+        );
+
+        uint256 relayerBalanceAfter = hyperInu_h.balanceOf(relayer_address);
+
+        uint256 liquidityFee = 3000000000000000000; // 0.3% of the total amount (997000000000000000000)
+
+        assert(hyperInu.balanceOf(user_vault) == 1_000 * 1e18 - liquidityFee); // user should have the ERC20 token - fee
+        assert((relayerBalanceAfter - relayerBalanceBefore) == 1_000 * 1e18); // relayer should have the ERC6160 token
+    }
 }

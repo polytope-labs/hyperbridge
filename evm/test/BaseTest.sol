@@ -37,6 +37,9 @@ contract BaseTest is Test {
     ERC20Token stakedToken;
     MiniStaking miniStaking;
 
+    MockUSCDC internal hyperInu;
+    FeeToken internal hyperInu_h;
+
     function setUp() public virtual {
         consensusClient = new TestConsensusClient();
         handler = new HandlerV1();
@@ -44,6 +47,9 @@ contract BaseTest is Test {
 
         mockUSDC = new MockUSCDC("MockUSDC", "USDC.h");
         CallDispatcher dispatcher = new CallDispatcher();
+
+        hyperInu = new MockUSCDC("HyperInu", "HINU");
+        hyperInu_h = new FeeToken(address(this), "HyperInu", "HINU.h");
 
         HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
         HostManager manager = new HostManager(gParams);
@@ -95,6 +101,9 @@ contract BaseTest is Test {
         feeToken.grantRole(MINTER_ROLE, address(this));
         feeToken.grantRole(MINTER_ROLE, address(gateway));
         feeToken.grantRole(BURNER_ROLE, address(gateway));
+
+        hyperInu_h.grantRole(MINTER_ROLE, address(gateway));
+        hyperInu_h.grantRole(BURNER_ROLE, address(gateway));
 
         miniStaking = new MiniStaking(address(feeToken));
     }

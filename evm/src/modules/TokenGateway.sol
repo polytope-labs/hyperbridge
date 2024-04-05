@@ -12,6 +12,7 @@ import {CallDispatcher, ICallDispatcher} from "./CallDispatcher.sol";
 
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
 
+
 struct TeleportParams {
     // amount to be sent
     uint256 amount;
@@ -294,6 +295,8 @@ contract TokenGateway is BaseIsmpModule {
         address erc20 = _erc20s[assetId];
         address erc6160 = _erc6160s[assetId];
 
+        
+
         if (erc20 != address(0) && redeem) {
             // a relayer/user is redeeming the native asset
             uint256 _protocolRedeemFee = calculateProtocolFee(amount);
@@ -379,7 +382,7 @@ contract TokenGateway is BaseIsmpModule {
         uint256 length = assets.length;
         for (uint256 i = 0; i < length; i++) {
             Asset memory asset = assets[i];
-
+        
             _erc20s[asset.identifier] = asset.erc20;
             _erc6160s[asset.identifier] = asset.erc6160;
         }

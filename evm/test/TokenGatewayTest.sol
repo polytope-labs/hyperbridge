@@ -467,6 +467,8 @@ contract TokenGatewayTest is BaseTest {
 
         uint256 relayerBalanceBefore = hyperInu_h.balanceOf(relayer_address);
 
+
+        // hitting the gateway with the incoming asset
         vm.prank(address(host));
         gateway.onAccept(
             PostRequest({

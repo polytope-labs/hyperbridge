@@ -323,6 +323,8 @@ jobs:
         id: build
 
       - name: Run Forge tests
+        env:
+          MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
         run: |
           cd ./evm
           forge test -vvv

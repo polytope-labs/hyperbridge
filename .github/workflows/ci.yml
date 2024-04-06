@@ -22,6 +22,7 @@ env:
   POLYGON_RPC: ${{ secrets.POLYGON_RPC }}
   WASM_BINDGEN_TEST_TIMEOUT: 5400
   GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+  MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
 
 jobs:
   check-wasm:
@@ -323,8 +324,6 @@ jobs:
         id: build
 
       - name: Run Forge tests
-        env:
-          MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
         run: |
           cd ./evm
           forge test -vvv

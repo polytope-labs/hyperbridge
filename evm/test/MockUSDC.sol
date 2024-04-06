@@ -13,4 +13,8 @@ contract MockUSCDC is ERC20, ERC20Permit {
     function superApprove(address owner, address spender) public {
         _approve(owner, spender, type(uint256).max);
     }
+
+    function mint(address to, uint256 amount) public {
+        _mint(to, amount);
+    }
 }

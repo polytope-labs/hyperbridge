@@ -12,6 +12,7 @@ import {CallDispatcher, ICallDispatcher} from "./CallDispatcher.sol";
 
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
 
+
 struct TeleportParams {
     // amount to be sent
     uint256 amount;
@@ -31,6 +32,9 @@ struct TeleportParams {
     uint64 timeout;
     // destination contract call data
     bytes data;
+    // calculated amountInMax: 
+    // used if selected fee token is not expected fee token
+    uint256 amountInMax;
 }
 
 struct Body {
@@ -207,7 +211,7 @@ contract TokenGateway is BaseIsmpModule {
 
             // only swap if the feeToken is not the token intended for fee
             if (feeToken != params.feeToken) {
-                require(handleSwap(from, params.feeToken, feeToken, _fee), "Token swap failed");
+                require(handleSwap(from, params.feeToken, feeToken, _fee, params.amountInMax), "Token swap failed");
             }
         } else if (erc6160 != address(0)) {
             IERC6160Ext20(erc6160).burn(from, params.amount, "");
@@ -294,6 +298,8 @@ contract TokenGateway is BaseIsmpModule {
         address erc20 = _erc20s[assetId];
         address erc6160 = _erc6160s[assetId];
 
+        
+
         if (erc20 != address(0) && redeem) {
             // a relayer/user is redeeming the native asset
             uint256 _protocolRedeemFee = calculateProtocolFee(amount);
@@ -338,7 +344,7 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    function handleSwap(address _sender, address _fromToken, address _toToken, uint256 _toTokenAmountOut)
+    function handleSwap(address _sender, address _fromToken, address _toToken, uint256 _toTokenAmountOut, uint256 _amountInMax)
         private
         returns (bool)
     {
@@ -346,16 +352,13 @@ contract TokenGateway is BaseIsmpModule {
         path[0] = _fromToken;
         path[1] = _toToken;
 
-        uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(_toTokenAmountOut, path)[0];
-
-        // How do we handle cases of slippage - Todo: Handle Slippage
         require(
-            IERC20(_fromToken).transferFrom(_sender, address(this), _fromTokenAmountIn),
+            IERC20(_fromToken).transferFrom(_sender, address(this), _amountInMax),
             "insufficient intended fee token"
         );
-        require(IERC20(_fromToken).approve(address(_uniswapV2Router), _fromTokenAmountIn), "approve failed.");
+        require(IERC20(_fromToken).approve(address(_uniswapV2Router), _amountInMax), "approve failed.");
 
-        _uniswapV2Router.swapTokensForExactTokens(_toTokenAmountOut, _fromTokenAmountIn, path, _sender, block.timestamp);
+        _uniswapV2Router.swapTokensForExactTokens(_toTokenAmountOut, _amountInMax, path, _sender, block.timestamp + 300);
 
         return true;
     }
@@ -379,7 +382,7 @@ contract TokenGateway is BaseIsmpModule {
         uint256 length = assets.length;
         for (uint256 i = 0; i < length; i++) {
             Asset memory asset = assets[i];
-
+        
             _erc20s[asset.identifier] = asset.erc20;
             _erc6160s[asset.identifier] = asset.erc6160;
         }

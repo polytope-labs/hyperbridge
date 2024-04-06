@@ -26,7 +26,7 @@ contract MockHost {
         return _host;
     }
 
-    function dai() public view returns (address) {
+    function feeToken() public view returns (address) {
         return _hostParams.feeTokenAddress;
     }
 

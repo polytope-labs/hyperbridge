@@ -44,7 +44,6 @@ contract MainnetForkBaseTest is Test {
         feeToken = dai;
         _uniswapV2Router = IUniswapV2Router(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
 
-
         string memory fork_url = vm.envString("MAINNET_FORK_URL");
 
         // mainnet fork creation

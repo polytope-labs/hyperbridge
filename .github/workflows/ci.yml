@@ -22,7 +22,7 @@ env:
   POLYGON_RPC: ${{ secrets.POLYGON_RPC }}
   WASM_BINDGEN_TEST_TIMEOUT: 5400
   GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-  MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
+  MAINNET_FORK_URL: ${{ secrets.BNB_RPC }}
 
 jobs:
   check-wasm:

@@ -8840,6 +8840,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "ckb-merkle-mountain-range",
+ "cumulus-pallet-xcm",
  "env_logger",
  "ethereum-trie",
  "frame-support",
@@ -8850,23 +8851,37 @@ dependencies = [
  "ismp-bsc",
  "ismp-sync-committee",
  "ismp-testsuite",
+ "pallet-asset-transfer",
+ "pallet-assets",
  "pallet-balances",
  "pallet-call-decompressor",
  "pallet-fishermen",
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
+ "pallet-message-queue",
  "pallet-timestamp",
+ "pallet-xcm",
  "parity-scale-codec",
+ "polkadot-parachain-primitives",
+ "polkadot-runtime-common",
+ "polkadot-runtime-parachains",
  "ruzstd 0.6.0",
  "scale-info",
  "sp-core 28.0.0",
  "sp-io 30.0.0",
  "sp-runtime 31.0.1",
  "sp-state-machine 0.35.0",
+ "sp-std 14.0.0",
  "sp-trie 29.0.0",
+ "staging-parachain-info",
+ "staging-xcm",
+ "staging-xcm-builder",
+ "staging-xcm-executor",
  "substrate-state-machine",
  "trie-db 0.28.0",
+ "xcm-simulator",
+ "xcm-simulator-example",
  "zstd-safe 7.1.0",
 ]
 
@@ -9438,6 +9453,22 @@ dependencies = [
  "scale-info",
  "serde",
  "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+]
+
+[[package]]
+name = "pallet-uniques"
+version = "28.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "faf5e6bf708cc4d7efe8d66a8bb80da4875724edbcf1f624bd34b6937c0af452"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
  "sp-runtime 31.0.1",
  "sp-std 14.0.0",
 ]
@@ -18657,6 +18688,54 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.57",
+]
+
+[[package]]
+name = "xcm-simulator"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "958836c9a2dc17a9b3a8b23fab47903a7dbc934f8d447386813c813139dbba8a"
+dependencies = [
+ "frame-support",
+ "parity-scale-codec",
+ "paste",
+ "polkadot-core-primitives",
+ "polkadot-parachain-primitives",
+ "polkadot-runtime-parachains",
+ "sp-io 30.0.0",
+ "sp-std 14.0.0",
+ "staging-xcm",
+ "staging-xcm-builder",
+ "staging-xcm-executor",
+]
+
+[[package]]
+name = "xcm-simulator-example"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d77b22d85a38487bed2cbfdaaace74e7191bb9ef28d1fb16c5e32d2cd7e63e9"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "pallet-message-queue",
+ "pallet-uniques",
+ "pallet-xcm",
+ "parity-scale-codec",
+ "polkadot-core-primitives",
+ "polkadot-parachain-primitives",
+ "polkadot-runtime-parachains",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-io 30.0.0",
+ "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+ "sp-tracing 16.0.0",
+ "staging-xcm",
+ "staging-xcm-builder",
+ "staging-xcm-executor",
+ "xcm-simulator",
 ]
 
 [[package]]

@@ -22,7 +22,10 @@ extern crate alloc;
 use core::marker::PhantomData;
 
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
-use frame_support::traits::{fungibles, Get};
+use frame_support::{
+    ensure,
+    traits::{fungibles, Get},
+};
 use ismp::{
     events::Meta,
     host::StateMachine,
@@ -204,7 +207,7 @@ where
     T::AccountId: Into<[u8; 32]>,
     T::EvmAccountId: Into<[u8; 20]>,
 {
-    fn on_accept(&self, request: ismp::router::Post) -> Result<(), ismp::error::Error> {
+    fn on_accept(&self, _request: ismp::router::Post) -> Result<(), ismp::error::Error> {
         // We can't custody user funds since there would be not signed transactions at launch
         // and they would not be able to send an xcm back to the relaychain, xcm implementation for
         // substrate wallets would use signed transactions We send the dot back to the
@@ -232,6 +235,17 @@ where
         match request {
             Timeout::Request(Request::Post(post)) => {
                 let request = Request::Post(post.clone());
+                ensure!(
+                    request.source_module() == T::TokenGateWay::get().0.to_vec(),
+                    ismp::error::Error::ModuleDispatchError {
+                        msg: "Token Gateway: Unknown source contract address".to_string(),
+                        meta: Meta {
+                            source: request.source_chain(),
+                            dest: request.dest_chain(),
+                            nonce: request.nonce(),
+                        },
+                    }
+                );
                 let commitment = hash_request::<Host<T>>(&request);
                 let fee_metadata = pallet_ismp::child_trie::RequestCommitments::<T>::get(
                     commitment,

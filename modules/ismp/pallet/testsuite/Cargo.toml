@@ -16,11 +16,15 @@ pallet-balances = { workspace = true, default-features = true }
 pallet-timestamp = { workspace = true, default-features = true }
 sp-core = { workspace = true, default-features = true }
 sp-io = { workspace = true, default-features = true }
+sp-std = { workspace = true, default-features = true }
 sp-trie = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true, default-features = true }
 trie-db = { workspace = true }
 hash-db = { workspace = true }
+xcm-simulator-example = { workspace = true }
+xcm-simulator = { workspace = true }
+pallet-assets = { workspace = true, default-features = true }
 
 ismp = { workspace = true, default-features = true }
 ismp-testsuite = { workspace = true, default-features = true }
@@ -33,7 +37,22 @@ substrate-state-machine = { workspace = true, default-features = true }
 pallet-ismp-relayer = { workspace = true, default-features = true }
 pallet-fishermen = { workspace = true, default-features = true }
 pallet-call-decompressor = { workspace = true, default-features = true }
-sp-state-machine = "0.35.0"
+pallet-asset-transfer = { workspace = true, default-features = true }
+sp-state-machine = { workspace = true, default-features = true }
+
+# Polkadot
+pallet-xcm = { workspace = true, default-features = true }
+polkadot-parachain-primitives = { workspace = true, default-features = true }
+polkadot-runtime-common = { workspace = true, default-features = true }
+staging-xcm = { workspace = true, default-features = true }
+staging-xcm-builder = { workspace = true, default-features = true }
+staging-xcm-executor = { workspace = true, default-features = true }
+polkadot-runtime-parachains = { workspace = true }
+pallet-message-queue = { workspace = true }
+
+# Cumulus
+cumulus-pallet-xcm = { workspace = true, default-features = true }
+parachain-info = { workspace = true, default-features = true }
 
 [dev-dependencies]
 env_logger = "0.10.0"

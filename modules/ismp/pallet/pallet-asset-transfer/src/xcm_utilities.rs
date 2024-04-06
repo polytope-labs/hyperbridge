@@ -177,14 +177,16 @@ where
 
         let protocol_fees = <T as Config>::ProtocolFees::get() * u128::from(amount);
         let remainder = amount - protocol_fees.into();
-
         // We dispatch an ismp request to the destination chain
         Pallet::<T>::dispatch_request(who, remainder)
             .map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
-
         // Mint protocol fees
-        T::Assets::mint_into(asset_id.clone(), &protocol_account, protocol_fees.into())
-            .map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
+        T::Assets::mint_into(asset_id.clone(), &protocol_account, protocol_fees.into()).map_err(
+            |e| {
+                dbg!(&e);
+                XcmError::FailedToTransactAsset(e.into())
+            },
+        )?;
         // We custody the funds in the pallet account
         T::Assets::mint_into(asset_id, &pallet_account, remainder)
             .map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;

@@ -27,7 +27,8 @@ contract TokenGatewayTest is BaseTest {
                 timeout: 0,
                 to: address(this),
                 assetId: keccak256("USD.h"),
-                data: new bytes(0)
+                data: new bytes(0),
+                amountInMax: 0
             })
         );
 
@@ -56,7 +57,8 @@ contract TokenGatewayTest is BaseTest {
                 timeout: 0,
                 to: address(miniStaking),
                 assetId: keccak256("USD.h"),
-                data: stakeCalldata
+                data: stakeCalldata,
+                amountInMax: 0
             })
         );
 
@@ -78,7 +80,8 @@ contract TokenGatewayTest is BaseTest {
                 timeout: 0,
                 to: address(this),
                 assetId: keccak256("USD.h"),
-                data: new bytes(0)
+                data: new bytes(0),
+                amountInMax: 0
             })
         );
     }

@@ -19,8 +19,11 @@ pub mod xcm_utilities;
 
 extern crate alloc;
 
+use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use frame_support::traits::{fungibles, Get};
 pub use pallet::*;
+use pallet_ismp::dispatcher::Dispatcher;
+use sp_core::{H160, H256, U256};
 use sp_runtime::traits::AccountIdConversion;
 use xcm_utilities::MultiAccount;
 
@@ -33,7 +36,7 @@ pub mod pallet {
         traits::fungibles,
         PalletId, Parameter,
     };
-    use ismp::host::StateMachine;
+    use ismp::{host::StateMachine, router::DispatchPost};
     use sp_runtime::Percent;
 
     #[pallet::pallet]
@@ -54,6 +57,14 @@ pub mod pallet {
         /// Protocol fees will be custodied by this account
         #[pallet::constant]
         type ProtocolAccount: Get<PalletId>;
+
+        /// TokenGateWay address on evm chains
+        #[pallet::constant]
+        type TokenGateWay: Get<H160>;
+
+        /// The 32 bytes Asset Id used to identify the DOT token on Token Gateway deployments
+        #[pallet::constant]
+        type DotAssetId: Get<H256>;
 
         /// Percentage to be taken as protocol fees
         #[pallet::constant]
@@ -80,15 +91,35 @@ pub mod pallet {
     >;
 
     #[pallet::error]
-    pub enum Error<T> {}
+    pub enum Error<T> {
+        /// Error encountered while dispatching post request
+        DispatchPostError
+    }
 
     /// Events emiited by the relayer pallet
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
-    pub enum Event<T: Config> {}
+    pub enum Event<T: Config> {
+        /// An XCM transfer from the relay chain has been transformed into a crosschain message
+        TransferInitiated {
+            /// Source account on the relaychain
+            from: T::AccountId,
+            /// beneficiary account on destination
+            to: T::EvmAccountId,
+            /// Amount transferred
+            amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
+            /// Destination chain
+            dest: StateMachine
+        }
+    }
 }
 
-impl<T: Config> Pallet<T> {
+impl<T: Config> Pallet<T>
+where
+    u128: From<<T::Assets as fungibles::Inspect<T::AccountId>>::Balance>,
+    T::AccountId: Into<[u8; 32]>,
+    T::EvmAccountId: Into<[u8; 20]>,
+{
     pub fn account_id() -> T::AccountId {
         T::PalletId::get().into_account_truncating()
     }
@@ -99,9 +130,49 @@ impl<T: Config> Pallet<T> {
 
     /// Dispatch ismp request to token gateway on destination chain
     pub fn dispatch_request(
-        _multi_account: MultiAccount<T::AccountId, T::EvmAccountId>,
-        _amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
+        multi_account: MultiAccount<T::AccountId, T::EvmAccountId>,
+        amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
     ) -> Result<(), Error<T>> {
+        let amount: u128 = amount.into();
+        let dispatcher = Dispatcher::<T>::default();
+
+        let to: [u8; 20] = multi_account.evm_account.into();
+
+        let asset_id = T::DotAssetId::get().0.into();
+        let body = Body {
+            amount: {
+                let mut bytes = [0u8; 32];
+                U256::from(amount).to_big_endian(&mut bytes);
+                alloy_primitives::U256::from_be_bytes(bytes)
+            },
+            asset_id,
+            redeem: false,
+            from: Default::default(),
+            to: to.into(),
+        };
+
+        // let dispatch_post =  DispatchPost {
+
+        // };
+
+        // We don't have signed transactions yet on our chain, so we cannot allow user funds to be
+        // stuck on our chain during timeouts, so we have to maintain a map of destination
+        // state machine and nonce to user's substrate account
+
         Ok(())
     }
+}
+
+#[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
+pub struct Body {
+    // amount to be sent
+    pub amount: alloy_primitives::U256,
+    // The token identifier
+    pub asset_id: alloy_primitives::B256,
+    // flag to redeem the erc20 asset on the destination
+    pub redeem: bool,
+    // sender address
+    pub from: alloy_primitives::Address,
+    // recipient address
+    pub to: alloy_primitives::Address,
 }

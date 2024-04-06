@@ -305,8 +305,6 @@ jobs:
     name: Check ismp-solidity
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
-    env:
-      MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -325,6 +323,8 @@ jobs:
         id: build
 
       - name: Run Forge tests
+        env:
+          MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
         run: |
           cd ./evm
           forge test -vvv

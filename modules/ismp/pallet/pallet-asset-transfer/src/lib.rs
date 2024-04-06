@@ -19,24 +19,32 @@ pub mod xcm_utilities;
 
 extern crate alloc;
 
+use core::marker::PhantomData;
+
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use frame_support::traits::{fungibles, Get};
+use ismp::{
+    events::Meta,
+    host::StateMachine,
+    module::IsmpModule,
+    router::{DispatchPost, DispatchRequest, IsmpDispatcher, Request, Timeout},
+    util::hash_request,
+};
 pub use pallet::*;
-use pallet_ismp::dispatcher::Dispatcher;
+use pallet_ismp::{dispatcher::Dispatcher, host::Host};
 use sp_core::{H160, H256, U256};
 use sp_runtime::traits::AccountIdConversion;
+use staging_xcm::{
+    v3::{AssetId, Fungibility, Junction, MultiAsset, MultiAssets, MultiLocation, WeightLimit},
+    VersionedMultiAssets, VersionedMultiLocation,
+};
 use xcm_utilities::MultiAccount;
 
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
     use alloc::vec;
-    use frame_support::{
-        pallet_prelude::{OptionQuery, *},
-        traits::fungibles,
-        PalletId, Parameter,
-    };
-    use ismp::{host::StateMachine, router::DispatchPost};
+    use frame_support::{pallet_prelude::*, traits::fungibles, PalletId, Parameter};
     use sp_runtime::Percent;
 
     #[pallet::pallet]
@@ -45,7 +53,7 @@ pub mod pallet {
 
     /// The config trait
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_ismp::Config {
+    pub trait Config: frame_system::Config + pallet_ismp::Config + pallet_xcm::Config {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -77,23 +85,10 @@ pub mod pallet {
         type Assets: fungibles::Mutate<Self::AccountId> + fungibles::Inspect<Self::AccountId>;
     }
 
-    /// Here we map the destination evm
-    #[pallet::storage]
-    #[pallet::getter(fn account_map)]
-    pub type AccountMap<T: Config> = StorageDoubleMap<
-        _,
-        Twox64Concat,
-        StateMachine,
-        Twox64Concat,
-        u64,
-        T::AccountId,
-        OptionQuery,
-    >;
-
     #[pallet::error]
     pub enum Error<T> {
         /// Error encountered while dispatching post request
-        DispatchPostError
+        DispatchPostError,
     }
 
     /// Events emiited by the relayer pallet
@@ -109,8 +104,8 @@ pub mod pallet {
             /// Amount transferred
             amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
             /// Destination chain
-            dest: StateMachine
-        }
+            dest: StateMachine,
+        },
     }
 }
 
@@ -133,14 +128,14 @@ where
         multi_account: MultiAccount<T::AccountId, T::EvmAccountId>,
         amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
     ) -> Result<(), Error<T>> {
-        let amount: u128 = amount.into();
         let dispatcher = Dispatcher::<T>::default();
 
-        let to: [u8; 20] = multi_account.evm_account.into();
+        let to: [u8; 20] = multi_account.evm_account.clone().into();
 
         let asset_id = T::DotAssetId::get().0.into();
         let body = Body {
             amount: {
+                let amount: u128 = amount.into();
                 let mut bytes = [0u8; 32];
                 U256::from(amount).to_big_endian(&mut bytes);
                 alloy_primitives::U256::from_be_bytes(bytes)
@@ -151,13 +146,29 @@ where
             to: to.into(),
         };
 
-        // let dispatch_post =  DispatchPost {
+        let dispatch_post = DispatchPost {
+            dest: multi_account.dest_state_machine,
+            from: T::TokenGateWay::get().0.to_vec(),
+            to: T::TokenGateWay::get().0.to_vec(),
+            // 1 hour timeout
+            timeout_timestamp: 60 * 60,
+            data: alloy_rlp::encode(body),
+        };
 
-        // };
+        dispatcher
+            .dispatch_request(
+                DispatchRequest::Post(dispatch_post),
+                multi_account.substrate_account.clone(),
+                Default::default(),
+            )
+            .map_err(|_| Error::<T>::DispatchPostError)?;
 
-        // We don't have signed transactions yet on our chain, so we cannot allow user funds to be
-        // stuck on our chain during timeouts, so we have to maintain a map of destination
-        // state machine and nonce to user's substrate account
+        Self::deposit_event(Event::<T>::TransferInitiated {
+            from: multi_account.substrate_account,
+            to: multi_account.evm_account,
+            dest: multi_account.dest_state_machine,
+            amount,
+        });
 
         Ok(())
     }
@@ -175,4 +186,124 @@ pub struct Body {
     pub from: alloy_primitives::Address,
     // recipient address
     pub to: alloy_primitives::Address,
+}
+
+#[derive(Clone)]
+pub struct Module<T>(PhantomData<T>);
+
+impl<T: Config> Default for Module<T> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T: Config> IsmpModule for Module<T>
+where
+    <T::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
+    u128: From<<T::Assets as fungibles::Inspect<T::AccountId>>::Balance>,
+    T::AccountId: Into<[u8; 32]>,
+    T::EvmAccountId: Into<[u8; 20]>,
+{
+    fn on_accept(&self, request: ismp::router::Post) -> Result<(), ismp::error::Error> {
+        // We can't custody user funds since there would be not signed transactions at launch
+        // and they would not be able to send an xcm back to the relaychain, xcm implementation for
+        // substrate wallets would use signed transactions We send the dot back to the
+        // relaychain on timeout
+        todo!()
+    }
+
+    fn on_response(&self, response: ismp::router::Response) -> Result<(), ismp::error::Error> {
+        Err(ismp::error::Error::ModuleDispatchError {
+            msg: "Token Gateway does not accept responses".to_string(),
+            meta: Meta {
+                source: response.source_chain(),
+                dest: response.dest_chain(),
+                nonce: response.nonce(),
+            },
+        })
+    }
+
+    fn on_timeout(&self, request: ismp::router::Timeout) -> Result<(), ismp::error::Error> {
+        // We can't custody user funds since there would be not signed transactions at launch
+        // and they would not be able to send an xcm back to the relaychain, xcm implementation for
+        // substrate wallets would use signed transactions We send the dot back to the
+        // relaychain on timeout
+
+        match request {
+            Timeout::Request(Request::Post(post)) => {
+                let request = Request::Post(post.clone());
+                let commitment = hash_request::<Host<T>>(&request);
+                let fee_metadata = pallet_ismp::child_trie::RequestCommitments::<T>::get(
+                    commitment,
+                )
+                .ok_or_else(|| ismp::error::Error::ModuleDispatchError {
+                    msg: "Token Gateway: Fee metadata could not be found for request".to_string(),
+                    meta: Meta {
+                        source: request.source_chain(),
+                        dest: request.dest_chain(),
+                        nonce: request.nonce(),
+                    },
+                })?;
+                let beneficiary = fee_metadata.meta.origin;
+                let body: Body = alloy_rlp::Decodable::decode(&mut &*post.data).map_err(|_| {
+                    ismp::error::Error::ModuleDispatchError {
+                        msg: "Token Gateway: Failed to decode request body".to_string(),
+                        meta: Meta {
+                            source: request.source_chain(),
+                            dest: request.dest_chain(),
+                            nonce: request.nonce(),
+                        },
+                    }
+                })?;
+                // Send xcm back to relaychain
+
+                let amount = { U256::from_big_endian(&body.amount.to_be_bytes::<32>()).low_u128() };
+                // We do an xcm limited reserve transfer from the pallet custody account to the user
+                // on the relaychain;
+                let xcm_beneficiary: MultiLocation =
+                    Junction::AccountId32 { network: None, id: beneficiary.into() }.into();
+                let xcm_dest = VersionedMultiLocation::V3(MultiLocation::parent());
+                let fee_asset_item = 0;
+                let weight_limit = WeightLimit::Unlimited;
+                let asset = MultiAsset {
+                    id: AssetId::Concrete(MultiLocation::parent()),
+                    fun: Fungibility::Fungible(amount),
+                };
+
+                let mut assets = MultiAssets::new();
+                assets.push(asset);
+                pallet_xcm::Pallet::<T>::limited_reserve_transfer_assets(
+                    frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
+                    Box::new(xcm_dest),
+                    Box::new(xcm_beneficiary.into()),
+                    Box::new(VersionedMultiAssets::V3(assets)),
+                    fee_asset_item,
+                    weight_limit,
+                )
+                .map_err(|_| ismp::error::Error::ModuleDispatchError {
+                    msg: "Token Gateway: Failed execute xcm to relay chain".to_string(),
+                    meta: Meta {
+                        source: request.source_chain(),
+                        dest: request.dest_chain(),
+                        nonce: request.nonce(),
+                    },
+                })?;
+
+                Ok(())
+            },
+            Timeout::Request(Request::Get(get)) => Err(ismp::error::Error::ModuleDispatchError {
+                msg: "Tried to timeout unsupported request type".to_string(),
+                meta: Meta { source: get.source, dest: get.dest, nonce: get.nonce },
+            }),
+
+            Timeout::Response(response) => Err(ismp::error::Error::ModuleDispatchError {
+                msg: "Tried to timeout unsupported request type".to_string(),
+                meta: Meta {
+                    source: response.source_chain(),
+                    dest: response.dest_chain(),
+                    nonce: response.nonce(),
+                },
+            }),
+        }
+    }
 }

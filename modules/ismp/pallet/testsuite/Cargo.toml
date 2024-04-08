@@ -62,4 +62,4 @@ zstd-safe = { version = "7.1.0" }
 ruzstd = "0.6.0"
 
 [features]
-runtime-benchmarks = ["xcm-simulator-example/runtime-benchmarks"]
+runtime-benchmarks = ["xcm-simulator-example/runtime-benchmarks", "pallet-assets/runtime-benchmarks"]

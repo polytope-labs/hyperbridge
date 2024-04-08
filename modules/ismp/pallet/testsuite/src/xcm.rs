@@ -19,6 +19,8 @@ use frame_support::{
 };
 use frame_system::EnsureRoot;
 use pallet_asset_transfer::xcm_utilities::HyperbridgeAssetTransactor;
+#[cfg(feature = "runtime-benchmarks")]
+use pallet_assets::BenchmarkHelper;
 use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::{
     DmpMessageHandler, Sibling, XcmpMessageFormat, XcmpMessageHandler,
@@ -426,4 +428,15 @@ impl pallet_assets::Config for Test {
     type CallbackHandle = ();
     type Extra = ();
     type RemoveItemsLimit = ConstU32<5>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = IdentityBenchmarkHelper;
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+pub struct IdentityBenchmarkHelper;
+#[cfg(feature = "runtime-benchmarks")]
+impl BenchmarkHelper<MultiLocation> for IdentityBenchmarkHelper {
+    fn create_asset_id_parameter(id: u32) -> MultiLocation {
+        MultiLocation::new(1, Parachain(id))
+    }
 }

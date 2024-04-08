@@ -17,7 +17,6 @@ use crate::{
     alloc::{boxed::Box, string::ToString},
     AccountId, Assets, Balance, Balances, Ismp, ParachainInfo, Runtime, RuntimeEvent, Timestamp,
 };
-
 use frame_support::{
     pallet_prelude::{ConstU32, Get},
     parameter_types,
@@ -31,6 +30,8 @@ use ismp::{
     module::IsmpModule,
     router::{IsmpRouter, Post, Request, Response},
 };
+#[cfg(feature = "runtime-benchmarks")]
+use pallet_assets::BenchmarkHelper;
 use sp_core::{crypto::AccountId32, H160, H256};
 use sp_runtime::Percent;
 
@@ -38,7 +39,7 @@ use ismp::router::Timeout;
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{dispatcher::FeeMetadata, host::Host, primitives::ModuleId};
 use sp_std::prelude::*;
-use staging_xcm::latest::MultiLocation;
+use staging_xcm::{latest::MultiLocation, prelude::Parachain};
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -114,6 +115,15 @@ impl pallet_asset_transfer::Config for Runtime {
     type Assets = Assets;
 }
 
+#[cfg(feature = "runtime-benchmarks")]
+pub struct XcmBenchmarkHelper;
+#[cfg(feature = "runtime-benchmarks")]
+impl BenchmarkHelper<MultiLocation> for XcmBenchmarkHelper {
+    fn create_asset_id_parameter(id: u32) -> MultiLocation {
+        MultiLocation::new(1, Parachain(id))
+    }
+}
+
 impl pallet_assets::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Balance = Balance;
@@ -133,6 +143,8 @@ impl pallet_assets::Config for Runtime {
     type CallbackHandle = ();
     type Extra = ();
     type RemoveItemsLimit = ConstU32<5>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = XcmBenchmarkHelper;
 }
 
 impl IsmpModule for ProxyModule {

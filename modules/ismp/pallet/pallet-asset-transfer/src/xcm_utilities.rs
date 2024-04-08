@@ -75,7 +75,7 @@ impl<A: From<[u8; 32]> + Into<[u8; 32]> + Clone, B: From<[u8; 20]> + Into<[u8; 2
                 parents: 0,
                 interior:
                     Junctions::X2(
-                        Junction::AccountId32 { network: None, id },
+                        Junction::AccountId32 { id, .. },
                         Junction::AccountKey20 { network: Some(network), key },
                     ),
             } => {

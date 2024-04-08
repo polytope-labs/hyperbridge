@@ -568,7 +568,9 @@ construct_runtime!(
         IsmpDemo: pallet_ismp_demo = 42,
         Relayer: pallet_ismp_relayer = 43,
         HostExecutive: pallet_ismp_host_executive = 45,
-        CallDecompressor: pallet_call_decompressor = 46
+        CallDecompressor: pallet_call_decompressor = 46,
+        AssetTransfer: pallet_asset_transfer = 47,
+        Assets: pallet_assets = 48,
     }
 );
 

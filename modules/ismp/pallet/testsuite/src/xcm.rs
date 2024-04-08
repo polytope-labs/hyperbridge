@@ -215,6 +215,11 @@ impl EnsureOriginWithArg<RuntimeOrigin, MultiLocation> for ForeignCreators {
         }
         SovereignAccountOf::convert_location(&origin_location).ok_or(o)
     }
+
+    #[cfg(feature = "runtime-benchmarks")]
+    fn try_successful_origin(a: &MultiLocation) -> Result<RuntimeOrigin, ()> {
+        Ok(pallet_xcm::Origin::Xcm(a.clone()).into())
+    }
 }
 
 parameter_types! {

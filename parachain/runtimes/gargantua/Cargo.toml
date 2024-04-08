@@ -30,6 +30,7 @@ frame-try-runtime = { workspace = true, optional = true }
 pallet-aura = { workspace = true }
 pallet-authorship = { workspace = true }
 pallet-balances = { workspace = true }
+pallet-assets = { workspace = true }
 pallet-session = { workspace = true }
 pallet-sudo = { workspace = true }
 pallet-timestamp = { workspace = true }
@@ -83,6 +84,7 @@ ismp-bsc = { workspace = true  }
 pallet-ismp-relayer = { workspace = true  }
 pallet-ismp-host-executive = { workspace = true  }
 pallet-call-decompressor = { workspace = true }
+pallet-asset-transfer = { workspace = true  }
 
 [features]
 default = [
@@ -144,7 +146,9 @@ std = [
 	"ismp-bsc/std",
 	"pallet-ismp-relayer/std",
 	"pallet-ismp-host-executive/std",
-	"pallet-call-decompressor/std"
+	"pallet-call-decompressor/std",
+	"pallet-asset-transfer/std",
+	"pallet-assets/std"
 ]
 
 runtime-benchmarks = [

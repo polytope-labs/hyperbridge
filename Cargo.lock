@@ -4853,6 +4853,8 @@ dependencies = [
  "ismp-bsc",
  "ismp-sync-committee",
  "log",
+ "pallet-asset-transfer",
+ "pallet-assets",
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",

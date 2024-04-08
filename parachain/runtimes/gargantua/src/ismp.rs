@@ -15,10 +15,15 @@
 
 use crate::{
     alloc::{boxed::Box, string::ToString},
-    AccountId, Balance, Balances, Ismp, ParachainInfo, Runtime, RuntimeEvent, Timestamp,
+    AccountId, Assets, Balance, Balances, Ismp, ParachainInfo, Runtime, RuntimeEvent, Timestamp,
 };
 
-use frame_support::pallet_prelude::{ConstU32, Get};
+use frame_support::{
+    pallet_prelude::{ConstU32, Get},
+    parameter_types,
+    traits::{AsEnsureOriginWithArg, ConstU128},
+    PalletId,
+};
 use frame_system::EnsureRoot;
 use ismp::{
     error::Error,
@@ -26,11 +31,14 @@ use ismp::{
     module::IsmpModule,
     router::{IsmpRouter, Post, Request, Response},
 };
+use sp_core::{crypto::AccountId32, H160, H256};
+use sp_runtime::Percent;
 
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{dispatcher::FeeMetadata, host::Host, primitives::ModuleId};
 use sp_std::prelude::*;
+use staging_xcm::latest::MultiLocation;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -84,6 +92,47 @@ impl pallet_ismp_host_executive::Config for Runtime {}
 
 impl pallet_call_decompressor::Config for Runtime {
     type MaxCallSize = ConstU32<2>;
+}
+
+// todo: set corrrect parameters
+parameter_types! {
+    pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");
+    pub const ProtocolAccount: PalletId = PalletId(*b"protocol");
+    pub const TokenGateWay: H160 = H160::zero();
+    pub const DotAssetId: H256 = H256::zero();
+    pub const ProtocolFees: Percent = Percent::from_percent(1);
+}
+
+impl pallet_asset_transfer::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type PalletId = AssetPalletId;
+    type ProtocolAccount = ProtocolAccount;
+    type TokenGateWay = TokenGateWay;
+    type DotAssetId = DotAssetId;
+    type ProtocolFees = ProtocolFees;
+    type EvmAccountId = H160;
+    type Assets = Assets;
+}
+
+impl pallet_assets::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Balance = Balance;
+    type AssetId = MultiLocation;
+    type AssetIdParameter = MultiLocation;
+    type Currency = Balances;
+    type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
+    type ForceOrigin = EnsureRoot<AccountId32>;
+    type AssetDeposit = ConstU128<1>;
+    type AssetAccountDeposit = ConstU128<10>;
+    type MetadataDepositBase = ConstU128<1>;
+    type MetadataDepositPerByte = ConstU128<1>;
+    type ApprovalDeposit = ConstU128<1>;
+    type StringLimit = ConstU32<50>;
+    type Freezer = ();
+    type WeightInfo = ();
+    type CallbackHandle = ();
+    type Extra = ();
+    type RemoveItemsLimit = ConstU32<5>;
 }
 
 impl IsmpModule for ProxyModule {

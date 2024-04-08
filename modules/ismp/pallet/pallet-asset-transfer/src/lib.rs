@@ -109,6 +109,17 @@ pub mod pallet {
             /// Destination chain
             dest: StateMachine,
         },
+
+        /// An asset has been received and transferred to the beneficiary's account on the
+        /// relaychain
+        AssetReceived {
+            /// beneficiary account on relaychain
+            beneficiary: T::AccountId,
+            /// Amount transferred
+            amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
+            /// Destination chain
+            source: StateMachine,
+        },
     }
 }
 
@@ -211,7 +222,7 @@ where
     <T::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
     u128: From<<T::Assets as fungibles::Inspect<T::AccountId>>::Balance>,
     <T::Assets as fungibles::Inspect<T::AccountId>>::AssetId: From<MultiLocation>,
-    T::AccountId: Into<[u8; 32]>,
+    T::AccountId: Into<[u8; 32]> + From<[u8; 32]>,
     T::EvmAccountId: Into<[u8; 20]>,
 {
     fn on_accept(&self, post: ismp::router::Post) -> Result<(), ismp::error::Error> {
@@ -307,6 +318,12 @@ where
             },
         })?;
 
+        Pallet::<T>::deposit_event(Event::<T>::AssetReceived {
+            beneficiary: body.to.0.into(),
+            amount: remainder.into(),
+            source: request.source_chain(),
+        });
+
         Ok(())
     }
 
@@ -367,7 +384,7 @@ where
                 // We do an xcm limited reserve transfer from the pallet custody account to the user
                 // on the relaychain;
                 let xcm_beneficiary: MultiLocation =
-                    Junction::AccountId32 { network: None, id: beneficiary.into() }.into();
+                    Junction::AccountId32 { network: None, id: beneficiary.clone().into() }.into();
                 let xcm_dest = VersionedMultiLocation::V3(MultiLocation::parent());
                 let fee_asset_item = 0;
                 let weight_limit = WeightLimit::Unlimited;
@@ -394,6 +411,12 @@ where
                         nonce: request.nonce(),
                     },
                 })?;
+
+                Pallet::<T>::deposit_event(Event::<T>::AssetReceived {
+                    beneficiary,
+                    amount: amount.into(),
+                    source: request.dest_chain(),
+                });
 
                 Ok(())
             },

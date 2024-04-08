@@ -25,7 +25,7 @@ use core::marker::PhantomData;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use frame_support::{
     ensure,
-    traits::{fungibles, fungibles::Mutate, tokens::Preservation, Get},
+    traits::{fungibles, Get},
 };
 use ismp::{
     events::Meta,
@@ -267,28 +267,8 @@ where
 
         let amount = { U256::from_big_endian(&body.amount.to_be_bytes::<32>()).low_u128() };
 
-        let protocol_fees = <T as Config>::ProtocolFees::get() * amount;
-        let remainder = amount - protocol_fees;
-        let protocol_account = Pallet::<T>::protocol_account_id();
-        let pallet_account = Pallet::<T>::account_id();
         let asset_id = MultiLocation::parent();
 
-        // Take the protocol fees from pallet account
-        T::Assets::transfer(
-            asset_id.clone().into(),
-            &pallet_account,
-            &protocol_account,
-            protocol_fees.into(),
-            Preservation::Preserve,
-        )
-        .map_err(|_| ismp::error::Error::ModuleDispatchError {
-            msg: "Token Gateway: Failed to collect protocol fees".to_string(),
-            meta: Meta {
-                source: request.source_chain(),
-                dest: request.dest_chain(),
-                nonce: request.nonce(),
-            },
-        })?;
         // We don't custody user funds, we send the dot back to the relaychain using xcm
         let xcm_beneficiary: MultiLocation =
             Junction::AccountId32 { network: None, id: body.to.0 }.into();
@@ -296,7 +276,7 @@ where
         let fee_asset_item = 0;
         let weight_limit = WeightLimit::Unlimited;
         let asset =
-            MultiAsset { id: AssetId::Concrete(asset_id), fun: Fungibility::Fungible(remainder) };
+            MultiAsset { id: AssetId::Concrete(asset_id), fun: Fungibility::Fungible(amount) };
 
         let mut assets = MultiAssets::new();
         assets.push(asset);
@@ -321,7 +301,7 @@ where
 
         Pallet::<T>::deposit_event(Event::<T>::AssetReceived {
             beneficiary: body.to.0.into(),
-            amount: remainder.into(),
+            amount: amount.into(),
             source: request.source_chain(),
         });
 

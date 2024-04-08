@@ -162,15 +162,12 @@ fn should_process_on_accept_module_callback_correctly() {
         >>::total_issuance(asset_id);
         ismp_module.on_accept(post).unwrap();
 
-        let protocol_fees = <Test as pallet_asset_transfer::Config>::ProtocolFees::get();
-        let transferred = amount - (protocol_fees * amount);
-
         let total_issuance_after = <pallet_assets::Pallet<Test> as Inspect<
             <Test as frame_system::Config>::AccountId,
         >>::total_issuance(asset_id);
         // Total issuance should have dropped
-        assert_eq!(initial_total_issuance - transferred, total_issuance_after);
-        transferred
+        assert_eq!(initial_total_issuance - amount, total_issuance_after);
+        amount
     });
 
     Relay::execute_with(|| {

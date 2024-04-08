@@ -45,7 +45,7 @@ contract TeleportSwapTest is MainnetForkBaseTest {
                 dest: StateMachine.bsc(),
                 fee: 9 * 1e17, // $0.9
                 timeout: 0,
-                to: address(this),
+                to: addressToBytes32(address(this)),
                 assetId: keccak256("USD.h"),
                 data: new bytes(0),
                 amountInMax: _amountInMax
@@ -55,4 +55,13 @@ contract TeleportSwapTest is MainnetForkBaseTest {
         assert(feeToken.balanceOf(address(this)) == 0);
         assert(feeToken.balanceOf(address(host)) == messagingFee);
     }
+}
+
+
+function addressToBytes32(address _address) pure returns (bytes32) {
+    return bytes32(uint256(uint160(_address)));
+}
+
+function bytes32ToAddress(bytes32 _bytes) pure returns (address) {
+    return address(uint160(uint256(_bytes)));
 }

@@ -38,6 +38,7 @@ impl<T: Config> Pallet<T> {
         });
 
         RequestCommitments::<T>::insert(commitment, LeafMetadata { mmr: leaf_index_and_pos, meta });
+
         Ok(())
     }
 

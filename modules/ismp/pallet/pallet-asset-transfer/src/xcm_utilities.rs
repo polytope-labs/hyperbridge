@@ -54,7 +54,7 @@ impl WrappedNetworkId {
 
 /// Converts a MutiLocation to a substrate account and an evm account if the multilocation
 /// description matches a supported Ismp State machine
-pub struct MultilocationToAccountId<A, B>(PhantomData<(A, B)>);
+pub struct MultilocationToMultiAccount<A, B>(PhantomData<(A, B)>);
 
 pub struct MultiAccount<A, B> {
     /// Origin substrate account
@@ -66,7 +66,7 @@ pub struct MultiAccount<A, B> {
 }
 
 impl<A: From<[u8; 32]> + Into<[u8; 32]> + Clone, B: From<[u8; 20]> + Into<[u8; 20]> + Clone>
-    ConvertLocation<MultiAccount<A, B>> for MultilocationToAccountId<A, B>
+    ConvertLocation<MultiAccount<A, B>> for MultilocationToMultiAccount<A, B>
 {
     fn convert_location(location: &MultiLocation) -> Option<MultiAccount<A, B>> {
         // We only support locations X2 Junctions addressed to our parachain and an ethereum account
@@ -167,25 +167,34 @@ where
     ) -> XcmResult {
         // Check we handle this asset.
         let (asset_id, amount) = Matcher::matches_fungibles(what)?;
-        // Ensure we have the supported account id type
-        let who = MultilocationToAccountId::<T::AccountId, T::EvmAccountId>::convert_location(who)
-            .ok_or(MatchError::AccountIdConversionFailed)?;
-        // We would remove the protocol fee at this point
+        // Regular XCM transaction
+        if let Some(who) = AccountIdConverter::convert_location(who) {
+            T::Assets::mint_into(asset_id, &who, amount)
+                .map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
+        }
+        // Ismp xcm transaction
+        else if let Some(who) =
+            MultilocationToMultiAccount::<T::AccountId, T::EvmAccountId>::convert_location(who)
+        {
+            // We would remove the protocol fee at this point
 
-        let protocol_account = Pallet::<T>::protocol_account_id();
-        let pallet_account = Pallet::<T>::account_id();
+            let protocol_account = Pallet::<T>::protocol_account_id();
+            let pallet_account = Pallet::<T>::account_id();
 
-        let protocol_fees = <T as Config>::ProtocolFees::get() * u128::from(amount);
-        let remainder = amount - protocol_fees.into();
-        // We dispatch an ismp request to the destination chain
-        Pallet::<T>::dispatch_request(who, remainder)
-            .map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
-        // Mint protocol fees
-        T::Assets::mint_into(asset_id.clone(), &protocol_account, protocol_fees.into())
-            .map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
-        // We custody the funds in the pallet account
-        T::Assets::mint_into(asset_id, &pallet_account, remainder)
-            .map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
+            let protocol_fees = <T as Config>::ProtocolFees::get() * u128::from(amount);
+            let remainder = amount - protocol_fees.into();
+            // We dispatch an ismp request to the destination chain
+            Pallet::<T>::dispatch_request(who, remainder)
+                .map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
+            // Mint protocol fees
+            T::Assets::mint_into(asset_id.clone(), &protocol_account, protocol_fees.into())
+                .map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
+            // We custody the funds in the pallet account
+            T::Assets::mint_into(asset_id, &pallet_account, remainder)
+                .map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
+        } else {
+            Err(MatchError::AccountIdConversionFailed)?
+        }
 
         Ok(())
     }

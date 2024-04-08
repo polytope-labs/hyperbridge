@@ -24,7 +24,7 @@ use core::marker::PhantomData;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use frame_support::{
     ensure,
-    traits::{fungibles, Get},
+    traits::{fungibles, fungibles::Mutate, tokens::Preservation, Get},
 };
 use ismp::{
     events::Meta,
@@ -133,8 +133,14 @@ where
     ) -> Result<(), Error<T>> {
         let dispatcher = Dispatcher::<T>::default();
 
-        let to: [u8; 20] = multi_account.evm_account.clone().into();
-
+        let mut to = [0u8; 32];
+        let _temp: [u8; 20] = multi_account.evm_account.clone().into();
+        to.iter_mut().enumerate().for_each(|(index, item)| {
+            if index < 20 {
+                *item = _temp[index];
+            }
+        });
+        let from: [u8; 32] = multi_account.substrate_account.clone().into();
         let asset_id = T::DotAssetId::get().0.into();
         let body = Body {
             amount: {
@@ -145,7 +151,7 @@ where
             },
             asset_id,
             redeem: false,
-            from: Default::default(),
+            from: from.into(),
             to: to.into(),
         };
 
@@ -186,9 +192,9 @@ pub struct Body {
     // flag to redeem the erc20 asset on the destination
     pub redeem: bool,
     // sender address
-    pub from: alloy_primitives::Address,
+    pub from: alloy_primitives::B256,
     // recipient address
-    pub to: alloy_primitives::Address,
+    pub to: alloy_primitives::B256,
 }
 
 #[derive(Clone)]
@@ -204,15 +210,104 @@ impl<T: Config> IsmpModule for Module<T>
 where
     <T::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
     u128: From<<T::Assets as fungibles::Inspect<T::AccountId>>::Balance>,
+    <T::Assets as fungibles::Inspect<T::AccountId>>::AssetId: From<MultiLocation>,
     T::AccountId: Into<[u8; 32]>,
     T::EvmAccountId: Into<[u8; 20]>,
 {
-    fn on_accept(&self, _request: ismp::router::Post) -> Result<(), ismp::error::Error> {
-        // We can't custody user funds since there would be not signed transactions at launch
-        // and they would not be able to send an xcm back to the relaychain, xcm implementation for
-        // substrate wallets would use signed transactions We send the dot back to the
-        // relaychain on timeout
-        todo!()
+    fn on_accept(&self, post: ismp::router::Post) -> Result<(), ismp::error::Error> {
+        let request = Request::Post(post.clone());
+        // Check that destination module is equal to the known module id
+        ensure!(
+            request.destination_module() == T::TokenGateWay::get().0.to_vec(),
+            ismp::error::Error::ModuleDispatchError {
+                msg: "Token Gateway: Unknown destination contract address".to_string(),
+                meta: Meta {
+                    source: request.source_chain(),
+                    dest: request.dest_chain(),
+                    nonce: request.nonce(),
+                },
+            }
+        );
+
+        let body: Body = alloy_rlp::Decodable::decode(&mut &*post.data).map_err(|_| {
+            ismp::error::Error::ModuleDispatchError {
+                msg: "Token Gateway: Failed to decode request body".to_string(),
+                meta: Meta {
+                    source: request.source_chain(),
+                    dest: request.dest_chain(),
+                    nonce: request.nonce(),
+                },
+            }
+        })?;
+
+        // Check that the asset id is equal to the known asset id
+        ensure!(
+            body.asset_id.0 == T::DotAssetId::get().0,
+            ismp::error::Error::ModuleDispatchError {
+                msg: "Token Gateway: AssetId is unknown".to_string(),
+                meta: Meta {
+                    source: request.source_chain(),
+                    dest: request.dest_chain(),
+                    nonce: request.nonce(),
+                },
+            }
+        );
+
+        let amount = { U256::from_big_endian(&body.amount.to_be_bytes::<32>()).low_u128() };
+
+        let protocol_fees = <T as Config>::ProtocolFees::get() * amount;
+        let remainder = amount - protocol_fees;
+        let protocol_account = Pallet::<T>::protocol_account_id();
+        let pallet_account = Pallet::<T>::account_id();
+        let asset_id = MultiLocation::parent();
+
+        // Take the protocol fees from pallet account
+        T::Assets::transfer(
+            asset_id.clone().into(),
+            &pallet_account,
+            &protocol_account,
+            protocol_fees.into(),
+            Preservation::Preserve,
+        )
+        .map_err(|_| ismp::error::Error::ModuleDispatchError {
+            msg: "Token Gateway: Failed to collect protocol fees".to_string(),
+            meta: Meta {
+                source: request.source_chain(),
+                dest: request.dest_chain(),
+                nonce: request.nonce(),
+            },
+        })?;
+        // We don't custody user funds, we send the dot back to the relaychain using xcm
+        let xcm_beneficiary: MultiLocation =
+            Junction::AccountId32 { network: None, id: body.to.0 }.into();
+        let xcm_dest = VersionedMultiLocation::V3(MultiLocation::parent());
+        let fee_asset_item = 0;
+        let weight_limit = WeightLimit::Unlimited;
+        let asset =
+            MultiAsset { id: AssetId::Concrete(asset_id), fun: Fungibility::Fungible(remainder) };
+
+        let mut assets = MultiAssets::new();
+        assets.push(asset);
+
+        // Send xcm back to relaychain
+        pallet_xcm::Pallet::<T>::limited_reserve_transfer_assets(
+            frame_system::RawOrigin::Signed(Pallet::<T>::account_id()).into(),
+            Box::new(xcm_dest),
+            Box::new(xcm_beneficiary.into()),
+            Box::new(VersionedMultiAssets::V3(assets)),
+            fee_asset_item,
+            weight_limit,
+        )
+        .map_err(|_| ismp::error::Error::ModuleDispatchError {
+            msg: "Token Gateway: Failed execute xcm to relay chain".to_string(),
+            meta: Meta {
+                source: request.source_chain(),
+                dest: request.dest_chain(),
+                nonce: request.nonce(),
+            },
+        })?;
+
+        Ok(())
     }
 
     fn on_response(&self, response: ismp::router::Response) -> Result<(), ismp::error::Error> {
@@ -226,11 +321,8 @@ where
         })
     }
 
-    fn on_timeout(&self, request: ismp::router::Timeout) -> Result<(), ismp::error::Error> {
-        // We can't custody user funds since there would be not signed transactions at launch
-        // and they would not be able to send an xcm back to the relaychain, xcm implementation for
-        // substrate wallets would use signed transactions We send the dot back to the
-        // relaychain on timeout
+    fn on_timeout(&self, request: Timeout) -> Result<(), ismp::error::Error> {
+        // We don't custody user funds, we send the dot back to the relaychain using xcm
 
         match request {
             Timeout::Request(Request::Post(post)) => {

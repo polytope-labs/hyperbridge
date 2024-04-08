@@ -9,6 +9,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 codec = { workspace = true, default-features = true }
 scale-info = { workspace = true, default-features = true }
 alloy-primitives = { version = "0.6.0", default-features = false, features = ["rlp"] }
+alloy-rlp = { workspace = true }
 
 frame-support = { workspace = true, default-features = true }
 frame-system = { workspace = true, default-features = true }

@@ -8839,6 +8839,7 @@ name = "pallet-ismp-testsuite"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "alloy-rlp",
  "ckb-merkle-mountain-range",
  "cumulus-pallet-xcm",
  "env_logger",

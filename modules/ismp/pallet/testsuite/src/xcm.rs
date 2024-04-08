@@ -4,7 +4,7 @@ use crate::{
     relay_chain,
     runtime::{
         register_offchain_ext, Assets, Balance, Balances, MsgQueue, RuntimeCall, RuntimeEvent,
-        RuntimeOrigin, System, Test,
+        RuntimeOrigin, System, Test, Timestamp,
     },
 };
 use frame_support::{
@@ -283,6 +283,7 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
     register_offchain_ext(&mut ext);
     ext.execute_with(|| {
         System::set_block_number(1);
+        Timestamp::set_timestamp(1_000_000);
         MsgQueue::set_para_id(para_id.into());
     });
     ext
@@ -293,7 +294,7 @@ decl_test_parachain! {
         Runtime = Test,
         XcmpMessageHandler = MsgQueue,
         DmpMessageHandler = MsgQueue,
-        new_ext = para_ext(1),
+        new_ext = para_ext(100),
     }
 }
 
@@ -313,7 +314,7 @@ decl_test_network! {
     pub struct MockNet {
         relay_chain = Relay,
         parachains = vec![
-            (1, ParaA),
+            (100, ParaA),
         ],
     }
 }

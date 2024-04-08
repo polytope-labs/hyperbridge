@@ -19,6 +19,7 @@ pub mod xcm_utilities;
 
 extern crate alloc;
 
+use alloc::{boxed::Box, string::ToString};
 use core::marker::PhantomData;
 
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};

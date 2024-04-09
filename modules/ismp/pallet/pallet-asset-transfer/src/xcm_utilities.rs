@@ -70,8 +70,8 @@ pub struct MultiAccount<A> {
 
 // Supports a Multilocation interior of Junctions::X3
 // Junctions::X3(AccountId32 { .. }, AccountKey20 { .. }, GeneralIndex(..))
-// The value specified in the GeneralIndex will be used as the timeout in seconds for the ismp request that
-// will be dispatched
+// The value specified in the GeneralIndex will be used as the timeout in seconds for the ismp
+// request that will be dispatched
 impl<A> ConvertLocation<MultiAccount<A>> for MultilocationToMultiAccount<A>
 where
     A: From<[u8; 32]> + Into<[u8; 32]> + Clone,

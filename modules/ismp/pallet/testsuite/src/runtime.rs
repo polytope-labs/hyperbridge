@@ -16,8 +16,8 @@
 
 extern crate alloc;
 
-use crate::xcm::mock_msg_queue;
 use alloc::collections::BTreeMap;
+use cumulus_pallet_parachain_system::ParachainSetCode;
 use frame_support::{
     derive_impl, parameter_types,
     traits::{ConstU32, ConstU64, Get},
@@ -55,6 +55,8 @@ type Block = frame_system::mocking::MockBlock<Test>;
 frame_support::construct_runtime!(
     pub enum Test {
         System: frame_system,
+        ParachainSystem: cumulus_pallet_parachain_system = 2,
+        ParachainInfo: parachain_info,
         Timestamp: pallet_timestamp,
         Ismp: pallet_ismp,
         Balances: pallet_balances,
@@ -62,7 +64,8 @@ frame_support::construct_runtime!(
         Fishermen: pallet_fishermen,
         HostExecutive: pallet_ismp_host_executive,
         CallCompressedExecutor: pallet_call_decompressor,
-        MsgQueue: mock_msg_queue,
+        XcmpQueue: cumulus_pallet_xcmp_queue,
+        MessageQueue: pallet_message_queue,
         PalletXcm: pallet_xcm,
         Assets: pallet_assets,
         AssetTransfer: pallet_asset_transfer,
@@ -150,7 +153,7 @@ impl frame_system::Config for Test {
     type OnKilledAccount = ();
     type SystemWeightInfo = ();
     type SS58Prefix = ();
-    type OnSetCode = ();
+    type OnSetCode = ParachainSetCode<Test>;
     type MaxConsumers = ConstU32<16>;
 }
 

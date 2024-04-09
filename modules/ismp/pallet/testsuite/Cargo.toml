@@ -48,12 +48,17 @@ polkadot-runtime-common = { workspace = true, default-features = true }
 staging-xcm = { workspace = true, default-features = true }
 staging-xcm-builder = { workspace = true, default-features = true }
 staging-xcm-executor = { workspace = true, default-features = true }
-polkadot-runtime-parachains = { workspace = true }
-pallet-message-queue = { workspace = true }
+polkadot-runtime-parachains = { workspace = true, default-features = true }
+pallet-message-queue = { workspace = true, default-features = true }
+parachains-common = { workspace = true, default-features = true  }
+
 
 # Cumulus
 cumulus-pallet-xcm = { workspace = true, default-features = true }
 parachain-info = { workspace = true, default-features = true }
+cumulus-primitives-core = { workspace = true, default-features = true }
+cumulus-pallet-xcmp-queue = { workspace = true, default-features = true }
+cumulus-pallet-parachain-system = { workspace = true, default-features = true }
 
 [dev-dependencies]
 env_logger = "0.10.0"

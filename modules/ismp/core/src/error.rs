@@ -23,7 +23,7 @@ use alloc::{string::String, vec::Vec};
 use core::time::Duration;
 
 /// Errors that may be encountered by the ISMP module
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     /// The unbonding period for the given consensus client has elapsed and can no longer process
     /// consensus updates.

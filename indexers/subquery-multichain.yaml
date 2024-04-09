@@ -1,0 +1,6 @@
+specVersion: 1.0.0
+query:
+  name: '@subql/query'
+  version: '*'
+projects:
+  - ethereum-sepolia.yaml

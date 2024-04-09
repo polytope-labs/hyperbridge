@@ -1,0 +1,24 @@
+name: PR
+on:
+  pull_request:
+    paths-ignore:
+      - ".github/workflows/**"
+jobs:
+  pr:
+    name: pr
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v2
+        with:
+          node-version: 16
+      - run: yarn
+      - name: Codegen
+        run: yarn codegen
+      - name: Build
+        run: yarn build
+      - name: Install subql-node-ethereum
+        run: yarn global add @subql/node-ethereum
+      - name: Run tests with Subquery Node
+        run: subql-node-ethereum test -f ${{ github.workspace }}

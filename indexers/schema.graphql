@@ -1,0 +1,66 @@
+# To improve query performance, we strongly suggest adding indexes to any field that you plan to filter or sort by
+# Add the `@index` or `@index(unique: true)` annotation after any non-key field
+# https://academy.subquery.network/build/graphql.html#indexing-by-non-primary-key-field
+
+"""
+Important Hyperbridge Metrics
+"""
+type HyperBridgeMetrics @entity {
+    """
+    Unique identifier of the HyperBridgeMetric entry.
+    N.B This entity is used for overall metric aggregation, and as such only one entry with an ID of 1 will exist
+    """
+    id: ID!
+
+    """
+    Total number of post requests handled by Hyperbridge
+    """
+    postRequestsHandled: BigInt!
+
+    """
+    Total amount of fees earned by Hyperbridge
+    """
+    feesEarned: BigInt!
+}
+
+"""
+A Hyperbridge Relayer
+"""
+type Relayer @entity {
+    """
+    Unique identifier of the Relayer (also the relayer's address)
+    """
+    id: ID!
+
+    """
+    Total number of post requests handled by the Relayer
+    """
+    postRequestsHandled: BigInt!
+
+    """
+    Total fees earned by the relayer
+    """
+    totalFeesEarned: BigInt! @index
+}
+
+type Transfer @entity {
+    """
+    Unique identifier of the FeePayment
+    """
+    id: ID!
+
+    """
+    The amount transferred
+    """
+    amount: BigInt!
+
+    """
+    The address that made the transfer (the hyperbridge host address)
+    """
+    from: String! @index
+
+    """
+    The address that received the transfer (the relayer address)
+    """
+    to: String! @index
+}

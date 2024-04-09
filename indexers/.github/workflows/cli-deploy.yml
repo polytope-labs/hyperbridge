@@ -1,0 +1,33 @@
+name: "CLI deploy"
+
+on:
+  workflow_dispatch:
+    inputs:
+      projectName:
+        description: "Project name"
+        required: true
+        type: string
+jobs:
+  deploy:
+    name: CLI Deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: DEPLOYMENT
+    env:
+      SUBQL_ACCESS_TOKEN: ${{ secrets.SUBQL_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v2
+        with:
+          node-version: 16
+      - run: yarn
+      - name: Codegen
+        run: yarn codegen
+      - name: Version
+        run: npx subql --version
+      - name: repo
+        run: echo ${{github.repository}}
+      - name: Publish and Deploy
+        run: |
+          sh .github/workflows/scripts/publish-deploy.sh -o ${{github.repository}} -p ${{github.event.inputs.projectName}}

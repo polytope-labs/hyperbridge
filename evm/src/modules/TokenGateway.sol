@@ -11,6 +11,14 @@ import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {CallDispatcher, ICallDispatcher} from "./CallDispatcher.sol";
 
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
+import {IAllowanceTransfer, PermitSingle} from "../interfaces/IAllowanceTransfer.sol";
+
+
+struct TeleportPermit {
+    PermitSingle permitSingle;
+    address owner;
+    bytes signature;
+}
 
 
 struct TeleportParams {
@@ -35,6 +43,13 @@ struct TeleportParams {
     // calculated amountInMax: 
     // used if selected fee token is not expected fee token
     uint256 amountInMax;
+    // Permit Details & Signature for host to spend feeToken
+    TeleportPermit hostFeeTokenPermit;
+    // Permit Details & Signature for gateway to spend asset
+    TeleportPermit gatewayAssetPermit;
+    // Permit Details & Signature for gateway to user selected fee token
+    // This is useful when the selected fee token is not the required fee token
+    TeleportPermit gatewayInputFeeTokenPermit;
 }
 
 struct Body {
@@ -133,6 +148,8 @@ contract TokenGateway is BaseIsmpModule {
     IUniswapV2Router private _uniswapV2Router;
     /// call dispatcher
     ICallDispatcher private _dispatcher;
+    // Contract Instance of Permit2 contract
+    IAllowanceTransfer permit2;
 
     // mapping of token identifier to erc6160 contracts
     mapping(bytes32 => address) private _erc6160s;
@@ -205,13 +222,18 @@ contract TokenGateway is BaseIsmpModule {
             );
 
         if (erc20 != address(0) && !params.redeem) {
-            require(IERC20(erc20).transferFrom(from, address(this), params.amount), "Insufficient user balance");
+
+            permit2.permit(from, params.gatewayAssetPermit.permitSingle, params.gatewayAssetPermit.signature);
+            permit2.transferFrom(from, address(this), uint160(params.amount), erc20);
+
+            // require(IERC20(erc20).transferFrom(from, address(this), params.amount), "Insufficient user balance");
 
             // Calculate output fee in the fee token before swap:
             uint256 _fee = calculateBridgeFee(params.fee, data);
 
             // only swap if the feeToken is not the token intended for fee
             if (feeToken != params.feeToken) {
+                permit2.permit(from, params.gatewayInputFeeTokenPermit.permitSingle, params.gatewayInputFeeTokenPermit.signature);
                 require(handleSwap(from, params.feeToken, feeToken, _fee, params.amountInMax), "Token swap failed");
             }
         } else if (erc6160 != address(0)) {
@@ -219,6 +241,8 @@ contract TokenGateway is BaseIsmpModule {
         } else {
             revert("Unknown Token Identifier");
         }
+
+        permit2.permit(from, params.hostFeeTokenPermit.permitSingle, params.hostFeeTokenPermit.signature);
 
         DispatchPost memory request = DispatchPost({
             dest: params.dest,
@@ -358,10 +382,13 @@ contract TokenGateway is BaseIsmpModule {
         path[0] = _fromToken;
         path[1] = _toToken;
 
-        require(
-            IERC20(_fromToken).transferFrom(_sender, address(this), _amountInMax),
-            "insufficient intended fee token"
-        );
+        permit2.transferFrom(_sender, address(this), uint160(_amountInMax), _fromToken);
+
+        // require(
+        //     IERC20(_fromToken).transferFrom(_sender, address(this), _amountInMax),
+        //     "insufficient intended fee token"
+        // );
+
         require(IERC20(_fromToken).approve(address(_uniswapV2Router), _amountInMax), "approve failed.");
 
         _uniswapV2Router.swapTokensForExactTokens(_toTokenAmountOut, _amountInMax, path, _sender, block.timestamp + 300);

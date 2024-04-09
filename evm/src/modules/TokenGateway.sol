@@ -226,8 +226,6 @@ contract TokenGateway is BaseIsmpModule {
             permit2.permit(from, params.gatewayAssetPermit.permitSingle, params.gatewayAssetPermit.signature);
             permit2.transferFrom(from, address(this), uint160(params.amount), erc20);
 
-            // require(IERC20(erc20).transferFrom(from, address(this), params.amount), "Insufficient user balance");
-
             // Calculate output fee in the fee token before swap:
             uint256 _fee = calculateBridgeFee(params.fee, data);
 
@@ -383,11 +381,6 @@ contract TokenGateway is BaseIsmpModule {
         path[1] = _toToken;
 
         permit2.transferFrom(_sender, address(this), uint160(_amountInMax), _fromToken);
-
-        // require(
-        //     IERC20(_fromToken).transferFrom(_sender, address(this), _amountInMax),
-        //     "insufficient intended fee token"
-        // );
 
         require(IERC20(_fromToken).approve(address(_uniswapV2Router), _amountInMax), "approve failed.");
 

@@ -148,8 +148,8 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 
 // This mock is necessary to execute xcm messages from the relaychain to the parachain in this unit
 // test environment The xcm-simulator only MockNet only uses `DmpMessageHandler`, which is no longer
-// implemented in `cumulus_dmp_queue` The only other option would be using xcm-emulator, but that's
-// an integration test for prebuilt runtimes
+// implemented in `cumulus_dmp_queue` the only other option would be using xcm-emulator, but that's
+// an integration test kit for prebuilt runtimes not unit tests
 pub struct DmpMock;
 
 impl DmpMessageHandler for DmpMock {

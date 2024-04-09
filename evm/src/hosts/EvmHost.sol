@@ -13,6 +13,8 @@ import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
 import {IHandler} from "ismp/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "ismp/Message.sol";
 
+import {IAllowanceTransfer} from "../interfaces/IAllowanceTransfer.sol";
+
 // The IsmpHost parameters
 struct HostParams {
     // default timeout in seconds for requests.
@@ -42,6 +44,8 @@ struct HostParams {
     uint256 lastUpdated;
     // latest state machine height
     uint256 latestStateMachineHeight;
+    // Contract Instance of Permit2 contract
+    IAllowanceTransfer permit2;
     // state machine identifier for hyperbridge
     bytes hyperbridge;
 }
@@ -488,7 +492,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         // Charge the originating user/application
-        require(IERC20(feeToken()).transferFrom(meta.sender, address(this), fee), "Origin has insufficient funds");
+        _hostParams.permit2.transferFrom(meta.sender, address(this), uint160(fee), feeToken()); // Origin has insufficient funds
 
         address origin = _bytesToAddress(response.request.from);
         (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, response));
@@ -585,7 +589,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchPost memory post) external returns (bytes32 commitment) {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
-        require(IERC20(feeToken()).transferFrom(post.payer, address(this), fee), "Payer has insufficient funds");
+
+        _hostParams.permit2.transferFrom(post.payer, address(this), uint160(fee), feeToken()); // Payer has insufficient funds
+
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -622,7 +628,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchGet memory get) external returns (bytes32 commitment) {
         uint256 fee = _hostParams.baseGetRequestFee + get.fee;
-        require(IERC20(feeToken()).transferFrom(get.payer, address(this), fee), "Payer has insufficient funds");
+
+        _hostParams.permit2.transferFrom(get.payer, address(this), uint160(fee), feeToken()); // Payer has insufficient funds
+
 
         // adjust the timeout
         uint64 timeout =
@@ -670,7 +678,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         require(!_responded[receipt], "EvmHost: Duplicate Response");
 
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
-        require(IERC20(feeToken()).transferFrom(post.payer, address(this), fee), "Payer has insufficient funds");
+
+        _hostParams.permit2.transferFrom(post.payer, address(this), uint160(fee), feeToken()); // Payer has insufficient funds
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -712,7 +721,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         require(metadata.sender != address(0), "Unknown request");
         require(metadata.sender != _msgSender(), "User can only fund own requests");
-        require(IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount), "Payer has insufficient funds");
+
+        _hostParams.permit2.transferFrom(_msgSender(), address(this), uint160(amount), feeToken()); // Payer has insufficient funds
 
         metadata.fee += amount;
         _requestCommitments[commitment] = metadata;

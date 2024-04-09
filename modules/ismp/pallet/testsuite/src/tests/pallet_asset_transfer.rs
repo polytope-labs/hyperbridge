@@ -25,12 +25,13 @@ pub type RelayChainPalletXcm = pallet_xcm::Pallet<relay_chain::Runtime>;
 fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
     MockNet::reset();
 
-    let beneficiary: MultiLocation = Junctions::X2(
+    let beneficiary: MultiLocation = Junctions::X3(
         Junction::AccountId32 { network: None, id: ALICE.into() },
         Junction::AccountKey20 {
             network: Some(NetworkId::Ethereum { chain_id: 1 }),
             key: [1u8; 20],
         },
+        Junction::GeneralIndex(60 * 60),
     )
     .into_location();
     let weight_limit = WeightLimit::Unlimited;
@@ -57,7 +58,7 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
         dbg!(nonce);
         assert_eq!(nonce, 1);
 
-        let protocol_fees = <Test as pallet_asset_transfer::Config>::ProtocolFees::get();
+        let protocol_fees = pallet_asset_transfer::Pallet::<Test>::protocol_fee_percentage();
         let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 
         dbg!(asset_id);
@@ -81,12 +82,13 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
 fn should_process_on_accept_module_callback_correctly() {
     MockNet::reset();
 
-    let beneficiary: MultiLocation = Junctions::X2(
+    let beneficiary: MultiLocation = Junctions::X3(
         Junction::AccountId32 { network: None, id: ALICE.into() },
         Junction::AccountKey20 {
             network: Some(NetworkId::Ethereum { chain_id: 1 }),
             key: [1u8; 20],
         },
+        Junction::GeneralIndex(60 * 60),
     )
     .into_location();
     let weight_limit = WeightLimit::Unlimited;
@@ -115,7 +117,7 @@ fn should_process_on_accept_module_callback_correctly() {
         // Assert that a request was dispatched by checking the nonce, it should be 1
         assert_eq!(nonce, 1);
 
-        let protocol_fees = <Test as pallet_asset_transfer::Config>::ProtocolFees::get();
+        let protocol_fees = pallet_asset_transfer::Pallet::<Test>::protocol_fee_percentage();
         let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 
         let total_issuance = <pallet_assets::Pallet<Test> as Inspect<
@@ -181,12 +183,13 @@ fn should_process_on_accept_module_callback_correctly() {
 fn should_process_on_timeout_module_callback_correctly() {
     MockNet::reset();
 
-    let beneficiary: MultiLocation = Junctions::X2(
+    let beneficiary: MultiLocation = Junctions::X3(
         Junction::AccountId32 { network: None, id: ALICE.into() },
         Junction::AccountKey20 {
             network: Some(NetworkId::Ethereum { chain_id: 1 }),
             key: [0u8; 20],
         },
+        Junction::GeneralIndex(60 * 60),
     )
     .into_location();
     let weight_limit = WeightLimit::Unlimited;
@@ -215,7 +218,7 @@ fn should_process_on_timeout_module_callback_correctly() {
         // Assert that a request was dispatched by checking the nonce, it should be 1
         assert_eq!(nonce, 1);
 
-        let protocol_fees = <Test as pallet_asset_transfer::Config>::ProtocolFees::get();
+        let protocol_fees = pallet_asset_transfer::Pallet::<Test>::protocol_fee_percentage();
         let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 
         let total_issuance = <pallet_assets::Pallet<Test> as Inspect<

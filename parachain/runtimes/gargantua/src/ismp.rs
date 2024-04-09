@@ -15,7 +15,8 @@
 
 use crate::{
     alloc::{boxed::Box, string::ToString},
-    AccountId, Assets, Balance, Balances, Ismp, ParachainInfo, Runtime, RuntimeEvent, Timestamp,
+    AccountId, AssetTransfer, Assets, Balance, Balances, Ismp, ParachainInfo, Runtime,
+    RuntimeEvent, Timestamp,
 };
 use frame_support::{
     pallet_prelude::{ConstU32, Get},
@@ -30,6 +31,7 @@ use ismp::{
     module::IsmpModule,
     router::{IsmpRouter, Post, Request, Response},
 };
+use pallet_asset_transfer::TokenGatewayParams;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use sp_core::{crypto::AccountId32, H160, H256};
@@ -39,7 +41,7 @@ use ismp::router::Timeout;
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{dispatcher::FeeMetadata, host::Host, primitives::ModuleId};
 use sp_std::prelude::*;
-use staging_xcm::{latest::MultiLocation, prelude::Parachain};
+use staging_xcm::latest::MultiLocation;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -99,19 +101,14 @@ impl pallet_call_decompressor::Config for Runtime {
 parameter_types! {
     pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");
     pub const ProtocolAccount: PalletId = PalletId(*b"protocol");
-    pub const TokenGateWay: H160 = H160::zero();
-    pub const DotAssetId: H256 = H256::zero();
-    pub const ProtocolFees: Percent = Percent::from_percent(1);
+    pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Percent::from_percent(1), H160::zero(), H256::zero());
 }
 
 impl pallet_asset_transfer::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type PalletId = AssetPalletId;
     type ProtocolAccount = ProtocolAccount;
-    type TokenGateWay = TokenGateWay;
-    type DotAssetId = DotAssetId;
-    type ProtocolFees = ProtocolFees;
-    type EvmAccountId = H160;
+    type Params = TransferParams;
     type Assets = Assets;
 }
 
@@ -120,6 +117,7 @@ pub struct XcmBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
 impl BenchmarkHelper<MultiLocation> for XcmBenchmarkHelper {
     fn create_asset_id_parameter(id: u32) -> MultiLocation {
+        use staging_xcm::v3::Junction::Parachain;
         MultiLocation::new(1, Parachain(id))
     }
 }
@@ -156,9 +154,14 @@ impl IsmpModule for ProxyModule {
 
         let pallet_id = ModuleId::from_bytes(&request.to)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
+
+        let token_gateway = ModuleId::Evm(AssetTransfer::token_gateway_address());
+
         match pallet_id {
             pallet_ismp_demo::PALLET_ID =>
                 pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
+            id if id == token_gateway =>
+                pallet_asset_transfer::Module::<Runtime>::default().on_accept(request),
             _ => Err(Error::ImplementationSpecific("Destination module not found".to_string())),
         }
     }
@@ -177,9 +180,13 @@ impl IsmpModule for ProxyModule {
 
         let pallet_id = ModuleId::from_bytes(from)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
+
+        let token_gateway = ModuleId::Evm(AssetTransfer::token_gateway_address());
         match pallet_id {
             pallet_ismp_demo::PALLET_ID =>
                 pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_response(response),
+            id if id == token_gateway =>
+                pallet_asset_transfer::Module::<Runtime>::default().on_response(response),
             _ => Err(Error::ImplementationSpecific("Destination module not found".to_string())),
         }
     }
@@ -193,9 +200,12 @@ impl IsmpModule for ProxyModule {
 
         let pallet_id = ModuleId::from_bytes(from)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
+        let token_gateway = ModuleId::Evm(AssetTransfer::token_gateway_address());
         match pallet_id {
             pallet_ismp_demo::PALLET_ID =>
                 pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(timeout),
+            id if id == token_gateway =>
+                pallet_asset_transfer::Module::<Runtime>::default().on_timeout(timeout),
             // instead of returning an error, do nothing. The timeout is for a connected chain.
             _ => Ok(()),
         }

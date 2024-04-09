@@ -18,7 +18,7 @@ use frame_support::{
     PalletId,
 };
 use frame_system::EnsureRoot;
-use pallet_asset_transfer::xcm_utilities::HyperbridgeAssetTransactor;
+use pallet_asset_transfer::{xcm_utilities::HyperbridgeAssetTransactor, TokenGatewayParams};
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use pallet_xcm::XcmPassthrough;
@@ -393,19 +393,14 @@ impl pallet_xcm::Config for Test {
 parameter_types! {
     pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");
     pub const ProtocolAccount: PalletId = PalletId(*b"protocol");
-    pub const TokenGateWay: H160 = H160::zero();
-    pub const DotAssetId: H256 = H256::zero();
-    pub const ProtocolFees: Percent = Percent::from_percent(1);
+    pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Percent::from_percent(1), H160::zero(), H256::zero());
 }
 
 impl pallet_asset_transfer::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type PalletId = AssetPalletId;
     type ProtocolAccount = ProtocolAccount;
-    type TokenGateWay = TokenGateWay;
-    type DotAssetId = DotAssetId;
-    type ProtocolFees = ProtocolFees;
-    type EvmAccountId = H160;
+    type Params = TransferParams;
     type Assets = Assets;
 }
 

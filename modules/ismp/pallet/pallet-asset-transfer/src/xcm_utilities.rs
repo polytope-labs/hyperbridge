@@ -2,7 +2,7 @@ use crate::{Config, Pallet};
 use core::marker::PhantomData;
 use frame_support::traits::fungibles::{self, Mutate};
 use ismp::host::{Ethereum, StateMachine};
-use sp_core::Get;
+use sp_core::{Get, H160};
 use staging_xcm::{
     prelude::MultiLocation,
     v3::{
@@ -31,62 +31,72 @@ const BSC_TESTNET_CHAIN_ID: u64 = 97;
 
 pub struct WrappedNetworkId(pub NetworkId);
 
-impl WrappedNetworkId {
-    pub fn transform_to_state_machine(self) -> Option<StateMachine> {
-        match self.0 {
+impl TryFrom<WrappedNetworkId> for StateMachine {
+    type Error = ();
+
+    fn try_from(value: WrappedNetworkId) -> Result<Self, Self::Error> {
+        match value.0 {
             NetworkId::Ethereum { chain_id } => match chain_id {
                 ARBITRUM_CHAIN_ID | ARBITRUM_SEPOLIA_CHAIN_ID =>
-                    Some(StateMachine::Ethereum(Ethereum::Arbitrum)),
+                    Ok(StateMachine::Ethereum(Ethereum::Arbitrum)),
                 OPTIMISM_CHAIN_ID | OPTIMISM_SEPOLIA_CHAIN_ID =>
-                    Some(StateMachine::Ethereum(Ethereum::Optimism)),
-                BASE_CHAIN_ID | BASE_SEPOLIA_CHAIN_ID =>
-                    Some(StateMachine::Ethereum(Ethereum::Base)),
+                    Ok(StateMachine::Ethereum(Ethereum::Optimism)),
+                BASE_CHAIN_ID | BASE_SEPOLIA_CHAIN_ID => Ok(StateMachine::Ethereum(Ethereum::Base)),
                 ETHEREUM_CHAIN_ID | SEPOLIA_CHAIN_ID =>
-                    Some(StateMachine::Ethereum(Ethereum::ExecutionLayer)),
-                BSC_CHAIN_ID | BSC_TESTNET_CHAIN_ID => Some(StateMachine::Bsc),
-                _ => None,
+                    Ok(StateMachine::Ethereum(Ethereum::ExecutionLayer)),
+                BSC_CHAIN_ID | BSC_TESTNET_CHAIN_ID => Ok(StateMachine::Bsc),
+                _ => Err(()),
             },
             // Only transforms ethereum network ids
-            _ => None,
+            _ => Err(()),
         }
     }
 }
 
 /// Converts a MutiLocation to a substrate account and an evm account if the multilocation
 /// description matches a supported Ismp State machine
-pub struct MultilocationToMultiAccount<A, B>(PhantomData<(A, B)>);
+pub struct MultilocationToMultiAccount<A>(PhantomData<A>);
 
-pub struct MultiAccount<A, B> {
+pub struct MultiAccount<A> {
     /// Origin substrate account
     pub substrate_account: A,
     /// Destination evm account
-    pub evm_account: B,
+    pub evm_account: H160,
     /// Destination state machine
     pub dest_state_machine: StateMachine,
+    /// Request time out in seconds
+    pub timeout: u64,
 }
 
-impl<A: From<[u8; 32]> + Into<[u8; 32]> + Clone, B: From<[u8; 20]> + Into<[u8; 20]> + Clone>
-    ConvertLocation<MultiAccount<A, B>> for MultilocationToMultiAccount<A, B>
+// Supports a Multilocation interior of Junctions::X3
+// Junctions::X3(AccountId32 { .. }, AccountKey20 { .. }, GeneralIndex(..))
+// The value specified in the GeneralIndex will be used as the timeout in seconds for the ismp request that
+// will be dispatched
+impl<A> ConvertLocation<MultiAccount<A>> for MultilocationToMultiAccount<A>
+where
+    A: From<[u8; 32]> + Into<[u8; 32]> + Clone,
 {
-    fn convert_location(location: &MultiLocation) -> Option<MultiAccount<A, B>> {
-        // We only support locations X2 Junctions addressed to our parachain and an ethereum account
+    fn convert_location(location: &MultiLocation) -> Option<MultiAccount<A>> {
+        // We only support locations X3 Junctions addressed to our parachain and an ethereum account
         match location {
             MultiLocation {
                 parents: 0,
                 interior:
-                    Junctions::X2(
+                    Junctions::X3(
                         Junction::AccountId32 { id, .. },
                         Junction::AccountKey20 { network: Some(network), key },
+                        Junction::GeneralIndex(timeout),
                     ),
             } => {
                 // Ensure that the network Id is one of the supported ethereum networks
                 // If it transforms correctly we return the ethereum account
                 let dest_state_machine =
-                    WrappedNetworkId(network.clone()).transform_to_state_machine()?;
+                    StateMachine::try_from(WrappedNetworkId(network.clone())).ok()?;
                 Some(MultiAccount {
                     substrate_account: A::from(*id),
-                    evm_account: B::from(*key),
+                    evm_account: H160::from(*key),
                     dest_state_machine,
+                    timeout: *timeout as u64,
                 })
             },
             // Any other multilocation format is unsupported
@@ -114,7 +124,6 @@ where
     <T::Assets as fungibles::Inspect<T::AccountId>>::Balance: Into<u128> + From<u128>,
     u128: From<<T::Assets as fungibles::Inspect<T::AccountId>>::Balance>,
     T::AccountId: Eq + Clone + From<[u8; 32]> + Into<[u8; 32]>,
-    T::EvmAccountId: Eq + Clone + From<[u8; 20]> + Into<[u8; 20]>,
 {
     fn can_check_in(origin: &MultiLocation, what: &MultiAsset, context: &XcmContext) -> XcmResult {
         FungiblesMutateAdapter::<
@@ -173,15 +182,15 @@ where
                 .map_err(|e| XcmError::FailedToTransactAsset(e.into()))?;
         }
         // Ismp xcm transaction
-        else if let Some(who) =
-            MultilocationToMultiAccount::<T::AccountId, T::EvmAccountId>::convert_location(who)
+        else if let Some(who) = MultilocationToMultiAccount::<T::AccountId>::convert_location(who)
         {
             // We would remove the protocol fee at this point
 
             let protocol_account = Pallet::<T>::protocol_account_id();
             let pallet_account = Pallet::<T>::account_id();
+            let protocol_percentage = Pallet::<T>::protocol_fee_percentage();
 
-            let protocol_fees = <T as Config>::ProtocolFees::get() * u128::from(amount);
+            let protocol_fees = protocol_percentage * u128::from(amount);
             let remainder = amount - protocol_fees.into();
             // We dispatch an ismp request to the destination chain
             Pallet::<T>::dispatch_request(who, remainder)

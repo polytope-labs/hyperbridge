@@ -55,7 +55,7 @@ type Block = frame_system::mocking::MockBlock<Test>;
 frame_support::construct_runtime!(
     pub enum Test {
         System: frame_system,
-        ParachainSystem: cumulus_pallet_parachain_system = 2,
+        ParachainSystem: cumulus_pallet_parachain_system,
         ParachainInfo: parachain_info,
         Timestamp: pallet_timestamp,
         Ismp: pallet_ismp,

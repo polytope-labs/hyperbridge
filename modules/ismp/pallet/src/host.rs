@@ -15,11 +15,11 @@
 
 //! Host implementation for ISMP
 use crate::{
-    primitives::ConsensusClientProvider, ChallengePeriod, Config, ConsensusClientUpdateTime,
-    ConsensusStateClient, ConsensusStates, FrozenConsensusClients, FrozenStateMachine,
-    LatestStateMachineHeight, Nonce, RequestCommitments, RequestReceipts, Responded,
-    ResponseCommitments, ResponseReceipt, ResponseReceipts, StateCommitments,
-    StateMachineUpdateTime, UnbondingPeriod,
+    child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
+    primitives::ConsensusClientProvider,
+    ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
+    FrozenConsensusClients, FrozenStateMachine, LatestStateMachineHeight, Nonce, Responded,
+    ResponseReceipt, StateCommitments, StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use core::time::Duration;
@@ -144,11 +144,7 @@ impl<T: Config> IsmpHost for Host<T> {
         let commitment = hash_request::<Self>(req);
 
         let _ = RequestReceipts::<T>::get(commitment)
-            .ok_or_else(|| Error::RequestCommitmentNotFound {
-                nonce: req.nonce(),
-                source: req.source_chain(),
-                dest: req.dest_chain(),
-            })
+            .ok_or_else(|| Error::RequestCommitmentNotFound { meta: req.into() })
             .ok()?;
 
         Some(())
@@ -217,13 +213,8 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
-    fn freeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
-        FrozenStateMachine::<T>::insert(state_machine, true);
-        Ok(())
-    }
-
-    fn unfreeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error> {
-        FrozenStateMachine::<T>::remove(&state_machine);
+    fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
+        StateCommitments::<T>::remove(height);
         Ok(())
     }
 
@@ -306,6 +297,11 @@ impl<T: Config> IsmpHost for Host<T> {
 
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {
         Box::new(T::Router::default())
+    }
+
+    fn freeze_state_machine_client(&self, state_machine: StateMachineId) -> Result<(), Error> {
+        FrozenStateMachine::<T>::insert(state_machine, true);
+        Ok(())
     }
 }
 

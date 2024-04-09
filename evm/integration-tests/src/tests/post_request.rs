@@ -13,7 +13,7 @@ use ismp_solidity_abi::{
     handler::{PostRequestLeaf, PostRequestMessage},
     shared_types::StateCommitment,
 };
-use pallet_ismp::mmr_primitives::{DataOrHash, Leaf};
+use pallet_ismp::mmr::primitives::{DataOrHash, Leaf};
 use std::{env, path::PathBuf};
 
 #[tokio::test(flavor = "multi_thread")]
@@ -32,7 +32,6 @@ async fn test_post_request_proof() -> Result<(), anyhow::Error> {
         to: destination.as_bytes().to_vec(),
         timeout_timestamp: 100,
         data: vec![],
-        gas_limit: 0,
     };
     let request = DataOrHash::Data(Leaf::Request(Request::Post(post.clone())));
     let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 1)?;

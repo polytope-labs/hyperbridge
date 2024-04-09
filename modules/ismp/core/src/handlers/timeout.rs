@@ -17,14 +17,14 @@
 
 use crate::{
     error::Error,
+    events::{Event, TimeoutHandled},
     handlers::{validate_state_machine, MessageResult},
     host::{IsmpHost, StateMachine},
     messaging::TimeoutMessage,
-    module::{DispatchError, DispatchSuccess},
     router::Response,
     util::{hash_post_response, hash_request},
 };
-use alloc::{format, vec::Vec};
+use alloc::vec::Vec;
 
 /// This function handles timeouts
 pub fn handle<H>(host: &H, msg: TimeoutMessage) -> Result<MessageResult, Error>
@@ -33,7 +33,7 @@ where
 {
     let consensus_clients = host.consensus_clients();
 
-    let check_for_consensus_client = |state_machine: StateMachine| {
+    let check_state_machine_client = |state_machine: StateMachine| {
         consensus_clients
             .iter()
             .find_map(|client| client.state_machine(state_machine).ok())
@@ -45,28 +45,26 @@ where
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
 
-            let requests = requests
-                .into_iter()
-                .filter(|req| {
-                    // check if the destination chain matches the proof metadata
-                    // or if the proof metadata refers to the configured proxy
-                    // and we don't have a configured state machine client for the destination
-                    req.dest_chain() == timeout_proof.height.id.state_id ||
-                        host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-                            check_for_consensus_client(req.dest_chain())
-                })
-                .collect::<Vec<_>>();
-
             for request in &requests {
+                // check if the destination chain does not match the proof metadata in which case
+                // the proof metadata must be the configured proxy
+                // and we must not have a configured state machine client for the destination
+                if request.dest_chain() != timeout_proof.height.id.state_id &&
+                    !(host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+                        check_state_machine_client(request.dest_chain()))
+                {
+                    Err(Error::RequestProxyProhibited { meta: request.into() })?
+                }
+
                 // Ensure a commitment exists for all requests in the batch
                 let commitment = hash_request::<H>(request);
-                host.request_commitment(commitment)?;
+                if host.request_commitment(commitment).is_err() {
+                    Err(Error::UnknownRequest { meta: request.into() })?
+                }
 
                 if !request.timed_out(state.timestamp()) {
                     Err(Error::RequestTimeoutNotElapsed {
-                        nonce: request.nonce(),
-                        source: request.source_chain(),
-                        dest: request.dest_chain(),
+                        meta: request.into(),
                         timeout_timestamp: request.timeout(),
                         state_machine_time: state.timestamp(),
                     })?
@@ -76,7 +74,9 @@ where
             let keys = state_machine.state_trie_key(requests.clone().into());
             let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
             if values.into_iter().any(|(_key, val)| val.is_some()) {
-                Err(Error::ImplementationSpecific("Some Requests not timed out".into()))?
+                Err(Error::ImplementationSpecific(
+                    "Some Requests in the batch have been delivered".into(),
+                ))?
             }
 
             let router = host.ismp_router();
@@ -84,19 +84,10 @@ where
                 .into_iter()
                 .map(|request| {
                     let cb = router.module_for_id(request.source_module())?;
-                    let res = cb
-                        .on_timeout(request.clone().into())
-                        .map(|_| DispatchSuccess {
-                            dest_chain: request.dest_chain(),
-                            source_chain: request.source_chain(),
-                            nonce: request.nonce(),
-                        })
-                        .map_err(|e| DispatchError {
-                            msg: format!("{e:?}"),
-                            nonce: request.nonce(),
-                            source_chain: request.source_chain(),
-                            dest_chain: request.dest_chain(),
-                        });
+                    let res = cb.on_timeout(request.clone().into()).map(|_| {
+                        let commitment = hash_request::<H>(&request);
+                        Event::PostRequestTimeoutHandled(TimeoutHandled { commitment })
+                    });
                     if res.is_ok() {
                         host.delete_request_commitment(&request)?;
                         // If the request was routed we delete it's receipt
@@ -111,29 +102,27 @@ where
         TimeoutMessage::PostResponse { responses, timeout_proof } => {
             let state_machine = validate_state_machine(host, timeout_proof.height)?;
             let state = host.state_machine_commitment(timeout_proof.height)?;
-
-            let responses = responses
-                .into_iter()
-                .filter(|res| {
-                    // check if the destination chain matches the proof metadata
-                    // or if the proof metadata refers to the configured proxy
-                    // and we don't have a configured state machine client for the destination
-                    res.dest_chain() == timeout_proof.height.id.state_id ||
-                        host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-                            check_for_consensus_client(res.dest_chain())
-                })
-                .collect::<Vec<_>>();
-
             for response in &responses {
+                // check if the destination chain does not match the proof metadata in which case
+                // the proof metadata must be the configured proxy
+                // and we must not have a configured state machine client for the destination
+                if response.dest_chain() != timeout_proof.height.id.state_id &&
+                    !(host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
+                        check_state_machine_client(response.dest_chain()))
+                {
+                    Err(Error::ResponseProxyProhibited {
+                        meta: Response::Post(response.clone()).into(),
+                    })?
+                }
                 // Ensure a commitment exists for all responses in the batch
                 let commitment = hash_post_response::<H>(response);
-                host.response_commitment(commitment)?;
+                if host.response_commitment(commitment).is_err() {
+                    Err(Error::UnknownResponse { meta: Response::Post(response.clone()).into() })?
+                }
 
                 if response.timeout() > state.timestamp() {
                     Err(Error::RequestTimeoutNotElapsed {
-                        nonce: response.nonce(),
-                        source: response.source_chain(),
-                        dest: response.dest_chain(),
+                        meta: response.into(),
                         timeout_timestamp: response.timeout(),
                         state_machine_time: state.timestamp(),
                     })?
@@ -144,7 +133,9 @@ where
             let keys = state_machine.state_trie_key(items.into());
             let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
             if values.into_iter().any(|(_key, val)| val.is_some()) {
-                Err(Error::ImplementationSpecific("Some Requests not timed out".into()))?
+                Err(Error::ImplementationSpecific(
+                    "Some responses in the batch have been delivered".into(),
+                ))?
             }
 
             let router = host.ismp_router();
@@ -152,19 +143,10 @@ where
                 .into_iter()
                 .map(|response| {
                     let cb = router.module_for_id(response.source_module())?;
-                    let res = cb
-                        .on_timeout(response.clone().into())
-                        .map(|_| DispatchSuccess {
-                            dest_chain: response.dest_chain(),
-                            source_chain: response.source_chain(),
-                            nonce: response.nonce(),
-                        })
-                        .map_err(|e| DispatchError {
-                            msg: format!("{e:?}"),
-                            nonce: response.nonce(),
-                            source_chain: response.source_chain(),
-                            dest_chain: response.dest_chain(),
-                        });
+                    let res = cb.on_timeout(response.clone().into()).map(|_| {
+                        let commitment = hash_post_response::<H>(&response);
+                        Event::PostResponseTimeoutHandled(TimeoutHandled { commitment })
+                    });
                     if res.is_ok() {
                         host.delete_response_commitment(&response)?;
                         // If the response was routed we delete it's receipt
@@ -180,37 +162,29 @@ where
             for request in &requests {
                 let commitment = hash_request::<H>(request);
                 // if we have a commitment, it came from us
-                host.request_commitment(commitment)?;
+                if host.request_commitment(commitment).is_err() {
+                    Err(Error::UnknownRequest { meta: request.into() })?
+                }
 
                 // Ensure the get timeout has elapsed on the host
                 if !request.timed_out(host.timestamp()) {
                     Err(Error::RequestTimeoutNotElapsed {
-                        nonce: request.nonce(),
-                        source: request.source_chain(),
-                        dest: request.dest_chain(),
+                        meta: request.into(),
                         timeout_timestamp: request.timeout(),
                         state_machine_time: host.timestamp(),
                     })?
                 }
             }
+
             let router = host.ismp_router();
             requests
                 .into_iter()
                 .map(|request| {
                     let cb = router.module_for_id(request.source_module())?;
-                    let res = cb
-                        .on_timeout(request.clone().into())
-                        .map(|_| DispatchSuccess {
-                            dest_chain: request.dest_chain(),
-                            source_chain: request.source_chain(),
-                            nonce: request.nonce(),
-                        })
-                        .map_err(|e| DispatchError {
-                            msg: format!("{e:?}"),
-                            nonce: request.nonce(),
-                            source_chain: request.source_chain(),
-                            dest_chain: request.dest_chain(),
-                        });
+                    let res = cb.on_timeout(request.clone().into()).map(|_| {
+                        let commitment = hash_request::<H>(&request);
+                        Event::GetRequestTimeoutHandled(TimeoutHandled { commitment })
+                    });
                     if res.is_ok() {
                         host.delete_request_commitment(&request)?;
                     }

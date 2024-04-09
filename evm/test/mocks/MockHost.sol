@@ -26,7 +26,7 @@ contract MockHost {
         return _host;
     }
 
-    function dai() public view returns (address) {
+    function feeToken() public view returns (address) {
         return _hostParams.feeTokenAddress;
     }
 
@@ -54,8 +54,7 @@ contract MockHost {
             from: abi.encodePacked(tx.origin),
             to: post.to,
             timeoutTimestamp: timeout,
-            body: post.body,
-            gaslimit: post.gaslimit
+            body: post.body
         });
         MockAutoRelayer(relayer).autoRelay(request);
     }

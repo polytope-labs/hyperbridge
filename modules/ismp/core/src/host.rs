@@ -77,7 +77,8 @@ pub trait IsmpHost: Keccak256 {
     /// or [`Error::FrozenStateMachine`] if it is.
     fn is_state_machine_frozen(&self, machine: StateMachineId) -> Result<(), Error>;
 
-    /// Checks if a consensus state is frozen
+    /// Checks if a consensus state is frozen should return Ok(()) if it isn't
+    /// or [`Error::FrozenConsensusClient`] if it is.
     fn is_consensus_client_frozen(&self, consensus_state_id: ConsensusStateId)
         -> Result<(), Error>;
 
@@ -140,14 +141,14 @@ pub trait IsmpHost: Keccak256 {
         state: StateCommitment,
     ) -> Result<(), Error>;
 
-    /// Freeze a state machine at the given height
-    fn freeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error>;
-
-    /// UnFreeze a state machine at the given height
-    fn unfreeze_state_machine(&self, state_machine: StateMachineId) -> Result<(), Error>;
+    /// Deletes a state commitment, ideally because it was invalid.
+    fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error>;
 
     /// Freeze a consensus state with the given identifier
     fn freeze_consensus_client(&self, consensus_state_id: ConsensusStateId) -> Result<(), Error>;
+
+    /// Freeze a consensus state with the given identifier
+    fn freeze_state_machine_client(&self, state_machine: StateMachineId) -> Result<(), Error>;
 
     /// Store latest height for a state machine
     fn store_latest_commitment_height(&self, height: StateMachineHeight) -> Result<(), Error>;

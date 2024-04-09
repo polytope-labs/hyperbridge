@@ -18,7 +18,7 @@ use crate::{
     AccountId, Balance, Balances, Ismp, ParachainInfo, Runtime, RuntimeEvent, Timestamp,
 };
 
-use frame_support::pallet_prelude::Get;
+use frame_support::pallet_prelude::{ConstU32, Get};
 use frame_system::EnsureRoot;
 use ismp::{
     error::Error,
@@ -63,14 +63,13 @@ impl pallet_ismp::Config for Runtime {
     type TimeProvider = Timestamp;
     type Router = Router;
     type ConsensusClients = (
-        ismp_bsc_pos::BscClient<Host<Runtime>>,
+        ismp_bsc::BscClient<Host<Runtime>>,
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Sepolia>,
     );
-    type WeightInfo = ();
     type WeightProvider = ();
 }
 
-impl ismp_demo::Config for Runtime {
+impl pallet_ismp_demo::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Balance = Balance;
     type NativeCurrency = Balances;
@@ -81,8 +80,10 @@ impl pallet_ismp_relayer::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
 }
 
-impl state_machine_manager::pallet::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
+impl pallet_ismp_host_executive::Config for Runtime {}
+
+impl pallet_call_decompressor::Config for Runtime {
+    type MaxCallSize = ConstU32<2>;
 }
 
 impl IsmpModule for ProxyModule {
@@ -95,8 +96,8 @@ impl IsmpModule for ProxyModule {
         let pallet_id = ModuleId::from_bytes(&request.to)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
         match pallet_id {
-            ismp_demo::PALLET_ID =>
-                ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
+            pallet_ismp_demo::PALLET_ID =>
+                pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
             _ => Err(Error::ImplementationSpecific("Destination module not found".to_string())),
         }
     }
@@ -116,8 +117,8 @@ impl IsmpModule for ProxyModule {
         let pallet_id = ModuleId::from_bytes(from)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
         match pallet_id {
-            ismp_demo::PALLET_ID =>
-                ismp_demo::IsmpModuleCallback::<Runtime>::default().on_response(response),
+            pallet_ismp_demo::PALLET_ID =>
+                pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_response(response),
             _ => Err(Error::ImplementationSpecific("Destination module not found".to_string())),
         }
     }
@@ -132,8 +133,8 @@ impl IsmpModule for ProxyModule {
         let pallet_id = ModuleId::from_bytes(from)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
         match pallet_id {
-            ismp_demo::PALLET_ID =>
-                ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(timeout),
+            pallet_ismp_demo::PALLET_ID =>
+                pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(timeout),
             // instead of returning an error, do nothing. The timeout is for a connected chain.
             _ => Ok(()),
         }

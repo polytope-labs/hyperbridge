@@ -17,27 +17,28 @@
 
 use crate::{
     error::Error,
+    events::{Event, RequestResponseHandled},
     handlers::{validate_state_machine, MessageResult},
     host::{IsmpHost, StateMachine},
-    messaging::{sufficient_proof_height, ResponseMessage},
-    module::{DispatchError, DispatchSuccess},
+    messaging::ResponseMessage,
     router::{GetResponse, Request, RequestResponse, Response},
-    util::hash_request,
+    util::{hash_request, hash_response},
 };
-use alloc::{format, vec::Vec};
+use alloc::{vec, vec::Vec};
 
 /// Validate the state machine, verify the response message and dispatch the message to the modules
 pub fn handle<H>(host: &H, msg: ResponseMessage) -> Result<MessageResult, Error>
 where
     H: IsmpHost,
 {
+    let signer = msg.signer.clone();
+
     let proof = msg.proof();
     let state_machine = validate_state_machine(host, proof.height)?;
     let state = host.state_machine_commitment(proof.height)?;
 
     let consensus_clients = host.consensus_clients();
-
-    let check_for_consensus_client = |state_machine: StateMachine| {
+    let check_state_machine_client = |state_machine: StateMachine| {
         consensus_clients
             .iter()
             .find_map(|client| client.state_machine(state_machine).ok())
@@ -46,24 +47,32 @@ where
 
     let result = match &msg.datagram {
         RequestResponse::Response(responses) => {
-            // For a response to be valid a request commitment must be present in storage
-            // Also we must not have received a response for this request
-            let responses = responses
-                .iter()
-                .filter(|response| {
-                    let request = response.request();
-                    let commitment = hash_request::<H>(&request);
-                    host.request_commitment(commitment).is_ok() &&
-                        host.response_receipt(&response).is_none() &&
-                        !response.timed_out(host.timestamp()) &&
-                        // either the proof metadata matches the source chain, or it's coming from a proxy
-                        // in which case, we must NOT have a configured state machine for the source
-                        (response.source_chain() == msg.proof.height.id.state_id ||
-                            host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
-                                check_for_consensus_client(response.source_chain()))
-                })
-                .cloned()
-                .collect::<Vec<_>>();
+            for response in responses.iter() {
+                let request = response.request();
+                let commitment = hash_request::<H>(&request);
+
+                if host.request_commitment(commitment).is_err() {
+                    Err(Error::UnsolicitedResponse { meta: response.into() })?
+                }
+
+                if host.response_receipt(&response).is_some() {
+                    Err(Error::DuplicateResponse { meta: response.into() })?
+                }
+
+                if response.timed_out(host.timestamp()) {
+                    Err(Error::ResponseTimeout { response: response.into() })?
+                }
+
+                // check if the source chain does not match the proof metadata in which case
+                // the proof metadata must be the configured proxy
+                // and we must not have a configured state machine client for the destination
+                if response.source_chain() != msg.proof.height.id.state_id &&
+                    !(host.is_allowed_proxy(&msg.proof.height.id.state_id) &&
+                        check_state_machine_client(response.source_chain()))
+                {
+                    Err(Error::ResponseProxyProhibited { meta: response.into() })?
+                }
+            }
 
             // Verify membership proof
             state_machine.verify_membership(
@@ -75,22 +84,17 @@ where
 
             let router = host.ismp_router();
             responses
+                .clone()
                 .into_iter()
                 .map(|response| {
                     let cb = router.module_for_id(response.destination_module())?;
-                    let res = cb
-                        .on_response(response.clone())
-                        .map(|_| DispatchSuccess {
-                            dest_chain: response.dest_chain(),
-                            source_chain: response.source_chain(),
-                            nonce: response.nonce(),
+                    let res = cb.on_response(response.clone()).map(|_| {
+                        let commitment = hash_response::<H>(&response);
+                        Event::PostResponseHandled(RequestResponseHandled {
+                            commitment,
+                            relayer: signer.clone(),
                         })
-                        .map_err(|e| DispatchError {
-                            msg: format!("{e:?}"),
-                            nonce: response.nonce(),
-                            source_chain: response.source_chain(),
-                            dest_chain: response.dest_chain(),
-                        });
+                    });
                     if res.is_ok() {
                         host.store_response_receipt(&response, &msg.signer)?;
                     }
@@ -99,38 +103,47 @@ where
                 .collect::<Result<Vec<_>, _>>()?
         },
         RequestResponse::Request(requests) => {
-            let requests = requests
-                .into_iter()
-                .filter(|req| {
-                    !req.timed_out(host.timestamp()) && req.dest_chain() == proof.height.id.state_id
-                })
-                .filter_map(|req| match req {
-                    Request::Post(_) => None,
-                    Request::Get(get) => {
-                        let commitment = hash_request::<H>(&Request::Get(get.clone()));
-                        if host.request_commitment(commitment).is_ok() &&
-                            host.response_receipt(&Response::Get(GetResponse {
-                                get: get.clone(),
-                                values: Default::default(),
-                            }))
-                            .is_none()
-                        {
-                            Some(get)
-                        } else {
-                            None
-                        }
-                    },
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            // Ensure the proof height is greater than each retrieval height specified in the Get
+            let mut get_requests = vec![];
+            for req in requests.iter() {
+                let Request::Get(get) = req else {
+                    Err(Error::InvalidResponseType { meta: req.into() })?
+                };
+
+                if req.timed_out(host.timestamp()) {
+                    Err(Error::RequestTimeout { meta: req.into() })?
+                }
+
+                if req.dest_chain() != proof.height.id.state_id {
+                    Err(Error::RequestProofMetadataNotValid { meta: req.into() })?
+                }
+
+                let commitment = hash_request::<H>(&Request::Get(get.clone()));
+                if host.request_commitment(commitment).is_err() {
+                    Err(Error::UnknownRequest { meta: req.into() })?
+                }
+
+                let res =
+                    Response::Get(GetResponse { get: get.clone(), values: Default::default() });
+
+                if host.response_receipt(&res).is_some() {
+                    Err(Error::DuplicateResponse { meta: res.into() })?
+                }
+
+                get_requests.push(get.clone());
+            }
+
+            // Ensure the proof height is equal to each retrieval height specified in the Get
             // requests
-            sufficient_proof_height(&requests, &proof)?;
+            if !get_requests.iter().all(|get| get.height == proof.height.height) {
+                Err(Error::InsufficientProofHeight)?
+            }
+
             // Since each get request can  contain multiple storage keys, we should handle them
             // individually
-            requests
+            get_requests
                 .into_iter()
                 .map(|request| {
+                    let wrapped_req = Request::Get(request.clone());
                     let keys = request.keys.clone();
                     let values = state_machine.verify_state_proof(host, keys, state, &proof)?;
 
@@ -138,16 +151,12 @@ where
                     let cb = router.module_for_id(request.from.clone())?;
                     let res = cb
                         .on_response(Response::Get(GetResponse { get: request.clone(), values }))
-                        .map(|_| DispatchSuccess {
-                            dest_chain: request.dest,
-                            source_chain: request.source,
-                            nonce: request.nonce,
-                        })
-                        .map_err(|e| DispatchError {
-                            msg: format!("{e:?}"),
-                            nonce: request.nonce,
-                            source_chain: request.source,
-                            dest_chain: request.dest,
+                        .map(|_| {
+                            let commitment = hash_request::<H>(&wrapped_req);
+                            Event::GetRequestHandled(RequestResponseHandled {
+                                commitment,
+                                relayer: signer.clone(),
+                            })
                         });
                     let response = Response::Get(GetResponse {
                         get: request.clone(),

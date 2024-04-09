@@ -31,7 +31,6 @@ async fn test_host_manager_withdraw() -> Result<(), anyhow::Error> {
         to: vec![],
         timeout_timestamp: 100,
         data,
-        gas_limit: 0,
     };
 
     let request: PostRequest = post.into();
@@ -64,7 +63,6 @@ async fn test_host_manager_unauthorized_request() -> Result<(), anyhow::Error> {
         to: vec![],
         timeout_timestamp: 100,
         data,
-        gas_limit: 0,
     };
 
     let request: PostRequest = post.into();
@@ -105,7 +103,6 @@ async fn test_host_manager_insufficient_balance() -> Result<(), anyhow::Error> {
         to: vec![],
         timeout_timestamp: 100,
         data,
-        gas_limit: 0,
     };
 
     let request: PostRequest = post.into();
@@ -130,22 +127,7 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
     let mut runner = Runner::new(PathBuf::from(&base_dir));
     let mut contract = runner.deploy("HostManagerTest").await;
 
-    let params = HostParams {
-        default_timeout: Default::default(),
-        base_get_request_fee: Default::default(),
-        per_byte_fee: Default::default(),
-        fee_token_address: Default::default(),
-        admin: Default::default(),
-        handler: Default::default(),
-        host_manager: Default::default(),
-        un_staking_period: Default::default(),
-        challenge_period: U256::from(5_000_000u128),
-        consensus_client: Default::default(),
-        consensus_state: Default::default(),
-        last_updated: Default::default(),
-        latest_state_machine_height: Default::default(),
-        hyperbridge: Default::default(),
-    };
+    let params = HostParams { challenge_period: U256::from(5_000_000u128), ..Default::default() };
     let mut data = vec![1u8];
     data.extend_from_slice(params.encode().as_slice());
 
@@ -158,7 +140,6 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
         to: vec![],
         timeout_timestamp: 100,
         data,
-        gas_limit: 0,
     };
 
     let request: PostRequest = post.into();

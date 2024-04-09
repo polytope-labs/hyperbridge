@@ -14,8 +14,14 @@
 // limitations under the License.
 //! Core ISMP events
 
-use crate::{Config, Event as PalletEvent};
-use ismp::{consensus::StateMachineId, host::StateMachine};
+use crate::{errors::HandlingError, Config, Event as PalletEvent, Pallet};
+use alloc::vec::Vec;
+use ismp::{
+    consensus::StateMachineId,
+    error::Error,
+    events::{RequestResponseHandled, TimeoutHandled},
+    host::StateMachine,
+};
 use sp_core::H256;
 
 /// Ismp Core Protocol Events
@@ -51,6 +57,18 @@ pub enum Event {
         /// Commitment
         commitment: H256,
     },
+    /// Post Request Handled
+    PostRequestHandled(RequestResponseHandled),
+    /// Post Response Handled
+    PostResponseHandled(RequestResponseHandled),
+    /// Get Response Handled
+    GetRequestHandled(RequestResponseHandled),
+    /// Post request timeout handled
+    PostRequestTimeoutHandled(TimeoutHandled),
+    /// Post response timeout handled
+    PostResponseTimeoutHandled(TimeoutHandled),
+    /// Get request timeout handled
+    GetRequestTimeoutHandled(TimeoutHandled),
 }
 
 /// Convert from pallet event to Ismp event
@@ -62,6 +80,58 @@ pub fn to_core_protocol_event<T: Config>(event: PalletEvent<T>) -> Option<Event>
             Some(Event::Response { dest_chain, source_chain, request_nonce, commitment }),
         PalletEvent::Request { dest_chain, source_chain, request_nonce, commitment } =>
             Some(Event::Request { dest_chain, source_chain, request_nonce, commitment }),
-        _ => None,
+        PalletEvent::GetRequestTimeoutHandled(handled) =>
+            Some(Event::GetRequestTimeoutHandled(handled)),
+        PalletEvent::GetRequestHandled(handled) => Some(Event::GetRequestHandled(handled)),
+        PalletEvent::PostRequestHandled(handled) => Some(Event::PostRequestHandled(handled)),
+        PalletEvent::PostResponseHandled(handled) => Some(Event::PostResponseHandled(handled)),
+        PalletEvent::PostRequestTimeoutHandled(handled) =>
+            Some(Event::PostRequestTimeoutHandled(handled)),
+        PalletEvent::PostResponseTimeoutHandled(handled) =>
+            Some(Event::PostResponseTimeoutHandled(handled)),
+        // We are only converting events useful relayers and applications
+        PalletEvent::ConsensusClientCreated { .. } => None,
+        PalletEvent::ConsensusClientFrozen { .. } => None,
+        PalletEvent::Errors { .. } => None,
+        PalletEvent::__Ignore(_, _) => None,
+    }
+}
+
+/// Deposit some ismp events
+/// We only want to deposit Request Handled and time out events at this point
+pub fn deposit_ismp_events<T: Config>(
+    results: Vec<Result<ismp::events::Event, Error>>,
+    errors: &mut Vec<HandlingError>,
+) {
+    for result in results {
+        match result {
+            Ok(event) => match event {
+                ismp::events::Event::PostRequestHandled(handled) =>
+                    Pallet::<T>::deposit_event(PalletEvent::<T>::PostRequestHandled(handled)),
+                ismp::events::Event::PostResponseHandled(handled) =>
+                    Pallet::<T>::deposit_event(PalletEvent::<T>::PostResponseHandled(handled)),
+                ismp::events::Event::PostRequestTimeoutHandled(handled) =>
+                    Pallet::<T>::deposit_event(PalletEvent::<T>::PostRequestTimeoutHandled(handled)),
+                ismp::events::Event::PostResponseTimeoutHandled(handled) =>
+                    Pallet::<T>::deposit_event(PalletEvent::<T>::PostResponseTimeoutHandled(
+                        handled,
+                    )),
+                ismp::events::Event::GetRequestHandled(handled) =>
+                    Pallet::<T>::deposit_event(PalletEvent::<T>::GetRequestHandled(handled)),
+                ismp::events::Event::GetRequestTimeoutHandled(handled) =>
+                    Pallet::<T>::deposit_event(PalletEvent::<T>::GetRequestTimeoutHandled(handled)),
+                ismp::events::Event::StateMachineUpdated(ev) =>
+                    Pallet::<T>::deposit_event(PalletEvent::<T>::StateMachineUpdated {
+                        state_machine_id: ev.state_machine_id,
+                        latest_height: ev.latest_height,
+                    }),
+                // These events are only deposited when messages are dispatched, they should never
+                // be deposited when a message is handled
+                ismp::events::Event::PostRequest(_) => {},
+                ismp::events::Event::PostResponse(_) => {},
+                ismp::events::Event::GetRequest(_) => {},
+            },
+            Err(err) => errors.push(err.into()),
+        }
     }
 }

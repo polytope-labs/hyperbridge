@@ -161,7 +161,7 @@ checksum = "1a047897373be4bbb0224c1afdabca92648dc57a9c9ef6e7b0be3aff7a859c83"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -268,7 +268,7 @@ dependencies = [
  "proc-macro-error",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -749,7 +749,7 @@ checksum = "16e62a023e7c117e27523144c5d2459f4397fcc3cab0085af8e2224f643a0193"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -766,7 +766,7 @@ checksum = "c980ee35e870bd1a4d2c8294d4c04d0499e67bca1e4b5cefcc693c2fa00caea9"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -989,7 +989,7 @@ dependencies = [
  "regex",
  "rustc-hash",
  "shlex",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -1239,11 +1239,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "bsc-pos-prover"
+name = "bsc-prover"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bsc-pos-verifier",
+ "bsc-verifier",
  "dotenv",
  "ethers",
  "geth-primitives",
@@ -1256,7 +1256,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "bsc-pos-verifier"
+name = "bsc-verifier"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
@@ -1594,7 +1594,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -2418,7 +2418,7 @@ dependencies = [
  "proc-macro-crate 3.1.0",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -2766,7 +2766,7 @@ checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -2806,7 +2806,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "scratch",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -2823,7 +2823,7 @@ checksum = "8908e380a8efd42150c017b0cfa31509fc49b6d47f7cb6b33e93ffb8f4e3661e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -2871,7 +2871,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "strsim",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -2893,7 +2893,7 @@ checksum = "836a9bbc7ad63342d6d6e7b815ccab164bc77a2d95d84bc3117a8c0d5c98e2d5"
 dependencies = [
  "darling_core 0.20.3",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -3101,7 +3101,7 @@ checksum = "487585f4d0c6655fe74905e2504d8ad6908e4db67f744eb140876906c2f3175d"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -3125,7 +3125,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "syn 2.0.48",
+ "syn 2.0.57",
  "termcolor",
  "toml 0.8.2",
  "walkdir",
@@ -3373,7 +3373,7 @@ checksum = "f95e2801cd355d4a1a3e3953ce6ee5ae9603a5c833455343a8bfe3f44d418246"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -3384,7 +3384,7 @@ checksum = "6fd000fd6988e73bbe993ea3db9b1aa64906ab88766d654973924340c8cddb42"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -3581,7 +3581,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "syn 2.0.48",
+ "syn 2.0.57",
  "toml 0.7.8",
  "walkdir",
 ]
@@ -3598,7 +3598,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde_json",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -3623,7 +3623,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.25.0",
- "syn 2.0.48",
+ "syn 2.0.57",
  "tempfile",
  "thiserror",
  "tiny-keccak",
@@ -3839,7 +3839,7 @@ dependencies = [
  "fs-err",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -4165,7 +4165,7 @@ dependencies = [
  "ethers-providers",
  "eyre",
  "foundry-macros",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -4282,7 +4282,7 @@ source = "git+https://github.com/polytope-labs/foundry?rev=068ef4d82e8421f9f96fd
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -4403,7 +4403,7 @@ dependencies = [
  "proc-macro-crate 3.1.0",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -4547,7 +4547,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "sp-core-hashing 15.0.0",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -4560,7 +4560,7 @@ dependencies = [
  "proc-macro-crate 3.1.0",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -4571,7 +4571,7 @@ checksum = "68672b9ec6fe72d259d3879dc212c5e42e977588cdac830c76f54d9f492aeb58"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -4764,7 +4764,7 @@ checksum = "87750cf4b7a4c0625b1529e4c543c2182106e4dedc60a2a6455e00d212c489ac"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -4850,18 +4850,19 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bsc-pos",
- "ismp-demo",
- "ismp-polygon-pos",
- "ismp-runtime-api",
+ "ismp-bsc",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",
+ "pallet-call-decompressor",
  "pallet-collator-selection",
  "pallet-ismp",
+ "pallet-ismp-demo",
+ "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
+ "pallet-ismp-runtime-api",
  "pallet-message-queue",
  "pallet-session",
  "pallet-sudo",
@@ -4892,7 +4893,6 @@ dependencies = [
  "staging-xcm",
  "staging-xcm-builder",
  "staging-xcm-executor",
- "state-machine-manager",
  "substrate-wasm-builder",
 ]
 
@@ -5411,7 +5411,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -5429,12 +5429,12 @@ dependencies = [
  "frame-benchmarking-cli",
  "futures",
  "gargantua-runtime",
- "ismp-rpc",
- "ismp-runtime-api",
  "jsonrpsee 0.16.3",
  "log",
  "messier-runtime",
  "nexus-runtime",
+ "pallet-ismp-rpc",
+ "pallet-ismp-runtime-api",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
  "polkadot-cli",
@@ -5494,7 +5494,9 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-solidity-abi",
+ "ismp-sync-committee",
  "js-sys",
+ "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",
  "reconnecting-jsonrpsee-ws-client",
@@ -5820,11 +5822,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "ismp-bsc-pos"
+name = "ismp-bsc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bsc-pos-verifier",
+ "bsc-verifier",
  "frame-support",
  "frame-system",
  "geth-primitives",
@@ -5842,21 +5844,6 @@ dependencies = [
 [[package]]
 name = "ismp-casper-ffg"
 version = "0.1.0"
-
-[[package]]
-name = "ismp-demo"
-version = "0.1.0"
-dependencies = [
- "frame-support",
- "frame-system",
- "ismp",
- "pallet-balances",
- "pallet-ismp",
- "parity-scale-codec",
- "scale-info",
- "sp-core 28.0.0",
- "sp-runtime 31.0.1",
-]
 
 [[package]]
 name = "ismp-parachain"
@@ -5904,60 +5891,6 @@ name = "ismp-parachain-runtime-api"
 version = "0.1.0"
 dependencies = [
  "sp-api",
-]
-
-[[package]]
-name = "ismp-polygon-pos"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "frame-support",
- "frame-system",
- "geth-primitives",
- "ismp",
- "ismp-sync-committee",
- "log",
- "pallet-balances",
- "pallet-ismp",
- "pallet-timestamp",
- "parity-scale-codec",
- "polygon-pos-verifier",
- "scale-info",
- "sp-core 28.0.0",
- "sp-runtime 31.0.1",
-]
-
-[[package]]
-name = "ismp-rpc"
-version = "0.1.0"
-dependencies = [
- "frame-system",
- "hex-literal 0.3.4",
- "ismp",
- "ismp-runtime-api",
- "jsonrpsee 0.16.3",
- "pallet-ismp",
- "parity-scale-codec",
- "sc-client-api",
- "serde",
- "serde_json",
- "sp-api",
- "sp-blockchain",
- "sp-core 28.0.0",
- "sp-runtime 31.0.1",
-]
-
-[[package]]
-name = "ismp-runtime-api"
-version = "0.1.0"
-dependencies = [
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "serde",
- "sp-api",
- "sp-core 28.0.0",
- "sp-std 14.0.0",
 ]
 
 [[package]]
@@ -6051,6 +5984,7 @@ name = "ismp-testsuite"
 version = "0.1.0"
 dependencies = [
  "ismp",
+ "once_cell",
  "parity-scale-codec",
  "primitive-types",
  "sp-core 28.0.0",
@@ -7122,7 +7056,7 @@ dependencies = [
  "macro_magic_core",
  "macro_magic_macros",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -7136,7 +7070,7 @@ dependencies = [
  "macro_magic_core_macros",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -7147,7 +7081,7 @@ checksum = "9ea73aa640dc01d62a590d48c0c3521ed739d53b27f919b25c3551e233481654"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -7158,7 +7092,7 @@ checksum = "ef9d79ae96aaba821963320eb2b6e34d17df1e5a83d8a1985c29cc5be59577b3"
 dependencies = [
  "macro_magic_core",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -7297,16 +7231,19 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bsc-pos",
- "ismp-demo",
- "ismp-runtime-api",
+ "ismp-bsc",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",
+ "pallet-call-decompressor",
  "pallet-collator-selection",
  "pallet-ismp",
+ "pallet-ismp-demo",
+ "pallet-ismp-host-executive",
+ "pallet-ismp-relayer",
+ "pallet-ismp-runtime-api",
  "pallet-message-queue",
  "pallet-session",
  "pallet-sudo",
@@ -7381,9 +7318,9 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "miniz_oxide"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7810e0be55b428ada41041c41f32c9f1a42817901b4ccf45fa3d4b6561e74c7"
+checksum = "9d811f3e15f28568be3407c8e7fdb6514c1cda3cb30683f15b6a1a1dc4ea14a7"
 dependencies = [
  "adler",
 ]
@@ -7800,16 +7737,19 @@ dependencies = [
  "frame-try-runtime",
  "hex-literal 0.4.1",
  "ismp",
- "ismp-bsc-pos",
- "ismp-demo",
- "ismp-runtime-api",
+ "ismp-bsc",
  "ismp-sync-committee",
  "log",
  "pallet-aura",
  "pallet-authorship",
  "pallet-balances",
+ "pallet-call-decompressor",
  "pallet-collator-selection",
  "pallet-ismp",
+ "pallet-ismp-demo",
+ "pallet-ismp-host-executive",
+ "pallet-ismp-relayer",
+ "pallet-ismp-runtime-api",
  "pallet-message-queue",
  "pallet-session",
  "pallet-sudo",
@@ -8013,7 +7953,7 @@ dependencies = [
  "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -8118,7 +8058,7 @@ checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -8453,6 +8393,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-call-decompressor"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "pallet-ismp-relayer",
+ "parity-scale-codec",
+ "ruzstd 0.6.0",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+]
+
+[[package]]
 name = "pallet-child-bounties"
 version = "27.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8627,6 +8584,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-fishermen"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-io 30.0.0",
+ "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+]
+
+[[package]]
 name = "pallet-grandpa"
 version = "28.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8736,6 +8709,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-ismp-demo"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-balances",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
+name = "pallet-ismp-host-executive"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "anyhow",
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
 name = "pallet-ismp-relayer"
 version = "0.1.0"
 dependencies = [
@@ -8750,12 +8756,12 @@ dependencies = [
  "hashbrown 0.14.3",
  "hex",
  "ismp",
- "ismp-bsc-pos",
- "ismp-polygon-pos",
+ "ismp-bsc",
  "ismp-sync-committee",
  "log",
  "pallet-balances",
  "pallet-ismp",
+ "pallet-ismp-host-executive",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
@@ -8764,9 +8770,82 @@ dependencies = [
  "sp-runtime 31.0.1",
  "sp-std 14.0.0",
  "sp-trie 29.0.0",
- "state-machine-manager",
  "substrate-state-machine",
  "trie-db 0.28.0",
+]
+
+[[package]]
+name = "pallet-ismp-rpc"
+version = "0.1.0"
+dependencies = [
+ "frame-system",
+ "hash-db",
+ "hex-literal 0.3.4",
+ "ismp",
+ "jsonrpsee 0.16.3",
+ "pallet-ismp",
+ "pallet-ismp-runtime-api",
+ "parity-scale-codec",
+ "sc-client-api",
+ "sc-rpc",
+ "serde",
+ "serde_json",
+ "sp-api",
+ "sp-blockchain",
+ "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+ "sp-storage 19.0.0",
+ "sp-trie 29.0.0",
+ "trie-db 0.28.0",
+]
+
+[[package]]
+name = "pallet-ismp-runtime-api"
+version = "0.1.0"
+dependencies = [
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "serde",
+ "sp-api",
+ "sp-core 28.0.0",
+ "sp-std 14.0.0",
+]
+
+[[package]]
+name = "pallet-ismp-testsuite"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "ckb-merkle-mountain-range",
+ "env_logger",
+ "ethereum-trie",
+ "frame-support",
+ "frame-system",
+ "hash-db",
+ "hex",
+ "ismp",
+ "ismp-bsc",
+ "ismp-sync-committee",
+ "ismp-testsuite",
+ "pallet-balances",
+ "pallet-call-decompressor",
+ "pallet-fishermen",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "pallet-ismp-relayer",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "ruzstd 0.6.0",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-io 30.0.0",
+ "sp-runtime 31.0.1",
+ "sp-state-machine 0.35.0",
+ "sp-trie 29.0.0",
+ "substrate-state-machine",
+ "trie-db 0.28.0",
+ "zstd-safe 7.1.0",
 ]
 
 [[package]]
@@ -9174,7 +9253,7 @@ dependencies = [
  "proc-macro-crate 3.1.0",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -9666,7 +9745,7 @@ dependencies = [
  "proc-macro2",
  "proc-macro2-diagnostics",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -9721,7 +9800,7 @@ dependencies = [
  "pest_meta",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -9785,7 +9864,7 @@ dependencies = [
  "phf_shared 0.11.2",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -9823,7 +9902,7 @@ checksum = "4359fd9c9171ec6e8c62926d6faaf553a8dc3f64e1507e76da7911b4f6a04405"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -11027,24 +11106,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "polygon-pos-verifier"
-version = "0.1.0"
-dependencies = [
- "alloy-primitives",
- "alloy-rlp",
- "alloy-rlp-derive",
- "anyhow",
- "ethabi",
- "geth-primitives",
- "ismp",
- "log",
- "parity-scale-codec",
- "scale-info",
- "sp-core 28.0.0",
- "sp-io 30.0.0",
-]
-
-[[package]]
 name = "polyval"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11127,7 +11188,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a41cf62165e97c7f814d2221421dbb9afcbcdb0a88068e5ea206e19951c2cbb5"
 dependencies = [
  "proc-macro2",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -11236,7 +11297,7 @@ checksum = "834da187cfe638ae8abb0203f0b33e5ccdb02a28e7199f2f47b3e2754f50edca"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -11256,7 +11317,7 @@ checksum = "af066a9c399a26e020ada66a034357a868728e72cd426f3adcd35f80d88d88c8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
  "version_check",
  "yansi 1.0.0-rc.1",
 ]
@@ -11295,7 +11356,7 @@ checksum = "440f724eba9f6996b75d63681b0a92b06947f1457076d503a4d2e2c8f56442b8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -11666,7 +11727,7 @@ checksum = "5fddb4f8d99b0a2ebafc65a87a69a7b9875e4b1ae1f00db265d300ef7f28bccc"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -12396,6 +12457,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruzstd"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5174a470eeb535a721ae9fdd6e291c2411a906b96592182d05217591d5c5cf7b"
+dependencies = [
+ "byteorder",
+ "derive_more",
+ "twox-hash",
+]
+
+[[package]]
 name = "rw-stream-sink"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12555,7 +12627,7 @@ dependencies = [
  "proc-macro-crate 3.1.0",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -13564,7 +13636,7 @@ dependencies = [
  "proc-macro-crate 3.1.0",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -14053,7 +14125,7 @@ checksum = "7eb0b34b42edc17f6b7cac84a52a1c5f0e1bb2227e997ca9011ea3dd34e8610b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -14361,7 +14433,7 @@ dependencies = [
  "pin-project",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
- "ruzstd",
+ "ruzstd 0.4.0",
  "schnorrkel 0.10.2",
  "serde",
  "serde_json",
@@ -14415,7 +14487,7 @@ dependencies = [
  "poly1305",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
- "ruzstd",
+ "ruzstd 0.4.0",
  "schnorrkel 0.10.2",
  "serde",
  "serde_json",
@@ -14604,7 +14676,7 @@ dependencies = [
  "proc-macro-crate 3.1.0",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -15004,7 +15076,7 @@ checksum = "7527f8dda7667c41009b2cd0efaddcb81709b9741bd5ee6d17b11bad835cc698"
 dependencies = [
  "quote",
  "sp-core-hashing 15.0.0",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -15025,7 +15097,7 @@ checksum = "c7f531814d2f16995144c74428830ccf7d94ff4a7749632b83ad8199b181140c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -15036,7 +15108,7 @@ checksum = "90fd2c660c3e940df93f4920b183cc103443d66503f68189fa7e4b3f09996a18"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -15047,7 +15119,7 @@ checksum = "48d09fa0a5f7299fb81ee25ae3853d26200f7a348148aed6de76be905c007dbe"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -15431,7 +15503,7 @@ dependencies = [
  "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -15445,7 +15517,7 @@ dependencies = [
  "proc-macro-crate 2.0.0",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -15459,7 +15531,7 @@ dependencies = [
  "proc-macro-crate 3.1.0",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -15776,7 +15848,7 @@ dependencies = [
  "parity-scale-codec",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -16013,19 +16085,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "state-machine-manager"
-version = "0.1.0"
-dependencies = [
- "frame-support",
- "frame-system",
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "scale-info",
- "sp-runtime 31.0.1",
-]
-
-[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -16132,7 +16191,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustversion",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -16338,7 +16397,7 @@ dependencies = [
  "quote",
  "scale-info",
  "subxt-metadata",
- "syn 2.0.48",
+ "syn 2.0.57",
  "thiserror",
  "tokio",
 ]
@@ -16378,7 +16437,7 @@ dependencies = [
  "darling 0.20.3",
  "proc-macro-error",
  "subxt-codegen",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -16440,9 +16499,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.48"
+version = "2.0.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f3531638e407dfc0814761abb7c00a5b54992b849452a0646b7f65c9f770f3f"
+checksum = "11a6ae1e52eb25aab8f3fb9fca13be982a373b8f1157ca14b897a825ba4a2d35"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -16640,7 +16699,7 @@ checksum = "e4c60d69f36615a077cc7663b9cb8e42275722d23e58a7fa3d2c7f2915d09d04"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -16651,7 +16710,7 @@ checksum = "fa0faa943b50f3db30a20aa7e265dbc66076993efed8463e8de414e5d06d3471"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -16812,7 +16871,7 @@ checksum = "5b8a1e28f2deaa14e508979454cb3a223b10b938b45af148bc0986de36f1923b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -17040,7 +17099,7 @@ checksum = "34704c8d6ebcbc939824180af020566b01a7c01f80641264eba0999f6c2b6be7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -17085,7 +17144,7 @@ dependencies = [
  "proc-macro-crate 3.1.0",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -17594,7 +17653,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
  "wasm-bindgen-shared",
 ]
 
@@ -17628,7 +17687,7 @@ checksum = "642f325be6301eb8107a83d12a8ac6c1e1c54345a7ef1a9261962dfefda09e66"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]
@@ -17661,7 +17720,7 @@ checksum = "a5211b7550606857312bba1d978a8ec75692eae187becc5e680444fffc5e6f89"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -18575,7 +18634,7 @@ dependencies = [
  "Inflector",
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -18636,7 +18695,7 @@ checksum = "9ce1b18ccd8e73a9321186f97e46f9f04b778851177567b1975109d26a08d2a6"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -18656,7 +18715,7 @@ checksum = "ce36e65b0d2999d2aafac989fb249189a141aee1f53c612c1f37d72631959f69"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.48",
+ "syn 2.0.57",
 ]
 
 [[package]]
@@ -18718,10 +18777,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "zstd-sys"
-version = "2.0.9+zstd.1.5.5"
+name = "zstd-safe"
+version = "7.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e16efa8a874a0481a574084d34cc26fdb3b99627480f785888deb6386506656"
+checksum = "1cd99b45c6bc03a018c8b8a86025678c87e55526064e38f9df301989dce7ec0a"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.0.10+zstd.1.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c253a4914af5bafc8fa8c86ee400827e83cf6ec01195ec1f1ed8441bf00d65aa"
 dependencies = [
  "cc",
  "pkg-config",

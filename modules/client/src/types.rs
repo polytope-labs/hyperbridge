@@ -1,15 +1,15 @@
 use crate::providers::{evm::EvmClient, interface::Client, substrate::SubstrateClient};
-use alloc::collections::BTreeMap;
 use anyhow::anyhow;
 use codec::Encode;
 use core::pin::Pin;
 use ethers::{types::H160, utils::keccak256};
 use futures::Stream;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
+pub use ismp_sync_committee::types::EvmStateProof;
+pub use pallet_ismp::primitives::{HashAlgorithm, SubstrateStateProof};
 use serde::{Deserialize, Serialize};
 use subxt::{
     config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
-    ext::{codec, codec::Decode},
     tx::TxPayload,
     utils::{AccountId32, MultiAddress, MultiSignature, H256},
     Config, Metadata,
@@ -228,34 +228,6 @@ pub struct Extrinsic {
     call_name: String,
     /// The encoded pallet call. Note that this should be the pallet call. Not runtime call
     encoded: Vec<u8>,
-}
-
-#[derive(Encode, Decode, Clone)]
-pub struct EvmStateProof {
-    /// Contract account proof
-    pub contract_proof: Vec<Vec<u8>>,
-    /// A map of storage key to the associated storage proof
-    pub storage_proof: BTreeMap<Vec<u8>, Vec<Vec<u8>>>,
-}
-
-/// Hashing algorithm for the state proof
-#[derive(
-    Debug, Encode, Decode, Clone, Copy, serde::Deserialize, serde::Serialize, Eq, PartialEq,
-)]
-pub enum HashAlgorithm {
-    /// For chains that use keccak as their hashing algo
-    Keccak,
-    /// For chains that use blake2 as their hashing algo
-    Blake2,
-}
-
-/// Holds the relevant data needed for state proof verification
-#[derive(Debug, Encode, Decode, Clone)]
-pub struct SubstrateStateProof {
-    /// Algorithm to use for state proof verification
-    pub hasher: HashAlgorithm,
-    /// Storage proof for the parachain headers
-    pub storage_proof: Vec<Vec<u8>>,
 }
 
 // =======================================

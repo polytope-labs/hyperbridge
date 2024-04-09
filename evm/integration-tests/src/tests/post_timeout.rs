@@ -38,7 +38,6 @@ async fn test_post_timeout_proof() -> Result<(), anyhow::Error> {
         to: module.as_bytes().to_vec(),
         timeout_timestamp: 10_000,
         data: storage_prefix.clone(),
-        gas_limit: 0,
     };
     let commitment = hash_request::<Keccak256>(&Request::Post(post.clone()));
 

@@ -23,7 +23,7 @@ use crate::{
         ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId,
     },
     error::Error,
-    router::{Get, Post, PostResponse, Request, RequestResponse},
+    router::{Post, PostResponse, Request, RequestResponse},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, Encode};
@@ -115,16 +115,6 @@ impl ResponseMessage {
     }
 }
 
-/// Returns an error if the proof height is less than any of the retrieval heights specified in the
-/// get requests
-pub fn sufficient_proof_height(requests: &[Get], proof: &Proof) -> Result<(), Error> {
-    if !requests.iter().all(|get| get.height == proof.height.height) {
-        Err(Error::InsufficientProofHeight)?
-    }
-
-    Ok(())
-}
-
 /// A timeout message holds a batch of messages to be timed-out
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub enum TimeoutMessage {
@@ -151,6 +141,15 @@ pub enum TimeoutMessage {
 }
 
 impl TimeoutMessage {
+    /// Get all the inner requests
+    pub fn requests(&self) -> Vec<Request> {
+        match self {
+            TimeoutMessage::Post { requests, .. } | TimeoutMessage::Get { requests, .. } =>
+                requests.clone(),
+            TimeoutMessage::PostResponse { responses, .. } =>
+                responses.clone().into_iter().map(|res| res.request()).collect(),
+        }
+    }
     /// Returns the associated proof
     pub fn timeout_proof(&self) -> Result<&Proof, Error> {
         match self {

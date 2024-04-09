@@ -18,10 +18,10 @@ geth-primitives = { path = "../../../consensus/geth-primitives", default-feature
 trie-db = { workspace = true }
 hash-db = { workspace = true }
 alloy-rlp = { version = "0.3.2", default-features = false }
+alloy-rlp-derive = "0.3.2"
 alloy-primitives = { version = "0.6.0", default-features = false, features = ["rlp"] }
 hex = { version = "0.4.3", default-features = false }
 hex-literal = "0.3.4"
-alloy-rlp-derive = "0.3.2"
 ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
 hash256-std-hasher = { version = "0.15.2", default-features = false }
 codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
@@ -63,3 +63,10 @@ std = [
     "geth-primitives/std"
 ]
 
+disable-panic-handler = ["sp-io/disable_panic_handler", "sp-io/disable_oom", "sp-io/disable_allocator"]
+
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]

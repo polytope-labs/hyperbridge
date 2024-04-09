@@ -12414,7 +12414,6 @@ pub mod api {
                     pub keys: ::std::vec::Vec<::std::vec::Vec<::core::primitive::u8>>,
                     pub height: ::core::primitive::u64,
                     pub timeout_timestamp: ::core::primitive::u64,
-                    pub gas_limit: ::core::primitive::u64,
                 }
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,
@@ -12451,7 +12450,6 @@ pub mod api {
                     pub to: ::std::vec::Vec<::core::primitive::u8>,
                     pub timeout_timestamp: ::core::primitive::u64,
                     pub data: ::std::vec::Vec<::core::primitive::u8>,
-                    pub gas_limit: ::core::primitive::u64,
                 }
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,
@@ -12467,7 +12465,6 @@ pub mod api {
                     pub post: runtime_types::ismp::router::Post,
                     pub response: ::std::vec::Vec<::core::primitive::u8>,
                     pub timeout_timestamp: ::core::primitive::u64,
-                    pub gas_limit: ::core::primitive::u64,
                 }
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,
@@ -13769,7 +13766,6 @@ pub mod api {
                     pub signature: runtime_types::pallet_ismp_relayer::withdrawal::Signature,
                     pub dest_chain: runtime_types::ismp::host::StateMachine,
                     pub amount: runtime_types::primitive_types::U256,
-                    pub gas_limit: ::core::primitive::u64,
                 }
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,

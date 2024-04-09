@@ -25,7 +25,6 @@ pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
             buf.extend_from_slice(&post.from);
             buf.extend_from_slice(&post.to);
             buf.extend_from_slice(&post.data);
-            buf.extend_from_slice(&post.gas_limit.to_be_bytes());
             H::keccak256(&buf[..])
         },
         Request::Get(get) => {
@@ -37,7 +36,6 @@ pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
             buf.extend_from_slice(&get.timeout_timestamp.to_be_bytes());
             buf.extend_from_slice(&get.from);
             get.keys.iter().for_each(|key| buf.extend_from_slice(key));
-            buf.extend_from_slice(&get.gas_limit.to_be_bytes());
             H::keccak256(&buf[..])
         },
     }
@@ -62,9 +60,7 @@ pub fn hash_post_response<H: Keccak256>(res: &PostResponse) -> H256 {
     buf.extend_from_slice(&req.from);
     buf.extend_from_slice(&req.to);
     buf.extend_from_slice(&req.data);
-    buf.extend_from_slice(&req.gas_limit.to_be_bytes());
     buf.extend_from_slice(&res.response);
     buf.extend_from_slice(&res.timeout_timestamp.to_be_bytes());
-    buf.extend_from_slice(&res.gas_limit.to_be_bytes());
     H::keccak256(&buf[..])
 }

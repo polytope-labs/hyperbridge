@@ -109,7 +109,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
     let host = EvmHost::new(host_addr, client.clone());
     let erc_20 =
-        ERC20::new(host.dai().await.context(format!("Error in {chain:?}"))?, client.clone());
+        ERC20::new(host.fee_token().await.context(format!("Error in {chain:?}"))?, client.clone());
     let call = erc_20.approve(host_addr, U256::max_value());
 
     let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
@@ -213,7 +213,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     tracing::info!("{:#?}", host.host_params().await?);
 
     let erc_20 =
-        ERC20::new(host.dai().await.context(format!("Error in {chain:?}"))?, client.clone());
+        ERC20::new(host.fee_token().await.context(format!("Error in {chain:?}"))?, client.clone());
     let call = erc_20.approve(host_addr, U256::max_value());
 
     let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
@@ -236,7 +236,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
         match res {
             Ok(_) => {
                 tracing::info!("\n\nGot State Machine update for BSC\n\n");
-                break
+                break;
             },
             _ => {},
         }

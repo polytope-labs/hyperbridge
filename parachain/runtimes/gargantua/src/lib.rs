@@ -69,7 +69,7 @@ use frame_system::{
     EnsureRoot, Phase,
 };
 use pallet_ismp::{
-    mmr_primitives::{Leaf, LeafIndex},
+    mmr::primitives::{Leaf, LeafIndex},
     primitives::Proof,
 };
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
@@ -212,7 +212,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("gargantua"),
     impl_name: create_runtime_str!("gargantua"),
     authoring_version: 1,
-    spec_version: 224,
+    spec_version: 226,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -565,9 +565,10 @@ construct_runtime!(
         // ISMP stuff
         Ismp: pallet_ismp = 40,
         IsmpSyncCommittee: ismp_sync_committee::pallet = 41,
-        IsmpDemo: ismp_demo = 42,
+        IsmpDemo: pallet_ismp_demo = 42,
         Relayer: pallet_ismp_relayer = 43,
-        StateMachineManager: state_machine_manager = 45,
+        HostExecutive: pallet_ismp_host_executive = 45,
+        CallDecompressor: pallet_call_decompressor = 46
     }
 );
 
@@ -735,7 +736,7 @@ impl_runtime_apis! {
         }
     }
 
-    impl ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
+    impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
         /// Return the number of MMR leaves.
         fn mmr_leaf_count() -> Result<LeafIndex, pallet_ismp::primitives::Error> {
             Ok(Ismp::mmr_leaf_count())

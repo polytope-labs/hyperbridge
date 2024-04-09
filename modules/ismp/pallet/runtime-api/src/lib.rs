@@ -23,7 +23,7 @@ use ismp::{
     router::{Request, Response},
 };
 use pallet_ismp::{
-    mmr_primitives::{Leaf, LeafIndex},
+    mmr::primitives::{Leaf, LeafIndex},
     primitives::{Error, Proof},
     ProofKeys,
 };

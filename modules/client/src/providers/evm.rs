@@ -4,6 +4,10 @@ use crate::{
 };
 use ethereum_trie::StorageProof;
 use ethers::prelude::Middleware;
+use ismp_sync_committee::presets::{
+    REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
+    RESPONSE_RECEIPTS_SLOT,
+};
 
 use crate::{
     providers::interface::WithMetadata,
@@ -29,17 +33,6 @@ use ismp_solidity_abi::{
     handler::{GetTimeoutMessage, Handler, PostRequestTimeoutMessage, PostResponseTimeoutMessage},
 };
 use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
-
-// =======================================
-// CONSTANTS                            =
-// =======================================
-pub const REQUEST_COMMITMENTS_SLOT: u64 = 0;
-/// Slot index for response commitments map
-pub const RESPONSE_COMMITMENTS_SLOT: u64 = 1;
-/// Slot index for requests receipts map
-pub const REQUEST_RECEIPTS_SLOT: u64 = 2;
-/// Slot index for response receipts map
-pub const RESPONSE_RECEIPTS_SLOT: u64 = 3;
 
 #[derive(Debug, Clone)]
 pub struct EvmClient {
@@ -217,7 +210,7 @@ impl Client for EvmClient {
 
                 // in case we get old heights, best to ignore them
                 if block_number < latest_height {
-                    return Some((Ok(None), (block_number, interval, client)))
+                    return Some((Ok(None), (block_number, interval, client)));
                 }
 
                 let contract = EvmHost::new(client.host_address, client.client.clone());
@@ -250,7 +243,7 @@ impl Client for EvmClient {
                                         block_number: meta.block_number.as_u64(),
                                     },
                                     event: filter,
-                                })
+                                });
                             }
 
                             None
@@ -308,7 +301,7 @@ impl Client for EvmClient {
 
                 // in case we get old heights, best to ignore them
                 if block_number < latest_height {
-                    return Some((Ok(None), (block_number, interval, client)))
+                    return Some((Ok(None), (block_number, interval, client)));
                 }
 
                 let contract = Handler::new(client.ismp_handler, client.client.clone());
@@ -425,7 +418,7 @@ impl Client for EvmClient {
                         },
                         height: timeout_proof.height.height.into(),
                     },
-                    proof: state_proof.storage_proof.into_iter().map(|key| key.into()).collect(),
+                    proof: state_proof.storage_proof().into_iter().map(|key| key.into()).collect(),
                 };
                 let call = contract.handle_post_request_timeouts(self.host_address, message);
 
@@ -450,7 +443,7 @@ impl Client for EvmClient {
                         },
                         height: timeout_proof.height.height.into(),
                     },
-                    proof: state_proof.storage_proof.into_iter().map(|key| key.into()).collect(),
+                    proof: state_proof.storage_proof().into_iter().map(|key| key.into()).collect(),
                 };
                 let call = contract.handle_post_response_timeouts(self.host_address, message);
                 Ok(call.tx.data().cloned().expect("Infallible").to_vec())
@@ -466,7 +459,6 @@ impl Client for EvmClient {
                             from: get.from.into(),
                             keys: get.keys.into_iter().map(|key| key.into()).collect(),
                             timeout_timestamp: get.timeout_timestamp,
-                            gaslimit: get.gas_limit.into(),
                             height: get.height.into(),
                         }),
                         _ => None,

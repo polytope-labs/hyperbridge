@@ -47,9 +47,6 @@ pub struct Post {
     pub timeout_timestamp: u64,
     /// Encoded Request.
     pub data: Vec<u8>,
-    /// Gas limit for executing the request on destination
-    /// This value should be zero if destination module is not a contract
-    pub gas_limit: u64,
 }
 
 impl core::fmt::Display for Post {
@@ -62,7 +59,6 @@ impl core::fmt::Display for Post {
         writeln!(f, "   to: {}", hex::encode(&self.to))?;
         writeln!(f, "   timeout_timestamp: {}", self.timeout_timestamp)?;
         writeln!(f, "   data: {}", hex::encode(&self.data))?;
-        writeln!(f, "   gas_limit: {}", self.gas_limit)?;
         writeln!(f, "}}")?;
         Ok(())
     }
@@ -105,9 +101,6 @@ pub struct Get {
     pub height: u64,
     /// Host timestamp at which this request expires in seconds
     pub timeout_timestamp: u64,
-    /// Gas limit for executing the response to this get request
-    /// This value should be zero if the sending module is not a contract
-    pub gas_limit: u64,
 }
 
 impl Get {
@@ -228,14 +221,6 @@ impl Request {
             Request::Get(get) => Ok(get.clone()),
         }
     }
-
-    /// Returns true if request is a get request
-    pub fn is_type_get(&self) -> bool {
-        match self {
-            Request::Post(_) => false,
-            Request::Get(_) => true,
-        }
-    }
 }
 
 /// The response to a POST request
@@ -257,8 +242,6 @@ pub struct PostResponse {
     pub response: Vec<u8>,
     /// Timestamp at which this response expires in seconds.
     pub timeout_timestamp: u64,
-    /// Gas limit for executing the response on destination, only used for solidity modules.
-    pub gas_limit: u64,
 }
 
 impl PostResponse {
@@ -431,9 +414,6 @@ pub struct DispatchPost {
     pub timeout_timestamp: u64,
     /// Encoded Request.
     pub data: Vec<u8>,
-    /// Gas limit for executing request on destination chain
-    /// This should be zero if the destination module is not a contract
-    pub gas_limit: u64,
 }
 
 /// Simplified GET request, intended to be used for sending outgoing requests
@@ -449,9 +429,6 @@ pub struct DispatchGet {
     pub height: u64,
     /// Relative from the current timestamp at which this request expires in seconds.
     pub timeout_timestamp: u64,
-    /// Gas limit for executing the response to this get request
-    /// This value should be zero if the dispatching module is not a contract
-    pub gas_limit: u64,
 }
 
 /// Simplified request, intended to be used for sending outgoing requests

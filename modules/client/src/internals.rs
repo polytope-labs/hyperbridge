@@ -145,7 +145,7 @@ pub async fn timeout_request_stream(
                                         meta: Default::default(),
                                     }),
                                     TimeoutStreamState::DestinationFinalized(height),
-                                )))
+                                )));
                             }
 
                             let mut stream = hyperbridge_client
@@ -164,7 +164,7 @@ pub async fn timeout_request_stream(
                                             .await?;
                                         if commitment.timestamp > post.timeout_timestamp {
                                             valid_proof_height = Some(ev);
-                                            break
+                                            break;
                                         }
                                     },
                                     Err(e) =>
@@ -279,7 +279,7 @@ pub async fn timeout_request_stream(
                                         ev.event.latest_height >= hyperbridge_height
                                     {
                                         valid_proof_height = Some(ev);
-                                        break
+                                        break;
                                     }
                                 },
                                 Err(e) =>
@@ -376,7 +376,7 @@ pub async fn request_status_stream(
                                     meta: Default::default(),
                                 }),
                                 PostStreamState::End,
-                            )))
+                            )));
                         }
 
                         if destination_current_timestamp.as_secs() >= post.timeout_timestamp {
@@ -384,7 +384,7 @@ pub async fn request_status_stream(
                             return Ok(Some((
                                 Ok(MessageStatusWithMetadata::Timeout),
                                 PostStreamState::End,
-                            )))
+                            )));
                         }
 
                         let hyperbridge_current_timestamp =
@@ -403,7 +403,7 @@ pub async fn request_status_stream(
                                 PostStreamState::HyperbridgeDelivered(
                                     hyperbridge_client.query_latest_block_height().await?,
                                 ),
-                            )))
+                            )));
                         }
 
                         if hyperbridge_current_timestamp.as_secs() >= post.timeout_timestamp {
@@ -411,7 +411,7 @@ pub async fn request_status_stream(
                             return Ok(Some((
                                 Ok(MessageStatusWithMetadata::Timeout),
                                 PostStreamState::End,
-                            )))
+                            )));
                         }
 
                         let mut state_machine_updated_stream = hyperbridge_client
@@ -436,7 +436,7 @@ pub async fn request_status_stream(
                                             PostStreamState::SourceFinalized(
                                                 state_machine_update.meta.block_number,
                                             ),
-                                        )))
+                                        )));
                                     }
                                 },
                                 Err(e) =>
@@ -578,7 +578,7 @@ pub async fn request_status_stream(
                                             ),
                                         )));
                                     } else {
-                                        continue
+                                        continue;
                                     },
                                 Err(e) =>
                                     return Ok(Some((
@@ -679,7 +679,7 @@ pub async fn request_timeout_stream(
                 Some((Err(anyhow!("Encountered an error in timeout stream: {:?}", e)), client)),
         };
 
-        return value
+        return value;
     })
     .filter_map(|item| async move {
         match item {

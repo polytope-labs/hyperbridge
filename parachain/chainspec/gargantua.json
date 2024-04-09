@@ -7,12 +7,8 @@
   ],
   "telemetryEndpoints": [
     [
-      "/dns/telemetry.polkadot.io/tcp/443/x-parity-wss/%2Fsubmit%2F",
+      "wss://telemetry.polkadot.io/submit/",
       0
-    ],
-    [
-      "/dns/telemetry.blockops.network/tcp/443/x-parity-wss/%2Fsubmit",
-      1
     ]
   ],
   "protocolId": "gargantua",

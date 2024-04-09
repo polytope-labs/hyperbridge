@@ -1,10 +1,11 @@
 //! Some extra utilities for pallet-ismp
 
 use crate::{
+    child_trie::{RequestCommitments, ResponseCommitments},
     dispatcher::{FeeMetadata, LeafMetadata},
     host::Host,
-    mmr_primitives::Leaf,
-    Config, Event, Pallet, RequestCommitments, Responded, ResponseCommitments,
+    mmr::primitives::Leaf,
+    Config, Event, Pallet, Responded,
 };
 use alloc::string::ToString;
 use ismp::{

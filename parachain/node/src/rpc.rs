@@ -65,12 +65,12 @@ where
     C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
     C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
     C::Api: BlockBuilder<Block>,
-    C::Api: ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>,
+    C::Api: pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>,
     P: TransactionPool + Sync + Send + 'static,
     B: sc_client_api::Backend<Block> + Send + Sync + 'static,
     B::State: sc_client_api::StateBackend<sp_runtime::traits::HashingFor<Block>>,
 {
-    use ismp_rpc::{IsmpApiServer, IsmpRpcHandler};
+    use pallet_ismp_rpc::{IsmpApiServer, IsmpRpcHandler};
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
@@ -82,6 +82,7 @@ where
     module.merge(
         IsmpRpcHandler::new(
             client,
+            backend.clone(),
             backend
                 .offchain_storage()
                 .ok_or("Backend doesn't provide the required offchain storage")?,

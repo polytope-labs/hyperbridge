@@ -27,6 +27,7 @@ use ismp::{host::StateMachine, router};
 use crate::evm_host::PostRequestEventFilter;
 #[cfg(feature = "beefy")]
 pub use beefy::*;
+use ismp::events::{StateMachineUpdated, TimeoutHandled};
 use primitive_types::H256;
 use std::str::FromStr;
 
@@ -202,7 +203,6 @@ impl From<router::PostResponse> for PostResponse {
             request: value.post.into(),
             response: value.response.into(),
             timeout_timestamp: value.timeout_timestamp.into(),
-            gaslimit: value.gas_limit.into(),
         }
     }
 }
@@ -217,7 +217,6 @@ impl From<router::Post> for PostRequest {
             to: value.to.into(),
             timeout_timestamp: value.timeout_timestamp.into(),
             body: value.data.into(),
-            gaslimit: value.gas_limit.into(),
         }
     }
 }
@@ -235,7 +234,6 @@ impl TryFrom<PostRequest> for router::Post {
             to: value.to.to_vec(),
             timeout_timestamp: value.timeout_timestamp.into(),
             data: value.body.to_vec(),
-            gas_limit: value.gaslimit.into(),
         })
     }
 }
@@ -280,7 +278,6 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
                     keys: get.keys.into_iter().map(|key| key.0.into()).collect(),
                     height: get.height.low_u64(),
                     timeout_timestamp: get.timeout_timestamp.low_u64(),
-                    gas_limit: get.gaslimit.low_u64(),
                 })),
             EvmHostEvents::PostRequestEventFilter(post) =>
                 Ok(ismp::events::Event::PostRequest(post.try_into()?)),
@@ -296,18 +293,46 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
                         to: resp.to.0.into(),
                         timeout_timestamp: resp.timeout_timestamp.low_u64(),
                         data: resp.data.0.into(),
-                        gas_limit: resp.gaslimit.low_u64(),
                     },
                     response: resp.response.0.into(),
                     timeout_timestamp: resp.res_timeout_timestamp.low_u64(),
-                    gas_limit: resp.res_gaslimit.low_u64(),
                 })),
             EvmHostEvents::PostRequestHandledFilter(handled) =>
-                Ok(ismp::events::Event::PostRequestHandled(ismp::events::PostRequestHandled {
+                Ok(ismp::events::Event::PostRequestHandled(ismp::events::RequestResponseHandled {
                     commitment: handled.commitment.into(),
                     relayer: handled.relayer.as_bytes().to_vec(),
                 })),
-            event => Err(anyhow!("Unsupported event {event:?}")),
+            EvmHostEvents::GetRequestHandledFilter(handled) =>
+                Ok(ismp::events::Event::GetRequestHandled(ismp::events::RequestResponseHandled {
+                    commitment: handled.commitment.into(),
+                    relayer: handled.relayer.as_bytes().to_vec(),
+                })),
+
+            EvmHostEvents::PostResponseHandledFilter(handled) =>
+                Ok(ismp::events::Event::PostResponseHandled(ismp::events::RequestResponseHandled {
+                    commitment: handled.commitment.into(),
+                    relayer: handled.relayer.as_bytes().to_vec(),
+                })),
+            EvmHostEvents::StateMachineUpdatedFilter(filter) =>
+                Ok(ismp::events::Event::StateMachineUpdated(StateMachineUpdated {
+                    state_machine_id: ismp::consensus::StateMachineId {
+                        state_id: StateMachine::Kusama(filter.state_machine_id.low_u64() as u32),
+                        consensus_state_id: Default::default(),
+                    },
+                    latest_height: filter.height.low_u64(),
+                })),
+            EvmHostEvents::PostRequestTimeoutHandledFilter(handled) =>
+                Ok(ismp::events::Event::PostRequestTimeoutHandled(TimeoutHandled {
+                    commitment: handled.commitment.into(),
+                })),
+            EvmHostEvents::PostResponseTimeoutHandledFilter(handled) =>
+                Ok(ismp::events::Event::PostResponseTimeoutHandled(TimeoutHandled {
+                    commitment: handled.commitment.into(),
+                })),
+            EvmHostEvents::GetRequestTimeoutHandledFilter(handled) =>
+                Ok(ismp::events::Event::GetRequestTimeoutHandled(TimeoutHandled {
+                    commitment: handled.commitment.into(),
+                })),
         }
     }
 }
@@ -326,7 +351,6 @@ impl TryFrom<PostRequestEventFilter> for router::Post {
             to: post.to.0.into(),
             timeout_timestamp: post.timeout_timestamp.low_u64(),
             data: post.data.0.into(),
-            gas_limit: post.gaslimit.low_u64(),
         })
     }
 }

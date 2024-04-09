@@ -1,6 +1,6 @@
 [package]
 name = "hyperbridge"
-version = "0.3.7"
+version = "0.3.8"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "The Hyperbridge coprocessor node"
 repository = "https://github.com/polytope-labs/hyperbridge"
@@ -21,8 +21,8 @@ serde_json = "1.0.108"
 gargantua-runtime = { path = "../runtimes/gargantua" }
 messier-runtime = { path = "../runtimes/messier" }
 nexus-runtime = { path = "../runtimes/nexus" }
-ismp-rpc = { path = "../../modules/ismp/pallet/rpc" }
-ismp-runtime-api = { path = "../../modules/ismp/pallet/runtime-api" }
+pallet-ismp-rpc = { workspace = true }
+pallet-ismp-runtime-api = { workspace = true }
 
 # Substrate
 frame-benchmarking = { workspace = true }

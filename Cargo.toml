@@ -2,53 +2,51 @@
 resolver = "2"
 members = [
     # runtime
-     "parachain/runtimes/gargantua",
-     "parachain/runtimes/messier",
-     "parachain/runtimes/nexus",
+    "parachain/runtimes/gargantua",
+    "parachain/runtimes/messier",
+    "parachain/runtimes/nexus",
 
-     # node
-     "parachain/node",
+    # node
+    "parachain/node",
 
-     # ismp
-     "modules/ismp/pallet",
-     "modules/ismp/core",
-     "modules/ismp/pallet/rpc",
-     "modules/ismp/pallet/runtime-api",
-     "modules/ismp/pallet/demo",
-     "modules/ismp/core",
-     "modules/ismp/testsuite",
-     "modules/ismp/clients/sync-committee",
-#     "modules/ismp/clients/polygon-pos",
-     "modules/ismp/clients/casper-ffg",
-     "modules/ismp/clients/parachain",
-     "modules/ismp/clients/parachain/inherent",
-     "modules/ismp/clients/parachain/runtime-api",
-     "modules/ismp/pallet/state-machine",
+    # ismp
+    "modules/ismp/core",
+    "modules/ismp/pallet",
+    "modules/ismp/pallet/relayer",
+    "modules/ismp/pallet/fishermen",
+    "modules/ismp/pallet/host-executive",
+    "modules/ismp/pallet/rpc",
+    "modules/ismp/pallet/runtime-api",
+    "modules/ismp/pallet/demo",
+    "modules/ismp/pallet/testsuite",
+    "modules/ismp/pallet/call-decompressor",
+    "modules/ismp/testsuite",
+    "modules/ismp/clients/sync-committee",
+    "modules/ismp/clients/casper-ffg",
+    "modules/ismp/clients/parachain",
+    "modules/ismp/clients/parachain/inherent",
+    "modules/ismp/clients/parachain/runtime-api",
+    "modules/ismp/clients/state-machine/substrate",
 
-     # modules
-     "modules/trees/ethereum",
-     "modules/consensus/sync-committee/prover",
-     "modules/consensus/sync-committee/verifier",
-     "modules/consensus/sync-committee/primitives",
-#     "modules/consensus/polygon-pos/verifier",
-#     "modules/consensus/polygon-pos/prover",
-     "modules/consensus/beefy/primitives",
-     "modules/consensus/beefy/prover",
-     "modules/consensus/geth-primitives",
-     "modules/consensus/bsc-pos/verifier",
-     "modules/consensus/bsc-pos/prover",
-     "modules/ismp/clients/bsc-pos",
-     "modules/state-machine-manager",
+    # modules
+    "modules/trees/ethereum",
+    "modules/consensus/sync-committee/prover",
+    "modules/consensus/sync-committee/verifier",
+    "modules/consensus/sync-committee/primitives",
+    "modules/consensus/beefy/primitives",
+    "modules/consensus/beefy/prover",
+    "modules/consensus/geth-primitives",
+    "modules/consensus/bsc/verifier",
+    "modules/consensus/bsc/prover",
+    "modules/ismp/clients/bsc",
+    "modules/trees/mmr",
 
-     # evm stuff
-     "evm/integration-tests",
-     "evm/abi",
-     "modules/relayer",
-     "modules/trees/mmr",
+    # evm stuff
+    "evm/integration-tests",
+    "evm/abi",
 
-
-     # hyper-client 
-    "modules/client"
+    # hyperclient
+    "modules/client",
 ]
 
 # Config for 'cargo dist'
@@ -119,7 +117,9 @@ cumulus-primitives-aura = { version = "0.7.0", default-features = false }
 cumulus-pallet-session-benchmarking = { version = "9.0.0", default-features = false }
 cumulus-pallet-aura-ext = { version = "0.7.0", default-features = false }
 cumulus-pallet-dmp-queue = { version = "0.7.0", default-features = false }
-cumulus-pallet-parachain-system = { version = "0.7.0", default-features = false, features = ["parameterized-consensus-hook"] }
+cumulus-pallet-parachain-system = { version = "0.7.0", default-features = false, features = [
+    "parameterized-consensus-hook",
+] }
 cumulus-pallet-xcm = { version = "0.7.0", default-features = false }
 cumulus-pallet-xcmp-queue = { version = "0.7.0", default-features = false }
 cumulus-primitives-core = { version = "0.7.0", default-features = false }
@@ -127,11 +127,11 @@ cumulus-primitives-timestamp = { version = "0.7.0", default-features = false }
 cumulus-primitives-utility = { version = "0.7.0", default-features = false }
 pallet-collator-selection = { version = "9.0.0", default-features = false }
 parachain-info = { package = "staging-parachain-info", version = "0.7.0", default-features = false }
-parachains-common = { version = "7.0.0", default-features = false  }
+parachains-common = { version = "7.0.0", default-features = false }
 sp-timestamp = { version = "26.0.0", default-features = false }
 sp-keystore = { version = "0.34.0", default-features = false }
 sp-mmr-primitives = { version = "26.0.0", default-features = false }
-sp-storage =  { version = "19.0.0", default-features = false }
+sp-storage = { version = "19.0.0", default-features = false }
 pallet-beefy-mmr = { version = "28.0.0", default-features = false }
 pallet-mmr = { version = "27.0.0", default-features = false }
 
@@ -173,13 +173,71 @@ cumulus-client-collator = "0.7.0"
 substrate-wasm-builder = { version = "17.0.0" }
 mmr-rpc = { version = "28.0.0" }
 
-ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "f8ab49e1ca2d68e8bf1113e705ade38e5f30b850", features = ["ethers-solc"], default-features = false }
+ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "f8ab49e1ca2d68e8bf1113e705ade38e5f30b850", features = [
+    "ethers-solc",
+], default-features = false }
 ethers-contract-abigen = { git = "https://github.com/polytope-labs/ethers-rs", rev = "f8ab49e1ca2d68e8bf1113e705ade38e5f30b850" }
 
 forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "50c6686ddfe61c697013bd067ac5fae7a0d5723e" }
-merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2",  default-features = false }
+merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
 
 trie-db = { version = "0.28.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
 codec = { version = "3.1.3", package = "parity-scale-codec", default-features = false }
+scale-info = { version = "2.1.1", default-features = false, features = [
+    "derive",
+] }
+
+alloy-rlp = { version = "0.3.2", default-features = false }
+alloy-rlp-derive = "0.3.2"
+alloy-primitives = { version = "0.6.0", default-features = false, features = [
+    "rlp",
+] }
+
+# local dependencies
+# ismp core
+ismp = { path = "./modules/ismp/core", default-features = false }
+ismp-testsuite = { path = "./modules/ismp/testsuite" }
+ismp-solidity-abi = { path = "./evm/abi", default-features = false }
+
+hyperclient = { path = "./modules/client", default-features = false }
+
+# consensus provers & verifiers
+beefy-verifier-primitives = { path = "./modules/consensus/beefy/primitives", default-features = false }
+beefy-prover = { path = "./modules/consensus/beefy/prover" }
+bsc-prover = { path = "./modules/consensus/bsc/prover" }
+bsc-verifier = { path = "./modules/consensus/bsc/verifier", default-features = false }
+geth-primitives = { path = "./modules/consensus/geth-primitives", default-features = false }
+sync-committee-primitives = { path = "./modules/consensus/sync-committee/primitives", default-features = false }
+sync-committee-prover = { path = "./modules/consensus/sync-committee/prover" }
+sync-committee-verifier = { path = "./modules/consensus/sync-committee/verifier", default-features = false }
+
+# consensus clients
+ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
+ismp-parachain = { path = "./modules/ismp/clients/parachain", default-features = false }
+ismp-parachain-inherent = { path = "./modules/ismp/clients/parachain/inherent" }
+ismp-parachain-runtime-api = { path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
+ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
+
+# state machine clients
+substrate-state-machine = { path = "./modules/ismp/clients/state-machine/substrate", default-features = false }
+
+# pallets
+pallet-ismp = { path = "./modules/ismp/pallet", default-features = false }
+pallet-fishermen = { path = "./modules/ismp/pallet/fishermen", default-features = false }
+pallet-ismp-demo = { path = "./modules/ismp/pallet/demo", default-features = false }
+pallet-ismp-relayer = { path = "./modules/ismp/pallet/relayer", default-features = false }
+pallet-ismp-rpc = { path = "./modules/ismp/pallet/rpc" }
+pallet-ismp-runtime-api = { path = "./modules/ismp/pallet/runtime-api", default-features = false }
+pallet-ismp-host-executive = { path = "modules/ismp/pallet/host-executive", default-features = false }
+pallet-call-decompressor = { path = "modules/ismp/pallet/call-decompressor", default-features = false }
+
+# merkle trees
+ethereum-trie = { path = "./modules/trees/ethereum", default-features = false }
+mmr-utils = { path = "./modules/trees/mmr", default-features = false }
+
+# runtimes
+gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }
+messier-runtime = { path = "./parachain/runtimes/messier", default-features = false }
+nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }

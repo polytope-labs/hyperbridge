@@ -14,7 +14,7 @@
 // limitations under the License.
 
 //! Implementation for the ISMP Router
-use crate::{host::Host, primitives::LeafIndexAndPos, Pallet, RequestReceipts};
+use crate::{child_trie::RequestReceipts, host::Host, primitives::LeafIndexAndPos, Pallet};
 use alloc::string::ToString;
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
@@ -94,7 +94,6 @@ where
                         <T::TimeProvider as UnixTime>::now().as_secs() +
                             dispatch_get.timeout_timestamp
                     },
-                    gas_limit: dispatch_get.gas_limit,
                 };
                 Request::Get(get)
             },
@@ -112,7 +111,6 @@ where
                             dispatch_post.timeout_timestamp
                     },
                     data: dispatch_post.data,
-                    gas_limit: dispatch_post.gas_limit,
                 };
                 Request::Post(post)
             },

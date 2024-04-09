@@ -150,9 +150,9 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 // test environment The xcm-simulator only MockNet only uses `DmpMessageHandler`, which is no longer
 // implemented in `cumulus_dmp_queue` the only other option would be using xcm-emulator, but that's
 // an integration test kit for prebuilt runtimes not unit tests
-pub struct DmpMock;
+pub struct DmpMessageExecutor;
 
-impl DmpMessageHandler for DmpMock {
+impl DmpMessageHandler for DmpMessageExecutor {
     fn handle_dmp_messages(iter: impl Iterator<Item = (u32, Vec<u8>)>, limit: Weight) -> Weight {
         for (_i, (_sent_at, data)) in iter.enumerate() {
             let id = sp_io::hashing::blake2_256(&data[..]);
@@ -180,7 +180,7 @@ decl_test_parachain! {
     pub struct ParaA {
         Runtime = Test,
         XcmpMessageHandler = XcmpQueue,
-        DmpMessageHandler = DmpMock,
+        DmpMessageHandler = DmpMessageExecutor,
         new_ext = para_ext(100),
     }
 }

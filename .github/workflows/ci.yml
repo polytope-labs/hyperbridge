@@ -278,8 +278,8 @@ jobs:
          sudo chmod +x ./zombienet
          # spawn devnet
          nohup ./zombienet spawn --provider native ./local-testnet.toml & disown
-         ../wait_for_tcp_port_opening.sh localhost 9944
-         ../wait_for_tcp_port_opening.sh localhost 9988
+         ../wait_for_tcp_port_opening.sh localhost 9922
+         ../wait_for_tcp_port_opening.sh localhost 9990
 
 #      - name: Beefy integration tests
 #        run: |

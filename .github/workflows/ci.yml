@@ -287,7 +287,7 @@ jobs:
 
      - name: Xcm integration tests
        run: |
-         cargo test -p pallet-ismp-testsuite --lib xcm_integration_test  --features runtime-benchmarks -- --nocapture
+         cargo test -p pallet-ismp-testsuite --lib xcm_integration_test  --features runtime-benchmarks -- --nocapture --ignored
 
       - name: Run Eth POS Devnet
         run: |

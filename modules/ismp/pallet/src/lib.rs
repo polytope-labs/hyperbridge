@@ -266,8 +266,7 @@ pub mod pallet {
         fn on_finalize(_n: BlockNumberFor<T>) {
             // Only finalize if mmr was modified
             let leaves = Self::intermediate_number_of_leaves();
-            let total = IntermediateLeaves::<T>::count();
-            let root = if total != 0 {
+            let root = if leaves != 0 {
                 let mut mmr: Mmr<mmr::storage::RuntimeStorage, T> =
                     Mmr::new(Self::number_of_leaves());
                 let range = Self::number_of_leaves()..leaves;
@@ -310,6 +309,7 @@ pub mod pallet {
                 // Insert root in storage
                 <RootHash<T>>::put(root);
                 // Clear intermediate values
+                let total = IntermediateLeaves::<T>::count();
                 let _ = IntermediateLeaves::<T>::clear(total, None);
                 IntermediateNumberOfLeaves::<T>::kill();
                 root

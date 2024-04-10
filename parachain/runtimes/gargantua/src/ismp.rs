@@ -16,12 +16,12 @@
 use crate::{
     alloc::{boxed::Box, string::ToString},
     AccountId, AssetTransfer, Assets, Balance, Balances, Ismp, ParachainInfo, Runtime,
-    RuntimeEvent, Timestamp,
+    RuntimeEvent, Timestamp, EXISTENTIAL_DEPOSIT,
 };
 use frame_support::{
     pallet_prelude::{ConstU32, Get},
     parameter_types,
-    traits::{AsEnsureOriginWithArg, ConstU128},
+    traits::AsEnsureOriginWithArg,
     PalletId,
 };
 use frame_system::EnsureRoot;
@@ -122,6 +122,14 @@ impl BenchmarkHelper<MultiLocation> for XcmBenchmarkHelper {
     }
 }
 
+parameter_types! {
+    pub const AssetDeposit: Balance = EXISTENTIAL_DEPOSIT;
+    pub const AssetAccountDeposit: Balance = EXISTENTIAL_DEPOSIT * 2;
+    pub const MetadataDepositBase: Balance = EXISTENTIAL_DEPOSIT * 2;
+    pub const MetadataDepositPerByte: Balance = EXISTENTIAL_DEPOSIT / 2;
+    pub const ApprovalDeposit: Balance = EXISTENTIAL_DEPOSIT * 2;
+}
+
 impl pallet_assets::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Balance = Balance;
@@ -130,11 +138,11 @@ impl pallet_assets::Config for Runtime {
     type Currency = Balances;
     type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
     type ForceOrigin = EnsureRoot<AccountId32>;
-    type AssetDeposit = ConstU128<1>;
-    type AssetAccountDeposit = ConstU128<10>;
-    type MetadataDepositBase = ConstU128<1>;
-    type MetadataDepositPerByte = ConstU128<1>;
-    type ApprovalDeposit = ConstU128<1>;
+    type AssetDeposit = AssetDeposit;
+    type AssetAccountDeposit = AssetAccountDeposit;
+    type MetadataDepositBase = MetadataDepositBase;
+    type MetadataDepositPerByte = MetadataDepositPerByte;
+    type ApprovalDeposit = ApprovalDeposit;
     type StringLimit = ConstU32<50>;
     type Freezer = ();
     type WeightInfo = ();

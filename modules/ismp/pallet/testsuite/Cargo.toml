@@ -59,12 +59,19 @@ parachain-info = { workspace = true, default-features = true }
 cumulus-primitives-core = { workspace = true, default-features = true }
 cumulus-pallet-xcmp-queue = { workspace = true, default-features = true }
 cumulus-pallet-parachain-system = { workspace = true, default-features = true }
+subxt = { version = "0.30.1", features = ["substrate-compat"] }
 
 [dev-dependencies]
 env_logger = "0.10.0"
 hex = "0.4.3"
 zstd-safe = { version = "7.1.0" }
 ruzstd = "0.6.0"
+anyhow = "1.0.75"
+tokio = { version = "1.32.0" }
+dotenv = "0.15.0"
+futures = "0.3.28"
+pallet-ismp-rpc = { workspace = true }
+
 
 [features]
 runtime-benchmarks = ["xcm-simulator-example/runtime-benchmarks", "pallet-assets/runtime-benchmarks"]

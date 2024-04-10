@@ -20,6 +20,7 @@ use sc_service::ChainType;
 use serde::{Deserialize, Serialize};
 use sp_core::{sr25519, Pair, Public};
 use sp_runtime::traits::{IdentifyAccount, Verify};
+use staging_xcm::v3::MultiLocation;
 
 /// Specialized `ChainSpec` for the normal parachain runtime.
 pub type ChainSpec<T> = sc_service::GenericChainSpec<T, Extensions>;
@@ -231,6 +232,7 @@ fn testnet_genesis(
     root: AccountId,
     id: ParaId,
 ) -> serde_json::Value {
+    let asset_id = MultiLocation::parent();
     serde_json::json!({
         "balances": {
             "balances": endowed_accounts.iter().cloned().map(|k| (k, 1u64 << 60)).collect::<Vec<_>>(),
@@ -253,6 +255,16 @@ fn testnet_genesis(
                     )
                 })
             .collect::<Vec<_>>(),
+        },
+        "assets": {
+            "assets": vec![
+                // id, owner, is_sufficient, min_balance
+                (asset_id.clone(), root.clone(), true, EXISTENTIAL_DEPOSIT),
+            ],
+            "metadata": vec![
+                // id, name, symbol, decimals
+                (asset_id, "xcDot".as_bytes().to_vec(), "Dot".as_bytes().to_vec(), 10),
+            ]
         },
         "polkadotXcm": {
             "safeXcmVersion": Some(SAFE_XCM_VERSION),

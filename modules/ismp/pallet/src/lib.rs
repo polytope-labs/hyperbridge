@@ -266,7 +266,8 @@ pub mod pallet {
         fn on_finalize(_n: BlockNumberFor<T>) {
             // Only finalize if mmr was modified
             let leaves = Self::intermediate_number_of_leaves();
-            let root = if leaves != 0 {
+            let total = IntermediateLeaves::<T>::count();
+            let root = if total != 0 {
                 let mut mmr: Mmr<mmr::storage::RuntimeStorage, T> =
                     Mmr::new(Self::number_of_leaves());
                 let range = Self::number_of_leaves()..leaves;
@@ -308,7 +309,6 @@ pub mod pallet {
 
                 // Insert root in storage
                 <RootHash<T>>::put(root);
-                let total = IntermediateLeaves::<T>::count();
                 // Clear intermediate values
                 let _ = IntermediateLeaves::<T>::clear(total, None);
                 IntermediateNumberOfLeaves::<T>::kill();
@@ -747,6 +747,7 @@ impl<T: Config> Pallet<T> {
         let pos = leaf_index_to_pos(leaf_index);
         IntermediateNumberOfLeaves::<T>::put(leaf_index + 1);
         MmrPositions::<T>::insert(pos, commitment);
+        log::trace!(target: "ismp::mmr", "Pushed leaf to intermediate storage {leaf_index}");
         Some(LeafIndexAndPos { pos, leaf_index })
     }
 }

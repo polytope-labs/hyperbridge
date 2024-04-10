@@ -560,10 +560,13 @@ construct_runtime!(
         XcmpQueue: cumulus_pallet_xcmp_queue::{Pallet, Call, Storage, Event<T>} = 30,
         PolkadotXcm: pallet_xcm = 31,
         CumulusXcm: cumulus_pallet_xcm::{Pallet, Event<T>, Origin} = 32,
-        MessageQueue: pallet_message_queue = 33,
-
         // ISMP stuff
-        Ismp: pallet_ismp = 40,
+        // Xcm messages are executed in on_initialize of the message queue, pallet ismp must come before the queue so it can
+        // setup the mmr
+        Ismp: pallet_ismp = 33,
+        MessageQueue: pallet_message_queue = 34,
+
+
         IsmpSyncCommittee: ismp_sync_committee::pallet = 41,
         IsmpDemo: pallet_ismp_demo = 42,
         Relayer: pallet_ismp_relayer = 43,

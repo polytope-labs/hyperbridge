@@ -747,7 +747,6 @@ impl<T: Config> Pallet<T> {
         let pos = leaf_index_to_pos(leaf_index);
         IntermediateNumberOfLeaves::<T>::put(leaf_index + 1);
         MmrPositions::<T>::insert(pos, commitment);
-        log::trace!(target: "ismp::mmr", "Pushed leaf to intermediate storage {leaf_index}");
         Some(LeafIndexAndPos { pos, leaf_index })
     }
 }

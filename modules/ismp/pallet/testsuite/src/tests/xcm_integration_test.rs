@@ -237,34 +237,38 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
         encoded: call.encode(),
     };
 
-    let previous_hash = para_client.rpc().finalized_head().await?;
-
     send_extrinsic(&client, signer, ext).await?;
 
     // Nonce should have increased on parachain and account balance of the pallet account should
     // have increased
     let sub = para_client.rpc().subscribe_finalized_block_headers().await?;
+    // Give enough time for the message to be processed
     let block = sub
-        .take(3)
+        .take(5)
         .collect::<Vec<_>>()
         .await
         .into_iter()
         .collect::<Result<Vec<_>, _>>()?;
-    let current_hash =
-        block.last().cloned().ok_or_else(|| anyhow!("Finalized heads missing"))?.hash();
+    let current_block = block
+        .last()
+        .cloned()
+        .ok_or_else(|| anyhow!("Finalized heads missing"))?
+        .number();
 
     let params = rpc_params![
-        BlockNumberOrHash::<H256>::Hash(previous_hash),
-        BlockNumberOrHash::<H256>::Hash(current_hash)
+        BlockNumberOrHash::<H256>::Number(1),
+        BlockNumberOrHash::<H256>::Number(current_block)
     ];
     let response: HashMap<String, Vec<ismp::events::Event>> =
         para_client.rpc().request("ismp_queryEvents", params).await?;
-    dbg!(&response);
+
     let events = response.values().into_iter().cloned().flatten().collect::<Vec<_>>();
     let post = match events.get(0).cloned().ok_or_else(|| anyhow!("Ismp Event should exist"))? {
         ismp::events::Event::PostRequest(post) => post,
         _ => Err(anyhow!("Unexpected event"))?,
     };
+
+    dbg!(&post);
 
     // Assert that this is the post we sent
     assert_eq!(post.nonce, 0);

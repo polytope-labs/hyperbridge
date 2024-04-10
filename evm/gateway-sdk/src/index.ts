@@ -1,21 +1,49 @@
 // global API exportation is done here 
 
-import { ethers } from "ethers";
-import { PROVIDER } from "./constants";
+import { Signer, ethers } from "ethers";
 import { gateway } from "./contracts";
 import { TeleportParams } from "./types";
 export * from './constants';
+import { AllowanceProvider, PERMIT2_ADDRESS } from '@uniswap/Permit2-sdk'
+import { MaxAllowanceTransferAmount, PermitSingle } from '@uniswap/Permit2-sdk'
+
 export * from './types';
 
 
 
 export async function teleport (
     transportParam: TeleportParams,
-    privateKey: string
-) {
-    let wallet = new ethers.Wallet(privateKey, PROVIDER);
-    let hyperbridgeGateway = gateway(wallet);
+    signer: Signer
 
-    let get_synchro_NonFungible = await hyperbridgeGateway.teleport(transportParam);
-    return get_synchro_NonFungible
+) {
+    let hyperbridgeGateway = gateway(signer);
+
+    let teleport = await hyperbridgeGateway.teleport(transportParam);
+    return teleport
+}
+
+function toDeadline(expiration: number): number {
+    return Math.floor((Date.now() + expiration) / 1000)
+    }
+
+
+
+export async function permit (token: string, user: string, ROUTER_ADDRESS: string) {
+    
+    const allowanceProvider = new AllowanceProvider(PROVIDER, PERMIT2_ADDRESS)
+    const { amount, nonce, expiration}= await allowanceProvider.getAllowanceData(user, token, ROUTER_ADDRESS);
+
+    const permitSingle: PermitSingle = {
+        details: {
+        token,
+        amount: MaxAllowanceTransferAmount,
+       
+        expiration: toDeadline( 1000 * 60 * 60 * 24 * 30),
+        nonce,
+        },
+        spender: user,
+        sigDeadline: toDeadline( 1000 * 60 * 60 * 30),
+        }
+
+        return permitSingle
 }

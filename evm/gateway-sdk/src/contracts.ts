@@ -6,3 +6,4 @@ import { TokenGateway__factory } from "./types/factories/contracts/TokenGateway_
 export function gateway(signer: Signer| Provider) {
     return TokenGateway__factory.connect(GATEWAY, signer);
 } 
+

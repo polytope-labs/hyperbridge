@@ -11,11 +11,11 @@ import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {CallDispatcher, ICallDispatcher} from "./CallDispatcher.sol";
 
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
-import {IAllowanceTransfer, PermitSingle} from "../interfaces/IAllowanceTransfer.sol";
+import {IAllowanceTransfer} from "permit2/interfaces/IAllowanceTransfer.sol";
 
 
 struct TeleportPermit {
-    PermitSingle permitSingle;
+    IAllowanceTransfer.PermitSingle permitSingle;
     address owner;
     bytes signature;
 }

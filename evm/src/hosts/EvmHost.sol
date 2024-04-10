@@ -13,7 +13,7 @@ import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
 import {IHandler} from "ismp/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "ismp/Message.sol";
 
-import {IAllowanceTransfer} from "../interfaces/IAllowanceTransfer.sol";
+import {IAllowanceTransfer} from "permit2/interfaces/IAllowanceTransfer.sol";
 
 // The IsmpHost parameters
 struct HostParams {

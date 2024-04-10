@@ -149,7 +149,7 @@ contract TokenGateway is BaseIsmpModule {
     /// call dispatcher
     ICallDispatcher private _dispatcher;
     // Contract Instance of Permit2 contract
-    IAllowanceTransfer permit2;
+    address permit2Address;
 
     // mapping of token identifier to erc6160 contracts
     mapping(bytes32 => address) private _erc6160s;
@@ -223,15 +223,15 @@ contract TokenGateway is BaseIsmpModule {
 
         if (erc20 != address(0) && !params.redeem) {
 
-            permit2.permit(from, params.gatewayAssetPermit.permitSingle, params.gatewayAssetPermit.signature);
-            permit2.transferFrom(from, address(this), uint160(params.amount), erc20);
+            IAllowanceTransfer(permit2Address).permit(from, params.gatewayAssetPermit.permitSingle, params.gatewayAssetPermit.signature);
+            IAllowanceTransfer(permit2Address).transferFrom(from, address(this), uint160(params.amount), erc20);
 
             // Calculate output fee in the fee token before swap:
             uint256 _fee = calculateBridgeFee(params.fee, data);
 
             // only swap if the feeToken is not the token intended for fee
             if (feeToken != params.feeToken) {
-                permit2.permit(from, params.gatewayInputFeeTokenPermit.permitSingle, params.gatewayInputFeeTokenPermit.signature);
+                IAllowanceTransfer(permit2Address).permit(from, params.gatewayInputFeeTokenPermit.permitSingle, params.gatewayInputFeeTokenPermit.signature);
                 require(handleSwap(from, params.feeToken, feeToken, _fee, params.amountInMax), "Token swap failed");
             }
         } else if (erc6160 != address(0)) {
@@ -240,7 +240,7 @@ contract TokenGateway is BaseIsmpModule {
             revert("Unknown Token Identifier");
         }
 
-        permit2.permit(from, params.hostFeeTokenPermit.permitSingle, params.hostFeeTokenPermit.signature);
+        IAllowanceTransfer(permit2Address).permit(from, params.hostFeeTokenPermit.permitSingle, params.hostFeeTokenPermit.signature);
 
         DispatchPost memory request = DispatchPost({
             dest: params.dest,
@@ -380,7 +380,7 @@ contract TokenGateway is BaseIsmpModule {
         path[0] = _fromToken;
         path[1] = _toToken;
 
-        permit2.transferFrom(_sender, address(this), uint160(_amountInMax), _fromToken);
+        IAllowanceTransfer(permit2Address).transferFrom(_sender, address(this), uint160(_amountInMax), _fromToken);
 
         require(IERC20(_fromToken).approve(address(_uniswapV2Router), _amountInMax), "approve failed.");
 

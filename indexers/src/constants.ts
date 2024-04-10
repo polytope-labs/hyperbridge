@@ -24,4 +24,10 @@ export const CONTRACT_ADDRESSES = {
   },
 };
 
+// Host addresses for the IsmpHost
+export const HOST_ADDRESSES = [
+  CONTRACT_ADDRESSES[SupportedChain.ETHEREUM_SEPOLIA].EthereumHost,
+  CONTRACT_ADDRESSES[SupportedChain.BASE_SEPOLIA].EthereumHost,
+];
+
 export const HYPERBRIDGE_METRICS_ENTITY_ID = "1";

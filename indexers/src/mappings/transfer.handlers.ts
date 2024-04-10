@@ -1,3 +1,5 @@
+import { HOST_ADDRESSES } from "../constants";
+import { HyperBridgeService } from "../services/hyperbridge.service";
 import { RelayerService } from "../services/relayer.service";
 import { TransferService } from "../services/transfer.service";
 import { SupportedChain } from "../types";
@@ -20,15 +22,27 @@ export async function handleTransferEvent(
   const { args, transactionHash } = event;
   const { from, to, value } = args;
 
-  const transfer = await TransferService.storeTransfer({
-    from,
-    to,
-    value,
-    transactionHash,
-    network,
-  });
+  // Only store transfers from/to the Hyperbridge host contracts
+  if (HOST_ADDRESSES.includes(from) || HOST_ADDRESSES.includes(to)) {
+    const transfer = await TransferService.storeTransfer({
+      from,
+      to,
+      value,
+      transactionHash,
+      network,
+    });
 
-  await RelayerService.updateFeesEarned(transfer);
+    if (HOST_ADDRESSES.includes(from)) {
+      Promise.all([
+        await RelayerService.updateFeesEarned(transfer),
+        await HyperBridgeService.updateFeesPayedOut(transfer),
+      ]);
+    }
+
+    if (HOST_ADDRESSES.includes(to)) {
+      await HyperBridgeService.updateTotalTransfersIn(transfer);
+    }
+  }
 }
 
 // Handles transfers for the Ethereum sepolia network

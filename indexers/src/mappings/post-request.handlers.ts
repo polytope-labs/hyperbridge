@@ -1,4 +1,4 @@
-import { HyperBridgeService } from "../services/hyperbridge-metrics.service";
+import { HyperBridgeService } from "../services/hyperbridge.service";
 import { RelayerService } from "../services/relayer.service";
 import { PostRequestHandledEvent } from "../types/contracts/EthereumHostAbi";
 import { SupportedChain } from "../types/enums";

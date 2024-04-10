@@ -14,6 +14,7 @@ import {IHandler} from "ismp/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "ismp/Message.sol";
 
 import {IAllowanceTransfer} from "permit2/interfaces/IAllowanceTransfer.sol";
+import {ISignatureTransfer} from "permit2/interfaces/ISignatureTransfer.sol";
 
 // The IsmpHost parameters
 struct HostParams {
@@ -714,17 +715,22 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      *
      * If called on an already delivered request, these funds will be seen as a donation to the hyperbridge protocol.
      * @param commitment - The request commitment
-     * @param amount - The amount to add for request delivery and execution.
      */
-    function fundRequest(bytes32 commitment, uint256 amount) public {
+    function fundRequest(
+        bytes32 commitment,
+        ISignatureTransfer.PermitTransferFrom memory permit,
+        ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
+        bytes calldata signature
+    ) public {
         FeeMetadata memory metadata = _requestCommitments[commitment];
 
         require(metadata.sender != address(0), "Unknown request");
         require(metadata.sender != _msgSender(), "User can only fund own requests");
+        require(transferDetails.to == address(this), "Invalid approval");
 
-        IAllowanceTransfer(_hostParams.permit2Address).transferFrom(_msgSender(), address(this), uint160(amount), feeToken()); // Payer has insufficient funds
+        ISignatureTransfer(_hostParams.permit2Address).permitTransferFrom(permit, transferDetails, _msgSender(), signature);
 
-        metadata.fee += amount;
+        metadata.fee += transferDetails.requestedAmount;
         _requestCommitments[commitment] = metadata;
     }
 

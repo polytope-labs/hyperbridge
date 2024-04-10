@@ -171,7 +171,7 @@ impl subxt::Config for Hyperbridge {
     type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
 }
 
-// #[ignore]
+#[ignore]
 #[tokio::test]
 async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<()> {
     dotenv::dotenv().ok();

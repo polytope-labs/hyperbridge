@@ -148,7 +148,7 @@ contract TokenGateway is BaseIsmpModule {
     IUniswapV2Router private _uniswapV2Router;
     /// call dispatcher
     ICallDispatcher private _dispatcher;
-    // Contract Instance of Permit2 contract
+    // Permit2 contract address
     address permit2Address;
 
     // mapping of token identifier to erc6160 contracts

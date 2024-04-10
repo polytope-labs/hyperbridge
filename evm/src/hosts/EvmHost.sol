@@ -44,8 +44,8 @@ struct HostParams {
     uint256 lastUpdated;
     // latest state machine height
     uint256 latestStateMachineHeight;
-    // Contract Instance of Permit2 contract
-    IAllowanceTransfer permit2;
+    // Permit2 contract address
+    address permit2Address;
     // state machine identifier for hyperbridge
     bytes hyperbridge;
 }
@@ -492,7 +492,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         // Charge the originating user/application
-        _hostParams.permit2.transferFrom(meta.sender, address(this), uint160(fee), feeToken()); // Origin has insufficient funds
+        IAllowanceTransfer(_hostParams.permit2Address).transferFrom(meta.sender, address(this), uint160(fee), feeToken()); // Origin has insufficient funds
 
         address origin = _bytesToAddress(response.request.from);
         (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, response));
@@ -590,7 +590,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function dispatch(DispatchPost memory post) external returns (bytes32 commitment) {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
 
-        _hostParams.permit2.transferFrom(post.payer, address(this), uint160(fee), feeToken()); // Payer has insufficient funds
+        IAllowanceTransfer(_hostParams.permit2Address).transferFrom(post.payer, address(this), uint160(fee), feeToken()); // Payer has insufficient funds
 
 
         // adjust the timeout
@@ -629,7 +629,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function dispatch(DispatchGet memory get) external returns (bytes32 commitment) {
         uint256 fee = _hostParams.baseGetRequestFee + get.fee;
 
-        _hostParams.permit2.transferFrom(get.payer, address(this), uint160(fee), feeToken()); // Payer has insufficient funds
+        IAllowanceTransfer(_hostParams.permit2Address).transferFrom(get.payer, address(this), uint160(fee), feeToken()); // Payer has insufficient funds
 
 
         // adjust the timeout
@@ -679,7 +679,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
 
-        _hostParams.permit2.transferFrom(post.payer, address(this), uint160(fee), feeToken()); // Payer has insufficient funds
+        IAllowanceTransfer(_hostParams.permit2Address).transferFrom(post.payer, address(this), uint160(fee), feeToken()); // Payer has insufficient funds
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -722,7 +722,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         require(metadata.sender != address(0), "Unknown request");
         require(metadata.sender != _msgSender(), "User can only fund own requests");
 
-        _hostParams.permit2.transferFrom(_msgSender(), address(this), uint160(amount), feeToken()); // Payer has insufficient funds
+        IAllowanceTransfer(_hostParams.permit2Address).transferFrom(_msgSender(), address(this), uint160(amount), feeToken()); // Payer has insufficient funds
 
         metadata.fee += amount;
         _requestCommitments[commitment] = metadata;

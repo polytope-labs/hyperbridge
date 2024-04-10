@@ -1,11 +1,11 @@
 // global API exportation is done here 
 
-import { Signer, ethers } from "ethers";
+import { Provider, Signer, ethers } from "ethers";
 import { gateway } from "./contracts";
 import { TeleportParams } from "./types";
 export * from './constants';
-import { AllowanceProvider, PERMIT2_ADDRESS } from '@uniswap/Permit2-sdk'
-import { MaxAllowanceTransferAmount, PermitSingle } from '@uniswap/Permit2-sdk'
+import { AllowanceProvider, PERMIT2_ADDRESS } from '@uniswap/permit2-sdk'
+import { MaxAllowanceTransferAmount, PermitSingle } from '@uniswap/permit2-sdk'
 
 export * from './types';
 
@@ -28,9 +28,9 @@ function toDeadline(expiration: number): number {
 
 
 
-export async function permit (token: string, user: string, ROUTER_ADDRESS: string) {
+export async function permit (token: string, user: string, ROUTER_ADDRESS: string,  signer: Provider) {
     
-    const allowanceProvider = new AllowanceProvider(PROVIDER, PERMIT2_ADDRESS)
+    const allowanceProvider = new AllowanceProvider(signer, PERMIT2_ADDRESS)
     const { amount, nonce, expiration}= await allowanceProvider.getAllowanceData(user, token, ROUTER_ADDRESS);
 
     const permitSingle: PermitSingle = {

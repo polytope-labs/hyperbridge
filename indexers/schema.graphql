@@ -3,6 +3,14 @@
 # https://academy.subquery.network/build/graphql.html#indexing-by-non-primary-key-field
 
 """
+The blockchains currently indexed by the hyberbridge multi-chain indexer
+"""
+enum SupportedChain {
+    ETHEREUM_SEPOLIA
+    BASE_SEPOLIA
+}
+
+"""
 Important Hyperbridge Metrics
 """
 type HyperBridgeMetrics @entity {
@@ -33,6 +41,11 @@ type Relayer @entity {
     id: ID!
 
     """
+    The network the relayer is on
+    """
+    network: SupportedChain!
+
+    """
     Total number of post requests handled by the Relayer
     """
     postRequestsHandled: BigInt!
@@ -43,11 +56,16 @@ type Relayer @entity {
     totalFeesEarned: BigInt! @index
 }
 
-type Transfer @entity {
+type Transfer @entity @compositeIndexes(fields: [["from", "to"]]) {
     """
     Unique identifier of the FeePayment
     """
     id: ID!
+
+    """
+    The network on which the transfer was made
+    """
+    network: SupportedChain!
 
     """
     The amount transferred

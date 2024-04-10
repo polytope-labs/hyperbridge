@@ -32,7 +32,7 @@ dataSources:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/LogHandler
-          handler: handlePostRequestHandledEvent
+          handler: handleEthereumSepoliaPostRequestHandledEvent
           filter:
             topics:
               - "PostRequestHandled(bytes32, address)"
@@ -50,7 +50,7 @@ dataSources:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/LogHandler
-          handler: handleTransferEvent
+          handler: handleEthereumSepoliaTransferEvent
           filter:
             topics:
               - "Transfer(address indexed from, address indexed to, uint256 amount)"

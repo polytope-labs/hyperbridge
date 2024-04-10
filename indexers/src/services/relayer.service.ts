@@ -1,3 +1,4 @@
+import { SupportedChain } from "../types/enums";
 import { Relayer, Transfer } from "../types/models";
 
 export class RelayerService {
@@ -6,12 +7,14 @@ export class RelayerService {
    */
   static async incrementNumberOfPostRequestsHandled(
     relayer_id: string,
+    network: SupportedChain,
   ): Promise<void> {
     let relayer = await Relayer.get(relayer_id);
 
     if (!relayer) {
       relayer = Relayer.create({
         id: relayer_id,
+        network,
         postRequestsHandled: BigInt(0),
         totalFeesEarned: BigInt(0),
       });

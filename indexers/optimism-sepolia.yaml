@@ -1,7 +1,7 @@
 specVersion: 1.0.0
 version: 0.0.1
-name: ethereum-sepolia
-description: Ethereum Sepolia Chain Indexer
+name: optimism-sepolia
+description: Optimism Sepolia Chain Indexer
 runner:
   node:
     name: "@subql/node-ethereum"
@@ -12,19 +12,17 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: "11155111"
+  chainId: "11155420"
   endpoint:
-    - "https://ethereum-sepolia-rpc.publicnode.com"
-    - "https://sepolia.drpc.org"
-    - "https://rpc2.sepolia.org"
-  dictionary: https://api.subquery.network/sq/subquery/dictionary-ethereum
+    - "https://sepolia.optimism.io"
+    - "https://optimism-sepolia-rpc.publicnode.com"
 dataSources:
   # EthereumHost contract
   - kind: ethereum/Runtime
-    startBlock: 5659633
+    startBlock: 8906802
     options:
       abi: ethereumHost
-      address: "0xe4226c474A6f4BF285eA80c2f01c0942B04323e5"
+      address: "0x39f3D7a7783653a04e2970e35e5f32F0e720daeB"
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -32,14 +30,14 @@ dataSources:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/LogHandler
-          handler: handleEthereumSepoliaPostRequestHandledEvent
+          handler: handleOptimismSepoliaPostRequestHandledEvent
           filter:
             topics:
               - "PostRequestHandled(bytes32, address)"
 
   # Protocol Fee Token
   - kind: ethereum/Runtime
-    startBlock: 5659633
+    startBlock: 8906011
     options:
       abi: erc6160ext20
       address: "0x6df8dE86458D15a3Be3A6B907e6aE6B7af352452"
@@ -50,7 +48,7 @@ dataSources:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/LogHandler
-          handler: handleEthereumSepoliaTransferEvent
+          handler: handleOptimismSepoliaTransferEvent
           filter:
             topics:
               - "Transfer(address indexed from, address indexed to, uint256 amount)"

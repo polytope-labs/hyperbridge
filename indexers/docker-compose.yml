@@ -22,7 +22,7 @@ services:
     depends_on:
       "postgres":
         condition: service_healthy
-    # restart: unless-stopped
+    restart: unless-stopped
     environment:
       DB_USER: postgres
       DB_PASS: postgres
@@ -52,39 +52,134 @@ services:
       timeout: 5s
       retries: 10
 
-  # subquery-node-base-sepolia:
-  #   image: subquerynetwork/subql-node-ethereum:latest
-  #   depends_on:
-  #     "postgres":
-  #       condition: service_healthy
-  #   restart: unless-stopped
-  #   environment:
-  #     DB_USER: postgres
-  #     DB_PASS: postgres
-  #     DB_DATABASE: postgres
-  #     DB_HOST: postgres
-  #     DB_PORT: 5432
-  #   volumes:
-  #     - ./:/app
-  #   command:
-  #     - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
-  #     - -f=app/base-sepolia.yaml
-  #     - --db-schema=app
-  #     - --workers=1
-  #     - --batch-size=5
-  #     - --disable-historical
-  #     - --multi-chain
-  #   healthcheck:
-  #     test:
-  #       [
-  #         "CMD",
-  #         "curl",
-  #         "-f",
-  #         "http://subquery-node-ethereum-sepolia:3000/ready",
-  #       ]
-  #     interval: 3s
-  #     timeout: 5s
-  #     retries: 10
+  subquery-node-base-sepolia:
+    image: subquerynetwork/subql-node-ethereum:v3.11.0
+    depends_on:
+      "postgres":
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
+      - -f=app/base-sepolia.yaml
+      - --db-schema=app
+      - --workers=1
+      - --batch-size=5
+      - --skip-transactions
+      - --disable-historical
+      - --multi-chain
+    healthcheck:
+      test:
+        ["CMD", "curl", "-f", "http://subquery-node-base-sepolia:3000/ready"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-optimism-sepolia:
+    image: subquerynetwork/subql-node-ethereum:v3.11.0
+    depends_on:
+      "postgres":
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
+      - -f=app/optimism-sepolia.yaml
+      - --db-schema=app
+      - --workers=1
+      - --batch-size=5
+      - --skip-transactions
+      - --disable-historical
+      - --multi-chain
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://subquery-node-optimism-sepolia:3000/ready",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-arbitrum-sepolia:
+    image: subquerynetwork/subql-node-ethereum:v3.11.0
+    depends_on:
+      "postgres":
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
+      - -f=app/arbitrum-sepolia.yaml
+      - --db-schema=app
+      - --workers=1
+      - --batch-size=5
+      - --skip-transactions
+      - --disable-historical
+      - --multi-chain
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://subquery-node-arbitrum-sepolia:3000/ready",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  subquery-node-bsc-chapel:
+    image: subquerynetwork/subql-node-ethereum:v3.11.0
+    depends_on:
+      "postgres":
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
+      - -f=app/bsc-chapel.yaml
+      - --db-schema=app
+      - --workers=1
+      - --batch-size=5
+      - --skip-transactions
+      - --disable-historical
+      - --multi-chain
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://subquery-node-bsc-chapel:3000/ready"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
 
   graphql-engine:
     image: subquerynetwork/subql-query:v2.9.0
@@ -93,8 +188,16 @@ services:
     depends_on:
       "postgres":
         condition: service_healthy
-      # "subquery-node-ethereum-sepolia":
-      #   condition: service_healthy
+      "subquery-node-ethereum-sepolia":
+        condition: service_healthy
+      "subquery-node-base-sepolia":
+        condition: service_healthy
+      "subquery-node-optimism-sepolia":
+        condition: service_healthy
+      "subquery-node-arbitrum-sepolia":
+        condition: service_healthy
+      "subquery-node-bsc-chapel":
+        condition: service_healthy
     restart: always
     environment:
       DB_USER: postgres

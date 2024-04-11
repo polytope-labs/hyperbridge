@@ -8,6 +8,9 @@ The blockchains currently indexed by the hyberbridge multi-chain indexer
 enum SupportedChain {
     ETHEREUM_SEPOLIA
     BASE_SEPOLIA
+    OPTIMISM_SEPOLIA
+    ARBITRUM_SEPOLIA
+    BSC_CHAPEL
 }
 
 """
@@ -51,9 +54,9 @@ type Relayer @entity {
     id: ID!
 
     """
-    The network the relayer is on
+    The networks the relayer is on
     """
-    network: SupportedChain!
+    networks: [SupportedChain!]!
 
     """
     Total number of post requests handled by the Relayer
@@ -66,6 +69,11 @@ type Relayer @entity {
     totalFeesEarned: BigInt! @index
 }
 
+"""
+Transfers made from/to the Hyperbridge Host
+- The host transfers fees to Relayers
+- The host receives fees from protocol users
+"""
 type Transfer @entity @compositeIndexes(fields: [["from", "to"]]) {
     """
     Unique identifier of the Transfer

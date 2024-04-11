@@ -1,7 +1,7 @@
 specVersion: 1.0.0
 version: 0.0.1
-name: ethereum-sepolia
-description: Ethereum Sepolia Chain Indexer
+name: base-sepolia
+description: Base Sepolia Chain Indexer
 runner:
   node:
     name: "@subql/node-ethereum"
@@ -12,19 +12,18 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: "11155111"
+  chainId: "84532"
   endpoint:
-    - "https://ethereum-sepolia-rpc.publicnode.com"
-    - "https://sepolia.drpc.org"
-    - "https://rpc2.sepolia.org"
-  dictionary: https://api.subquery.network/sq/subquery/dictionary-ethereum
+    - "https://base-sepolia.blockpi.network/v1/rpc/public"
+    - "wss://base-sepolia-rpc.publicnode.com"
+    - "https://base-sepolia-rpc.publicnode.com"
 dataSources:
   # EthereumHost contract
   - kind: ethereum/Runtime
-    startBlock: 5659633
+    startBlock: 8464600
     options:
       abi: ethereumHost
-      address: "0xe4226c474A6f4BF285eA80c2f01c0942B04323e5"
+      address: "0x1D14e30e440B8DBA9765108eC291B7b66F98Fd09"
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -32,7 +31,7 @@ dataSources:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/LogHandler
-          handler: handleEthereumSepoliaPostRequestHandledEvent
+          handler: handleBaseSepoliaPostRequestHandledEvent
           filter:
             topics:
               - "PostRequestHandled(bytes32, address)"
@@ -50,7 +49,7 @@ dataSources:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/LogHandler
-          handler: handleEthereumSepoliaTransferEvent
+          handler: handleBaseSepoliaTransferEvent
           filter:
             topics:
               - "Transfer(address indexed from, address indexed to, uint256 amount)"

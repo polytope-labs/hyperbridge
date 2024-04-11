@@ -1,0 +1,57 @@
+specVersion: 1.0.0
+version: 0.0.1
+name: base-sepolia
+description: Base Sepolia Chain Indexer
+runner:
+  node:
+    name: "@subql/node-ethereum"
+    version: ">=3.0.0"
+  query:
+    name: "@subql/query"
+    version: "*"
+schema:
+  file: ./schema.graphql
+network:
+  chainId: "84532"
+  endpoint:
+    - "https://base-sepolia.blockpi.network/v1/rpc/public"
+    - "wss://base-sepolia-rpc.publicnode.com"
+    - "https://base-sepolia-rpc.publicnode.com"
+dataSources:
+  # EthereumHost contract
+  - kind: ethereum/Runtime
+    startBlock: 8464600
+    options:
+      abi: ethereumHost
+      address: "0x1D14e30e440B8DBA9765108eC291B7b66F98Fd09"
+    assets:
+      ethereumHost:
+        file: ./abis/EthereumHost.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleBaseSepoliaPostRequestHandledEvent
+          filter:
+            topics:
+              - "PostRequestHandled(bytes32, address)"
+
+  # Protocol Fee Token
+  - kind: ethereum/Runtime
+    startBlock: 5659633
+    options:
+      abi: erc6160ext20
+      address: "0x6df8dE86458D15a3Be3A6B907e6aE6B7af352452"
+    assets:
+      erc6160ext20:
+        file: ./abis/ERC6160Ext20.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleBaseSepoliaTransferEvent
+          filter:
+            topics:
+              - "Transfer(address indexed from, address indexed to, uint256 amount)"
+
+repository: "https://github.com/polytope-labs/hyperbridge"

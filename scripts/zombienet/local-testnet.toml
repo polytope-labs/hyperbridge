@@ -47,7 +47,7 @@ ws_port = 9990
 port = 40337
 command = "./target/release/hyperbridge"
 args = [
-	"-lbasic-authorship=trace,ismp=trace", "--enable-offchain-indexing=true", "--pruning=archive"
+	"-lbasic-authorship=trace,ismp=trace,xcm=trace", "--enable-offchain-indexing=true", "--pruning=archive"
 ]
 
 ## run bob as parachain collator

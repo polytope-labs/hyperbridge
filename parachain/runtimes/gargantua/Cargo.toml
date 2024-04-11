@@ -18,6 +18,8 @@ hex-literal = { version = "0.4.1", optional = true }
 log = { version = "0.4.17", default-features = false }
 scale-info = { version = "2.3.1", default-features = false, features = ["derive"] }
 smallvec = "1.10.0"
+orml-xcm-support = { workspace = true  }
+orml-traits = { workspace = true  }
 
 # Substrate
 frame-benchmarking = { workspace = true, optional = true }
@@ -30,6 +32,7 @@ frame-try-runtime = { workspace = true, optional = true }
 pallet-aura = { workspace = true }
 pallet-authorship = { workspace = true }
 pallet-balances = { workspace = true }
+pallet-assets = { workspace = true }
 pallet-session = { workspace = true }
 pallet-sudo = { workspace = true }
 pallet-timestamp = { workspace = true }
@@ -83,6 +86,7 @@ ismp-bsc = { workspace = true  }
 pallet-ismp-relayer = { workspace = true  }
 pallet-ismp-host-executive = { workspace = true  }
 pallet-call-decompressor = { workspace = true }
+pallet-asset-gateway = { workspace = true  }
 
 [features]
 default = [
@@ -144,7 +148,11 @@ std = [
 	"ismp-bsc/std",
 	"pallet-ismp-relayer/std",
 	"pallet-ismp-host-executive/std",
-	"pallet-call-decompressor/std"
+	"pallet-call-decompressor/std",
+	"pallet-asset-gateway/std",
+	"pallet-assets/std",
+	"orml-xcm-support/std",
+	"orml-traits/std"
 ]
 
 runtime-benchmarks = [
@@ -189,6 +197,7 @@ try-runtime = [
 	"pallet-transaction-payment/try-runtime",
 	"pallet-xcm/try-runtime",
 	"parachain-info/try-runtime",
+	"pallet-assets/runtime-benchmarks"
 ]
 async-backing = [
 	"pallet-aura/experimental"

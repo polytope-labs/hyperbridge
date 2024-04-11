@@ -14,32 +14,33 @@
 // limitations under the License.
 
 use super::{
-    AccountId, Balances, ParachainInfo, ParachainSystem, PolkadotXcm, Runtime, RuntimeCall,
-    RuntimeEvent, RuntimeOrigin, WeightToFee, XcmpQueue,
+    AccountId, Balance, Balances, ParachainInfo, ParachainSystem, PolkadotXcm, Runtime,
+    RuntimeCall, RuntimeEvent, RuntimeOrigin, WeightToFee, XcmpQueue,
 };
 use crate::AllPalletsWithSystem;
-use core::marker::PhantomData;
 use frame_support::{
     match_types, parameter_types,
-    traits::{ConstU32, Everything, Nothing, ProcessMessageError},
+    traits::{ConstU32, Everything, Nothing},
     weights::Weight,
 };
 use frame_system::EnsureRoot;
+use orml_traits::location::AbsoluteReserveProvider;
+use orml_xcm_support::MultiNativeAsset;
 use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::Sibling;
 use polkadot_runtime_common::impls::ToAuthor;
+use sp_runtime::traits::Identity;
 use staging_xcm::latest::prelude::*;
 use staging_xcm_builder::{
-    AccountId32Aliases, AllowTopLevelPaidExecutionFrom, AllowUnpaidExecutionFrom, EnsureXcmOrigin,
-    FixedWeightBounds, FungibleAdapter, IsConcrete, NativeAsset, ParentIsPreset,
+    AccountId32Aliases, AllowTopLevelPaidExecutionFrom, AllowUnpaidExecutionFrom,
+    ConvertedConcreteId, EnsureXcmOrigin, FixedWeightBounds, NoChecking, ParentIsPreset,
     RelayChainAsNative, SiblingParachainAsNative, SiblingParachainConvertsVia,
     SignedAccountId32AsNative, SignedToAccountId32, SovereignSignedViaLocation, TakeWeightCredit,
     UsingComponents,
 };
-use staging_xcm_executor::{
-    traits::{Properties, ShouldExecute},
-    XcmExecutor,
-};
+use staging_xcm_executor::XcmExecutor;
+
+use pallet_asset_gateway::xcm_utilities::HyperbridgeAssetTransactor;
 
 parameter_types! {
     pub const RelayLocation: MultiLocation = MultiLocation::parent();
@@ -47,6 +48,7 @@ parameter_types! {
     pub RelayChainOrigin: RuntimeOrigin = cumulus_pallet_xcm::Origin::Relay.into();
     pub Ancestry: MultiLocation = Parachain(ParachainInfo::parachain_id().into()).into();
     pub UniversalLocation: InteriorMultiLocation = Parachain(ParachainInfo::parachain_id().into()).into();
+    pub CheckingAccount: AccountId = PolkadotXcm::check_account();
 }
 
 /// Type for specifying how a `MultiLocation` can be converted into an `AccountId`. This is used
@@ -62,17 +64,12 @@ pub type LocationToAccountId = (
 );
 
 /// Means for transacting assets on this chain.
-pub type LocalAssetTransactor = FungibleAdapter<
-    // Use this currency:
-    Balances,
-    // Use this currency when it is a fungible asset matching the given location or name:
-    IsConcrete<RelayLocation>,
-    // Do a simple punn to convert an AccountId32 MultiLocation into a native chain account ID:
+pub type LocalAssetTransactor = HyperbridgeAssetTransactor<
+    Runtime,
+    ConvertedConcreteId<MultiLocation, Balance, Identity, Identity>,
     LocationToAccountId,
-    // Our chain's account ID type (we can't get away without mentioning it explicitly):
-    AccountId,
-    // We don't track any teleports.
-    (),
+    NoChecking,
+    CheckingAccount,
 >;
 
 /// This is the type we use to convert an (incoming) XCM origin into a local `Origin` instance,
@@ -110,80 +107,12 @@ match_types! {
     };
 }
 
-//TODO: move DenyThenTry to polkadot's xcm module.
-/// Deny executing the xcm message if it matches any of the Deny filter regardless of anything else.
-/// If it passes the Deny, and matches one of the Allow cases then it is let through.
-pub struct DenyThenTry<Deny, Allow>(PhantomData<Deny>, PhantomData<Allow>)
-where
-    Deny: ShouldExecute,
-    Allow: ShouldExecute;
-
-impl<Deny, Allow> ShouldExecute for DenyThenTry<Deny, Allow>
-where
-    Deny: ShouldExecute,
-    Allow: ShouldExecute,
-{
-    fn should_execute<RuntimeCall>(
-        origin: &MultiLocation,
-        message: &mut [Instruction<RuntimeCall>],
-        max_weight: Weight,
-        properties: &mut Properties,
-    ) -> Result<(), ProcessMessageError> {
-        Deny::should_execute(origin, message, max_weight, properties)?;
-        Allow::should_execute(origin, message, max_weight, properties)
-    }
-}
-
-// See issue <https://github.com/paritytech/polkadot/issues/5233>
-// See issue <https://github.com/paritytech/polkadot/issues/5233>
-pub struct DenyReserveTransferToRelayChain;
-impl ShouldExecute for DenyReserveTransferToRelayChain {
-    fn should_execute<RuntimeCall>(
-        origin: &MultiLocation,
-        message: &mut [Instruction<RuntimeCall>],
-        _max_weight: Weight,
-        _properties: &mut Properties,
-    ) -> Result<(), ProcessMessageError> {
-        if message.iter().any(|inst| {
-            matches!(
-                inst,
-                InitiateReserveWithdraw {
-                    reserve: MultiLocation { parents: 1, interior: Here },
-                    ..
-                } | DepositReserveAsset { dest: MultiLocation { parents: 1, interior: Here }, .. } |
-                    TransferReserveAsset {
-                        dest: MultiLocation { parents: 1, interior: Here },
-                        ..
-                    }
-            )
-        }) {
-            return Err(ProcessMessageError::Unsupported); // Deny
-        }
-
-        // An unexpected reserve transfer has arrived from the Relay Chain. Generally, `IsReserve`
-        // should not allow this, but we just log it here.
-        if matches!(origin, MultiLocation { parents: 1, interior: Here }) &&
-            message.iter().any(|inst| matches!(inst, ReserveAssetDeposited { .. }))
-        {
-            log::warn!(
-                target: "xcm::barriers",
-                "Unexpected ReserveAssetDeposited from the Relay Chain",
-            );
-        }
-        // Permit everything else
-        Ok(())
-    }
-}
-
-pub type Barrier = DenyThenTry<
-    DenyReserveTransferToRelayChain,
-    (
-        TakeWeightCredit,
-        AllowTopLevelPaidExecutionFrom<Everything>,
-        AllowUnpaidExecutionFrom<ParentOrParentsExecutivePlurality>,
-        // ^^^ Parent and its exec plurality get free execution
-    ),
->;
+pub type Barrier = (
+    TakeWeightCredit,
+    AllowTopLevelPaidExecutionFrom<Everything>,
+    AllowUnpaidExecutionFrom<ParentOrParentsExecutivePlurality>,
+    // ^^^ Parent and its exec plurality get free execution
+);
 
 pub struct XcmConfig;
 impl staging_xcm_executor::Config for XcmConfig {
@@ -192,7 +121,7 @@ impl staging_xcm_executor::Config for XcmConfig {
     // How to withdraw and deposit an asset.
     type AssetTransactor = LocalAssetTransactor;
     type OriginConverter = XcmOriginToTransactDispatchOrigin;
-    type IsReserve = NativeAsset;
+    type IsReserve = MultiNativeAsset<AbsoluteReserveProvider>;
     type IsTeleporter = ();
     type Aliasers = Nothing;
     // Teleporting is disabled.
@@ -213,7 +142,7 @@ impl staging_xcm_executor::Config for XcmConfig {
     type MessageExporter = ();
     type UniversalAliases = Nothing;
     type CallDispatcher = RuntimeCall;
-    type SafeCallFilter = Everything;
+    type SafeCallFilter = Nothing;
 }
 
 /// No local origins on this chain are allowed to dispatch XCM sends/executions.

@@ -4178,7 +4178,7 @@ pub mod evm_host {
         pub default_timeout: ::ethers::core::types::U256,
         pub base_get_request_fee: ::ethers::core::types::U256,
         pub per_byte_fee: ::ethers::core::types::U256,
-        pub fee_token_address: ::ethers::core::types::Address,
+        pub fee_token: ::ethers::core::types::Address,
         pub admin: ::ethers::core::types::Address,
         pub handler: ::ethers::core::types::Address,
         pub host_manager: ::ethers::core::types::Address,

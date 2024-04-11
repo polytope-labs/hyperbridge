@@ -391,7 +391,7 @@ contract TokenGatewayTest is BaseTest {
             })
         );
 
-        // Send in ERC20assets to gateway contract, this is mimicking a user who locked there asset on this chain, 
+        // Send in ERC20assets to gateway contract, this is mimicking a user who locked there asset on this chain,
         // now the relayer is bringing the ERC6160 asset obatined from the other chain for providing this liquidity.
         mockUSDC.mint(address(gateway), 1_000 * 1e18);
 
@@ -418,9 +418,9 @@ contract TokenGatewayTest is BaseTest {
                 timeoutTimestamp: 0
             })
         );
-        
+
         uint256 protocolFee = 1_000 * 1e18 / 1000; // 0.1% of the total amount
-        assert(mockUSDC.balanceOf(address(gateway)) == protocolFee); // this should be the protocol fee 
+        assert(mockUSDC.balanceOf(address(gateway)) == protocolFee); // this should be the protocol fee
         assert(mockUSDC.balanceOf(address(relayer_vault)) == 1_000 * 1e18 - protocolFee); // this should be the remaining amount
     }
 
@@ -438,7 +438,6 @@ contract TokenGatewayTest is BaseTest {
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
         feeToken.mint(address(this), 1_000 * 1e18 + messagingFee, "");
 
-
         vm.prank(address(host));
         gateway.onAccept(
             PostRequest({
@@ -452,14 +451,12 @@ contract TokenGatewayTest is BaseTest {
             })
         );
 
-
         address user_vault = address(1);
         address relayer_address = address(tx.origin);
 
         hyperInu.mint(relayer_address, 1_000 * 1e18);
         hyperInu.superApprove(relayer_address, address(gateway));
 
- 
         Body memory body = Body({
             assetId: keccak256("HyperInu.h"),
             to: user_vault,
@@ -469,7 +466,6 @@ contract TokenGatewayTest is BaseTest {
         });
 
         uint256 relayerBalanceBefore = hyperInu_h.balanceOf(relayer_address);
-
 
         // hitting the gateway with the incoming asset
         vm.prank(address(host));

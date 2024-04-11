@@ -84,7 +84,7 @@ ismp-bsc = { workspace = true  }
 pallet-ismp-relayer = { workspace = true  }
 pallet-ismp-host-executive = { workspace = true  }
 pallet-call-decompressor = { workspace = true }
-pallet-asset-transfer = { workspace = true  }
+pallet-asset-gateway = { workspace = true  }
 
 [features]
 default = [
@@ -147,7 +147,7 @@ std = [
 	"pallet-ismp-relayer/std",
 	"pallet-ismp-host-executive/std",
 	"pallet-call-decompressor/std",
-	"pallet-asset-transfer/std",
+	"pallet-asset-gateway/std",
 	"pallet-assets/std"
 ]
 

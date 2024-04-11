@@ -22,6 +22,7 @@ extern crate alloc;
 use alloc::{boxed::Box, string::ToString};
 use core::marker::PhantomData;
 
+use alloc::vec;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use frame_support::{
     ensure,

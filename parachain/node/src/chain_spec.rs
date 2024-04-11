@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use cumulus_primitives_core::ParaId;
-use gargantua_runtime::{AccountId, AuraId, Signature, EXISTENTIAL_DEPOSIT};
+use gargantua_runtime::{AccountId, AuraId, Signature, EXISTENTIAL_DEPOSIT, MICROUNIT};
 use sc_chain_spec::{ChainSpecExtension, ChainSpecGroup};
 use sc_service::ChainType;
 use serde::{Deserialize, Serialize};
@@ -259,7 +259,7 @@ fn testnet_genesis(
         "assets": {
             "assets": vec![
                 // id, owner, is_sufficient, min_balance
-                (asset_id.clone(), root.clone(), true, EXISTENTIAL_DEPOSIT),
+                (asset_id.clone(), root.clone(), true, MICROUNIT),
             ],
             "metadata": vec![
                 // id, name, symbol, decimals

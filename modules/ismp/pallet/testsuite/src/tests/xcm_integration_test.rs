@@ -145,7 +145,7 @@ where
     Ok(())
 }
 
-const SEND_AMOUNT: u128 = 2_000_000_000;
+const SEND_AMOUNT: u128 = 2_000_000_000_000;
 
 #[derive(Clone)]
 pub struct Hyperbridge;

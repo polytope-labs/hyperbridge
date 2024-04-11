@@ -239,8 +239,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 
     send_extrinsic(&client, signer, ext).await?;
 
-    // Nonce should have increased on parachain and account balance of the pallet account should
-    // have increased
     let sub = para_client.rpc().subscribe_finalized_block_headers().await?;
     // Give enough time for the message to be processed
     let block = sub

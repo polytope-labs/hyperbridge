@@ -155,7 +155,12 @@ fn should_process_on_accept_module_callback_correctly() {
             from: H160::zero().0.to_vec(),
             to: H160::zero().0.to_vec(),
             timeout_timestamp: 0,
-            data: alloy_rlp::encode(body),
+            data: {
+                let mut encoded = alloy_rlp::encode(body);
+                // Prefix with zero
+                encoded.insert(0, 0);
+                encoded
+            },
         };
 
         let ismp_module = Module::<Test>::default();
@@ -167,6 +172,8 @@ fn should_process_on_accept_module_callback_correctly() {
         let total_issuance_after = <pallet_assets::Pallet<Test> as Inspect<
             <Test as frame_system::Config>::AccountId,
         >>::total_issuance(asset_id);
+        let amount =
+            amount - (pallet_asset_transfer::Pallet::<Test>::protocol_fee_percentage() * amount);
         // Total issuance should have dropped
         assert_eq!(initial_total_issuance - amount, total_issuance_after);
         amount
@@ -256,7 +263,12 @@ fn should_process_on_timeout_module_callback_correctly() {
             from: H160::zero().0.to_vec(),
             to: H160::zero().0.to_vec(),
             timeout_timestamp: 1000 + (60 * 60),
-            data: alloy_rlp::encode(body),
+            data: {
+                let mut encoded = alloy_rlp::encode(body);
+                // Prefix with zero
+                encoded.insert(0, 0);
+                encoded
+            },
         };
 
         let ismp_module = Module::<Test>::default();

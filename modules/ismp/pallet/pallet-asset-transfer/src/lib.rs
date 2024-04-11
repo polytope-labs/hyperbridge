@@ -25,7 +25,11 @@ use core::marker::PhantomData;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use frame_support::{
     ensure,
-    traits::{fungibles, Get},
+    traits::{
+        fungibles::{self, Mutate},
+        tokens::Preservation,
+        Get,
+    },
 };
 use ismp::{
     events::Meta,
@@ -243,7 +247,12 @@ where
             from: Self::token_gateway_address().0.to_vec(),
             to: Self::token_gateway_address().0.to_vec(),
             timeout_timestamp: multi_account.timeout,
-            data: alloy_rlp::encode(body),
+            data: {
+                let mut encoded = alloy_rlp::encode(body);
+                // Prefix with zero
+                encoded.insert(0, 0);
+                encoded
+            },
         };
 
         dispatcher
@@ -310,7 +319,7 @@ where
             }
         );
 
-        let body: Body = alloy_rlp::Decodable::decode(&mut &*post.data).map_err(|_| {
+        let body: Body = alloy_rlp::Decodable::decode(&mut &post.data[1..]).map_err(|_| {
             ismp::error::Error::ModuleDispatchError {
                 msg: "Token Gateway: Failed to decode request body".to_string(),
                 meta: Meta {
@@ -337,6 +346,29 @@ where
         let amount = { U256::from_big_endian(&body.amount.to_be_bytes::<32>()).low_u128() };
 
         let asset_id = MultiLocation::parent();
+
+        let protocol_account = Pallet::<T>::protocol_account_id();
+        let pallet_account = Pallet::<T>::account_id();
+        let protocol_percentage = Pallet::<T>::protocol_fee_percentage();
+
+        let protocol_fees = protocol_percentage * amount;
+        let amount = amount - protocol_fees;
+
+        T::Assets::transfer(
+            asset_id.clone().into(),
+            &pallet_account,
+            &protocol_account,
+            protocol_fees.into(),
+            Preservation::Preserve,
+        )
+        .map_err(|_| ismp::error::Error::ModuleDispatchError {
+            msg: "Token Gateway: Error collecting protocol fees".to_string(),
+            meta: Meta {
+                source: request.source_chain(),
+                dest: request.dest_chain(),
+                nonce: request.nonce(),
+            },
+        })?;
 
         // We don't custody user funds, we send the dot back to the relaychain using xcm
         let xcm_beneficiary: MultiLocation =
@@ -407,16 +439,17 @@ where
                     },
                 })?;
                 let beneficiary = fee_metadata.meta.origin;
-                let body: Body = alloy_rlp::Decodable::decode(&mut &*post.data).map_err(|_| {
-                    ismp::error::Error::ModuleDispatchError {
-                        msg: "Token Gateway: Failed to decode request body".to_string(),
-                        meta: Meta {
-                            source: request.source_chain(),
-                            dest: request.dest_chain(),
-                            nonce: request.nonce(),
-                        },
-                    }
-                })?;
+                let body: Body =
+                    alloy_rlp::Decodable::decode(&mut &post.data[1..]).map_err(|_| {
+                        ismp::error::Error::ModuleDispatchError {
+                            msg: "Token Gateway: Failed to decode request body".to_string(),
+                            meta: Meta {
+                                source: request.source_chain(),
+                                dest: request.dest_chain(),
+                                nonce: request.nonce(),
+                            },
+                        }
+                    })?;
                 // Send xcm back to relaychain
 
                 let amount = { U256::from_big_endian(&body.amount.to_be_bytes::<32>()).low_u128() };

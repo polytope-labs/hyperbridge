@@ -491,7 +491,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         // The application should've paid the sufficient fees ahead of time,
-        // otherwise they won't get the respone. The user can also fundRequest.
+        // otherwise they won't get the response. The user can also fundRequest.
         if (fee < meta.fee) {
             return;
         }

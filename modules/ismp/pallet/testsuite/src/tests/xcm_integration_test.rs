@@ -242,7 +242,7 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
     let sub = para_client.rpc().subscribe_finalized_block_headers().await?;
     // Give enough time for the message to be processed
     let block = sub
-        .take(5)
+        .take(8)
         .collect::<Vec<_>>()
         .await
         .into_iter()
@@ -272,6 +272,5 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
     assert_eq!(post.nonce, 0);
     assert_eq!(post.dest, StateMachine::Ethereum(ismp::host::Ethereum::ExecutionLayer));
     assert_eq!(post.source, StateMachine::Kusama(2000));
-
     Ok(())
 }

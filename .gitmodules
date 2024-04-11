@@ -16,6 +16,3 @@
 [submodule "evm/lib/solidity-stringutils"]
 	path = evm/lib/solidity-stringutils
 	url = https://github.com/Arachnid/solidity-stringutils
-[submodule "evm/lib/permit2"]
-	path = evm/lib/permit2
-	url = https://github.com/Uniswap/permit2

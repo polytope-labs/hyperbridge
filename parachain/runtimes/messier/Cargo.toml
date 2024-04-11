@@ -18,7 +18,8 @@ hex-literal = { version = "0.4.1", optional = true }
 log = { version = "0.4.17", default-features = false }
 scale-info = { version = "2.3.1", default-features = false, features = ["derive"] }
 smallvec = "1.10.0"
-
+orml-xcm-support = { workspace = true  }
+orml-traits = { workspace = true  } 
 # Substrate
 frame-benchmarking = { workspace = true, optional = true }
 frame-system-benchmarking = { workspace = true, optional = true }
@@ -145,7 +146,9 @@ std = [
 	"ismp-bsc/std",
 	"pallet-ismp-relayer/std",
 	"pallet-ismp-host-executive/std",
-	"pallet-call-decompressor/std"
+	"pallet-call-decompressor/std",
+	"orml-xcm-support/std",
+	"orml-traits/std"
 ]
 
 runtime-benchmarks = [

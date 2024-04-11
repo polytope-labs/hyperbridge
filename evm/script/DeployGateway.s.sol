@@ -87,7 +87,7 @@ contract DeployScript is Script {
                     hyperbridge: StateMachine.kusama(paraId),
                     host: host,
                     uniswapV2: uniRouter,
-                    callDispatcher: callDispatcher
+                    dispatcher: callDispatcher
                 }),
                 assets: assets
             })

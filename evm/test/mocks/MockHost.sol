@@ -17,7 +17,7 @@ contract MockHost {
 
     constructor(bytes memory host_, address _feeToken, address _relayer, uint256 _perByteFee) {
         _host = host_;
-        _hostParams.feeTokenAddress = _feeToken;
+        _hostParams.feeToken = _feeToken;
         relayer = _relayer;
         _hostParams.perByteFee = _perByteFee;
     }
@@ -27,7 +27,7 @@ contract MockHost {
     }
 
     function feeToken() public view returns (address) {
-        return _hostParams.feeTokenAddress;
+        return _hostParams.feeToken;
     }
 
     function hostParams() public view returns (HostParams memory) {
@@ -40,9 +40,7 @@ contract MockHost {
      */
     function dispatch(DispatchPost memory post) external {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
-        require(
-            ERC20Token(_hostParams.feeTokenAddress).transferFrom(tx.origin, address(this), fee), "Insufficient funds"
-        );
+        require(ERC20Token(_hostParams.feeToken).transferFrom(tx.origin, address(this), fee), "Insufficient funds");
 
         // adjust the timeout
         uint64 timeout =

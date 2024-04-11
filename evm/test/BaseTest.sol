@@ -69,22 +69,19 @@ contract BaseTest is Test {
             consensusState: new bytes(0),
             baseGetRequestFee: 10000000000000000000,
             perByteFee: 1000000000000000000, // 1FTK
-            feeTokenAddress: address(feeToken),
+            feeToken: address(feeToken),
             latestStateMachineHeight: 0,
             hyperbridge: StateMachine.kusama(2000)
         });
         host = new TestHost(params);
-        // approve the host address to spend the fee token.
-        feeToken.superApprove(tx.origin, address(host));
-        feeToken.superApprove(address(this), address(host));
-
-        mockUSDC.superApprove(tx.origin, address(host));
-        mockUSDC.superApprove(address(this), address(host));
 
         testModule = new PingModule(address(this));
         testModule.setIsmpHost(address(host));
         manager.setIsmpHost(address(host));
         gateway = new TokenGateway(address(this));
+
+        mockUSDC.superApprove(tx.origin, address(host));
+        mockUSDC.superApprove(address(this), address(host));
         Asset[] memory assets = new Asset[](1);
         assets[0] = Asset({
             identifier: keccak256("USD.h"),
@@ -101,8 +98,8 @@ contract BaseTest is Test {
                 params: TokenGatewayParams({
                     hyperbridge: StateMachine.kusama(2000),
                     host: address(host),
-                    uniswapV2Router: address(1),
-                    callDispatcher: address(dispatcher)
+                    uniswapV2: address(1),
+                    dispatcher: address(dispatcher)
                 }),
                 assets: assets
             })
@@ -114,6 +111,9 @@ contract BaseTest is Test {
 
         hyperInu_h.grantRole(MINTER_ROLE, address(gateway));
         hyperInu_h.grantRole(BURNER_ROLE, address(gateway));
+
+        // approve the host address to spend the fee token.
+        feeToken.superApprove(address(this), address(gateway));
 
         miniStaking = new MiniStaking(address(feeToken));
     }

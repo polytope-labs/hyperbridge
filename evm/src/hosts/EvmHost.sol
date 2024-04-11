@@ -13,9 +13,6 @@ import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
 import {IHandler} from "ismp/IHandler.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message} from "ismp/Message.sol";
 
-import {IAllowanceTransfer} from "permit2/interfaces/IAllowanceTransfer.sol";
-import {ISignatureTransfer} from "permit2/interfaces/ISignatureTransfer.sol";
-
 // The IsmpHost parameters
 struct HostParams {
     // default timeout in seconds for requests.
@@ -26,7 +23,7 @@ struct HostParams {
     uint256 perByteFee;
     // The fee token contract. This will typically be DAI.
     // but we allow it to be configurable to prevent future regrets.
-    address feeTokenAddress;
+    address feeToken;
     // admin account, this only has the rights to freeze, or unfreeze the bridge
     address admin;
     // Ismp request/response handler
@@ -45,8 +42,6 @@ struct HostParams {
     uint256 lastUpdated;
     // latest state machine height
     uint256 latestStateMachineHeight;
-    // Permit2 contract address
-    address permit2Address;
     // state machine identifier for hyperbridge
     bytes hyperbridge;
 }
@@ -213,7 +208,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return the address of the fee token ERC-20 contract on this state machine
      */
     function feeToken() public view returns (address) {
-        return _hostParams.feeTokenAddress;
+        return _hostParams.feeToken;
     }
 
     /**
@@ -251,6 +246,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         return _frozen;
     }
 
+    /**
+     * @return the `HostParams`
+     */
     function hostParams() external view returns (HostParams memory) {
         return _hostParams;
     }
@@ -492,10 +490,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             fee += (_hostParams.perByteFee * response.values[i].value.length);
         }
 
-        // Charge the originating user/application
-        IAllowanceTransfer(_hostParams.permit2Address).transferFrom(
-            meta.sender, address(this), uint160(fee), feeToken()
-        );
+        // The application should've paid the sufficient fees ahead of time,
+        // otherwise they won't get the respone. The user can also fundRequest.
+        if (fee < meta.fee) {
+            return;
+        }
 
         address origin = _bytesToAddress(response.request.from);
         (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, response));
@@ -505,7 +504,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             // don't commit the full response object because, it's unused.
             _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: bytes32(0)});
             if (meta.fee > 0) {
-                require(IERC20(feeToken()).transfer(tx.origin, meta.fee), "EvmHost has insufficient funds");
+                // relayers get the difference
+                uint256 difference = meta.fee - fee;
+                require(IERC20(feeToken()).transfer(tx.origin, difference), "EvmHost has insufficient funds");
             }
             emit PostResponseHandled({commitment: commitment, relayer: tx.origin});
         }
@@ -592,8 +593,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchPost memory post) external returns (bytes32 commitment) {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
-
-        IAllowanceTransfer(_hostParams.permit2Address).transferFrom(post.payer, address(this), uint160(fee), feeToken());
+        IERC20(feeToken()).transferFrom(_msgSender(), address(this), fee);
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -630,8 +630,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchGet memory get) external returns (bytes32 commitment) {
         uint256 fee = _hostParams.baseGetRequestFee + get.fee;
-
-        IAllowanceTransfer(_hostParams.permit2Address).transferFrom(get.payer, address(this), uint160(fee), feeToken());
+        IERC20(feeToken()).transferFrom(_msgSender(), address(this), fee);
 
         // adjust the timeout
         uint64 timeout =
@@ -679,8 +678,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         require(!_responded[receipt], "EvmHost: Duplicate Response");
 
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
-
-        IAllowanceTransfer(_hostParams.permit2Address).transferFrom(post.payer, address(this), uint160(fee), feeToken());
+        IERC20(feeToken()).transferFrom(_msgSender(), address(this), fee);
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -716,23 +714,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * If called on an already delivered request, these funds will be seen as a donation to the hyperbridge protocol.
      * @param commitment - The request commitment
      */
-    function fundRequest(
-        bytes32 commitment,
-        ISignatureTransfer.PermitTransferFrom memory permit,
-        ISignatureTransfer.SignatureTransferDetails calldata transferDetails,
-        bytes calldata signature
-    ) public {
+    function fundRequest(bytes32 commitment, uint256 amount) public {
         FeeMetadata memory metadata = _requestCommitments[commitment];
 
         require(metadata.sender != address(0), "Unknown request");
         require(metadata.sender != _msgSender(), "User can only fund own requests");
-        require(transferDetails.to == address(this), "Invalid approval");
+        IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
 
-        ISignatureTransfer(_hostParams.permit2Address).permitTransferFrom(
-            permit, transferDetails, _msgSender(), signature
-        );
-
-        metadata.fee += transferDetails.requestedAmount;
+        metadata.fee += amount;
         _requestCommitments[commitment] = metadata;
     }
 

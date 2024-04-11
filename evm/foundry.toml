@@ -2,6 +2,9 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+solc-version = "0.8.17"
+optimizer = true
+#via-ir = true
 
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"

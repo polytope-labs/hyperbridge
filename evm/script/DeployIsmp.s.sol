@@ -76,8 +76,7 @@ contract DeployScript is Script {
             consensusState: new bytes(0),
             baseGetRequestFee: 5 * 1e17, // $0.50
             perByteFee: 3 * 1e15, // $0.003/byte
-            feeTokenAddress: address(feeToken),
-            permit2Address: address(0),
+            feeToken: address(feeToken),
             latestStateMachineHeight: 0,
             hyperbridge: StateMachine.kusama(paraId)
         });
@@ -150,7 +149,7 @@ contract DeployScript is Script {
                     hyperbridge: StateMachine.kusama(paraId),
                     host: hostAddress,
                     uniswapV2: address(1),
-                    callDispatcher: dispatcher
+                    dispatcher: dispatcher
                 }),
                 assets: assets
             })

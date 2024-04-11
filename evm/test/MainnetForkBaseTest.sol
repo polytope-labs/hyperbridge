@@ -74,7 +74,7 @@ contract MainnetForkBaseTest is Test {
             consensusState: new bytes(0),
             baseGetRequestFee: 10000000000000000000,
             perByteFee: 1000000000000000000, // 1FTK
-            feeTokenAddress: address(feeToken),
+            feeToken: address(feeToken),
             latestStateMachineHeight: 0,
             hyperbridge: StateMachine.kusama(2000)
         });
@@ -101,8 +101,8 @@ contract MainnetForkBaseTest is Test {
                 params: TokenGatewayParams({
                     hyperbridge: StateMachine.kusama(2000),
                     host: address(host),
-                    uniswapV2Router: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D,
-                    callDispatcher: address(dispatcher)
+                    uniswapV2: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D,
+                    dispatcher: address(dispatcher)
                 }),
                 assets: assets
             })

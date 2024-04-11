@@ -25,7 +25,7 @@ contract TokenGatewayTest is BaseTest {
                 dest: StateMachine.bsc(),
                 fee: 9 * 1e17, // $0.9
                 timeout: 0,
-                to: address(this),
+                to: addressToBytes32(address(this)),
                 assetId: keccak256("USD.h"),
                 data: new bytes(0),
                 amountInMax: 0
@@ -55,7 +55,7 @@ contract TokenGatewayTest is BaseTest {
                 dest: StateMachine.bsc(),
                 fee: 9 * 1e17, // $0.9
                 timeout: 0,
-                to: address(miniStaking),
+                to: addressToBytes32(address(miniStaking)),
                 assetId: keccak256("USD.h"),
                 data: stakeCalldata,
                 amountInMax: 0
@@ -78,7 +78,7 @@ contract TokenGatewayTest is BaseTest {
                 dest: StateMachine.bsc(),
                 fee: 9 * 1e17, // $0.9
                 timeout: 0,
-                to: address(this),
+                to: addressToBytes32(address(this)),
                 assetId: keccak256("USD.h"),
                 data: new bytes(0),
                 amountInMax: 0
@@ -91,11 +91,12 @@ contract TokenGatewayTest is BaseTest {
 
         Body memory body = Body({
             assetId: keccak256("USD.h"),
-            to: address(this),
+            to: addressToBytes32(address(this)),
             redeem: false,
             amount: 1_000 * 1e18,
-            from: address(this)
+            from: addressToBytes32(address(this))
         });
+
         vm.prank(address(host));
         gateway.onAccept(
             PostRequest({
@@ -119,10 +120,10 @@ contract TokenGatewayTest is BaseTest {
 
         BodyWithCall memory body = BodyWithCall({
             assetId: keccak256("USD.h"),
-            to: address(miniStaking),
+            to: addressToBytes32(address(miniStaking)),
             redeem: false,
             amount: 1_000 * 1e18,
-            from: address(this),
+            from: addressToBytes32(address(this)),
             data: stakeCalldata
         });
 
@@ -147,10 +148,10 @@ contract TokenGatewayTest is BaseTest {
 
         Body memory body = Body({
             assetId: keccak256("USD.h"),
-            to: address(this),
+            to: addressToBytes32(address(this)),
             redeem: false,
             amount: 1_000 * 1e18,
-            from: address(this)
+            from: addressToBytes32(address(this))
         });
         vm.prank(address(host));
         gateway.onPostRequestTimeout(
@@ -321,10 +322,10 @@ contract TokenGatewayTest is BaseTest {
     function testOnlyHostCanCallOnAccept() public {
         Body memory body = Body({
             assetId: keccak256("USD.h"),
-            to: address(this),
+            to: addressToBytes32(address(this)),
             redeem: false,
             amount: 1_000 * 1e18,
-            from: address(this)
+            from: addressToBytes32(address(this))
         });
         vm.expectRevert(bytes("TokenGateway: Unauthorized action"));
         gateway.onAccept(
@@ -343,10 +344,10 @@ contract TokenGatewayTest is BaseTest {
     function testWillRejectRequestFromUnkownApplication() public {
         Body memory body = Body({
             assetId: keccak256("USD.h"),
-            to: address(this),
+            to: addressToBytes32(address(this)),
             redeem: false,
             amount: 1_000 * 1e18,
-            from: address(this)
+            from: addressToBytes32(address(this))
         });
         vm.startPrank(address(host));
         vm.expectRevert(bytes("Unauthorized request"));
@@ -400,10 +401,10 @@ contract TokenGatewayTest is BaseTest {
 
         Body memory redeemBody = Body({
             assetId: keccak256("USD.h"),
-            to: relayer_vault,
+            to: addressToBytes32(relayer_vault),
             redeem: true,
             amount: 1_000 * 1e18,
-            from: address(this)
+            from: addressToBytes32(address(this))
         });
 
         vm.prank(address(host));
@@ -459,10 +460,10 @@ contract TokenGatewayTest is BaseTest {
 
         Body memory body = Body({
             assetId: keccak256("HyperInu.h"),
-            to: user_vault,
+            to: addressToBytes32(user_vault),
             redeem: false,
             amount: 1_000 * 1e18,
-            from: address(this)
+            from: addressToBytes32(address(this))
         });
 
         uint256 relayerBalanceBefore = hyperInu_h.balanceOf(relayer_address);
@@ -488,4 +489,16 @@ contract TokenGatewayTest is BaseTest {
         assert(hyperInu.balanceOf(user_vault) == 1_000 * 1e18 - liquidityFee); // user should have the ERC20 token - fee
         assert((relayerBalanceAfter - relayerBalanceBefore) == 1_000 * 1e18); // relayer should have the ERC6160 token
     }
+}
+
+
+
+
+
+function addressToBytes32(address _address) pure returns (bytes32) {
+    return bytes32(uint256(uint160(_address)));
+}
+
+function bytes32ToAddress(bytes32 _bytes) pure returns (address) {
+    return address(uint160(uint256(_bytes)));
 }

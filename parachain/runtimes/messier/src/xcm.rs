@@ -18,28 +18,26 @@ use super::{
     RuntimeEvent, RuntimeOrigin, WeightToFee, XcmpQueue,
 };
 use crate::AllPalletsWithSystem;
-use core::marker::PhantomData;
+
 use frame_support::{
     match_types, parameter_types,
-    traits::{ConstU32, Everything, Nothing, ProcessMessageError},
+    traits::{ConstU32, Everything, Nothing},
     weights::Weight,
 };
 use frame_system::EnsureRoot;
+use orml_traits::location::AbsoluteReserveProvider;
+use orml_xcm_support::MultiNativeAsset;
 use pallet_xcm::XcmPassthrough;
 use polkadot_parachain_primitives::primitives::Sibling;
 use polkadot_runtime_common::impls::ToAuthor;
 use staging_xcm::latest::prelude::*;
 use staging_xcm_builder::{
     AccountId32Aliases, AllowTopLevelPaidExecutionFrom, AllowUnpaidExecutionFrom, EnsureXcmOrigin,
-    FixedWeightBounds, FungibleAdapter, IsConcrete, NativeAsset, ParentIsPreset,
-    RelayChainAsNative, SiblingParachainAsNative, SiblingParachainConvertsVia,
-    SignedAccountId32AsNative, SignedToAccountId32, SovereignSignedViaLocation, TakeWeightCredit,
-    UsingComponents,
+    FixedWeightBounds, FungibleAdapter, IsConcrete, ParentIsPreset, RelayChainAsNative,
+    SiblingParachainAsNative, SiblingParachainConvertsVia, SignedAccountId32AsNative,
+    SignedToAccountId32, SovereignSignedViaLocation, TakeWeightCredit, UsingComponents,
 };
-use staging_xcm_executor::{
-    traits::{Properties, ShouldExecute},
-    XcmExecutor,
-};
+use staging_xcm_executor::XcmExecutor;
 
 parameter_types! {
     pub const RelayLocation: MultiLocation = MultiLocation::parent();
@@ -110,80 +108,12 @@ match_types! {
     };
 }
 
-//TODO: move DenyThenTry to polkadot's xcm module.
-/// Deny executing the xcm message if it matches any of the Deny filter regardless of anything else.
-/// If it passes the Deny, and matches one of the Allow cases then it is let through.
-pub struct DenyThenTry<Deny, Allow>(PhantomData<Deny>, PhantomData<Allow>)
-where
-    Deny: ShouldExecute,
-    Allow: ShouldExecute;
-
-impl<Deny, Allow> ShouldExecute for DenyThenTry<Deny, Allow>
-where
-    Deny: ShouldExecute,
-    Allow: ShouldExecute,
-{
-    fn should_execute<RuntimeCall>(
-        origin: &MultiLocation,
-        message: &mut [Instruction<RuntimeCall>],
-        max_weight: Weight,
-        properties: &mut Properties,
-    ) -> Result<(), ProcessMessageError> {
-        Deny::should_execute(origin, message, max_weight, properties)?;
-        Allow::should_execute(origin, message, max_weight, properties)
-    }
-}
-
-// See issue <https://github.com/paritytech/polkadot/issues/5233>
-// See issue <https://github.com/paritytech/polkadot/issues/5233>
-pub struct DenyReserveTransferToRelayChain;
-impl ShouldExecute for DenyReserveTransferToRelayChain {
-    fn should_execute<RuntimeCall>(
-        origin: &MultiLocation,
-        message: &mut [Instruction<RuntimeCall>],
-        _max_weight: Weight,
-        _properties: &mut Properties,
-    ) -> Result<(), ProcessMessageError> {
-        if message.iter().any(|inst| {
-            matches!(
-                inst,
-                InitiateReserveWithdraw {
-                    reserve: MultiLocation { parents: 1, interior: Here },
-                    ..
-                } | DepositReserveAsset { dest: MultiLocation { parents: 1, interior: Here }, .. } |
-                    TransferReserveAsset {
-                        dest: MultiLocation { parents: 1, interior: Here },
-                        ..
-                    }
-            )
-        }) {
-            return Err(ProcessMessageError::Unsupported); // Deny
-        }
-
-        // An unexpected reserve transfer has arrived from the Relay Chain. Generally, `IsReserve`
-        // should not allow this, but we just log it here.
-        if matches!(origin, MultiLocation { parents: 1, interior: Here }) &&
-            message.iter().any(|inst| matches!(inst, ReserveAssetDeposited { .. }))
-        {
-            log::warn!(
-                target: "xcm::barriers",
-                "Unexpected ReserveAssetDeposited from the Relay Chain",
-            );
-        }
-        // Permit everything else
-        Ok(())
-    }
-}
-
-pub type Barrier = DenyThenTry<
-    DenyReserveTransferToRelayChain,
-    (
-        TakeWeightCredit,
-        AllowTopLevelPaidExecutionFrom<Everything>,
-        AllowUnpaidExecutionFrom<ParentOrParentsExecutivePlurality>,
-        // ^^^ Parent and its exec plurality get free execution
-    ),
->;
+pub type Barrier = (
+    TakeWeightCredit,
+    AllowTopLevelPaidExecutionFrom<Everything>,
+    AllowUnpaidExecutionFrom<ParentOrParentsExecutivePlurality>,
+    // ^^^ Parent and its exec plurality get free execution
+);
 
 pub struct XcmConfig;
 impl staging_xcm_executor::Config for XcmConfig {
@@ -192,7 +122,7 @@ impl staging_xcm_executor::Config for XcmConfig {
     // How to withdraw and deposit an asset.
     type AssetTransactor = LocalAssetTransactor;
     type OriginConverter = XcmOriginToTransactDispatchOrigin;
-    type IsReserve = NativeAsset;
+    type IsReserve = MultiNativeAsset<AbsoluteReserveProvider>;
     type IsTeleporter = ();
     type Aliasers = Nothing;
     // Teleporting is disabled.

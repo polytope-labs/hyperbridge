@@ -201,7 +201,8 @@ alloy-primitives = { version = "0.6.0", default-features = false, features = [
     "rlp",
 ] }
 ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
-
+orml-xcm-support = { version = "=0.7.0", default-features = false }
+orml-traits = { version = "=0.7.0", default-features = false }
 
 # local dependencies
 # ismp core

@@ -17,6 +17,7 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
+use cumulus_pallet_parachain_system::ParachainSetCode;
 use frame_support::{
     derive_impl, parameter_types,
     traits::{ConstU32, ConstU64, Get},
@@ -54,13 +55,20 @@ type Block = frame_system::mocking::MockBlock<Test>;
 frame_support::construct_runtime!(
     pub enum Test {
         System: frame_system,
+        ParachainSystem: cumulus_pallet_parachain_system,
+        ParachainInfo: parachain_info,
         Timestamp: pallet_timestamp,
         Ismp: pallet_ismp,
         Balances: pallet_balances,
         Relayer: pallet_ismp_relayer,
         Fishermen: pallet_fishermen,
         HostExecutive: pallet_ismp_host_executive,
-        CallCompressedExecutor: pallet_call_decompressor
+        CallCompressedExecutor: pallet_call_decompressor,
+        XcmpQueue: cumulus_pallet_xcmp_queue,
+        MessageQueue: pallet_message_queue,
+        PalletXcm: pallet_xcm,
+        Assets: pallet_assets,
+        Gateway: pallet_asset_gateway,
     }
 );
 
@@ -145,7 +153,7 @@ impl frame_system::Config for Test {
     type OnKilledAccount = ();
     type SystemWeightInfo = ();
     type SS58Prefix = ();
-    type OnSetCode = ();
+    type OnSetCode = ParachainSetCode<Test>;
     type MaxConsumers = ConstU32<16>;
 }
 
@@ -348,13 +356,15 @@ where
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
     let storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
+
     let mut ext = sp_io::TestExternalities::new(storage);
     register_offchain_ext(&mut ext);
+
     ext.execute_with(|| System::set_block_number(1));
     ext
 }
 
-fn register_offchain_ext(ext: &mut sp_io::TestExternalities) {
+pub fn register_offchain_ext(ext: &mut sp_io::TestExternalities) {
     let (offchain, _offchain_state) = TestOffchainExt::with_offchain_db(ext.offchain_db());
     ext.register_extension(OffchainDbExt::new(offchain.clone()));
     ext.register_extension(OffchainWorkerExt::new(offchain));

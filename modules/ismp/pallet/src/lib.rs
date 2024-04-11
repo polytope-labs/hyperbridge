@@ -308,8 +308,8 @@ pub mod pallet {
 
                 // Insert root in storage
                 <RootHash<T>>::put(root);
-                let total = IntermediateLeaves::<T>::count();
                 // Clear intermediate values
+                let total = IntermediateLeaves::<T>::count();
                 let _ = IntermediateLeaves::<T>::clear(total, None);
                 IntermediateNumberOfLeaves::<T>::kill();
                 root

@@ -68,7 +68,7 @@ frame_support::construct_runtime!(
         MessageQueue: pallet_message_queue,
         PalletXcm: pallet_xcm,
         Assets: pallet_assets,
-        AssetTransfer: pallet_asset_transfer,
+        Gateway: pallet_asset_gateway,
     }
 );
 

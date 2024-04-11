@@ -20,7 +20,7 @@ members = [
     "modules/ismp/pallet/demo",
     "modules/ismp/pallet/testsuite",
     "modules/ismp/pallet/call-decompressor",
-    "modules/ismp/pallet/pallet-asset-transfer",
+    "modules/ismp/pallet/asset-gateway",
     "modules/ismp/testsuite",
     "modules/ismp/clients/sync-committee",
     "modules/ismp/clients/casper-ffg",
@@ -240,7 +240,7 @@ pallet-ismp-rpc = { path = "./modules/ismp/pallet/rpc" }
 pallet-ismp-runtime-api = { path = "./modules/ismp/pallet/runtime-api", default-features = false }
 pallet-ismp-host-executive = { path = "modules/ismp/pallet/host-executive", default-features = false }
 pallet-call-decompressor = { path = "modules/ismp/pallet/call-decompressor", default-features = false }
-pallet-asset-transfer = { path = "modules/ismp/pallet/pallet-asset-transfer", default-features = false }
+pallet-asset-gateway = { path = "modules/ismp/pallet/asset-gateway", default-features = false }
 
 # merkle trees
 ethereum-trie = { path = "./modules/trees/ethereum", default-features = false }

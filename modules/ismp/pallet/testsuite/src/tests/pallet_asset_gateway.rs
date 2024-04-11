@@ -12,7 +12,7 @@ use ismp::{
     module::IsmpModule,
     router::{Post, Request, Timeout},
 };
-use pallet_asset_transfer::{Body, Module};
+use pallet_asset_gateway::{Body, Module};
 use sp_core::{ByteArray, H160, H256, U256};
 use staging_xcm::v3::{Junction, Junctions, MultiLocation, NetworkId, WeightLimit};
 use xcm_simulator::TestExt;
@@ -58,7 +58,7 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
         dbg!(nonce);
         assert_eq!(nonce, 1);
 
-        let protocol_fees = pallet_asset_transfer::Pallet::<Test>::protocol_fee_percentage();
+        let protocol_fees = pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage();
         let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 
         dbg!(asset_id);
@@ -71,7 +71,7 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
             <Test as frame_system::Config>::AccountId,
         >>::balance(
             asset_id,
-            &pallet_asset_transfer::Pallet::<Test>::account_id(),
+            &pallet_asset_gateway::Pallet::<Test>::account_id(),
         );
         dbg!(pallet_account_balance);
         assert_eq!(custodied_amount, pallet_account_balance);
@@ -117,7 +117,7 @@ fn should_process_on_accept_module_callback_correctly() {
         // Assert that a request was dispatched by checking the nonce, it should be 1
         assert_eq!(nonce, 1);
 
-        let protocol_fees = pallet_asset_transfer::Pallet::<Test>::protocol_fee_percentage();
+        let protocol_fees = pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage();
         let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 
         let total_issuance = <pallet_assets::Pallet<Test> as Inspect<
@@ -128,7 +128,7 @@ fn should_process_on_accept_module_callback_correctly() {
             <Test as frame_system::Config>::AccountId,
         >>::balance(
             asset_id,
-            &pallet_asset_transfer::Pallet::<Test>::account_id(),
+            &pallet_asset_gateway::Pallet::<Test>::account_id(),
         );
         dbg!(pallet_account_balance);
         assert_eq!(custodied_amount, pallet_account_balance);
@@ -173,7 +173,7 @@ fn should_process_on_accept_module_callback_correctly() {
             <Test as frame_system::Config>::AccountId,
         >>::total_issuance(asset_id);
         let amount =
-            amount - (pallet_asset_transfer::Pallet::<Test>::protocol_fee_percentage() * amount);
+            amount - (pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage() * amount);
         // Total issuance should have dropped
         assert_eq!(initial_total_issuance - amount, total_issuance_after);
         amount
@@ -225,7 +225,7 @@ fn should_process_on_timeout_module_callback_correctly() {
         // Assert that a request was dispatched by checking the nonce, it should be 1
         assert_eq!(nonce, 1);
 
-        let protocol_fees = pallet_asset_transfer::Pallet::<Test>::protocol_fee_percentage();
+        let protocol_fees = pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage();
         let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 
         let total_issuance = <pallet_assets::Pallet<Test> as Inspect<
@@ -236,7 +236,7 @@ fn should_process_on_timeout_module_callback_correctly() {
             <Test as frame_system::Config>::AccountId,
         >>::balance(
             asset_id,
-            &pallet_asset_transfer::Pallet::<Test>::account_id(),
+            &pallet_asset_gateway::Pallet::<Test>::account_id(),
         );
         dbg!(pallet_account_balance);
         assert_eq!(custodied_amount, pallet_account_balance);

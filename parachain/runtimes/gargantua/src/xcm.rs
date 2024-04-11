@@ -42,7 +42,7 @@ use staging_xcm_executor::{
     XcmExecutor,
 };
 
-use pallet_asset_transfer::xcm_utilities::HyperbridgeAssetTransactor;
+use pallet_asset_gateway::xcm_utilities::HyperbridgeAssetTransactor;
 
 parameter_types! {
     pub const RelayLocation: MultiLocation = MultiLocation::parent();

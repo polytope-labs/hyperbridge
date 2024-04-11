@@ -98,7 +98,7 @@ pub mod pallet {
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         /// An XCM transfer from the relay chain has been transformed into a crosschain message
-        TransferInitiated {
+        AssetTeleported {
             /// Source account on the relaychain
             from: T::AccountId,
             /// beneficiary account on destination
@@ -248,9 +248,9 @@ where
             to: Self::token_gateway_address().0.to_vec(),
             timeout_timestamp: multi_account.timeout,
             data: {
-                let mut encoded = alloy_rlp::encode(body);
-                // Prefix with zero
-                encoded.insert(0, 0);
+                // Prefix with the handleIncomingAsset enum variant
+                let mut encoded = vec![0];
+                encoded.extend_from_slice(&alloy_rlp::encode(body));
                 encoded
             },
         };
@@ -263,7 +263,7 @@ where
             )
             .map_err(|_| Error::<T>::DispatchPostError)?;
 
-        Self::deposit_event(Event::<T>::TransferInitiated {
+        Self::deposit_event(Event::<T>::AssetTeleported {
             from: multi_account.substrate_account,
             to: multi_account.evm_account,
             dest: multi_account.dest_state_machine,

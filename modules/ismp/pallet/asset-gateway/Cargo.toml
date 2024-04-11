@@ -1,11 +1,9 @@
 [package]
-name = "pallet-asset-transfer"
+name = "pallet-asset-gateway"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "Pallet for custodying relay chain assets received through XCM"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 # substrate
@@ -49,4 +47,3 @@ std = [
     "staging-xcm-builder/std",
     "staging-xcm-executor/std"
 ]
-

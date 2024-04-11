@@ -15,8 +15,8 @@
 
 use crate::{
     alloc::{boxed::Box, string::ToString},
-    AccountId, AssetTransfer, Assets, Balance, Balances, Ismp, ParachainInfo, Runtime,
-    RuntimeEvent, Timestamp, EXISTENTIAL_DEPOSIT,
+    AccountId, Assets, Balance, Balances, Gateway, Ismp, ParachainInfo, Runtime, RuntimeEvent,
+    Timestamp, EXISTENTIAL_DEPOSIT,
 };
 use frame_support::{
     pallet_prelude::{ConstU32, Get},
@@ -31,7 +31,7 @@ use ismp::{
     module::IsmpModule,
     router::{IsmpRouter, Post, Request, Response},
 };
-use pallet_asset_transfer::TokenGatewayParams;
+use pallet_asset_gateway::TokenGatewayParams;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use sp_core::{crypto::AccountId32, H160, H256};
@@ -104,7 +104,7 @@ parameter_types! {
     pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Percent::from_percent(1), H160::zero(), H256::zero());
 }
 
-impl pallet_asset_transfer::Config for Runtime {
+impl pallet_asset_gateway::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type PalletId = AssetPalletId;
     type ProtocolAccount = ProtocolAccount;
@@ -163,13 +163,13 @@ impl IsmpModule for ProxyModule {
         let pallet_id = ModuleId::from_bytes(&request.to)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
 
-        let token_gateway = ModuleId::Evm(AssetTransfer::token_gateway_address());
+        let token_gateway = ModuleId::Evm(Gateway::token_gateway_address());
 
         match pallet_id {
             pallet_ismp_demo::PALLET_ID =>
                 pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
             id if id == token_gateway =>
-                pallet_asset_transfer::Module::<Runtime>::default().on_accept(request),
+                pallet_asset_gateway::Module::<Runtime>::default().on_accept(request),
             _ => Err(Error::ImplementationSpecific("Destination module not found".to_string())),
         }
     }
@@ -189,12 +189,12 @@ impl IsmpModule for ProxyModule {
         let pallet_id = ModuleId::from_bytes(from)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
 
-        let token_gateway = ModuleId::Evm(AssetTransfer::token_gateway_address());
+        let token_gateway = ModuleId::Evm(Gateway::token_gateway_address());
         match pallet_id {
             pallet_ismp_demo::PALLET_ID =>
                 pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_response(response),
             id if id == token_gateway =>
-                pallet_asset_transfer::Module::<Runtime>::default().on_response(response),
+                pallet_asset_gateway::Module::<Runtime>::default().on_response(response),
             _ => Err(Error::ImplementationSpecific("Destination module not found".to_string())),
         }
     }
@@ -208,12 +208,12 @@ impl IsmpModule for ProxyModule {
 
         let pallet_id = ModuleId::from_bytes(from)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
-        let token_gateway = ModuleId::Evm(AssetTransfer::token_gateway_address());
+        let token_gateway = ModuleId::Evm(Gateway::token_gateway_address());
         match pallet_id {
             pallet_ismp_demo::PALLET_ID =>
                 pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(timeout),
             id if id == token_gateway =>
-                pallet_asset_transfer::Module::<Runtime>::default().on_timeout(timeout),
+                pallet_asset_gateway::Module::<Runtime>::default().on_timeout(timeout),
             // instead of returning an error, do nothing. The timeout is for a connected chain.
             _ => Ok(()),
         }

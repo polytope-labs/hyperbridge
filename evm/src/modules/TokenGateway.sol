@@ -12,7 +12,6 @@ import {CallDispatcher, ICallDispatcher} from "./CallDispatcher.sol";
 
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
 
-
 struct TeleportParams {
     // amount to be sent
     uint256 amount;
@@ -32,7 +31,7 @@ struct TeleportParams {
     uint64 timeout;
     // destination contract call data
     bytes data;
-    // calculated amountInMax: 
+    // calculated amountInMax:
     // used if selected fee token is not expected fee token
     uint256 amountInMax;
 }
@@ -139,9 +138,14 @@ contract TokenGateway is BaseIsmpModule {
     // mapping of token identifier to erc20 contracts
     mapping(bytes32 => address) private _erc20s;
 
-    // User has received some assets, source chain & nonce
-    event AssetReceived(bytes source, uint256 nonce);
-    event Teleport(bytes32 from, bytes32 to, uint256 amount, bool redeem, bytes32 requestCommitment);
+    // todo: map assetId to liquidity fee, so fees are configurable on a per asset basis
+
+    // User has received some assets
+    event AssetReceived(bytes source, uint256 nonce, address beneficiary, uint256 amount, bytes32 assetId);
+    // User has sent some assets
+    event AssetTeleported(address from, bytes32 to, uint256 amount, bool redeem, bytes32 requestCommitment);
+    // User assets could not be delivered and has been refunded.
+    event AssetRefunded(address beneficiary, uint256 amount, bytes32 assetId, bytes dest, uint256 nonce);
 
     // restricts call to `IIsmpHost`
     modifier onlyIsmpHost() {
@@ -231,8 +235,8 @@ contract TokenGateway is BaseIsmpModule {
 
         bytes32 commitment = IDispatcher(_host).dispatch(request);
 
-        emit Teleport({
-            from: fromBytes32,
+        emit AssetTeleported({
+            from: from,
             to: params.to,
             amount: params.amount,
             redeem: params.redeem,
@@ -271,6 +275,14 @@ contract TokenGateway is BaseIsmpModule {
         } else {
             revert("Gateway: Inconsistent State");
         }
+
+        emit AssetRefunded({
+            beneficiary: fromAddress,
+            amount: body.amount,
+            assetId: body.assetId,
+            dest: request.dest,
+            nonce: request.nonce
+        });
     }
 
     function handleIncomingAssetWithoutCall(PostRequest calldata request) private {
@@ -282,7 +294,13 @@ contract TokenGateway is BaseIsmpModule {
 
         _handleIncomingAsset(body.assetId, body.redeem, body.amount, toAddress);
 
-        emit AssetReceived(request.source, request.nonce);
+        emit AssetReceived({
+            source: request.source,
+            nonce: request.nonce,
+            beneficiary: toAddress,
+            amount: body.amount,
+            assetId: body.assetId
+        });
     }
 
     function handleIncomingAssetWithCall(PostRequest calldata request) private {
@@ -297,14 +315,18 @@ contract TokenGateway is BaseIsmpModule {
         // dispatching low level call
         _dispatcher.dispatch(toAddress, body.data);
 
-        emit AssetReceived(request.source, request.nonce);
+        emit AssetReceived({
+            source: request.source,
+            nonce: request.nonce,
+            beneficiary: toAddress,
+            amount: body.amount,
+            assetId: body.assetId
+        });
     }
 
     function _handleIncomingAsset(bytes32 assetId, bool redeem, uint256 amount, address to) private {
         address erc20 = _erc20s[assetId];
         address erc6160 = _erc6160s[assetId];
-
-        
 
         if (erc20 != address(0) && redeem) {
             // a relayer/user is redeeming the native asset
@@ -350,21 +372,21 @@ contract TokenGateway is BaseIsmpModule {
         }
     }
 
-    function handleSwap(address _sender, address _fromToken, address _toToken, uint256 _toTokenAmountOut, uint256 _amountInMax)
-        private
-        returns (bool)
-    {
+    function handleSwap(
+        address sender,
+        address fromToken,
+        address toToken,
+        uint256 toTokenAmountOut,
+        uint256 amountInMax
+    ) private returns (bool) {
         address[] memory path = new address[](2);
-        path[0] = _fromToken;
-        path[1] = _toToken;
+        path[0] = fromToken;
+        path[1] = toToken;
 
-        require(
-            IERC20(_fromToken).transferFrom(_sender, address(this), _amountInMax),
-            "insufficient intended fee token"
-        );
-        require(IERC20(_fromToken).approve(address(_uniswapV2Router), _amountInMax), "approve failed.");
+        require(IERC20(fromToken).transferFrom(sender, address(this), amountInMax), "insufficient intended fee token");
+        require(IERC20(fromToken).approve(address(_uniswapV2Router), amountInMax), "approve failed.");
 
-        _uniswapV2Router.swapTokensForExactTokens(_toTokenAmountOut, _amountInMax, path, _sender, block.timestamp + 300);
+        _uniswapV2Router.swapTokensForExactTokens(toTokenAmountOut, amountInMax, path, sender, block.timestamp + 300);
 
         return true;
     }
@@ -388,7 +410,7 @@ contract TokenGateway is BaseIsmpModule {
         uint256 length = assets.length;
         for (uint256 i = 0; i < length; i++) {
             Asset memory asset = assets[i];
-        
+
             _erc20s[asset.identifier] = asset.erc20;
             _erc6160s[asset.identifier] = asset.erc6160;
         }

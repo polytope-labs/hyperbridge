@@ -38,7 +38,7 @@ substrate-state-machine = { workspace = true, default-features = true }
 pallet-ismp-relayer = { workspace = true, default-features = true }
 pallet-fishermen = { workspace = true, default-features = true }
 pallet-call-decompressor = { workspace = true, default-features = true }
-pallet-asset-transfer = { workspace = true, default-features = true }
+pallet-asset-gateway = { workspace = true, default-features = true }
 sp-state-machine = { workspace = true, default-features = true }
 
 # Polkadot

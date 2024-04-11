@@ -5,7 +5,9 @@ import "forge-std/Script.sol";
 import "openzeppelin/utils/Strings.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 
-import {TokenGateway, Asset, InitParams} from "../src/modules/TokenGateway.sol";
+import {
+    TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetFees
+} from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 import {PingModule} from "../examples/PingModule.sol";
 import {CrossChainMessenger} from "../examples/CrossChainMessenger.sol";
@@ -69,17 +71,25 @@ contract DeployScript is Script {
         feeToken.grantRole(BURNER_ROLE, address(gateway));
 
         Asset[] memory assets = new Asset[](1);
-        assets[0] = Asset({identifier: keccak256("USD.h"), erc20: address(0), erc6160: address(feeToken)});
+        assets[0] = Asset({
+            identifier: keccak256("USD.h"),
+            erc20: address(0),
+            erc6160: address(feeToken),
+            fees: AssetFees({
+                protocolFeePercentage: 100, // 0.1
+                relayerFeePercentage: 300 // 0.3
+            })
+        });
 
         gateway.init(
-            InitParams({
-                hyperbridge: StateMachine.kusama(paraId),
-                host: host,
-                uniswapV2Router: uniRouter,
-                protocolFeePercentage: 100, // 0.1
-                relayerFeePercentage: 300, // 0.3
-                assets: assets,
-                callDispatcher: callDispatcher
+            TokenGatewayParamsExt({
+                params: TokenGatewayParams({
+                    hyperbridge: StateMachine.kusama(paraId),
+                    host: host,
+                    uniswapV2: uniRouter,
+                    callDispatcher: callDispatcher
+                }),
+                assets: assets
             })
         );
     }

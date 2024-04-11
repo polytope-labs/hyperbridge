@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 
 import {BaseTest} from "./BaseTest.sol";
 import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
-import {TeleportParams, Body, BODY_BYTES_SIZE, Asset, BodyWithCall} from "../src/modules/TokenGateway.sol";
+import {TeleportParams, Body, BODY_BYTES_SIZE, Asset, BodyWithCall, AssetFees} from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 
 contract TokenGatewayTest is BaseTest {
@@ -175,8 +175,15 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testAddAssetOnAccept() public {
-        Asset memory asset =
-            Asset({erc20: address(mockUSDC), erc6160: address(feeToken), identifier: keccak256("USD.h")});
+        Asset memory asset = Asset({
+            erc20: address(mockUSDC),
+            erc6160: address(feeToken),
+            identifier: keccak256("USD.h"),
+            fees: AssetFees({
+                protocolFeePercentage: 100, // 0.1
+                relayerFeePercentage: 300 // 0.3
+            })
+        });
 
         Asset[] memory assets = new Asset[](1);
         assets[0] = asset;
@@ -210,8 +217,15 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testToRevertOnAddAssetOnAcceptForUnauthorizedRequest() public {
-        Asset memory asset =
-            Asset({erc20: address(mockUSDC), erc6160: address(feeToken), identifier: keccak256("USD.h")});
+        Asset memory asset = Asset({
+            erc20: address(mockUSDC),
+            erc6160: address(feeToken),
+            identifier: keccak256("USD.h"),
+            fees: AssetFees({
+                protocolFeePercentage: 100, // 0.1
+                relayerFeePercentage: 300 // 0.3
+            })
+        });
 
         Asset[] memory assets = new Asset[](1);
         assets[0] = asset;
@@ -234,7 +248,15 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testRemoveAssetOnAccept() public {
-        Asset memory asset = Asset({erc20: address(0), erc6160: address(0), identifier: keccak256("USD.h")});
+        Asset memory asset = Asset({
+            erc20: address(0),
+            erc6160: address(0),
+            identifier: keccak256("USD.h"),
+            fees: AssetFees({
+                protocolFeePercentage: 100, // 0.1
+                relayerFeePercentage: 300 // 0.3
+            })
+        });
 
         Asset[] memory assets = new Asset[](1);
         assets[0] = asset;
@@ -366,8 +388,15 @@ contract TokenGatewayTest is BaseTest {
     }
 
     function testRelayerRedeemLiquidity() public {
-        Asset memory asset =
-            Asset({erc20: address(mockUSDC), erc6160: address(feeToken), identifier: keccak256("USD.h")});
+        Asset memory asset = Asset({
+            erc20: address(mockUSDC),
+            erc6160: address(feeToken),
+            identifier: keccak256("USD.h"),
+            fees: AssetFees({
+                protocolFeePercentage: 100, // 0.1
+                relayerFeePercentage: 300 // 0.3
+            })
+        });
 
         Asset[] memory assets = new Asset[](1);
         assets[0] = asset;
@@ -392,7 +421,7 @@ contract TokenGatewayTest is BaseTest {
             })
         );
 
-        // Send in ERC20assets to gateway contract, this is mimicking a user who locked there asset on this chain, 
+        // Send in ERC20assets to gateway contract, this is mimicking a user who locked there asset on this chain,
         // now the relayer is bringing the ERC6160 asset obatined from the other chain for providing this liquidity.
         mockUSDC.mint(address(gateway), 1_000 * 1e18);
 
@@ -419,16 +448,23 @@ contract TokenGatewayTest is BaseTest {
                 timeoutTimestamp: 0
             })
         );
-        
+
         uint256 protocolFee = 1_000 * 1e18 / 1000; // 0.1% of the total amount
-        assert(mockUSDC.balanceOf(address(gateway)) == protocolFee); // this should be the protocol fee 
+        assert(mockUSDC.balanceOf(address(gateway)) == protocolFee); // this should be the protocol fee
         assert(mockUSDC.balanceOf(address(relayer_vault)) == 1_000 * 1e18 - protocolFee); // this should be the remaining amount
     }
 
     function testHandleIncomingAssetWithSwap() public {
         // Adding new Asset to the gateway
-        Asset memory asset =
-            Asset({erc20: address(hyperInu), erc6160: address(hyperInu_h), identifier: keccak256("HyperInu.h")});
+        Asset memory asset = Asset({
+            erc20: address(hyperInu),
+            erc6160: address(hyperInu_h),
+            identifier: keccak256("HyperInu.h"),
+            fees: AssetFees({
+                protocolFeePercentage: 100, // 0.1
+                relayerFeePercentage: 300 // 0.3
+            })
+        });
 
         Asset[] memory assets = new Asset[](1);
         assets[0] = asset;
@@ -438,7 +474,6 @@ contract TokenGatewayTest is BaseTest {
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
         feeToken.mint(address(this), 1_000 * 1e18 + messagingFee, "");
-
 
         vm.prank(address(host));
         gateway.onAccept(
@@ -453,14 +488,12 @@ contract TokenGatewayTest is BaseTest {
             })
         );
 
-
         address user_vault = address(1);
         address relayer_address = address(tx.origin);
 
         hyperInu.mint(relayer_address, 1_000 * 1e18);
         hyperInu.superApprove(relayer_address, address(gateway));
 
- 
         Body memory body = Body({
             assetId: keccak256("HyperInu.h"),
             to: addressToBytes32(user_vault),
@@ -470,7 +503,6 @@ contract TokenGatewayTest is BaseTest {
         });
 
         uint256 relayerBalanceBefore = hyperInu_h.balanceOf(relayer_address);
-
 
         // hitting the gateway with the incoming asset
         vm.prank(address(host));
@@ -494,10 +526,6 @@ contract TokenGatewayTest is BaseTest {
         assert((relayerBalanceAfter - relayerBalanceBefore) == 1_000 * 1e18); // relayer should have the ERC6160 token
     }
 }
-
-
-
-
 
 function addressToBytes32(address _address) pure returns (bytes32) {
     return bytes32(uint256(uint160(_address)));

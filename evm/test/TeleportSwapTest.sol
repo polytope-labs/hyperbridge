@@ -15,8 +15,8 @@ contract TeleportSwapTest is MainnetForkBaseTest {
 
     function testCanTeleportAssetsUsingUsdcForFee() public {
         // mainnet address holding usdc and dai
-        address mainnetUsdcHolder = address(0xf584F8728B874a6a5c7A8d4d387C9aae9172D621); 
-        
+        address mainnetUsdcHolder = address(0xf584F8728B874a6a5c7A8d4d387C9aae9172D621);
+
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee());
 
@@ -27,8 +27,8 @@ contract TeleportSwapTest is MainnetForkBaseTest {
         uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(messagingFee, path)[0];
 
         // Handling Slippage Implementation
-        uint _slippageAmount = (_fromTokenAmountIn * maxSlippagePercentage) / 10000; // Adjusted for percentage times 100
-        uint _amountInMax = _fromTokenAmountIn + _slippageAmount;
+        uint256 _slippageAmount = (_fromTokenAmountIn * maxSlippagePercentage) / 10000; // Adjusted for percentage times 100
+        uint256 _amountInMax = _fromTokenAmountIn + _slippageAmount;
 
         // mainnet forking - impersonation
         vm.startPrank(mainnetUsdcHolder);
@@ -56,7 +56,6 @@ contract TeleportSwapTest is MainnetForkBaseTest {
         assert(feeToken.balanceOf(address(host)) == messagingFee);
     }
 }
-
 
 function addressToBytes32(address _address) pure returns (bytes32) {
     return bytes32(uint256(uint160(_address)));

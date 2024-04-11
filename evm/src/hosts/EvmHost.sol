@@ -493,7 +493,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         }
 
         // Charge the originating user/application
-        IAllowanceTransfer(_hostParams.permit2Address).transferFrom(meta.sender, address(this), uint160(fee), feeToken());
+        IAllowanceTransfer(_hostParams.permit2Address).transferFrom(
+            meta.sender, address(this), uint160(fee), feeToken()
+        );
 
         address origin = _bytesToAddress(response.request.from);
         (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, response));
@@ -593,7 +595,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         IAllowanceTransfer(_hostParams.permit2Address).transferFrom(post.payer, address(this), uint160(fee), feeToken());
 
-
         // adjust the timeout
         uint64 timeout = post.timeout == 0
             ? 0
@@ -631,7 +632,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 fee = _hostParams.baseGetRequestFee + get.fee;
 
         IAllowanceTransfer(_hostParams.permit2Address).transferFrom(get.payer, address(this), uint160(fee), feeToken());
-
 
         // adjust the timeout
         uint64 timeout =
@@ -728,7 +728,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         require(metadata.sender != _msgSender(), "User can only fund own requests");
         require(transferDetails.to == address(this), "Invalid approval");
 
-        ISignatureTransfer(_hostParams.permit2Address).permitTransferFrom(permit, transferDetails, _msgSender(), signature);
+        ISignatureTransfer(_hostParams.permit2Address).permitTransferFrom(
+            permit, transferDetails, _msgSender(), signature
+        );
 
         metadata.fee += transferDetails.requestedAmount;
         _requestCommitments[commitment] = metadata;

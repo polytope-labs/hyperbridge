@@ -99,8 +99,9 @@ struct AssetFees {
     uint256 protocolFeePercentage;
 }
 
-enum OnAcceptActions {
-    // Incoming asset from a chain
+enum OnAcceptActions
+// Incoming asset from a chain
+{
     IncomingAsset,
     // Governance action to update protocol parameters
     GovernanceAction
@@ -210,17 +211,31 @@ contract TokenGateway is BaseIsmpModule {
 
         if (erc20 != address(0) && !params.redeem) {
             require(IERC20(erc20).transferFrom(from, address(this), params.amount), "Insufficient user balance");
-
-            // only swap if the feeToken is not the token intended for fee
-            if (feeToken != params.feeToken) {
-                // Calculate output fee in the fee token before swap:
-                uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length + 1) + params.fee;
-                require(handleSwap(from, params.feeToken, feeToken, fee, params.amountInMax), "Token swap failed");
-            }
         } else if (erc6160 != address(0)) {
             IERC6160Ext20(erc6160).burn(from, params.amount, "");
         } else {
             revert("Unknown Token Identifier");
+        }
+
+        // only swap if the feeToken is not the token intended for fee
+        if (feeToken != params.feeToken) {
+            // Calculate output fee in the fee token before swap:
+            uint256 fee = (IIsmpHost(_params.host).perByteFee() * data.length + 1) + params.fee;
+
+            address[] memory path = new address[](2);
+            // from
+            path[0] = params.feeToken;
+            // to
+            path[1] = feeToken;
+
+            require(
+                IERC20(params.feeToken).transferFrom(from, address(this), params.amountInMax),
+                "insufficient funds for intended fee token"
+            );
+            require(IERC20(params.feeToken).approve(_params.uniswapV2, params.amountInMax), "approve failed");
+            IUniswapV2Router(_params.uniswapV2).swapTokensForExactTokens(
+                fee, params.amountInMax, path, from, block.timestamp
+            );
         }
 
         // permit the host with the exact amount
@@ -335,26 +350,6 @@ contract TokenGateway is BaseIsmpModule {
 
         _params = params.params;
         setAssets(params.assets);
-    }
-
-    function handleSwap(
-        address sender,
-        address fromToken,
-        address toToken,
-        uint256 toTokenAmountOut,
-        uint256 amountInMax
-    ) private returns (bool) {
-        address[] memory path = new address[](2);
-        path[0] = fromToken;
-        path[1] = toToken;
-
-        require(IERC20(fromToken).transferFrom(sender, address(this), amountInMax), "insufficient intended fee token");
-        require(IERC20(fromToken).approve(address(_params.uniswapV2), amountInMax), "approve failed.");
-        IUniswapV2Router(_params.uniswapV2).swapTokensForExactTokens(
-            toTokenAmountOut, amountInMax, path, sender, block.timestamp + 300
-        );
-
-        return true;
     }
 
     function relayerLiquidityFee(bytes32 assetId, uint256 amount) private view returns (uint256 liquidityFee) {

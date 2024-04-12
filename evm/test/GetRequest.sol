@@ -22,7 +22,7 @@ contract GetRequestTest is BaseTest {
         vm.warp(10);
         handler.handleGetResponses(host, message);
 
-        assert(host.responseReceipts(commitment).relayer == tx.origin);
+        assert(host.responseReceipts(commitment).relayer == address(this));
     }
 
     function GetTimeoutNoChallenge(GetRequest memory request) public {

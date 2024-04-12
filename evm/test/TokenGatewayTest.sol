@@ -197,7 +197,7 @@ contract TokenGatewayTest is BaseTest {
         Asset[] memory assets = new Asset[](1);
         assets[0] = asset;
 
-        bytes memory hyperbridge = host.hyperbridge();
+        bytes memory hyperbridge = StateMachine.kusama(2000);
         TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
         vm.prank(address(host));
@@ -268,7 +268,7 @@ contract TokenGatewayTest is BaseTest {
         Asset[] memory assets = new Asset[](1);
         assets[0] = asset;
 
-        bytes memory hyperbridge = host.hyperbridge();
+        bytes memory hyperbridge = StateMachine.kusama(2000);
         TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
         vm.prank(address(host));
@@ -307,7 +307,7 @@ contract TokenGatewayTest is BaseTest {
         Asset[] memory assets = new Asset[](1);
         assets[0] = asset;
 
-        bytes memory hyperbridge = host.hyperbridge();
+        bytes memory hyperbridge = StateMachine.kusama(2000);
         TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
         vm.prank(address(host));
@@ -341,7 +341,7 @@ contract TokenGatewayTest is BaseTest {
         Asset[] memory assets = new Asset[](1);
         assets[0] = asset;
 
-        bytes memory hyperbridge = host.hyperbridge();
+        bytes memory hyperbridge = StateMachine.kusama(2000);
         TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
         vm.prank(address(host));
@@ -421,7 +421,7 @@ contract TokenGatewayTest is BaseTest {
         Asset[] memory assets = new Asset[](1);
         assets[0] = asset;
 
-        bytes memory hyperbridge = host.hyperbridge();
+        bytes memory hyperbridge = StateMachine.kusama(2000);
         TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
         feeToken.mint(address(this), 1_000 * 1e18, "");
@@ -490,7 +490,7 @@ contract TokenGatewayTest is BaseTest {
         Asset[] memory assets = new Asset[](1);
         assets[0] = asset;
 
-        bytes memory hyperbridge = host.hyperbridge();
+        bytes memory hyperbridge = StateMachine.kusama(2000);
         TokenGatewayParamsExt memory params = TokenGatewayParamsExt({params: gateway.params(), assets: assets});
 
         // relayer fee + per-byte fee

@@ -17,8 +17,6 @@ import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message
 struct HostParams {
     // default timeout in seconds for requests.
     uint256 defaultTimeout;
-    // base fee for GET requests
-    uint256 baseGetRequestFee;
     // cost of cross-chain requests in the fee token per byte
     uint256 perByteFee;
     // The fee token contract. This will typically be DAI.
@@ -39,11 +37,11 @@ struct HostParams {
     // current verified state of the consensus client;
     bytes consensusState;
     // timestamp for when the consensus was most recently updated
-    uint256 lastUpdated;
+    uint256 consensusUpdateTimestamp;
     // latest state machine height
     uint256 latestStateMachineHeight;
-    // state machine identifier for hyperbridge
-    bytes hyperbridge;
+    // whitelisted state machines
+    uint256[] stateMachineWhitelist;
 }
 
 // The host manager interface. This provides methods for modifying the host's params or withdrawing bridge revenue.
@@ -53,7 +51,7 @@ interface IHostManager {
      * @dev Updates IsmpHost params
      * @param params new IsmpHost params
      */
-    function setHostParams(HostParams memory params) external;
+    function updateHostParams(HostParams memory params) external;
 
     /**
      * @dev withdraws bridge revenue to the given address
@@ -94,11 +92,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // commitment of all incoming requests that have been responded to
     mapping(bytes32 => bool) private _responded;
 
+    // mapping of state machine identifier to latest known height to state commitment
     // (stateMachineId => (blockHeight => StateCommitment))
     mapping(uint256 => mapping(uint256 => StateCommitment)) private _stateCommitments;
 
+    // mapping of state machine identifier to latest known height to update time
     // (stateMachineId => (blockHeight => timestamp))
     mapping(uint256 => mapping(uint256 => uint256)) private _stateCommitmentsUpdateTime;
+
+    // mapping of state machine identifier to latest known height
+    // (stateMachineId => (blockHeight => timestamp))
+    mapping(uint256 => uint256) private _latestStateMachineHeight;
 
     // Parameters for the host
     HostParams private _hostParams;
@@ -183,7 +187,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     constructor(HostParams memory params) {
-        _hostParams = params;
+        initHostParams(params);
     }
 
     /**
@@ -218,20 +222,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @return the base fee for outgoing GET requests
-     */
-    function baseGetRequestFee() external view returns (uint256) {
-        return _hostParams.baseGetRequestFee;
-    }
-
-    /**
-     * @return the state machine identifier for the connected hyperbridge instance
-     */
-    function hyperbridge() external view returns (bytes memory) {
-        return _hostParams.hyperbridge;
-    }
-
-    /**
      * @return the host timestamp
      */
     function timestamp() external view returns (uint256) {
@@ -243,6 +233,19 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function frozen() external view returns (bool) {
         return _frozen;
+    }
+
+    /**
+     * @dev initialize the host params. Won't work if it has already been initialized.
+     */
+    function initHostParams(HostParams memory params) public {
+        require(_hostParams.consensusState.length == 0, "HostParams already set");
+        _hostParams = params;
+        uint256 length = params.stateMachineWhitelist.length;
+        for (uint256 i = 0; i < length; i++) {
+            // set it to non-zero
+            _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
+        }
     }
 
     /**
@@ -280,7 +283,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return the last updated time of the consensus client
      */
     function consensusUpdateTime() external view returns (uint256) {
-        return _hostParams.lastUpdated;
+        return _hostParams.consensusUpdateTimestamp;
     }
 
     /**
@@ -298,10 +301,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @return the latest state machine height
+     * @return the latest state machine height for the given stateMachineId. If it returns 0, the state machine is unsupported.
      */
-    function latestStateMachineHeight() external view returns (uint256) {
-        return _hostParams.latestStateMachineHeight;
+    function latestStateMachineHeight(uint256 stateMachineId) external view returns (uint256) {
+        return _latestStateMachineHeight[stateMachineId];
     }
 
     /**
@@ -347,7 +350,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Updates the HostParams, can only be called by cross-chain governance
      * @param params, the new host params.
      */
-    function setHostParams(HostParams memory params) external onlyManager {
+    function updateHostParams(HostParams memory params) external onlyManager {
         _hostParams = params;
     }
 
@@ -374,14 +377,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function storeConsensusState(bytes memory state) external onlyHandler {
         _hostParams.consensusState = state;
-        _hostParams.lastUpdated = block.timestamp;
-    }
-
-    /**
-     * @dev Store the timestamp when the consensus client was updated
-     */
-    function storeConsensusUpdateTime(uint256 time) external onlyHandler {
-        _hostParams.lastUpdated = time;
+        _hostParams.consensusUpdateTimestamp = block.timestamp;
     }
 
     /**
@@ -401,19 +397,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     {
         _stateCommitments[height.stateMachineId][height.height] = commitment;
         _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = block.timestamp;
-        _hostParams.latestStateMachineHeight = height.height;
+        _latestStateMachineHeight[height.stateMachineId] = height.height;
 
         emit StateMachineUpdated({stateMachineId: height.stateMachineId, height: height.height});
-    }
-
-    /**
-     * @dev Store the timestamp when the state machine was updated
-     */
-    function storeStateMachineCommitmentUpdateTime(StateMachineHeight memory height, uint256 time)
-        external
-        onlyHandler
-    {
-        _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = time;
     }
 
     /**

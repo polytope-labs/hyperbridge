@@ -58,7 +58,10 @@ contract DeployScript is Script {
         HandlerV1 handler = new HandlerV1{salt: salt}();
 
         // Host manager
-        HostManager manager = new HostManager{salt: salt}(HostManagerParams({admin: admin, host: address(0)}));
+        HostManager manager =
+        new HostManager{salt: salt}(HostManagerParams({admin: admin, host: address(0), governorStateMachineId : paraId}));
+        uint256[] memory stateMachineWhitelist = new uint256[](1);
+        stateMachineWhitelist[0] = paraId;
 
         // EvmHost
         HostParams memory params = HostParams({
@@ -72,13 +75,12 @@ contract DeployScript is Script {
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            lastUpdated: 0,
+            consensusUpdateTimestamp: 0,
             consensusState: new bytes(0),
-            baseGetRequestFee: 5 * 1e17, // $0.50
             perByteFee: 3 * 1e15, // $0.003/byte
             feeToken: address(feeToken),
             latestStateMachineHeight: 0,
-            hyperbridge: StateMachine.kusama(paraId)
+            stateMachineWhitelist: stateMachineWhitelist
         });
 
         address hostAddress = initHost(params);

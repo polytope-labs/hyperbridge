@@ -56,7 +56,9 @@ contract HandlerV1 is IHandler, Context {
             IConsensusClient(host.consensusClient()).verifyConsensus(host.consensusState(), proof);
         host.storeConsensusState(verifiedState);
 
-        if (intermediate.height > host.latestStateMachineHeight()) {
+        // check that we know this state machine and it's a new update
+        uint256 latestHeight = host.latestStateMachineHeight(intermediate.stateMachineId);
+        if (latestHeight != 0 && intermediate.height > latestHeight) {
             StateMachineHeight memory stateMachineHeight =
                 StateMachineHeight({stateMachineId: intermediate.stateMachineId, height: intermediate.height});
             host.storeStateMachineCommitment(stateMachineHeight, intermediate.commitment);

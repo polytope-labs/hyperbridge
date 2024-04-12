@@ -7,7 +7,7 @@
     Debug,
     PartialEq,
     Eq,
-    Hash,
+    Hash
 )]
 pub struct GetRequest {
     pub source: ::ethers::core::types::Bytes,
@@ -27,7 +27,7 @@ pub struct GetRequest {
     Debug,
     PartialEq,
     Eq,
-    Hash,
+    Hash
 )]
 pub struct GetResponse {
     pub request: GetRequest,
@@ -42,7 +42,7 @@ pub struct GetResponse {
     Debug,
     PartialEq,
     Eq,
-    Hash,
+    Hash
 )]
 pub struct PostRequest {
     pub source: ::ethers::core::types::Bytes,
@@ -62,7 +62,7 @@ pub struct PostRequest {
     Debug,
     PartialEq,
     Eq,
-    Hash,
+    Hash
 )]
 pub struct PostResponse {
     pub request: PostRequest,
@@ -78,7 +78,7 @@ pub struct PostResponse {
     Debug,
     PartialEq,
     Eq,
-    Hash,
+    Hash
 )]
 pub struct StateCommitment {
     pub timestamp: ::ethers::core::types::U256,
@@ -94,7 +94,7 @@ pub struct StateCommitment {
     Debug,
     PartialEq,
     Eq,
-    Hash,
+    Hash
 )]
 pub struct StateMachineHeight {
     pub state_machine_id: ::ethers::core::types::U256,
@@ -109,7 +109,7 @@ pub struct StateMachineHeight {
     Debug,
     PartialEq,
     Eq,
-    Hash,
+    Hash
 )]
 pub struct StorageValue {
     pub key: ::ethers::core::types::Bytes,

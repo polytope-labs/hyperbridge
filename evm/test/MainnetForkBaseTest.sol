@@ -58,9 +58,12 @@ contract MainnetForkBaseTest is Test {
         handler = new HandlerV1();
         CallDispatcher dispatcher = new CallDispatcher();
 
-        HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
+        uint256 paraId = 2000;
+        HostManagerParams memory gParams =
+            HostManagerParams({admin: address(this), host: address(0), governorStateMachineId: paraId});
         HostManager manager = new HostManager(gParams);
-
+        uint256[] memory stateMachineWhitelist = new uint256[](1);
+        stateMachineWhitelist[0] = paraId;
         HostParams memory params = HostParams({
             admin: address(0),
             hostManager: address(manager),
@@ -70,13 +73,12 @@ contract MainnetForkBaseTest is Test {
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            lastUpdated: 0,
+            consensusUpdateTimestamp: 0,
             consensusState: new bytes(0),
-            baseGetRequestFee: 10000000000000000000,
             perByteFee: 1000000000000000000, // 1FTK
             feeToken: address(feeToken),
             latestStateMachineHeight: 0,
-            hyperbridge: StateMachine.kusama(2000)
+            stateMachineWhitelist: stateMachineWhitelist
         });
 
         host = new TestHost(params);

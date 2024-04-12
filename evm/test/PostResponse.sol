@@ -11,6 +11,7 @@ import {
     Message,
     PostResponseTimeoutMessage
 } from "ismp/Message.sol";
+import {StateMachineHeight} from "ismp/IConsensusClient.sol";
 import {IHandler} from "ismp/IHandler.sol";
 import {BaseTest} from "./BaseTest.sol";
 
@@ -46,7 +47,7 @@ contract PostResponseTest is BaseTest {
         handler.handleConsensus(host, consensusProof1);
         vm.warp(10);
         handler.handlePostRequests(host, request);
-        assert(host.requestReceipts(request.requests[0].request.hash()) == tx.origin);
+        assert(host.requestReceipts(request.requests[0].request.hash()) == address(this));
 
         response.timeoutTimestamp -= uint64(block.timestamp);
         testModule.dispatchPostResponse(response);

@@ -267,20 +267,17 @@ jobs:
           tar xvzf ./polkadot.tar.gz
           mv bins/* polkadot-sdk/target/release
           ls -la polkadot-sdk/target/release
-          # install hyperbridge binary
+
+          # build hyperbridge binary
           cd hyperbridge
-          # todo: revert after next release
           cargo build -p hyperbridge --release
-          
-          #  mkdir -p target/release
-          #  wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.2.0/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
-          #  tar xvzf ./hyperbridge-x86_64-unknown-linux-gnu.tar.gz
-          #  mv ./hyperbridge-x86_64-unknown-linux-gnu/hyperbridge target/release
+
           # install zombienet
           wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
           sudo chmod +x ./zombienet
+
           # spawn devnet
-          nohup ./zombienet spawn --provider native ./local-testnet.toml & disown
+          nohup ./zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml & disown
           ../wait_for_tcp_port_opening.sh localhost 9922
           ../wait_for_tcp_port_opening.sh localhost 9990
 

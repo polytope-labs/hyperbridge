@@ -99,8 +99,7 @@ contract PingModule is IIsmpModule {
             height: request.height,
             keys: request.keys,
             timeout: request.timeoutTimestamp,
-            fee: 0,
-            payer: msg.sender
+            sender: msg.sender
         });
 
         return IDispatcher(_host).dispatch(get);

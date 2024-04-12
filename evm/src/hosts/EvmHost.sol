@@ -164,8 +164,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         bytes[] keys,
         uint256 indexed nonce,
         uint256 height,
-        uint256 timeoutTimestamp,
-        uint256 fee
+        uint256 timeoutTimestamp
     );
 
     modifier onlyAdmin() {
@@ -443,7 +442,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming post request to destination module
      * @param request - post request
      */
-    function dispatchIncoming(PostRequest memory request) external onlyHandler {
+    function dispatchIncoming(PostRequest memory request, address relayer) external onlyHandler {
         address destination = _bytesToAddress(request.to);
         uint256 size;
         assembly {
@@ -458,9 +457,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         if (success) {
             bytes32 commitment = request.hash();
-            _requestReceipts[commitment] = tx.origin;
+            _requestReceipts[commitment] = relayer;
 
-            emit PostRequestHandled({commitment: commitment, relayer: tx.origin});
+            emit PostRequestHandled({commitment: commitment, relayer: relayer});
         }
     }
 
@@ -468,15 +467,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming post response to source module
      * @param response - post response
      */
-    function dispatchIncoming(PostResponse memory response) external onlyHandler {
+    function dispatchIncoming(PostResponse memory response, address relayer) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
         (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, response));
 
         if (success) {
             bytes32 commitment = response.request.hash();
-            _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: response.hash()});
+            _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: response.hash()});
 
-            emit PostResponseHandled({commitment: commitment, relayer: tx.origin});
+            emit PostResponseHandled({commitment: commitment, relayer: relayer});
         }
     }
 
@@ -484,15 +483,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming get response to source module
      * @param response - get response
      */
-    function dispatchIncoming(GetResponse memory response, FeeMetadata memory meta) external onlyHandler {
+    function dispatchIncoming(GetResponse memory response, address relayer) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
         (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, response));
 
         if (success) {
             bytes32 commitment = response.request.hash();
             // don't commit the full response object because, it's unused.
-            _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: bytes32(0)});
-            emit PostResponseHandled({commitment: commitment, relayer: tx.origin});
+            _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
+            emit PostResponseHandled({commitment: commitment, relayer: relayer});
         }
     }
 
@@ -629,7 +628,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // make the commitment
         commitment = request.hash();
-        _requestCommitments[commitment] = FeeMetadata({sender: get.payer, fee: 0});
+        _requestCommitments[commitment] = FeeMetadata({sender: get.sender, fee: 0});
         emit GetRequestEvent(
             request.source,
             request.dest,
@@ -637,8 +636,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             request.keys,
             request.nonce,
             request.height,
-            request.timeoutTimestamp,
-            get.fee
+            request.timeoutTimestamp
         );
     }
 

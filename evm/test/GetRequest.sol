@@ -15,25 +15,14 @@ contract GetRequestTest is BaseTest {
         GetRequest memory request,
         GetResponseMessage memory message
     ) public {
-        uint256 fee = host.hostParams().baseGetRequestFee;
-        uint256 balanceBefore = feeToken.balanceOf(tx.origin);
-
-        testModule.dispatch(request);
-
-        uint256 balanceAfter = feeToken.balanceOf(tx.origin);
-        uint256 hostBalance = feeToken.balanceOf(address(host));
-
-        assert(fee == hostBalance);
-        assert(balanceBefore == balanceAfter + fee);
+        bytes32 commitment = testModule.dispatch(request);
+        assert(host.requestCommitments(commitment).sender == address(this));
 
         handler.handleConsensus(host, consensusProof);
         vm.warp(10);
         handler.handleGetResponses(host, message);
 
-        uint256 cost = host.hostParams().perByteFee * 32;
-        uint256 hostBalanceAfter = feeToken.balanceOf(address(host));
-
-        assert(hostBalance + cost == hostBalanceAfter);
+        assert(host.responseReceipts(commitment).relayer == tx.origin);
     }
 
     function GetTimeoutNoChallenge(GetRequest memory request) public {

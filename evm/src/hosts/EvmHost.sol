@@ -485,17 +485,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param response - get response
      */
     function dispatchIncoming(GetResponse memory response, FeeMetadata memory meta) external onlyHandler {
-        uint256 fee = 0;
-        for (uint256 i = 0; i < response.values.length; i++) {
-            fee += (_hostParams.perByteFee * response.values[i].value.length);
-        }
-
-        // The application should've paid the sufficient fees ahead of time,
-        // otherwise they won't get the response. The user can also fundRequest.
-        if (fee < meta.fee) {
-            return;
-        }
-
         address origin = _bytesToAddress(response.request.from);
         (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, response));
 
@@ -503,11 +492,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             bytes32 commitment = response.request.hash();
             // don't commit the full response object because, it's unused.
             _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: bytes32(0)});
-            if (meta.fee > 0) {
-                // relayers get the difference
-                uint256 difference = meta.fee - fee;
-                require(IERC20(feeToken()).transfer(tx.origin, difference), "EvmHost has insufficient funds");
-            }
             emit PostResponseHandled({commitment: commitment, relayer: tx.origin});
         }
     }
@@ -629,9 +613,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param get - get request
      */
     function dispatch(DispatchGet memory get) external returns (bytes32 commitment) {
-        uint256 fee = _hostParams.baseGetRequestFee + get.fee;
-        IERC20(feeToken()).transferFrom(_msgSender(), address(this), fee);
-
         // adjust the timeout
         uint64 timeout =
             get.timeout == 0 ? 0 : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, get.timeout));
@@ -648,7 +629,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // make the commitment
         commitment = request.hash();
-        _requestCommitments[commitment] = FeeMetadata({sender: get.payer, fee: get.fee});
+        _requestCommitments[commitment] = FeeMetadata({sender: get.payer, fee: 0});
         emit GetRequestEvent(
             request.source,
             request.dest,

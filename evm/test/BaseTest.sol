@@ -112,8 +112,10 @@ contract BaseTest is Test {
         hyperInu_h.grantRole(MINTER_ROLE, address(gateway));
         hyperInu_h.grantRole(BURNER_ROLE, address(gateway));
 
-        // approve the host address to spend the fee token.
+        // some approvals
         feeToken.superApprove(address(this), address(gateway));
+        feeToken.superApprove(address(tx.origin), address(testModule));
+        feeToken.superApprove(address(testModule), address(host));
 
         miniStaking = new MiniStaking(address(feeToken));
     }

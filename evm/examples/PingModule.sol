@@ -8,6 +8,7 @@ import "ismp/IIsmpHost.sol";
 import "ismp/StateMachine.sol";
 import "ismp/Message.sol";
 import "ismp/IDispatcher.sol";
+import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 
 struct PingMessage {
     bytes dest;
@@ -77,6 +78,9 @@ contract PingModule is IIsmpModule {
     }
 
     function dispatch(PostRequest memory request) public returns (bytes32) {
+        uint256 perByteFee = IIsmpHost(_host).perByteFee();
+        IERC20(IIsmpHost(_host).feeToken()).transferFrom(msg.sender, address(this), perByteFee * request.body.length);
+
         DispatchPost memory post = DispatchPost({
             body: request.body,
             dest: request.dest,
@@ -96,7 +100,7 @@ contract PingModule is IIsmpModule {
             keys: request.keys,
             timeout: request.timeoutTimestamp,
             fee: 0,
-            payer: tx.origin
+            payer: msg.sender
         });
 
         return IDispatcher(_host).dispatch(get);

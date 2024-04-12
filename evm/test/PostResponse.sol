@@ -26,6 +26,7 @@ contract PostResponseTest is BaseTest {
         PostRequest memory request,
         PostResponseMessage memory message
     ) public {
+        vm.prank(tx.origin);
         testModule.dispatch(request);
         handler.handleConsensus(host, consensusProof);
         vm.warp(10);

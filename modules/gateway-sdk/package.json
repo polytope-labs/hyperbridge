@@ -62,7 +62,6 @@
     "typescript": "^4.6.3"
   },
   "dependencies": {
-    "@uniswap/permit2-sdk": "^1.2.0",
     "buffer": "^6.0.3",
     "ethers": "^6.11.1",
     "lodash": "^4.17.21"

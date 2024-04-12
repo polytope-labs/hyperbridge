@@ -1,1 +1,0 @@
-this is an example asset that can be used during the life cycle of the SDK

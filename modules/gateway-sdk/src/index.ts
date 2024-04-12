@@ -1,4 +1,4 @@
-import { ContractTransactionResponse, Signer } from "ethers";
+import { BytesLike, ContractTransactionResponse, Signer } from "ethers";
 import { gatewayContract } from "./contracts";
 import { TeleportParams } from "./types";
 export * from './constants';
@@ -21,3 +21,7 @@ export async function teleport(signer: Signer,transportParam: TeleportParams ) :
 }
 
 
+export async function estimateFee(perByteFee: number, _relayerFee: number, data: Uint8Array ) {
+    let fee = (perByteFee * data.length + 1 ) + _relayerFee;
+    return fee;
+}

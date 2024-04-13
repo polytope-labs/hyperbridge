@@ -4,12 +4,11 @@ pragma solidity 0.8.17;
 import {IDispatcher, DispatchPost} from "ismp/IDispatcher.sol";
 import {IIsmpHost} from "ismp/IIsmpHost.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
-import {BaseIsmpModule, PostRequest} from "ismp/IIsmpModule.sol";
+import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "ismp/IIsmpModule.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {CallDispatcher, ICallDispatcher} from "./CallDispatcher.sol";
-
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
 
 struct TeleportParams {
@@ -131,16 +130,13 @@ contract TokenGateway is BaseIsmpModule {
 
     // Relayer provided some liquidity
     event LiquidityProvided(address relayer, uint256 amount, bytes32 assetId);
-
-    // todo: map assetId to liquidity fee, so fees are configurable on a per asset basis
-
     // User has received some assets
     event AssetReceived(bytes source, uint256 nonce, address beneficiary, uint256 amount, bytes32 assetId);
     // User has sent some assets
     event AssetTeleported(
         address from, bytes32 to, uint256 amount, bytes32 assetId, bool redeem, bytes32 requestCommitment
     );
-    // User assets could not be delivered and has been refunded.
+    // User assets could not be delivered and have been refunded.
     event AssetRefunded(address beneficiary, uint256 amount, bytes32 assetId, bytes dest, uint256 nonce);
 
     // restricts call to `IIsmpHost`
@@ -236,9 +232,7 @@ contract TokenGateway is BaseIsmpModule {
         // only swap if the feeToken is not the token intended for fee
         if (feeToken != teleportParams.feeToken) {
             address[] memory path = new address[](2);
-            // from
             path[0] = teleportParams.feeToken;
-            // to
             path[1] = feeToken;
 
             require(
@@ -277,17 +271,17 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    function onAccept(PostRequest calldata request) external override onlyIsmpHost {
-        OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
+    function onAccept(IncomingPostRequest calldata incoming) external override onlyIsmpHost {
+        OnAcceptActions action = OnAcceptActions(uint8(incoming.request.body[0]));
 
         if (action == OnAcceptActions.IncomingAsset) {
-            if (request.body.length > BODY_BYTES_SIZE) {
-                handleIncomingAssetWithCall(request);
+            if (incoming.request.body.length > BODY_BYTES_SIZE) {
+                handleIncomingAssetWithCall(incoming);
             } else {
-                handleIncomingAssetWithoutCall(request);
+                handleIncomingAssetWithoutCall(incoming);
             }
         } else if (action == OnAcceptActions.GovernanceAction) {
-            handleGovernance(request);
+            handleGovernance(incoming.request);
         } else {
             revert("Unknown Action");
         }
@@ -295,8 +289,19 @@ contract TokenGateway is BaseIsmpModule {
 
     function onPostRequestTimeout(PostRequest calldata request) external override onlyIsmpHost {
         // The funds could not be sent, this would allow users to get their funds back.
-        // todo: test this with BodyWithCall
-        Body memory body = abi.decode(request.body[1:161], (Body));
+        Body memory body;
+        if (request.body.length > BODY_BYTES_SIZE) {
+            BodyWithCall memory bodyWithCall = abi.decode(request.body[1:], (BodyWithCall));
+            body = Body({
+                amount: bodyWithCall.amount,
+                assetId: bodyWithCall.assetId,
+                redeem: bodyWithCall.redeem,
+                from: bodyWithCall.from,
+                to: bodyWithCall.to
+            });
+        } else {
+            body = abi.decode(request.body[1:], (Body));
+        }
 
         address _erc20 = _erc20s[body.assetId];
         address _erc6160 = _erc6160s[body.assetId];
@@ -319,12 +324,13 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    function handleIncomingAssetWithoutCall(PostRequest calldata request) private {
-        /// TokenGateway only accepts incoming assets from it's instances on other chains.
+    function handleIncomingAssetWithoutCall(IncomingPostRequest calldata incoming) private {
+        PostRequest calldata request = incoming.request;
+        // TokenGateway only accepts incoming assets from it's instances on other chains.
         require(request.from.equals(abi.encodePacked(address(this))), "Unauthorized request");
         Body memory body = abi.decode(request.body[1:], (Body));
         address to = bytes32ToAddress(body.to);
-        handleIncomingAsset(body.assetId, body.redeem, body.amount, to);
+        handleIncomingAsset(body.assetId, body.redeem, body.amount, to, incoming.relayer);
 
         emit AssetReceived({
             source: request.source,
@@ -335,12 +341,13 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    function handleIncomingAssetWithCall(PostRequest calldata request) private {
+    function handleIncomingAssetWithCall(IncomingPostRequest calldata incoming) private {
+        PostRequest calldata request = incoming.request;
         /// TokenGateway only accepts incoming assets from it's instances on other chains.
         require(request.from.equals(abi.encodePacked(address(this))), "Unauthorized request");
         BodyWithCall memory body = abi.decode(request.body[1:], (BodyWithCall));
         address to = bytes32ToAddress(body.to);
-        handleIncomingAsset(body.assetId, body.redeem, body.amount, to);
+        handleIncomingAsset(body.assetId, body.redeem, body.amount, to, incoming.relayer);
         // dispatching low level call
         ICallDispatcher(_params.dispatcher).dispatch(to, body.data);
 
@@ -353,7 +360,7 @@ contract TokenGateway is BaseIsmpModule {
         });
     }
 
-    function handleIncomingAsset(bytes32 assetId, bool redeem, uint256 amount, address to) private {
+    function handleIncomingAsset(bytes32 assetId, bool redeem, uint256 amount, address to, address relayer) private {
         address _erc20 = _erc20s[assetId];
         address _erc6160 = _erc6160s[assetId];
 
@@ -365,15 +372,12 @@ contract TokenGateway is BaseIsmpModule {
             // user is swapping, relayers should double as liquidity providers.
             uint256 transferredAmount = amount - relayerLiquidityFee(assetId, amount);
             require(
-                // we assume that the relayer is an EOA
-                IERC20(_erc20).transferFrom(tx.origin, to, transferredAmount),
-                "Gateway: Insufficient relayer balance"
+                IERC20(_erc20).transferFrom(relayer, to, transferredAmount), "Gateway: Insufficient relayer balance"
             );
-
-            emit LiquidityProvided({relayer: tx.origin, amount: transferredAmount, assetId: assetId});
-
             // hand the relayer the erc6160, so they can redeem on the source chain
-            IERC6160Ext20(_erc6160).mint(tx.origin, amount, "");
+            IERC6160Ext20(_erc6160).mint(relayer, amount, "");
+
+            emit LiquidityProvided({relayer: relayer, amount: transferredAmount, assetId: assetId});
         } else if (_erc6160 != address(0)) {
             IERC6160Ext20(_erc6160).mint(to, amount, "");
         } else {

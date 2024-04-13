@@ -429,35 +429,7 @@ pub mod handler {
                     ],
                 ),
             ]),
-            events: ::core::convert::From::from([
-                (
-                    ::std::borrow::ToOwned::to_owned("StateMachineUpdated"),
-                    ::std::vec![
-                        ::ethers::core::abi::ethabi::Event {
-                            name: ::std::borrow::ToOwned::to_owned(
-                                "StateMachineUpdated",
-                            ),
-                            inputs: ::std::vec![
-                                ::ethers::core::abi::ethabi::EventParam {
-                                    name: ::std::borrow::ToOwned::to_owned("stateMachineId"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
-                                        256usize,
-                                    ),
-                                    indexed: false,
-                                },
-                                ::ethers::core::abi::ethabi::EventParam {
-                                    name: ::std::borrow::ToOwned::to_owned("height"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
-                                        256usize,
-                                    ),
-                                    indexed: false,
-                                },
-                            ],
-                            anonymous: false,
-                        },
-                    ],
-                ),
-            ]),
+            events: ::std::collections::BTreeMap::new(),
             errors: ::std::collections::BTreeMap::new(),
             receive: false,
             fallback: false,
@@ -567,40 +539,11 @@ pub mod handler {
                 .method_hash([114, 190, 204, 205], (host, response))
                 .expect("method not found (this should never happen)")
         }
-        ///Gets the contract's `StateMachineUpdated` event
-        pub fn state_machine_updated_filter(
-            &self,
-        ) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, StateMachineUpdatedFilter>
-        {
-            self.0.event()
-        }
-        /// Returns an `Event` builder for all the events of this contract.
-        pub fn events(
-            &self,
-        ) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, StateMachineUpdatedFilter>
-        {
-            self.0.event_with_filter(::core::default::Default::default())
-        }
     }
     impl<M: ::ethers::providers::Middleware> From<::ethers::contract::Contract<M>> for Handler<M> {
         fn from(contract: ::ethers::contract::Contract<M>) -> Self {
             Self::new(contract.address(), contract.client())
         }
-    }
-    #[derive(
-        Clone,
-        ::ethers::contract::EthEvent,
-        ::ethers::contract::EthDisplay,
-        Default,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-    )]
-    #[ethevent(name = "StateMachineUpdated", abi = "StateMachineUpdated(uint256,uint256)")]
-    pub struct StateMachineUpdatedFilter {
-        pub state_machine_id: ::ethers::core::types::U256,
-        pub height: ::ethers::core::types::U256,
     }
     ///Container type for all input parameters for the `handleConsensus` function with signature
     /// `handleConsensus(address,bytes)` and selector `0xbb1689be`

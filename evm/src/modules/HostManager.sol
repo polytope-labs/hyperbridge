@@ -6,7 +6,7 @@ import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "i
 import {StateMachine} from "ismp/StateMachine.sol";
 
 import {HostParams, IHostManager, WithdrawParams, EvmHost} from "../hosts/EvmHost.sol";
-import {BaseIsmpModule} from "ismp/IIsmpModule.sol";
+import {BaseIsmpModule, IncomingPostRequest} from "ismp/IIsmpModule.sol";
 
 /// Host manager params
 struct HostManagerParams {
@@ -56,7 +56,8 @@ contract HostManager is BaseIsmpModule {
         _params.admin = address(0);
     }
 
-    function onAccept(PostRequest calldata request) external override onlyIsmpHost {
+    function onAccept(IncomingPostRequest calldata incoming) external override onlyIsmpHost {
+        PostRequest calldata request = incoming.request;
         // Only Hyperbridge governor parachain can send requests to this module.
         require(request.source.equals(StateMachine.polkadot(_params.governorStateMachineId)), "Unauthorized request");
 

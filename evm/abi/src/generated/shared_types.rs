@@ -33,6 +33,52 @@ pub struct GetResponse {
     pub request: GetRequest,
     pub values: ::std::vec::Vec<StorageValue>,
 }
+///`IncomingGetResponse(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(bytes,bytes)[]),
+/// address)`
+#[derive(
+    Clone,
+    ::ethers::contract::EthAbiType,
+    ::ethers::contract::EthAbiCodec,
+    Default,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+)]
+pub struct IncomingGetResponse {
+    pub response: GetResponse,
+    pub relayer: ::ethers::core::types::Address,
+}
+///`IncomingPostRequest((bytes,bytes,uint64,bytes,bytes,uint64,bytes),address)`
+#[derive(
+    Clone,
+    ::ethers::contract::EthAbiType,
+    ::ethers::contract::EthAbiCodec,
+    Default,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+)]
+pub struct IncomingPostRequest {
+    pub request: PostRequest,
+    pub relayer: ::ethers::core::types::Address,
+}
+///`IncomingPostResponse(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),address)`
+#[derive(
+    Clone,
+    ::ethers::contract::EthAbiType,
+    ::ethers::contract::EthAbiCodec,
+    Default,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+)]
+pub struct IncomingPostResponse {
+    pub response: PostResponse,
+    pub relayer: ::ethers::core::types::Address,
+}
 ///`PostRequest(bytes,bytes,uint64,bytes,bytes,uint64,bytes)`
 #[derive(
     Clone,

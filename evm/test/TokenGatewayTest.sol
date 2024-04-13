@@ -4,6 +4,7 @@ pragma solidity 0.8.17;
 import "forge-std/Test.sol";
 
 import {BaseTest} from "./BaseTest.sol";
+import {IncomingPostRequest} from "ismp/IIsmpModule.sol";
 import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "ismp/Message.sol";
 import {
     TeleportParams,
@@ -108,14 +109,17 @@ contract TokenGatewayTest is BaseTest {
 
         vm.prank(address(host));
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"00", abi.encode(body)),
-                nonce: 0,
-                source: new bytes(0),
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"00", abi.encode(body)),
+                    nonce: 0,
+                    source: new bytes(0),
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
             })
         );
 
@@ -138,14 +142,17 @@ contract TokenGatewayTest is BaseTest {
 
         vm.prank(address(host));
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"00", abi.encode(body)),
-                nonce: 0,
-                source: new bytes(0),
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"00", abi.encode(body)),
+                    nonce: 0,
+                    source: new bytes(0),
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
             })
         );
 
@@ -176,11 +183,28 @@ contract TokenGatewayTest is BaseTest {
         );
 
         assert(feeToken.balanceOf(address(this)) == 1_000 * 1e18);
-    }
 
-    function getMappingValue(address target, uint256 mapSlot, bytes32 key) public view returns (bytes32) {
-        bytes32 slotValue = vm.load(target, keccak256(abi.encode(key, mapSlot)));
-        return slotValue;
+        bytes memory stakeCalldata = abi.encodeWithSignature("recordStake(address)", address(this));
+        BodyWithCall memory bodyWithCall = BodyWithCall({
+            assetId: keccak256("USD.h"),
+            to: addressToBytes32(address(miniStaking)),
+            redeem: false,
+            amount: 1_000 * 1e18,
+            from: addressToBytes32(address(this)),
+            data: stakeCalldata
+        });
+        vm.prank(address(host));
+        gateway.onPostRequestTimeout(
+            PostRequest({
+                to: abi.encodePacked(address(0)),
+                from: abi.encodePacked(address(gateway)),
+                dest: new bytes(0),
+                body: bytes.concat(hex"00", abi.encode(bodyWithCall)),
+                nonce: 0,
+                source: new bytes(0),
+                timeoutTimestamp: 0
+            })
+        );
     }
 
     function testAddAssetOnAccept() public {
@@ -202,14 +226,17 @@ contract TokenGatewayTest is BaseTest {
 
         vm.prank(address(host));
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"01", abi.encode(params)),
-                nonce: 0,
-                source: hyperbridge,
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"01", abi.encode(params)),
+                    nonce: 0,
+                    source: hyperbridge,
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
             })
         );
 
@@ -242,14 +269,17 @@ contract TokenGatewayTest is BaseTest {
         vm.expectRevert(bytes("Unauthorized request"));
 
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"0100", abi.encode(assets)),
-                nonce: 0,
-                source: new bytes(0),
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"0100", abi.encode(assets)),
+                    nonce: 0,
+                    source: new bytes(0),
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
             })
         );
     }
@@ -273,14 +303,17 @@ contract TokenGatewayTest is BaseTest {
 
         vm.prank(address(host));
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"01", abi.encode(params)),
-                nonce: 0,
-                source: hyperbridge,
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"01", abi.encode(params)),
+                    nonce: 0,
+                    source: hyperbridge,
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
             })
         );
 
@@ -313,14 +346,17 @@ contract TokenGatewayTest is BaseTest {
         vm.prank(address(host));
 
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"01", abi.encode(params)),
-                nonce: 0,
-                source: hyperbridge,
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"01", abi.encode(params)),
+                    nonce: 0,
+                    source: hyperbridge,
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
             })
         );
 
@@ -347,14 +383,17 @@ contract TokenGatewayTest is BaseTest {
         vm.prank(address(host));
 
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"01", abi.encode(params)),
-                nonce: 0,
-                source: hyperbridge,
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"01", abi.encode(params)),
+                    nonce: 0,
+                    source: hyperbridge,
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
             })
         );
 
@@ -371,14 +410,17 @@ contract TokenGatewayTest is BaseTest {
         });
         vm.expectRevert(bytes("TokenGateway: Unauthorized action"));
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"00", abi.encode(body)),
-                nonce: 0,
-                source: new bytes(0),
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"00", abi.encode(body)),
+                    nonce: 0,
+                    source: new bytes(0),
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
             })
         );
     }
@@ -394,15 +436,18 @@ contract TokenGatewayTest is BaseTest {
         vm.startPrank(address(host));
         vm.expectRevert(bytes("Unauthorized request"));
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                // not from gateway
-                from: abi.encodePacked(address(this)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"00", abi.encode(body)),
-                nonce: 0,
-                source: new bytes(0),
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    // not from gateway
+                    from: abi.encodePacked(address(this)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"00", abi.encode(body)),
+                    nonce: 0,
+                    source: new bytes(0),
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
             })
         );
     }
@@ -431,14 +476,17 @@ contract TokenGatewayTest is BaseTest {
 
         // Adding Erc20 token to the existing `USD.h` asset using governance action
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"01", abi.encode(params)),
-                nonce: 0,
-                source: hyperbridge,
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"01", abi.encode(params)),
+                    nonce: 0,
+                    source: hyperbridge,
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
             })
         );
 
@@ -446,7 +494,7 @@ contract TokenGatewayTest is BaseTest {
         // now the relayer is bringing the ERC6160 asset obatined from the other chain for providing this liquidity.
         mockUSDC.mint(address(gateway), 1_000 * 1e18);
 
-        // Relayer USDC receaiving address
+        // Relayer USDC receiving address
         address relayer_vault = address(1);
 
         Body memory redeemBody = Body({
@@ -459,14 +507,17 @@ contract TokenGatewayTest is BaseTest {
 
         vm.prank(address(host));
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"00", abi.encode(redeemBody)),
-                nonce: 0,
-                source: new bytes(0),
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"00", abi.encode(redeemBody)),
+                    nonce: 0,
+                    source: new bytes(0),
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
             })
         );
 
@@ -499,14 +550,17 @@ contract TokenGatewayTest is BaseTest {
 
         vm.prank(address(host));
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"01", abi.encode(params)),
-                nonce: 0,
-                source: hyperbridge,
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"01", abi.encode(params)),
+                    nonce: 0,
+                    source: hyperbridge,
+                    timeoutTimestamp: 0
+                }),
+                relayer: address(0)
             })
         );
 
@@ -529,14 +583,17 @@ contract TokenGatewayTest is BaseTest {
         // hitting the gateway with the incoming asset
         vm.prank(address(host));
         gateway.onAccept(
-            PostRequest({
-                to: abi.encodePacked(address(0)),
-                from: abi.encodePacked(address(gateway)),
-                dest: new bytes(0),
-                body: bytes.concat(hex"00", abi.encode(body)),
-                nonce: 0,
-                source: new bytes(0),
-                timeoutTimestamp: 0
+            IncomingPostRequest({
+                request: PostRequest({
+                    to: abi.encodePacked(address(0)),
+                    from: abi.encodePacked(address(gateway)),
+                    dest: new bytes(0),
+                    body: bytes.concat(hex"00", abi.encode(body)),
+                    nonce: 0,
+                    source: new bytes(0),
+                    timeoutTimestamp: 0
+                }),
+                relayer: relayer_address
             })
         );
 

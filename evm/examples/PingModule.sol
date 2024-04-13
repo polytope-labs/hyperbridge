@@ -135,15 +135,15 @@ contract PingModule is IIsmpModule {
         IDispatcher(_host).dispatch(post);
     }
 
-    function onAccept(PostRequest memory request) external onlyIsmpHost {
-        emit PostReceived(string(request.body));
+    function onAccept(IncomingPostRequest memory incoming) external onlyIsmpHost {
+        emit PostReceived(string(incoming.request.body));
     }
 
-    function onPostResponse(PostResponse memory) external onlyIsmpHost {
+    function onPostResponse(IncomingPostResponse memory) external onlyIsmpHost {
         emit PostResponseReceived();
     }
 
-    function onGetResponse(GetResponse memory) external onlyIsmpHost {
+    function onGetResponse(IncomingGetResponse memory) external onlyIsmpHost {
         emit GetResponseReceived();
     }
 

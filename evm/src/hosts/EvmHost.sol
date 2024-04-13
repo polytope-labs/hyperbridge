@@ -38,8 +38,6 @@ struct HostParams {
     bytes consensusState;
     // timestamp for when the consensus was most recently updated
     uint256 consensusUpdateTimestamp;
-    // latest state machine height
-    uint256 latestStateMachineHeight;
     // whitelisted state machines
     uint256[] stateMachineWhitelist;
 }
@@ -381,14 +379,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Store the latest state machine height
-     * @param height State Machine Latest Height
-     */
-    function storeLatestStateMachineHeight(uint256 height) external onlyHandler {
-        _hostParams.latestStateMachineHeight = height;
-    }
-
-    /**
      * @dev Store the state commitment at given state height alongside relevant metadata. Assumes the state commitment is of the latest height.
      */
     function storeStateMachineCommitment(StateMachineHeight memory height, StateCommitment memory commitment)
@@ -420,7 +410,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         if (chainId() == block.chainid) {
             require(_hostParams.consensusState.equals(new bytes(0)), "Unauthorized action");
         }
-        _hostParams.latestStateMachineHeight = 0;
         _hostParams.consensusState = state;
     }
 

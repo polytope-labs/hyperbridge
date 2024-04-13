@@ -71,7 +71,6 @@ contract BaseTest is Test {
             consensusState: new bytes(0),
             perByteFee: 1000000000000000000, // 1FTK
             feeToken: address(feeToken),
-            latestStateMachineHeight: 0,
             stateMachineWhitelist: stateMachineWhitelist
         });
         host = new TestHost(params);

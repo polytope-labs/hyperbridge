@@ -79,7 +79,6 @@ contract DeployScript is Script {
             consensusState: new bytes(0),
             perByteFee: 3 * 1e15, // $0.003/byte
             feeToken: address(feeToken),
-            latestStateMachineHeight: 0,
             stateMachineWhitelist: stateMachineWhitelist
         });
 

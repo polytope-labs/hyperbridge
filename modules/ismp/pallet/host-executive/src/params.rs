@@ -1,6 +1,7 @@
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
-use frame_support::{BoundedVec, __private::RuntimeDebug, pallet_prelude::ConstU32};
+use frame_support::{pallet_prelude::ConstU32, BoundedVec};
 use sp_core::H160;
+use sp_runtime::RuntimeDebug;
 
 /// The host parameters of all connected chains
 #[derive(
@@ -9,12 +10,10 @@ use sp_core::H160;
 pub struct HostParam {
     /// the minimum default timeout in seconds
     pub default_timeout: u128,
-    /// Base fee for GET requests
-    pub base_get_request_fee: u128,
     /// The fee to charge per byte
     pub per_byte_fee: u128,
     /// The address of the fee token contract
-    pub fee_token_address: H160,
+    pub fee_token: H160,
     /// The admin account
     pub admin: H160,
     /// The handler contract
@@ -30,11 +29,9 @@ pub struct HostParam {
     /// The current consensus state
     pub consensus_state: BoundedVec<u8, ConstU32<100_000>>,
     /// Timestamp for when the consensus state was last updated
-    pub last_updated: u128,
-    /// The latest state machine height for hyperbridge
-    pub latest_state_machine_height: u128,
+    pub consensus_update_timestamp: u128,
     /// The state machine identifier for hyperbridge
-    pub hyperbridge: BoundedVec<u8, ConstU32<1_000>>,
+    pub state_machine_whitelist: BoundedVec<u32, ConstU32<1_000>>,
 }
 
 impl HostParam {
@@ -44,16 +41,12 @@ impl HostParam {
             self.default_timeout = default_timeout;
         }
 
-        if let Some(base_get_request_fee) = update.base_get_request_fee {
-            self.base_get_request_fee = base_get_request_fee;
-        }
-
         if let Some(per_byte_fee) = update.per_byte_fee {
             self.per_byte_fee = per_byte_fee;
         }
 
-        if let Some(fee_token_address) = update.fee_token_address {
-            self.fee_token_address = fee_token_address;
+        if let Some(fee_token_address) = update.fee_token {
+            self.fee_token = fee_token_address;
         }
 
         if let Some(admin) = update.admin {
@@ -84,16 +77,12 @@ impl HostParam {
             self.consensus_state = consensus_state;
         }
 
-        if let Some(last_updated) = update.last_updated {
-            self.last_updated = last_updated;
+        if let Some(consensus_update_timestamp) = update.consensus_update_timestamp {
+            self.consensus_update_timestamp = consensus_update_timestamp;
         }
 
-        if let Some(latest_state_machine_height) = update.latest_state_machine_height {
-            self.latest_state_machine_height = latest_state_machine_height;
-        }
-
-        if let Some(hyperbridge) = update.hyperbridge {
-            self.hyperbridge = hyperbridge;
+        if let Some(state_machine_whitelist) = update.state_machine_whitelist {
+            self.state_machine_whitelist = state_machine_whitelist;
         }
     }
 }
@@ -105,12 +94,10 @@ impl HostParam {
 pub struct HostParamUpdate {
     /// the minimum default timeout in seconds
     pub default_timeout: Option<u128>,
-    /// Base fee for GET requests
-    pub base_get_request_fee: Option<u128>,
     /// The fee to charge per byte
     pub per_byte_fee: Option<u128>,
     /// The address of the fee token contract
-    pub fee_token_address: Option<H160>,
+    pub fee_token: Option<H160>,
     /// The admin account
     pub admin: Option<H160>,
     /// The handler contract
@@ -126,11 +113,9 @@ pub struct HostParamUpdate {
     /// The current consensus state
     pub consensus_state: Option<BoundedVec<u8, ConstU32<100_000>>>,
     /// Timestamp for when the consensus state was last updated
-    pub last_updated: Option<u128>,
-    /// The latest state machine height for hyperbridge
-    pub latest_state_machine_height: Option<u128>,
+    pub consensus_update_timestamp: Option<u128>,
     /// The state machine identifier for hyperbridge
-    pub hyperbridge: Option<BoundedVec<u8, ConstU32<1_000>>>,
+    pub state_machine_whitelist: Option<BoundedVec<u32, ConstU32<1_000>>>,
 }
 
 /// The host parameters of all connected chains, ethereum friendly version
@@ -138,12 +123,10 @@ pub struct HostParamUpdate {
 pub struct HostParamRlp {
     /// the minimum default timeout in seconds
     pub default_timeout: alloy_primitives::U256,
-    /// Base fee for GET requests
-    pub base_get_request_fee: alloy_primitives::U256,
     /// The fee to charge per byte
     pub per_byte_fee: alloy_primitives::U256,
     /// The address of the fee token contract
-    pub fee_token_address: alloy_primitives::Address,
+    pub fee_token: alloy_primitives::Address,
     /// The admin account
     pub admin: alloy_primitives::Address,
     /// The handler contract
@@ -159,11 +142,9 @@ pub struct HostParamRlp {
     /// The current consensus state
     pub consensus_state: alloy_primitives::Bytes,
     /// Timestamp for when the consensus state was last updated
-    pub last_updated: alloy_primitives::U256,
-    /// The latest state machine height for hyperbridge
-    pub latest_state_machine_height: alloy_primitives::U256,
+    pub consensus_update_timestamp: alloy_primitives::U256,
     /// The state machine identifier for hyperbridge
-    pub hyperbridge: alloy_primitives::Bytes,
+    pub state_machine_whitelist: Vec<alloy_primitives::U256>,
 }
 
 impl TryFrom<HostParam> for HostParamRlp {
@@ -172,12 +153,8 @@ impl TryFrom<HostParam> for HostParamRlp {
     fn try_from(value: HostParam) -> Result<Self, anyhow::Error> {
         Ok(HostParamRlp {
             default_timeout: value.default_timeout.try_into().map_err(anyhow::Error::msg)?,
-            base_get_request_fee: value
-                .base_get_request_fee
-                .try_into()
-                .map_err(anyhow::Error::msg)?,
             per_byte_fee: value.per_byte_fee.try_into().map_err(anyhow::Error::msg)?,
-            fee_token_address: value.fee_token_address.0.try_into().map_err(anyhow::Error::msg)?,
+            fee_token: value.fee_token.0.try_into().map_err(anyhow::Error::msg)?,
             admin: value.admin.0.try_into().map_err(anyhow::Error::msg)?,
             handler: value.handler.0.try_into().map_err(anyhow::Error::msg)?,
             host_manager: value.host_manager.0.try_into().map_err(anyhow::Error::msg)?,
@@ -185,12 +162,15 @@ impl TryFrom<HostParam> for HostParamRlp {
             challenge_period: value.challenge_period.try_into().map_err(anyhow::Error::msg)?,
             consensus_client: value.consensus_client.0.try_into().map_err(anyhow::Error::msg)?,
             consensus_state: value.consensus_state.to_vec().into(),
-            last_updated: value.last_updated.try_into().map_err(anyhow::Error::msg)?,
-            latest_state_machine_height: value
-                .latest_state_machine_height
+            consensus_update_timestamp: value
+                .consensus_update_timestamp
                 .try_into()
                 .map_err(anyhow::Error::msg)?,
-            hyperbridge: value.hyperbridge.to_vec().into(),
+            state_machine_whitelist: value
+                .state_machine_whitelist
+                .into_iter()
+                .map(|id| id.try_into().map_err(anyhow::Error::msg))
+                .collect::<Result<Vec<_>, anyhow::Error>>()?,
         })
     }
 }

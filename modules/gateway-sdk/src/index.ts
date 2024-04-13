@@ -12,11 +12,11 @@ export * from './types';
  * @param transportParam this is the teleport params
  * @returns returns the transaction response
  */
-export async function teleport(signer: Signer,transportParam: TeleportParams ) : Promise<ContractTransactionResponse> {
-    let response = await gatewayContract(signer).teleport(
+export async function teleport(signer: Signer,transportParam: TeleportParams, isTestnet: boolean) : Promise<ContractTransactionResponse> {
+    let response = await gatewayContract(signer, isTestnet).teleport(
         transportParam
     );
-
+    
     return response;
 }
 

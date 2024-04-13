@@ -13,7 +13,7 @@
     "pretest": "npm run build",
     "prepublish": "tsc -p ./tsconfig.build.json",
     "build": "tsc -p ./tsconfig.build.json",
-    "test": "env TS_NODE_COMPILER_OPTIONS='{\"module\": \"commonjs\" }' mocha -r ts-node/register -r tsconfig-paths/register 'test/**/*.ts'",
+    "test": "env TS_NODE_COMPILER_OPTIONS='{\"module\": \"commonjs\" }' mocha --timeout 120000  -r ts-node/register -r tsconfig-paths/register 'test/**/*.ts'",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "check-formatting": "prettier --write --list-different '{src,test}/**/*.{js,jsx,html,md,mdx,yaml,json,css,scss,less}'",
@@ -63,6 +63,7 @@
   },
   "dependencies": {
     "buffer": "^6.0.3",
+    "dotenv": "^16.4.5",
     "ethers": "^6.11.1",
     "lodash": "^4.17.21"
   }

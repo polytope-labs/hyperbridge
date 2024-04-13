@@ -1,8 +1,8 @@
+use alloc::vec::Vec;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use frame_support::{pallet_prelude::ConstU32, BoundedVec};
 use sp_core::H160;
 use sp_runtime::RuntimeDebug;
-use alloc::vec::Vec;
 
 /// The host parameters of all connected chains
 #[derive(

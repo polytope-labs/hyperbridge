@@ -6,7 +6,7 @@ import {Math} from "openzeppelin/utils/math/Math.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 
-import {IIsmpModule} from "ismp/IIsmpModule.sol";
+import {IIsmpModule, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "ismp/IIsmpModule.sol";
 import {DispatchPost, DispatchPostResponse, DispatchGet} from "ismp/IDispatcher.sol";
 import {IIsmpHost, FeeMetadata, ResponseReceipt} from "ismp/IIsmpHost.sol";
 import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
@@ -439,7 +439,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
-        (bool success,) = address(destination).call(abi.encodeWithSelector(IIsmpModule.onAccept.selector, request));
+        (bool success,) = address(destination).call(
+            abi.encodeWithSelector(IIsmpModule.onAccept.selector, IncomingPostRequest(request, relayer))
+        );
 
         if (success) {
             bytes32 commitment = request.hash();
@@ -455,7 +457,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(PostResponse memory response, address relayer) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
-        (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, response));
+        (bool success,) = address(origin).call(
+            abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, IncomingPostResponse(response, relayer))
+        );
 
         if (success) {
             bytes32 commitment = response.request.hash();
@@ -471,7 +475,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(GetResponse memory response, address relayer) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
-        (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, response));
+        (bool success,) = address(origin).call(
+            abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, IncomingGetResponse(response, relayer))
+        );
 
         if (success) {
             bytes32 commitment = response.request.hash();

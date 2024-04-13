@@ -320,6 +320,25 @@ where
             }
         );
 
+        // parachains/solochains shouldn't be sending us a request.
+        ensure!(
+            !matches!(
+                request.source_chain(),
+                StateMachine::Kusama(_) |
+                    StateMachine::Polkadot(_) |
+                    StateMachine::Grandpa(_) |
+                    StateMachine::Beefy(_)
+            ),
+            ismp::error::Error::ModuleDispatchError {
+                msg: "Token Gateway: Illegal source chain".to_string(),
+                meta: Meta {
+                    source: request.source_chain(),
+                    dest: request.dest_chain(),
+                    nonce: request.nonce(),
+                },
+            }
+        );
+
         let body: Body = alloy_rlp::Decodable::decode(&mut &post.data[1..]).map_err(|_| {
             ismp::error::Error::ModuleDispatchError {
                 msg: "Token Gateway: Failed to decode request body".to_string(),

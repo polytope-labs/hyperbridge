@@ -16,7 +16,9 @@ import "../src/hosts/Optimism.sol";
 import "../src/hosts/Base.sol";
 
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
-import {TokenGateway, Asset, InitParams} from "../src/modules/TokenGateway.sol";
+import {
+    TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetFees
+} from "../src/modules/TokenGateway.sol";
 import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 
 import {PingModule} from "../examples/PingModule.sol";
@@ -56,7 +58,10 @@ contract DeployScript is Script {
         HandlerV1 handler = new HandlerV1{salt: salt}();
 
         // Host manager
-        HostManager manager = new HostManager{salt: salt}(HostManagerParams({admin: admin, host: address(0)}));
+        HostManager manager =
+        new HostManager{salt: salt}(HostManagerParams({admin: admin, host: address(0), governorStateMachineId : paraId}));
+        uint256[] memory stateMachineWhitelist = new uint256[](1);
+        stateMachineWhitelist[0] = paraId;
 
         // EvmHost
         HostParams memory params = HostParams({
@@ -70,13 +75,12 @@ contract DeployScript is Script {
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            lastUpdated: 0,
+            consensusUpdateTimestamp: 0,
             consensusState: new bytes(0),
-            baseGetRequestFee: 5 * 1e17, // $0.50
             perByteFee: 3 * 1e15, // $0.003/byte
-            feeTokenAddress: address(feeToken),
+            feeToken: address(feeToken),
             latestStateMachineHeight: 0,
-            hyperbridge: StateMachine.kusama(paraId)
+            stateMachineWhitelist: stateMachineWhitelist
         });
 
         address hostAddress = initHost(params);
@@ -130,18 +134,26 @@ contract DeployScript is Script {
         feeToken.grantRole(MINTER_ROLE, address(faucet));
 
         Asset[] memory assets = new Asset[](1);
-        assets[0] = Asset({identifier: keccak256("USD.h"), erc20: address(0), erc6160: address(feeToken)});
+        assets[0] = Asset({
+            identifier: keccak256("USD.h"),
+            erc20: address(0),
+            erc6160: address(feeToken),
+            fees: AssetFees({
+                protocolFeePercentage: 100, // 0.1
+                relayerFeePercentage: 300 // 0.3
+            })
+        });
 
         // initialize gateway
         gateway.init(
-            InitParams({
-                hyperbridge: StateMachine.kusama(paraId),
-                host: hostAddress,
-                uniswapV2Router: address(1),
-                protocolFeePercentage: 100, // 0.1
-                relayerFeePercentage: 300, // 0.3
-                assets: assets,
-                callDispatcher: dispatcher
+            TokenGatewayParamsExt({
+                params: TokenGatewayParams({
+                    hyperbridge: StateMachine.kusama(paraId),
+                    host: hostAddress,
+                    uniswapV2: address(1),
+                    dispatcher: dispatcher
+                }),
+                assets: assets
             })
         );
     }

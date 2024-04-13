@@ -24,7 +24,7 @@ async fn test_host_manager_withdraw() -> Result<(), anyhow::Error> {
 
     // create post request object
     let post = Post {
-        source: StateMachine::Kusama(2000),
+        source: StateMachine::Polkadot(2000),
         dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
         nonce: 0,
         from: contract.runner.sender.as_bytes().to_vec(),
@@ -56,7 +56,7 @@ async fn test_host_manager_unauthorized_request() -> Result<(), anyhow::Error> {
     // create post request object
     let post = Post {
         // wrong source
-        source: StateMachine::Polkadot(2000),
+        source: StateMachine::Polkadot(1000),
         dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
         nonce: 0,
         from: contract.runner.sender.as_bytes().to_vec(),
@@ -69,7 +69,7 @@ async fn test_host_manager_unauthorized_request() -> Result<(), anyhow::Error> {
 
     // execute the test
     let EvmError::Execution(error) = contract
-        .call::<_, ()>("HostManagerUnauthorizedRequest", (request.into_token(),))
+        .call::<_, ()>("HostManagerOnAccept", (request.into_token(),))
         .await
         .unwrap_err()
     else {
@@ -95,8 +95,7 @@ async fn test_host_manager_insufficient_balance() -> Result<(), anyhow::Error> {
 
     // create post request object
     let post = Post {
-        // wrong source
-        source: StateMachine::Kusama(2000),
+        source: StateMachine::Polkadot(2000),
         dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
         nonce: 0,
         from: contract.runner.sender.as_bytes().to_vec(),
@@ -109,7 +108,7 @@ async fn test_host_manager_insufficient_balance() -> Result<(), anyhow::Error> {
 
     // execute the test
     let EvmError::Execution(error) = contract
-        .call::<_, ()>("HostManagerUnauthorizedRequest", (request.into_token(),))
+        .call::<_, ()>("HostManagerOnAccept", (request.into_token(),))
         .await
         .unwrap_err()
     else {
@@ -133,7 +132,7 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
 
     // create post request object
     let post = Post {
-        source: StateMachine::Kusama(2000),
+        source: StateMachine::Polkadot(2000),
         dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
         nonce: 0,
         from: contract.runner.sender.as_bytes().to_vec(),

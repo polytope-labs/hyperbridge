@@ -10,6 +10,7 @@ contract PostRequestTest is BaseTest {
     using Message for PostRequest;
 
     function PostRequestNoChallengeNoTimeout(bytes memory consensusProof, PostRequestMessage memory message) public {
+        vm.prank(tx.origin);
         handler.handleConsensus(host, consensusProof);
         vm.warp(10);
         handler.handlePostRequests(host, message);
@@ -27,6 +28,7 @@ contract PostRequestTest is BaseTest {
         uint256 fee = host.hostParams().perByteFee * request.body.length;
         uint256 balanceBefore = feeToken.balanceOf(tx.origin);
 
+        vm.prank(tx.origin);
         testModule.dispatch(request);
 
         bytes32 commitment = message.timeouts[0].hash();

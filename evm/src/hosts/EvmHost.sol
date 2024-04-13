@@ -17,13 +17,11 @@ import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout, Message
 struct HostParams {
     // default timeout in seconds for requests.
     uint256 defaultTimeout;
-    // base fee for GET requests
-    uint256 baseGetRequestFee;
     // cost of cross-chain requests in the fee token per byte
     uint256 perByteFee;
     // The fee token contract. This will typically be DAI.
     // but we allow it to be configurable to prevent future regrets.
-    address feeTokenAddress;
+    address feeToken;
     // admin account, this only has the rights to freeze, or unfreeze the bridge
     address admin;
     // Ismp request/response handler
@@ -39,11 +37,11 @@ struct HostParams {
     // current verified state of the consensus client;
     bytes consensusState;
     // timestamp for when the consensus was most recently updated
-    uint256 lastUpdated;
+    uint256 consensusUpdateTimestamp;
     // latest state machine height
     uint256 latestStateMachineHeight;
-    // state machine identifier for hyperbridge
-    bytes hyperbridge;
+    // whitelisted state machines
+    uint256[] stateMachineWhitelist;
 }
 
 // The host manager interface. This provides methods for modifying the host's params or withdrawing bridge revenue.
@@ -53,7 +51,7 @@ interface IHostManager {
      * @dev Updates IsmpHost params
      * @param params new IsmpHost params
      */
-    function setHostParams(HostParams memory params) external;
+    function updateHostParams(HostParams memory params) external;
 
     /**
      * @dev withdraws bridge revenue to the given address
@@ -94,11 +92,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // commitment of all incoming requests that have been responded to
     mapping(bytes32 => bool) private _responded;
 
+    // mapping of state machine identifier to latest known height to state commitment
     // (stateMachineId => (blockHeight => StateCommitment))
     mapping(uint256 => mapping(uint256 => StateCommitment)) private _stateCommitments;
 
+    // mapping of state machine identifier to latest known height to update time
     // (stateMachineId => (blockHeight => timestamp))
     mapping(uint256 => mapping(uint256 => uint256)) private _stateCommitmentsUpdateTime;
+
+    // mapping of state machine identifier to latest known height
+    // (stateMachineId => (blockHeight => timestamp))
+    mapping(uint256 => uint256) private _latestStateMachineHeight;
 
     // Parameters for the host
     HostParams private _hostParams;
@@ -164,8 +168,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         bytes[] keys,
         uint256 indexed nonce,
         uint256 height,
-        uint256 timeoutTimestamp,
-        uint256 fee
+        uint256 timeoutTimestamp
     );
 
     modifier onlyAdmin() {
@@ -184,7 +187,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     constructor(HostParams memory params) {
-        _hostParams = params;
+        initHostParams(params);
     }
 
     /**
@@ -208,7 +211,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return the address of the fee token ERC-20 contract on this state machine
      */
     function feeToken() public view returns (address) {
-        return _hostParams.feeTokenAddress;
+        return _hostParams.feeToken;
     }
 
     /**
@@ -216,20 +219,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function perByteFee() external view returns (uint256) {
         return _hostParams.perByteFee;
-    }
-
-    /**
-     * @return the base fee for outgoing GET requests
-     */
-    function baseGetRequestFee() external view returns (uint256) {
-        return _hostParams.baseGetRequestFee;
-    }
-
-    /**
-     * @return the state machine identifier for the connected hyperbridge instance
-     */
-    function hyperbridge() external view returns (bytes memory) {
-        return _hostParams.hyperbridge;
     }
 
     /**
@@ -246,6 +235,22 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         return _frozen;
     }
 
+    /**
+     * @dev initialize the host params. Won't work if it has already been initialized.
+     */
+    function initHostParams(HostParams memory params) public {
+        require(_hostParams.consensusState.length == 0, "HostParams already set");
+        _hostParams = params;
+        uint256 length = params.stateMachineWhitelist.length;
+        for (uint256 i = 0; i < length; i++) {
+            // set it to non-zero
+            _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
+        }
+    }
+
+    /**
+     * @return the `HostParams`
+     */
     function hostParams() external view returns (HostParams memory) {
         return _hostParams;
     }
@@ -278,7 +283,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return the last updated time of the consensus client
      */
     function consensusUpdateTime() external view returns (uint256) {
-        return _hostParams.lastUpdated;
+        return _hostParams.consensusUpdateTimestamp;
     }
 
     /**
@@ -296,10 +301,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @return the latest state machine height
+     * @return the latest state machine height for the given stateMachineId. If it returns 0, the state machine is unsupported.
      */
-    function latestStateMachineHeight() external view returns (uint256) {
-        return _hostParams.latestStateMachineHeight;
+    function latestStateMachineHeight(uint256 stateMachineId) external view returns (uint256) {
+        return _latestStateMachineHeight[stateMachineId];
     }
 
     /**
@@ -345,7 +350,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Updates the HostParams, can only be called by cross-chain governance
      * @param params, the new host params.
      */
-    function setHostParams(HostParams memory params) external onlyManager {
+    function updateHostParams(HostParams memory params) external onlyManager {
         _hostParams = params;
     }
 
@@ -372,14 +377,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function storeConsensusState(bytes memory state) external onlyHandler {
         _hostParams.consensusState = state;
-        _hostParams.lastUpdated = block.timestamp;
-    }
-
-    /**
-     * @dev Store the timestamp when the consensus client was updated
-     */
-    function storeConsensusUpdateTime(uint256 time) external onlyHandler {
-        _hostParams.lastUpdated = time;
+        _hostParams.consensusUpdateTimestamp = block.timestamp;
     }
 
     /**
@@ -399,19 +397,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     {
         _stateCommitments[height.stateMachineId][height.height] = commitment;
         _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = block.timestamp;
-        _hostParams.latestStateMachineHeight = height.height;
+        _latestStateMachineHeight[height.stateMachineId] = height.height;
 
         emit StateMachineUpdated({stateMachineId: height.stateMachineId, height: height.height});
-    }
-
-    /**
-     * @dev Store the timestamp when the state machine was updated
-     */
-    function storeStateMachineCommitmentUpdateTime(StateMachineHeight memory height, uint256 time)
-        external
-        onlyHandler
-    {
-        _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = time;
     }
 
     /**
@@ -440,7 +428,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming post request to destination module
      * @param request - post request
      */
-    function dispatchIncoming(PostRequest memory request) external onlyHandler {
+    function dispatchIncoming(PostRequest memory request, address relayer) external onlyHandler {
         address destination = _bytesToAddress(request.to);
         uint256 size;
         assembly {
@@ -455,9 +443,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         if (success) {
             bytes32 commitment = request.hash();
-            _requestReceipts[commitment] = tx.origin;
+            _requestReceipts[commitment] = relayer;
 
-            emit PostRequestHandled({commitment: commitment, relayer: tx.origin});
+            emit PostRequestHandled({commitment: commitment, relayer: relayer});
         }
     }
 
@@ -465,15 +453,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming post response to source module
      * @param response - post response
      */
-    function dispatchIncoming(PostResponse memory response) external onlyHandler {
+    function dispatchIncoming(PostResponse memory response, address relayer) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
         (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, response));
 
         if (success) {
             bytes32 commitment = response.request.hash();
-            _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: response.hash()});
+            _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: response.hash()});
 
-            emit PostResponseHandled({commitment: commitment, relayer: tx.origin});
+            emit PostResponseHandled({commitment: commitment, relayer: relayer});
         }
     }
 
@@ -481,26 +469,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming get response to source module
      * @param response - get response
      */
-    function dispatchIncoming(GetResponse memory response, FeeMetadata memory meta) external onlyHandler {
-        uint256 fee = 0;
-        for (uint256 i = 0; i < response.values.length; i++) {
-            fee += (_hostParams.perByteFee * response.values[i].value.length);
-        }
-
-        // Charge the originating user/application
-        require(IERC20(feeToken()).transferFrom(meta.sender, address(this), fee), "Origin has insufficient funds");
-
+    function dispatchIncoming(GetResponse memory response, address relayer) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
         (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, response));
 
         if (success) {
             bytes32 commitment = response.request.hash();
             // don't commit the full response object because, it's unused.
-            _responseReceipts[commitment] = ResponseReceipt({relayer: tx.origin, responseCommitment: bytes32(0)});
-            if (meta.fee > 0) {
-                require(IERC20(feeToken()).transfer(tx.origin, meta.fee), "EvmHost has insufficient funds");
-            }
-            emit PostResponseHandled({commitment: commitment, relayer: tx.origin});
+            _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
+            emit PostResponseHandled({commitment: commitment, relayer: relayer});
         }
     }
 
@@ -585,7 +562,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatch(DispatchPost memory post) external returns (bytes32 commitment) {
         uint256 fee = (_hostParams.perByteFee * post.body.length) + post.fee;
-        require(IERC20(feeToken()).transferFrom(post.payer, address(this), fee), "Payer has insufficient funds");
+        IERC20(feeToken()).transferFrom(_msgSender(), address(this), fee);
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -621,9 +598,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param get - get request
      */
     function dispatch(DispatchGet memory get) external returns (bytes32 commitment) {
-        uint256 fee = _hostParams.baseGetRequestFee + get.fee;
-        require(IERC20(feeToken()).transferFrom(get.payer, address(this), fee), "Payer has insufficient funds");
-
         // adjust the timeout
         uint64 timeout =
             get.timeout == 0 ? 0 : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, get.timeout));
@@ -640,7 +614,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // make the commitment
         commitment = request.hash();
-        _requestCommitments[commitment] = FeeMetadata({sender: get.payer, fee: get.fee});
+        _requestCommitments[commitment] = FeeMetadata({sender: get.sender, fee: 0});
         emit GetRequestEvent(
             request.source,
             request.dest,
@@ -648,8 +622,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             request.keys,
             request.nonce,
             request.height,
-            request.timeoutTimestamp,
-            get.fee
+            request.timeoutTimestamp
         );
     }
 
@@ -670,7 +643,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         require(!_responded[receipt], "EvmHost: Duplicate Response");
 
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
-        require(IERC20(feeToken()).transferFrom(post.payer, address(this), fee), "Payer has insufficient funds");
+        IERC20(feeToken()).transferFrom(_msgSender(), address(this), fee);
 
         // adjust the timeout
         uint64 timeout = post.timeout == 0
@@ -705,14 +678,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      *
      * If called on an already delivered request, these funds will be seen as a donation to the hyperbridge protocol.
      * @param commitment - The request commitment
-     * @param amount - The amount to add for request delivery and execution.
      */
     function fundRequest(bytes32 commitment, uint256 amount) public {
         FeeMetadata memory metadata = _requestCommitments[commitment];
 
         require(metadata.sender != address(0), "Unknown request");
         require(metadata.sender != _msgSender(), "User can only fund own requests");
-        require(IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount), "Payer has insufficient funds");
+        IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
 
         metadata.fee += amount;
         _requestCommitments[commitment] = metadata;

@@ -45,7 +45,7 @@ async fn test_get_response() -> Result<(), anyhow::Error> {
     let (root, proof) = generate_proof(request_commitment, key.clone());
 
     // create intermediate state
-    let height = StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(1) };
+    let height = StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(10) };
     let consensus_proof = IntermediateState {
         state_machine_id: height.state_machine_id,
         height: height.height,

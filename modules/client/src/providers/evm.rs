@@ -272,7 +272,11 @@ impl Client for EvmClient {
         _state_machine: StateMachineId,
     ) -> Result<u64, anyhow::Error> {
         let contract = EvmHost::new(self.host_address, self.client.clone());
-        let height = contract.latest_state_machine_height().await?;
+        let para_id = match _state_machine.state_id {
+            StateMachine::Polkadot(para_id) | StateMachine::Kusama(para_id) => para_id,
+            id => Err(anyhow!("Unknown state machine id {id:?}"))?,
+        };
+        let height = contract.latest_state_machine_height(para_id.into()).await?;
 
         Ok(height.low_u64())
     }

@@ -10,7 +10,9 @@ import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {HostParams} from "../src/hosts/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
-import {TokenGateway, Asset, InitParams} from "../src/modules/TokenGateway.sol";
+import {
+    TokenGateway, Asset, TokenGatewayParams, TokenGatewayParamsExt, AssetFees
+} from "../src/modules/TokenGateway.sol";
 import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
@@ -56,9 +58,12 @@ contract MainnetForkBaseTest is Test {
         handler = new HandlerV1();
         CallDispatcher dispatcher = new CallDispatcher();
 
-        HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
+        uint256 paraId = 2000;
+        HostManagerParams memory gParams =
+            HostManagerParams({admin: address(this), host: address(0), governorStateMachineId: paraId});
         HostManager manager = new HostManager(gParams);
-
+        uint256[] memory stateMachineWhitelist = new uint256[](1);
+        stateMachineWhitelist[0] = paraId;
         HostParams memory params = HostParams({
             admin: address(0),
             hostManager: address(manager),
@@ -68,13 +73,12 @@ contract MainnetForkBaseTest is Test {
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            lastUpdated: 0,
+            consensusUpdateTimestamp: 0,
             consensusState: new bytes(0),
-            baseGetRequestFee: 10000000000000000000,
             perByteFee: 1000000000000000000, // 1FTK
-            feeTokenAddress: address(feeToken),
+            feeToken: address(feeToken),
             latestStateMachineHeight: 0,
-            hyperbridge: StateMachine.kusama(2000)
+            stateMachineWhitelist: stateMachineWhitelist
         });
 
         host = new TestHost(params);
@@ -84,17 +88,25 @@ contract MainnetForkBaseTest is Test {
         manager.setIsmpHost(address(host));
         gateway = new TokenGateway(address(this));
         Asset[] memory assets = new Asset[](1);
-        assets[0] = Asset({identifier: keccak256("USD.h"), erc20: address(feeToken), erc6160: address(0)});
+        assets[0] = Asset({
+            identifier: keccak256("USD.h"),
+            erc20: address(feeToken),
+            erc6160: address(0),
+            fees: AssetFees({
+                protocolFeePercentage: 100, // 0.1
+                relayerFeePercentage: 300 // 0.3
+            })
+        });
 
         gateway.init(
-            InitParams({
-                hyperbridge: StateMachine.kusama(2000),
-                host: address(host),
-                uniswapV2Router: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D,
-                protocolFeePercentage: 100, // 0.1
-                relayerFeePercentage: 300, // 0.3
-                assets: assets,
-                callDispatcher: address(dispatcher)
+            TokenGatewayParamsExt({
+                params: TokenGatewayParams({
+                    hyperbridge: StateMachine.kusama(2000),
+                    host: address(host),
+                    uniswapV2: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D,
+                    dispatcher: address(dispatcher)
+                }),
+                assets: assets
             })
         );
     }

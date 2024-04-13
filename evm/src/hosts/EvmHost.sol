@@ -185,7 +185,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     constructor(HostParams memory params) {
-        initHostParams(params);
+        _hostParams = params;
+        uint256 length = params.stateMachineWhitelist.length;
+        for (uint256 i = 0; i < length; i++) {
+            // set it to non-zero
+            _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
+        }
     }
 
     /**
@@ -231,19 +236,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function frozen() external view returns (bool) {
         return _frozen;
-    }
-
-    /**
-     * @dev initialize the host params. Won't work if it has already been initialized.
-     */
-    function initHostParams(HostParams memory params) public {
-        require(_hostParams.consensusState.length == 0, "HostParams already set");
-        _hostParams = params;
-        uint256 length = params.stateMachineWhitelist.length;
-        for (uint256 i = 0; i < length; i++) {
-            // set it to non-zero
-            _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
-        }
     }
 
     /**

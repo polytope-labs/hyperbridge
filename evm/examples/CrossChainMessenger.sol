@@ -62,15 +62,15 @@ contract CrossChainMessenger is IIsmpModule {
         IDispatcher(host).dispatch(post);
     }
 
-    function onAccept(PostRequest memory request) external onlyIsmpHost {
-        emit PostReceived(request.nonce, request.source, string(request.body));
+    function onAccept(IncomingPostRequest memory incoming) external onlyIsmpHost {
+        emit PostReceived(incoming.request.nonce, incoming.request.source, string(incoming.request.body));
     }
 
     function onPostRequestTimeout(PostRequest memory) external view onlyIsmpHost {
         revert("No timeouts for now");
     }
 
-    function onPostResponse(PostResponse memory) external view onlyIsmpHost {
+    function onPostResponse(IncomingPostResponse memory) external view onlyIsmpHost {
         revert("CrossChainMessenger doesn't emit responses");
     }
 
@@ -78,7 +78,7 @@ contract CrossChainMessenger is IIsmpModule {
         revert("Token gateway doesn't emit Get Requests");
     }
 
-    function onGetResponse(GetResponse memory) external view onlyIsmpHost {
+    function onGetResponse(IncomingGetResponse memory) external view onlyIsmpHost {
         revert("CrossChainMessenger doesn't emit Get Requests");
     }
 

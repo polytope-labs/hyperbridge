@@ -6,7 +6,7 @@ import {Math} from "openzeppelin/utils/math/Math.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 
-import {IIsmpModule} from "ismp/IIsmpModule.sol";
+import {IIsmpModule, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "ismp/IIsmpModule.sol";
 import {DispatchPost, DispatchPostResponse, DispatchGet} from "ismp/IDispatcher.sol";
 import {IIsmpHost, FeeMetadata, ResponseReceipt} from "ismp/IIsmpHost.sol";
 import {StateCommitment, StateMachineHeight} from "ismp/IConsensusClient.sol";
@@ -38,8 +38,6 @@ struct HostParams {
     bytes consensusState;
     // timestamp for when the consensus was most recently updated
     uint256 consensusUpdateTimestamp;
-    // latest state machine height
-    uint256 latestStateMachineHeight;
     // whitelisted state machines
     uint256[] stateMachineWhitelist;
 }
@@ -187,7 +185,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     constructor(HostParams memory params) {
-        initHostParams(params);
+        _hostParams = params;
+        uint256 length = params.stateMachineWhitelist.length;
+        for (uint256 i = 0; i < length; i++) {
+            // set it to non-zero
+            _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
+        }
     }
 
     /**
@@ -233,19 +236,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function frozen() external view returns (bool) {
         return _frozen;
-    }
-
-    /**
-     * @dev initialize the host params. Won't work if it has already been initialized.
-     */
-    function initHostParams(HostParams memory params) public {
-        require(_hostParams.consensusState.length == 0, "HostParams already set");
-        _hostParams = params;
-        uint256 length = params.stateMachineWhitelist.length;
-        for (uint256 i = 0; i < length; i++) {
-            // set it to non-zero
-            _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
-        }
     }
 
     /**
@@ -381,14 +371,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Store the latest state machine height
-     * @param height State Machine Latest Height
-     */
-    function storeLatestStateMachineHeight(uint256 height) external onlyHandler {
-        _hostParams.latestStateMachineHeight = height;
-    }
-
-    /**
      * @dev Store the state commitment at given state height alongside relevant metadata. Assumes the state commitment is of the latest height.
      */
     function storeStateMachineCommitment(StateMachineHeight memory height, StateCommitment memory commitment)
@@ -420,7 +402,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         if (chainId() == block.chainid) {
             require(_hostParams.consensusState.equals(new bytes(0)), "Unauthorized action");
         }
-        _hostParams.latestStateMachineHeight = 0;
         _hostParams.consensusState = state;
     }
 
@@ -439,7 +420,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
-        (bool success,) = address(destination).call(abi.encodeWithSelector(IIsmpModule.onAccept.selector, request));
+        (bool success,) = address(destination).call(
+            abi.encodeWithSelector(IIsmpModule.onAccept.selector, IncomingPostRequest(request, relayer))
+        );
 
         if (success) {
             bytes32 commitment = request.hash();
@@ -455,7 +438,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(PostResponse memory response, address relayer) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
-        (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, response));
+        (bool success,) = address(origin).call(
+            abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, IncomingPostResponse(response, relayer))
+        );
 
         if (success) {
             bytes32 commitment = response.request.hash();
@@ -471,7 +456,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(GetResponse memory response, address relayer) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
-        (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, response));
+        (bool success,) = address(origin).call(
+            abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, IncomingGetResponse(response, relayer))
+        );
 
         if (success) {
             bytes32 commitment = response.request.hash();

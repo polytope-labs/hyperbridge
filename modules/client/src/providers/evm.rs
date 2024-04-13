@@ -308,7 +308,7 @@ impl Client for EvmClient {
                     return Some((Ok(None), (block_number, interval, client)));
                 }
 
-                let contract = Handler::new(client.ismp_handler, client.client.clone());
+                let contract = EvmHost::new(client.host_address, client.client.clone());
                 let results = match contract
                     .events()
                     .address(client.ismp_handler.into())
@@ -327,13 +327,16 @@ impl Client for EvmClient {
                 };
                 let mut events = results
                     .into_iter()
-                    .map(|(ev, meta)| WithMetadata {
-                        meta: EventMetadata {
-                            block_hash: meta.block_hash,
-                            transaction_hash: meta.transaction_hash,
-                            block_number: meta.block_number.as_u64(),
-                        },
-                        event: StateMachineUpdated::from(ev),
+                    .filter_map(|(ev, meta)| {
+                        let Event::StateMachineUpdated(event) = ev.try_into().ok()? else { None? };
+                        Some(WithMetadata {
+                            meta: EventMetadata {
+                                block_hash: meta.block_hash,
+                                transaction_hash: meta.transaction_hash,
+                                block_number: meta.block_number.as_u64(),
+                            },
+                            event,
+                        })
                     })
                     .collect::<Vec<_>>();
                 // we only want the highest event

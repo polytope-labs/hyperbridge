@@ -39,8 +39,6 @@ contract HandlerV1 is IHandler, Context {
         _;
     }
 
-    event StateMachineUpdated(uint256 stateMachineId, uint256 height);
-
     /**
      * @dev Handle incoming consensus messages. These message are accompanied with some cryptographic proof.
      * If the Host's internal consensus client verifies this proof successfully,

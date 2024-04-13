@@ -18,7 +18,6 @@
 use crate::{
     beefy::IntermediateState,
     evm_host::EvmHostEvents,
-    handler::StateMachineUpdatedFilter,
     shared_types::{PostRequest, PostResponse, StateMachineHeight},
 };
 use anyhow::anyhow;
@@ -248,18 +247,6 @@ impl TryFrom<ismp::consensus::StateMachineHeight> for StateMachineHeight {
             },
             height: value.height.into(),
         })
-    }
-}
-
-impl From<StateMachineUpdatedFilter> for ismp::events::StateMachineUpdated {
-    fn from(value: StateMachineUpdatedFilter) -> Self {
-        ismp::events::StateMachineUpdated {
-            state_machine_id: ismp::consensus::StateMachineId {
-                state_id: StateMachine::Kusama(value.state_machine_id.low_u64() as u32),
-                consensus_state_id: Default::default(),
-            },
-            latest_height: value.height.low_u64(),
-        }
     }
 }
 

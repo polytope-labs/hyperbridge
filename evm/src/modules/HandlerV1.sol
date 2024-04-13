@@ -50,23 +50,18 @@ contract HandlerV1 is IHandler, Context {
      */
     function handleConsensus(IIsmpHost host, bytes calldata proof) external notFrozen(host) {
         uint256 delay = block.timestamp - host.consensusUpdateTime();
-        // not today, time traveling validators
-        require(delay < host.unStakingPeriod(), "IHandler: still in challenge period");
+        require(delay < host.unStakingPeriod(), "IHandler: consensus client is now expired");
 
         (bytes memory verifiedState, IntermediateState memory intermediate) =
             IConsensusClient(host.consensusClient()).verifyConsensus(host.consensusState(), proof);
         host.storeConsensusState(verifiedState);
 
-        if (intermediate.height > host.latestStateMachineHeight()) {
+        // check that we know this state machine and it's a new update
+        uint256 latestHeight = host.latestStateMachineHeight(intermediate.stateMachineId);
+        if (latestHeight != 0 && intermediate.height > latestHeight) {
             StateMachineHeight memory stateMachineHeight =
                 StateMachineHeight({stateMachineId: intermediate.stateMachineId, height: intermediate.height});
             host.storeStateMachineCommitment(stateMachineHeight, intermediate.commitment);
-
-            // todo: remove, all events have been consolidated to the host
-            emit StateMachineUpdated({
-                stateMachineId: stateMachineHeight.stateMachineId,
-                height: stateMachineHeight.height
-            });
         }
     }
 
@@ -106,7 +101,7 @@ contract HandlerV1 is IHandler, Context {
 
         for (uint256 i = 0; i < requestsLen; i++) {
             PostRequestLeaf memory leaf = request.requests[i];
-            host.dispatchIncoming(leaf.request);
+            host.dispatchIncoming(leaf.request, _msgSender());
         }
     }
 
@@ -147,7 +142,7 @@ contract HandlerV1 is IHandler, Context {
 
         for (uint256 i = 0; i < responsesLength; i++) {
             PostResponseLeaf memory leaf = response.responses[i];
-            host.dispatchIncoming(leaf.response);
+            host.dispatchIncoming(leaf.response, _msgSender());
         }
     }
 
@@ -191,7 +186,7 @@ contract HandlerV1 is IHandler, Context {
     }
 
     /**
-     * @dev check timeout proofs then dispatch to modules
+     * @dev Check the provided timeouts and their proofs before dispatching them to their relevant modules
      * @param host - Ismp host
      * @param message - batch post response timeouts
      */
@@ -262,12 +257,12 @@ contract HandlerV1 is IHandler, Context {
                 MerklePatricia.ReadChildProofCheck(root, proof, request.keys, bytes.concat(requestCommitment));
             GetResponse memory response = GetResponse({request: request, values: values});
 
-            host.dispatchIncoming(response, meta);
+            host.dispatchIncoming(response, _msgSender());
         }
     }
 
     /**
-     * @dev dispatch to modules
+     * @dev Check the provided Get request timeouts, then dispatch to modules
      * @param host - Ismp host
      * @param message - batch get request timeouts
      */

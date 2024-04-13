@@ -5,7 +5,10 @@ on:
     branches:
       - main
   pull_request_target:
-    types: [opened, synchronize]
+    types: [ opened, synchronize ]
+  pull_request:
+    branches:
+      - main
 
 concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}
@@ -31,7 +34,7 @@ jobs:
     if: github.event.pull_request.draft == false
     strategy:
       matrix:
-        crate: [messier-runtime, gargantua-runtime, nexus-runtime]
+        crate: [ messier-runtime, gargantua-runtime, nexus-runtime ]
 
     steps:
       - name: Get User Permission
@@ -255,39 +258,36 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-     - name: Run Parachain Devnet
-       run: |
-         # install polkadot binary
-         cd ../
-         mkdir -p polkadot-sdk/target/release
-         wget -O ./polkadot.tar.gz -q --show-progress 'https://dl.dropbox.com/scl/fi/onsvsex4w9vf5vghqe23j/polkadot.tar.gz?rlkey=17e3gq0n82v8hhar4nzlynruu&dl=0'
-         tar xvzf ./polkadot.tar.gz
-         mv bins/* polkadot-sdk/target/release
-         ls -la polkadot-sdk/target/release
-         # install hyperbridge binary
-         cd hyperbridge
-         # todo: revert after next release
-         cargo build -p hyperbridge --release
-        
-         #  mkdir -p target/release
-         #  wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.2.0/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
-         #  tar xvzf ./hyperbridge-x86_64-unknown-linux-gnu.tar.gz
-         #  mv ./hyperbridge-x86_64-unknown-linux-gnu/hyperbridge target/release
-         # install zombienet
-         wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
-         sudo chmod +x ./zombienet
-         # spawn devnet
-         nohup ./zombienet spawn --provider native ./local-testnet.toml & disown
-         ../wait_for_tcp_port_opening.sh localhost 9922
-         ../wait_for_tcp_port_opening.sh localhost 9990
+      - name: Run Parachain Devnet
+        run: |
+          # install polkadot binary
+          cd ../
+          mkdir -p polkadot-sdk/target/release
+          wget -O ./polkadot.tar.gz -q --show-progress 'https://dl.dropbox.com/scl/fi/onsvsex4w9vf5vghqe23j/polkadot.tar.gz?rlkey=17e3gq0n82v8hhar4nzlynruu&dl=0'
+          tar xvzf ./polkadot.tar.gz
+          mv bins/* polkadot-sdk/target/release
+          ls -la polkadot-sdk/target/release
 
-#      - name: Beefy integration tests
-#        run: |
-#          cargo test -p ismp-solidity-tests -- --nocapture --ignored
+          # build hyperbridge binary
+          cd hyperbridge
+          cargo build -p hyperbridge --release
 
-     - name: Xcm integration tests
-       run: |
-         cargo test -p pallet-ismp-testsuite --lib xcm_integration_test  --features runtime-benchmarks -- --nocapture --ignored
+          # install zombienet
+          wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
+          sudo chmod +x ./zombienet
+
+          # spawn devnet
+          nohup ./zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml & disown
+          ./scripts/wait_for_tcp_port_opening.sh localhost 9922
+          ./scripts/wait_for_tcp_port_opening.sh localhost 9990
+
+      #      - name: Beefy integration tests
+      #        run: |
+      #          cargo test -p ismp-solidity-tests -- --nocapture --ignored
+
+      - name: Xcm integration tests
+        run: |
+          cargo test -p pallet-ismp-testsuite --lib xcm_integration_test  --features runtime-benchmarks -- --nocapture --ignored
 
       - name: Run Eth POS Devnet
         run: |
@@ -301,9 +301,9 @@ jobs:
         run: |
           cargo test -p sync-committee-prover -- --nocapture --ignored
 
-#      - name: polygon pos integration tests
-#        run: |
-#          cargo test -p polygon-pos-prover -- --nocapture --ignored
+      #      - name: polygon pos integration tests
+      #        run: |
+      #          cargo test -p polygon-pos-prover -- --nocapture --ignored
 
       - name: Binance Smart Chain integration tests
         run: |

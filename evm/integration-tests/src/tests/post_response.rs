@@ -67,7 +67,7 @@ async fn test_post_response_proof() -> Result<(), anyhow::Error> {
     let multiproof = proof.proof_items().iter().map(|h| h.hash::<Keccak256>().0).collect();
 
     // create intermediate state
-    let height = StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(1) };
+    let height = StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(10) };
     let consensus_proof = IntermediateState {
         state_machine_id: height.state_machine_id,
         height: height.height,
@@ -123,7 +123,7 @@ async fn test_post_response_timeout() -> Result<(), anyhow::Error> {
         data: vec![],
     };
     let request = DataOrHash::Data(Leaf::Request(Request::Post(post.clone())));
-    let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 1)?;
+    let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 10)?;
 
     // create intermediate state 1
     let consensus_proof_1 = IntermediateState {
@@ -155,7 +155,7 @@ async fn test_post_response_timeout() -> Result<(), anyhow::Error> {
         utils::generate_non_membership_proof(storage_prefix, vec![key.clone()], false);
 
     // create intermediate state
-    let height = StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(2) };
+    let height = StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(20) };
     let consensus_proof_2 = IntermediateState {
         state_machine_id: height.state_machine_id,
         height: height.height,
@@ -212,7 +212,7 @@ async fn test_post_response_malicious_timeout() -> Result<(), anyhow::Error> {
         data: vec![],
     };
     let request = DataOrHash::Data(Leaf::Request(Request::Post(post.clone())));
-    let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 1)?;
+    let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 10)?;
 
     // create intermediate state 1
     let consensus_proof_1 = IntermediateState {
@@ -244,7 +244,7 @@ async fn test_post_response_malicious_timeout() -> Result<(), anyhow::Error> {
         utils::generate_non_membership_proof(storage_prefix, vec![key.clone()], true);
 
     // create intermediate state
-    let height = StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(2) };
+    let height = StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(20) };
     let consensus_proof_2 = IntermediateState {
         state_machine_id: height.state_machine_id,
         height: height.height,

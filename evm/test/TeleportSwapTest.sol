@@ -56,10 +56,7 @@ contract TeleportSwapTest is MainnetForkBaseTest {
         assert(feeToken.balanceOf(address(host)) == messagingFee);
     }
 
-
-
-function addressToBytes32(address _address) public pure returns (bytes32) {
-    return bytes32(uint256(uint160(_address)));
-}
-
+    function addressToBytes32(address _address) public pure returns (bytes32) {
+        return bytes32(uint256(uint160(_address)));
+    }
 }

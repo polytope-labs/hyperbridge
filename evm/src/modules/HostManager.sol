@@ -12,6 +12,8 @@ import {BaseIsmpModule} from "ismp/IIsmpModule.sol";
 struct HostManagerParams {
     /// admin for setting the host address
     address admin;
+    /// state machine id of governor parachain
+    uint256 governorStateMachineId;
     /// Local ismp host
     address host;
 }
@@ -55,8 +57,8 @@ contract HostManager is BaseIsmpModule {
     }
 
     function onAccept(PostRequest calldata request) external override onlyIsmpHost {
-        // Only Hyperbridge can send requests to this module.
-        require(request.source.equals(EvmHost(_params.host).hyperbridge()), "Unauthorized request");
+        // Only Hyperbridge governor parachain can send requests to this module.
+        require(request.source.equals(StateMachine.polkadot(_params.governorStateMachineId)), "Unauthorized request");
 
         OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
         if (action == OnAcceptActions.Withdraw) {
@@ -65,7 +67,7 @@ contract HostManager is BaseIsmpModule {
             IHostManager(_params.host).withdraw(withdrawParams);
         } else if (action == OnAcceptActions.SetHostParam) {
             HostParams memory hostParams = abi.decode(request.body[1:], (HostParams));
-            IHostManager(_params.host).setHostParams(hostParams);
+            IHostManager(_params.host).updateHostParams(hostParams);
         } else {
             revert("Unknown action");
         }

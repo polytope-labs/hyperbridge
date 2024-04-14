@@ -23,6 +23,7 @@ pub use pallet::*;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
+    use alloc::vec;
     use frame_support::{pallet_prelude::*, traits::OriginTrait};
     use frame_system::pallet_prelude::*;
     use ismp::{
@@ -31,7 +32,6 @@ pub mod pallet {
         host::IsmpHost,
     };
     use pallet_ismp::host::Host;
-    use alloc::vec;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]

@@ -42,6 +42,8 @@ struct HostParams {
     uint256[] stateMachineWhitelist;
     // white list of fishermen accounts
     address[] fishermen;
+    // state machine identifier for hyperbridge
+    bytes hyperbridge;
 }
 
 // The host manager interface. This provides methods for modifying the host's params or withdrawing bridge revenue.
@@ -271,6 +273,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @return the state machine identifier for the connected hyperbridge instance
+     */
+    function hyperbridge() external view returns (bytes memory) {
+        return _hostParams.hyperbridge;
+    }
+
+    /**
      * @param height - state machine height
      * @return the state commitment at `height`
      */
@@ -373,7 +382,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Updates the HostParams
      * @param params, the new host params. Can only be called by admin on testnets.
      */
-    function setHostParamsAdmin(HostParams memory params) external onlyAdmin {
+    function setHostParamsAdmin(HostParams memory params) public onlyAdmin {
         require(chainId() != block.chainid, "Cannot set params on mainnet");
 
         updateHostParamsInternal(params);
@@ -461,9 +470,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function setConsensusState(bytes memory state) public onlyAdmin {
         // if we're on mainnet, then consensus state can only be initialized once.
         // and updated subsequently by either consensus proofs or cross-chain governance
-        if (chainId() == block.chainid) {
-            require(_hostParams.consensusState.equals(new bytes(0)), "Unauthorized action");
-        }
+        require(
+            chainId() == block.chainid ? _hostParams.consensusState.equals(new bytes(0)) : true, "Unauthorized action"
+        );
+
         _hostParams.consensusState = state;
     }
 
@@ -524,7 +534,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         if (success) {
             bytes32 commitment = response.request.hash();
-            // don't commit the full response object because, it's unused.
+            // don't commit the full response object, it's unused.
             _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
             emit PostResponseHandled({commitment: commitment, relayer: relayer});
         }

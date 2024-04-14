@@ -83,12 +83,7 @@ contract DeployScript is Script {
 
         gateway.init(
             TokenGatewayParamsExt({
-                params: TokenGatewayParams({
-                    hyperbridge: StateMachine.kusama(paraId),
-                    host: host,
-                    uniswapV2: uniRouter,
-                    dispatcher: callDispatcher
-                }),
+                params: TokenGatewayParams({host: host, uniswapV2: uniRouter, dispatcher: callDispatcher}),
                 assets: assets
             })
         );

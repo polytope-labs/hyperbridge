@@ -320,7 +320,7 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
                 Ok(ismp::events::Event::GetRequestTimeoutHandled(TimeoutHandled {
                     commitment: handled.commitment.into(),
                 })),
-            EvmHostEvents::StateCommitmentVetoedFilter(_vetoed) => unimplemented!()
+            EvmHostEvents::StateCommitmentVetoedFilter(_vetoed) => unimplemented!(),
         }
     }
 }

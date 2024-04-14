@@ -24,7 +24,7 @@ async fn test_host_manager_withdraw() -> Result<(), anyhow::Error> {
 
     // create post request object
     let post = Post {
-        source: StateMachine::Polkadot(2000),
+        source: StateMachine::Kusama(2000),
         dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
         nonce: 0,
         from: contract.runner.sender.as_bytes().to_vec(),
@@ -95,7 +95,7 @@ async fn test_host_manager_insufficient_balance() -> Result<(), anyhow::Error> {
 
     // create post request object
     let post = Post {
-        source: StateMachine::Polkadot(2000),
+        source: StateMachine::Kusama(2000),
         dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
         nonce: 0,
         from: contract.runner.sender.as_bytes().to_vec(),
@@ -132,7 +132,7 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
 
     // create post request object
     let post = Post {
-        source: StateMachine::Polkadot(2000),
+        source: StateMachine::Kusama(2000),
         dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
         nonce: 0,
         from: contract.runner.sender.as_bytes().to_vec(),

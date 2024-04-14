@@ -26,8 +26,7 @@ async fn test_post_timeout_proof() -> Result<(), anyhow::Error> {
     let mut contract = runner.deploy("PostRequestTest").await;
 
     let module = contract.call::<_, Address>("module", ()).await?;
-    let storage_prefix =
-        hex!("526571756573745265636569707473").to_vec();
+    let storage_prefix = hex!("526571756573745265636569707473").to_vec();
 
     // create post request object
     let post = Post {

@@ -8,7 +8,7 @@ import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "ismp/IIsmpModule
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import {CallDispatcher, ICallDispatcher} from "./CallDispatcher.sol";
+import {ICallDispatcher} from "./CallDispatcher.sol";
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
 
 struct TeleportParams {

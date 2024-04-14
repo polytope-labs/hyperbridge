@@ -40,6 +40,8 @@ struct HostParams {
     uint256 consensusUpdateTimestamp;
     // whitelisted state machines
     uint256[] stateMachineWhitelist;
+    // white list of fishermen accounts
+    address[] fishermen;
 }
 
 // The host manager interface. This provides methods for modifying the host's params or withdrawing bridge revenue.
@@ -102,6 +104,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // (stateMachineId => (blockHeight => timestamp))
     mapping(uint256 => uint256) private _latestStateMachineHeight;
 
+    // mapping of all known fishermen accounts
+    // (stateMachineId => (blockHeight => timestamp))
+    mapping(address => bool) private _fishermen;
+
     // Parameters for the host
     HostParams private _hostParams;
 
@@ -131,6 +137,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // Emitted when new heights are finalized
     event StateMachineUpdated(uint256 stateMachineId, uint256 height);
+
+    // Emitted when a state commitment is vetoed by a fisherman
+    event StateCommitmentVetoed(uint256 stateMachineId, uint256 height, address fisherman);
 
     // Emitted when a new POST request is dispatched
     event PostRequestEvent(
@@ -169,26 +178,42 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 timeoutTimestamp
     );
 
+    // only permits fishermen
+    modifier onlyFishermen() {
+        require(_fishermen[_msgSender()], "EvmHost: Account is not in the fishermen set");
+        _;
+    }
+
+    // only permits the admin
     modifier onlyAdmin() {
-        require(_msgSender() == _hostParams.admin, "EvmHost: Only admin");
+        require(_msgSender() == _hostParams.admin, "EvmHost: Account is not the admin");
         _;
     }
 
+    // only permits the IHandler contract
     modifier onlyHandler() {
-        require(_msgSender() == address(_hostParams.handler), "EvmHost: Only handler");
+        require(_msgSender() == address(_hostParams.handler), "EvmHost: Account is not the handler");
         _;
     }
 
+    // only permits the HostManager contract
     modifier onlyManager() {
-        require(_msgSender() == _hostParams.hostManager, "EvmHost: Only Manager contract");
+        require(_msgSender() == _hostParams.hostManager, "EvmHost: Account is not the Manager contract");
         _;
     }
 
     constructor(HostParams memory params) {
         _hostParams = params;
-        uint256 length = params.stateMachineWhitelist.length;
-        for (uint256 i = 0; i < length; i++) {
-            // set it to non-zero
+
+        // add fishermen if any
+        uint256 newFishermenLength = params.fishermen.length;
+        for (uint256 i = 0; i < newFishermenLength; i++) {
+            _fishermen[params.fishermen[i]] = true;
+        }
+
+        // add whitelisted state machines
+        uint256 whitelistLength = params.stateMachineWhitelist.length;
+        for (uint256 i = 0; i < whitelistLength; i++) {
             _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
         }
     }
@@ -341,7 +366,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the new host params.
      */
     function updateHostParams(HostParams memory params) external onlyManager {
-        _hostParams = params;
+        updateHostParamsInternal(params);
     }
 
     /**
@@ -351,7 +376,26 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function setHostParamsAdmin(HostParams memory params) external onlyAdmin {
         require(chainId() != block.chainid, "Cannot set params on mainnet");
 
+        updateHostParamsInternal(params);
+    }
+
+    /**
+     * @dev Updates the HostParams
+     * @param params, the new host params.
+     */
+    function updateHostParamsInternal(HostParams memory params) private {
+        // delete old fishermen
+        uint256 fishermenLength = _hostParams.fishermen.length;
+        for (uint256 i = 0; i < fishermenLength; i++) {
+            delete _fishermen[_hostParams.fishermen[i]];
+        }
         _hostParams = params;
+
+        // add new fishermen if any
+        uint256 newFishermenLength = params.fishermen.length;
+        for (uint256 i = 0; i < newFishermenLength; i++) {
+            _fishermen[params.fishermen[i]] = true;
+        }
     }
 
     /**
@@ -382,6 +426,24 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         _latestStateMachineHeight[height.stateMachineId] = height.height;
 
         emit StateMachineUpdated({stateMachineId: height.stateMachineId, height: height.height});
+    }
+
+    /**
+     * @dev Delete the state commitment at given state height.
+     */
+    function deleteStateMachineCommitment(StateMachineHeight memory height, address fisherman) external onlyHandler {
+        deleteStateMachineCommitmentInternal(height, fisherman);
+    }
+
+    /**
+     * @dev Delete the state commitment at given state height.
+     */
+    function deleteStateMachineCommitmentInternal(StateMachineHeight memory height, address fisherman) private {
+        delete _stateCommitments[height.stateMachineId][height.height];
+        delete _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
+        delete _latestStateMachineHeight[height.stateMachineId];
+
+        emit StateCommitmentVetoed({stateMachineId: height.stateMachineId, height: height.height, fisherman: fisherman});
     }
 
     /**
@@ -684,9 +746,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      *  changes at the provided height. This allows them to veto the state commitment.
      *  They aren't required to provide any proofs for this.
      */
-    function vetoStateCommitment(StateMachineHeight memory height) public onlyAdmin {
-        delete _stateCommitments[height.stateMachineId][height.height];
-        delete _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
+    function vetoStateCommitment(StateMachineHeight memory height) public onlyFishermen {
+        deleteStateMachineCommitmentInternal(height, _msgSender());
     }
 
     /**

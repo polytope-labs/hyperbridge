@@ -64,7 +64,9 @@ contract DeployScript is Script {
         stateMachineWhitelist[0] = paraId;
 
         // EvmHost
+        address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
+            fishermen: fishermen,
             admin: admin,
             hostManager: address(manager),
             handler: address(handler),

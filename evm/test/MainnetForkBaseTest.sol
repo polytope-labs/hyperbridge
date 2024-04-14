@@ -64,7 +64,9 @@ contract MainnetForkBaseTest is Test {
         HostManager manager = new HostManager(gParams);
         uint256[] memory stateMachineWhitelist = new uint256[](1);
         stateMachineWhitelist[0] = paraId;
+        address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
+            fishermen: fishermen,
             admin: address(0),
             hostManager: address(manager),
             handler: address(handler),

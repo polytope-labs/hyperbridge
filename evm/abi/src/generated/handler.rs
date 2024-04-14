@@ -7,7 +7,7 @@ pub use handler::*;
     clippy::upper_case_acronyms,
     clippy::type_complexity,
     dead_code,
-    non_camel_case_types
+    non_camel_case_types,
 )]
 pub mod handler {
     pub use super::super::shared_types::*;
@@ -436,8 +436,9 @@ pub mod handler {
         }
     }
     ///The parsed JSON ABI of the contract.
-    pub static HANDLER_ABI: ::ethers::contract::Lazy<::ethers::core::abi::Abi> =
-        ::ethers::contract::Lazy::new(__abi);
+    pub static HANDLER_ABI: ::ethers::contract::Lazy<::ethers::core::abi::Abi> = ::ethers::contract::Lazy::new(
+        __abi,
+    );
     pub struct Handler<M>(::ethers::contract::Contract<M>);
     impl<M> ::core::clone::Clone for Handler<M> {
         fn clone(&self) -> Self {
@@ -467,7 +468,13 @@ pub mod handler {
             address: T,
             client: ::std::sync::Arc<M>,
         ) -> Self {
-            Self(::ethers::contract::Contract::new(address.into(), HANDLER_ABI.clone(), client))
+            Self(
+                ::ethers::contract::Contract::new(
+                    address.into(),
+                    HANDLER_ABI.clone(),
+                    client,
+                ),
+            )
         }
         ///Calls the contract's `handleConsensus` (0xbb1689be) function
         pub fn handle_consensus(
@@ -540,13 +547,13 @@ pub mod handler {
                 .expect("method not found (this should never happen)")
         }
     }
-    impl<M: ::ethers::providers::Middleware> From<::ethers::contract::Contract<M>> for Handler<M> {
+    impl<M: ::ethers::providers::Middleware> From<::ethers::contract::Contract<M>>
+    for Handler<M> {
         fn from(contract: ::ethers::contract::Contract<M>) -> Self {
             Self::new(contract.address(), contract.client())
         }
     }
-    ///Container type for all input parameters for the `handleConsensus` function with signature
-    /// `handleConsensus(address,bytes)` and selector `0xbb1689be`
+    ///Container type for all input parameters for the `handleConsensus` function with signature `handleConsensus(address,bytes)` and selector `0xbb1689be`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -555,16 +562,14 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(name = "handleConsensus", abi = "handleConsensus(address,bytes)")]
     pub struct HandleConsensusCall {
         pub host: ::ethers::core::types::Address,
         pub proof: ::ethers::core::types::Bytes,
     }
-    ///Container type for all input parameters for the `handleGetRequestTimeouts` function with
-    /// signature `handleGetRequestTimeouts(address,((bytes,bytes,uint64,bytes,uint64,bytes[],
-    /// uint64)[]))` and selector `0x8fcfc947`
+    ///Container type for all input parameters for the `handleGetRequestTimeouts` function with signature `handleGetRequestTimeouts(address,((bytes,bytes,uint64,bytes,uint64,bytes[],uint64)[]))` and selector `0x8fcfc947`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -573,7 +578,7 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "handleGetRequestTimeouts",
@@ -583,9 +588,7 @@ pub mod handler {
         pub host: ::ethers::core::types::Address,
         pub message: GetTimeoutMessage,
     }
-    ///Container type for all input parameters for the `handleGetResponses` function with signature
-    /// `handleGetResponses(address,(bytes[],(uint256,uint256),(bytes,bytes,uint64,bytes,uint64,
-    /// bytes[],uint64)[]))` and selector `0x4e2def1e`
+    ///Container type for all input parameters for the `handleGetResponses` function with signature `handleGetResponses(address,(bytes[],(uint256,uint256),(bytes,bytes,uint64,bytes,uint64,bytes[],uint64)[]))` and selector `0x4e2def1e`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -594,7 +597,7 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "handleGetResponses",
@@ -604,9 +607,7 @@ pub mod handler {
         pub host: ::ethers::core::types::Address,
         pub message: GetResponseMessage,
     }
-    ///Container type for all input parameters for the `handlePostRequestTimeouts` function with
-    /// signature `handlePostRequestTimeouts(address,((bytes,bytes,uint64,bytes,bytes,uint64,
-    /// bytes)[],(uint256,uint256),bytes[]))` and selector `0x089b174c`
+    ///Container type for all input parameters for the `handlePostRequestTimeouts` function with signature `handlePostRequestTimeouts(address,((bytes,bytes,uint64,bytes,bytes,uint64,bytes)[],(uint256,uint256),bytes[]))` and selector `0x089b174c`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -615,7 +616,7 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "handlePostRequestTimeouts",
@@ -625,9 +626,7 @@ pub mod handler {
         pub host: ::ethers::core::types::Address,
         pub message: PostRequestTimeoutMessage,
     }
-    ///Container type for all input parameters for the `handlePostRequests` function with signature
-    /// `handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,
-    /// bytes,bytes,uint64,bytes),uint256,uint256)[]))` and selector `0x9d38eb35`
+    ///Container type for all input parameters for the `handlePostRequests` function with signature `handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))` and selector `0x9d38eb35`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -636,7 +635,7 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "handlePostRequests",
@@ -646,9 +645,7 @@ pub mod handler {
         pub host: ::ethers::core::types::Address,
         pub request: PostRequestMessage,
     }
-    ///Container type for all input parameters for the `handlePostResponseTimeouts` function with
-    /// signature `handlePostResponseTimeouts(address,(((bytes,bytes,uint64,bytes,bytes,uint64,
-    /// bytes),bytes,uint64)[],(uint256,uint256),bytes[]))` and selector `0xe407f86b`
+    ///Container type for all input parameters for the `handlePostResponseTimeouts` function with signature `handlePostResponseTimeouts(address,(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64)[],(uint256,uint256),bytes[]))` and selector `0xe407f86b`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -657,7 +654,7 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "handlePostResponseTimeouts",
@@ -667,10 +664,7 @@ pub mod handler {
         pub host: ::ethers::core::types::Address,
         pub message: PostResponseTimeoutMessage,
     }
-    ///Container type for all input parameters for the `handlePostResponses` function with
-    /// signature `handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,
-    /// bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))` and selector
-    /// `0x72becccd`
+    ///Container type for all input parameters for the `handlePostResponses` function with signature `handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))` and selector `0x72becccd`
     #[derive(
         Clone,
         ::ethers::contract::EthCall,
@@ -679,7 +673,7 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     #[ethcall(
         name = "handlePostResponses",
@@ -705,39 +699,39 @@ pub mod handler {
             data: impl AsRef<[u8]>,
         ) -> ::core::result::Result<Self, ::ethers::core::abi::AbiError> {
             let data = data.as_ref();
-            if let Ok(decoded) =
-                <HandleConsensusCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <HandleConsensusCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::HandleConsensus(decoded));
             }
-            if let Ok(decoded) =
-                <HandleGetRequestTimeoutsCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <HandleGetRequestTimeoutsCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::HandleGetRequestTimeouts(decoded));
             }
-            if let Ok(decoded) =
-                <HandleGetResponsesCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <HandleGetResponsesCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::HandleGetResponses(decoded));
             }
-            if let Ok(decoded) =
-                <HandlePostRequestTimeoutsCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <HandlePostRequestTimeoutsCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::HandlePostRequestTimeouts(decoded));
             }
-            if let Ok(decoded) =
-                <HandlePostRequestsCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <HandlePostRequestsCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::HandlePostRequests(decoded));
             }
-            if let Ok(decoded) =
-                <HandlePostResponseTimeoutsCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <HandlePostResponseTimeoutsCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::HandlePostResponseTimeouts(decoded));
             }
-            if let Ok(decoded) =
-                <HandlePostResponsesCall as ::ethers::core::abi::AbiDecode>::decode(data)
-            {
+            if let Ok(decoded) = <HandlePostResponsesCall as ::ethers::core::abi::AbiDecode>::decode(
+                data,
+            ) {
                 return Ok(Self::HandlePostResponses(decoded));
             }
             Err(::ethers::core::abi::Error::InvalidData.into())
@@ -746,19 +740,27 @@ pub mod handler {
     impl ::ethers::core::abi::AbiEncode for HandlerCalls {
         fn encode(self) -> Vec<u8> {
             match self {
-                Self::HandleConsensus(element) => ::ethers::core::abi::AbiEncode::encode(element),
-                Self::HandleGetRequestTimeouts(element) =>
-                    ::ethers::core::abi::AbiEncode::encode(element),
-                Self::HandleGetResponses(element) =>
-                    ::ethers::core::abi::AbiEncode::encode(element),
-                Self::HandlePostRequestTimeouts(element) =>
-                    ::ethers::core::abi::AbiEncode::encode(element),
-                Self::HandlePostRequests(element) =>
-                    ::ethers::core::abi::AbiEncode::encode(element),
-                Self::HandlePostResponseTimeouts(element) =>
-                    ::ethers::core::abi::AbiEncode::encode(element),
-                Self::HandlePostResponses(element) =>
-                    ::ethers::core::abi::AbiEncode::encode(element),
+                Self::HandleConsensus(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::HandleGetRequestTimeouts(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::HandleGetResponses(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::HandlePostRequestTimeouts(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::HandlePostRequests(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::HandlePostResponseTimeouts(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
+                Self::HandlePostResponses(element) => {
+                    ::ethers::core::abi::AbiEncode::encode(element)
+                }
             }
         }
     }
@@ -766,12 +768,24 @@ pub mod handler {
         fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
             match self {
                 Self::HandleConsensus(element) => ::core::fmt::Display::fmt(element, f),
-                Self::HandleGetRequestTimeouts(element) => ::core::fmt::Display::fmt(element, f),
-                Self::HandleGetResponses(element) => ::core::fmt::Display::fmt(element, f),
-                Self::HandlePostRequestTimeouts(element) => ::core::fmt::Display::fmt(element, f),
-                Self::HandlePostRequests(element) => ::core::fmt::Display::fmt(element, f),
-                Self::HandlePostResponseTimeouts(element) => ::core::fmt::Display::fmt(element, f),
-                Self::HandlePostResponses(element) => ::core::fmt::Display::fmt(element, f),
+                Self::HandleGetRequestTimeouts(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
+                Self::HandleGetResponses(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
+                Self::HandlePostRequestTimeouts(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
+                Self::HandlePostRequests(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
+                Self::HandlePostResponseTimeouts(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
+                Self::HandlePostResponses(element) => {
+                    ::core::fmt::Display::fmt(element, f)
+                }
             }
         }
     }
@@ -810,8 +824,7 @@ pub mod handler {
             Self::HandlePostResponses(value)
         }
     }
-    ///`GetResponseMessage(bytes[],(uint256,uint256),(bytes,bytes,uint64,bytes,uint64,bytes[],
-    /// uint64)[])`
+    ///`GetResponseMessage(bytes[],(uint256,uint256),(bytes,bytes,uint64,bytes,uint64,bytes[],uint64)[])`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -820,7 +833,7 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct GetResponseMessage {
         pub proof: ::std::vec::Vec<::ethers::core::types::Bytes>,
@@ -836,7 +849,7 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct GetTimeoutMessage {
         pub timeouts: ::std::vec::Vec<GetRequest>,
@@ -850,15 +863,14 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct PostRequestLeaf {
         pub request: PostRequest,
         pub index: ::ethers::core::types::U256,
         pub k_index: ::ethers::core::types::U256,
     }
-    ///`PostRequestMessage(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,
-    /// uint64,bytes),uint256,uint256)[])`
+    ///`PostRequestMessage(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[])`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -867,14 +879,13 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct PostRequestMessage {
         pub proof: Proof,
         pub requests: ::std::vec::Vec<PostRequestLeaf>,
     }
-    ///`PostRequestTimeoutMessage((bytes,bytes,uint64,bytes,bytes,uint64,bytes)[],(uint256,
-    /// uint256),bytes[])`
+    ///`PostRequestTimeoutMessage((bytes,bytes,uint64,bytes,bytes,uint64,bytes)[],(uint256,uint256),bytes[])`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -883,15 +894,14 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct PostRequestTimeoutMessage {
         pub timeouts: ::std::vec::Vec<PostRequest>,
         pub height: StateMachineHeight,
         pub proof: ::std::vec::Vec<::ethers::core::types::Bytes>,
     }
-    ///`PostResponseLeaf(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,
-    /// uint256)`
+    ///`PostResponseLeaf(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -900,15 +910,14 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct PostResponseLeaf {
         pub response: PostResponse,
         pub index: ::ethers::core::types::U256,
         pub k_index: ::ethers::core::types::U256,
     }
-    ///`PostResponseMessage(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,
-    /// bytes,uint64,bytes),bytes,uint64),uint256,uint256)[])`
+    ///`PostResponseMessage(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[])`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -917,14 +926,13 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct PostResponseMessage {
         pub proof: Proof,
         pub responses: ::std::vec::Vec<PostResponseLeaf>,
     }
-    ///`PostResponseTimeoutMessage(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64)[],
-    /// (uint256,uint256),bytes[])`
+    ///`PostResponseTimeoutMessage(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64)[],(uint256,uint256),bytes[])`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -933,7 +941,7 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct PostResponseTimeoutMessage {
         pub timeouts: ::std::vec::Vec<PostResponse>,
@@ -949,7 +957,7 @@ pub mod handler {
         Debug,
         PartialEq,
         Eq,
-        Hash,
+        Hash
     )]
     pub struct Proof {
         pub height: StateMachineHeight,

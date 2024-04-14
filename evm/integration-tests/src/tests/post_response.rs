@@ -109,7 +109,7 @@ async fn test_post_response_timeout() -> Result<(), anyhow::Error> {
     let mut runner = Runner::new(PathBuf::from(&base_dir));
     let mut contract = runner.deploy("PostResponseTest").await;
     let storage_prefix =
-        hex!("103895530afb23bb607661426d55eb8b554b72b7162725f9457d35ecafb8b02f").to_vec();
+        hex!("526573706f6e73655265636569707473").to_vec();
     let destination = contract.call::<_, Address>("module", ()).await?;
 
     // create post request object
@@ -198,7 +198,7 @@ async fn test_post_response_malicious_timeout() -> Result<(), anyhow::Error> {
     let mut runner = Runner::new(PathBuf::from(&base_dir));
     let mut contract = runner.deploy("PostResponseTest").await;
     let storage_prefix =
-        hex!("103895530afb23bb607661426d55eb8b554b72b7162725f9457d35ecafb8b02f").to_vec();
+        hex!("526573706f6e73655265636569707473").to_vec();
     let destination = contract.call::<_, Address>("module", ()).await?;
 
     // create post request object

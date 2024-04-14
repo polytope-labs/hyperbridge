@@ -27,7 +27,7 @@ async fn test_post_timeout_proof() -> Result<(), anyhow::Error> {
 
     let module = contract.call::<_, Address>("module", ()).await?;
     let storage_prefix =
-        hex!("103895530afb23bb607661426d55eb8b0484aecefe882c3ce64e6f82507f715a").to_vec();
+        hex!("526571756573745265636569707473").to_vec();
 
     // create post request object
     let post = Post {

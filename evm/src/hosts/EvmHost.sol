@@ -3,6 +3,7 @@ pragma solidity 0.8.17;
 
 import {Context} from "openzeppelin/utils/Context.sol";
 import {Math} from "openzeppelin/utils/math/Math.sol";
+import {Strings} from "openzeppelin/utils/Strings.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 
@@ -110,6 +111,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // (stateMachineId => (blockHeight => timestamp))
     mapping(address => bool) private _fishermen;
 
+    // mapping of state machine identifier to height vetoed to fisherman
+    // useful for rewarding fishermen on hyperbridge
+    // (stateMachineId => (blockHeight => fisherman))
+    mapping(uint256 => mapping(uint256 => address)) private _vetoes;
+
     // Parameters for the host
     HostParams private _hostParams;
 
@@ -138,10 +144,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     event GetRequestTimeoutHandled(bytes32 commitment);
 
     // Emitted when new heights are finalized
-    event StateMachineUpdated(uint256 stateMachineId, uint256 height);
+    event StateMachineUpdated(bytes stateMachineId, uint256 height);
 
     // Emitted when a state commitment is vetoed by a fisherman
-    event StateCommitmentVetoed(uint256 stateMachineId, uint256 height, address fisherman);
+    event StateCommitmentVetoed(bytes stateMachineId, uint256 height, address fisherman);
 
     // Emitted when a new POST request is dispatched
     event PostRequestEvent(
@@ -205,19 +211,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     constructor(HostParams memory params) {
-        _hostParams = params;
-
-        // add fishermen if any
-        uint256 newFishermenLength = params.fishermen.length;
-        for (uint256 i = 0; i < newFishermenLength; i++) {
-            _fishermen[params.fishermen[i]] = true;
-        }
-
-        // add whitelisted state machines
-        uint256 whitelistLength = params.stateMachineWhitelist.length;
-        for (uint256 i = 0; i < whitelistLength; i++) {
-            _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
-        }
+        updateHostParamsInternal(params);
     }
 
     /**
@@ -327,8 +321,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @return the latest state machine height for the given stateMachineId. If it returns 0, the state machine is unsupported.
      */
-    function latestStateMachineHeight(uint256 stateMachineId) external view returns (uint256) {
-        return _latestStateMachineHeight[stateMachineId];
+    function latestStateMachineHeight(uint256 id) external view returns (uint256) {
+        return _latestStateMachineHeight[id];
     }
 
     /**
@@ -405,6 +399,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         for (uint256 i = 0; i < newFishermenLength; i++) {
             _fishermen[params.fishermen[i]] = true;
         }
+
+        // add whitelisted state machines
+        uint256 whitelistLength = params.stateMachineWhitelist.length;
+        for (uint256 i = 0; i < whitelistLength; i++) {
+            // create if it doesn't already exist
+            if (_latestStateMachineHeight[params.stateMachineWhitelist[i]] == 0) {
+                _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
+            }
+        }
     }
 
     /**
@@ -434,7 +437,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = block.timestamp;
         _latestStateMachineHeight[height.stateMachineId] = height.height;
 
-        emit StateMachineUpdated({stateMachineId: height.stateMachineId, height: height.height});
+        emit StateMachineUpdated({stateMachineId: stateMachineId(height.stateMachineId), height: height.height});
     }
 
     /**
@@ -452,7 +455,23 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         delete _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
         delete _latestStateMachineHeight[height.stateMachineId];
 
-        emit StateCommitmentVetoed({stateMachineId: height.stateMachineId, height: height.height, fisherman: fisherman});
+        // track the fisherman responsible for rewards on hyperbridge through state proofs
+        _vetoes[height.stateMachineId][height.height] = fisherman;
+
+        emit StateCommitmentVetoed({
+            stateMachineId: stateMachineId(height.stateMachineId),
+            height: height.height,
+            fisherman: fisherman
+        });
+    }
+
+    /**
+     * @dev Get the state machine id for a parachain
+     */
+    function stateMachineId(uint256 id) public view returns (bytes memory) {
+        bytes memory hyperbridgeId = _hostParams.hyperbridge;
+        uint256 offset = hyperbridgeId.length - 4;
+        return bytes.concat(hyperbridgeId.substr(0, offset), bytes(Strings.toString(id)));
     }
 
     /**

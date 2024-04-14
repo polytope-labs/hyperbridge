@@ -423,10 +423,17 @@ pub mod pallet {
     pub enum Event<T: Config> {
         /// Emitted when a state machine is successfully updated to a new height
         StateMachineUpdated {
-            /// State machine height
+            /// State machine identifier
             state_machine_id: StateMachineId,
             /// State machine latest height
             latest_height: u64,
+        },
+        /// Emitted when a state commitment is vetoed by a fisherman
+        StateCommitmentVetoed {
+            /// State machine height
+            height: StateMachineHeight,
+            /// responsible fisherman
+            fisherman: BoundedVec<u8, ConstU32<32>>,
         },
         /// Indicates that a consensus client has been created
         ConsensusClientCreated {

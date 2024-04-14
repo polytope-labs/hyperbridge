@@ -90,10 +90,11 @@ pub fn to_core_protocol_event<T: Config>(event: PalletEvent<T>) -> Option<Event>
         PalletEvent::PostResponseTimeoutHandled(handled) =>
             Some(Event::PostResponseTimeoutHandled(handled)),
         // We are only converting events useful relayers and applications
-        PalletEvent::ConsensusClientCreated { .. } => None,
-        PalletEvent::ConsensusClientFrozen { .. } => None,
-        PalletEvent::Errors { .. } => None,
-        PalletEvent::__Ignore(_, _) => None,
+        PalletEvent::ConsensusClientCreated { .. } |
+        PalletEvent::ConsensusClientFrozen { .. } |
+        PalletEvent::Errors { .. } |
+        PalletEvent::__Ignore(_, _) |
+        PalletEvent::StateCommitmentVetoed { .. } => None,
     }
 }
 
@@ -124,6 +125,11 @@ pub fn deposit_ismp_events<T: Config>(
                     Pallet::<T>::deposit_event(PalletEvent::<T>::StateMachineUpdated {
                         state_machine_id: ev.state_machine_id,
                         latest_height: ev.latest_height,
+                    }),
+                ismp::events::Event::StateCommitmentVetoed(ev) =>
+                    Pallet::<T>::deposit_event(PalletEvent::<T>::StateCommitmentVetoed {
+                        height: ev.height,
+                        fisherman: ev.fisherman.try_into().unwrap(),
                     }),
                 // These events are only deposited when messages are dispatched, they should never
                 // be deposited when a message is handled

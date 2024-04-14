@@ -16,19 +16,22 @@
 //! Enables fishermen keep hyperbridge safe by vetoing fraudulent state commitments.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+extern crate alloc;
 
 pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use frame_support::pallet_prelude::*;
+    use frame_support::{pallet_prelude::*, traits::OriginTrait};
     use frame_system::pallet_prelude::*;
     use ismp::{
         consensus::{StateCommitment, StateMachineHeight},
+        events::StateCommitmentVetoed,
         host::IsmpHost,
     };
     use pallet_ismp::host::Host;
+    use alloc::vec;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -70,7 +73,10 @@ pub mod pallet {
     }
 
     #[pallet::call]
-    impl<T: Config> Pallet<T> {
+    impl<T: Config> Pallet<T>
+    where
+        T::AccountId: AsRef<[u8]>,
+    {
         /// Adds a new fisherman to the set
         #[pallet::call_index(0)]
         #[pallet::weight({1_000_000})]
@@ -109,7 +115,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             height: StateMachineHeight,
         ) -> DispatchResult {
-            let account = ensure_signed(origin)?;
+            let account = ensure_signed(origin.clone())?;
             ensure!(Fishermen::<T>::contains_key(&account), Error::<T>::UnauthorizedAction);
 
             let ismp_host = Host::<T>::default();
@@ -118,6 +124,17 @@ pub mod pallet {
             ismp_host.delete_state_commitment(height).map_err(|_| Error::<T>::VetoFailed)?;
 
             Self::deposit_event(Event::StateCommitmentVetoed { height, commitment });
+            pallet_ismp::events::deposit_ismp_events::<T>(
+                vec![Ok(ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
+                    height,
+                    fisherman: origin
+                        .into_signer()
+                        .expect("origin is signed; qed")
+                        .as_ref()
+                        .to_vec(),
+                }))],
+                &mut vec![],
+            );
             Ok(())
         }
     }

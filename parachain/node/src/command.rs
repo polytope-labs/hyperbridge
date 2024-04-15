@@ -13,12 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::str::FromStr;
+use std::{borrow::Cow, str::FromStr};
 
 use cumulus_primitives_core::ParaId;
 use frame_benchmarking_cli::{BenchmarkCmd, SUBSTRATE_REFERENCE_HARDWARE};
 use gargantua_runtime::Block;
 use log::info;
+use polkadot_cli::service;
 use sc_cli::{
     ChainSpec, CliConfiguration, DefaultConfigurationValues, ImportParams, KeystoreParams,
     NetworkParams, Result, SharedParams, SubstrateCli,
@@ -114,6 +115,19 @@ impl SubstrateCli for Cli {
 }
 
 impl SubstrateCli for RelayChainCli {
+    fn load_spec(&self, id: &str) -> std::result::Result<Box<dyn sc_service::ChainSpec>, String> {
+        match id {
+            "paseo" => {
+                let chain_spec = Box::new(service::GenericChainSpec::from_json_bytes(Cow::Owned(
+                    include_bytes!("../../chainspec/paseo.raw.json").to_vec(),
+                ))?) as Box<dyn service::ChainSpec>;
+                Ok(chain_spec)
+            },
+            id => polkadot_cli::Cli::from_iter([RelayChainCli::executable_name()].iter())
+                .load_spec(id),
+        }
+    }
+
     fn impl_name() -> String {
         "Hyperbridge".into()
     }
@@ -142,10 +156,6 @@ impl SubstrateCli for RelayChainCli {
 
     fn copyright_start_year() -> i32 {
         2020
-    }
-
-    fn load_spec(&self, id: &str) -> std::result::Result<Box<dyn sc_service::ChainSpec>, String> {
-        polkadot_cli::Cli::from_iter([RelayChainCli::executable_name()].iter()).load_spec(id)
     }
 }
 

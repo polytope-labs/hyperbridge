@@ -16,6 +16,7 @@
 
 use crate::{errors::HandlingError, Config, Event as PalletEvent, Pallet};
 use alloc::vec::Vec;
+use frame_support::BoundedVec;
 use ismp::{
     consensus::StateMachineId,
     error::Error,
@@ -129,7 +130,7 @@ pub fn deposit_ismp_events<T: Config>(
                 ismp::events::Event::StateCommitmentVetoed(ev) =>
                     Pallet::<T>::deposit_event(PalletEvent::<T>::StateCommitmentVetoed {
                         height: ev.height,
-                        fisherman: ev.fisherman.try_into().unwrap(),
+                        fisherman: BoundedVec::truncate_from(ev.fisherman),
                     }),
                 // These events are only deposited when messages are dispatched, they should never
                 // be deposited when a message is handled

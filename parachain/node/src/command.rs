@@ -35,6 +35,25 @@ use crate::{
 
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
     Ok(match id {
+        "gargantua-rococo" => Box::new(chain_spec::ChainSpec::<
+            gargantua_runtime::RuntimeGenesisConfig,
+        >::from_json_bytes(
+            include_bytes!("../../chainspec/gargantua.rococo.json").to_vec(),
+        )?),
+        "gargantua" => Box::new(
+            chain_spec::ChainSpec::<gargantua_runtime::RuntimeGenesisConfig>::from_json_bytes(
+                include_bytes!("../../chainspec/gargantua.paseo.json").to_vec(),
+            )?,
+        ),
+        "messier" => Box::new(
+            chain_spec::ChainSpec::<messier_runtime::RuntimeGenesisConfig>::from_json_bytes(
+                include_bytes!("../../chainspec/messier.json").to_vec(),
+            )?,
+        ),
+        "nexus" =>
+            Box::new(chain_spec::ChainSpec::<nexus_runtime::RuntimeGenesisConfig>::from_json_bytes(
+                include_bytes!("../../chainspec/nexus.json").to_vec(),
+            )?),
         name if name.starts_with("gargantua-") => {
             let id = name.split('-').last().expect("dev chainspec should have chain id");
             let id = u32::from_str(id).expect("can't parse Id into u32");
@@ -50,21 +69,6 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
             let id = u32::from_str(id).expect("can't parse Id into u32");
             Box::new(chain_spec::nexus_development_config(id))
         },
-
-        "gargantua" => Box::new(
-            chain_spec::ChainSpec::<gargantua_runtime::RuntimeGenesisConfig>::from_json_bytes(
-                include_bytes!("../../chainspec/gargantua.json").to_vec(),
-            )?,
-        ),
-        "messier" => Box::new(
-            chain_spec::ChainSpec::<messier_runtime::RuntimeGenesisConfig>::from_json_bytes(
-                include_bytes!("../../chainspec/messier.json").to_vec(),
-            )?,
-        ),
-        "nexus" =>
-            Box::new(chain_spec::ChainSpec::<nexus_runtime::RuntimeGenesisConfig>::from_json_bytes(
-                include_bytes!("../../chainspec/nexus.json").to_vec(),
-            )?),
         path => Box::new(
             chain_spec::ChainSpec::<gargantua_runtime::RuntimeGenesisConfig>::from_json_file(
                 std::path::PathBuf::from(path),
@@ -158,6 +162,12 @@ macro_rules! construct_async_run {
                 chain if chain.contains("messier") => {
                     runner.async_run(|$config| {
                         let $components = new_partial::<messier_runtime::RuntimeApi, MessierExecutor>(&$config)?;
+                        Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
+		            })
+                }
+                chain if chain.contains("nexus") => {
+                    runner.async_run(|$config| {
+                        let $components = new_partial::<nexus_runtime::RuntimeApi, NexusExecutor>(&$config)?;
                         Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
 		            })
                 }
@@ -280,6 +290,11 @@ pub fn run() -> Result<()> {
                                 messier_runtime::RuntimeApi,
                                 MessierExecutor,
                             >(&config)?;
+                            cmd.run(components.client)
+                        },
+                        chain if chain.contains("nexus") => {
+                            let components =
+                                new_partial::<nexus_runtime::RuntimeApi, NexusExecutor>(&config)?;
                             cmd.run(components.client)
                         },
                         chain => panic!("Unknown chain with id: {}", chain),

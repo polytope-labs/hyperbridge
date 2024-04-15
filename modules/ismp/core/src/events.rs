@@ -1,7 +1,7 @@
 //! Canonical ISMP Events
 
 use crate::{
-    consensus::StateMachineId,
+    consensus::{StateMachineHeight, StateMachineId},
     host::StateMachine,
     router::{Get, Post, PostResponse, Request, Response},
 };
@@ -18,6 +18,15 @@ pub struct StateMachineUpdated {
     pub state_machine_id: StateMachineId,
     /// Latest height
     pub latest_height: u64,
+}
+
+/// Emitted when a [`StateCommitment`] has been successfully vetoed by a fisherman
+#[derive(Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize)]
+pub struct StateCommitmentVetoed {
+    /// The state commitment identifier
+    pub height: StateMachineHeight,
+    /// The responsible relayer
+    pub fisherman: Vec<u8>,
 }
 
 /// Emitted when a request or response is successfully handled.
@@ -46,6 +55,9 @@ pub enum Event {
     /// Emitted when a state machine is successfully updated to a new height after the challenge
     /// period has elapsed
     StateMachineUpdated(StateMachineUpdated),
+    /// A [`StateCommitment`] (which is ideally still in it's challenge period) has been vetoed by
+    /// a fisherman.
+    StateCommitmentVetoed(StateCommitmentVetoed),
     /// An event that is emitted when a post request is dispatched
     PostRequest(Post),
     /// An event that is emitted when a post response is dispatched

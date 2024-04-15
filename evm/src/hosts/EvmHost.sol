@@ -3,6 +3,7 @@ pragma solidity 0.8.17;
 
 import {Context} from "openzeppelin/utils/Context.sol";
 import {Math} from "openzeppelin/utils/math/Math.sol";
+import {Strings} from "openzeppelin/utils/Strings.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 
@@ -40,6 +41,10 @@ struct HostParams {
     uint256 consensusUpdateTimestamp;
     // whitelisted state machines
     uint256[] stateMachineWhitelist;
+    // white list of fishermen accounts
+    address[] fishermen;
+    // state machine identifier for hyperbridge
+    bytes hyperbridge;
 }
 
 // The host manager interface. This provides methods for modifying the host's params or withdrawing bridge revenue.
@@ -102,6 +107,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // (stateMachineId => (blockHeight => timestamp))
     mapping(uint256 => uint256) private _latestStateMachineHeight;
 
+    // mapping of all known fishermen accounts
+    // (stateMachineId => (blockHeight => timestamp))
+    mapping(address => bool) private _fishermen;
+
+    // mapping of state machine identifier to height vetoed to fisherman
+    // useful for rewarding fishermen on hyperbridge
+    // (stateMachineId => (blockHeight => fisherman))
+    mapping(uint256 => mapping(uint256 => address)) private _vetoes;
+
     // Parameters for the host
     HostParams private _hostParams;
 
@@ -130,7 +144,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     event GetRequestTimeoutHandled(bytes32 commitment);
 
     // Emitted when new heights are finalized
-    event StateMachineUpdated(uint256 stateMachineId, uint256 height);
+    event StateMachineUpdated(bytes stateMachineId, uint256 height);
+
+    // Emitted when a state commitment is vetoed by a fisherman
+    event StateCommitmentVetoed(bytes stateMachineId, uint256 height, address fisherman);
 
     // Emitted when a new POST request is dispatched
     event PostRequestEvent(
@@ -169,28 +186,32 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 timeoutTimestamp
     );
 
+    // only permits fishermen
+    modifier onlyFishermen() {
+        require(_fishermen[_msgSender()], "EvmHost: Account is not in the fishermen set");
+        _;
+    }
+
+    // only permits the admin
     modifier onlyAdmin() {
-        require(_msgSender() == _hostParams.admin, "EvmHost: Only admin");
+        require(_msgSender() == _hostParams.admin, "EvmHost: Account is not the admin");
         _;
     }
 
+    // only permits the IHandler contract
     modifier onlyHandler() {
-        require(_msgSender() == address(_hostParams.handler), "EvmHost: Only handler");
+        require(_msgSender() == address(_hostParams.handler), "EvmHost: Account is not the handler");
         _;
     }
 
+    // only permits the HostManager contract
     modifier onlyManager() {
-        require(_msgSender() == _hostParams.hostManager, "EvmHost: Only Manager contract");
+        require(_msgSender() == _hostParams.hostManager, "EvmHost: Account is not the Manager contract");
         _;
     }
 
     constructor(HostParams memory params) {
-        _hostParams = params;
-        uint256 length = params.stateMachineWhitelist.length;
-        for (uint256 i = 0; i < length; i++) {
-            // set it to non-zero
-            _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
-        }
+        updateHostParamsInternal(params);
     }
 
     /**
@@ -246,6 +267,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @return the state machine identifier for the connected hyperbridge instance
+     */
+    function hyperbridge() external view returns (bytes memory) {
+        return _hostParams.hyperbridge;
+    }
+
+    /**
      * @param height - state machine height
      * @return the state commitment at `height`
      */
@@ -293,8 +321,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @return the latest state machine height for the given stateMachineId. If it returns 0, the state machine is unsupported.
      */
-    function latestStateMachineHeight(uint256 stateMachineId) external view returns (uint256) {
-        return _latestStateMachineHeight[stateMachineId];
+    function latestStateMachineHeight(uint256 id) external view returns (uint256) {
+        return _latestStateMachineHeight[id];
     }
 
     /**
@@ -341,17 +369,45 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the new host params.
      */
     function updateHostParams(HostParams memory params) external onlyManager {
-        _hostParams = params;
+        updateHostParamsInternal(params);
     }
 
     /**
      * @dev Updates the HostParams
      * @param params, the new host params. Can only be called by admin on testnets.
      */
-    function setHostParamsAdmin(HostParams memory params) external onlyAdmin {
+    function setHostParamsAdmin(HostParams memory params) public onlyAdmin {
         require(chainId() != block.chainid, "Cannot set params on mainnet");
 
+        updateHostParamsInternal(params);
+    }
+
+    /**
+     * @dev Updates the HostParams
+     * @param params, the new host params.
+     */
+    function updateHostParamsInternal(HostParams memory params) private {
+        // delete old fishermen
+        uint256 fishermenLength = _hostParams.fishermen.length;
+        for (uint256 i = 0; i < fishermenLength; i++) {
+            delete _fishermen[_hostParams.fishermen[i]];
+        }
         _hostParams = params;
+
+        // add new fishermen if any
+        uint256 newFishermenLength = params.fishermen.length;
+        for (uint256 i = 0; i < newFishermenLength; i++) {
+            _fishermen[params.fishermen[i]] = true;
+        }
+
+        // add whitelisted state machines
+        uint256 whitelistLength = params.stateMachineWhitelist.length;
+        for (uint256 i = 0; i < whitelistLength; i++) {
+            // create if it doesn't already exist
+            if (_latestStateMachineHeight[params.stateMachineWhitelist[i]] == 0) {
+                _latestStateMachineHeight[params.stateMachineWhitelist[i]] = 1;
+            }
+        }
     }
 
     /**
@@ -381,7 +437,41 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = block.timestamp;
         _latestStateMachineHeight[height.stateMachineId] = height.height;
 
-        emit StateMachineUpdated({stateMachineId: height.stateMachineId, height: height.height});
+        emit StateMachineUpdated({stateMachineId: stateMachineId(height.stateMachineId), height: height.height});
+    }
+
+    /**
+     * @dev Delete the state commitment at given state height.
+     */
+    function deleteStateMachineCommitment(StateMachineHeight memory height, address fisherman) external onlyHandler {
+        deleteStateMachineCommitmentInternal(height, fisherman);
+    }
+
+    /**
+     * @dev Delete the state commitment at given state height.
+     */
+    function deleteStateMachineCommitmentInternal(StateMachineHeight memory height, address fisherman) private {
+        delete _stateCommitments[height.stateMachineId][height.height];
+        delete _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
+        delete _latestStateMachineHeight[height.stateMachineId];
+
+        // track the fisherman responsible for rewards on hyperbridge through state proofs
+        _vetoes[height.stateMachineId][height.height] = fisherman;
+
+        emit StateCommitmentVetoed({
+            stateMachineId: stateMachineId(height.stateMachineId),
+            height: height.height,
+            fisherman: fisherman
+        });
+    }
+
+    /**
+     * @dev Get the state machine id for a parachain
+     */
+    function stateMachineId(uint256 id) public view returns (bytes memory) {
+        bytes memory hyperbridgeId = _hostParams.hyperbridge;
+        uint256 offset = hyperbridgeId.length - 4;
+        return bytes.concat(hyperbridgeId.substr(0, offset), bytes(Strings.toString(id)));
     }
 
     /**
@@ -399,9 +489,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function setConsensusState(bytes memory state) public onlyAdmin {
         // if we're on mainnet, then consensus state can only be initialized once.
         // and updated subsequently by either consensus proofs or cross-chain governance
-        if (chainId() == block.chainid) {
-            require(_hostParams.consensusState.equals(new bytes(0)), "Unauthorized action");
-        }
+        require(
+            chainId() == block.chainid ? _hostParams.consensusState.equals(new bytes(0)) : true, "Unauthorized action"
+        );
+
         _hostParams.consensusState = state;
     }
 
@@ -462,7 +553,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         if (success) {
             bytes32 commitment = response.request.hash();
-            // don't commit the full response object because, it's unused.
+            // don't commit the full response object, it's unused.
             _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
             emit PostResponseHandled({commitment: commitment, relayer: relayer});
         }
@@ -670,7 +761,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         FeeMetadata memory metadata = _requestCommitments[commitment];
 
         require(metadata.sender != address(0), "Unknown request");
-        require(metadata.sender != _msgSender(), "User can only fund own requests");
+        require(metadata.sender == _msgSender(), "User can only fund own requests");
         IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
 
         metadata.fee += amount;
@@ -684,9 +775,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      *  changes at the provided height. This allows them to veto the state commitment.
      *  They aren't required to provide any proofs for this.
      */
-    function vetoStateCommitment(StateMachineHeight memory height) public onlyAdmin {
-        delete _stateCommitments[height.stateMachineId][height.height];
-        delete _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
+    function vetoStateCommitment(StateMachineHeight memory height) public onlyFishermen {
+        deleteStateMachineCommitmentInternal(height, _msgSender());
     }
 
     /**

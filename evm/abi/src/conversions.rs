@@ -26,7 +26,10 @@ use ismp::{host::StateMachine, router};
 use crate::evm_host::PostRequestEventFilter;
 #[cfg(feature = "beefy")]
 pub use beefy::*;
-use ismp::events::{StateMachineUpdated, TimeoutHandled};
+use ismp::{
+    consensus::StateMachineId,
+    events::{StateCommitmentVetoed, StateMachineUpdated, TimeoutHandled},
+};
 use primitive_types::H256;
 use std::str::FromStr;
 
@@ -303,7 +306,10 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
             EvmHostEvents::StateMachineUpdatedFilter(filter) =>
                 Ok(ismp::events::Event::StateMachineUpdated(StateMachineUpdated {
                     state_machine_id: ismp::consensus::StateMachineId {
-                        state_id: StateMachine::Kusama(filter.state_machine_id.low_u64() as u32),
+                        state_id: StateMachine::from_str(&String::from_utf8(
+                            filter.state_machine_id.to_vec(),
+                        )?)
+                        .map_err(|e| anyhow!("{}", e))?,
                         consensus_state_id: Default::default(),
                     },
                     latest_height: filter.height.low_u64(),
@@ -319,6 +325,20 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
             EvmHostEvents::GetRequestTimeoutHandledFilter(handled) =>
                 Ok(ismp::events::Event::GetRequestTimeoutHandled(TimeoutHandled {
                     commitment: handled.commitment.into(),
+                })),
+            EvmHostEvents::StateCommitmentVetoedFilter(vetoed) =>
+                Ok(ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
+                    height: ismp::consensus::StateMachineHeight {
+                        id: StateMachineId {
+                            state_id: StateMachine::from_str(&String::from_utf8(
+                                vetoed.state_machine_id.to_vec(),
+                            )?)
+                            .map_err(|e| anyhow!("{}", e))?,
+                            consensus_state_id: Default::default(),
+                        },
+                        height: vetoed.height.low_u64(),
+                    },
+                    fisherman: vetoed.fisherman.as_bytes().to_vec(),
                 })),
         }
     }

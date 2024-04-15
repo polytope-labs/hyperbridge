@@ -8,7 +8,7 @@ contract TestHost is EvmHost {
     constructor(HostParams memory params) EvmHost(params) {}
 
     /// chainId for the bsc mainnet
-    uint256 public constant CHAIN_ID = 1;
+    uint256 public constant CHAIN_ID = 1337;
 
     function chainId() public pure override returns (uint256) {
         return CHAIN_ID;

@@ -3,7 +3,12 @@ mod rococo_local;
 #[cfg(feature = "rococo-local")]
 pub use rococo_local::api::*;
 
-#[cfg(not(feature = "rococo-local"))]
+#[cfg(feature = "rococo")]
 mod rococo;
-#[cfg(not(feature = "rococo-local"))]
+#[cfg(feature = "rococo")]
 pub use rococo::api::*;
+
+#[cfg(feature = "paseo")]
+mod paseo;
+#[cfg(feature = "paseo")]
+pub use paseo::api::*;

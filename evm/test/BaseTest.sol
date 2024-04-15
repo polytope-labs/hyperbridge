@@ -53,12 +53,13 @@ contract BaseTest is Test {
         hyperInu = new MockUSCDC("HyperInu", "HINU");
         hyperInu_h = new FeeToken(address(this), "HyperInu", "HINU.h");
         uint256 paraId = 2000;
-        HostManagerParams memory gParams =
-            HostManagerParams({admin: address(this), host: address(0), governorStateMachineId: paraId});
+        HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
         HostManager manager = new HostManager(gParams);
         uint256[] memory stateMachineWhitelist = new uint256[](1);
         stateMachineWhitelist[0] = paraId;
+        address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
+            fishermen: fishermen,
             admin: address(0),
             hostManager: address(manager),
             handler: address(handler),
@@ -71,6 +72,7 @@ contract BaseTest is Test {
             consensusState: new bytes(0),
             perByteFee: 1000000000000000000, // 1FTK
             feeToken: address(feeToken),
+            hyperbridge: StateMachine.kusama(paraId),
             stateMachineWhitelist: stateMachineWhitelist
         });
         host = new TestHost(params);
@@ -95,12 +97,7 @@ contract BaseTest is Test {
 
         gateway.init(
             TokenGatewayParamsExt({
-                params: TokenGatewayParams({
-                    hyperbridge: StateMachine.kusama(2000),
-                    host: address(host),
-                    uniswapV2: address(1),
-                    dispatcher: address(dispatcher)
-                }),
+                params: TokenGatewayParams({host: address(host), uniswapV2: address(1), dispatcher: address(dispatcher)}),
                 assets: assets
             })
         );
@@ -115,6 +112,7 @@ contract BaseTest is Test {
         // some approvals
         feeToken.superApprove(address(this), address(gateway));
         feeToken.superApprove(address(tx.origin), address(testModule));
+        feeToken.superApprove(address(tx.origin), address(host));
         feeToken.superApprove(address(testModule), address(host));
 
         miniStaking = new MiniStaking(address(feeToken));

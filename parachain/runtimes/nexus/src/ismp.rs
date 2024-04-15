@@ -15,10 +15,15 @@
 
 use crate::{
     alloc::{boxed::Box, string::ToString},
-    AccountId, Balance, Balances, Ismp, ParachainInfo, Runtime, RuntimeEvent, Timestamp,
+    AccountId, Assets, Balance, Balances, Gateway, Ismp, ParachainInfo, Runtime, RuntimeEvent,
+    Timestamp, EXISTENTIAL_DEPOSIT,
 };
-
-use frame_support::pallet_prelude::Get;
+use frame_support::{
+    pallet_prelude::{ConstU32, Get},
+    parameter_types,
+    traits::AsEnsureOriginWithArg,
+    PalletId,
+};
 use frame_system::EnsureRoot;
 use ismp::{
     error::Error,
@@ -26,12 +31,17 @@ use ismp::{
     module::IsmpModule,
     router::{IsmpRouter, Post, Request, Response},
 };
+use pallet_asset_gateway::TokenGatewayParams;
+#[cfg(feature = "runtime-benchmarks")]
+use pallet_assets::BenchmarkHelper;
+use sp_core::{crypto::AccountId32, H160, H256};
+use sp_runtime::Percent;
 
 use ismp::router::Timeout;
-
 use ismp_sync_committee::constants::mainnet::Mainnet;
 use pallet_ismp::{dispatcher::FeeMetadata, host::Host, primitives::ModuleId};
 use sp_std::prelude::*;
+use staging_xcm::latest::MultiLocation;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -40,7 +50,7 @@ pub struct HostStateMachine;
 
 impl Get<StateMachine> for HostStateMachine {
     fn get() -> StateMachine {
-        StateMachine::Kusama(ParachainInfo::get().into())
+        StateMachine::Polkadot(ParachainInfo::get().into())
     }
 }
 
@@ -71,11 +81,70 @@ impl pallet_ismp::Config for Runtime {
     type WeightProvider = ();
 }
 
-impl pallet_ismp_demo::Config for Runtime {
+impl pallet_ismp_relayer::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+}
+
+impl pallet_ismp_host_executive::Config for Runtime {}
+
+impl pallet_call_decompressor::Config for Runtime {
+    type MaxCallSize = ConstU32<3>;
+}
+
+// todo: set corrrect parameters
+parameter_types! {
+    pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");
+    pub const ProtocolAccount: PalletId = PalletId(*b"protocol");
+    pub const TransferParams: TokenGatewayParams = TokenGatewayParams::from_parts(Percent::from_percent(1), H160::zero(), H256::zero());
+}
+
+impl pallet_asset_gateway::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type PalletId = AssetPalletId;
+    type ProtocolAccount = ProtocolAccount;
+    type Params = TransferParams;
+    type Assets = Assets;
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+pub struct XcmBenchmarkHelper;
+#[cfg(feature = "runtime-benchmarks")]
+impl BenchmarkHelper<MultiLocation> for XcmBenchmarkHelper {
+    fn create_asset_id_parameter(id: u32) -> MultiLocation {
+        use staging_xcm::v3::Junction::Parachain;
+        MultiLocation::new(1, Parachain(id))
+    }
+}
+
+parameter_types! {
+    pub const AssetDeposit: Balance = EXISTENTIAL_DEPOSIT;
+    pub const AssetAccountDeposit: Balance = EXISTENTIAL_DEPOSIT * 2;
+    pub const MetadataDepositBase: Balance = EXISTENTIAL_DEPOSIT * 2;
+    pub const MetadataDepositPerByte: Balance = EXISTENTIAL_DEPOSIT / 2;
+    pub const ApprovalDeposit: Balance = EXISTENTIAL_DEPOSIT * 2;
+}
+
+impl pallet_assets::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Balance = Balance;
-    type NativeCurrency = Balances;
-    type IsmpDispatcher = pallet_ismp::dispatcher::Dispatcher<Runtime>;
+    type AssetId = MultiLocation;
+    type AssetIdParameter = MultiLocation;
+    type Currency = Balances;
+    type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
+    type ForceOrigin = EnsureRoot<AccountId32>;
+    type AssetDeposit = AssetDeposit;
+    type AssetAccountDeposit = AssetAccountDeposit;
+    type MetadataDepositBase = MetadataDepositBase;
+    type MetadataDepositPerByte = MetadataDepositPerByte;
+    type ApprovalDeposit = ApprovalDeposit;
+    type StringLimit = ConstU32<50>;
+    type Freezer = ();
+    type WeightInfo = ();
+    type CallbackHandle = ();
+    type Extra = ();
+    type RemoveItemsLimit = ConstU32<5>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = XcmBenchmarkHelper;
 }
 
 impl IsmpModule for ProxyModule {
@@ -87,9 +156,12 @@ impl IsmpModule for ProxyModule {
 
         let pallet_id = ModuleId::from_bytes(&request.to)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
+
+        let token_gateway = ModuleId::Evm(Gateway::token_gateway_address());
+
         match pallet_id {
-            pallet_ismp_demo::PALLET_ID =>
-                pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
+            id if id == token_gateway =>
+                pallet_asset_gateway::Module::<Runtime>::default().on_accept(request),
             _ => Err(Error::ImplementationSpecific("Destination module not found".to_string())),
         }
     }
@@ -108,9 +180,11 @@ impl IsmpModule for ProxyModule {
 
         let pallet_id = ModuleId::from_bytes(from)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
+
+        let token_gateway = ModuleId::Evm(Gateway::token_gateway_address());
         match pallet_id {
-            pallet_ismp_demo::PALLET_ID =>
-                pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_response(response),
+            id if id == token_gateway =>
+                pallet_asset_gateway::Module::<Runtime>::default().on_response(response),
             _ => Err(Error::ImplementationSpecific("Destination module not found".to_string())),
         }
     }
@@ -124,9 +198,10 @@ impl IsmpModule for ProxyModule {
 
         let pallet_id = ModuleId::from_bytes(from)
             .map_err(|err| Error::ImplementationSpecific(err.to_string()))?;
+        let token_gateway = ModuleId::Evm(Gateway::token_gateway_address());
         match pallet_id {
-            pallet_ismp_demo::PALLET_ID =>
-                pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(timeout),
+            id if id == token_gateway =>
+                pallet_asset_gateway::Module::<Runtime>::default().on_timeout(timeout),
             // instead of returning an error, do nothing. The timeout is for a connected chain.
             _ => Ok(()),
         }

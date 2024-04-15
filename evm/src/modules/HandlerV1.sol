@@ -20,11 +20,11 @@ import {
     PostResponseLeaf
 } from "ismp/Message.sol";
 
-// Storage prefix for request receipts in pallet-ismp
-bytes constant REQUEST_RECEIPTS_STORAGE_PREFIX = hex"103895530afb23bb607661426d55eb8b0484aecefe882c3ce64e6f82507f715a";
+// Storage prefix for request receipts in the pallet-ismp child trie
+bytes constant REQUEST_RECEIPTS_STORAGE_PREFIX = hex"526571756573745265636569707473";
 
-// Storage prefix for request receipts in pallet-ismp
-bytes constant RESPONSE_RECEIPTS_STORAGE_PREFIX = hex"103895530afb23bb607661426d55eb8b554b72b7162725f9457d35ecafb8b02f";
+// Storage prefix for request receipts in the pallet-ismp child trie
+bytes constant RESPONSE_RECEIPTS_STORAGE_PREFIX = hex"526573706f6e73655265636569707473";
 
 /// Entry point for the hyperbridge. Implementation of the ISMP handler protocol
 contract HandlerV1 is IHandler, Context {

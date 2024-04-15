@@ -83,9 +83,8 @@ pub mod pallet {
         <T as frame_system::Config>::RuntimeCall: IsSubType<pallet_ismp::Call<T>>,
         <T as frame_system::Config>::RuntimeCall: IsSubType<pallet_ismp_relayer::Call<T>>,
     {
-        /**
-           The `encoded_call_size` which is the size of the not compressed(decompressed) encoded call in bytes
-        */
+        /// The encoded_call_size which is the size of the not compressed(decompressed) encoded call
+        /// in bytes
         #[pallet::call_index(0)]
         #[pallet::weight({1_000_000})]
         pub fn decompress_call(

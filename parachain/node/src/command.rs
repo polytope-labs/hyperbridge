@@ -13,12 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::str::FromStr;
+use std::{borrow::Cow, str::FromStr};
 
 use cumulus_primitives_core::ParaId;
 use frame_benchmarking_cli::{BenchmarkCmd, SUBSTRATE_REFERENCE_HARDWARE};
 use gargantua_runtime::Block;
 use log::info;
+use polkadot_cli::service;
 use sc_cli::{
     ChainSpec, CliConfiguration, DefaultConfigurationValues, ImportParams, KeystoreParams,
     NetworkParams, Result, SharedParams, SubstrateCli,
@@ -35,6 +36,25 @@ use crate::{
 
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
     Ok(match id {
+        "gargantua-rococo" => Box::new(chain_spec::ChainSpec::<
+            gargantua_runtime::RuntimeGenesisConfig,
+        >::from_json_bytes(
+            include_bytes!("../../chainspec/gargantua.rococo.json").to_vec(),
+        )?),
+        "gargantua" => Box::new(
+            chain_spec::ChainSpec::<gargantua_runtime::RuntimeGenesisConfig>::from_json_bytes(
+                include_bytes!("../../chainspec/gargantua.paseo.json").to_vec(),
+            )?,
+        ),
+        "messier" => Box::new(
+            chain_spec::ChainSpec::<messier_runtime::RuntimeGenesisConfig>::from_json_bytes(
+                include_bytes!("../../chainspec/messier.json").to_vec(),
+            )?,
+        ),
+        "nexus" =>
+            Box::new(chain_spec::ChainSpec::<nexus_runtime::RuntimeGenesisConfig>::from_json_bytes(
+                include_bytes!("../../chainspec/nexus.json").to_vec(),
+            )?),
         name if name.starts_with("gargantua-") => {
             let id = name.split('-').last().expect("dev chainspec should have chain id");
             let id = u32::from_str(id).expect("can't parse Id into u32");
@@ -50,21 +70,6 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
             let id = u32::from_str(id).expect("can't parse Id into u32");
             Box::new(chain_spec::nexus_development_config(id))
         },
-
-        "gargantua" => Box::new(
-            chain_spec::ChainSpec::<gargantua_runtime::RuntimeGenesisConfig>::from_json_bytes(
-                include_bytes!("../../chainspec/gargantua.json").to_vec(),
-            )?,
-        ),
-        "messier" => Box::new(
-            chain_spec::ChainSpec::<messier_runtime::RuntimeGenesisConfig>::from_json_bytes(
-                include_bytes!("../../chainspec/messier.json").to_vec(),
-            )?,
-        ),
-        "nexus" =>
-            Box::new(chain_spec::ChainSpec::<nexus_runtime::RuntimeGenesisConfig>::from_json_bytes(
-                include_bytes!("../../chainspec/nexus.json").to_vec(),
-            )?),
         path => Box::new(
             chain_spec::ChainSpec::<gargantua_runtime::RuntimeGenesisConfig>::from_json_file(
                 std::path::PathBuf::from(path),
@@ -110,6 +115,19 @@ impl SubstrateCli for Cli {
 }
 
 impl SubstrateCli for RelayChainCli {
+    fn load_spec(&self, id: &str) -> std::result::Result<Box<dyn sc_service::ChainSpec>, String> {
+        match id {
+            "paseo" => {
+                let chain_spec = Box::new(service::GenericChainSpec::from_json_bytes(Cow::Owned(
+                    include_bytes!("../../chainspec/paseo.raw.json").to_vec(),
+                ))?) as Box<dyn service::ChainSpec>;
+                Ok(chain_spec)
+            },
+            id => polkadot_cli::Cli::from_iter([RelayChainCli::executable_name()].iter())
+                .load_spec(id),
+        }
+    }
+
     fn impl_name() -> String {
         "Hyperbridge".into()
     }
@@ -139,10 +157,6 @@ impl SubstrateCli for RelayChainCli {
     fn copyright_start_year() -> i32 {
         2020
     }
-
-    fn load_spec(&self, id: &str) -> std::result::Result<Box<dyn sc_service::ChainSpec>, String> {
-        polkadot_cli::Cli::from_iter([RelayChainCli::executable_name()].iter()).load_spec(id)
-    }
 }
 
 macro_rules! construct_async_run {
@@ -158,6 +172,12 @@ macro_rules! construct_async_run {
                 chain if chain.contains("messier") => {
                     runner.async_run(|$config| {
                         let $components = new_partial::<messier_runtime::RuntimeApi, MessierExecutor>(&$config)?;
+                        Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
+		            })
+                }
+                chain if chain.contains("nexus") => {
+                    runner.async_run(|$config| {
+                        let $components = new_partial::<nexus_runtime::RuntimeApi, NexusExecutor>(&$config)?;
                         Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
 		            })
                 }
@@ -280,6 +300,11 @@ pub fn run() -> Result<()> {
                                 messier_runtime::RuntimeApi,
                                 MessierExecutor,
                             >(&config)?;
+                            cmd.run(components.client)
+                        },
+                        chain if chain.contains("nexus") => {
+                            let components =
+                                new_partial::<nexus_runtime::RuntimeApi, NexusExecutor>(&config)?;
                             cmd.run(components.client)
                         },
                         chain => panic!("Unknown chain with id: {}", chain),

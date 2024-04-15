@@ -59,12 +59,13 @@ contract MainnetForkBaseTest is Test {
         CallDispatcher dispatcher = new CallDispatcher();
 
         uint256 paraId = 2000;
-        HostManagerParams memory gParams =
-            HostManagerParams({admin: address(this), host: address(0), governorStateMachineId: paraId});
+        HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
         HostManager manager = new HostManager(gParams);
         uint256[] memory stateMachineWhitelist = new uint256[](1);
         stateMachineWhitelist[0] = paraId;
+        address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
+            fishermen: fishermen,
             admin: address(0),
             hostManager: address(manager),
             handler: address(handler),
@@ -77,6 +78,7 @@ contract MainnetForkBaseTest is Test {
             consensusState: new bytes(0),
             perByteFee: 1000000000000000000, // 1FTK
             feeToken: address(feeToken),
+            hyperbridge: StateMachine.kusama(paraId),
             stateMachineWhitelist: stateMachineWhitelist
         });
 
@@ -100,7 +102,6 @@ contract MainnetForkBaseTest is Test {
         gateway.init(
             TokenGatewayParamsExt({
                 params: TokenGatewayParams({
-                    hyperbridge: StateMachine.kusama(2000),
                     host: address(host),
                     uniswapV2: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D,
                     dispatcher: address(dispatcher)

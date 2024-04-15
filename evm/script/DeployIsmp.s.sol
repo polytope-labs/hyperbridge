@@ -58,13 +58,14 @@ contract DeployScript is Script {
         HandlerV1 handler = new HandlerV1{salt: salt}();
 
         // Host manager
-        HostManager manager =
-        new HostManager{salt: salt}(HostManagerParams({admin: admin, host: address(0), governorStateMachineId : paraId}));
+        HostManager manager = new HostManager{salt: salt}(HostManagerParams({admin: admin, host: address(0)}));
         uint256[] memory stateMachineWhitelist = new uint256[](1);
         stateMachineWhitelist[0] = paraId;
 
         // EvmHost
+        address[] memory fishermen = new address[](0);
         HostParams memory params = HostParams({
+            fishermen: fishermen,
             admin: admin,
             hostManager: address(manager),
             handler: address(handler),
@@ -78,6 +79,7 @@ contract DeployScript is Script {
             consensusUpdateTimestamp: 0,
             consensusState: new bytes(0),
             perByteFee: 3 * 1e15, // $0.003/byte
+            hyperbridge: StateMachine.kusama(paraId),
             feeToken: address(feeToken),
             stateMachineWhitelist: stateMachineWhitelist
         });
@@ -146,12 +148,7 @@ contract DeployScript is Script {
         // initialize gateway
         gateway.init(
             TokenGatewayParamsExt({
-                params: TokenGatewayParams({
-                    hyperbridge: StateMachine.kusama(paraId),
-                    host: hostAddress,
-                    uniswapV2: address(1),
-                    dispatcher: dispatcher
-                }),
+                params: TokenGatewayParams({host: hostAddress, uniswapV2: address(1), dispatcher: dispatcher}),
                 assets: assets
             })
         );

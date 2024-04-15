@@ -2,7 +2,8 @@
 
 use alloc::vec::Vec;
 use core::marker::PhantomData;
-use frame_support::storage::{child, storage_prefix};
+
+use frame_support::storage::child;
 use sp_core::{storage::ChildInfo, H256};
 
 use crate::{dispatcher::LeafMetadata, Config, ResponseReceipt};
@@ -30,24 +31,21 @@ pub const CHILD_TRIE_PREFIX: &'static [u8] = b"ISMP";
 
 /// Storage key for a request commitment
 pub fn request_commitment_storage_key(key: H256) -> Vec<u8> {
-    let mut full_key =
-        storage_prefix(PALLET_NAME.as_bytes(), "RequestCommitments".as_bytes()).to_vec();
+    let mut full_key = "RequestCommitments".as_bytes().to_vec();
     full_key.extend_from_slice(&key.0);
     full_key
 }
 
 /// Storage key for a response commitment
 pub fn response_commitment_storage_key(key: H256) -> Vec<u8> {
-    let mut full_key =
-        storage_prefix(PALLET_NAME.as_bytes(), "ResponseCommitments".as_bytes()).to_vec();
+    let mut full_key = "ResponseCommitments".as_bytes().to_vec();
     full_key.extend_from_slice(&key.0);
     full_key
 }
 
 /// Storage key for a request receipt
 pub fn request_receipt_storage_key(key: H256) -> Vec<u8> {
-    let mut full_key =
-        storage_prefix(PALLET_NAME.as_bytes(), "RequestReceipts".as_bytes()).to_vec();
+    let mut full_key = "RequestReceipts".as_bytes().to_vec();
     full_key.extend_from_slice(&key.0);
     full_key
 }
@@ -55,8 +53,7 @@ pub fn request_receipt_storage_key(key: H256) -> Vec<u8> {
 /// Storage key for a response receipt
 /// The request commitment is the key
 pub fn response_receipt_storage_key(key: H256) -> Vec<u8> {
-    let mut full_key =
-        storage_prefix(PALLET_NAME.as_bytes(), "ResponseReceipts".as_bytes()).to_vec();
+    let mut full_key = "ResponseReceipts".as_bytes().to_vec();
     full_key.extend_from_slice(&key.0);
     full_key
 }

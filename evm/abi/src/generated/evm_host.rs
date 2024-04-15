@@ -145,6 +145,42 @@ pub mod evm_host {
                     ],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("deleteStateMachineCommitment"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "deleteStateMachineCommitment",
+                            ),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("height"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                        ],
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned(
+                                            "struct StateMachineHeight",
+                                        ),
+                                    ),
+                                },
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("fisherman"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Address,
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("address"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                        },
+                    ],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("dispatch"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Function {
@@ -656,10 +692,36 @@ pub mod evm_host {
                                                     ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
                                                 ),
                                             ),
+                                            ::ethers::core::abi::ethabi::ParamType::Array(
+                                                ::std::boxed::Box::new(
+                                                    ::ethers::core::abi::ethabi::ParamType::Address,
+                                                ),
+                                            ),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
                                         ],
                                     ),
                                     internal_type: ::core::option::Option::Some(
                                         ::std::borrow::ToOwned::to_owned("struct HostParams"),
+                                    ),
+                                },
+                            ],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("hyperbridge"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("hyperbridge"),
+                            inputs: ::std::vec![],
+                            outputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::string::String::new(),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bytes"),
                                     ),
                                 },
                             ],
@@ -677,7 +739,7 @@ pub mod evm_host {
                             ),
                             inputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::Param {
-                                    name: ::std::borrow::ToOwned::to_owned("stateMachineId"),
+                                    name: ::std::borrow::ToOwned::to_owned("id"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Uint(
                                         256usize,
                                     ),
@@ -927,6 +989,12 @@ pub mod evm_host {
                                                     ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
                                                 ),
                                             ),
+                                            ::ethers::core::abi::ethabi::ParamType::Array(
+                                                ::std::boxed::Box::new(
+                                                    ::ethers::core::abi::ethabi::ParamType::Address,
+                                                ),
+                                            ),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
                                         ],
                                     ),
                                     internal_type: ::core::option::Option::Some(
@@ -1014,6 +1082,36 @@ pub mod evm_host {
                                     ),
                                     internal_type: ::core::option::Option::Some(
                                         ::std::borrow::ToOwned::to_owned("uint256"),
+                                    ),
+                                },
+                            ],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::View,
+                        },
+                    ],
+                ),
+                (
+                    ::std::borrow::ToOwned::to_owned("stateMachineId"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("stateMachineId"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("id"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
+                                        256usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("uint256"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::string::String::new(),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bytes"),
                                     ),
                                 },
                             ],
@@ -1156,6 +1254,12 @@ pub mod evm_host {
                                                     ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
                                                 ),
                                             ),
+                                            ::ethers::core::abi::ethabi::ParamType::Array(
+                                                ::std::boxed::Box::new(
+                                                    ::ethers::core::abi::ethabi::ParamType::Address,
+                                                ),
+                                            ),
+                                            ::ethers::core::abi::ethabi::ParamType::Bytes,
                                         ],
                                     ),
                                     internal_type: ::core::option::Option::Some(
@@ -1541,6 +1645,36 @@ pub mod evm_host {
                     ],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("StateCommitmentVetoed"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Event {
+                            name: ::std::borrow::ToOwned::to_owned(
+                                "StateCommitmentVetoed",
+                            ),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("stateMachineId"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
+                                    indexed: false,
+                                },
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("height"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
+                                        256usize,
+                                    ),
+                                    indexed: false,
+                                },
+                                ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("fisherman"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Address,
+                                    indexed: false,
+                                },
+                            ],
+                            anonymous: false,
+                        },
+                    ],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("StateMachineUpdated"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Event {
@@ -1550,9 +1684,7 @@ pub mod evm_host {
                             inputs: ::std::vec![
                                 ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("stateMachineId"),
-                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
-                                        256usize,
-                                    ),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Bytes,
                                     indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
@@ -1653,6 +1785,16 @@ pub mod evm_host {
         ) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::U256> {
             self.0
                 .method_hash([154, 132, 37, 188], ())
+                .expect("method not found (this should never happen)")
+        }
+        ///Calls the contract's `deleteStateMachineCommitment` (0xf8ddf259) function
+        pub fn delete_state_machine_commitment(
+            &self,
+            height: StateMachineHeight,
+            fisherman: ::ethers::core::types::Address,
+        ) -> ::ethers::contract::builders::ContractCall<M, ()> {
+            self.0
+                .method_hash([248, 221, 242, 89], (height, fisherman))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `dispatch` (0x94480805) function
@@ -1783,13 +1925,21 @@ pub mod evm_host {
                 .method_hash([34, 21, 54, 77], ())
                 .expect("method not found (this should never happen)")
         }
+        ///Calls the contract's `hyperbridge` (0x005e763e) function
+        pub fn hyperbridge(
+            &self,
+        ) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::Bytes> {
+            self.0
+                .method_hash([0, 94, 118, 62], ())
+                .expect("method not found (this should never happen)")
+        }
         ///Calls the contract's `latestStateMachineHeight` (0x9c095f86) function
         pub fn latest_state_machine_height(
             &self,
-            state_machine_id: ::ethers::core::types::U256,
+            id: ::ethers::core::types::U256,
         ) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::U256> {
             self.0
-                .method_hash([156, 9, 95, 134], state_machine_id)
+                .method_hash([156, 9, 95, 134], id)
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `perByteFee` (0x641d729d) function
@@ -1854,13 +2004,13 @@ pub mod evm_host {
                 .method_hash([25, 232, 250, 241], new_state)
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `setHostParamsAdmin` (0x181a5972) function
+        ///Calls the contract's `setHostParamsAdmin` (0x8916e155) function
         pub fn set_host_params_admin(
             &self,
             params: HostParams,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([24, 26, 89, 114], (params,))
+                .method_hash([137, 22, 225, 85], (params,))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `stateMachineCommitment` (0xa70a8c47) function
@@ -1879,6 +2029,15 @@ pub mod evm_host {
         ) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::U256> {
             self.0
                 .method_hash([26, 136, 10, 147], (height,))
+                .expect("method not found (this should never happen)")
+        }
+        ///Calls the contract's `stateMachineId` (0x0b49e04c) function
+        pub fn state_machine_id(
+            &self,
+            id: ::ethers::core::types::U256,
+        ) -> ::ethers::contract::builders::ContractCall<M, ::ethers::core::types::Bytes> {
+            self.0
+                .method_hash([11, 73, 224, 76], id)
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `storeConsensusState` (0xb4974cf0) function
@@ -1916,13 +2075,13 @@ pub mod evm_host {
                 .method_hash([212, 7, 132, 199], ())
                 .expect("method not found (this should never happen)")
         }
-        ///Calls the contract's `updateHostParams` (0x48da1737) function
+        ///Calls the contract's `updateHostParams` (0xf6903fc2) function
         pub fn update_host_params(
             &self,
             params: HostParams,
         ) -> ::ethers::contract::builders::ContractCall<M, ()> {
             self.0
-                .method_hash([72, 218, 23, 55], (params,))
+                .method_hash([246, 144, 63, 194], (params,))
                 .expect("method not found (this should never happen)")
         }
         ///Calls the contract's `vetoStateCommitment` (0x0a4fe5c0) function
@@ -2013,6 +2172,13 @@ pub mod evm_host {
             M,
             PostResponseTimeoutHandledFilter,
         > {
+            self.0.event()
+        }
+        ///Gets the contract's `StateCommitmentVetoed` event
+        pub fn state_commitment_vetoed_filter(
+            &self,
+        ) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, StateCommitmentVetoedFilter>
+        {
             self.0.event()
         }
         ///Gets the contract's `StateMachineUpdated` event
@@ -2207,9 +2373,28 @@ pub mod evm_host {
         Eq,
         Hash,
     )]
-    #[ethevent(name = "StateMachineUpdated", abi = "StateMachineUpdated(uint256,uint256)")]
+    #[ethevent(
+        name = "StateCommitmentVetoed",
+        abi = "StateCommitmentVetoed(bytes,uint256,address)"
+    )]
+    pub struct StateCommitmentVetoedFilter {
+        pub state_machine_id: ::ethers::core::types::Bytes,
+        pub height: ::ethers::core::types::U256,
+        pub fisherman: ::ethers::core::types::Address,
+    }
+    #[derive(
+        Clone,
+        ::ethers::contract::EthEvent,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethevent(name = "StateMachineUpdated", abi = "StateMachineUpdated(bytes,uint256)")]
     pub struct StateMachineUpdatedFilter {
-        pub state_machine_id: ::ethers::core::types::U256,
+        pub state_machine_id: ::ethers::core::types::Bytes,
         pub height: ::ethers::core::types::U256,
     }
     ///Container type for all of the contract's events
@@ -2224,6 +2409,7 @@ pub mod evm_host {
         PostResponseEventFilter(PostResponseEventFilter),
         PostResponseHandledFilter(PostResponseHandledFilter),
         PostResponseTimeoutHandledFilter(PostResponseTimeoutHandledFilter),
+        StateCommitmentVetoedFilter(StateCommitmentVetoedFilter),
         StateMachineUpdatedFilter(StateMachineUpdatedFilter),
     }
     impl ::ethers::contract::EthLogDecode for EvmHostEvents {
@@ -2257,6 +2443,9 @@ pub mod evm_host {
             if let Ok(decoded) = PostResponseTimeoutHandledFilter::decode_log(log) {
                 return Ok(EvmHostEvents::PostResponseTimeoutHandledFilter(decoded));
             }
+            if let Ok(decoded) = StateCommitmentVetoedFilter::decode_log(log) {
+                return Ok(EvmHostEvents::StateCommitmentVetoedFilter(decoded));
+            }
             if let Ok(decoded) = StateMachineUpdatedFilter::decode_log(log) {
                 return Ok(EvmHostEvents::StateMachineUpdatedFilter(decoded));
             }
@@ -2278,6 +2467,7 @@ pub mod evm_host {
                 Self::PostResponseHandledFilter(element) => ::core::fmt::Display::fmt(element, f),
                 Self::PostResponseTimeoutHandledFilter(element) =>
                     ::core::fmt::Display::fmt(element, f),
+                Self::StateCommitmentVetoedFilter(element) => ::core::fmt::Display::fmt(element, f),
                 Self::StateMachineUpdatedFilter(element) => ::core::fmt::Display::fmt(element, f),
             }
         }
@@ -2325,6 +2515,11 @@ pub mod evm_host {
     impl ::core::convert::From<PostResponseTimeoutHandledFilter> for EvmHostEvents {
         fn from(value: PostResponseTimeoutHandledFilter) -> Self {
             Self::PostResponseTimeoutHandledFilter(value)
+        }
+    }
+    impl ::core::convert::From<StateCommitmentVetoedFilter> for EvmHostEvents {
+        fn from(value: StateCommitmentVetoedFilter) -> Self {
+            Self::StateCommitmentVetoedFilter(value)
         }
     }
     impl ::core::convert::From<StateMachineUpdatedFilter> for EvmHostEvents {
@@ -2416,6 +2611,27 @@ pub mod evm_host {
     )]
     #[ethcall(name = "consensusUpdateTime", abi = "consensusUpdateTime()")]
     pub struct ConsensusUpdateTimeCall;
+    ///Container type for all input parameters for the `deleteStateMachineCommitment` function with
+    /// signature `deleteStateMachineCommitment((uint256,uint256),address)` and selector
+    /// `0xf8ddf259`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(
+        name = "deleteStateMachineCommitment",
+        abi = "deleteStateMachineCommitment((uint256,uint256),address)"
+    )]
+    pub struct DeleteStateMachineCommitmentCall {
+        pub height: StateMachineHeight,
+        pub fisherman: ::ethers::core::types::Address,
+    }
     ///Container type for all input parameters for the `dispatch` function with signature
     /// `dispatch(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64,uint256,address))` and
     /// selector `0x94480805`
@@ -2670,6 +2886,20 @@ pub mod evm_host {
     )]
     #[ethcall(name = "hostParams", abi = "hostParams()")]
     pub struct HostParamsCall;
+    ///Container type for all input parameters for the `hyperbridge` function with signature
+    /// `hyperbridge()` and selector `0x005e763e`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(name = "hyperbridge", abi = "hyperbridge()")]
+    pub struct HyperbridgeCall;
     ///Container type for all input parameters for the `latestStateMachineHeight` function with
     /// signature `latestStateMachineHeight(uint256)` and selector `0x9c095f86`
     #[derive(
@@ -2684,7 +2914,7 @@ pub mod evm_host {
     )]
     #[ethcall(name = "latestStateMachineHeight", abi = "latestStateMachineHeight(uint256)")]
     pub struct LatestStateMachineHeightCall {
-        pub state_machine_id: ::ethers::core::types::U256,
+        pub id: ::ethers::core::types::U256,
     }
     ///Container type for all input parameters for the `perByteFee` function with signature
     /// `perByteFee()` and selector `0x641d729d`
@@ -2798,20 +3028,11 @@ pub mod evm_host {
     }
     ///Container type for all input parameters for the `setHostParamsAdmin` function with signature
     /// `setHostParamsAdmin((uint256,uint256,address,address,address,address,uint256,uint256,
-    /// address,bytes,uint256,uint256[]))` and selector `0x181a5972`
-    #[derive(
-        Clone,
-        ::ethers::contract::EthCall,
-        ::ethers::contract::EthDisplay,
-        Default,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-    )]
+    /// address,bytes,uint256,uint256[],address[],bytes))` and selector `0x8916e155`
+    #[derive(Clone, ::ethers::contract::EthCall, ::ethers::contract::EthDisplay)]
     #[ethcall(
         name = "setHostParamsAdmin",
-        abi = "setHostParamsAdmin((uint256,uint256,address,address,address,address,uint256,uint256,address,bytes,uint256,uint256[]))"
+        abi = "setHostParamsAdmin((uint256,uint256,address,address,address,address,uint256,uint256,address,bytes,uint256,uint256[],address[],bytes))"
     )]
     pub struct SetHostParamsAdminCall {
         pub params: HostParams,
@@ -2851,6 +3072,22 @@ pub mod evm_host {
     )]
     pub struct StateMachineCommitmentUpdateTimeCall {
         pub height: StateMachineHeight,
+    }
+    ///Container type for all input parameters for the `stateMachineId` function with signature
+    /// `stateMachineId(uint256)` and selector `0x0b49e04c`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(name = "stateMachineId", abi = "stateMachineId(uint256)")]
+    pub struct StateMachineIdCall {
+        pub id: ::ethers::core::types::U256,
     }
     ///Container type for all input parameters for the `storeConsensusState` function with
     /// signature `storeConsensusState(bytes)` and selector `0xb4974cf0`
@@ -2919,20 +3156,11 @@ pub mod evm_host {
     pub struct UnStakingPeriodCall;
     ///Container type for all input parameters for the `updateHostParams` function with signature
     /// `updateHostParams((uint256,uint256,address,address,address,address,uint256,uint256,address,
-    /// bytes,uint256,uint256[]))` and selector `0x48da1737`
-    #[derive(
-        Clone,
-        ::ethers::contract::EthCall,
-        ::ethers::contract::EthDisplay,
-        Default,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-    )]
+    /// bytes,uint256,uint256[],address[],bytes))` and selector `0xf6903fc2`
+    #[derive(Clone, ::ethers::contract::EthCall, ::ethers::contract::EthDisplay)]
     #[ethcall(
         name = "updateHostParams",
-        abi = "updateHostParams((uint256,uint256,address,address,address,address,uint256,uint256,address,bytes,uint256,uint256[]))"
+        abi = "updateHostParams((uint256,uint256,address,address,address,address,uint256,uint256,address,bytes,uint256,uint256[],address[],bytes))"
     )]
     pub struct UpdateHostParamsCall {
         pub params: HostParams,
@@ -2970,7 +3198,7 @@ pub mod evm_host {
         pub params: WithdrawParams,
     }
     ///Container type for all of the contract's call
-    #[derive(Clone, ::ethers::contract::EthAbiType, Debug, PartialEq, Eq, Hash)]
+    #[derive(Clone, ::ethers::contract::EthAbiType)]
     pub enum EvmHostCalls {
         Admin(AdminCall),
         ChainId(ChainIdCall),
@@ -2978,6 +3206,7 @@ pub mod evm_host {
         ConsensusClient(ConsensusClientCall),
         ConsensusState(ConsensusStateCall),
         ConsensusUpdateTime(ConsensusUpdateTimeCall),
+        DeleteStateMachineCommitment(DeleteStateMachineCommitmentCall),
         Dispatch(DispatchCall),
         DispatchWithPost(DispatchWithPostCall),
         DispatchWithGet(DispatchWithGetCall),
@@ -2992,6 +3221,7 @@ pub mod evm_host {
         FundRequest(FundRequestCall),
         Host(HostCall),
         HostParams(HostParamsCall),
+        Hyperbridge(HyperbridgeCall),
         LatestStateMachineHeight(LatestStateMachineHeightCall),
         PerByteFee(PerByteFeeCall),
         RequestCommitments(RequestCommitmentsCall),
@@ -3003,6 +3233,7 @@ pub mod evm_host {
         SetHostParamsAdmin(SetHostParamsAdminCall),
         StateMachineCommitment(StateMachineCommitmentCall),
         StateMachineCommitmentUpdateTime(StateMachineCommitmentUpdateTimeCall),
+        StateMachineId(StateMachineIdCall),
         StoreConsensusState(StoreConsensusStateCall),
         StoreStateMachineCommitment(StoreStateMachineCommitmentCall),
         Timestamp(TimestampCall),
@@ -3041,6 +3272,11 @@ pub mod evm_host {
                 <ConsensusUpdateTimeCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
                 return Ok(Self::ConsensusUpdateTime(decoded));
+            }
+            if let Ok(decoded) =
+                <DeleteStateMachineCommitmentCall as ::ethers::core::abi::AbiDecode>::decode(data)
+            {
+                return Ok(Self::DeleteStateMachineCommitment(decoded));
             }
             if let Ok(decoded) = <DispatchCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::Dispatch(decoded));
@@ -3100,6 +3336,9 @@ pub mod evm_host {
             if let Ok(decoded) = <HostParamsCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::HostParams(decoded));
             }
+            if let Ok(decoded) = <HyperbridgeCall as ::ethers::core::abi::AbiDecode>::decode(data) {
+                return Ok(Self::Hyperbridge(decoded));
+            }
             if let Ok(decoded) =
                 <LatestStateMachineHeightCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
@@ -3156,6 +3395,11 @@ pub mod evm_host {
                 return Ok(Self::StateMachineCommitmentUpdateTime(decoded));
             }
             if let Ok(decoded) =
+                <StateMachineIdCall as ::ethers::core::abi::AbiDecode>::decode(data)
+            {
+                return Ok(Self::StateMachineId(decoded));
+            }
+            if let Ok(decoded) =
                 <StoreConsensusStateCall as ::ethers::core::abi::AbiDecode>::decode(data)
             {
                 return Ok(Self::StoreConsensusState(decoded));
@@ -3199,6 +3443,8 @@ pub mod evm_host {
                 Self::ConsensusState(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::ConsensusUpdateTime(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
+                Self::DeleteStateMachineCommitment(element) =>
+                    ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Dispatch(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::DispatchWithPost(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::DispatchWithGet(element) => ::ethers::core::abi::AbiEncode::encode(element),
@@ -3213,6 +3459,7 @@ pub mod evm_host {
                 Self::FundRequest(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Host(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::HostParams(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::Hyperbridge(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::LatestStateMachineHeight(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
                 Self::PerByteFee(element) => ::ethers::core::abi::AbiEncode::encode(element),
@@ -3230,6 +3477,7 @@ pub mod evm_host {
                     ::ethers::core::abi::AbiEncode::encode(element),
                 Self::StateMachineCommitmentUpdateTime(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
+                Self::StateMachineId(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::StoreConsensusState(element) =>
                     ::ethers::core::abi::AbiEncode::encode(element),
                 Self::StoreStateMachineCommitment(element) =>
@@ -3252,6 +3500,8 @@ pub mod evm_host {
                 Self::ConsensusClient(element) => ::core::fmt::Display::fmt(element, f),
                 Self::ConsensusState(element) => ::core::fmt::Display::fmt(element, f),
                 Self::ConsensusUpdateTime(element) => ::core::fmt::Display::fmt(element, f),
+                Self::DeleteStateMachineCommitment(element) =>
+                    ::core::fmt::Display::fmt(element, f),
                 Self::Dispatch(element) => ::core::fmt::Display::fmt(element, f),
                 Self::DispatchWithPost(element) => ::core::fmt::Display::fmt(element, f),
                 Self::DispatchWithGet(element) => ::core::fmt::Display::fmt(element, f),
@@ -3266,6 +3516,7 @@ pub mod evm_host {
                 Self::FundRequest(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Host(element) => ::core::fmt::Display::fmt(element, f),
                 Self::HostParams(element) => ::core::fmt::Display::fmt(element, f),
+                Self::Hyperbridge(element) => ::core::fmt::Display::fmt(element, f),
                 Self::LatestStateMachineHeight(element) => ::core::fmt::Display::fmt(element, f),
                 Self::PerByteFee(element) => ::core::fmt::Display::fmt(element, f),
                 Self::RequestCommitments(element) => ::core::fmt::Display::fmt(element, f),
@@ -3278,6 +3529,7 @@ pub mod evm_host {
                 Self::StateMachineCommitment(element) => ::core::fmt::Display::fmt(element, f),
                 Self::StateMachineCommitmentUpdateTime(element) =>
                     ::core::fmt::Display::fmt(element, f),
+                Self::StateMachineId(element) => ::core::fmt::Display::fmt(element, f),
                 Self::StoreConsensusState(element) => ::core::fmt::Display::fmt(element, f),
                 Self::StoreStateMachineCommitment(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Timestamp(element) => ::core::fmt::Display::fmt(element, f),
@@ -3316,6 +3568,11 @@ pub mod evm_host {
     impl ::core::convert::From<ConsensusUpdateTimeCall> for EvmHostCalls {
         fn from(value: ConsensusUpdateTimeCall) -> Self {
             Self::ConsensusUpdateTime(value)
+        }
+    }
+    impl ::core::convert::From<DeleteStateMachineCommitmentCall> for EvmHostCalls {
+        fn from(value: DeleteStateMachineCommitmentCall) -> Self {
+            Self::DeleteStateMachineCommitment(value)
         }
     }
     impl ::core::convert::From<DispatchCall> for EvmHostCalls {
@@ -3388,6 +3645,11 @@ pub mod evm_host {
             Self::HostParams(value)
         }
     }
+    impl ::core::convert::From<HyperbridgeCall> for EvmHostCalls {
+        fn from(value: HyperbridgeCall) -> Self {
+            Self::Hyperbridge(value)
+        }
+    }
     impl ::core::convert::From<LatestStateMachineHeightCall> for EvmHostCalls {
         fn from(value: LatestStateMachineHeightCall) -> Self {
             Self::LatestStateMachineHeight(value)
@@ -3441,6 +3703,11 @@ pub mod evm_host {
     impl ::core::convert::From<StateMachineCommitmentUpdateTimeCall> for EvmHostCalls {
         fn from(value: StateMachineCommitmentUpdateTimeCall) -> Self {
             Self::StateMachineCommitmentUpdateTime(value)
+        }
+    }
+    impl ::core::convert::From<StateMachineIdCall> for EvmHostCalls {
+        fn from(value: StateMachineIdCall) -> Self {
+            Self::StateMachineId(value)
         }
     }
     impl ::core::convert::From<StoreConsensusStateCall> for EvmHostCalls {
@@ -3654,6 +3921,19 @@ pub mod evm_host {
         Hash,
     )]
     pub struct HostParamsReturn(pub HostParams);
+    ///Container type for all return fields from the `hyperbridge` function with signature
+    /// `hyperbridge()` and selector `0x005e763e`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct HyperbridgeReturn(pub ::ethers::core::types::Bytes);
     ///Container type for all return fields from the `latestStateMachineHeight` function with
     /// signature `latestStateMachineHeight(uint256)` and selector `0x9c095f86`
     #[derive(
@@ -3759,6 +4039,19 @@ pub mod evm_host {
         Hash,
     )]
     pub struct StateMachineCommitmentUpdateTimeReturn(pub ::ethers::core::types::U256);
+    ///Container type for all return fields from the `stateMachineId` function with signature
+    /// `stateMachineId(uint256)` and selector `0x0b49e04c`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthAbiType,
+        ::ethers::contract::EthAbiCodec,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    pub struct StateMachineIdReturn(pub ::ethers::core::types::Bytes);
     ///Container type for all return fields from the `timestamp` function with signature
     /// `timestamp()` and selector `0xb80777ea`
     #[derive(
@@ -3857,7 +4150,7 @@ pub mod evm_host {
         pub sender: ::ethers::core::types::Address,
     }
     ///`HostParams(uint256,uint256,address,address,address,address,uint256,uint256,address,bytes,
-    /// uint256,uint256[])`
+    /// uint256,uint256[],address[],bytes)`
     #[derive(
         Clone,
         ::ethers::contract::EthAbiType,
@@ -3881,6 +4174,8 @@ pub mod evm_host {
         pub consensus_state: ::ethers::core::types::Bytes,
         pub consensus_update_timestamp: ::ethers::core::types::U256,
         pub state_machine_whitelist: ::std::vec::Vec<::ethers::core::types::U256>,
+        pub fishermen: ::std::vec::Vec<::ethers::core::types::Address>,
+        pub hyperbridge: ::ethers::core::types::Bytes,
     }
     ///`ResponseReceipt(bytes32,address)`
     #[derive(

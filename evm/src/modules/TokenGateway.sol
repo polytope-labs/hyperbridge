@@ -8,8 +8,9 @@ import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "ismp/IIsmpModule
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import {CallDispatcher, ICallDispatcher} from "./CallDispatcher.sol";
+import {ICallDispatcher} from "./CallDispatcher.sol";
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
+import {EvmHost} from "../hosts/EvmHost.sol";
 
 struct TeleportParams {
     // amount to be sent
@@ -100,8 +101,6 @@ enum OnAcceptActions
 uint256 constant BODY_BYTES_SIZE = 161;
 
 struct TokenGatewayParams {
-    // StateMachine identifier for hyperbridge
-    bytes hyperbridge;
     // address of the IsmpHost contract on this chain
     address host;
     // local uniswap router
@@ -387,7 +386,7 @@ contract TokenGateway is BaseIsmpModule {
 
     function handleGovernance(PostRequest calldata request) private {
         // only hyperbridge can do this
-        require(request.source.equals(_params.hyperbridge), "Unauthorized request");
+        require(request.source.equals(EvmHost(_params.host).hyperbridge()), "Unauthorized request");
         TokenGatewayParamsExt memory teleportParams = abi.decode(request.body[1:], (TokenGatewayParamsExt));
 
         _params = teleportParams.params;

@@ -6,9 +6,6 @@ on:
       - main
   pull_request_target:
     types: [ opened, synchronize ]
-  pull_request:
-    branches:
-      - main
 
 concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}
@@ -263,9 +260,11 @@ jobs:
           # install polkadot binary
           cd ../
           mkdir -p polkadot-sdk/target/release
-          wget -O ./polkadot.tar.gz -q --show-progress 'https://dl.dropbox.com/scl/fi/onsvsex4w9vf5vghqe23j/polkadot.tar.gz?rlkey=17e3gq0n82v8hhar4nzlynruu&dl=0'
-          tar xvzf ./polkadot.tar.gz
-          mv bins/* polkadot-sdk/target/release
+          cd polkadot-sdk/target/release
+          wget -O ./polkadot -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-v1.10.0/polkadot'
+          wget -O ./polkadot-execute-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-v1.10.0/polkadot-execute-worker'
+          wget -O ./polkadot-prepare-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-v1.10.0/polkadot-prepare-worker'
+          cd ../../../
           ls -la polkadot-sdk/target/release
 
           # build hyperbridge binary

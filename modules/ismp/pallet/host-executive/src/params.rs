@@ -28,11 +28,15 @@ pub struct HostParam {
     /// The consensus client contract
     pub consensus_client: H160,
     /// The current consensus state
-    pub consensus_state: BoundedVec<u8, ConstU32<100_000>>,
+    pub consensus_state: BoundedVec<u8, ConstU32<1_000_000>>,
     /// Timestamp for when the consensus state was last updated
     pub consensus_update_timestamp: u128,
     /// The state machine identifier for hyperbridge
     pub state_machine_whitelist: BoundedVec<u32, ConstU32<1_000>>,
+    /// List of fishermen
+    pub fishermen: BoundedVec<H160, ConstU32<1_000>>,
+    /// The state machine identifier for hyperbridge
+    pub hyperbridge: BoundedVec<u8, ConstU32<1_000>>,
 }
 
 impl HostParam {
@@ -85,6 +89,14 @@ impl HostParam {
         if let Some(state_machine_whitelist) = update.state_machine_whitelist {
             self.state_machine_whitelist = state_machine_whitelist;
         }
+
+        if let Some(fishermen) = update.fishermen {
+            self.fishermen = fishermen;
+        }
+
+        if let Some(hyperbridge) = update.hyperbridge {
+            self.hyperbridge = hyperbridge;
+        }
     }
 }
 
@@ -112,11 +124,15 @@ pub struct HostParamUpdate {
     /// The consensus client contract
     pub consensus_client: Option<H160>,
     /// The current consensus state
-    pub consensus_state: Option<BoundedVec<u8, ConstU32<100_000>>>,
+    pub consensus_state: Option<BoundedVec<u8, ConstU32<1_000_000>>>,
     /// Timestamp for when the consensus state was last updated
     pub consensus_update_timestamp: Option<u128>,
     /// The state machine identifier for hyperbridge
     pub state_machine_whitelist: Option<BoundedVec<u32, ConstU32<1_000>>>,
+    /// List of fishermen
+    pub fishermen: Option<BoundedVec<H160, ConstU32<1_000>>>,
+    /// The state machine identifier for hyperbridge
+    pub hyperbridge: Option<BoundedVec<u8, ConstU32<1_000>>>,
 }
 
 /// The host parameters of all connected chains, ethereum friendly version
@@ -146,6 +162,10 @@ pub struct HostParamRlp {
     pub consensus_update_timestamp: alloy_primitives::U256,
     /// The state machine identifier for hyperbridge
     pub state_machine_whitelist: Vec<alloy_primitives::U256>,
+    /// The list of whitelisted fisherment
+    pub fishermen: Vec<alloy_primitives::Address>,
+    /// The state machine identifier for hyperbridge
+    pub hyperbridge: alloy_primitives::Bytes,
 }
 
 impl TryFrom<HostParam> for HostParamRlp {
@@ -172,6 +192,12 @@ impl TryFrom<HostParam> for HostParamRlp {
                 .into_iter()
                 .map(|id| id.try_into().map_err(anyhow::Error::msg))
                 .collect::<Result<Vec<_>, anyhow::Error>>()?,
+            hyperbridge: value.hyperbridge.to_vec().into(),
+            fishermen: value
+                .fishermen
+                .into_iter()
+                .map(|address| address.0.try_into().map_err(anyhow::Error::msg))
+                .collect::<Result<Vec<_>, _>>()?,
         })
     }
 }

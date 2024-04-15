@@ -264,6 +264,10 @@ jobs:
           wget -O ./polkadot -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-v1.10.0/polkadot'
           wget -O ./polkadot-execute-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-v1.10.0/polkadot-execute-worker'
           wget -O ./polkadot-prepare-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-v1.10.0/polkadot-prepare-worker'
+          sudo chmod +x ./polkadot
+          sudo chmod +x ./polkadot-execute-worker
+          sudo chmod +x ./polkadot-prepare-worker
+
           cd ../../../
           ls -la polkadot-sdk/target/release
 

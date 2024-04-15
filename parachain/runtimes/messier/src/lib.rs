@@ -585,7 +585,11 @@ construct_runtime!(
 
 
         IsmpSyncCommittee: ismp_sync_committee::pallet::{Pallet, Call} = 41,
-        IsmpDemo: pallet_ismp_demo = 42,
+        Relayer: pallet_ismp_relayer = 42,
+        HostExecutive: pallet_ismp_host_executive = 43,
+        CallDecompressor: pallet_call_decompressor = 44,
+        Gateway: pallet_asset_gateway = 45,
+        Assets: pallet_assets = 46,
     }
 );
 

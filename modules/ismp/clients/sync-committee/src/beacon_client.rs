@@ -54,7 +54,7 @@ impl<
         consensus_proof: Vec<u8>,
     ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
         let BeaconClientUpdate {
-            l2_oracle_payload: mut op_stack_payload,
+            mut l2_oracle_payload,
             mut dispute_game_payload,
             consensus_update,
             mut arbitrum_payload,
@@ -121,7 +121,7 @@ impl<
                     }
                 },
                 L2Consensus::OpL2Oracle(l2_oracle) => {
-                    if let Some(payload) = op_stack_payload.remove(&state_machine) {
+                    if let Some(payload) = l2_oracle_payload.remove(&state_machine) {
                         let state = verify_optimism_payload::<H>(
                             payload,
                             state_root,

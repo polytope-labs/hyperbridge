@@ -15,24 +15,10 @@
 use alloc::collections::BTreeMap;
 use arbitrum_verifier::ArbitrumPayloadProof;
 use codec::{Decode, Encode};
-use ethabi::ethereum_types::{H160, H256};
-use hash256_std_hasher::Hash256StdHasher;
-use hash_db::Hasher;
-use ismp::host::{IsmpHost, StateMachine};
+use ethabi::ethereum_types::H160;
+use ismp::host::StateMachine;
 use op_verifier::{OptimismDisputeGameProof, OptimismPayloadProof};
 use sync_committee_primitives::types::{VerifierState, VerifierStateUpdate};
-
-pub struct KeccakHasher<H: IsmpHost>(core::marker::PhantomData<H>);
-
-impl<H: IsmpHost + Send + Sync> Hasher for KeccakHasher<H> {
-    type Out = H256;
-    type StdHasher = Hash256StdHasher;
-    const LENGTH: usize = 32;
-
-    fn hash(x: &[u8]) -> Self::Out {
-        H::keccak256(x)
-    }
-}
 
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct ConsensusState {

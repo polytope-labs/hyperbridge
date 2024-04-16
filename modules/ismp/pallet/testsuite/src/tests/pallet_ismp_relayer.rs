@@ -18,6 +18,7 @@
 use alloy_primitives::hex;
 use codec::{Decode, Encode};
 use ethereum_trie::{keccak::KeccakHasher, MemoryDB, StorageProof};
+use evm_common::types::EvmStateProof;
 use frame_support::crypto::ecdsa::ECDSAExt;
 use ismp::{
     consensus::{StateCommitment, StateMachineHeight, StateMachineId},
@@ -26,7 +27,6 @@ use ismp::{
     router::{Post, Request},
     util::{hash_post_response, hash_request},
 };
-use ismp_sync_committee::types::EvmStateProof;
 use pallet_ismp::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
     dispatcher::FeeMetadata,
@@ -427,9 +427,7 @@ fn test_evm_accumulate_fees() {
             ismp_contract_addresses: vec![(StateMachine::Ethereum(Ethereum::Optimism), op_host)]
                 .into_iter()
                 .collect(),
-            l2_oracle_address: Default::default(),
-            rollup_core_address: Default::default(),
-            dispute_factory_address: Default::default(),
+            l2_consensus: Default::default(),
         };
         host.store_consensus_state(
             claim_proof.source_proof.height.id.consensus_state_id,
@@ -562,9 +560,7 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
         ismp_contract_addresses: vec![(StateMachine::Ethereum(Ethereum::Base), op_host)]
             .into_iter()
             .collect(),
-        l2_oracle_address: Default::default(),
-        rollup_core_address: Default::default(),
-        dispute_factory_address: Default::default(),
+        l2_consensus: Default::default(),
     };
     host.store_consensus_state(
         claim_proof.source_proof.height.id.consensus_state_id,

@@ -5991,9 +5991,6 @@ dependencies = [
 name = "ismp-sync-committee"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives",
- "alloy-rlp",
- "alloy-rlp-derive",
  "arbitrum-verifier",
  "ethabi",
  "ethereum-trie",
@@ -6001,8 +5998,6 @@ dependencies = [
  "frame-support",
  "frame-system",
  "geth-primitives",
- "hash-db",
- "hash256-std-hasher",
  "hex",
  "hex-literal 0.3.4",
  "ismp",
@@ -6016,7 +6011,6 @@ dependencies = [
  "sp-trie 29.0.0",
  "sync-committee-primitives",
  "sync-committee-verifier",
- "trie-db 0.28.0",
 ]
 
 [[package]]
@@ -8967,6 +8961,7 @@ dependencies = [
  "dotenv",
  "env_logger",
  "ethereum-trie",
+ "evm-common",
  "frame-support",
  "frame-system",
  "futures",

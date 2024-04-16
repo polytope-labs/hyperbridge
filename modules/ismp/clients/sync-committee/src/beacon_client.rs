@@ -13,19 +13,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloc::{
-    collections::{BTreeMap, BTreeSet},
-    format,
-    string::ToString,
-};
+use alloc::{collections::BTreeMap, format, string::ToString};
 use arbitrum_verifier::verify_arbitrum_payload;
 use codec::{Decode, Encode};
 use evm_common::{
     construct_intermediate_state, req_res_receipt_keys, verify_membership, verify_state_proof,
 };
-use frame_support::ensure;
 
-use crate::types::{BeaconClientUpdate, ConsensusState};
+use crate::types::{BeaconClientUpdate, ConsensusState, L2Consensus};
 use ismp::{
     consensus::{
         ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -59,10 +54,10 @@ impl<
         consensus_proof: Vec<u8>,
     ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
         let BeaconClientUpdate {
-            mut op_stack_payload,
+            l2_oracle_payload: mut op_stack_payload,
             mut dispute_game_payload,
             consensus_update,
-            arbitrum_payload,
+            mut arbitrum_payload,
         } = BeaconClientUpdate::decode(&mut &consensus_proof[..]).map_err(|_| {
             Error::ImplementationSpecific("Cannot decode beacon client update".to_string())
         })?;
@@ -102,87 +97,68 @@ impl<
         state_machine_map
             .insert(StateMachine::Ethereum(Ethereum::ExecutionLayer), state_commitment_vec);
 
-        let op_stack = consensus_state.l2_oracle_address.keys().cloned().into_iter();
-        let dispute_game_stack = consensus_state.dispute_factory_address.keys().cloned();
+        let l2_consensus = consensus_state.l2_consensus.clone();
 
-        // Ensure no state machines are repeated in both l2_oracle_address and
-        // dispute_factory_address. Each state machine can only have one mode of consensus
-        // verification
-        let length_before_merge = op_stack.len() + dispute_game_stack.len();
-        let set = op_stack
-            .clone()
-            .into_iter()
-            .chain(dispute_game_stack.clone().into_iter())
-            .collect::<BTreeSet<_>>();
+        for (state_machine, consensus_mechanic) in l2_consensus {
+            match consensus_mechanic {
+                L2Consensus::ArbitrumOrbit(rollup_core_address) => {
+                    if let Some(arbitrum_payload) = arbitrum_payload.remove(&state_machine) {
+                        let state = verify_arbitrum_payload::<H>(
+                            arbitrum_payload,
+                            state_root,
+                            rollup_core_address,
+                            consensus_state_id.clone(),
+                        )?;
 
-        // If the lengths are not equal, then some state machines exist simultaneously in both maps
-        // which is illegal.
-        ensure!(set.len() == length_before_merge,
-            Error::ImplementationSpecific("Invalid Sync Committee Consensus State: Some state machines exist in both in dispute_factory_address and l2_oracle_address maps".to_string()));
+                        let arbitrum_state_commitment_height = StateCommitmentHeight {
+                            commitment: state.commitment,
+                            height: state.height.height,
+                        };
 
-        for state_machine_id in op_stack {
-            if let Some(payload) = op_stack_payload.remove(&state_machine_id) {
-                let state = verify_optimism_payload::<H>(
-                    payload,
-                    state_root,
-                    *consensus_state.l2_oracle_address.get(&state_machine_id).ok_or_else(|| {
-                        Error::ImplementationSpecific("l2 oracle address was not set".into())
-                    })?,
-                    consensus_state_id.clone(),
-                )?;
+                        let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
+                        state_commitment_vec.push(arbitrum_state_commitment_height);
+                        state_machine_map.insert(state_machine, state_commitment_vec);
+                    }
+                },
+                L2Consensus::OpL2Oracle(l2_oracle) => {
+                    if let Some(payload) = op_stack_payload.remove(&state_machine) {
+                        let state = verify_optimism_payload::<H>(
+                            payload,
+                            state_root,
+                            l2_oracle,
+                            consensus_state_id.clone(),
+                        )?;
 
-                let state_commitment_height = StateCommitmentHeight {
-                    commitment: state.commitment,
-                    height: state.height.height,
-                };
+                        let state_commitment_height = StateCommitmentHeight {
+                            commitment: state.commitment,
+                            height: state.height.height,
+                        };
 
-                let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
-                state_commitment_vec.push(state_commitment_height);
-                state_machine_map.insert(state_machine_id, state_commitment_vec);
+                        let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
+                        state_commitment_vec.push(state_commitment_height);
+                        state_machine_map.insert(state_machine, state_commitment_vec);
+                    }
+                },
+                L2Consensus::OpFaultProofs(dispute_game_factory) => {
+                    if let Some(payload) = dispute_game_payload.remove(&state_machine) {
+                        let state = verify_optimism_dispute_game_proof::<H>(
+                            payload,
+                            state_root,
+                            dispute_game_factory,
+                            consensus_state_id.clone(),
+                        )?;
+
+                        let state_commitment_height = StateCommitmentHeight {
+                            commitment: state.commitment,
+                            height: state.height.height,
+                        };
+
+                        let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
+                        state_commitment_vec.push(state_commitment_height);
+                        state_machine_map.insert(state_machine, state_commitment_vec);
+                    }
+                },
             }
-        }
-
-        for state_machine_id in dispute_game_stack {
-            if let Some(payload) = dispute_game_payload.remove(&state_machine_id) {
-                let state = verify_optimism_dispute_game_proof::<H>(
-                    payload,
-                    state_root,
-                    *consensus_state.dispute_factory_address.get(&state_machine_id).ok_or_else(
-                        || {
-                            Error::ImplementationSpecific(
-                                "dispute factory address was not set".into(),
-                            )
-                        },
-                    )?,
-                    consensus_state_id.clone(),
-                )?;
-
-                let state_commitment_height = StateCommitmentHeight {
-                    commitment: state.commitment,
-                    height: state.height.height,
-                };
-
-                let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
-                state_commitment_vec.push(state_commitment_height);
-                state_machine_map.insert(state_machine_id, state_commitment_vec);
-            }
-        }
-
-        if let Some(arbitrum_payload) = arbitrum_payload {
-            let state = verify_arbitrum_payload::<H>(
-                arbitrum_payload,
-                state_root,
-                consensus_state.rollup_core_address,
-                consensus_state_id.clone(),
-            )?;
-
-            let arbitrum_state_commitment_height =
-                StateCommitmentHeight { commitment: state.commitment, height: state.height.height };
-
-            let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
-            state_commitment_vec.push(arbitrum_state_commitment_height);
-            state_machine_map
-                .insert(StateMachine::Ethereum(Ethereum::Arbitrum), state_commitment_vec);
         }
 
         let new_consensus_state = ConsensusState {
@@ -193,9 +169,7 @@ impl<
                 ))
             })?,
             ismp_contract_addresses: consensus_state.ismp_contract_addresses,
-            l2_oracle_address: consensus_state.l2_oracle_address,
-            dispute_factory_address: consensus_state.dispute_factory_address,
-            rollup_core_address: consensus_state.rollup_core_address,
+            l2_consensus: consensus_state.l2_consensus,
         };
 
         Ok((new_consensus_state.encode(), state_machine_map))

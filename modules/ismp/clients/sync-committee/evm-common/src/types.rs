@@ -12,6 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#![allow(dead_code)]
 
 use crate::prelude::*;
 use alloc::collections::BTreeMap;
@@ -46,8 +47,8 @@ pub struct EvmStateProof {
 /// The ethereum account stored in the global state trie.
 #[derive(RlpDecodable, RlpEncodable)]
 pub struct Account {
-    pub _nonce: u64,
-    pub _balance: alloy_primitives::U256,
+    pub nonce: u64,
+    pub balance: alloy_primitives::U256,
     pub storage_root: alloy_primitives::B256,
-    pub _code_hash: alloy_primitives::B256,
+    pub code_hash: alloy_primitives::B256,
 }

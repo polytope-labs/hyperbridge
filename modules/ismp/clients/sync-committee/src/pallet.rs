@@ -19,7 +19,7 @@ use pallet_ismp::host::Host;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use crate::types::ConsensusState;
+    use crate::types::{ConsensusState, L2Consensus};
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use ismp::{consensus::StateMachineId, host::IsmpHost};
@@ -84,13 +84,13 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Add an l2 oracle address for a new chain using Op stack
+        /// Add a new l2 consensus to the sync committee consensus state
         #[pallet::call_index(1)]
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-        pub fn add_l2_oracle(
+        pub fn add_l2_consensus(
             origin: OriginFor<T>,
             state_machine_id: StateMachineId,
-            l2_oracle: H160,
+            l2_consensus: L2Consensus,
         ) -> DispatchResult {
             <T as Config>::AdminOrigin::ensure_origin(origin)?;
 
@@ -103,52 +103,8 @@ pub mod pallet {
             let mut consensus_state: ConsensusState =
                 codec::Decode::decode(&mut &encoded_consensus_state[..])
                     .map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
-            ensure!(
-                !consensus_state.l2_oracle_address.contains_key(&state_machine),
-                Error::<T>::ContractAddressAlreadyExists
-            );
-            // If it exists in dispute games factory we remove it, only one verification method can
-            // be used for a state machine
-            consensus_state.dispute_factory_address.remove(&state_machine);
-            consensus_state.l2_oracle_address.insert(state_machine, l2_oracle);
 
-            let encoded_consensus_state = consensus_state.encode();
-            ismp_host
-                .store_consensus_state(consensus_state_id, encoded_consensus_state)
-                .map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
-            Ok(())
-        }
-
-        /// Add dispute game address for a new chain using Op stack
-        #[pallet::call_index(2)]
-        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-        pub fn add_dispute_game_factory(
-            origin: OriginFor<T>,
-            state_machine_id: StateMachineId,
-            dispute_game_factory: H160,
-        ) -> DispatchResult {
-            <T as Config>::AdminOrigin::ensure_origin(origin)?;
-
-            let ismp_host = Host::<T>::default();
-            let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
-
-            let encoded_consensus_state = ismp_host
-                .consensus_state(consensus_state_id)
-                .map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
-            let mut consensus_state: ConsensusState =
-                codec::Decode::decode(&mut &encoded_consensus_state[..])
-                    .map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
-            ensure!(
-                !consensus_state.dispute_factory_address.contains_key(&state_machine),
-                Error::<T>::ContractAddressAlreadyExists
-            );
-
-            // If it exists in l2 oracle we remove it, only one verification method can be used for
-            // a state machine
-            consensus_state.l2_oracle_address.remove(&state_machine);
-            consensus_state
-                .dispute_factory_address
-                .insert(state_machine, dispute_game_factory);
+            consensus_state.l2_consensus.insert(state_machine, l2_consensus);
 
             let encoded_consensus_state = consensus_state.encode();
             ismp_host

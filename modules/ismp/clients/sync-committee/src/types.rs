@@ -39,15 +39,24 @@ pub struct ConsensusState {
     pub frozen_height: Option<u64>,
     pub light_client_state: VerifierState,
     pub ismp_contract_addresses: BTreeMap<StateMachine, H160>,
-    pub l2_oracle_address: BTreeMap<StateMachine, H160>,
-    pub dispute_factory_address: BTreeMap<StateMachine, H160>,
-    pub rollup_core_address: H160,
+    pub l2_consensus: BTreeMap<StateMachine, L2Consensus>,
 }
 
 #[derive(Encode, Decode)]
 pub struct BeaconClientUpdate {
     pub consensus_update: VerifierStateUpdate,
-    pub op_stack_payload: BTreeMap<StateMachine, OptimismPayloadProof>,
+    pub l2_oracle_payload: BTreeMap<StateMachine, OptimismPayloadProof>,
     pub dispute_game_payload: BTreeMap<StateMachine, OptimismDisputeGameProof>,
-    pub arbitrum_payload: Option<ArbitrumPayloadProof>,
+    pub arbitrum_payload: BTreeMap<StateMachine, ArbitrumPayloadProof>,
+}
+
+/// Description of the various consensus mechanics supported for ethereum L2s
+#[derive(Encode, Decode, Debug, Clone, scale_info::TypeInfo, Eq, PartialEq)]
+pub enum L2Consensus {
+    /// Arbitrum orbit chains Rollup Core Address
+    ArbitrumOrbit(H160),
+    /// Op Stack L2 Oracle Address
+    OpL2Oracle(H160),
+    /// Op Stack Dispute game factory address
+    OpFaultProofs(H160),
 }

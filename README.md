@@ -84,9 +84,9 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Download a local copy of the repo and checkout the latest release tag
 
 ```bash
-git clone https://github.com/polytope-labs/hyperbridge.git
+export LATEST_HYPERBRIDGE_RELEASE=v0.4.0
+git clone --branch ${LATEST_HYPERBRIDGE_RELEASE} https://github.com/polytope-labs/hyperbridge.git
 cd ./hyperbridge
-git checkout ${latest-tag}
 ```
 
 ### Install WebAssembly target

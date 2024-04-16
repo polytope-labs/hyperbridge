@@ -552,6 +552,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         );
 
         if (success) {
+            FeeMetadata memory meta = _requestCommitments[response.request.hash()];
             if (meta.fee > 0) {
                 // pay the relayer their fee
                 IERC20(feeToken()).transfer(relayer, meta.fee);

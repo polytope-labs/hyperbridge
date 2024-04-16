@@ -89,9 +89,8 @@ struct AssetFees {
     uint256 protocolFeePercentage;
 }
 
-enum OnAcceptActions
-// Incoming asset from a chain
-{
+enum OnAcceptActions {
+    // Incoming asset from a chain
     IncomingAsset,
     // Governance action to update protocol parameters
     GovernanceAction

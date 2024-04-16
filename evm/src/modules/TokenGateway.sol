@@ -8,7 +8,7 @@ import {BaseIsmpModule, PostRequest, IncomingPostRequest} from "ismp/IIsmpModule
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
-import {ICallDispatcher} from "./CallDispatcher.sol";
+import {ICallDispatcher, CallDispatcherParams} from "./CallDispatcher.sol";
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
 import {EvmHost} from "../hosts/EvmHost.sol";
 
@@ -347,8 +347,10 @@ contract TokenGateway is BaseIsmpModule {
         BodyWithCall memory body = abi.decode(request.body[1:], (BodyWithCall));
         address to = bytes32ToAddress(body.to);
         handleIncomingAsset(body.assetId, body.redeem, body.amount, to, incoming.relayer);
+
         // dispatching low level call
-        ICallDispatcher(_params.dispatcher).dispatch(to, body.data);
+        CallDispatcherParams memory dispatcherParams = abi.decode(body.data, (CallDispatcherParams));
+        ICallDispatcher(_params.dispatcher).dispatch(dispatcherParams);
 
         emit AssetReceived({
             source: request.source,

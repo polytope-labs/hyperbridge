@@ -10,7 +10,6 @@ import {IERC6160Ext20} from "ERC6160/interfaces/IERC6160Ext20.sol";
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {ICallDispatcher, CallDispatcherParams} from "./CallDispatcher.sol";
 import {IUniswapV2Router} from "../interfaces/IUniswapV2Router.sol";
-import {EvmHost} from "../hosts/EvmHost.sol";
 
 struct TeleportParams {
     // amount to be sent
@@ -89,9 +88,8 @@ struct AssetFees {
     uint256 protocolFeePercentage;
 }
 
-enum OnAcceptActions
-// Incoming asset from a chain
-{
+enum OnAcceptActions {
+    // Incoming asset from a chain
     IncomingAsset,
     // Governance action to update protocol parameters
     GovernanceAction
@@ -388,7 +386,7 @@ contract TokenGateway is BaseIsmpModule {
 
     function handleGovernance(PostRequest calldata request) private {
         // only hyperbridge can do this
-        require(request.source.equals(EvmHost(_params.host).hyperbridge()), "Unauthorized request");
+        require(request.source.equals(IIsmpHost(_params.host).hyperbridge()), "Unauthorized request");
         TokenGatewayParamsExt memory teleportParams = abi.decode(request.body[1:], (TokenGatewayParamsExt));
 
         _params = teleportParams.params;

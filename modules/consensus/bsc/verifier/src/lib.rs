@@ -54,6 +54,15 @@ pub fn verify_bsc_header<H: Keccak256>(
         Err(anyhow!("Not enough participants"))?
     }
 
+    let source_header_hash = Header::from(&update.source_header).hash::<H>();
+    let target_header_hash = Header::from(&update.target_header).hash::<H>();
+
+    if source_header_hash.0 != extra_data.vote_data.source_hash.0 ||
+        target_header_hash.0 != extra_data.vote_data.target_hash.0
+    {
+        Err(anyhow!("Target and Source headers do not match vote data"))?
+    }
+
     let participants: Vec<BlsPublicKey> = current_validators
         .iter()
         .zip(validators_bit_set.iter())
@@ -71,16 +80,6 @@ pub fn verify_bsc_header<H: Keccak256>(
 
     verify_aggregate_signature(&aggregate_public_key, msg.0.to_vec(), signature.to_vec().as_ref())
         .map_err(|_| anyhow!("Could not verify aggregate signature"))?;
-
-    // i would do this check before signature verification
-    let source_header_hash = Header::from(&update.source_header).hash::<H>();
-    let target_header_hash = Header::from(&update.target_header).hash::<H>();
-
-    if source_header_hash.0 != extra_data.vote_data.source_hash.0 ||
-        target_header_hash.0 != extra_data.vote_data.target_hash.0
-    {
-        Err(anyhow!("Target and Source headers do not match vote data"))?
-    }
 
     let next_validator_addresses: Option<NextValidators> =
         // If an epoch ancestry was provided, we try to extract the next validator set from it

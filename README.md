@@ -47,20 +47,24 @@ Building the hyperbridge node requires some dependencies
 
 Debian/Ubuntu
 
-```bash 
+```bash
+sudo apt update
 sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
 ```
+
 Arch
 
 ```bash
 pacman -Syu --needed --noconfirm curl git clang make protobuf
 ```
+
 Fedora
 
 ```bash
 sudo dnf update
 sudo dnf install clang curl git openssl-devel make protobuf-compiler
 ```
+
 Opensuse
 
 ```bash
@@ -75,23 +79,25 @@ If you don't have an already existing rust installation, you can install it usin
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-### Install WebAssembly target
-
-Hyperbridge's blockchain runtime compiles to wasm which allows it's code to be forklessly upgraded. In order to build hyperbridge we need the wasm toolchain installed.
-
-```bash
-rustup update nightly
-rustup target add wasm32-unknown-unknown --toolchain nightly
-```
-
 ### Clone the repo
 
 Download a local copy of the repo and checkout the latest release tag
 
 ```bash
 git clone https://github.com/polytope-labs/hyperbridge.git
-cd ./hyperbidge
+cd ./hyperbridge
 git checkout ${latest-tag}
+```
+
+### Install WebAssembly target
+
+Hyperbridge's blockchain runtime compiles to wasm which allows it's code to be forklessly upgraded. In order to build hyperbridge we need the wasm toolchain installed.
+
+```bash
+rustup update nightly
+rustup target add wasm32-unknown-unknown
+rustup target add wasm32-unknown-unknown --toolchain nightly
+rustup component add rust-src
 ```
 
 ### Build the node
@@ -103,10 +109,12 @@ cargo build --release -p hyperbridge
 ## Running the node
 
 ```bash
-hyperbridge --chain=messier --enable-offchain-indexing --base-path=$HOME/.hyperbridge --pruning-archive
+hyperbridge --chain=messier --base-path=$HOME/.hyperbridge --pruning-archive
 ```
 
-## Running a local tesnet with zombienet
+> Note: `--enable-offchain-indexing` is enabled by default
+
+## Running a local testnet with zombienet
 Download the zombienet binary for your operating system [here](https://github.com/paritytech/zombienet).
 
 ```bash
@@ -114,7 +122,7 @@ zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml
 ```
 
 ## Running a local testnet with docker
-Build the and run the  hyperbridge docker image locally by running 
+Build and run the hyperbridge docker image locally by running
 
 ```bash
 docker build -t hyperbridge -f ./scripts/docker/Dockerfile .

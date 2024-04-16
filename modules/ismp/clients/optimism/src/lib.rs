@@ -12,17 +12,18 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#![cfg_attr(not(feature = "std"), no_std)]
+#![allow(unused_variables)]
 
-use crate::{
-    prelude::*,
-    presets::{DISPUTE_GAMES_SLOT, L2_OUTPUTS_SLOT},
-    utils::{
-        derive_array_item_key, derive_map_key, get_contract_storage_root, get_value_from_proof,
-    },
-};
-use alloc::{format, string::ToString};
+extern crate alloc;
+
+use alloc::format;
 use alloy_rlp::Decodable;
 use ethabi::ethereum_types::{H160, H256, U128, U256};
+use evm_common::{
+    derive_array_item_key, derive_map_key, get_contract_storage_root, get_value_from_proof,
+    prelude::*,
+};
 use geth_primitives::{CodecHeader, Header};
 use ismp::{
     consensus::{
@@ -32,6 +33,13 @@ use ismp::{
     host::{Ethereum, IsmpHost, StateMachine},
     util::Keccak256,
 };
+
+// Constants
+
+/// Slot for the disputeGames map in DisputeFactory contract
+pub const DISPUTE_GAMES_SLOT: u64 = 103;
+/// Slot for the l2Outputs array in the L2Oracle contract
+pub const L2_OUTPUTS_SLOT: u64 = 3;
 
 #[derive(codec::Encode, codec::Decode, Debug)]
 pub struct OptimismPayloadProof {

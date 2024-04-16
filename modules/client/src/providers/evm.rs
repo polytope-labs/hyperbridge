@@ -4,7 +4,7 @@ use crate::{
 };
 use ethereum_trie::StorageProof;
 use ethers::prelude::Middleware;
-use ismp_sync_committee::presets::{
+use evm_common::presets::{
     REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
     RESPONSE_RECEIPTS_SLOT,
 };

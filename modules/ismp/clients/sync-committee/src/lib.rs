@@ -24,15 +24,9 @@ pub mod prelude {
     pub use alloc::{boxed::Box, vec, vec::Vec};
 }
 
-pub mod arbitrum;
 pub mod beacon_client;
-pub mod optimism;
 pub mod pallet;
-pub mod presets;
-#[cfg(test)]
-mod tests;
 pub mod types;
-pub mod utils;
 
 pub use beacon_client::*;
 

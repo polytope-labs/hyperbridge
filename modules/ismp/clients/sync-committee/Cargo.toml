@@ -13,6 +13,9 @@ sync-committee-verifier = { path = "../../../consensus/sync-committee/verifier",
 ethereum-trie = { path = "../../../trees/ethereum", default-features = false }
 pallet-ismp = { path = "../../pallet", default-features = false }
 geth-primitives = { path = "../../../consensus/geth-primitives", default-features = false }
+evm-common = { workspace = true }
+arbitrum-verifier = { workspace = true }
+op-verifier = { workspace = true }
 
 # crates.io
 trie-db = { workspace = true }
@@ -33,11 +36,6 @@ sp-trie = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-core = { workspace = true }
-
-[dev-dependencies]
-ethers = { workspace = true, features = ["default"] }
-tokio = { version = "1.27.0", features = ["full"] }
-ismp-testsuite = { path = "../../testsuite" }
 
 [features]
 default = ["std"]
@@ -60,7 +58,10 @@ std = [
     "sp-runtime/std",
     "sp-core/std",
     "pallet-ismp/std",
-    "geth-primitives/std"
+    "geth-primitives/std",
+    "evm-common/std",
+    "arbitrum-verifier/std",
+    "op-verifier/std"
 ]
 
 disable-panic-handler = ["sp-io/disable_panic_handler", "sp-io/disable_oom", "sp-io/disable_allocator"]

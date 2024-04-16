@@ -14,7 +14,7 @@
 // limitations under the License.
 #![cfg(test)]
 
-use crate::{presets::NODES_SLOT, utils::derive_map_key};
+use crate::presets::NODES_SLOT;
 use ethers::prelude::*;
 use hex_literal::hex;
 

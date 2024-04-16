@@ -61,7 +61,7 @@ pub fn construct_intermediate_state(
     Ok(intermediate_state)
 }
 
-pub(super) fn decode_evm_state_proof(proof: &Proof) -> Result<EvmStateProof, Error> {
+pub fn decode_evm_state_proof(proof: &Proof) -> Result<EvmStateProof, Error> {
     let evm_state_proof = EvmStateProof::decode(&mut &proof.proof[..])
         .map_err(|_| Error::ImplementationSpecific(format!("Cannot decode evm state proof")))?;
 
@@ -190,7 +190,7 @@ pub fn add_off_set_to_map_key(key: &[u8], offset: u64) -> H256 {
     H256(bytes)
 }
 
-pub(super) fn derive_array_item_key<H: IsmpHost>(slot: u64, index: u64, offset: u64) -> Vec<u8> {
+pub fn derive_array_item_key<H: IsmpHost>(slot: u64, index: u64, offset: u64) -> Vec<u8> {
     let mut bytes = [0u8; 32];
     U256::from(slot).to_big_endian(&mut bytes);
 
@@ -205,7 +205,7 @@ pub(super) fn derive_array_item_key<H: IsmpHost>(slot: u64, index: u64, offset: 
     H::keccak256(&pos).0.to_vec()
 }
 
-pub(super) fn get_values_from_proof<H: IsmpHost + Send + Sync>(
+pub fn get_values_from_proof<H: IsmpHost + Send + Sync>(
     keys: Vec<Vec<u8>>,
     root: H256,
     proof: Vec<Vec<u8>>,

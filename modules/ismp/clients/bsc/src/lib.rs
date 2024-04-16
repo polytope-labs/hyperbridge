@@ -11,6 +11,7 @@ use bsc_verifier::{
     verify_bsc_header, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
+use evm_common::{req_res_receipt_keys, verify_membership, verify_state_proof};
 use geth_primitives::Header;
 use ismp::{
     consensus::{
@@ -21,7 +22,6 @@ use ismp::{
     messaging::{Proof, StateCommitmentHeight},
     router::RequestResponse,
 };
-use ismp_sync_committee::{utils::req_res_receipt_keys, verify_membership, verify_state_proof};
 use sp_core::{H160, H256};
 use sync_committee_primitives::constants::BlsPublicKey;
 

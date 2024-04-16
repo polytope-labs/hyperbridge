@@ -278,6 +278,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d5a26814d8dcb93b0e5a0ff3c6d80a8843bafb21b39e8e18a6f05471870e110"
 
 [[package]]
+name = "arbitrum-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "ethabi",
+ "ethereum-trie",
+ "ethers",
+ "evm-common",
+ "geth-primitives",
+ "hex",
+ "hex-literal 0.3.4",
+ "ismp",
+ "ismp-testsuite",
+ "parity-scale-codec",
+ "sp-core 28.0.0",
+ "tokio",
+]
+
+[[package]]
 name = "ariadne"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3809,6 +3830,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "evm-common"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "ethabi",
+ "ethereum-trie",
+ "geth-primitives",
+ "hash-db",
+ "hash256-std-hasher",
+ "hex",
+ "hex-literal 0.3.4",
+ "ismp",
+ "parity-scale-codec",
+ "trie-db 0.28.0",
+]
+
+[[package]]
 name = "exit-future"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5490,6 +5530,7 @@ dependencies = [
  "console_error_panic_hook",
  "ethereum-trie",
  "ethers",
+ "evm-common",
  "fluvio-wasm-timer",
  "futures",
  "getrandom 0.2.12",
@@ -5498,7 +5539,6 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-solidity-abi",
- "ismp-sync-committee",
  "js-sys",
  "pallet-ismp",
  "parity-scale-codec",
@@ -5831,17 +5871,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bsc-verifier",
- "frame-support",
- "frame-system",
+ "evm-common",
  "geth-primitives",
  "ismp",
- "ismp-sync-committee",
  "log",
- "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
  "sp-core 27.0.0",
- "sp-runtime 31.0.1",
  "sync-committee-primitives",
 ]
 
@@ -5958,9 +5994,10 @@ dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "alloy-rlp-derive",
+ "arbitrum-verifier",
  "ethabi",
  "ethereum-trie",
- "ethers",
+ "evm-common",
  "frame-support",
  "frame-system",
  "geth-primitives",
@@ -5969,7 +6006,7 @@ dependencies = [
  "hex",
  "hex-literal 0.3.4",
  "ismp",
- "ismp-testsuite",
+ "op-verifier",
  "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
@@ -5979,7 +6016,6 @@ dependencies = [
  "sp-trie 29.0.0",
  "sync-committee-primitives",
  "sync-committee-verifier",
- "tokio",
  "trie-db 0.28.0",
 ]
 
@@ -8011,6 +8047,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
+name = "op-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "ethabi",
+ "ethereum-trie",
+ "evm-common",
+ "geth-primitives",
+ "hex",
+ "hex-literal 0.3.4",
+ "ismp",
+ "parity-scale-codec",
+]
+
+[[package]]
 name = "opaque-debug"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8836,6 +8889,7 @@ dependencies = [
  "alloy-rlp-derive",
  "ethabi",
  "ethereum-trie",
+ "evm-common",
  "frame-support",
  "frame-system",
  "hash-db",

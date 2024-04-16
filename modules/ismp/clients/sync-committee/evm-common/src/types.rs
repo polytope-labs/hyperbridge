@@ -12,15 +12,15 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+use crate::prelude::*;
 use alloc::collections::BTreeMap;
-use arbitrum_verifier::ArbitrumPayloadProof;
+use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use codec::{Decode, Encode};
-use ethabi::ethereum_types::{H160, H256};
+use ethabi::ethereum_types::H256;
 use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
-use ismp::host::{IsmpHost, StateMachine};
-use op_verifier::{OptimismDisputeGameProof, OptimismPayloadProof};
-use sync_committee_primitives::types::{VerifierState, VerifierStateUpdate};
+use ismp::host::IsmpHost;
 
 pub struct KeccakHasher<H: IsmpHost>(core::marker::PhantomData<H>);
 
@@ -34,20 +34,20 @@ impl<H: IsmpHost + Send + Sync> Hasher for KeccakHasher<H> {
     }
 }
 
-#[derive(Debug, Encode, Decode, Clone)]
-pub struct ConsensusState {
-    pub frozen_height: Option<u64>,
-    pub light_client_state: VerifierState,
-    pub ismp_contract_addresses: BTreeMap<StateMachine, H160>,
-    pub l2_oracle_address: BTreeMap<StateMachine, H160>,
-    pub dispute_factory_address: BTreeMap<StateMachine, H160>,
-    pub rollup_core_address: H160,
+#[derive(Encode, Decode, Clone)]
+pub struct EvmStateProof {
+    /// Contract account proof
+    pub contract_proof: Vec<Vec<u8>>,
+    /// A map of contract address to the associated account trie proof for all keys requested from
+    /// the contract
+    pub storage_proof: BTreeMap<Vec<u8>, Vec<Vec<u8>>>,
 }
 
-#[derive(Encode, Decode)]
-pub struct BeaconClientUpdate {
-    pub consensus_update: VerifierStateUpdate,
-    pub op_stack_payload: BTreeMap<StateMachine, OptimismPayloadProof>,
-    pub dispute_game_payload: BTreeMap<StateMachine, OptimismDisputeGameProof>,
-    pub arbitrum_payload: Option<ArbitrumPayloadProof>,
+/// The ethereum account stored in the global state trie.
+#[derive(RlpDecodable, RlpEncodable)]
+pub struct Account {
+    pub _nonce: u64,
+    pub _balance: alloy_primitives::U256,
+    pub storage_root: alloy_primitives::B256,
+    pub _code_hash: alloy_primitives::B256,
 }

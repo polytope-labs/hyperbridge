@@ -21,9 +21,3 @@ pub const RESPONSE_COMMITMENTS_SLOT: u64 = 1;
 pub const REQUEST_RECEIPTS_SLOT: u64 = 2;
 /// Slot index for response receipts map
 pub const RESPONSE_RECEIPTS_SLOT: u64 = 3;
-/// Slot for the l2Outputs array in the L2Oracle contract
-pub const L2_OUTPUTS_SLOT: u64 = 3;
-/// Storage layout slot for the nodes map in the Rollup Contract
-pub const NODES_SLOT: u64 = 118;
-/// Slot for the disputeGames map in DisputeFactory contract
-pub const DISPUTE_GAMES_SLOT: u64 = 103;

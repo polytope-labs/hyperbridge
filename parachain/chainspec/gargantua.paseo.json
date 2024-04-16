@@ -2,7 +2,9 @@
   "name": "Hyperbridge (Gargantua)",
   "id": "gargantua",
   "chainType": "Live",
-  "bootNodes": [],
+  "bootNodes": [
+    "/ip4/34.38.164.34/tcp/30333/p2p/12D3KooWHyxaKqfQgQsnVAXzgJr7BkXmpXd9zwF5AwbL9uy7ozKV"
+  ],
   "telemetryEndpoints": [
     [
       "wss://telemetry.polkadot.io/submit/",

@@ -552,6 +552,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         );
 
         if (success) {
+            if (meta.fee > 0) {
+                // pay the relayer their fee
+                IERC20(feeToken()).transfer(relayer, meta.fee);
+            }
             bytes32 commitment = response.request.hash();
             // don't commit the full response object, it's unused.
             _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});

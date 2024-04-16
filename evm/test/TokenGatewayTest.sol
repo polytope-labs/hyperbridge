@@ -13,7 +13,8 @@ import {
     Asset,
     BodyWithCall,
     AssetFees,
-    TokenGatewayParamsExt
+    TokenGatewayParamsExt,
+    CallDispatcherParams
 } from "../src/modules/TokenGateway.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
 
@@ -129,7 +130,15 @@ contract TokenGatewayTest is BaseTest {
     function testCanReceiveAssetsWithCall() public {
         assert(feeToken.balanceOf(address(this)) == 0);
 
+        address calldataTarget = address(miniStaking);
         bytes memory stakeCalldata = abi.encodeWithSignature("recordStake(address)", address(this));
+
+        CallDispatcherParams memory dispatchParams = CallDispatcherParams({
+            target: calldataTarget,
+            data: stakeCalldata
+        });
+
+
 
         BodyWithCall memory body = BodyWithCall({
             assetId: keccak256("USD.h"),
@@ -137,7 +146,7 @@ contract TokenGatewayTest is BaseTest {
             redeem: false,
             amount: 1_000 * 1e18,
             from: addressToBytes32(address(this)),
-            data: stakeCalldata
+            data: abi.encode(dispatchParams)
         });
 
         vm.prank(address(host));

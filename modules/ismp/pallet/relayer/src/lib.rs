@@ -27,6 +27,13 @@ use alloc::{collections::BTreeMap, vec::Vec};
 use alloy_primitives::Address;
 use codec::Encode;
 use ethabi::ethereum_types::H256;
+use evm_common::{
+    presets::{
+        REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
+        RESPONSE_RECEIPTS_SLOT,
+    },
+    utils::{add_off_set_to_map_key, derive_unhashed_map_key},
+};
 use frame_support::{dispatch::DispatchResult, ensure};
 use frame_system::pallet_prelude::OriginFor;
 use ismp::{
@@ -34,13 +41,6 @@ use ismp::{
     host::{IsmpHost, StateMachine},
     messaging::Proof,
     router::{DispatchPost, DispatchRequest, IsmpDispatcher},
-};
-use ismp_sync_committee::{
-    presets::{
-        REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
-        RESPONSE_RECEIPTS_SLOT,
-    },
-    utils::{add_off_set_to_map_key, derive_unhashed_map_key},
 };
 pub use pallet::*;
 use pallet_ismp::{dispatcher::Dispatcher, host::Host};

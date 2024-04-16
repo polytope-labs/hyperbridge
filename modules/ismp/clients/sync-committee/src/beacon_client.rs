@@ -14,17 +14,13 @@
 // limitations under the License.
 
 use alloc::{collections::BTreeMap, format, string::ToString};
+use arbitrum_verifier::verify_arbitrum_payload;
 use codec::{Decode, Encode};
-use ethabi::ethereum_types::{H160, H256};
-
-use crate::{
-    optimism::verify_optimism_dispute_game_proof,
-    types::{BeaconClientUpdate, ConsensusState},
-    utils::{
-        construct_intermediate_state, decode_evm_state_proof, get_contract_storage_root,
-        req_res_to_key,
-    },
+use evm_common::{
+    construct_intermediate_state, req_res_receipt_keys, verify_membership, verify_state_proof,
 };
+
+use crate::types::{BeaconClientUpdate, ConsensusState, L2Consensus};
 use ismp::{
     consensus::{
         ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -35,14 +31,10 @@ use ismp::{
     messaging::{Proof, StateCommitmentHeight},
     router::RequestResponse,
 };
+use op_verifier::{verify_optimism_dispute_game_proof, verify_optimism_payload};
 use sync_committee_primitives::constants::Config;
 
-use crate::{
-    arbitrum::verify_arbitrum_payload,
-    optimism::verify_optimism_payload,
-    prelude::*,
-    utils::{get_values_from_proof, req_res_receipt_keys},
-};
+use crate::prelude::*;
 
 pub const BEACON_CONSENSUS_ID: ConsensusClientId = *b"BEAC";
 
@@ -62,10 +54,10 @@ impl<
         consensus_proof: Vec<u8>,
     ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
         let BeaconClientUpdate {
-            mut op_stack_payload,
+            mut l2_oracle_payload,
             mut dispute_game_payload,
             consensus_update,
-            arbitrum_payload,
+            mut arbitrum_payload,
         } = BeaconClientUpdate::decode(&mut &consensus_proof[..]).map_err(|_| {
             Error::ImplementationSpecific("Cannot decode beacon client update".to_string())
         })?;
@@ -105,73 +97,68 @@ impl<
         state_machine_map
             .insert(StateMachine::Ethereum(Ethereum::ExecutionLayer), state_commitment_vec);
 
-        let op_stack = consensus_state.l2_oracle_address.keys().cloned();
+        let l2_consensus = consensus_state.l2_consensus.clone();
 
-        for state_machine_id in op_stack {
-            if let Some(payload) = op_stack_payload.remove(&state_machine_id) {
-                let state = verify_optimism_payload::<H>(
-                    payload,
-                    state_root,
-                    *consensus_state.l2_oracle_address.get(&state_machine_id).ok_or_else(|| {
-                        Error::ImplementationSpecific("l2 oracle address was not set".into())
-                    })?,
-                    consensus_state_id.clone(),
-                )?;
+        for (state_machine, consensus_mechanic) in l2_consensus {
+            match consensus_mechanic {
+                L2Consensus::ArbitrumOrbit(rollup_core_address) => {
+                    if let Some(arbitrum_payload) = arbitrum_payload.remove(&state_machine) {
+                        let state = verify_arbitrum_payload::<H>(
+                            arbitrum_payload,
+                            state_root,
+                            rollup_core_address,
+                            consensus_state_id.clone(),
+                        )?;
 
-                let state_commitment_height = StateCommitmentHeight {
-                    commitment: state.commitment,
-                    height: state.height.height,
-                };
+                        let arbitrum_state_commitment_height = StateCommitmentHeight {
+                            commitment: state.commitment,
+                            height: state.height.height,
+                        };
 
-                let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
-                state_commitment_vec.push(state_commitment_height);
-                state_machine_map.insert(state_machine_id, state_commitment_vec);
+                        let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
+                        state_commitment_vec.push(arbitrum_state_commitment_height);
+                        state_machine_map.insert(state_machine, state_commitment_vec);
+                    }
+                },
+                L2Consensus::OpL2Oracle(l2_oracle) => {
+                    if let Some(payload) = l2_oracle_payload.remove(&state_machine) {
+                        let state = verify_optimism_payload::<H>(
+                            payload,
+                            state_root,
+                            l2_oracle,
+                            consensus_state_id.clone(),
+                        )?;
+
+                        let state_commitment_height = StateCommitmentHeight {
+                            commitment: state.commitment,
+                            height: state.height.height,
+                        };
+
+                        let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
+                        state_commitment_vec.push(state_commitment_height);
+                        state_machine_map.insert(state_machine, state_commitment_vec);
+                    }
+                },
+                L2Consensus::OpFaultProofs(dispute_game_factory) => {
+                    if let Some(payload) = dispute_game_payload.remove(&state_machine) {
+                        let state = verify_optimism_dispute_game_proof::<H>(
+                            payload,
+                            state_root,
+                            dispute_game_factory,
+                            consensus_state_id.clone(),
+                        )?;
+
+                        let state_commitment_height = StateCommitmentHeight {
+                            commitment: state.commitment,
+                            height: state.height.height,
+                        };
+
+                        let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
+                        state_commitment_vec.push(state_commitment_height);
+                        state_machine_map.insert(state_machine, state_commitment_vec);
+                    }
+                },
             }
-        }
-
-        let dispute_game_stack = consensus_state.dispute_factory_address.keys().cloned();
-
-        for state_machine_id in dispute_game_stack {
-            if let Some(payload) = dispute_game_payload.remove(&state_machine_id) {
-                let state = verify_optimism_dispute_game_proof::<H>(
-                    payload,
-                    state_root,
-                    *consensus_state.dispute_factory_address.get(&state_machine_id).ok_or_else(
-                        || {
-                            Error::ImplementationSpecific(
-                                "dispute factory address was not set".into(),
-                            )
-                        },
-                    )?,
-                    consensus_state_id.clone(),
-                )?;
-
-                let state_commitment_height = StateCommitmentHeight {
-                    commitment: state.commitment,
-                    height: state.height.height,
-                };
-
-                let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
-                state_commitment_vec.push(state_commitment_height);
-                state_machine_map.insert(state_machine_id, state_commitment_vec);
-            }
-        }
-
-        if let Some(arbitrum_payload) = arbitrum_payload {
-            let state = verify_arbitrum_payload::<H>(
-                arbitrum_payload,
-                state_root,
-                consensus_state.rollup_core_address,
-                consensus_state_id.clone(),
-            )?;
-
-            let arbitrum_state_commitment_height =
-                StateCommitmentHeight { commitment: state.commitment, height: state.height.height };
-
-            let mut state_commitment_vec: Vec<StateCommitmentHeight> = Vec::new();
-            state_commitment_vec.push(arbitrum_state_commitment_height);
-            state_machine_map
-                .insert(StateMachine::Ethereum(Ethereum::Arbitrum), state_commitment_vec);
         }
 
         let new_consensus_state = ConsensusState {
@@ -182,9 +169,7 @@ impl<
                 ))
             })?,
             ismp_contract_addresses: consensus_state.ismp_contract_addresses,
-            l2_oracle_address: consensus_state.l2_oracle_address,
-            dispute_factory_address: consensus_state.dispute_factory_address,
-            rollup_core_address: consensus_state.rollup_core_address,
+            l2_consensus: consensus_state.l2_consensus,
         };
 
         Ok((new_consensus_state.encode(), state_machine_map))
@@ -265,78 +250,4 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
 
         verify_state_proof::<H>(keys, root, proof, ismp_address)
     }
-}
-
-pub fn verify_membership<H: IsmpHost + Send + Sync>(
-    item: RequestResponse,
-    root: StateCommitment,
-    proof: &Proof,
-    contract_address: H160,
-) -> Result<(), Error> {
-    let mut evm_state_proof = decode_evm_state_proof(proof)?;
-    let storage_proof = evm_state_proof
-        .storage_proof
-        .remove(&contract_address.0.to_vec())
-        .ok_or_else(|| {
-            Error::ImplementationSpecific("Ismp contract account trie proof is missing".to_string())
-        })?;
-    let keys = req_res_to_key::<H>(item);
-    let root = H256::from_slice(&root.state_root[..]);
-    let contract_root = get_contract_storage_root::<H>(
-        evm_state_proof.contract_proof,
-        &contract_address.0,
-        root.clone(),
-    )?;
-    let values = get_values_from_proof::<H>(keys, contract_root, storage_proof)?;
-
-    if values.into_iter().any(|val| val.is_none()) {
-        Err(Error::ImplementationSpecific("Missing values for some keys in the proof".to_string()))?
-    }
-
-    Ok(())
-}
-
-pub fn verify_state_proof<H: IsmpHost + Send + Sync>(
-    keys: Vec<Vec<u8>>,
-    root: StateCommitment,
-    proof: &Proof,
-    ismp_address: H160,
-) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
-    let evm_state_proof = decode_evm_state_proof(proof)?;
-    let mut map = BTreeMap::new();
-    let mut contract_to_keys = BTreeMap::new();
-    // Group keys by the contract address they belong to
-    for key in keys {
-        // For keys less than 52 bytes we default to the ismp contract address as the contract
-        // key
-        let contract_address =
-            if key.len() == 52 { H160::from_slice(&key[..20]) } else { ismp_address };
-        let entry = contract_to_keys.entry(contract_address.0.to_vec()).or_insert(vec![]);
-
-        let slot_hash = if key.len() == 52 {
-            H::keccak256(&key[20..]).0.to_vec()
-        } else {
-            H::keccak256(&key).0.to_vec()
-        };
-
-        entry.push((key, slot_hash));
-    }
-
-    for (contract_address, storage_proof) in evm_state_proof.storage_proof {
-        let contract_root = get_contract_storage_root::<H>(
-            evm_state_proof.contract_proof.clone(),
-            &contract_address,
-            root.state_root,
-        )?;
-
-        if let Some(keys) = contract_to_keys.remove(&contract_address) {
-            let slot_hashes = keys.iter().map(|(_, slot_hash)| slot_hash.clone()).collect();
-            let values = get_values_from_proof::<H>(slot_hashes, contract_root, storage_proof)?;
-            keys.into_iter().zip(values).for_each(|((key, _), value)| {
-                map.insert(key, value);
-            });
-        }
-    }
-
-    Ok(map)
 }

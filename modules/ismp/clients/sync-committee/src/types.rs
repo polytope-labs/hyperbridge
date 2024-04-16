@@ -12,65 +12,37 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-use crate::{
-    arbitrum::ArbitrumPayloadProof,
-    optimism::{OptimismDisputeGameProof, OptimismPayloadProof},
-    prelude::*,
-};
 use alloc::collections::BTreeMap;
-use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
+use arbitrum_verifier::ArbitrumPayloadProof;
 use codec::{Decode, Encode};
-use ethabi::ethereum_types::{H160, H256};
-use hash256_std_hasher::Hash256StdHasher;
-use hash_db::Hasher;
-use ismp::host::{IsmpHost, StateMachine};
+use ethabi::ethereum_types::H160;
+use ismp::host::StateMachine;
+use op_verifier::{OptimismDisputeGameProof, OptimismPayloadProof};
 use sync_committee_primitives::types::{VerifierState, VerifierStateUpdate};
-
-pub struct KeccakHasher<H: IsmpHost>(core::marker::PhantomData<H>);
-
-impl<H: IsmpHost + Send + Sync> Hasher for KeccakHasher<H> {
-    type Out = H256;
-    type StdHasher = Hash256StdHasher;
-    const LENGTH: usize = 32;
-
-    fn hash(x: &[u8]) -> Self::Out {
-        H::keccak256(x)
-    }
-}
 
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct ConsensusState {
     pub frozen_height: Option<u64>,
     pub light_client_state: VerifierState,
     pub ismp_contract_addresses: BTreeMap<StateMachine, H160>,
-    pub l2_oracle_address: BTreeMap<StateMachine, H160>,
-    pub dispute_factory_address: BTreeMap<StateMachine, H160>,
-    pub rollup_core_address: H160,
+    pub l2_consensus: BTreeMap<StateMachine, L2Consensus>,
 }
 
 #[derive(Encode, Decode)]
 pub struct BeaconClientUpdate {
     pub consensus_update: VerifierStateUpdate,
-    pub op_stack_payload: BTreeMap<StateMachine, OptimismPayloadProof>,
+    pub l2_oracle_payload: BTreeMap<StateMachine, OptimismPayloadProof>,
     pub dispute_game_payload: BTreeMap<StateMachine, OptimismDisputeGameProof>,
-    pub arbitrum_payload: Option<ArbitrumPayloadProof>,
+    pub arbitrum_payload: BTreeMap<StateMachine, ArbitrumPayloadProof>,
 }
 
-#[derive(Encode, Decode, Clone)]
-pub struct EvmStateProof {
-    /// Contract account proof
-    pub contract_proof: Vec<Vec<u8>>,
-    /// A map of contract address to the associated account trie proof for all keys requested from
-    /// the contract
-    pub storage_proof: BTreeMap<Vec<u8>, Vec<Vec<u8>>>,
-}
-
-/// The ethereum account stored in the global state trie.
-#[derive(RlpDecodable, RlpEncodable)]
-pub struct Account {
-    pub _nonce: u64,
-    pub _balance: alloy_primitives::U256,
-    pub storage_root: alloy_primitives::B256,
-    pub _code_hash: alloy_primitives::B256,
+/// Description of the various consensus mechanics supported for ethereum L2s
+#[derive(Encode, Decode, Debug, Clone, scale_info::TypeInfo, Eq, PartialEq)]
+pub enum L2Consensus {
+    /// Arbitrum orbit chains Rollup Core Address
+    ArbitrumOrbit(H160),
+    /// Op Stack L2 Oracle Address
+    OpL2Oracle(H160),
+    /// Op Stack Dispute game factory address
+    OpFaultProofs(H160),
 }

@@ -3,9 +3,9 @@ use anyhow::anyhow;
 use codec::Encode;
 use core::pin::Pin;
 use ethers::{types::H160, utils::keccak256};
+pub use evm_common::types::EvmStateProof;
 use futures::Stream;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
-pub use ismp_sync_committee::types::EvmStateProof;
 pub use pallet_ismp::primitives::{HashAlgorithm, SubstrateStateProof};
 use serde::{Deserialize, Serialize};
 use subxt::{

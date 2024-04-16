@@ -13,14 +13,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    prelude::*,
-    presets::NODES_SLOT,
-    utils::{derive_map_key, get_contract_storage_root, get_value_from_proof},
-};
-use alloc::{format, string::ToString};
+#![cfg_attr(not(feature = "std"), no_std)]
+#![allow(unused_variables)]
+extern crate alloc;
+
+#[cfg(test)]
+mod tests;
+
+use alloc::format;
 use alloy_rlp::Decodable;
 use ethabi::ethereum_types::{H160, H256, U256};
+use evm_common::{derive_map_key, get_contract_storage_root, get_value_from_proof, prelude::*};
 use geth_primitives::{CodecHeader, Header};
 use ismp::{
     consensus::{
@@ -29,6 +32,9 @@ use ismp::{
     error::Error,
     host::{Ethereum, IsmpHost, StateMachine},
 };
+
+/// Storage layout slot for the nodes map in the Rollup Contract
+pub const NODES_SLOT: u64 = 118;
 
 #[derive(codec::Encode, codec::Decode, Debug)]
 pub struct GlobalState {

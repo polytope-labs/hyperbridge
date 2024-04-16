@@ -4,8 +4,9 @@ pragma solidity ^0.8.17;
 import {Bytes} from "solidity-merkle-trees/trie/Bytes.sol";
 import {PostRequest, PostResponse, GetRequest, GetResponse, PostTimeout} from "ismp/Message.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
+import {IIsmpHost} from "ismp/IIsmpHost.sol";
 
-import {HostParams, IHostManager, WithdrawParams, EvmHost} from "../hosts/EvmHost.sol";
+import {HostParams, IHostManager, WithdrawParams} from "../hosts/EvmHost.sol";
 import {BaseIsmpModule, IncomingPostRequest} from "ismp/IIsmpModule.sol";
 
 /// Host manager params
@@ -57,7 +58,7 @@ contract HostManager is BaseIsmpModule {
     function onAccept(IncomingPostRequest calldata incoming) external override onlyIsmpHost {
         PostRequest calldata request = incoming.request;
         // Only Hyperbridge governor parachain can send requests to this module.
-        require(request.source.equals(EvmHost(_params.host).hyperbridge()), "Unauthorized request");
+        require(request.source.equals(IIsmpHost(_params.host).hyperbridge()), "Unauthorized request");
 
         OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
         if (action == OnAcceptActions.Withdraw) {

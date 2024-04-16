@@ -59,6 +59,7 @@ Building the hyperbridge node requires some dependencies
 :::code-group
 
 ```bash [Debian]
+sudo apt update
 sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
 ```
 
@@ -85,6 +86,17 @@ If you don't have an already existing rust installation, you can install it usin
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
+### Clone the repo
+
+Download a local copy of the repo and checkout the latest release tag
+
+```bash
+export LATEST_TAG=v0.4.0
+git clone https://github.com/polytope-labs/hyperbridge.git
+cd ./hyperbridge
+git checkout ${LATEST_TAG}
+```
+
 ### Install WebAssembly target
 
 Hyperbridge's blockchain runtime compiles to wasm which allows it's code to be forklessly upgraded. In order to build hyperbridge we need the wasm toolchain installed.
@@ -93,16 +105,7 @@ Hyperbridge's blockchain runtime compiles to wasm which allows it's code to be f
 rustup update nightly
 rustup target add wasm32-unknown-unknown
 rustup target add wasm32-unknown-unknown --toolchain nightly
-```
-
-### Clone the repo
-
-Download a local copy of the repo and checkout the latest release tag
-
-```bash
-git clone https://github.com/polytope-labs/hyperbridge.git
-cd ./hyperbidge
-git checkout v0.3.5
+rustup component add rust-src
 ```
 
 ### Build the node
@@ -111,10 +114,21 @@ git checkout v0.3.5
 cargo build --release -p hyperbridge
 ```
 
-The hyperbidge node will now be available at `target/release/hyperbidge`, You can move the binary to your `$PATH` so you can run it directly.
+The hyperbridge node will now be available at `target/release/hyperbridge`, You can move the binary to your `$PATH` so you can run it directly.
+
+Update your path to include `${HOME}/.local/bin`. If you are using Bash, run the following.
+Alternatively, replace `${HOME}/.bashrc` with `${HOME}/.zshrc` if using Zsh.
+Replace `source` with `.` if necessary.
 
 ```bash
-mv target/release/hyperbidge $HOME/.local/bin/
+export RC_PATH=${HOME}/.bashrc
+echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> ${RC_PATH}
+source ${RC_PATH}
+```
+
+```bash
+mkdir -p $HOME/.local/bin/
+mv target/release/hyperbridge $HOME/.local/bin/
 ```
 
 ::::
@@ -125,6 +139,7 @@ Hyperbridge is available on the rococo testnet, with a chainId of `gargantua` an
 This is fine because the rococo testnet has no economic value.
 
 ```bash
+export PUBLIC_IP_ADDRESS=<your-node-public-ip-address>
 hyperbridge \
     --base-path=$HOME/.hyperbridge \
     --pruning=archive \
@@ -137,10 +152,10 @@ hyperbridge \
     --no-mdns \
     --listen-addr=/ip4/0.0.0.0/tcp/30333 \
     --listen-addr=/ip6/::/tcp/30333 \
-    --public-addr=/ip4/your-node-ip-address/tcp/30333 \
+    --public-addr=/ip4/$PUBLIC_IP_ADDRESS/tcp/30333 \
     --out-peers=32 \
     -- \
-    -- sync=fast-unsafe
+    --sync=fast-unsafe
 ```
 
 ## Running the node (Kusama)
@@ -148,6 +163,7 @@ hyperbridge \
 Hyperbridge is live on Kusama with a chainId of `messier` and ParaId of `3340`
 
 ```bash
+export PUBLIC_IP_ADDRESS=<your-node-public-ip-address>
 hyperbridge \
     --base-path=$HOME/.hyperbridge \
     --pruning=archive \
@@ -160,7 +176,7 @@ hyperbridge \
     --no-mdns \
     --listen-addr=/ip4/0.0.0.0/tcp/30333 \
     --listen-addr=/ip6/::/tcp/30333 \
-    --public-addr=/ip4/your-node-ip-address/tcp/30333 \
+    --public-addr=/ip4/$PUBLIC_IP_ADDRESS/tcp/30333 \
     --out-peers=32
 ```
 
@@ -169,6 +185,7 @@ hyperbridge \
 Hyperbridge is also live on Polkadot with a chainId of `nexus` and ParaId of `3367`
 
 ```bash
+export PUBLIC_IP_ADDRESS=<your-node-public-ip-address>
 hyperbridge \
     --base-path=$HOME/.hyperbridge \
     --pruning=archive \
@@ -181,7 +198,7 @@ hyperbridge \
     --no-mdns \
     --listen-addr=/ip4/0.0.0.0/tcp/30333 \
     --listen-addr=/ip6/::/tcp/30333 \
-    --public-addr=/ip4/your-node-ip-address/tcp/30333 \
+    --public-addr=/ip4/$PUBLIC_IP_ADDRESS/tcp/30333 \
     --out-peers=32
 ```
 

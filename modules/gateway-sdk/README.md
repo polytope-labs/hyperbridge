@@ -1,3 +1,4 @@
-# Typescript Sdk Plate
+# Token Gateway SDK
+------------------------
 
-This is a simple repo holding setup code for creating a buildable typescript sdk 
+The Token Gateway SDK is a Typescript SDK that provides a layer of abstraction and simplification while interacting with the Token Gateway Contracts, powered by Hyperbridge.

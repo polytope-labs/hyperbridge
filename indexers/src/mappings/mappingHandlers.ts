@@ -8,7 +8,7 @@ export {
   handleArbitrumSepoliaPostRequestHandledEvent,
   handleOptimismSepoliaPostRequestHandledEvent,
   handleBscChapelPostRequestHandledEvent,
-} from "./post-request.handlers";
+} from "../handlers/events/postRequestHandled.event.handlers";
 
 /**
  * Handlers for transfer events
@@ -20,4 +20,10 @@ export {
   handleArbitrumSepoliaTransferEvent,
   handleOptimismSepoliaTransferEvent,
   handleBscChapelTransferEvent,
-} from "./transfer.handlers";
+} from "../handlers/events/transfer.event.handlers";
+
+/**
+ * Handlers for postRequest transaction
+ * @note export more handlers here as support is added for more networks
+ */
+export { handleEthereumSepoliaPostRequestTransactionHandler } from "../handlers/transactions/handlePostRequest.transaction.handlers";

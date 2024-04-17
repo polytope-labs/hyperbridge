@@ -1,17 +1,17 @@
-import { HOST_ADDRESSES } from "../constants";
-import { HyperBridgeService } from "../services/hyperbridge.service";
-import { RelayerService } from "../services/relayer.service";
-import { TransferService } from "../services/transfer.service";
-import { SupportedChain } from "../types";
-import { TransferEvent } from "../types/contracts/ERC6160Ext20Abi";
 import assert from "assert";
+import { HOST_ADDRESSES } from "../../constants";
+import { HyperBridgeService } from "../../services/hyperbridge.service";
+import { RelayerService } from "../../services/relayer.service";
+import { TransferService } from "../../services/transfer.service";
+import { SupportedChain } from "../../types";
+import { TransferEvent } from "../../types/contracts/ERC6160Ext20Abi";
 
 /**
  * Handles the Transfer event from the Fee Token contract
  */
 async function handleTransferEvent(
   event: TransferEvent,
-  network: SupportedChain,
+  chain: SupportedChain,
 ): Promise<void> {
   assert(event.args, "No handleTransferEvent args");
 
@@ -32,7 +32,7 @@ async function handleTransferEvent(
       to,
       value,
       transactionHash,
-      network,
+      chain,
     });
 
     if (HOST_ADDRESSES.includes(from)) {

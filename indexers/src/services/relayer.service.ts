@@ -1,26 +1,48 @@
+import { HandlePostRequestsTransaction } from "../types/abi-interfaces/HandlerV1Abi";
 import { SupportedChain } from "../types/enums";
-import { Relayer, Transfer } from "../types/models";
+import { Relayer, RelayerChainMetrics, Transfer } from "../types/models";
+import {
+  convertArrayToEnumListString,
+  convertEnumListStringToArray,
+} from "../utils/enum.helpers";
+import { RelayerChainMetricsService } from "./relayerChainMetrics.service";
 
 export class RelayerService {
+  /**
+   * Find a relayer by its id or create a new one if it doesn't exist
+   */
+  static async findOrCreate(
+    relayer_id: string,
+    chain: SupportedChain,
+  ): Promise<Relayer> {
+    let relayer = await Relayer.get(relayer_id);
+
+    if (typeof relayer === "undefined") {
+      relayer = Relayer.create({
+        id: relayer_id,
+        chains: convertArrayToEnumListString([
+          chain,
+        ]) as unknown as SupportedChain[],
+        postRequestsHandled: BigInt(0),
+        totalFeesEarned: BigInt(0),
+      });
+
+      await relayer.save();
+    }
+
+    return relayer;
+  }
   /**
    * Increment the number of post requests handled by a relayer
    */
   static async incrementNumberOfPostRequestsHandled(
     relayer_id: string,
-    network: SupportedChain,
+    chain: SupportedChain,
   ): Promise<void> {
-    let relayer = await Relayer.get(relayer_id);
-    if (!relayer) {
-      relayer = Relayer.create({
-        id: relayer_id,
-        networks: `{${network}}` as unknown as SupportedChain[], // Workaround to avoid postgres issues when inserting an array of enums. See https://stackoverflow.com/questions/18234946/postgresql-insert-into-an-array-of-enums
-        postRequestsHandled: BigInt(0),
-        totalFeesEarned: BigInt(0),
-      });
-    }
+    let relayer = await RelayerService.findOrCreate(relayer_id, chain);
 
     relayer.postRequestsHandled += BigInt(1);
-    relayer = RelayerService.updateRelayerNetworksList(relayer, network);
+    relayer = RelayerService.updateRelayerNetworksList(relayer, chain);
 
     await relayer.save();
   }
@@ -35,7 +57,7 @@ export class RelayerService {
       relayer.totalFeesEarned += transfer.amount;
       relayer = RelayerService.updateRelayerNetworksList(
         relayer,
-        transfer.network,
+        transfer.chain,
       );
 
       await relayer.save();
@@ -51,18 +73,54 @@ export class RelayerService {
    */
   static updateRelayerNetworksList(
     relayer: Relayer,
-    network: SupportedChain,
+    chain: SupportedChain,
   ): Relayer {
-    const networks = (relayer.networks as unknown as string)
-      .slice(1, -1)
-      .split(", ");
-    if (!networks.includes(network)) {
-      networks.push(network);
+    let chains_list = convertEnumListStringToArray(`${relayer.chains}`);
+
+    if (!chains_list.includes(chain)) {
+      chains_list.push(chain);
     }
 
-    const networks_enum_str = networks.join(", ");
-    relayer.networks = `{${networks_enum_str}}` as unknown as SupportedChain[];
+    relayer.chains = convertArrayToEnumListString(
+      chains_list,
+    ) as unknown as SupportedChain[];
 
     return relayer;
+  }
+
+  /**
+   * Computes relayer specific metrics from the handlePostRequest transaction
+   */
+  static async handlePostRequestTransaction(
+    transaction: HandlePostRequestsTransaction,
+    chain: SupportedChain,
+  ): Promise<void> {
+    const { to, receipt, gasPrice } = transaction;
+    const { status, gasUsed } = await receipt();
+
+    const relayer_id = to;
+    const gasCost = BigInt(gasPrice) * BigInt(gasUsed);
+
+    const relayer = await RelayerService.findOrCreate(relayer_id, chain);
+    let relayer_chain_metrics = await RelayerChainMetricsService.findOrCreate(
+      relayer_id,
+      chain,
+    );
+
+    relayer_chain_metrics.postRequestsHandled += BigInt(1);
+
+    if (status) {
+      // Handle successful requests
+      relayer_chain_metrics.successfulPostRequests += BigInt(1);
+      relayer_chain_metrics.gasUsedForSuccessfulPostRequests += BigInt(gasUsed);
+      relayer_chain_metrics.gasCostForSuccessfulPostRequests += BigInt(gasCost);
+    } else {
+      // Handle failed requests
+      relayer_chain_metrics.failedPostRequests += BigInt(1);
+      relayer_chain_metrics.gasUsedForFailedPostRequests += BigInt(gasUsed);
+      relayer_chain_metrics.gasCostForFailedPostRequests += BigInt(gasCost);
+    }
+
+    await relayer_chain_metrics.save();
   }
 }

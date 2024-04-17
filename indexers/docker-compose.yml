@@ -37,7 +37,6 @@ services:
       - --db-schema=app
       - --workers=1
       - --batch-size=5
-      - --skip-transactions
       - --disable-historical
       - --multi-chain
     healthcheck:
@@ -72,7 +71,6 @@ services:
       - --db-schema=app
       - --workers=1
       - --batch-size=5
-      - --skip-transactions
       - --disable-historical
       - --multi-chain
     healthcheck:
@@ -102,7 +100,6 @@ services:
       - --db-schema=app
       - --workers=1
       - --batch-size=5
-      - --skip-transactions
       - --disable-historical
       - --multi-chain
     healthcheck:
@@ -137,7 +134,6 @@ services:
       - --db-schema=app
       - --workers=1
       - --batch-size=5
-      - --skip-transactions
       - --disable-historical
       - --multi-chain
     healthcheck:
@@ -172,7 +168,6 @@ services:
       - --db-schema=app
       - --workers=1
       - --batch-size=5
-      - --skip-transactions
       - --disable-historical
       - --multi-chain
     healthcheck:

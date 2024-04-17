@@ -1,21 +1,21 @@
-import { HyperBridgeService } from "../services/hyperbridge.service";
-import { RelayerService } from "../services/relayer.service";
-import { PostRequestHandledEvent } from "../types/contracts/EthereumHostAbi";
-import { SupportedChain } from "../types/enums";
 import assert from "assert";
+import { HyperBridgeService } from "../../services/hyperbridge.service";
+import { RelayerService } from "../../services/relayer.service";
+import { SupportedChain } from "../../types";
+import { PostRequestHandledEvent } from "../../types/contracts/EthereumHostAbi";
 
 /**
  * Handles the PostRequestHandled event from Hyperbridge
  */
 async function handlePostRequestHandledEvent(
   event: PostRequestHandledEvent,
-  network: SupportedChain,
+  chain: SupportedChain,
 ): Promise<void> {
   assert(event.args, "No handlePostRequestHandledEvent args");
 
   const log_info = {
     message: "Handling PostRequestHandled event",
-    network,
+    chain,
     event: event,
   };
 
@@ -25,7 +25,7 @@ async function handlePostRequestHandledEvent(
   const { relayer } = args;
 
   Promise.all([
-    await RelayerService.incrementNumberOfPostRequestsHandled(relayer, network),
+    await RelayerService.incrementNumberOfPostRequestsHandled(relayer, chain),
     await HyperBridgeService.incrementNumberOfPostRequestsHandled(),
   ]);
 }

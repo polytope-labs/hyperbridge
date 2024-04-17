@@ -45,6 +45,66 @@ type HyperBridgeMetrics @entity {
 }
 
 """
+Hyperbridge Metrics for a specific Relayer on a specific chain
+"""
+type RelayerChainMetrics @entity {
+    """
+    Unique identifier of the RelayerChainMetrics entry.
+    """
+    id: ID!
+
+    """
+    The relayer the metrics are for
+    """
+    relayer: Relayer!
+
+    """
+    The chain the metrics are for
+    """
+    chain: SupportedChain!
+
+    """
+    Total number of post requests handled by the Relayer
+    """
+    postRequestsHandled: BigInt!
+
+    """
+    Total number of successful post requests handled by the Relayer
+    """
+    successfulPostRequests: BigInt!
+
+    """
+    Total number of failed post requests handled by the Relayer
+    """
+    failedPostRequests: BigInt!
+
+    """
+    Amount of gas spent on successful post requests
+    """
+    gasUsedForSuccessfulPostRequests: BigInt!
+
+    """
+    Amount of gas spent on failed post requests
+    """
+    gasUsedForFailedPostRequests: BigInt!
+
+    """
+    Cost of gas spent on successful post requests
+    """
+    gasCostForSuccessfulPostRequests: BigInt!
+
+    """
+    Cost of gas spent on failed post requests
+    """
+    gasCostForFailedPostRequests: BigInt!
+
+    """
+    Total fees earned by the relayer
+    """
+    feesEarned: BigInt!
+}
+
+"""
 A Hyperbridge Relayer
 """
 type Relayer @entity {
@@ -54,9 +114,14 @@ type Relayer @entity {
     id: ID!
 
     """
-    The networks the relayer is on
+    The chains the relayer is active on
     """
-    networks: [SupportedChain!]!
+    chains: [SupportedChain!]!
+
+    """
+    A list of important metrics for the Relayer on every network that they support
+    """
+    chainMetrics: [RelayerChainMetrics]! @derivedFrom(field: "relayer")
 
     """
     Total number of post requests handled by the Relayer
@@ -81,9 +146,9 @@ type Transfer @entity @compositeIndexes(fields: [["from", "to"]]) {
     id: ID!
 
     """
-    The network on which the transfer was made
+    The chain on which the transfer was made
     """
-    network: SupportedChain!
+    chain: SupportedChain!
 
     """
     The amount transferred

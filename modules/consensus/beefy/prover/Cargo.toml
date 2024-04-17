@@ -35,7 +35,7 @@ hex = { version = "0.4.3" }
 beefy-verifier-primitives = {  path = "../primitives" }
 
 [features]
-default = ["rococo"]
+default = ["paseo"]
 rococo = []
 rococo-local = []
 paseo = []

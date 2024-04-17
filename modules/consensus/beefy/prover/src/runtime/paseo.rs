@@ -1,4 +1,4 @@
-#[allow(dead_code, unused_imports, non_camel_case_types)]
+#[allow(dead_code, missing_docs, unused_imports, non_camel_case_types)]
 #[allow(clippy::all)]
 #[allow(rustdoc::broken_intra_doc_links)]
 pub mod api {
@@ -1297,7 +1297,7 @@ pub mod api {
                 #[doc = " Returns the state of parachain backing for a given para."]
                 pub fn para_backing_state(
                     &self,
-                    _: runtime_types::polkadot_parachain_primitives::primitives::Id,
+                    id: runtime_types::polkadot_parachain_primitives::primitives::Id,
                 ) -> ::subxt::runtime_api::Payload<
                     types::ParaBackingState,
                     ::core::option::Option<
@@ -1671,7 +1671,7 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct ParaBackingState {
-                    pub _: runtime_types::polkadot_parachain_primitives::primitives::Id,
+                    pub id: runtime_types::polkadot_parachain_primitives::primitives::Id,
                 }
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,

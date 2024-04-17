@@ -8,7 +8,7 @@ export interface IStoreTranferArgs {
   to: string;
   value: BigNumber;
   transactionHash: string;
-  network: SupportedChain;
+  chain: SupportedChain;
 }
 
 export class TransferService {
@@ -16,13 +16,13 @@ export class TransferService {
    * Increment the number of post requests handled by a relayer
    */
   static async storeTransfer(arg: IStoreTranferArgs): Promise<Transfer> {
-    const { from, to, value, transactionHash, network } = arg;
+    const { from, to, value, transactionHash, chain } = arg;
     let transfer = Transfer.create({
       id: transactionHash,
       amount: BigInt(value.toString()),
       from,
       to,
-      network,
+      chain,
     });
 
     await transfer.save();

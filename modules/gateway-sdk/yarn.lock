@@ -152,6 +152,11 @@
     "@nodelib/fs.scandir" "2.1.5"
     fastq "^1.6.0"
 
+"@polytope-labs/hyperclient@^0.3.17":
+  version "0.3.17"
+  resolved "https://registry.yarnpkg.com/@polytope-labs/hyperclient/-/hyperclient-0.3.17.tgz#40199f7c03f6a0cebb30adfc2c3f264ccdf13247"
+  integrity sha512-rQvSjOgsUFhw9xw1qKA/6YfReDwZnsyyBHSz3+Ii9v/Jj/wOkA6+85SEOKvZtTpStGpfiUtBocQvarzy2ooXgg==
+
 "@sinonjs/commons@^1.6.0", "@sinonjs/commons@^1.7.0", "@sinonjs/commons@^1.8.3":
   version "1.8.6"
   resolved "https://registry.yarnpkg.com/@sinonjs/commons/-/commons-1.8.6.tgz#80c516a4dc264c2a69115e7578d62581ff455ed9"

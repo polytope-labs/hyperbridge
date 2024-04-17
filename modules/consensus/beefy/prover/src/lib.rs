@@ -72,7 +72,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 
         // Encoding and decoding to fix dependency version conflicts
         let next_authority_set = {
-            let key = runtime::storage().mmr_leaf().beefy_next_authorities();
+            let key = runtime::storage().beefy_mmr_leaf().beefy_next_authorities();
             let next_authority_set = self
                 .relay
                 .storage()
@@ -86,7 +86,13 @@ impl<R: Config, P: Config> Prover<R, P> {
         };
 
         let current_authority_set = {
-            let key = runtime::storage().mmr_leaf().beefy_authorities();
+            let key: subxt::storage::Address<
+                subxt::utils::Static<subxt::utils::Encoded>,
+                runtime::runtime_types::sp_consensus_beefy::mmr::BeefyAuthoritySet<H256>,
+                subxt::storage::address::Yes,
+                subxt::storage::address::Yes,
+                (),
+            > = runtime::storage().beefy_mmr_leaf().beefy_authorities();
             let authority_set = self
                 .relay
                 .storage()

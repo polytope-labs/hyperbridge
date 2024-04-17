@@ -24,7 +24,7 @@ docker run polytopelabs/hyperbridge:latest --chain={messier|gargantua|nexus}
 You can install a prebuilt binary for the hyperbridge node with the following bash script
 
 ```bash
-wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.3.5/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
+wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.4.1/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
 tar -xvzf hyperbridge-x86_64-unknown-linux-gnu.tar.gz
 # copy to $PATH
 cp hyperbridge-x86_64-unknown-linux-gnu/hyperbridge $HOME/.local/bin/
@@ -91,7 +91,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Download a local copy of the repo and checkout the latest release tag
 
 ```bash
-export LATEST_TAG=v0.4.0
+export LATEST_TAG=v0.4.1
 git clone https://github.com/polytope-labs/hyperbridge.git
 cd ./hyperbridge
 git checkout ${LATEST_TAG}
@@ -135,7 +135,32 @@ mv target/release/hyperbridge $HOME/.local/bin/
 
 ## Running the node (Rococo)
 
-Hyperbridge is available on the rococo testnet, with a chainId of `gargantua` and paraId of `4374`. You can sync the rococo relay chain in a few hours by appending a relay chain argument `--sync=fast-unsafe`. This tells the relay chain node to simply download it's blocks and not execute them. It'll also download the full latest state.
+Hyperbridge is available on the rococo testnet, with a chainId of `gargantua-rococo` and paraId of `4374`. You can sync the rococo relay chain in a few hours by appending a relay chain argument `--sync=fast-unsafe`. This tells the relay chain node to simply download it's blocks and not execute them. It'll also download the full latest state.
+This is fine because the rococo testnet has no economic value.
+
+```bash
+export PUBLIC_IP_ADDRESS=<your-node-public-ip-address>
+hyperbridge \
+    --base-path=$HOME/.hyperbridge \
+    --pruning=archive \
+    --name="Your node name here"  \
+    --rpc-cors=all \
+    --rpc-port=9944 \
+    --unsafe-rpc-external \
+    --rpc-methods=unsafe \
+    --chain=gargantua-rococo \
+    --no-mdns \
+    --listen-addr=/ip4/0.0.0.0/tcp/30333 \
+    --listen-addr=/ip6/::/tcp/30333 \
+    --public-addr=/ip4/$PUBLIC_IP_ADDRESS/tcp/30333 \
+    --out-peers=32 \
+    -- \
+    --sync=fast-unsafe
+```
+
+## Running the node (Paseo)
+
+Hyperbridge is available on the Paseo testnet, with a chainId of `gargantua` and paraId of `4009`. You can sync the paseo relay chain in a few minutes by appending a relay chain argument `--sync=fast-unsafe`. This tells the relay chain node to simply download it's blocks and not execute them. It'll also download the full latest state.
 This is fine because the rococo testnet has no economic value.
 
 ```bash

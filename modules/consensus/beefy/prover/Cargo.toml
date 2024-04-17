@@ -34,8 +34,3 @@ serde_json = { version = "1.0.74" }
 hex = { version = "0.4.3" }
 beefy-verifier-primitives = {  path = "../primitives" }
 
-[features]
-default = ["paseo"]
-rococo = []
-rococo-local = []
-paseo = []

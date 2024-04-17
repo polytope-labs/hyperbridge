@@ -7,7 +7,7 @@ use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 
 use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
 #[cfg(feature = "std")]
-use ethers::types::Block;
+use ethers::types::{Block, U64};
 use ismp::util::Keccak256;
 
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
@@ -88,12 +88,12 @@ impl From<Block<H256>> for CodecHeader {
             withdrawals_hash: block.withdrawals_root,
             blob_gas_used: block
                 .other
-                .get_deserialized::<u64>("blobGasUsed")
-                .and_then(|val| val.ok()),
+                .get_deserialized::<U64>("blobGasUsed")
+                .and_then(|val| val.ok().map(|val| val.as_u64())),
             excess_blob_gas_used: block
                 .other
-                .get_deserialized::<u64>("excessBlobGas")
-                .and_then(|val| val.ok()),
+                .get_deserialized::<U64>("excessBlobGas")
+                .and_then(|val| val.ok().map(|val| val.as_u64())),
             parent_beacon_root: block
                 .other
                 .get_deserialized::<H256>("parentBeaconBlockRoot")

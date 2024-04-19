@@ -64,7 +64,7 @@ where
             .map_err(|e| Error::ImplementationSpecific(format!("failed to decode proof: {e:?}")))?;
         ensure!(
             matches!(state_proof, SubstrateStateProof::OverlayProof { .. }),
-            Error::ImplementationSpecific("Expected Overlay Proof".to_string())
+            Error::ImplementationSpecific("Expected Overlay Proof".into())
         );
         let root = state.overlay_root.ok_or_else(|| {
             Error::ImplementationSpecific(

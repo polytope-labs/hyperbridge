@@ -12,21 +12,14 @@ async function handlePostRequestHandledEvent(
   chain: SupportedChain,
 ): Promise<void> {
   assert(event.args, "No handlePostRequestHandledEvent args");
-
-  const log_info = {
-    message: "Handling PostRequestHandled event",
-    chain,
-    event: event,
-  };
-
-  logger.debug(JSON.stringify(log_info));
+  logger.debug("Handling PostRequestHandled event");
 
   const { args } = event;
   const { relayer } = args;
 
   Promise.all([
     await RelayerService.incrementNumberOfPostRequestsHandled(relayer, chain),
-    await HyperBridgeService.incrementNumberOfPostRequestsHandled(),
+    await HyperBridgeService.incrementNumberOfPostRequestsHandled(chain),
   ]);
 }
 

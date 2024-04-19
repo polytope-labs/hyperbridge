@@ -14,13 +14,7 @@ async function handleTransferEvent(
   chain: SupportedChain,
 ): Promise<void> {
   assert(event.args, "No handleTransferEvent args");
-
-  const log_info = {
-    message: "Handling Transfer event",
-    event: event,
-  };
-
-  logger.debug(JSON.stringify(log_info));
+  logger.info("Handling Transfer event");
 
   const { args, transactionHash } = event;
   const { from, to, value } = args;

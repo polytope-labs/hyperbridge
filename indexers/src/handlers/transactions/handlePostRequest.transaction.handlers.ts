@@ -1,29 +1,30 @@
 import assert from "assert";
-import { SupportedChain } from "../../types";
 import { HandlePostRequestsTransaction } from "../../types/abi-interfaces/HandlerV1Abi";
 import { RelayerService } from "../../services/relayer.service";
+import {
+  getSupportedChainByChainId,
+  hexToDecimal,
+} from "../../utils/chain.helpers";
 
 /**
  * Handles the handlePostRequest transaction from Hyperbridge
  */
-async function handlePostRequestTransaction(
+export async function handlePostRequestTransaction(
   transaction: HandlePostRequestsTransaction,
-  chain: SupportedChain,
 ): Promise<void> {
   assert(
     transaction.args,
     "No handlePostRequestTransaction args found in ${network} network",
   );
 
-  await RelayerService.handlePostRequestTransaction(transaction, chain);
-}
+  const chainId = transaction.chainId ? hexToDecimal(transaction.chainId) : "";
+  const chain = getSupportedChainByChainId(chainId);
 
-// Handle the handlePostRequest transaction for the Ethereum Sepolia chain
-export async function handleEthereumSepoliaPostRequestTransactionHandler(
-  transaction: HandlePostRequestsTransaction,
-): Promise<void> {
-  await handlePostRequestTransaction(
-    transaction,
-    SupportedChain.ETHEREUM_SEPOLIA,
-  );
+  if (!chain) {
+    throw new Error(
+      `Unsupported chainId ${chainId} for handlePostRequest transaction`,
+    );
+  }
+
+  await RelayerService.handlePostRequestTransaction(transaction, chain);
 }

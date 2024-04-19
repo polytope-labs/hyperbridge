@@ -21,7 +21,7 @@ network:
 dataSources:
   # EthereumHost contract
   - kind: ethereum/Runtime
-    startBlock: 5659633
+    startBlock: 5419532
     options:
       abi: ethereumHost
       address: "0xe4226c474A6f4BF285eA80c2f01c0942B04323e5"
@@ -39,7 +39,7 @@ dataSources:
 
   # Protocol Fee Token
   - kind: ethereum/Runtime
-    startBlock: 5659633
+    startBlock: 5419390
     options:
       abi: erc6160ext20
       address: "0x6df8dE86458D15a3Be3A6B907e6aE6B7af352452"
@@ -68,8 +68,8 @@ dataSources:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/TransactionHandler
-          handler: handleEthereumSepoliaPostRequestTransactionHandler
+          handler: handlePostRequestTransaction
           filter:
-            function: handlePostRequest(address host)
+            function: "0xfda626c3"
 
 repository: "https://github.com/polytope-labs/hyperbridge"

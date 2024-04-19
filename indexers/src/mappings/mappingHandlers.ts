@@ -26,4 +26,4 @@ export {
  * Handlers for postRequest transaction
  * @note export more handlers here as support is added for more networks
  */
-export { handleEthereumSepoliaPostRequestTransactionHandler } from "../handlers/transactions/handlePostRequest.transaction.handlers";
+export { handlePostRequestTransaction } from "../handlers/transactions/handlePostRequest.transaction.handlers";

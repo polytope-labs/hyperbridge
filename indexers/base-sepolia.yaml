@@ -17,6 +17,7 @@ network:
     - "https://base-sepolia.blockpi.network/v1/rpc/public"
     - "wss://base-sepolia-rpc.publicnode.com"
     - "https://base-sepolia-rpc.publicnode.com"
+
 dataSources:
   # EthereumHost contract
   - kind: ethereum/Runtime
@@ -67,8 +68,8 @@ dataSources:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/TransactionHandler
-          handler: handleEthereumSepoliaPostRequestTransactionHandler
+          handler: handlePostRequestTransaction
           filter:
-            function: handlePostRequest(address host)
+            function: "0xfda626c3"
 
 repository: "https://github.com/polytope-labs/hyperbridge"

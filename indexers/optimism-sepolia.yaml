@@ -66,8 +66,8 @@ dataSources:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/TransactionHandler
-          handler: handleEthereumSepoliaPostRequestTransactionHandler
+          handler: handlePostRequestTransaction
           filter:
-            function: handlePostRequest(address host)
+            function: "0xfda626c3"
 
 repository: "https://github.com/polytope-labs/hyperbridge"

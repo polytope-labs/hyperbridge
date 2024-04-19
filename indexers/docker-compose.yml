@@ -36,7 +36,7 @@ services:
       - -f=app/ethereum-sepolia.yaml
       - --db-schema=app
       - --workers=1
-      - --batch-size=5
+      - --batch-size=3
       - --disable-historical
       - --multi-chain
     healthcheck:
@@ -70,7 +70,7 @@ services:
       - -f=app/base-sepolia.yaml
       - --db-schema=app
       - --workers=1
-      - --batch-size=5
+      - --batch-size=3
       - --disable-historical
       - --multi-chain
     healthcheck:
@@ -99,7 +99,7 @@ services:
       - -f=app/optimism-sepolia.yaml
       - --db-schema=app
       - --workers=1
-      - --batch-size=5
+      - --batch-size=3
       - --disable-historical
       - --multi-chain
     healthcheck:
@@ -133,7 +133,7 @@ services:
       - -f=app/arbitrum-sepolia.yaml
       - --db-schema=app
       - --workers=1
-      - --batch-size=5
+      - --batch-size=3
       - --disable-historical
       - --multi-chain
     healthcheck:
@@ -167,7 +167,7 @@ services:
       - -f=app/bsc-chapel.yaml
       - --db-schema=app
       - --workers=1
-      - --batch-size=5
+      - --batch-size=3
       - --disable-historical
       - --multi-chain
     healthcheck:

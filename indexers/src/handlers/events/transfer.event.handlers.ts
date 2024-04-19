@@ -32,12 +32,12 @@ async function handleTransferEvent(
     if (HOST_ADDRESSES.includes(from)) {
       Promise.all([
         await RelayerService.updateFeesEarned(transfer),
-        await HyperBridgeService.updateFeesPayedOut(transfer),
+        await HyperBridgeService.updateFeesPayedOut(transfer, chain),
       ]);
     }
 
     if (HOST_ADDRESSES.includes(to)) {
-      await HyperBridgeService.updateTotalTransfersIn(transfer);
+      await HyperBridgeService.updateTotalTransfersIn(transfer, chain);
     }
   }
 }

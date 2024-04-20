@@ -3,7 +3,7 @@
   "id": "nexus",
   "chainType": "Live",
   "bootNodes": [
-    "/ip4/127.0.0.1/tcp/30333/p2p/12D3KooWSijHd2K8uqwRzA4VTBYswtgBsbnQqYXQ4sNSsBvYc7Jm"
+    "/ip4/34.34.161.178/tcp/30333/p2p/12D3KooWFhvrxiteNHigYA96J3zoD2Z2Gs3q6ihDp3N37Fyb4874"
   ],
   "telemetryEndpoints": [
     [

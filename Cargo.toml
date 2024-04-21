@@ -20,6 +20,7 @@ members = [
      "modules/ismp/clients/sync-committee",
 #     "modules/ismp/clients/polygon-pos",
      "modules/ismp/clients/casper-ffg",
+      "modules/ismp/clients/ismp-beefy",
      "modules/ismp/pallet/state-machine",
 
      # modules
@@ -41,7 +42,7 @@ members = [
      "evm/integration-tests",
      "evm/abi",
      "modules/relayer",
-     "modules/trees/mmr",
+     "modules/trees/mmr"
 ]
 
 # Config for 'cargo dist'

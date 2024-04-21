@@ -5677,6 +5677,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-beefy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "beefy-prover",
+ "beefy-verifier-primitives",
+ "frame-support",
+ "frame-system",
+ "hex-literal 0.4.1",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
+ "serde",
+ "sp-core 27.0.0",
+ "sp-runtime 31.0.1",
+ "substrate-state-machine",
+]
+
+[[package]]
 name = "ismp-bsc-pos"
 version = "0.1.0"
 dependencies = [

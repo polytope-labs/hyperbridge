@@ -5,12 +5,74 @@ description: Hyperbridge Protocol Specification
 
 # What is Hyperbridge?
 
-{/* Definition */}
+Hyperbridge is the frontliner of consensus based bridges, using consensus proofs, state transition validity and consensus fault proofs to ensure secure and the integrity of transactions across chains. It is an interoperability coprocessor capable of scaling cryptographically secure, consensus & state proof-based interoperability to all blockchains.
 
-{/* How does it work */}
+## The challenge of interoperability.
 
-{/* Protocols */}
+Ensuring secure cross-chain communication involves verifying consensus, consensus faults, state proofs, and state transitions. However, conducting these verification processes on-chain is often prohibitively costly. Consequently, attestation networks have emerged, employing multi-sig committees to verify the state of counterpart chains. Unfortunately, these architectures have led to a collective loss of $2 billion in crypto assets (sources [1](), [2]()). We advocate for the adoption of cross-chain bridges with heightened security assumptions to pave the way for the next generation of secure cross-chain applications. This necessitates the development of a new kind of interoperability coprocessor that can scale consensus proofs, state proofs, and state transitions across multiple blockchains.
 
-{/* Diagrams */}
+{ /* The solution */}
 
-{/* Gateway */}
+## How does it work?
+ A single state machine can quickly become bottlenecked if it is to verify consensus proofs, state proofs & (re-execute) state transitions of it’s multiple connected state machines. This necessitates that the coprocessor must be multi-threaded and capable of verifying multiple state machines in parallel.
+
+### The architecture
+Hyperbridge can verify multiple state machines, a single Polkadot consensus proof attests to the validity of all its state machines. Which allows developers to aggregate the cross-chain messages from multiple connected blockchains, which are verified on multiple parachain cores, into a single zk consensus & state proof that can be verified cheaply on any chain.
+
+### The Coprocessor model
+Since verification is too expensive to be performed onchain, this necessitates the coprocessor model. Where the computation is performed off-chain and the results of the execution are presented onchain alongside cryptographic proofs of its correct execution. The following diagram gives a visual overview of hyperbridge cores. 
+
+{  /* Diagrams */}
+
+### Crypto-economic security
+There must be a stake for each consensus proof. If this coprocessor were to initiate its own validator set via POS consensus, it could face susceptibility to governance attacks in its early stages. This vulnerability arises from the relatively low value of the network token stake, leading to diminished crypto-economic security. Consequently, Byzantine actors could swiftly seize control of the network, enabling them to validate blocks lacking valid work. Such a scenario would compromise applications relying on this coprocessor. To ensure secure interoperability through a blockchain coprocessor, the underlying blockchain must offer robust crypto-economic security assurances. Essentially, a substantial capital investment is necessary to deter Byzantine attacks.
+
+By leveraging Polkadot as a consensus layer, we obtain high crypto-economic security, equivalent to almost $3 billion at the time of writing. This ensures that hyperbridge is resistant to governance attacks that would’ve otherwise successfully compromised the protocol if it had to bootstrap its own validator set. Hyperbridge is proudly secured by Polkadot.
+
+### Consensus proofs
+Additionally, we benefit cheap consensus proofs through BEEFY, which attests to the validity of all parachain state transitions secured by the network. Because of this, we can shard the work of validating consensus, state proof and state transition re-execution across multiple so-called parachain cores. This allows us to aggregate the cross-chain messages from multiple connected blockchains which are verified on multiple parachain cores into a single zk consensus & state proof that can be verified cheaply on any chain. 
+
+This cost will be cheap enough to compete with non-consensus proof based bridges which simply verify MPC signatures onchain for attestation. It is critical to note that the reason this kind of interoperability coprocessor hasn’t been attempted before is because it is an architecture that is uniquely enabled by Polkadot. 
+
+### ISMP
+Hyperbridge is built on top of our in-house cross-chain messaging framework (Interoperable State Machine Protocol) ISMP. It has been designed to be modular and extensible, enabling us to quickly incorporate support for additional consensus systems and state machines with minimal new code. It provides a familiar HTTP-like API for developers who want to make cross-chain requests to trigger certain logic on the counterparty chain. Allowing devs to make POST requests to send arbitrary data to connected chains, as well as GET requests to read the storage (verified through state proofs) of applications on connected chains.
+
+Additionally, it facilitates cross-chain message passing among connected chains, ISMP also serves as a synchronisation primitive across Hyperbridge's internal state machines. This enables its parachain cores to communicate with each other and delegate tasks. Making Hyperbridge to become the first multi-core parachain on Polkadot.
+
+### Full node level security guarantees
+With the ability to re-execute blocks of its connected chains, Hyperbridge achieves the elusive full node security in cross-chain bridges. This is accomplished by compressing the state witness, transaction data, and contract code, which can then be uncompressed and re-executed within a parachain core. This is how smart-contract parachains currently function on the Polkadot relay chain.
+
+
+## Features 
+Hyperbridge presents many features that make it a unique and powerful tool for developers. Here are some of the key features and tools that Hyperbridge offers:
+
+### General Message passing 
+Hyperbridge allows for general message passing among connected chains. This allows developers to send arbitrary data to connected chains, as well as read the storage of applications on connected chains. This is done through the ISMP API, which provides a familiar HTTP-like interface for developers to interact with.
+
+### Gateway
+Gateway is the dApp component of Hyperbridge. It allows developers bridge tokens across chains, and also provides a user-friendly interface for users to interact with the bridge. Gateway is built on top of the ISMP API, and provides a simple and intuitive way for users to bridge tokens across chains. You can play around with the Gateway dApp on the Hyperbridge testnet (here)[https://gateway.hyperbridge.network/].
+
+## Use Cases
+Hyperbridge's unique architecture and features enable a wide range of use cases across various industries and applications. Here are some potential use cases where developers can leverage Hyperbridge to create solutions:
+
+1. **Cross-Chain Asset Transfers**: Hyperbridge facilitates seamless transfer of assets across different blockchains. This capability opens up various use cases, such as:
+   - **Asset Diversification**: Traders and investors can easily diversify their portfolios across multiple chains without facing the traditional barriers associated with transferring assets between incompatible networks.
+   - **Cross-Border Payments**: Hyperbridge can be leveraged to create efficient cross-border payment solutions, allowing for cost-effective transfers of value between individuals and businesses operating in different jurisdictions.
+
+2. **Decentralized Finance (DeFi) Applications**: Hyperbridge can serve as a crucial infrastructure component for DeFi platforms, enabling interoperability between various decentralized financial products and services. Potential use cases include:
+   - **Liquidity Pools**: DeFi protocols can utilize Hyperbridge to access liquidity from multiple chains, enhancing the depth and efficiency of liquidity pools.
+   - **Cross-Chain Yield Farming**: Yield farming strategies can be optimized by leveraging assets from multiple chains, thereby maximizing returns for liquidity providers.
+
+3. **Interoperable NFT Marketplaces**: Non-fungible tokens (NFTs) have gained significant traction across different blockchain ecosystems. Hyperbridge can empower the creation of interoperable NFT marketplaces, enabling seamless trading and exchange of digital assets. Use cases may include:
+   - **Cross-Chain NFT Trading**: Artists and collectors can participate in NFT markets across multiple chains, expanding their reach and audience.
+   - **Fractional Ownership**: Hyperbridge can facilitate the fractionalization of high-value NFTs, allowing investors to own fractions of assets represented by NFTs across different blockchains.
+
+4. **Supply Chain Traceability**: Hyperbridge's interoperability capabilities can be harnessed to improve supply chain management and traceability. Use cases in this domain include:
+   - **Cross-Chain Tracking**: Businesses can track the movement of goods and verify their authenticity across different blockchain-based supply chain networks.
+   - **Immutable Records**: By leveraging Hyperbridge's ability to securely transfer and verify data across chains, organizations can create immutable records of product provenance and transaction history, enhancing transparency and trust in supply chains.
+
+5. **Gaming and Virtual Worlds**: Hyperbridge can enable cross-chain interoperability for gaming assets and virtual worlds, unlocking new possibilities for gamers and developers. Use cases may include:
+   - **Cross-Chain Item Swapping**: Gamers can trade virtual assets, such as in-game items and currencies, across different gaming ecosystems seamlessly.
+   - **Interoperable Virtual Economies**: Developers can create interconnected virtual worlds where assets and experiences can be seamlessly transferred between different gaming platforms, enhancing player engagement and immersion.
+
+{   /* Diagrams */}

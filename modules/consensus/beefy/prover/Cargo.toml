@@ -21,7 +21,6 @@ sp-storage =  { workspace = true, features = ["default"] }
 sp-io = { workspace = true, features = ["default"] }
 frame-support = { workspace = true, features = ["default"]}
 pallet-beefy-mmr = { workspace = true, features = ["default"] }
-pallet-mmr = { workspace = true, features = ["default"] }
 sp-mmr-primitives = { workspace = true, features = ["default"] }
 sp-consensus-beefy = { workspace = true, features = ["default"] }
 sp-trie = { workspace = true, features = ["default"] }

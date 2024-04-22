@@ -20,54 +20,51 @@ use crate::*;
 
 use codec::{Decode, Encode};
 use frame_support::{derive_impl, parameter_types};
+use frame_system::DefaultConfig;
 use sp_mmr_primitives::{Compact, LeafDataProvider};
 use sp_runtime::traits::Keccak256;
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
 frame_support::construct_runtime!(
-	pub enum Test
-	{
-		System: frame_system,
-		MMR: pallet_mmr,
-	}
+    pub enum Test
+    {
+        System: frame_system,
+        MMR: pallet_mmr,
+    }
 );
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {
-	type Block = Block;
+    type Block = Block;
 }
 
 impl Config for Test {
-	const INDEXING_PREFIX: &'static [u8] = b"mmr-";
-
-	type Hashing = Keccak256;
-	type LeafData = Compact<Keccak256, (ParentNumberAndHash<Test>, LeafData)>;
-	type OnNewRoot = ();
-	type BlockHashProvider = DefaultBlockHashProvider<Test>;
-	type WeightInfo = ();
+    const INDEXING_PREFIX: &'static [u8] = b"mmr-";
+    type Hashing = Keccak256;
+    type Leaf = LeafData;
 }
 
-#[derive(Encode, Decode, Clone, Default, Eq, PartialEq, Debug)]
+#[derive(Encode, Decode, Clone, Default, Eq, PartialEq, Debug, scale_info::TypeInfo)]
 pub struct LeafData {
-	pub a: u64,
-	pub b: Vec<u8>,
+    pub a: u64,
+    pub b: Vec<u8>,
 }
 
 impl LeafData {
-	pub fn new(a: u64) -> Self {
-		Self { a, b: Default::default() }
-	}
+    pub fn new(a: u64) -> Self {
+        Self { a, b: Default::default() }
+    }
 }
 
 parameter_types! {
-	pub static LeafDataTestValue: LeafData = Default::default();
+    pub static LeafDataTestValue: LeafData = Default::default();
 }
 
 impl LeafDataProvider for LeafData {
-	type LeafData = Self;
+    type LeafData = Self;
 
-	fn leaf_data() -> Self::LeafData {
-		LeafDataTestValue::get().clone()
-	}
+    fn leaf_data() -> Self::LeafData {
+        LeafDataTestValue::get().clone()
+    }
 }

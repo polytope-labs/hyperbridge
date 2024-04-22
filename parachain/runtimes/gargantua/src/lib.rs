@@ -534,6 +534,13 @@ impl pallet_sudo::Config for Runtime {
     type RuntimeCall = RuntimeCall;
     type WeightInfo = ();
 }
+
+impl pallet_mmr::Config for Runtime {
+    const INDEXING_PREFIX: &'static [u8] = b"ISMP";
+    type Hashing = Keccak256;
+    type Leaf = Leaf;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime
@@ -560,20 +567,21 @@ construct_runtime!(
         XcmpQueue: cumulus_pallet_xcmp_queue::{Pallet, Call, Storage, Event<T>} = 30,
         PolkadotXcm: pallet_xcm = 31,
         CumulusXcm: cumulus_pallet_xcm::{Pallet, Event<T>, Origin} = 32,
+
         // ISMP stuff
         // Xcm messages are executed in on_initialize of the message queue, pallet ismp must come before the queue so it can
         // setup the mmr
-        Ismp: pallet_ismp = 33,
-        MessageQueue: pallet_message_queue = 34,
+        Mmr: pallet_mmr = 40,
+        Ismp: pallet_ismp = 41,
+        MessageQueue: pallet_message_queue = 42,
 
-
-        IsmpSyncCommittee: ismp_sync_committee::pallet = 41,
-        IsmpDemo: pallet_ismp_demo = 42,
-        Relayer: pallet_ismp_relayer = 43,
-        HostExecutive: pallet_ismp_host_executive = 45,
-        CallDecompressor: pallet_call_decompressor = 46,
-        Gateway: pallet_asset_gateway = 47,
-        Assets: pallet_assets = 48,
+        IsmpSyncCommittee: ismp_sync_committee::pallet = 51,
+        IsmpDemo: pallet_ismp_demo = 52,
+        Relayer: pallet_ismp_relayer = 53,
+        HostExecutive: pallet_ismp_host_executive = 55,
+        CallDecompressor: pallet_call_decompressor = 56,
+        Gateway: pallet_asset_gateway = 57,
+        Assets: pallet_assets = 58,
     }
 );
 

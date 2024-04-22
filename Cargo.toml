@@ -141,7 +141,6 @@ sp-mmr-primitives = { version = "26.0.0", default-features = false }
 sp-state-machine = { version = "0.35.0", default-features = false }
 sp-storage = { version = "19.0.0", default-features = false }
 pallet-beefy-mmr = { version = "28.0.0", default-features = false }
-pallet-mmr = { version = "27.0.0", default-features = false }
 pallet-assets = { version = "29.0.0", default-features = false }
 
 # client
@@ -253,6 +252,7 @@ pallet-ismp-runtime-api = { path = "./modules/ismp/pallet/runtime-api", default-
 pallet-ismp-host-executive = { path = "modules/ismp/pallet/host-executive", default-features = false }
 pallet-call-decompressor = { path = "modules/ismp/pallet/call-decompressor", default-features = false }
 pallet-asset-gateway = { path = "modules/ismp/pallet/asset-gateway", default-features = false }
+pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
 
 # Mmr
 pallet-mmr-labs =  { package = "pallet-mmr",  path ="modules/trees/mmr/pallet", default-features = false }

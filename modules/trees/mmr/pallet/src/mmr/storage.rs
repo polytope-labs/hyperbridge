@@ -72,7 +72,7 @@ where
         // unless the MMR client gadget has a delay.
         let key = Pallet::<T, I>::node_canon_offchain_key(pos);
         debug!(
-            target: "runtime::mmr::offchain", "offchain db get {}: canon key {:?}",
+            target: "pallet-mmr::offchain", "offchain db get {}: canon key {:?}",
             pos, key
         );
         // Try to retrieve the element from Off-chain DB.
@@ -105,7 +105,7 @@ where
         }
 
         trace!(
-            target: "runtime::mmr", "elems: {:?}",
+            target: "pallet-mmr", "elems: {:?}",
             elems.iter().map(|elem| elem.hash()).collect::<Vec<_>>()
         );
 
@@ -173,7 +173,7 @@ where
         // finality notification that follows, when we are not worried about forks anymore.
         let temp_key = Pallet::<T, I>::node_temp_offchain_key(pos, parent_hash);
         debug!(
-            target: "runtime::mmr::offchain", "offchain db set: pos {} parent_hash {:?} key {:?}",
+            target: "pallet-mmr::offchain", "offchain db set: pos {} parent_hash {:?} key {:?}",
             pos, parent_hash, temp_key
         );
         // Indexing API is used to store the full node content.
@@ -189,8 +189,8 @@ fn peaks_to_prune_and_store(
     // both collections may share a common prefix.
     let peaks_before = if old_size == 0 { vec![] } else { helper::get_peaks(old_size) };
     let peaks_after = helper::get_peaks(new_size);
-    trace!(target: "runtime::mmr", "peaks_before: {:?}", peaks_before);
-    trace!(target: "runtime::mmr", "peaks_after: {:?}", peaks_after);
+    trace!(target: "pallet-mmr", "peaks_before: {:?}", peaks_before);
+    trace!(target: "pallet-mmr", "peaks_after: {:?}", peaks_after);
     let mut peaks_before = peaks_before.into_iter().peekable();
     let mut peaks_after = peaks_after.into_iter().peekable();
 

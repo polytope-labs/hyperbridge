@@ -15,27 +15,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{mock::*, *};
-
-use frame_support::{
-    traits::{Get, OnInitialize},
-    weights::Weight,
-};
-use sp_core::{
-    offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
-    H256,
-};
-use sp_mmr_primitives::{mmr_lib::helper, utils, Compact, Proof};
+use sp_core::H256;
+use sp_mmr_primitives::{mmr_lib::helper, utils};
 use sp_runtime::BuildStorage;
+
+use crate::{mock::*, *};
 
 pub(crate) fn new_test_ext() -> sp_io::TestExternalities {
     frame_system::GenesisConfig::<Test>::default().build_storage().unwrap().into()
-}
-
-fn register_offchain_ext(ext: &mut sp_io::TestExternalities) {
-    let (offchain, _offchain_state) = TestOffchainExt::with_offchain_db(ext.offchain_db());
-    ext.register_extension(OffchainDbExt::new(offchain.clone()));
-    ext.register_extension(OffchainWorkerExt::new(offchain));
 }
 
 fn new_leaf() {
@@ -45,25 +32,6 @@ fn new_leaf() {
 fn peaks_from_leaves_count(leaves_count: NodeIndex) -> Vec<NodeIndex> {
     let size = utils::NodesUtils::new(leaves_count).size();
     helper::get_peaks(size)
-}
-
-pub(crate) fn hex(s: &str) -> H256 {
-    s.parse().unwrap()
-}
-
-type BlockNumber = frame_system::pallet_prelude::BlockNumberFor<Test>;
-
-fn decode_node(v: Vec<u8>) -> mmr::Node<<Test as Config>::Hashing, LeafData> {
-    use crate::primitives::DataOrHash;
-    type B = DataOrHash<<Test as Config>::Hashing, LeafData>;
-    type Node = mmr::Node<<Test as Config>::Hashing, B>;
-    let tuple: Node = codec::Decode::decode(&mut &v[..]).unwrap();
-
-    match tuple {
-        mmr::Node::Data(DataOrHash::Data(node)) => mmr::Node::Data(node),
-        mmr::Node::Hash(hash) => mmr::Node::Hash(hash),
-        _ => unreachable!(),
-    }
 }
 
 fn add_leaves(blocks: usize) {

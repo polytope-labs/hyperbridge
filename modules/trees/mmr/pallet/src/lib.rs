@@ -58,6 +58,9 @@
 
 use frame_system::pallet_prelude::{BlockNumberFor, HeaderFor};
 use log;
+use sp_core::H256;
+use std::marker::PhantomData;
+
 use sp_runtime::{
     traits::{self, One, Zero},
     RuntimeDebug,
@@ -71,8 +74,6 @@ pub use sp_mmr_primitives::{
 };
 
 mod mmr;
-
-pub use mmr::storage::{OffchainStorage, Storage};
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -183,6 +184,7 @@ pub mod pallet {
     Clone,
     Copy,
     RuntimeDebug,
+    Default,
 )]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct LeafMetadata {
@@ -198,26 +200,80 @@ pub struct LeafMetadata {
 ///
 /// Internally, the pallet makes use of temporary storage item where it places leaves that have not
 /// yet been finalized.
-pub trait MerkleMountainRangeTree<T, I>
-where
-    I: 'static,
-    T: Config<I>,
-{
+pub trait MerkleMountainRangeTree {
+    /// Associated leaf type.
+    type Leaf;
+
+    /// Returns the total number of leaves that have been committed to the tree.
+    fn leaf_count() -> LeafIndex;
+
+    /// Generate an MMR proof for the given `leaf_indices`.
+    /// Generates a proof for the MMR at the current block height.
+    fn generate_proof(
+        indices: Vec<LeafIndex>,
+    ) -> Result<(Vec<Self::Leaf>, primitives::Proof<H256>), Error>;
+
     /// Push a new leaf into the MMR. Doesn't actually perform any expensive tree recomputation.
     /// Simply adds the leaves to a buffer where they can be recalled when the tree actually
     /// needs to be finalized.
-    fn push(leaf: T::Leaf) -> LeafMetadata;
+    fn push(leaf: Self::Leaf) -> LeafMetadata;
 
     /// Finalize the tree and compute it's new root hash. Ideally this should only be called once a
     /// block. This will pull the leaves from the buffer and commit them to the underlying tree.
-    fn finalize() -> Result<HashOf<T, I>, Error>;
+    fn finalize() -> Result<H256, Error>;
 }
 
-impl<T, I> MerkleMountainRangeTree<T, I> for Pallet<T, I>
+/// NoOp tree can be used as a drop in replacement for when the underlying mmr tree is unneeded.
+pub struct NoOpTree<T>(PhantomData<T>);
+
+impl<T> MerkleMountainRangeTree for NoOpTree<T> {
+    type Leaf = T;
+
+    fn leaf_count() -> LeafIndex {
+        0
+    }
+
+    fn generate_proof(
+        _indices: Vec<LeafIndex>,
+    ) -> Result<(Vec<Self::Leaf>, primitives::Proof<H256>), Error> {
+        Err(Error::GenerateProof)?
+    }
+
+    fn push(_leaf: T) -> LeafMetadata {
+        Default::default()
+    }
+
+    fn finalize() -> Result<H256, Error> {
+        Ok(H256::default())
+    }
+}
+
+impl<T, I> MerkleMountainRangeTree for Pallet<T, I>
 where
     I: 'static,
     T: Config<I>,
+    HashOf<T, I>: Into<H256>,
 {
+    type Leaf = T::Leaf;
+
+    fn leaf_count() -> LeafIndex {
+        NumberOfLeaves::<T, I>::get()
+    }
+
+    fn generate_proof(
+        indices: Vec<LeafIndex>,
+    ) -> Result<(Vec<Self::Leaf>, primitives::Proof<H256>), Error> {
+        let (leaves, proof) = Pallet::<T, I>::generate_proof(indices)?;
+        let proof_nodes = proof.items.into_iter().map(Into::into).collect();
+        let new_proof = primitives::Proof {
+            leaf_indices: proof.leaf_indices,
+            leaf_count: proof.leaf_count,
+            items: proof_nodes,
+        };
+
+        Ok((leaves, new_proof))
+    }
+
     fn push(leaf: T::Leaf) -> LeafMetadata {
         let temp_count = IntermediateLeaves::<T, I>::count() as u64;
         let index = NumberOfLeaves::<T, I>::get() + temp_count;
@@ -226,11 +282,11 @@ where
         LeafMetadata { position, index }
     }
 
-    fn finalize() -> Result<HashOf<T, I>, Error> {
+    fn finalize() -> Result<H256, Error> {
         let buffer_len = IntermediateLeaves::<T, I>::count() as u64;
         // no new leaves? early return
         if buffer_len == 0 {
-            return Ok(RootHash::<T, I>::get())
+            return Ok(RootHash::<T, I>::get().into())
         }
 
         let leaves = NumberOfLeaves::<T, I>::get();
@@ -244,12 +300,12 @@ where
             // Mmr push should never fail
             match mmr.push(leaf) {
                 None => {
-                    log::error!(target: "ismp::mmr", "MMR push failed ");
+                    log::error!(target: "pallet-mmr", "MMR push failed ");
                     // MMR push never fails, but better safe than sorry.
                     Err(Error::Push)?
                 },
                 Some(position) => {
-                    log::trace!(target: "ismp::mmr", "MMR push {position}");
+                    log::trace!(target: "pallet-mmr", "MMR push {position}");
                 },
             }
         }
@@ -258,7 +314,7 @@ where
         let (leaves, root) = match mmr.finalize() {
             Ok((leaves, root)) => (leaves, root),
             Err(e) => {
-                log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
+                log::error!(target: "pallet-mmr", "MMR finalize failed: {:?}", e);
                 Err(Error::Commit)?
             },
         };
@@ -267,7 +323,7 @@ where
         NumberOfLeaves::<T, I>::put(leaves);
         RootHash::<T, I>::put(root);
 
-        Ok(root)
+        Ok(root.into())
     }
 }
 
@@ -320,10 +376,8 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
         RootHash::<T, I>::get()
     }
 
-    /// Generate an MMR proof for the given `block_numbers`.
-    /// If `best_known_block_number = Some(n)`, this generates a historical proof for
-    /// the chain with head at height `n`.
-    /// Else it generates a proof for the MMR at the current block height.
+    /// Generate an MMR proof for the given `leaf_indices`.
+    /// Generates a proof for the MMR at the current block height.
     ///
     /// Note this method can only be used from an off-chain context
     /// (Offchain Worker or Runtime API call), since it requires

@@ -207,6 +207,12 @@ pub trait MerkleMountainRangeTree {
     /// Returns the total number of leaves that have been committed to the tree.
     fn leaf_count() -> LeafIndex;
 
+    /// Generate an MMR proof for the given `leaf_indices`.
+    /// Generates a proof for the MMR at the current block height.
+    fn generate_proof(
+        indices: Vec<LeafIndex>,
+    ) -> Result<(Vec<Self::Leaf>, primitives::Proof<H256>), Error>;
+
     /// Push a new leaf into the MMR. Doesn't actually perform any expensive tree recomputation.
     /// Simply adds the leaves to a buffer where they can be recalled when the tree actually
     /// needs to be finalized.
@@ -225,6 +231,12 @@ impl<T> MerkleMountainRangeTree for NoOpTree<T> {
 
     fn leaf_count() -> LeafIndex {
         0
+    }
+
+    fn generate_proof(
+        _indices: Vec<LeafIndex>,
+    ) -> Result<(Vec<Self::Leaf>, primitives::Proof<H256>), Error> {
+        Err(Error::GenerateProof)?
     }
 
     fn push(_leaf: T) -> LeafMetadata {
@@ -246,6 +258,20 @@ where
 
     fn leaf_count() -> LeafIndex {
         NumberOfLeaves::<T, I>::get()
+    }
+
+    fn generate_proof(
+        indices: Vec<LeafIndex>,
+    ) -> Result<(Vec<Self::Leaf>, primitives::Proof<H256>), Error> {
+        let (leaves, proof) = Pallet::<T, I>::generate_proof(indices)?;
+        let proof_nodes = proof.items.into_iter().map(Into::into).collect();
+        let new_proof = primitives::Proof {
+            leaf_indices: proof.leaf_indices,
+            leaf_count: proof.leaf_count,
+            items: proof_nodes,
+        };
+
+        Ok((leaves, new_proof))
     }
 
     fn push(leaf: T::Leaf) -> LeafMetadata {
@@ -350,10 +376,8 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
         RootHash::<T, I>::get()
     }
 
-    /// Generate an MMR proof for the given `block_numbers`.
-    /// If `best_known_block_number = Some(n)`, this generates a historical proof for
-    /// the chain with head at height `n`.
-    /// Else it generates a proof for the MMR at the current block height.
+    /// Generate an MMR proof for the given `leaf_indices`.
+    /// Generates a proof for the MMR at the current block height.
     ///
     /// Note this method can only be used from an off-chain context
     /// (Offchain Worker or Runtime API call), since it requires

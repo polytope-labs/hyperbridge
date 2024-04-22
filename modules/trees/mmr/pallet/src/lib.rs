@@ -263,12 +263,12 @@ where
             // Mmr push should never fail
             match mmr.push(leaf) {
                 None => {
-                    log::error!(target: "ismp::mmr", "MMR push failed ");
+                    log::error!(target: "pallet-mmr", "MMR push failed ");
                     // MMR push never fails, but better safe than sorry.
                     Err(Error::Push)?
                 },
                 Some(position) => {
-                    log::trace!(target: "ismp::mmr", "MMR push {position}");
+                    log::trace!(target: "pallet-mmr", "MMR push {position}");
                 },
             }
         }
@@ -277,7 +277,7 @@ where
         let (leaves, root) = match mmr.finalize() {
             Ok((leaves, root)) => (leaves, root),
             Err(e) => {
-                log::error!(target: "runtime::mmr", "MMR finalize failed: {:?}", e);
+                log::error!(target: "pallet-mmr", "MMR finalize failed: {:?}", e);
                 Err(Error::Commit)?
             },
         };

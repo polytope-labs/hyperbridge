@@ -7024,9 +7024,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.20"
+version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
+checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 
 [[package]]
 name = "lru"
@@ -7398,6 +7398,30 @@ dependencies = [
  "subtle 2.5.0",
  "thiserror",
  "zeroize",
+]
+
+[[package]]
+name = "mmr-gadget"
+version = "29.0.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "futures",
+ "log",
+ "pallet-mmr-runtime-api",
+ "parity-scale-codec",
+ "parking_lot 0.12.1",
+ "sc-block-builder",
+ "sc-client-api",
+ "sc-offchain",
+ "sc-service",
+ "sp-api",
+ "sp-blockchain",
+ "sp-core 28.0.0",
+ "sp-mmr-primitives",
+ "sp-runtime 31.0.1",
+ "sp-tracing 17.0.0",
+ "tokio",
 ]
 
 [[package]]
@@ -9064,6 +9088,18 @@ dependencies = [
  "sp-io 30.0.0",
  "sp-mmr-primitives",
  "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+]
+
+[[package]]
+name = "pallet-mmr-runtime-api"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "serde",
+ "sp-api",
+ "sp-core 28.0.0",
+ "sp-mmr-primitives",
  "sp-std 14.0.0",
 ]
 
@@ -11106,7 +11142,7 @@ dependencies = [
  "kvdb",
  "kvdb-rocksdb",
  "log",
- "mmr-gadget",
+ "mmr-gadget 29.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "pallet-babe",
  "pallet-im-online",
  "pallet-staking",
@@ -15924,6 +15960,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sp-tracing"
+version = "17.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90b3decf116db9f1dfaf1f1597096b043d0e12c952d3bcdc018c6d6b77deec7e"
+dependencies = [
+ "parity-scale-codec",
+ "tracing",
+ "tracing-core",
+]
+
+[[package]]
 name = "sp-transaction-pool"
 version = "26.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -17023,9 +17070,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.35.1"
+version = "1.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c89b4efa943be685f629b149f53829423f8f5531ea21249408e8e2f8671ec104"
+checksum = "1adbebffeca75fcfd058afa480fb6c0b81e165a0323f9c9d39c9697e37c46787"
 dependencies = [
  "backtrace",
  "bytes",

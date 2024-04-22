@@ -17,7 +17,7 @@ anyhow = "1.0.79"
 ethers = { workspace = true }
 ismp = { workspace =  true }
 
-mmr-utils = { workspace =  true, optional = true }
+mmr-primitives = { workspace =  true, optional = true }
 sp-consensus-beefy = { workspace =  true, features = ["default"], optional = true }
 merkle-mountain-range = { workspace = true, features = ["default"], optional = true }
 beefy-verifier-primitives = { workspace =  true, optional = true }
@@ -26,4 +26,4 @@ beefy-verifier-primitives = { workspace =  true, optional = true }
 [features]
 default = ["beefy"]
 build-abi = []
-beefy = ["merkle-mountain-range", "sp-consensus-beefy", "beefy-verifier-primitives", "mmr-utils"]
+beefy = ["merkle-mountain-range", "sp-consensus-beefy", "beefy-verifier-primitives", "mmr-primitives"]

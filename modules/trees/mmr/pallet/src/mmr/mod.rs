@@ -18,7 +18,7 @@
 mod mmr;
 pub mod storage;
 
-use sp_mmr_primitives::{mmr_lib, DataOrHash, FullLeaf};
+use mmr_primitives::{DataOrHash, FullLeaf};
 use sp_runtime::traits;
 
 pub use self::mmr::{verify_leaves_proof, Mmr};
@@ -32,10 +32,10 @@ pub type Node<H, L> = DataOrHash<H, L>;
 /// Default Merging & Hashing behavior for MMR.
 pub struct Hasher<H, L>(core::marker::PhantomData<(H, L)>);
 
-impl<H: traits::Hash, L: FullLeaf> mmr_lib::Merge for Hasher<H, L> {
+impl<H: traits::Hash, L: FullLeaf> merkle_mountain_range::Merge for Hasher<H, L> {
     type Item = Node<H, L>;
 
-    fn merge(left: &Self::Item, right: &Self::Item) -> mmr_lib::Result<Self::Item> {
+    fn merge(left: &Self::Item, right: &Self::Item) -> merkle_mountain_range::Result<Self::Item> {
         let mut concat = left.hash().as_ref().to_vec();
         concat.extend_from_slice(right.hash().as_ref());
 

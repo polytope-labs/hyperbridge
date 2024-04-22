@@ -94,8 +94,8 @@ fn should_calculate_the_size_correctly() {
     for s in &leaves[1..] {
         new_test_ext().execute_with(|| {
             let mut mmr = mmr::Mmr::<mmr::storage::RuntimeStorage, crate::mock::Test, _, _>::new(0);
-            for i in 0..*s {
-                mmr.push(i);
+            for _i in 0..*s {
+                mmr.push(LeafData::default());
             }
             actual_sizes.push(mmr.size());
         })

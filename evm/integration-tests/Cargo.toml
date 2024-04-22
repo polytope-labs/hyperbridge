@@ -32,7 +32,7 @@ sp-trie = { workspace = true, default-features = true }
 ethers = { workspace = true, default-features = true }
 forge-testsuite = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true, features = ["default"] }
-mmr-utils = { workspace = true, default-features = true }
+mmr-primitives = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 beefy-prover = { workspace = true, default-features = true }

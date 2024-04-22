@@ -51,6 +51,12 @@ pub struct LeafData {
     pub b: Vec<u8>,
 }
 
+impl mmr_primitives::FullLeaf for LeafData {
+    fn preimage(&self) -> Vec<u8> {
+        self.encode()
+    }
+}
+
 impl LeafData {
     pub fn new(a: u64) -> Self {
         Self { a, b: Default::default() }

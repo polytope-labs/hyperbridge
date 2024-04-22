@@ -23,7 +23,7 @@ use crate::{
     primitives::{self, Error, NodeIndex},
     Config, HashOf, HashingOf,
 };
-use sp_mmr_primitives::{mmr_lib, utils::NodesUtils};
+use sp_mmr_primitives::utils::NodesUtils;
 use sp_std::prelude::*;
 
 /// Stateless verification of the proof for a batch of leaves.
@@ -37,7 +37,7 @@ pub fn verify_leaves_proof<H, L>(
 ) -> Result<bool, Error>
 where
     H: sp_runtime::traits::Hash,
-    L: primitives::FullLeaf,
+    L: mmr_primitives::FullLeaf,
 {
     let size = NodesUtils::new(proof.leaf_count).size();
 
@@ -48,11 +48,11 @@ where
     let leaves_and_position_data = proof
         .leaf_indices
         .into_iter()
-        .map(|index| mmr_lib::leaf_index_to_pos(index))
+        .map(|index| merkle_mountain_range::leaf_index_to_pos(index))
         .zip(leaves.into_iter())
         .collect();
 
-    let p = mmr_lib::MerkleProof::<Node<H, L>, Hasher<H, L>>::new(
+    let p = merkle_mountain_range::MerkleProof::<Node<H, L>, Hasher<H, L>>::new(
         size,
         proof.items.into_iter().map(Node::Hash).collect(),
     );
@@ -68,10 +68,14 @@ pub struct Mmr<StorageType, T, I, L>
 where
     T: Config<I>,
     I: 'static,
-    L: primitives::FullLeaf,
-    Storage<StorageType, T, I, L>: mmr_lib::MMRStore<NodeOf<T, I, L>>,
+    L: mmr_primitives::FullLeaf,
+    Storage<StorageType, T, I, L>: merkle_mountain_range::MMRStore<NodeOf<T, I, L>>,
 {
-    mmr: mmr_lib::MMR<NodeOf<T, I, L>, Hasher<HashingOf<T, I>, L>, Storage<StorageType, T, I, L>>,
+    mmr: merkle_mountain_range::MMR<
+        NodeOf<T, I, L>,
+        Hasher<HashingOf<T, I>, L>,
+        Storage<StorageType, T, I, L>,
+    >,
     leaves: NodeIndex,
 }
 
@@ -79,13 +83,13 @@ impl<StorageType, T, I, L> Mmr<StorageType, T, I, L>
 where
     T: Config<I>,
     I: 'static,
-    L: primitives::FullLeaf,
-    Storage<StorageType, T, I, L>: mmr_lib::MMRStore<NodeOf<T, I, L>>,
+    L: mmr_primitives::FullLeaf,
+    Storage<StorageType, T, I, L>: merkle_mountain_range::MMRStore<NodeOf<T, I, L>>,
 {
     /// Create a pointer to an existing MMR with given number of leaves.
     pub fn new(leaves: NodeIndex) -> Self {
         let size = NodesUtils::new(leaves).size();
-        Self { mmr: mmr_lib::MMR::new(size, Default::default()), leaves }
+        Self { mmr: merkle_mountain_range::MMR::new(size, Default::default()), leaves }
     }
 
     /// Verify proof for a set of leaves.
@@ -97,10 +101,11 @@ where
         leaves: Vec<L>,
         proof: primitives::Proof<HashOf<T, I>>,
     ) -> Result<bool, Error> {
-        let p = mmr_lib::MerkleProof::<NodeOf<T, I, L>, Hasher<HashingOf<T, I>, L>>::new(
-            self.mmr.mmr_size(),
-            proof.items.into_iter().map(Node::Hash).collect(),
-        );
+        let p =
+            merkle_mountain_range::MerkleProof::<NodeOf<T, I, L>, Hasher<HashingOf<T, I>, L>>::new(
+                self.mmr.mmr_size(),
+                proof.items.into_iter().map(Node::Hash).collect(),
+            );
 
         if leaves.len() != proof.leaf_indices.len() {
             return Err(Error::Verify.log_debug("Proof leaf_indices not same length with leaves"))
@@ -109,7 +114,7 @@ where
         let leaves_positions_and_data = proof
             .leaf_indices
             .into_iter()
-            .map(|index| mmr_lib::leaf_index_to_pos(index))
+            .map(|index| merkle_mountain_range::leaf_index_to_pos(index))
             .zip(leaves.into_iter().map(|leaf| Node::Data(leaf)))
             .collect();
         let root = self.mmr.get_root().map_err(|e| Error::GetRoot.log_error(e))?;
@@ -129,7 +134,7 @@ impl<T, I, L> Mmr<RuntimeStorage, T, I, L>
 where
     T: Config<I>,
     I: 'static,
-    L: primitives::FullLeaf,
+    L: mmr_primitives::FullLeaf,
 {
     /// Push another item to the MMR.
     ///
@@ -157,7 +162,7 @@ impl<T, I, L> Mmr<OffchainStorage, T, I, L>
 where
     T: Config<I>,
     I: 'static,
-    L: primitives::FullLeaf + codec::Decode,
+    L: mmr_primitives::FullLeaf,
 {
     /// Generate a proof for given leaf indices.
     ///
@@ -169,12 +174,12 @@ where
     ) -> Result<(Vec<L>, primitives::Proof<HashOf<T, I>>), Error> {
         let positions = leaf_indices
             .iter()
-            .map(|index| mmr_lib::leaf_index_to_pos(*index))
+            .map(|index| merkle_mountain_range::leaf_index_to_pos(*index))
             .collect::<Vec<_>>();
         let store = <Storage<OffchainStorage, T, I, L>>::default();
         let leaves = positions
             .iter()
-            .map(|pos| match mmr_lib::MMRStore::get_elem(&store, *pos) {
+            .map(|pos| match merkle_mountain_range::MMRStore::get_elem(&store, *pos) {
                 Ok(Some(Node::Data(leaf))) => Ok(leaf),
                 e => Err(Error::LeafNotFound.log_debug(e)),
             })

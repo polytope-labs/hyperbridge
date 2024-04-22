@@ -60,7 +60,7 @@ async fn test_post_response_proof() -> Result<(), anyhow::Error> {
     }
 
     let pos = mmr.push(response)?;
-    let k_index = mmr_utils::mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
+    let k_index = mmr_primitives::mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
 
     let proof = mmr.gen_proof(vec![pos])?;
     let overlay_root = mmr.get_root()?.hash::<Keccak256>().0;

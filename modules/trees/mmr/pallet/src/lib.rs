@@ -61,12 +61,10 @@ use log;
 use sp_core::H256;
 use std::marker::PhantomData;
 
-use sp_runtime::{
-    traits::{self, One, Zero},
-    RuntimeDebug,
-};
+use sp_runtime::traits::{self, One, Zero};
 use sp_std::prelude::*;
 
+use mmr_primitives::{LeafMetadata, MerkleMountainRangeTree};
 pub use pallet::*;
 use sp_mmr_primitives::mmr_lib::leaf_index_to_pos;
 pub use sp_mmr_primitives::{
@@ -125,7 +123,7 @@ pub mod pallet {
         type Hashing: traits::Hash;
 
         /// Generic leaf type to be inserted into the MMR.
-        type Leaf: primitives::FullLeaf + codec::FullCodec + scale_info::TypeInfo;
+        type Leaf: mmr_primitives::FullLeaf + scale_info::TypeInfo;
     }
 
     /// Latest MMR Root hash.
@@ -169,82 +167,6 @@ pub mod pallet {
 
             Default::default()
         }
-    }
-}
-
-/// Leaf index and position
-#[derive(
-    codec::Encode,
-    codec::Decode,
-    scale_info::TypeInfo,
-    Ord,
-    PartialOrd,
-    Eq,
-    PartialEq,
-    Clone,
-    Copy,
-    RuntimeDebug,
-    Default,
-)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
-pub struct LeafMetadata {
-    /// Leaf index in the tree
-    pub index: u64,
-    /// Leaf node position in the tree
-    pub position: u64,
-}
-
-/// Public interface for this pallet. Other runtime pallets will use this interface to insert leaves
-/// into the tree. They can insert as many as they need and request the computed root hash at a
-/// later time. This is so that the mmr root is only computed once per block.
-///
-/// Internally, the pallet makes use of temporary storage item where it places leaves that have not
-/// yet been finalized.
-pub trait MerkleMountainRangeTree {
-    /// Associated leaf type.
-    type Leaf;
-
-    /// Returns the total number of leaves that have been committed to the tree.
-    fn leaf_count() -> LeafIndex;
-
-    /// Generate an MMR proof for the given `leaf_indices`.
-    /// Generates a proof for the MMR at the current block height.
-    fn generate_proof(
-        indices: Vec<LeafIndex>,
-    ) -> Result<(Vec<Self::Leaf>, primitives::Proof<H256>), Error>;
-
-    /// Push a new leaf into the MMR. Doesn't actually perform any expensive tree recomputation.
-    /// Simply adds the leaves to a buffer where they can be recalled when the tree actually
-    /// needs to be finalized.
-    fn push(leaf: Self::Leaf) -> LeafMetadata;
-
-    /// Finalize the tree and compute it's new root hash. Ideally this should only be called once a
-    /// block. This will pull the leaves from the buffer and commit them to the underlying tree.
-    fn finalize() -> Result<H256, Error>;
-}
-
-/// NoOp tree can be used as a drop in replacement for when the underlying mmr tree is unneeded.
-pub struct NoOpTree<T>(PhantomData<T>);
-
-impl<T> MerkleMountainRangeTree for NoOpTree<T> {
-    type Leaf = T;
-
-    fn leaf_count() -> LeafIndex {
-        0
-    }
-
-    fn generate_proof(
-        _indices: Vec<LeafIndex>,
-    ) -> Result<(Vec<Self::Leaf>, primitives::Proof<H256>), Error> {
-        Err(Error::GenerateProof)?
-    }
-
-    fn push(_leaf: T) -> LeafMetadata {
-        Default::default()
-    }
-
-    fn finalize() -> Result<H256, Error> {
-        Ok(H256::default())
     }
 }
 
@@ -341,7 +263,7 @@ pub fn verify_leaves_proof<H, L>(
 ) -> Result<(), primitives::Error>
 where
     H: traits::Hash,
-    L: primitives::FullLeaf,
+    L: mmr_primitives::FullLeaf,
 {
     let is_valid = mmr::verify_leaves_proof::<H, L>(root, leaves, proof)?;
     if is_valid {

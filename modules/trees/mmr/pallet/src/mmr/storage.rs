@@ -19,16 +19,17 @@
 
 use codec::Encode;
 use log::{debug, trace};
+use merkle_mountain_range::helper;
 use sp_core::offchain::StorageKind;
 use sp_io::offchain_index;
-use sp_mmr_primitives::{mmr_lib, mmr_lib::helper, utils::NodesUtils};
+use sp_mmr_primitives::utils::NodesUtils;
 use sp_std::iter::Peekable;
 #[cfg(not(feature = "std"))]
 use sp_std::prelude::*;
 
 use crate::{
     mmr::{Node, NodeOf},
-    primitives::{self, NodeIndex},
+    primitives::NodeIndex,
     Config, Nodes, NumberOfLeaves, Pallet,
 };
 
@@ -60,13 +61,13 @@ impl<StorageType, T, I, L> Default for Storage<StorageType, T, I, L> {
     }
 }
 
-impl<T, I, L> mmr_lib::MMRStore<NodeOf<T, I, L>> for Storage<OffchainStorage, T, I, L>
+impl<T, I, L> merkle_mountain_range::MMRStore<NodeOf<T, I, L>> for Storage<OffchainStorage, T, I, L>
 where
     T: Config<I>,
     I: 'static,
-    L: primitives::FullLeaf + codec::Decode,
+    L: mmr_primitives::FullLeaf,
 {
-    fn get_elem(&self, pos: NodeIndex) -> mmr_lib::Result<Option<NodeOf<T, I, L>>> {
+    fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<NodeOf<T, I, L>>> {
         // We should only get here when trying to generate proofs. The client requests
         // for proofs for finalized blocks, which should usually be already canonicalized,
         // unless the MMR client gadget has a delay.
@@ -80,26 +81,34 @@ where
             return Ok(codec::Decode::decode(&mut &*elem).ok())
         } else {
             // alas the store hasn't been canonicalized yet
-            Err(mmr_lib::Error::InconsistentStore)?
+            Err(merkle_mountain_range::Error::InconsistentStore)?
         }
     }
 
-    fn append(&mut self, _: NodeIndex, _: Vec<NodeOf<T, I, L>>) -> mmr_lib::Result<()> {
+    fn append(
+        &mut self,
+        _: NodeIndex,
+        _: Vec<NodeOf<T, I, L>>,
+    ) -> merkle_mountain_range::Result<()> {
         panic!("MMR must not be altered in the off-chain context.")
     }
 }
 
-impl<T, I, L> mmr_lib::MMRStore<NodeOf<T, I, L>> for Storage<RuntimeStorage, T, I, L>
+impl<T, I, L> merkle_mountain_range::MMRStore<NodeOf<T, I, L>> for Storage<RuntimeStorage, T, I, L>
 where
     T: Config<I>,
     I: 'static,
-    L: primitives::FullLeaf,
+    L: mmr_primitives::FullLeaf,
 {
-    fn get_elem(&self, pos: NodeIndex) -> mmr_lib::Result<Option<NodeOf<T, I, L>>> {
+    fn get_elem(&self, pos: NodeIndex) -> merkle_mountain_range::Result<Option<NodeOf<T, I, L>>> {
         Ok(Nodes::<T, I>::get(pos).map(Node::Hash))
     }
 
-    fn append(&mut self, pos: NodeIndex, elems: Vec<NodeOf<T, I, L>>) -> mmr_lib::Result<()> {
+    fn append(
+        &mut self,
+        pos: NodeIndex,
+        elems: Vec<NodeOf<T, I, L>>,
+    ) -> merkle_mountain_range::Result<()> {
         if elems.is_empty() {
             return Ok(())
         }
@@ -113,7 +122,7 @@ where
         let size = NodesUtils::new(leaves).size();
 
         if pos != size {
-            return Err(mmr_lib::Error::InconsistentStore)
+            return Err(merkle_mountain_range::Error::InconsistentStore)
         }
 
         let new_size = size + elems.len() as NodeIndex;
@@ -160,7 +169,7 @@ impl<T, I, L> Storage<RuntimeStorage, T, I, L>
 where
     T: Config<I>,
     I: 'static,
-    L: primitives::FullLeaf,
+    L: mmr_primitives::FullLeaf,
 {
     fn store_to_offchain(
         pos: NodeIndex,

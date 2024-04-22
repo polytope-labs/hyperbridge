@@ -21,8 +21,10 @@ frame-system = { workspace = true }
 sp-core = { workspace = true }
 sp-io = { workspace = true }
 sp-mmr-primitives = { workspace = true }
+mmr-primitives = { workspace = true }
 sp-runtime = { workspace = true }
 sp-std = { workspace = true }
+merkle-mountain-range = { workspace = true }
 
 [dev-dependencies]
 array-bytes = "6.1"
@@ -41,8 +43,10 @@ std = [
 	"sp-core/std",
 	"sp-io/std",
 	"sp-mmr-primitives/std",
+	"mmr-primitives/std",
 	"sp-runtime/std",
 	"sp-std/std",
+	"merkle-mountain-range/std",
 	"serde/default",
 ]
 runtime-benchmarks = [

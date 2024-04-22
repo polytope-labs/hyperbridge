@@ -5967,7 +5967,7 @@ dependencies = [
  "ethers-contract-abigen",
  "forge-testsuite",
  "ismp",
- "mmr-utils",
+ "mmr-primitives",
  "primitive-types",
  "sp-consensus-beefy",
 ]
@@ -5991,7 +5991,7 @@ dependencies = [
  "ismp",
  "ismp-solidity-abi",
  "libfuzzer-sys",
- "mmr-utils",
+ "mmr-primitives",
  "once_cell",
  "pallet-ismp",
  "pallet-ismp-relayer",
@@ -7462,6 +7462,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mmr-primitives"
+version = "0.1.0"
+dependencies = [
+ "ckb-merkle-mountain-range",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-core 28.0.0",
+ "sp-mmr-primitives",
+ "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+]
+
+[[package]]
 name = "mmr-rpc"
 version = "28.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7476,13 +7490,6 @@ dependencies = [
  "sp-core 28.0.0",
  "sp-mmr-primitives",
  "sp-runtime 31.0.1",
-]
-
-[[package]]
-name = "mmr-utils"
-version = "0.1.0"
-dependencies = [
- "ckb-merkle-mountain-range",
 ]
 
 [[package]]
@@ -9096,12 +9103,14 @@ name = "pallet-mmr"
 version = "0.1.0"
 dependencies = [
  "array-bytes 6.2.2",
+ "ckb-merkle-mountain-range",
  "env_logger 0.11.3",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
  "itertools 0.10.5",
  "log",
+ "mmr-primitives",
  "parity-scale-codec",
  "scale-info",
  "serde",

@@ -28,7 +28,7 @@ pub fn initialize_mmr_tree(
         mmr.push(DataOrHash::Hash(hash))?;
     }
 
-    let k_index = mmr_utils::mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
+    let k_index = mmr_primitives::mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
     let proof = mmr.gen_proof(vec![pos])?;
     let root = mmr.get_root()?.hash::<Keccak256>().0;
     let multiproof = proof.proof_items().iter().map(|h| h.hash::<Keccak256>().0).collect();

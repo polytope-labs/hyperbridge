@@ -21,7 +21,7 @@ use crate::*;
 use codec::{Decode, Encode};
 use frame_support::{derive_impl, parameter_types};
 use frame_system::DefaultConfig;
-use sp_mmr_primitives::{Compact, LeafDataProvider};
+use sp_mmr_primitives::LeafDataProvider;
 use sp_runtime::traits::Keccak256;
 
 type Block = frame_system::mocking::MockBlock<Test>;

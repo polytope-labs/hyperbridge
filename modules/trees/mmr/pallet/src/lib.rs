@@ -58,9 +58,11 @@
 
 use frame_system::pallet_prelude::{BlockNumberFor, HeaderFor};
 use log;
-use sp_mmr_primitives::utils;
+use sp_core::H256;
+use std::marker::PhantomData;
+
 use sp_runtime::{
-    traits::{self, One, Zero, Saturating},
+    traits::{self, One, Zero},
     RuntimeDebug,
 };
 use sp_std::prelude::*;
@@ -76,7 +78,6 @@ mod mmr;
 mod mock;
 #[cfg(test)]
 mod tests;
-
 
 /// An MMR specific to the pallet.
 type ModuleMmr<StorageType, T, I> = mmr::Mmr<StorageType, T, I, LeafOf<T, I>>;
@@ -139,7 +140,8 @@ pub mod pallet {
     /// Height at which the pallet started inserting leaves into offchain storage.
     #[pallet::storage]
     #[pallet::getter(fn initial_height)]
-    pub type InitialHeight<T: Config<I>, I: 'static = ()> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
+    pub type InitialHeight<T: Config<I>, I: 'static = ()> =
+        StorageValue<_, BlockNumberFor<T>, ValueQuery>;
 
     /// Temporary leaf storage for while the block is still executing.
     #[pallet::storage]
@@ -162,15 +164,12 @@ pub mod pallet {
     impl<T: Config<I>, I: 'static> Hooks<BlockNumberFor<T>> for Pallet<T, I> {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
             if NumberOfLeaves::<T, I>::get() > 0 && InitialHeight::<T, I>::get() == Zero::zero() {
-                InitialHeight::<T, I>::put(
-                    frame_system::Pallet::<T>::block_number() - One::one()
-                )
+                InitialHeight::<T, I>::put(frame_system::Pallet::<T>::block_number() - One::one())
             }
 
             Default::default()
         }
     }
-
 }
 
 /// Leaf index and position
@@ -185,6 +184,7 @@ pub mod pallet {
     Clone,
     Copy,
     RuntimeDebug,
+    Default,
 )]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct LeafMetadata {
@@ -200,26 +200,43 @@ pub struct LeafMetadata {
 ///
 /// Internally, the pallet makes use of temporary storage item where it places leaves that have not
 /// yet been finalized.
-pub trait MerkleMountainRangeTree<T, I>
-where
-    I: 'static,
-    T: Config<I>,
-{
+pub trait MerkleMountainRangeTree {
+    /// Associated leaf type.
+    type Leaf;
+
     /// Push a new leaf into the MMR. Doesn't actually perform any expensive tree recomputation.
     /// Simply adds the leaves to a buffer where they can be recalled when the tree actually
     /// needs to be finalized.
-    fn push(leaf: T::Leaf) -> LeafMetadata;
+    fn push(leaf: Self::Leaf) -> LeafMetadata;
 
     /// Finalize the tree and compute it's new root hash. Ideally this should only be called once a
     /// block. This will pull the leaves from the buffer and commit them to the underlying tree.
-    fn finalize() -> Result<HashOf<T, I>, Error>;
+    fn finalize() -> Result<H256, Error>;
 }
 
-impl<T, I> MerkleMountainRangeTree<T, I> for Pallet<T, I>
+/// NoOp tree can be used as a drop in replacement for when the underlying mmr tree is unneeded.
+pub struct NoOpTree<T>(PhantomData<T>);
+
+impl<T> MerkleMountainRangeTree for NoOpTree<T> {
+    type Leaf = T;
+
+    fn push(_leaf: T) -> LeafMetadata {
+        Default::default()
+    }
+
+    fn finalize() -> Result<H256, Error> {
+        Ok(H256::default())
+    }
+}
+
+impl<T, I> MerkleMountainRangeTree for Pallet<T, I>
 where
     I: 'static,
     T: Config<I>,
+    HashOf<T, I>: Into<H256>,
 {
+    type Leaf = T::Leaf;
+
     fn push(leaf: T::Leaf) -> LeafMetadata {
         let temp_count = IntermediateLeaves::<T, I>::count() as u64;
         let index = NumberOfLeaves::<T, I>::get() + temp_count;
@@ -228,11 +245,11 @@ where
         LeafMetadata { position, index }
     }
 
-    fn finalize() -> Result<HashOf<T, I>, Error> {
+    fn finalize() -> Result<H256, Error> {
         let buffer_len = IntermediateLeaves::<T, I>::count() as u64;
         // no new leaves? early return
         if buffer_len == 0 {
-            return Ok(RootHash::<T, I>::get())
+            return Ok(RootHash::<T, I>::get().into())
         }
 
         let leaves = NumberOfLeaves::<T, I>::get();
@@ -269,7 +286,7 @@ where
         NumberOfLeaves::<T, I>::put(leaves);
         RootHash::<T, I>::put(root);
 
-        Ok(root)
+        Ok(root.into())
     }
 }
 
@@ -334,7 +351,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
     pub fn generate_proof(
         indices: Vec<LeafIndex>,
     ) -> Result<(Vec<LeafOf<T, I>>, primitives::Proof<HashOf<T, I>>), primitives::Error> {
-        let leaves_count =  NumberOfLeaves::<T, I>::get();
+        let leaves_count = NumberOfLeaves::<T, I>::get();
         let mmr: ModuleMmr<mmr::storage::OffchainStorage, T, I> = mmr::Mmr::new(leaves_count);
         mmr.generate_proof(indices)
     }

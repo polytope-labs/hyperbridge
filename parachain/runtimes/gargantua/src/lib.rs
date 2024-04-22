@@ -68,11 +68,10 @@ use frame_system::{
     limits::{BlockLength, BlockWeights},
     EnsureRoot, Phase,
 };
-use pallet_ismp::{
-    mmr::primitives::{Leaf, LeafIndex},
-    primitives::Proof,
-};
+
+use pallet_ismp::primitives::Proof;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
+use sp_mmr_primitives::LeafIndex;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 use xcm::XcmOriginToTransactDispatchOrigin;
 
@@ -88,7 +87,7 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
 use frame_support::{derive_impl, traits::ConstBool};
-use pallet_ismp::ProofKeys;
+use pallet_ismp::{mmr::Leaf, ProofKeys};
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -748,17 +747,24 @@ impl_runtime_apis! {
             TransactionPayment::length_to_fee(length)
         }
     }
+    impl pallet_mmr_runtime_api::MmrRuntimeApi<Block, <Block as BlockT>::Hash, BlockNumber, Leaf> for Runtime {
+        /// Return Block number where pallet-mmr was added to the runtime
+        fn pallet_genesis() -> Result<BlockNumber, sp_mmr_primitives::Error> {
+            Ok(Mmr::initial_height())
+        }
 
-    impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
         /// Return the number of MMR leaves.
-        fn mmr_leaf_count() -> Result<LeafIndex, pallet_ismp::primitives::Error> {
-            Ok(Ismp::mmr_leaf_count())
+        fn mmr_leaf_count() -> Result<LeafIndex, sp_mmr_primitives::Error> {
+            Ok(Mmr::mmr_leaves())
         }
 
         /// Return the on-chain MMR root hash.
-        fn mmr_root() -> Result<<Block as BlockT>::Hash, pallet_ismp::primitives::Error> {
-            Ok(Ismp::mmr_root())
+        fn mmr_root() -> Result<Hash, sp_mmr_primitives::Error> {
+            Ok(Mmr::mmr_root_hash())
         }
+    }
+
+    impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
 
         fn challenge_period(consensus_state_id: [u8; 4]) -> Option<u64> {
             Ismp::get_challenge_period(consensus_state_id)
@@ -767,7 +773,7 @@ impl_runtime_apis! {
         /// Generate a proof for the provided leaf indices
         fn generate_proof(
             keys: ProofKeys
-        ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), pallet_ismp::primitives::Error> {
+        ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), sp_mmr_primitives::Error> {
             Ismp::generate_proof(keys)
         }
 

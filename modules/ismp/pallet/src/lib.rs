@@ -28,9 +28,9 @@ pub mod events;
 pub mod handlers;
 pub mod host;
 pub mod mmr;
-use events::deposit_ismp_events;
 pub use mmr::ProofKeys;
 pub mod child_trie;
+mod impls;
 pub mod primitives;
 pub mod weight_info;
 
@@ -39,33 +39,24 @@ pub use sp_mmr_primitives::utils::NodesUtils;
 use crate::host::Host;
 use codec::{Decode, Encode};
 use frame_support::{
-    dispatch::{DispatchResult, DispatchResultWithPostInfo, Pays, PostDispatchInfo},
+    dispatch::{DispatchResult, DispatchResultWithPostInfo},
     traits::Get,
 };
 use ismp::{
-    consensus::{ConsensusClientId, StateMachineId},
     handlers::{handle_incoming_message, MessageResult},
     messaging::CreateConsensusState,
-    router::{Request, Response},
+    router::Request,
     util::hash_request,
 };
-use log::debug;
 use sp_core::H256;
 // Re-export pallet items so that they can be accessed from the crate namespace.
-use crate::{
-    child_trie::{RequestCommitments, ResponseCommitments},
-    errors::HandlingError,
-    mmr::{Leaf, Mmr},
-    weight_info::get_weight,
-};
+use crate::{mmr::Leaf, weight_info::get_weight};
 use frame_system::pallet_prelude::BlockNumberFor;
-use ismp::{host::IsmpHost, messaging::Message};
-use merkle_mountain_range::MMRStore;
+use ismp::host::IsmpHost;
+use mmr_primitives::MerkleMountainRangeTree;
 pub use pallet::*;
-use pallet_mmr::{MerkleMountainRangeTree, OffchainStorage};
-use sp_mmr_primitives::DataOrHash;
 use sp_runtime::{
-    traits::{Hash, ValidateUnsigned},
+    traits::ValidateUnsigned,
     transaction_validity::{
         InvalidTransaction, TransactionLongevity, TransactionSource, TransactionValidity,
         TransactionValidityError, ValidTransaction,
@@ -104,9 +95,7 @@ pub mod pallet {
     use sp_core::{storage::ChildInfo, H256};
 
     #[pallet::config]
-    pub trait Config:
-        frame_system::Config + pallet_balances::Config + pallet_mmr::Config
-    {
+    pub trait Config: frame_system::Config + pallet_balances::Config {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -133,6 +122,9 @@ pub mod pallet {
 
         /// Weight provider for consensus clients and module callbacks
         type WeightProvider: WeightProvider;
+
+        /// Mmr Implementation
+        type Mmr: MerkleMountainRangeTree<Leaf = Leaf>;
     }
 
     // Simple declaration of the `Pallet` type. It is placeholder we use to implement traits and
@@ -221,13 +213,10 @@ pub mod pallet {
 
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
-    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
-    where
-        H256: From<<<T as pallet_mmr::Config>::Hashing as sp_runtime::traits::Hash>::Output>,
-    {
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_finalize(_n: BlockNumberFor<T>) {
             // Only finalize if mmr was modified
-            let root = match pallet_mmr::Pallet::<T>::finalize() {
+            let root = match T::Mmr::finalize() {
                 Ok(root) => root,
                 Err(e) => {
                     log::error!(target:"ismp", "Failed to finalize MMR {e:?}");
@@ -262,12 +251,7 @@ pub mod pallet {
     }
 
     #[pallet::call]
-    impl<T: Config> Pallet<T>
-    where
-        <T as pallet_mmr::Config>::Leaf: From<Leaf>,
-        Leaf: From<<T as pallet_mmr::Config>::Leaf>,
-        <<T as pallet_mmr::Config>::Hashing as sp_runtime::traits::Hash>::Output: Into<H256>,
-    {
+    impl<T: Config> Pallet<T> {
         /// Handles ismp messages
         #[pallet::weight(get_weight::<T>(&messages))]
         #[pallet::call_index(0)]
@@ -422,12 +406,7 @@ pub mod pallet {
 
     /// Users should not pay to submit valid ISMP datagrams.
     #[pallet::validate_unsigned]
-    impl<T: Config> ValidateUnsigned for Pallet<T>
-    where
-        <T as pallet_mmr::Config>::Leaf: From<Leaf>,
-        Leaf: From<<T as pallet_mmr::Config>::Leaf>,
-        <<T as pallet_mmr::Config>::Hashing as sp_runtime::traits::Hash>::Output: Into<H256>,
-    {
+    impl<T: Config> ValidateUnsigned for Pallet<T> {
         type Call = Call<T>;
 
         // empty pre-dispatch do we don't modify storage
@@ -518,121 +497,4 @@ pub struct ResponseReceipt {
     pub response: H256,
     /// Address of the relayer
     pub relayer: Vec<u8>,
-}
-
-impl<T: Config> Pallet<T>
-where
-    <T as pallet_mmr::Config>::Leaf: From<Leaf>,
-    Leaf: From<<T as pallet_mmr::Config>::Leaf>,
-    <<T as pallet_mmr::Config>::Hashing as sp_runtime::traits::Hash>::Output: Into<H256>,
-{
-    /// Generate an MMR proof for the given `leaf_indices`.
-    /// Note this method can only be used from an off-chain context
-    /// (Offchain Worker or Runtime API call), since it requires
-    /// all the leaves to be present.
-    /// It may return an error or panic if used incorrectly.
-    pub fn generate_proof(
-        commitments: ProofKeys,
-    ) -> Result<
-        (Vec<Leaf>, primitives::Proof<<<T as pallet_mmr::Config>::Hashing as Hash>::Output>),
-        sp_mmr_primitives::Error,
-    > {
-        Mmr::<T>::generate_proof(commitments)
-    }
-
-    /// Provides a way to handle messages.
-    pub fn handle_messages(messages: Vec<Message>) -> DispatchResultWithPostInfo {
-        // Define a host
-        WeightConsumed::<T>::kill();
-        let host = Host::<T>::default();
-        let mut errors: Vec<HandlingError> = vec![];
-        let total_weight = get_weight::<T>(&messages);
-        for message in messages {
-            match handle_incoming_message(&host, message.clone()) {
-                Ok(MessageResult::ConsensusMessage(res)) => deposit_ismp_events::<T>(
-                    res.into_iter().map(|ev| Ok(ev)).collect(),
-                    &mut errors,
-                ),
-                Ok(MessageResult::Response(res)) => deposit_ismp_events::<T>(res, &mut errors),
-                Ok(MessageResult::Request(res)) => deposit_ismp_events::<T>(res, &mut errors),
-                Ok(MessageResult::Timeout(res)) => deposit_ismp_events::<T>(res, &mut errors),
-                Ok(MessageResult::FrozenClient(id)) =>
-                    Self::deposit_event(Event::<T>::ConsensusClientFrozen {
-                        consensus_client_id: id,
-                    }),
-                Err(err) => {
-                    errors.push(err.into());
-                },
-            }
-        }
-
-        if !errors.is_empty() {
-            debug!(target: "ismp", "Handling Errors {:?}", errors);
-            Self::deposit_event(Event::<T>::Errors { errors })
-        }
-
-        Ok(PostDispatchInfo {
-            actual_weight: {
-                let acc_weight = WeightConsumed::<T>::get();
-                Some((total_weight - acc_weight.weight_limit) + acc_weight.weight_used)
-            },
-            pays_fee: Pays::Yes,
-        })
-    }
-
-    /// Gets the request from the offchain storage
-    pub fn get_request(commitment: H256) -> Option<Request> {
-        let pos = RequestCommitments::<T>::get(commitment)?.mmr.pos;
-        let mmr = pallet_mmr::Storage::<OffchainStorage, T, _, Leaf>::default();
-        if let Ok(Some(elem)) = mmr.get_elem(pos) {
-            return match elem {
-                DataOrHash::Data(Leaf::Request(req)) => Some(req),
-                _ => None,
-            };
-        }
-        None
-    }
-
-    /// Gets the response from the offchain storage
-    pub fn get_response(commitment: H256) -> Option<Response> {
-        let pos = ResponseCommitments::<T>::get(commitment)?.mmr.pos;
-        let mmr = pallet_mmr::Storage::<OffchainStorage, T, _, Leaf>::default();
-        if let Ok(Some(elem)) = mmr.get_elem(pos) {
-            return match elem {
-                DataOrHash::Data(Leaf::Response(res)) => Some(res),
-                _ => None,
-            };
-        }
-        None
-    }
-
-    /// Return the scale encoded consensus state
-    pub fn get_consensus_state(id: ConsensusClientId) -> Option<Vec<u8>> {
-        ConsensusStates::<T>::get(id)
-    }
-
-    /// Return the timestamp this client was last updated in seconds
-    pub fn get_consensus_update_time(id: ConsensusClientId) -> Option<u64> {
-        ConsensusClientUpdateTime::<T>::get(id)
-    }
-
-    /// Return the challenge period
-    pub fn get_challenge_period(id: ConsensusClientId) -> Option<u64> {
-        ChallengePeriod::<T>::get(id)
-    }
-
-    /// Return the latest height of the state machine
-    pub fn get_latest_state_machine_height(id: StateMachineId) -> Option<u64> {
-        Some(LatestStateMachineHeight::<T>::get(id))
-    }
-
-    /// Get actual requests
-    pub fn get_requests(commitments: Vec<H256>) -> Vec<Request> {
-        commitments.into_iter().filter_map(|cm| Self::get_request(cm)).collect()
-    }
-
-    /// Get actual requests
-    pub fn get_responses(commitments: Vec<H256>) -> Vec<Response> {
-        commitments.into_iter().filter_map(|cm| Self::get_response(cm)).collect()
-    }
 }

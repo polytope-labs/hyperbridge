@@ -14,14 +14,9 @@ use ismp::{
     router::{Request, Response},
     util::{hash_request, hash_response},
 };
-use pallet_mmr::MerkleMountainRangeTree;
-use sp_core::H256;
+use mmr_primitives::MerkleMountainRangeTree;
 
-impl<T: Config> Pallet<T>
-where
-    <T as pallet_mmr::Config>::Leaf: From<Leaf>,
-    <<T as pallet_mmr::Config>::Hashing as sp_runtime::traits::Hash>::Output: Into<H256>,
-{
+impl<T: Config> Pallet<T> {
     /// Dispatch an outgoing request
     pub fn dispatch_request(request: Request, meta: FeeMetadata<T>) -> Result<(), IsmpError> {
         let commitment = hash_request::<Host<T>>(&request);
@@ -32,7 +27,7 @@ where
 
         let (dest_chain, source_chain, nonce) =
             (request.dest_chain(), request.source_chain(), request.nonce());
-        let leaf_index_and_pos = pallet_mmr::Pallet::<T>::push(Leaf::Request(request).into());
+        let leaf_index_and_pos = T::Mmr::push(Leaf::Request(request));
         // Deposit Event
         Pallet::<T>::deposit_event(Event::Request {
             request_nonce: nonce,
@@ -68,8 +63,7 @@ where
         let (dest_chain, source_chain, nonce) =
             (response.dest_chain(), response.source_chain(), response.nonce());
 
-        let leaf_index_and_pos =
-            pallet_mmr::Pallet::<T>::push(Leaf::Response(response).into());
+        let leaf_index_and_pos = T::Mmr::push(Leaf::Response(response));
 
         Pallet::<T>::deposit_event(Event::Response {
             request_nonce: nonce,

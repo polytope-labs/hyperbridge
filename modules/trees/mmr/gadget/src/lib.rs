@@ -125,6 +125,10 @@ where
                     self.indexing_prefix,
                     first_mmr_block_num,
                 )?;
+
+                if first_mmr_block_num == 0 {
+                    return Some(offchain_mmr)
+                }
                 // We need to make sure all blocks leading up to current notification
                 // have also been canonicalized.
                 offchain_mmr.canonicalize_catch_up(&notification);

@@ -58,13 +58,14 @@
 
 use frame_system::pallet_prelude::{BlockNumberFor, HeaderFor};
 use log;
+use merkle_mountain_range::MMRStore;
 use sp_core::H256;
 use std::marker::PhantomData;
 
 use sp_runtime::traits::{self, One, Zero};
 use sp_std::prelude::*;
 
-use mmr_primitives::{LeafMetadata, MerkleMountainRangeTree};
+use mmr_primitives::{DataOrHash, LeafMetadata, MerkleMountainRangeTree};
 pub use pallet::*;
 use sp_mmr_primitives::mmr_lib::leaf_index_to_pos;
 pub use sp_mmr_primitives::{
@@ -130,6 +131,7 @@ pub mod pallet {
 
     /// Latest MMR Root hash.
     #[pallet::storage]
+    #[pallet::getter(fn mmr_root_hash)]
     pub type RootHash<T: Config<I>, I: 'static = ()> = StorageValue<_, HashOf<T, I>, ValueQuery>;
 
     /// Current size of the MMR (number of leaves).
@@ -248,6 +250,19 @@ where
         RootHash::<T, I>::put(root);
 
         Ok(root.into())
+    }
+
+    fn get_leaf(pos: NodeIndex) -> Result<Option<Self::Leaf>, Error> {
+        let store = Storage::<OffchainStorage, T, _, Self::Leaf>::default();
+        store
+            .get_elem(pos)
+            .map(|val| {
+                val.and_then(|inner| match inner {
+                    DataOrHash::Data(leaf) => Some(leaf),
+                    _ => None,
+                })
+            })
+            .map_err(|_| Error::LeafNotFound)
     }
 }
 

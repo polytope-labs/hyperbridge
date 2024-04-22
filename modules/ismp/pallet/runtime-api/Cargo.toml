@@ -14,13 +14,10 @@ sp-core = { workspace = true }
 pallet-ismp = { path = "..", default-features = false }
 ismp = { package = "ismp", path = "../../core", default-features = false }
 serde = { version = "1.0.136", features = ["derive"], optional = true }
+sp-mmr-primitives = { workspace = true }
+codec = { workspace = true, features = ["derive"] }
 
-[dependencies.codec]
-package = "parity-scale-codec"
-version = "3.0.0"
-features = ["derive"]
-default-features = false
 
 [features]
 default = ['std']
-std = ['sp-api/std', 'sp-std/std', 'codec/std', "pallet-ismp/std", "ismp/std", "serde", "sp-core/std"]
+std = ['sp-api/std', 'sp-std/std', 'codec/std', "pallet-ismp/std", "ismp/std", "serde", "sp-core/std", "sp-mmr-primitives/std"]

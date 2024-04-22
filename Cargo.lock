@@ -4950,6 +4950,7 @@ dependencies = [
  "sp-core 28.0.0",
  "sp-genesis-builder",
  "sp-inherents",
+ "sp-mmr-primitives",
  "sp-offchain",
  "sp-runtime 31.0.1",
  "sp-session",
@@ -8877,6 +8878,7 @@ dependencies = [
  "ismp",
  "ismp-testsuite",
  "log",
+ "mmr-primitives",
  "pallet-balances",
  "pallet-mmr 0.1.0",
  "pallet-timestamp",
@@ -8994,6 +8996,7 @@ dependencies = [
  "serde",
  "sp-api",
  "sp-core 28.0.0",
+ "sp-mmr-primitives",
  "sp-std 14.0.0",
 ]
 

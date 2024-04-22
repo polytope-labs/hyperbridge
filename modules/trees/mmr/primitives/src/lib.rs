@@ -5,6 +5,7 @@ use alloc::{vec, vec::Vec};
 use merkle_mountain_range::helper::{get_peaks, parent_offset, pos_height_in_tree, sibling_offset};
 use sp_core::H256;
 use sp_mmr_primitives as primitives;
+use sp_mmr_primitives::NodeIndex;
 use sp_runtime::{scale_info, traits, RuntimeDebug};
 use sp_std::fmt;
 use std::marker::PhantomData;
@@ -58,6 +59,8 @@ pub trait MerkleMountainRangeTree {
     /// Finalize the tree and compute it's new root hash. Ideally this should only be called once a
     /// block. This will pull the leaves from the buffer and commit them to the underlying tree.
     fn finalize() -> Result<H256, primitives::Error>;
+
+    fn get_leaf(pos: NodeIndex) -> Result<Option<Self::Leaf>, primitives::Error>;
 }
 
 /// NoOp tree can be used as a drop in replacement for when the underlying mmr tree is unneeded.
@@ -82,6 +85,10 @@ impl<T> MerkleMountainRangeTree for NoOpTree<T> {
 
     fn finalize() -> Result<H256, primitives::Error> {
         Ok(H256::default())
+    }
+
+    fn get_leaf(_pos: NodeIndex) -> Result<Option<Self::Leaf>, primitives::Error> {
+        Ok(None)
     }
 }
 

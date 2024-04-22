@@ -283,6 +283,9 @@ where
     /// _canonical key_.
     /// Prune leafs and nodes added by stale blocks in offchain db from _fork-aware key_.
     pub fn canonicalize_and_prune(&mut self, notification: FinalityNotification<B>) {
+        if self.first_mmr_block == 0 {
+            return
+        }
         // Update the first MMR block in case of a pallet reset.
         self.handle_potential_pallet_reset(&notification);
 

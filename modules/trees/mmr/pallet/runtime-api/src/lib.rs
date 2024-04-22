@@ -4,7 +4,7 @@
 #![allow(clippy::too_many_arguments)]
 #![deny(missing_docs)]
 
-use sp_mmr_primitives::{Error, LeafIndex, Proof};
+use sp_mmr_primitives::{Error, LeafIndex};
 
 sp_api::decl_runtime_apis! {
     /// MmrRuntimeApi
@@ -17,10 +17,5 @@ sp_api::decl_runtime_apis! {
 
         /// Return the on-chain MMR root hash.
         fn mmr_root() -> Result<Hash, Error>;
-
-        /// Generate a proof for the provided leaf indices
-        fn generate_proof(
-            leaf_indices: Vec<LeafIndex>
-        ) -> Result<(Vec<Leaf>, Proof<Hash>), Error>;
     }
 }

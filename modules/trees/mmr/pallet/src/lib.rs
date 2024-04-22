@@ -204,6 +204,9 @@ pub trait MerkleMountainRangeTree {
     /// Associated leaf type.
     type Leaf;
 
+    /// Returns the total number of leaves that have been committed to the tree.
+    fn leaf_count() -> LeafIndex;
+
     /// Push a new leaf into the MMR. Doesn't actually perform any expensive tree recomputation.
     /// Simply adds the leaves to a buffer where they can be recalled when the tree actually
     /// needs to be finalized.
@@ -219,6 +222,10 @@ pub struct NoOpTree<T>(PhantomData<T>);
 
 impl<T> MerkleMountainRangeTree for NoOpTree<T> {
     type Leaf = T;
+
+    fn leaf_count() -> LeafIndex {
+        0
+    }
 
     fn push(_leaf: T) -> LeafMetadata {
         Default::default()
@@ -236,6 +243,10 @@ where
     HashOf<T, I>: Into<H256>,
 {
     type Leaf = T::Leaf;
+
+    fn leaf_count() -> LeafIndex {
+        NumberOfLeaves::<T, I>::get()
+    }
 
     fn push(leaf: T::Leaf) -> LeafMetadata {
         let temp_count = IntermediateLeaves::<T, I>::count() as u64;

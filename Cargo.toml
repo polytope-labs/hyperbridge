@@ -43,7 +43,7 @@ members = [
     "modules/consensus/bsc/verifier",
     "modules/consensus/bsc/prover",
     "modules/ismp/clients/bsc",
-    "modules/trees/mmr",
+    "modules/trees/mmr/utils",
 
     # evm stuff
     "evm/integration-tests",
@@ -251,7 +251,7 @@ pallet-asset-gateway = { path = "modules/ismp/pallet/asset-gateway", default-fea
 
 # merkle trees
 ethereum-trie = { path = "./modules/trees/ethereum", default-features = false }
-mmr-utils = { path = "./modules/trees/mmr", default-features = false }
+mmr-utils = { path = "modules/trees/mmr/utils", default-features = false }
 
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }

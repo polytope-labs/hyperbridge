@@ -24,6 +24,8 @@ nexus-runtime = { path = "../runtimes/nexus" }
 pallet-ismp-rpc = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
 mmr-gadget = { workspace = true }
+pallet-mmr-runtime-api = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true }
 
 # Substrate
 frame-benchmarking = { workspace = true }

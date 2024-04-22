@@ -80,6 +80,12 @@ pub trait BaseHostRuntimeApis:
     + TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
     + pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
     + cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
+    + pallet_mmr_runtime_api::MmrRuntimeApi<
+        opaque::Block,
+        H256,
+        opaque::BlockNumber,
+        pallet_ismp::mmr::Leaf,
+    >
 {
 }
 
@@ -96,5 +102,11 @@ impl<Api> BaseHostRuntimeApis for Api where
         + TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
         + pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
         + cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
+        + pallet_mmr_runtime_api::MmrRuntimeApi<
+            opaque::Block,
+            H256,
+            opaque::BlockNumber,
+            pallet_ismp::mmr::Leaf,
+        >
 {
 }

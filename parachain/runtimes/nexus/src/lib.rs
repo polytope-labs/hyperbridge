@@ -69,12 +69,9 @@ use frame_system::{
     limits::{BlockLength, BlockWeights},
     EnsureRoot, Phase,
 };
-use pallet_ismp::{
-    mmr::primitives::{Leaf, LeafIndex},
-    primitives::Proof,
-    ProofKeys,
-};
+use pallet_ismp::{primitives::Proof, ProofKeys};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
+use sp_mmr_primitives::LeafIndex;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 use xcm::XcmOriginToTransactDispatchOrigin;
 
@@ -91,6 +88,9 @@ use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
 use frame_support::traits::ConstBool;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
+
+/// MMr indexing prefix
+pub const MMR_INDEXING_PREFIX: &'static [u8] = b"ISMP";
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -308,6 +308,7 @@ parameter_types! {
 // Configure FRAME pallets to include in runtime.
 
 use frame_support::derive_impl;
+use pallet_ismp::mmr::Leaf;
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Runtime {
@@ -550,6 +551,12 @@ impl pallet_sudo::Config for Runtime {
     type WeightInfo = ();
 }
 
+impl pallet_mmr::Config for Runtime {
+    const INDEXING_PREFIX: &'static [u8] = MMR_INDEXING_PREFIX;
+    type Hashing = Keccak256;
+    type Leaf = Leaf;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime
@@ -579,8 +586,9 @@ construct_runtime!(
         // ISMP stuff
         // Xcm messages are executed in on_initialize of the message queue, pallet ismp must come before the queue so it can
         // setup the mmr
-        Ismp: pallet_ismp = 33,
-        MessageQueue: pallet_message_queue = 34,
+        Mmr: pallet_mmr = 33,
+        Ismp: pallet_ismp = 34,
+        MessageQueue: pallet_message_queue = 35,
 
         IsmpSyncCommittee: ismp_sync_committee::pallet::{Pallet, Call} = 41,
         Relayer: pallet_ismp_relayer = 42,
@@ -765,17 +773,24 @@ impl_runtime_apis! {
         }
     }
 
-    impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
+    impl pallet_mmr_runtime_api::MmrRuntimeApi<Block, <Block as BlockT>::Hash, BlockNumber, Leaf> for Runtime {
+        /// Return Block number where pallet-mmr was added to the runtime
+        fn pallet_genesis() -> Result<Option<BlockNumber>, sp_mmr_primitives::Error> {
+            Ok(Mmr::initial_height())
+        }
+
         /// Return the number of MMR leaves.
-        fn mmr_leaf_count() -> Result<LeafIndex, pallet_ismp::primitives::Error> {
-            Ok(Ismp::mmr_leaf_count())
+        fn mmr_leaf_count() -> Result<LeafIndex, sp_mmr_primitives::Error> {
+            Ok(Mmr::mmr_leaves())
         }
 
         /// Return the on-chain MMR root hash.
-        fn mmr_root() -> Result<<Block as BlockT>::Hash, pallet_ismp::primitives::Error> {
-            Ok(Ismp::mmr_root())
+        fn mmr_root() -> Result<Hash, sp_mmr_primitives::Error> {
+            Ok(Mmr::mmr_root_hash())
         }
+    }
 
+    impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
         fn challenge_period(consensus_state_id: [u8; 4]) -> Option<u64> {
             Ismp::get_challenge_period(consensus_state_id)
         }
@@ -783,7 +798,7 @@ impl_runtime_apis! {
         /// Generate a proof for the provided leaf indices
         fn generate_proof(
             keys: ProofKeys
-        ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), pallet_ismp::primitives::Error> {
+        ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), sp_mmr_primitives::Error> {
             Ismp::generate_proof(keys)
         }
 

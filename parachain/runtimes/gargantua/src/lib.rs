@@ -88,6 +88,8 @@ use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
 use frame_support::{derive_impl, traits::ConstBool};
 use pallet_ismp::{mmr::Leaf, ProofKeys};
+/// MMr Indexing Prefix
+pub const MMR_INDEXING_PREFIX: &'static [u8] = b"ISMP";
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -535,7 +537,7 @@ impl pallet_sudo::Config for Runtime {
 }
 
 impl pallet_mmr::Config for Runtime {
-    const INDEXING_PREFIX: &'static [u8] = b"ISMP";
+    const INDEXING_PREFIX: &'static [u8] = MMR_INDEXING_PREFIX;
     type Hashing = Keccak256;
     type Leaf = Leaf;
 }

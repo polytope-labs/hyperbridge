@@ -15,7 +15,7 @@
 
 use crate::{
     alloc::{boxed::Box, string::ToString},
-    AccountId, Assets, Balance, Balances, Gateway, Ismp, ParachainInfo, Runtime, RuntimeEvent,
+    AccountId, Assets, Balance, Balances, Gateway, Ismp, Mmr, ParachainInfo, Runtime, RuntimeEvent,
     Timestamp, EXISTENTIAL_DEPOSIT,
 };
 use frame_support::{
@@ -78,6 +78,8 @@ impl pallet_ismp::Config for Runtime {
         ismp_bsc::BscClient<Host<Runtime>>,
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Mainnet>,
     );
+
+    type Mmr = Mmr;
     type WeightProvider = ();
 }
 

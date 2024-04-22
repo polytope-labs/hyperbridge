@@ -61,6 +61,7 @@ pub trait MerkleMountainRangeTree {
     /// block. This will pull the leaves from the buffer and commit them to the underlying tree.
     fn finalize() -> Result<H256, primitives::Error>;
 
+    /// Given the leaf position, it should return the leaf from the mmr store
     fn get_leaf(pos: NodeIndex) -> Result<Option<Self::Leaf>, primitives::Error>;
 }
 

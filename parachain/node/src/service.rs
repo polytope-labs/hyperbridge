@@ -36,6 +36,7 @@ use cumulus_relay_chain_interface::{OverseerHandle, RelayChainInterface};
 use polkadot_primitives::ValidationCode;
 // Substrate Imports
 use frame_benchmarking_cli::SUBSTRATE_REFERENCE_HARDWARE;
+use gargantua_runtime::MMR_INDEXING_PREFIX;
 use sc_client_api::Backend;
 use sc_consensus::ImportQueue;
 use sc_executor::{
@@ -256,6 +257,13 @@ where
             sybil_resistance_level: CollatorSybilResistance::Resistant, // because of Aura
         })
         .await?;
+
+    // Spawn mmr canonicalizing task
+    task_manager.spawn_handle().spawn(
+        "mmr-canonicalizing-gadget",
+        "mmr-gadget",
+        mmr_gadget::MmrGadget::start(client.clone(), backend.clone(), MMR_INDEXING_PREFIX.to_vec()),
+    );
 
     if parachain_config.offchain_worker.enabled {
         use futures::FutureExt;

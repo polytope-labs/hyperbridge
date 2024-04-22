@@ -18,6 +18,7 @@ serde_json = "1.0.45"
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 pallet-ismp-runtime-api = { workspace = true, default-features = true }
+sp-mmr-primitives = { workspace = true, default-features = true }
 
 frame-system = { workspace = true, default-features = true }
 sc-client-api = { workspace = true, default-features = true }

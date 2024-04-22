@@ -58,9 +58,8 @@
 
 use frame_system::pallet_prelude::{BlockNumberFor, HeaderFor};
 use log;
-use sp_mmr_primitives::utils;
 use sp_runtime::{
-    traits::{self, One, Zero, Saturating},
+    traits::{self, One, Zero},
     RuntimeDebug,
 };
 use sp_std::prelude::*;
@@ -72,11 +71,12 @@ pub use sp_mmr_primitives::{
 };
 
 mod mmr;
+
+pub use mmr::storage::{OffchainStorage, Storage};
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
 mod tests;
-
 
 /// An MMR specific to the pallet.
 type ModuleMmr<StorageType, T, I> = mmr::Mmr<StorageType, T, I, LeafOf<T, I>>;
@@ -139,7 +139,8 @@ pub mod pallet {
     /// Height at which the pallet started inserting leaves into offchain storage.
     #[pallet::storage]
     #[pallet::getter(fn initial_height)]
-    pub type InitialHeight<T: Config<I>, I: 'static = ()> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
+    pub type InitialHeight<T: Config<I>, I: 'static = ()> =
+        StorageValue<_, BlockNumberFor<T>, ValueQuery>;
 
     /// Temporary leaf storage for while the block is still executing.
     #[pallet::storage]
@@ -162,15 +163,12 @@ pub mod pallet {
     impl<T: Config<I>, I: 'static> Hooks<BlockNumberFor<T>> for Pallet<T, I> {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
             if NumberOfLeaves::<T, I>::get() > 0 && InitialHeight::<T, I>::get() == Zero::zero() {
-                InitialHeight::<T, I>::put(
-                    frame_system::Pallet::<T>::block_number() - One::one()
-                )
+                InitialHeight::<T, I>::put(frame_system::Pallet::<T>::block_number() - One::one())
             }
 
             Default::default()
         }
     }
-
 }
 
 /// Leaf index and position
@@ -334,7 +332,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
     pub fn generate_proof(
         indices: Vec<LeafIndex>,
     ) -> Result<(Vec<LeafOf<T, I>>, primitives::Proof<HashOf<T, I>>), primitives::Error> {
-        let leaves_count =  NumberOfLeaves::<T, I>::get();
+        let leaves_count = NumberOfLeaves::<T, I>::get();
         let mmr: ModuleMmr<mmr::storage::OffchainStorage, T, I> = mmr::Mmr::new(leaves_count);
         mmr.generate_proof(indices)
     }

@@ -4,7 +4,8 @@ use crate::{
     child_trie::{RequestCommitments, ResponseCommitments},
     dispatcher::{FeeMetadata, LeafMetadata},
     host::Host,
-    mmr::primitives::Leaf,
+    mmr::Leaf,
+    primitives::LeafIndexAndPos,
     Config, Event, Pallet, Responded,
 };
 use alloc::string::ToString;
@@ -13,8 +14,12 @@ use ismp::{
     router::{Request, Response},
     util::{hash_request, hash_response},
 };
+use pallet_mmr_labs::MerkleMountainRangeTree;
 
-impl<T: Config> Pallet<T> {
+impl<T: Config> Pallet<T>
+where
+    <T as pallet_mmr_labs::Config>::Leaf: From<Leaf>,
+{
     /// Dispatch an outgoing request
     pub fn dispatch_request(request: Request, meta: FeeMetadata<T>) -> Result<(), IsmpError> {
         let commitment = hash_request::<Host<T>>(&request);
@@ -25,10 +30,7 @@ impl<T: Config> Pallet<T> {
 
         let (dest_chain, source_chain, nonce) =
             (request.dest_chain(), request.source_chain(), request.nonce());
-        let leaf_index_and_pos =
-            Pallet::<T>::mmr_push(Leaf::Request(request)).ok_or_else(|| {
-                IsmpError::ImplementationSpecific("Failed to push request into mmr".to_string())
-            })?;
+        let leaf_index_and_pos = pallet_mmr_labs::Pallet::<T>::push(Leaf::Request(request).into());
         // Deposit Event
         Pallet::<T>::deposit_event(Event::Request {
             request_nonce: nonce,
@@ -37,7 +39,16 @@ impl<T: Config> Pallet<T> {
             commitment,
         });
 
-        RequestCommitments::<T>::insert(commitment, LeafMetadata { mmr: leaf_index_and_pos, meta });
+        RequestCommitments::<T>::insert(
+            commitment,
+            LeafMetadata {
+                mmr: LeafIndexAndPos {
+                    leaf_index: leaf_index_and_pos.index,
+                    pos: leaf_index_and_pos.position,
+                },
+                meta,
+            },
+        );
 
         Ok(())
     }
@@ -56,9 +67,7 @@ impl<T: Config> Pallet<T> {
             (response.dest_chain(), response.source_chain(), response.nonce());
 
         let leaf_index_and_pos =
-            Pallet::<T>::mmr_push(Leaf::Response(response)).ok_or_else(|| {
-                IsmpError::ImplementationSpecific("Failed to push response into mmr".to_string())
-            })?;
+            pallet_mmr_labs::Pallet::<T>::push(Leaf::Response(response).into());
 
         Pallet::<T>::deposit_event(Event::Response {
             request_nonce: nonce,
@@ -68,7 +77,13 @@ impl<T: Config> Pallet<T> {
         });
         ResponseCommitments::<T>::insert(
             commitment,
-            LeafMetadata { mmr: leaf_index_and_pos, meta },
+            LeafMetadata {
+                mmr: LeafIndexAndPos {
+                    leaf_index: leaf_index_and_pos.index,
+                    pos: leaf_index_and_pos.position,
+                },
+                meta,
+            },
         );
         Responded::<T>::insert(req_commitment, true);
         Ok(())

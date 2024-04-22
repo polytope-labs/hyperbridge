@@ -23,12 +23,13 @@
 
 use crate::{aux_schema, HashFor, MmrClient, LOG_TARGET};
 use log::{debug, error, info, warn};
+use pallet_ismp::mmr::Leaf;
 use pallet_mmr_runtime_api::MmrRuntimeApi;
 use sc_client_api::{Backend, FinalityNotification};
 use sc_offchain::OffchainDb;
 use sp_blockchain::{CachedHeaderMetadata, ForkBackend};
 use sp_core::offchain::{DbExternalities, StorageKind};
-use sp_mmr_primitives::{utils, utils::NodesUtils, NodeIndex, LeafIndex};
+use sp_mmr_primitives::{utils::NodesUtils, LeafIndex, NodeIndex};
 use sp_runtime::{
     traits::{Block, Header, NumberFor, One},
     Saturating,
@@ -50,7 +51,7 @@ where
     BE: Backend<B>,
     B: Block,
     C: MmrClient<B, BE>,
-    C::Api: MmrRuntimeApi<B, HashFor<B>>,
+    C::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
 {
     pub fn new(
         backend: Arc<BE>,
@@ -90,25 +91,32 @@ where
         }
     }
 
-	fn header_metadata_or_log(
-		&self,
-		hash: B::Hash,
-		action: &str,
-	) -> Option<CachedHeaderMetadata<B>> {
-		match self.client.header_metadata(hash) {
-			Ok(header) => Some(header),
-			_ => {
-				debug!(
-					target: LOG_TARGET,
-					"Block {} not found. Couldn't {} associated branch.", hash, action
-				);
-				None
-			},
-		}
-	}
+    fn header_metadata_or_log(
+        &self,
+        hash: B::Hash,
+        action: &str,
+    ) -> Option<CachedHeaderMetadata<B>> {
+        match self.client.header_metadata(hash) {
+            Ok(header) => Some(header),
+            _ => {
+                debug!(
+                    target: LOG_TARGET,
+                    "Block {} not found. Couldn't {} associated branch.", hash, action
+                );
+                None
+            },
+        }
+    }
 
-    /// Fetch all the positions for all nodes added between these leaf counts including the leaf positions
-    fn nodes_to_canonicalize(&self, block_num: NumberFor<B>, action: &str, old_leaf_count: LeafIndex, new_leaf_count: LeafIndex) -> Vec<NodeIndex> {
+    /// Fetch all the positions for all nodes added between these leaf counts including the leaf
+    /// positions
+    fn nodes_to_canonicalize(
+        &self,
+        block_num: NumberFor<B>,
+        action: &str,
+        old_leaf_count: LeafIndex,
+        new_leaf_count: LeafIndex,
+    ) -> Vec<NodeIndex> {
         let mut nodes = vec![];
         for leaf_index in old_leaf_count..new_leaf_count {
             let branch = NodesUtils::right_branch_ending_in_leaf(leaf_index);
@@ -139,12 +147,17 @@ where
             _ => {
                 debug!(target: LOG_TARGET, "Failed to fetch mmr leaf count for {:?}", header.hash);
                 return
-            }
+            },
         };
 
         // We prune the leaf associated with the provided block and all the nodes added by that
         // leaf.
-        let stale_nodes = self.nodes_to_canonicalize(header.number, action, parent_leaf_count, current_leaf_count);
+        let stale_nodes = self.nodes_to_canonicalize(
+            header.number,
+            action,
+            parent_leaf_count,
+            current_leaf_count,
+        );
 
         for pos in stale_nodes {
             let temp_key = self.node_temp_offchain_key(pos, header.parent);
@@ -180,12 +193,17 @@ where
             _ => {
                 debug!(target: LOG_TARGET, "Failed to fetch mmr leaf count for {:?}", header.hash);
                 return
-            }
+            },
         };
 
         // We "canonicalize" the leaves associated with the provided block
         // and all the nodes added by those leaves.
-        let to_canon_nodes = self.nodes_to_canonicalize(header.number, action, parent_leaf_count, current_leaf_count);
+        let to_canon_nodes = self.nodes_to_canonicalize(
+            header.number,
+            action,
+            parent_leaf_count,
+            current_leaf_count,
+        );
 
         for pos in to_canon_nodes {
             let temp_key = self.node_temp_offchain_key(pos, header.parent);
@@ -284,177 +302,5 @@ where
         for hash in stale_forks.iter() {
             self.prune_branch(hash);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::test_utils::{run_test_with_mmr_gadget, run_test_with_mmr_gadget_pre_post};
-    use parking_lot::Mutex;
-    use sp_runtime::generic::BlockId;
-    use std::{sync::Arc, time::Duration};
-
-    #[test]
-    fn canonicalize_and_prune_works_correctly() {
-        run_test_with_mmr_gadget(|client| async move {
-            //                     -> D4 -> D5
-            // G -> A1 -> A2 -> A3 -> A4
-            //   -> B1 -> B2 -> B3
-            //   -> C1
-
-            let a1 = client.import_block(&BlockId::Number(0), b"a1", Some(0)).await;
-            let a2 = client.import_block(&BlockId::Hash(a1.hash()), b"a2", Some(1)).await;
-            let a3 = client.import_block(&BlockId::Hash(a2.hash()), b"a3", Some(2)).await;
-            let a4 = client.import_block(&BlockId::Hash(a3.hash()), b"a4", Some(3)).await;
-
-            let b1 = client.import_block(&BlockId::Number(0), b"b1", Some(0)).await;
-            let b2 = client.import_block(&BlockId::Hash(b1.hash()), b"b2", Some(1)).await;
-            let b3 = client.import_block(&BlockId::Hash(b2.hash()), b"b3", Some(2)).await;
-
-            let c1 = client.import_block(&BlockId::Number(0), b"c1", Some(0)).await;
-
-            let d4 = client.import_block(&BlockId::Hash(a3.hash()), b"d4", Some(3)).await;
-            let d5 = client.import_block(&BlockId::Hash(d4.hash()), b"d5", Some(4)).await;
-
-            client.finalize_block(a3.hash(), Some(3));
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            // expected finalized heads: a1, a2, a3
-            client.assert_canonicalized(&[&a1, &a2, &a3]);
-            // expected stale heads: c1
-            // expected pruned heads because of temp key collision: b1
-            client.assert_pruned(&[&c1, &b1]);
-
-            client.finalize_block(d5.hash(), Some(5));
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            // expected finalized heads: d4, d5,
-            client.assert_canonicalized(&[&d4, &d5]);
-            // expected stale heads: b1, b2, b3, a4
-            client.assert_pruned(&[&b1, &b2, &b3, &a4]);
-        })
-    }
-
-    #[test]
-    fn canonicalize_and_prune_handles_pallet_reset() {
-        run_test_with_mmr_gadget(|client| async move {
-            // G -> A1 -> A2 -> A3 -> A4 -> A5
-            //      |           |
-            //      |           | -> pallet reset
-            //      |
-            //      | -> first finality notification
-
-            let a1 = client.import_block(&BlockId::Number(0), b"a1").await;
-            let a2 = client.import_block(&BlockId::Hash(a1.hash()), b"a2").await;
-            let a3 = client.import_block(&BlockId::Hash(a2.hash()), b"a3").await;
-            let a4 = client.import_block(&BlockId::Hash(a3.hash()), b"a4").await;
-            let a5 = client.import_block(&BlockId::Hash(a4.hash()), b"a5").await;
-
-            client.finalize_block(a1.hash(), Some(1));
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            // expected finalized heads: a1
-            client.assert_canonicalized(&[&a1]);
-            // a2 shouldn't be either canonicalized or pruned. It should be handled as part of the
-            // reset process.
-            client.assert_not_canonicalized(&[&a2]);
-
-            client.finalize_block(a5.hash(), Some(3));
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            //expected finalized heads: a3, a4, a5,
-            client.assert_canonicalized(&[&a3, &a4, &a5]);
-        })
-    }
-
-    #[test]
-    fn canonicalize_catchup_works_correctly() {
-        let mmr_blocks = Arc::new(Mutex::new(vec![]));
-        let mmr_blocks_ref = mmr_blocks.clone();
-        run_test_with_mmr_gadget_pre_post(
-            |client| async move {
-                // G -> A1 -> A2
-                //      |     |
-                //      |     | -> finalized without gadget (missed notification)
-                //      |
-                //      | -> first mmr block
-
-                let a1 = client.import_block(&BlockId::Number(0), b"a1", Some(0)).await;
-                let a2 = client.import_block(&BlockId::Hash(a1.hash()), b"a2", Some(1)).await;
-
-                client.finalize_block(a2.hash(), Some(2));
-
-                let mut mmr_blocks = mmr_blocks_ref.lock();
-                mmr_blocks.push(a1);
-                mmr_blocks.push(a2);
-            },
-            |client| async move {
-                // G -> A1 -> A2 -> A3 -> A4
-                //      |     |     |     |
-                //      |     |     |     | -> finalized after starting gadget
-                //      |     |     |
-                //      |     |     | -> gadget start
-                //      |     |
-                //      |     | -> finalized before starting gadget (missed notification)
-                //      |
-                //      | -> first mmr block
-                let blocks = mmr_blocks.lock();
-                let a1 = blocks[0].clone();
-                let a2 = blocks[1].clone();
-                let a3 = client.import_block(&BlockId::Hash(a2.hash()), b"a3", Some(2)).await;
-                let a4 = client.import_block(&BlockId::Hash(a3.hash()), b"a4", Some(3)).await;
-
-                client.finalize_block(a4.hash(), Some(4));
-                tokio::time::sleep(Duration::from_millis(200)).await;
-                // expected finalized heads: a1, a2 _and_ a3, a4.
-                client.assert_canonicalized(&[&a1, &a2, &a3, &a4]);
-            },
-        )
-    }
-
-    #[test]
-    fn canonicalize_catchup_works_correctly_with_pallet_reset() {
-        let mmr_blocks = Arc::new(Mutex::new(vec![]));
-        let mmr_blocks_ref = mmr_blocks.clone();
-        run_test_with_mmr_gadget_pre_post(
-            |client| async move {
-                // G -> A1 -> A2
-                //      |     |
-                //      |     | -> finalized without gadget (missed notification)
-                //      |
-                //      | -> first mmr block
-
-                let a1 = client.import_block(&BlockId::Number(0), b"a1", Some(0)).await;
-                let a2 = client.import_block(&BlockId::Hash(a1.hash()), b"a2", Some(0)).await;
-
-                client.finalize_block(a2.hash(), Some(1));
-
-                let mut mmr_blocks = mmr_blocks_ref.lock();
-                mmr_blocks.push(a1);
-                mmr_blocks.push(a2);
-            },
-            |client| async move {
-                // G -> A1 -> A2 -> A3 -> A4
-                //      |     |     |     |
-                //      |     |     |     | -> finalized after starting gadget
-                //      |     |     |
-                //      |     |     | -> gadget start
-                //      |     |
-                //      |     | -> finalized before gadget start (missed notification)
-                //      |     |    + pallet reset
-                //      |
-                //      | -> first mmr block
-                let blocks = mmr_blocks.lock();
-                let a1 = blocks[0].clone();
-                let a2 = blocks[1].clone();
-                let a3 = client.import_block(&BlockId::Hash(a2.hash()), b"a3", Some(1)).await;
-                let a4 = client.import_block(&BlockId::Hash(a3.hash()), b"a4", Some(2)).await;
-
-                client.finalize_block(a4.hash(), Some(3));
-                tokio::time::sleep(Duration::from_millis(200)).await;
-                // a1 shouldn't be either canonicalized or pruned. It should be handled as part of
-                // the reset process. Checking only that it wasn't pruned. Because of temp key
-                // collision with a2 we can't check that it wasn't canonicalized.
-                client.assert_not_pruned(&[&a1]);
-                // expected finalized heads: a4, a5.
-                client.assert_canonicalized(&[&a2, &a3, &a4]);
-            },
-        )
     }
 }

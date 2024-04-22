@@ -17,8 +17,10 @@
 
 use crate::{mock::*, *};
 
-use frame_support::traits::{Get, OnInitialize};
-use frame_support::weights::Weight;
+use frame_support::{
+    traits::{Get, OnInitialize},
+    weights::Weight,
+};
 use sp_core::{
     offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
     H256,
@@ -51,9 +53,7 @@ pub(crate) fn hex(s: &str) -> H256 {
 
 type BlockNumber = frame_system::pallet_prelude::BlockNumberFor<Test>;
 
-fn decode_node(
-    v: Vec<u8>,
-) -> mmr::Node<<Test as Config>::Hashing, LeafData> {
+fn decode_node(v: Vec<u8>) -> mmr::Node<<Test as Config>::Hashing, LeafData> {
     use crate::primitives::DataOrHash;
     type B = DataOrHash<<Test as Config>::Hashing, LeafData>;
     type Node = mmr::Node<<Test as Config>::Hashing, B>;
@@ -93,10 +93,7 @@ fn should_start_empty() {
 
         // then
         assert_eq!(crate::NumberOfLeaves::<Test>::get(), 1);
-        assert_eq!(
-            crate::Nodes::<Test>::count(),
-            1
-        );
+        assert_eq!(crate::Nodes::<Test>::count(), 1);
     });
 }
 
@@ -137,5 +134,3 @@ fn should_calculate_the_size_correctly() {
     }
     assert_eq!(sizes[1..], actual_sizes[..]);
 }
-
-

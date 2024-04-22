@@ -22,6 +22,8 @@ sp-consensus-aura = { workspace = true }
 ismp = { workspace = true }
 codec = { workspace = true }
 scale-info = { workspace = true }
+sp-mmr-primitives = { workspace = true }
+pallet-mmr-labs = { workspace = true }
 
 # crates.io
 fortuples = "0.9.1"
@@ -53,7 +55,9 @@ std = [
     "sp-api/std",
     "serde/default",
     "pallet-balances/std",
-    "sp-consensus-aura/std"
+    "sp-consensus-aura/std",
+    "sp-mmr-primitives/std",
+    "pallet-mmr-labs/std"
 ]
 
 disable-panic-handler = ["sp-io/disable_panic_handler", "sp-io/disable_oom", "sp-io/disable_allocator"]

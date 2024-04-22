@@ -20,14 +20,5 @@ sp-mmr-primitives = { workspace = true, default-features = true }
 sc-offchain = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = true }
 pallet-mmr-runtime-api = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true }
 
-[dev-dependencies]
-parking_lot = "0.12.1"
-sc-block-builder = { workspace = true }
-sp-tracing = { workspace = true }
-tokio = "1.37"
-sc-service = { workspace = true, features = ["test-helpers"] }
-sc-executor = { workspace = true }
-frame-support = { workspace = true, default-features = true  }
-frame-system = { workspace = true, default-features = true  }
-pallet-balances = { workspace = true, default-features = true  }

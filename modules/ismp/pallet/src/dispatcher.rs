@@ -14,7 +14,9 @@
 // limitations under the License.
 
 //! Implementation for the ISMP Router
-use crate::{child_trie::RequestReceipts, host::Host, primitives::LeafIndexAndPos, Pallet};
+use crate::{
+    child_trie::RequestReceipts, host::Host, mmr::Leaf, primitives::LeafIndexAndPos, Pallet,
+};
 use alloc::string::ToString;
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
@@ -68,6 +70,7 @@ impl<T> Default for Dispatcher<T> {
 impl<T> IsmpDispatcher for Dispatcher<T>
 where
     T: crate::Config,
+    <T as pallet_mmr_labs::Config>::Leaf: From<Leaf>,
 {
     type Account = T::AccountId;
     type Balance = T::Balance;

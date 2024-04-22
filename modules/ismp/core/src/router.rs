@@ -221,6 +221,34 @@ impl Request {
             Request::Get(get) => Ok(get.clone()),
         }
     }
+
+    /// Returns the encoded request
+    pub fn encode(&self) -> Vec<u8> {
+        match self {
+            Request::Post(post) => {
+                let mut buf = Vec::new();
+                buf.extend_from_slice(post.source.to_string().as_bytes());
+                buf.extend_from_slice(post.dest.to_string().as_bytes());
+                buf.extend_from_slice(&post.nonce.to_be_bytes());
+                buf.extend_from_slice(&post.timeout_timestamp.to_be_bytes());
+                buf.extend_from_slice(&post.from);
+                buf.extend_from_slice(&post.to);
+                buf.extend_from_slice(&post.data);
+                buf
+            },
+            Request::Get(get) => {
+                let mut buf = Vec::new();
+                buf.extend_from_slice(get.source.to_string().as_bytes());
+                buf.extend_from_slice(get.dest.to_string().as_bytes());
+                buf.extend_from_slice(&get.nonce.to_be_bytes());
+                buf.extend_from_slice(&get.height.to_be_bytes());
+                buf.extend_from_slice(&get.timeout_timestamp.to_be_bytes());
+                buf.extend_from_slice(&get.from);
+                get.keys.iter().for_each(|key| buf.extend_from_slice(key));
+                buf
+            },
+        }
+    }
 }
 
 /// The response to a POST request
@@ -283,6 +311,22 @@ impl PostResponse {
     /// Returns true if the destination chain timestamp has exceeded the response timeout timestamp
     pub fn timed_out(&self, proof_timestamp: Duration) -> bool {
         proof_timestamp >= self.timeout()
+    }
+
+    /// Returns the encoded response
+    pub fn encode(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        let req = &self.post;
+        buf.extend_from_slice(req.source.to_string().as_bytes());
+        buf.extend_from_slice(req.dest.to_string().as_bytes());
+        buf.extend_from_slice(&req.nonce.to_be_bytes());
+        buf.extend_from_slice(&req.timeout_timestamp.to_be_bytes());
+        buf.extend_from_slice(&req.from);
+        buf.extend_from_slice(&req.to);
+        buf.extend_from_slice(&req.data);
+        buf.extend_from_slice(&self.response);
+        buf.extend_from_slice(&self.timeout_timestamp.to_be_bytes());
+        buf
     }
 }
 
@@ -371,6 +415,14 @@ impl Response {
         match self {
             Response::Get(res) => proof_timestamp >= res.get.timeout(),
             Response::Post(res) => proof_timestamp >= res.timeout(),
+        }
+    }
+
+    /// Returns the encoded response
+    pub fn encode(&self) -> Vec<u8> {
+        match self {
+            Response::Post(res) => res.encode(),
+            Response::Get(res) => Request::Get(res.get.clone()).encode(),
         }
     }
 }

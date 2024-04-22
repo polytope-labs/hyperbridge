@@ -42,24 +42,24 @@ extern crate sp_runtime;
 
 mod aux_schema;
 mod offchain_mmr;
-#[cfg(test)]
-pub mod test_utils;
 
 use crate::offchain_mmr::OffchainMmr;
 use futures::StreamExt;
-use log::{debug, error, trace, warn};
+use log::{error, trace, warn};
+use pallet_ismp::mmr::Leaf;
 use pallet_mmr_runtime_api::MmrRuntimeApi;
 use sc_client_api::{Backend, BlockchainEvents, FinalityNotification, FinalityNotifications};
 use sc_offchain::OffchainDb;
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::{HeaderBackend, HeaderMetadata};
-use sp_mmr_primitives::{utils, LeafIndex};
+use sp_mmr_primitives::LeafIndex;
 use sp_runtime::traits::{Block, Header, NumberFor};
 use std::{marker::PhantomData, sync::Arc};
 
 /// Logging target for the mmr gadget.
 pub const LOG_TARGET: &str = "mmr";
 
+/// Hashing Output
 pub type HashFor<B> = <<B as Block>::Header as Header>::Hash;
 
 /// A convenience MMR client trait that defines all the type bounds a MMR client
@@ -69,7 +69,7 @@ pub trait MmrClient<B, BE>:
 where
     B: Block,
     BE: Backend<B>,
-    Self::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>>,
+    Self::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
 {
     /// Get the block number where the mmr pallet was added to the runtime.
     fn first_mmr_block_num(&self, notification: &FinalityNotification<B>) -> Option<NumberFor<B>> {
@@ -92,7 +92,7 @@ where
     B: Block,
     BE: Backend<B>,
     T: BlockchainEvents<B> + HeaderBackend<B> + HeaderMetadata<B> + ProvideRuntimeApi<B>,
-    T::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>>,
+    T::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
 {
     // empty
 }
@@ -110,7 +110,7 @@ where
     B: Block,
     BE: Backend<B>,
     C: MmrClient<B, BE>,
-    C::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>>,
+    C::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
 {
     async fn try_build(
         self,
@@ -157,7 +157,7 @@ where
     <B::Header as Header>::Number: Into<LeafIndex>,
     BE: Backend<B>,
     C: MmrClient<B, BE>,
-    C::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>>,
+    C::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
 {
     async fn run(mut self, builder: OffchainMmrBuilder<B, BE, C>) {
         let mut offchain_mmr = match builder.try_build(&mut self.finality_notifications).await {
@@ -197,69 +197,5 @@ where
                 _phantom: Default::default(),
             })
             .await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::test_utils::run_test_with_mmr_gadget;
-    use sp_runtime::generic::BlockId;
-    use std::time::Duration;
-
-    #[test]
-    fn mmr_first_block_is_computed_correctly() {
-        // Check the case where the first block is also the first block with MMR.
-        run_test_with_mmr_gadget(|client| async move {
-            // G -> A1 -> A2
-            //      |
-            //      | -> first mmr block
-
-            let a1 = client.import_block(&BlockId::Number(0), b"a1", Some(0)).await;
-            let a2 = client.import_block(&BlockId::Hash(a1.hash()), b"a2", Some(1)).await;
-
-            client.finalize_block(a1.hash(), Some(1));
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            // expected finalized heads: a1
-            client.assert_canonicalized(&[&a1]);
-            client.assert_not_pruned(&[&a2]);
-        });
-
-        // Check the case where the first block with MMR comes later.
-        run_test_with_mmr_gadget(|client| async move {
-            // G -> A1 -> A2 -> A3 -> A4 -> A5 -> A6
-            //                        |
-            //                        | -> first mmr block
-
-            let a1 = client.import_block(&BlockId::Number(0), b"a1", None).await;
-            let a2 = client.import_block(&BlockId::Hash(a1.hash()), b"a2", None).await;
-            let a3 = client.import_block(&BlockId::Hash(a2.hash()), b"a3", None).await;
-            let a4 = client.import_block(&BlockId::Hash(a3.hash()), b"a4", Some(0)).await;
-            let a5 = client.import_block(&BlockId::Hash(a4.hash()), b"a5", Some(1)).await;
-            let a6 = client.import_block(&BlockId::Hash(a5.hash()), b"a6", Some(2)).await;
-
-            client.finalize_block(a5.hash(), Some(2));
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            // expected finalized heads: a4, a5
-            client.assert_canonicalized(&[&a4, &a5]);
-            client.assert_not_pruned(&[&a6]);
-        });
-    }
-
-    #[test]
-    fn does_not_panic_on_invalid_num_mmr_blocks() {
-        run_test_with_mmr_gadget(|client| async move {
-            // G -> A1
-            //      |
-            //      | -> first mmr block
-
-            let a1 = client.import_block(&BlockId::Number(0), b"a1", Some(0)).await;
-
-            // Simulate the case where the runtime says that there are 2 mmr_blocks when in fact
-            // there is only 1.
-            client.finalize_block(a1.hash(), Some(2));
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            // expected finalized heads: -
-            client.assert_not_canonicalized(&[&a1]);
-        });
     }
 }

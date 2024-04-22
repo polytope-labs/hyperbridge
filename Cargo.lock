@@ -7427,24 +7427,18 @@ dependencies = [
 name = "mmr-gadget"
 version = "29.0.0"
 dependencies = [
- "frame-support",
- "frame-system",
  "futures",
  "log",
+ "pallet-ismp",
  "pallet-mmr-runtime-api",
  "parity-scale-codec",
- "parking_lot 0.12.1",
- "sc-block-builder",
  "sc-client-api",
  "sc-offchain",
- "sc-service",
  "sp-api",
  "sp-blockchain",
  "sp-core 28.0.0",
  "sp-mmr-primitives",
  "sp-runtime 31.0.1",
- "sp-tracing 17.0.0",
- "tokio",
 ]
 
 [[package]]
@@ -8876,6 +8870,7 @@ dependencies = [
  "ismp-testsuite",
  "log",
  "pallet-balances",
+ "pallet-mmr 0.1.0",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
@@ -8884,6 +8879,7 @@ dependencies = [
  "sp-consensus-aura",
  "sp-core 28.0.0",
  "sp-io 30.0.0",
+ "sp-mmr-primitives",
  "sp-runtime 31.0.1",
  "sp-std 14.0.0",
 ]
@@ -16001,17 +15997,6 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-subscriber 0.2.25",
-]
-
-[[package]]
-name = "sp-tracing"
-version = "17.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90b3decf116db9f1dfaf1f1597096b043d0e12c952d3bcdc018c6d6b77deec7e"
-dependencies = [
- "parity-scale-codec",
- "tracing",
- "tracing-core",
 ]
 
 [[package]]

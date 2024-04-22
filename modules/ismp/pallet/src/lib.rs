@@ -25,7 +25,6 @@ extern crate core;
 pub mod dispatcher;
 mod errors;
 pub mod events;
-pub mod handlers;
 pub mod host;
 pub mod mmr;
 pub use mmr::ProofKeys;

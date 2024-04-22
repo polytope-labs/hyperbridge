@@ -749,7 +749,7 @@ impl_runtime_apis! {
     }
     impl pallet_mmr_runtime_api::MmrRuntimeApi<Block, <Block as BlockT>::Hash, BlockNumber, Leaf> for Runtime {
         /// Return Block number where pallet-mmr was added to the runtime
-        fn pallet_genesis() -> Result<BlockNumber, sp_mmr_primitives::Error> {
+        fn pallet_genesis() -> Result<Option<BlockNumber>, sp_mmr_primitives::Error> {
             Ok(Mmr::initial_height())
         }
 

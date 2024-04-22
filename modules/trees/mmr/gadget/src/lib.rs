@@ -75,7 +75,7 @@ where
     fn first_mmr_block_num(&self, notification: &FinalityNotification<B>) -> Option<NumberFor<B>> {
         let best_block_hash = notification.header.hash();
         match self.runtime_api().pallet_genesis(best_block_hash) {
-            Ok(Ok(number)) => Some(number),
+            Ok(Ok(number)) => number,
             _ => {
                 trace!(
                     target: LOG_TARGET,
@@ -126,9 +126,6 @@ where
                     first_mmr_block_num,
                 )?;
 
-                if first_mmr_block_num == 0 {
-                    return Some(offchain_mmr)
-                }
                 // We need to make sure all blocks leading up to current notification
                 // have also been canonicalized.
                 offchain_mmr.canonicalize_catch_up(&notification);

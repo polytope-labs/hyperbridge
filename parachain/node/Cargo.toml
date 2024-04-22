@@ -23,6 +23,7 @@ messier-runtime = { path = "../runtimes/messier" }
 nexus-runtime = { path = "../runtimes/nexus" }
 pallet-ismp-rpc = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
+mmr-gadget = { workspace = true }
 
 # Substrate
 frame-benchmarking = { workspace = true }

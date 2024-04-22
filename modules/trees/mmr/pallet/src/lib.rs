@@ -62,7 +62,7 @@ use merkle_mountain_range::MMRStore;
 use sp_core::H256;
 use std::marker::PhantomData;
 
-use sp_runtime::traits::{self, One, Zero};
+use sp_runtime::traits::{self, One};
 use sp_std::prelude::*;
 
 use mmr_primitives::{DataOrHash, LeafMetadata, MerkleMountainRangeTree};
@@ -143,7 +143,7 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn initial_height)]
     pub type InitialHeight<T: Config<I>, I: 'static = ()> =
-        StorageValue<_, BlockNumberFor<T>, ValueQuery>;
+        StorageValue<_, BlockNumberFor<T>, OptionQuery>;
 
     /// Temporary leaf storage for while the block is still executing.
     #[pallet::storage]
@@ -165,7 +165,7 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config<I>, I: 'static> Hooks<BlockNumberFor<T>> for Pallet<T, I> {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
-            if NumberOfLeaves::<T, I>::get() > 0 && InitialHeight::<T, I>::get() == Zero::zero() {
+            if NumberOfLeaves::<T, I>::get() > 0 && InitialHeight::<T, I>::get().is_none() {
                 InitialHeight::<T, I>::put(frame_system::Pallet::<T>::block_number() - One::one())
             }
 

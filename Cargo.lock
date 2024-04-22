@@ -5501,6 +5501,7 @@ dependencies = [
  "jsonrpsee 0.16.3",
  "log",
  "messier-runtime",
+ "mmr-gadget 29.0.0",
  "nexus-runtime",
  "pallet-ismp-rpc",
  "pallet-ismp-runtime-api",

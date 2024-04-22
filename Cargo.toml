@@ -255,7 +255,6 @@ pallet-asset-gateway = { path = "modules/ismp/pallet/asset-gateway", default-fea
 pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
 
 # Mmr
-pallet-mmr-labs =  { package = "pallet-mmr",  path ="modules/trees/mmr/pallet", default-features = false }
 pallet-mmr-runtime-api = { path = "modules/trees/mmr/pallet/runtime-api", default-features = false }
 mmr-gadget = { path = "modules/trees/mmr/gadget" }
 

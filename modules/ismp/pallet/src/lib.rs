@@ -62,7 +62,7 @@ use frame_system::pallet_prelude::BlockNumberFor;
 use ismp::{host::IsmpHost, messaging::Message};
 use merkle_mountain_range::MMRStore;
 pub use pallet::*;
-use pallet_mmr_labs::{MerkleMountainRangeTree, OffchainStorage};
+use pallet_mmr::{MerkleMountainRangeTree, OffchainStorage};
 use sp_mmr_primitives::DataOrHash;
 use sp_runtime::{
     traits::{Hash, ValidateUnsigned},
@@ -105,7 +105,7 @@ pub mod pallet {
 
     #[pallet::config]
     pub trait Config:
-        frame_system::Config + pallet_balances::Config + pallet_mmr_labs::Config
+        frame_system::Config + pallet_balances::Config + pallet_mmr::Config
     {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -223,11 +223,11 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
     where
-        H256: From<<<T as pallet_mmr_labs::Config>::Hashing as sp_runtime::traits::Hash>::Output>,
+        H256: From<<<T as pallet_mmr::Config>::Hashing as sp_runtime::traits::Hash>::Output>,
     {
         fn on_finalize(_n: BlockNumberFor<T>) {
             // Only finalize if mmr was modified
-            let root = match pallet_mmr_labs::Pallet::<T>::finalize() {
+            let root = match pallet_mmr::Pallet::<T>::finalize() {
                 Ok(root) => root,
                 Err(e) => {
                     log::error!(target:"ismp", "Failed to finalize MMR {e:?}");
@@ -264,8 +264,9 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T>
     where
-        <T as pallet_mmr_labs::Config>::Leaf: From<Leaf>,
-        Leaf: From<<T as pallet_mmr_labs::Config>::Leaf>,
+        <T as pallet_mmr::Config>::Leaf: From<Leaf>,
+        Leaf: From<<T as pallet_mmr::Config>::Leaf>,
+        <<T as pallet_mmr::Config>::Hashing as sp_runtime::traits::Hash>::Output: Into<H256>,
     {
         /// Handles ismp messages
         #[pallet::weight(get_weight::<T>(&messages))]
@@ -423,8 +424,9 @@ pub mod pallet {
     #[pallet::validate_unsigned]
     impl<T: Config> ValidateUnsigned for Pallet<T>
     where
-        <T as pallet_mmr_labs::Config>::Leaf: From<Leaf>,
-        Leaf: From<<T as pallet_mmr_labs::Config>::Leaf>,
+        <T as pallet_mmr::Config>::Leaf: From<Leaf>,
+        Leaf: From<<T as pallet_mmr::Config>::Leaf>,
+        <<T as pallet_mmr::Config>::Hashing as sp_runtime::traits::Hash>::Output: Into<H256>,
     {
         type Call = Call<T>;
 
@@ -520,8 +522,9 @@ pub struct ResponseReceipt {
 
 impl<T: Config> Pallet<T>
 where
-    <T as pallet_mmr_labs::Config>::Leaf: From<Leaf>,
-    Leaf: From<<T as pallet_mmr_labs::Config>::Leaf>,
+    <T as pallet_mmr::Config>::Leaf: From<Leaf>,
+    Leaf: From<<T as pallet_mmr::Config>::Leaf>,
+    <<T as pallet_mmr::Config>::Hashing as sp_runtime::traits::Hash>::Output: Into<H256>,
 {
     /// Generate an MMR proof for the given `leaf_indices`.
     /// Note this method can only be used from an off-chain context
@@ -531,7 +534,7 @@ where
     pub fn generate_proof(
         commitments: ProofKeys,
     ) -> Result<
-        (Vec<Leaf>, primitives::Proof<<<T as pallet_mmr_labs::Config>::Hashing as Hash>::Output>),
+        (Vec<Leaf>, primitives::Proof<<<T as pallet_mmr::Config>::Hashing as Hash>::Output>),
         sp_mmr_primitives::Error,
     > {
         Mmr::<T>::generate_proof(commitments)
@@ -580,7 +583,7 @@ where
     /// Gets the request from the offchain storage
     pub fn get_request(commitment: H256) -> Option<Request> {
         let pos = RequestCommitments::<T>::get(commitment)?.mmr.pos;
-        let mmr = pallet_mmr_labs::Storage::<OffchainStorage, T, _, Leaf>::default();
+        let mmr = pallet_mmr::Storage::<OffchainStorage, T, _, Leaf>::default();
         if let Ok(Some(elem)) = mmr.get_elem(pos) {
             return match elem {
                 DataOrHash::Data(Leaf::Request(req)) => Some(req),
@@ -593,7 +596,7 @@ where
     /// Gets the response from the offchain storage
     pub fn get_response(commitment: H256) -> Option<Response> {
         let pos = ResponseCommitments::<T>::get(commitment)?.mmr.pos;
-        let mmr = pallet_mmr_labs::Storage::<OffchainStorage, T, _, Leaf>::default();
+        let mmr = pallet_mmr::Storage::<OffchainStorage, T, _, Leaf>::default();
         if let Ok(Some(elem)) = mmr.get_elem(pos) {
             return match elem {
                 DataOrHash::Data(Leaf::Response(res)) => Some(res),

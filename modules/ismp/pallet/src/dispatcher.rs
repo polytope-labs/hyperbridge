@@ -27,6 +27,7 @@ use ismp::{
     router::{DispatchRequest, Get, IsmpDispatcher, Post, PostResponse, Request, Response},
     util::hash_request,
 };
+use sp_core::H256;
 
 /// A receipt or an outgoing or incoming request or response
 #[derive(Encode, Decode, scale_info::TypeInfo)]
@@ -70,7 +71,8 @@ impl<T> Default for Dispatcher<T> {
 impl<T> IsmpDispatcher for Dispatcher<T>
 where
     T: crate::Config,
-    <T as pallet_mmr_labs::Config>::Leaf: From<Leaf>,
+    <T as pallet_mmr::Config>::Leaf: From<Leaf>,
+    <<T as pallet_mmr::Config>::Hashing as sp_runtime::traits::Hash>::Output: Into<H256>,
 {
     type Account = T::AccountId;
     type Balance = T::Balance;

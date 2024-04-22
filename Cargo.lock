@@ -4931,6 +4931,7 @@ dependencies = [
  "pallet-ismp-runtime-api",
  "pallet-message-queue",
  "pallet-mmr 0.1.0",
+ "pallet-mmr-runtime-api",
  "pallet-session",
  "pallet-sudo",
  "pallet-timestamp",

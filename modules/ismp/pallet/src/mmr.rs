@@ -28,6 +28,8 @@ use ismp::router::{Request, Response};
 use sp_mmr_primitives::Error;
 use sp_runtime::traits::Hash;
 
+use sp_mmr_primitives::FullLeaf;
+
 /// A concrete Leaf for the MMR
 #[derive(Debug, Clone, PartialEq, Eq, scale_info::TypeInfo)]
 pub enum Leaf {
@@ -69,7 +71,7 @@ pub struct Mmr<T>(core::marker::PhantomData<T>);
 impl<T> Mmr<T>
 where
     T: Config,
-    Leaf: From<<T as pallet_mmr_labs::Config>::Leaf>,
+    Leaf: From<<T as pallet_mmr::Config>::Leaf>,
 {
     /// Generate a proof for given leaf indices.
     ///
@@ -77,7 +79,7 @@ where
     /// (i.e. you can't run the function in the pruned storage).
     pub fn generate_proof(
         keys: ProofKeys,
-    ) -> Result<(Vec<Leaf>, Proof<<<T as pallet_mmr_labs::Config>::Hashing as Hash>::Output>), Error>
+    ) -> Result<(Vec<Leaf>, Proof<<<T as pallet_mmr::Config>::Hashing as Hash>::Output>), Error>
     {
         let leaf_indices_and_positions = match keys {
             ProofKeys::Requests(commitments) => commitments
@@ -101,7 +103,7 @@ where
         };
         let indices =
             leaf_indices_and_positions.iter().map(|val| val.leaf_index).collect::<Vec<_>>();
-        let (leaves, proof) = pallet_mmr_labs::Pallet::<T>::generate_proof(indices)?;
+        let (leaves, proof) = pallet_mmr::Pallet::<T>::generate_proof(indices)?;
         let proof = Proof {
             leaf_positions: leaf_indices_and_positions,
             leaf_count: proof.leaf_count,

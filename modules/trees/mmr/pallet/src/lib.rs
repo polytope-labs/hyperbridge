@@ -73,6 +73,8 @@ pub use sp_mmr_primitives::{
     self as primitives, utils::NodesUtils, Error, LeafDataProvider, LeafIndex, NodeIndex,
 };
 
+pub use mmr::storage::{OffchainStorage, Storage};
+
 mod mmr;
 #[cfg(test)]
 mod mock;

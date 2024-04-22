@@ -89,6 +89,7 @@ pallet-call-decompressor = { workspace = true }
 pallet-asset-gateway = { workspace = true  }
 
 pallet-mmr = { workspace = true }
+pallet-mmr-runtime-api = { workspace= true }
 
 [features]
 default = [
@@ -155,7 +156,8 @@ std = [
 	"pallet-assets/std",
 	"pallet-mmr/std",
 	"orml-xcm-support/std",
-	"orml-traits/std"
+	"orml-traits/std",
+	"pallet-mmr-runtime-api/std"
 ]
 
 runtime-benchmarks = [

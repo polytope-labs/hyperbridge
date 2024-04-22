@@ -36,11 +36,6 @@ dataSources:
           filter:
             topics:
               - "PostRequestHandled(bytes32, address)"
-        - kind: ethereum/LogHandler
-          handler: handleEthereumSepoliaPostRequestTimeoutHandledEvent
-          filter:
-            topics:
-              - "PostRequestHandled(bytes32, address)"
 
   # Protocol Fee Token
   - kind: ethereum/Runtime

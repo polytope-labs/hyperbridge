@@ -17,7 +17,6 @@ export class HyperBridgeService {
         feesPayedOut: BigInt(0),
         feesEarned: BigInt(0),
         totalTransfersIn: BigInt(0),
-        perChainMetrics: [],
       });
 
       await metrics.save();
@@ -37,14 +36,10 @@ export class HyperBridgeService {
 
     // Update the specific chain metrics
     let chainMetrics =
-      await HyperBridgeChainMetricsService.findOrCreateChainMetrics(
-        chain,
-        metrics,
-      );
+      await HyperBridgeChainMetricsService.findOrCreateChainMetrics(chain);
     chainMetrics.postRequestsHandled += BigInt(1);
 
-    HyperBridgeChainMetricsService.updateChainMetrics(metrics, chainMetrics);
-    await metrics.save();
+    Promise.all([await chainMetrics.save(), await metrics.save()]);
   }
 
   /**
@@ -60,16 +55,12 @@ export class HyperBridgeService {
 
     // Update the specific chain metrics
     let chainMetrics =
-      await HyperBridgeChainMetricsService.findOrCreateChainMetrics(
-        chain,
-        metrics,
-      );
+      await HyperBridgeChainMetricsService.findOrCreateChainMetrics(chain);
     chainMetrics.feesPayedOut += BigInt(transfer.amount);
     chainMetrics.feesEarned =
       chainMetrics.totalTransfersIn - chainMetrics.feesPayedOut;
 
-    HyperBridgeChainMetricsService.updateChainMetrics(metrics, chainMetrics);
-    await metrics.save();
+    Promise.all([await chainMetrics.save(), await metrics.save()]);
   }
 
   /**
@@ -85,15 +76,11 @@ export class HyperBridgeService {
 
     // Update the specific chain metrics
     let chainMetrics =
-      await HyperBridgeChainMetricsService.findOrCreateChainMetrics(
-        chain,
-        metrics,
-      );
+      await HyperBridgeChainMetricsService.findOrCreateChainMetrics(chain);
     chainMetrics.totalTransfersIn += BigInt(transfer.amount);
     chainMetrics.feesEarned =
       chainMetrics.totalTransfersIn - chainMetrics.feesPayedOut;
 
-    HyperBridgeChainMetricsService.updateChainMetrics(metrics, chainMetrics);
-    await metrics.save();
+    Promise.all([await chainMetrics.save(), await metrics.save()]);
   }
 }

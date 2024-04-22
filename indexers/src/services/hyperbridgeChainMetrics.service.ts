@@ -1,8 +1,5 @@
-import {
-  SupportedChain,
-  HyperBridgeMetrics,
-  HyperBridgeChainMetrics,
-} from "../types";
+import { HYPERBRIDGE_METRICS_ENTITY_ID } from "../constants";
+import { SupportedChain, HyperBridgeChainMetrics } from "../types";
 
 export class HyperBridgeChainMetricsService {
   /**
@@ -10,43 +7,21 @@ export class HyperBridgeChainMetricsService {
    */
   static async findOrCreateChainMetrics(
     chain: SupportedChain,
-    metrics: HyperBridgeMetrics,
   ): Promise<HyperBridgeChainMetrics> {
-    let chainMetrics = metrics.perChainMetrics.find(
-      (chainMetrics) => chainMetrics.chain == (chain as string),
-    );
+    let chainMetrics = await HyperBridgeChainMetrics.get(chain);
 
     if (typeof chainMetrics === "undefined") {
-      chainMetrics = {
-        chain: chain as string,
+      chainMetrics = HyperBridgeChainMetrics.create({
+        id: chain,
+        hyperBridgeMetricsId: HYPERBRIDGE_METRICS_ENTITY_ID,
         totalTransfersIn: BigInt(0),
         feesEarned: BigInt(0),
         feesPayedOut: BigInt(0),
         postRequestsHandled: BigInt(0),
-      };
-      metrics.perChainMetrics.push(chainMetrics);
+      });
+      await chainMetrics.save();
     }
 
-    await metrics.save();
     return chainMetrics;
-  }
-
-  /**
-   * Update a chain's metrics in the hyperbridge metrics object
-   * This does not save the metrics object to the database, the caller is responsible for that
-   */
-  static updateChainMetrics(
-    metrics: HyperBridgeMetrics,
-    updatedChainMetrics: HyperBridgeChainMetrics,
-  ): HyperBridgeMetrics {
-    metrics.perChainMetrics = metrics.perChainMetrics.map((chainMetrics) => {
-      if (updatedChainMetrics.chain == chainMetrics.chain) {
-        return updatedChainMetrics;
-      } else {
-        return chainMetrics;
-      }
-    });
-
-    return metrics;
   }
 }

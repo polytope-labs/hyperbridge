@@ -43,17 +43,21 @@ type HyperBridgeMetrics @entity {
     """
     feesPayedOut: BigInt!
 
+    """
+    The per chain metrics for Hyperbridge
+    """
     perChainMetrics: [HyperBridgeChainMetrics]!
+        @derivedFrom(field: "hyperBridgeMetrics")
 }
 
 """
 Important Hyperbridge Metrics for a specific chain
 """
-type HyperBridgeChainMetrics @jsonField {
+type HyperBridgeChainMetrics @entity {
     """
     The chain the metrics are for
     """
-    chain: String!
+    id: ID!
 
     """
     Total number of post requests handled by Hyperbridge on the chain
@@ -74,6 +78,8 @@ type HyperBridgeChainMetrics @jsonField {
     Total amount of fees payed out by Hyperbridge to relayers on the chain (relayer fees)
     """
     feesPayedOut: BigInt!
+
+    hyperBridgeMetrics: HyperBridgeMetrics!
 }
 
 """

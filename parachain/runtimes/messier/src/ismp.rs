@@ -68,7 +68,6 @@ impl Get<Option<StateMachine>> for Coprocessor {
 
 impl pallet_ismp::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    const INDEXING_PREFIX: &'static [u8] = b"ISMP";
     type AdminOrigin = EnsureRoot<AccountId>;
     type HostStateMachine = HostStateMachine;
     type TimeProvider = Timestamp;

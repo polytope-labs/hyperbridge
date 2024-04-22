@@ -41,6 +41,8 @@ pallet-fishermen = { workspace = true, default-features = true }
 pallet-call-decompressor = { workspace = true, default-features = true }
 pallet-asset-gateway = { workspace = true, default-features = true }
 sp-state-machine = { workspace = true, default-features = true }
+mmr-primitives = { workspace = true, default-features = true }
+pallet-mmr = { workspace = true, default-features = true }
 
 # Polkadot
 pallet-xcm = { workspace = true, default-features = true }

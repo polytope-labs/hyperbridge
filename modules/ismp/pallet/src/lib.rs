@@ -98,9 +98,6 @@ pub mod pallet {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        /// Prefix for elements stored in the Off-chain DB via Indexing API
-        const INDEXING_PREFIX: &'static [u8];
-
         /// Admin origin for privileged actions
         type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 

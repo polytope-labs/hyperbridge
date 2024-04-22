@@ -1,13 +1,14 @@
 use crate::{
     child_trie::{RequestCommitments, ResponseCommitments},
+    dispatcher::{FeeMetadata, LeafMetadata},
     errors::HandlingError,
     events::deposit_ismp_events,
     host::Host,
     mmr::Leaf,
-    primitives::Proof,
+    primitives::{LeafIndexAndPos, Proof},
     weight_info::get_weight,
     ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStates, Event,
-    LatestStateMachineHeight, Pallet, ProofKeys, WeightConsumed,
+    LatestStateMachineHeight, Pallet, ProofKeys, Responded, WeightConsumed,
 };
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
 use ismp::{
@@ -15,6 +16,7 @@ use ismp::{
     handlers::{handle_incoming_message, MessageResult},
     messaging::Message,
     router::{Request, Response},
+    util::{hash_request, hash_response},
 };
 use log::debug;
 use mmr_primitives::MerkleMountainRangeTree;
@@ -101,28 +103,86 @@ impl<T: Config> Pallet<T> {
         })
     }
 
+    /// Dispatch an outgoing request
+    pub fn dispatch_request(request: Request, meta: FeeMetadata<T>) -> Result<(), ismp::Error> {
+        let commitment = hash_request::<Host<T>>(&request);
+
+        if RequestCommitments::<T>::contains_key(commitment) {
+            Err(ismp::Error::ImplementationSpecific("Duplicate request".to_string()))?
+        }
+
+        let (dest_chain, source_chain, nonce) =
+            (request.dest_chain(), request.source_chain(), request.nonce());
+        let leaf_index_and_pos = T::Mmr::push(Leaf::Request(request));
+        // Deposit Event
+        Pallet::<T>::deposit_event(Event::Request {
+            request_nonce: nonce,
+            source_chain,
+            dest_chain,
+            commitment,
+        });
+
+        RequestCommitments::<T>::insert(
+            commitment,
+            LeafMetadata {
+                mmr: LeafIndexAndPos {
+                    leaf_index: leaf_index_and_pos.index,
+                    pos: leaf_index_and_pos.position,
+                },
+                meta,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Dispatch an outgoing response
+    pub fn dispatch_response(response: Response, meta: FeeMetadata<T>) -> Result<(), ismp::Error> {
+        let req_commitment = hash_request::<Host<T>>(&response.request());
+
+        if Responded::<T>::contains_key(req_commitment) {
+            Err(ismp::Error::ImplementationSpecific("Request has been responded to".to_string()))?
+        }
+
+        let commitment = hash_response::<Host<T>>(&response);
+
+        let (dest_chain, source_chain, nonce) =
+            (response.dest_chain(), response.source_chain(), response.nonce());
+
+        let leaf_index_and_pos = T::Mmr::push(Leaf::Response(response));
+
+        Pallet::<T>::deposit_event(Event::Response {
+            request_nonce: nonce,
+            dest_chain,
+            source_chain,
+            commitment,
+        });
+        ResponseCommitments::<T>::insert(
+            commitment,
+            LeafMetadata {
+                mmr: LeafIndexAndPos {
+                    leaf_index: leaf_index_and_pos.index,
+                    pos: leaf_index_and_pos.position,
+                },
+                meta,
+            },
+        );
+        Responded::<T>::insert(req_commitment, true);
+        Ok(())
+    }
+
     /// Gets the request from the offchain storage
     pub fn get_request(commitment: H256) -> Option<Request> {
         let pos = RequestCommitments::<T>::get(commitment)?.mmr.pos;
-        if let Ok(Some(elem)) = T::Mmr::get_leaf(pos) {
-            return match elem {
-                Leaf::Request(req) => Some(req),
-                _ => None,
-            };
-        }
-        None
+        let Ok(Some(Leaf::Request(req))) = T::Mmr::get_leaf(pos) else { None? };
+        Some(req)
     }
 
     /// Gets the response from the offchain storage
     pub fn get_response(commitment: H256) -> Option<Response> {
         let pos = ResponseCommitments::<T>::get(commitment)?.mmr.pos;
-        if let Ok(Some(elem)) = T::Mmr::get_leaf(pos) {
-            return match elem {
-                Leaf::Response(res) => Some(res),
-                _ => None,
-            };
-        }
-        None
+        let Ok(Some(Leaf::Response(res))) = T::Mmr::get_leaf(pos) else { None? };
+        Some(res)
     }
 
     /// Return the scale encoded consensus state

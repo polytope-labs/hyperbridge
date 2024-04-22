@@ -210,9 +210,9 @@ dependencies = [
 
 [[package]]
 name = "anstyle"
-version = "1.0.4"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7079075b41f533b8c61d2a4d073c4676e1f8b249ff94a393b0595db304e0dd87"
+checksum = "8901269c6307e8d93993578286ac0edf7f195079ffff5ebdeea6a59ffb7e36bc"
 
 [[package]]
 name = "anstyle-parse"
@@ -945,7 +945,7 @@ dependencies = [
  "hex",
  "mmr-rpc",
  "pallet-beefy-mmr",
- "pallet-mmr",
+ "pallet-mmr 27.0.0",
  "parity-scale-codec",
  "primitive-types",
  "rs_merkle",
@@ -3409,6 +3409,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "env_filter"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a009aa4810eb158359dda09d0c87378e4bbb89b5a801f016885a4707ba24f7ea"
+dependencies = [
+ "log",
+ "regex",
+]
+
+[[package]]
 name = "env_logger"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3419,6 +3429,19 @@ dependencies = [
  "log",
  "regex",
  "termcolor",
+]
+
+[[package]]
+name = "env_logger"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38b35839ba51819680ba087cd351788c9a3c476841207e0b8cee0b04722343b9"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "env_filter",
+ "humantime",
+ "log",
 ]
 
 [[package]]
@@ -4001,7 +4024,7 @@ version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84f2e425d9790201ba4af4630191feac6dcc98765b118d4d18e91d23c2353866"
 dependencies = [
- "env_logger",
+ "env_logger 0.10.2",
  "log",
 ]
 
@@ -8498,7 +8521,7 @@ dependencies = [
  "frame-system",
  "log",
  "pallet-beefy",
- "pallet-mmr",
+ "pallet-mmr 27.0.0",
  "pallet-session",
  "parity-scale-codec",
  "scale-info",
@@ -8844,7 +8867,7 @@ dependencies = [
  "ckb-merkle-mountain-range",
  "derive_more",
  "enum-as-inner",
- "env_logger",
+ "env_logger 0.10.2",
  "fortuples",
  "frame-benchmarking",
  "frame-support",
@@ -8983,7 +9006,7 @@ dependencies = [
  "cumulus-pallet-xcmp-queue",
  "cumulus-primitives-core",
  "dotenv",
- "env_logger",
+ "env_logger 0.10.2",
  "ethereum-trie",
  "evm-common",
  "frame-support",
@@ -9070,6 +9093,27 @@ dependencies = [
  "sp-runtime 31.0.1",
  "sp-std 14.0.0",
  "sp-weights 27.0.0",
+]
+
+[[package]]
+name = "pallet-mmr"
+version = "0.1.0"
+dependencies = [
+ "array-bytes 6.2.2",
+ "env_logger 0.11.3",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "itertools 0.10.5",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-core 28.0.0",
+ "sp-io 30.0.0",
+ "sp-mmr-primitives",
+ "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
 ]
 
 [[package]]
@@ -12281,7 +12325,7 @@ dependencies = [
  "pallet-indices",
  "pallet-membership",
  "pallet-message-queue",
- "pallet-mmr",
+ "pallet-mmr 27.0.0",
  "pallet-multisig",
  "pallet-nis",
  "pallet-offences",
@@ -13981,9 +14025,9 @@ dependencies = [
 
 [[package]]
 name = "scale-info"
-version = "2.10.0"
+version = "2.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f7d66a1128282b7ef025a8ead62a4a9fcf017382ec53b8ffbf4d7bf77bd3c60"
+checksum = "7c453e59a955f81fb62ee5d596b450383d699f152d350e9d23a0db2adb78e4c0"
 dependencies = [
  "bitvec",
  "cfg-if",
@@ -13995,9 +14039,9 @@ dependencies = [
 
 [[package]]
 name = "scale-info-derive"
-version = "2.10.0"
+version = "2.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "abf2c68b89cafb3b8d918dd07b42be0da66ff202cf1155c5739a4e0c1ea0dc19"
+checksum = "18cf6c6447f813ef19eb450e985bcce6705f9ce7660db221b59093d15c79c4b7"
 dependencies = [
  "proc-macro-crate 1.3.1",
  "proc-macro2",
@@ -16760,7 +16804,7 @@ dependencies = [
  "base2",
  "bls_on_arkworks",
  "dotenv",
- "env_logger",
+ "env_logger 0.10.2",
  "ethers",
  "hex",
  "log",
@@ -18391,7 +18435,7 @@ dependencies = [
  "pallet-indices",
  "pallet-membership",
  "pallet-message-queue",
- "pallet-mmr",
+ "pallet-mmr 27.0.0",
  "pallet-multisig",
  "pallet-nomination-pools",
  "pallet-nomination-pools-benchmarking",

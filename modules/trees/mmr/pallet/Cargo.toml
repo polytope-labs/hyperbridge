@@ -1,31 +1,28 @@
 [package]
 name = "pallet-mmr"
-version = "27.0.0"
-authors.workspace = true
-edition.workspace = true
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
-homepage = "https://substrate.io"
-repository.workspace = true
-description = "FRAME Merkle Mountain Range pallet."
-
-[lints]
-workspace = true
+description = "A fork of the FRAME Merkle Mountain Range pallet which allows accumulating multiple leaves per block"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-codec = { package = "parity-scale-codec", version = "3.6.1", default-features = false }
+serde = { version = "1.0.136", features = ["derive"], default-features = false }
+
+codec = { workspace = true }
 log = { workspace = true }
-scale-info = { version = "2.11.1", default-features = false, features = ["derive"] }
-frame-benchmarking = { path = "../benchmarking", default-features = false, optional = true }
-frame-support = { path = "../support", default-features = false }
-frame-system = { path = "../system", default-features = false }
-sp-core = { path = "../../primitives/core", default-features = false }
-sp-io = { path = "../../primitives/io", default-features = false }
-sp-mmr-primitives = { path = "../../primitives/merkle-mountain-range", default-features = false }
-sp-runtime = { path = "../../primitives/runtime", default-features = false }
-sp-std = { path = "../../primitives/std", default-features = false }
+scale-info = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-mmr-primitives = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
 
 [dev-dependencies]
 array-bytes = "6.1"
@@ -46,6 +43,7 @@ std = [
 	"sp-mmr-primitives/std",
 	"sp-runtime/std",
 	"sp-std/std",
+	"serde/default",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

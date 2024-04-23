@@ -14,7 +14,7 @@ Ensuring secure cross-chain communication involves verifying consensus, consensu
 { /* The solution */}
 
 ## How does it work?
- A single state machine can quickly become bottlenecked if it is to verify consensus proofs, state proofs & (re-execute) state transitions of it’s multiple connected state machines. This necessitates that the coprocessor must be multi-threaded and capable of verifying multiple state machines in parallel.
+ A single state machine can quickly become bottlenecked if it is to verify consensus proofs, state proofs & (re-execute) state transitions of it’s multiple connected state machines. This necessitates that the coprocessor must be multi-core and capable of verifying multiple state machines in parallel.
 
 ### The architecture
 Hyperbridge can verify multiple state machines, a single Polkadot consensus proof attests to the validity of all its state machines. Which allows developers to aggregate the cross-chain messages from multiple connected blockchains, which are verified on multiple parachain cores, into a single zk consensus & state proof that can be verified cheaply on any chain.

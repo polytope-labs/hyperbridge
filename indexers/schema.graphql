@@ -205,13 +205,14 @@ type Transfer @entity @compositeIndexes(fields: [["from", "to"]]) {
 }
 
 """
-Supported Event Types on Evm Hosts
+Supported Event Types
 """
 enum EventType {
     EVM_HOST_POST_REQUEST
     EVM_HOST_POST_REQUEST_HANDLED
     EVM_HOST_POST_RESPONSE
     EVM_HOST_POST_RESPONSE_HANDLED
+    HANDLER_V1_STATE_MACHINE_UPDATED
 }
 
 """
@@ -225,5 +226,14 @@ type Event @entity {
     blockNumber: BigInt!
     transactionHash: String!
     transactionIndex: BigInt!
+    metadata: EventMetadata
     createdAt: Date!
+}
+
+"""
+Metadata for events
+"""
+type EventMetadata @jsonField {
+    stateMachineId: BigInt
+    height: BigInt
 }

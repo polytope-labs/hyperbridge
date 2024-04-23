@@ -766,7 +766,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         FeeMetadata memory metadata = _requestCommitments[commitment];
 
         require(metadata.sender != address(0), "Unknown request");
-        require(metadata.sender == _msgSender(), "User can only fund own requests");
         IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
 
         metadata.fee += amount;

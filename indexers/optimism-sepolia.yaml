@@ -80,6 +80,11 @@ dataSources:
     mapping:
       file: ./dist/index.js
       handlers:
+        - kind: ethereum/LogHandler
+          handler: handleStateMachineUpdatedEvent
+          filter:
+            topics:
+              - "StateMachineUpdated(uint256,uint256)"
         - kind: ethereum/TransactionHandler
           handler: handlePostRequestTransaction
           filter:

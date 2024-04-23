@@ -5,14 +5,17 @@ mod tests;
 
 pub use ethers::{abi::Token, types::U256, utils::keccak256};
 use merkle_mountain_range::{util::MemMMR, Error, Merge};
-use pallet_ismp::mmr::primitives::{DataOrHash, MmrHasher};
+use pallet_ismp::mmr::Leaf;
+use pallet_mmr::mmr::Hasher;
 use primitive_types::H256;
-use rs_merkle::Hasher;
+use sp_runtime::traits;
 
 #[derive(Clone, Default)]
 pub struct Keccak256;
 
-impl Hasher for Keccak256 {
+pub type DataOrHash = mmr_primitives::DataOrHash<traits::Keccak256, Leaf>;
+
+impl rs_merkle::Hasher for Keccak256 {
     type Hash = [u8; 32];
 
     fn hash(data: &[u8]) -> [u8; 32] {
@@ -52,4 +55,4 @@ impl From<u32> for NumberHash {
     }
 }
 
-pub type Mmr = MemMMR<DataOrHash, MmrHasher<Keccak256>>;
+pub type Mmr = MemMMR<DataOrHash, Hasher<traits::Keccak256, Leaf>>;

@@ -6000,6 +6000,7 @@ dependencies = [
  "once_cell",
  "pallet-ismp",
  "pallet-ismp-relayer",
+ "pallet-mmr 0.1.0",
  "parity-scale-codec",
  "primitive-types",
  "rs_merkle",

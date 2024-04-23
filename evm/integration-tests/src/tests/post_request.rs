@@ -13,7 +13,8 @@ use ismp_solidity_abi::{
     handler::{PostRequestLeaf, PostRequestMessage},
     shared_types::StateCommitment,
 };
-use pallet_ismp::mmr::primitives::{DataOrHash, Leaf};
+use mmr_primitives::DataOrHash;
+use pallet_ismp::mmr::Leaf;
 use std::{env, path::PathBuf};
 
 #[tokio::test(flavor = "multi_thread")]

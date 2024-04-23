@@ -35,6 +35,7 @@ merkle-mountain-range = { workspace = true, features = ["default"] }
 mmr-primitives = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
+pallet-mmr = { workspace = true, default-features = true }
 beefy-prover = { workspace = true, default-features = true }
 beefy-verifier-primitives = { workspace = true, default-features = true }
 pallet-ismp-relayer = { workspace = true, default-features = true }

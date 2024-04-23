@@ -1,29 +1,12 @@
-/**
- * Handlers for post request events
- * @note export more handlers here as support is added for more networks
- */
-export {
-  handleEthereumSepoliaPostRequestHandledEvent,
-  handleBaseSepoliaPostRequestHandledEvent,
-  handleArbitrumSepoliaPostRequestHandledEvent,
-  handleOptimismSepoliaPostRequestHandledEvent,
-  handleBscChapelPostRequestHandledEvent,
-} from "../handlers/events/postRequestHandled.event.handlers";
+export { handlePostRequestEvent } from "../handlers/events/evmHost/postRequest.event.handlers";
+export { handlePostResponseEvent } from "../handlers/events/evmHost/postResponse.event.handlers";
+export { handlePostRequestHandledEvent } from "../handlers/events/evmHost/postRequestHandled.event.handlers";
+export { handlePostResponseHandledEvent } from "../handlers/events/evmHost/postResponseHandled.event.handlers";
+
+export { handlePostRequestTransaction } from "../handlers/transactions/handlePostRequest.transaction.handlers";
 
 /**
  * Handlers for transfer events
  * @note export more handlers here as support is added for more networks
  */
-export {
-  handleEthereumSepoliaTransferEvent,
-  handleBaseSepoliaTransferEvent,
-  handleArbitrumSepoliaTransferEvent,
-  handleOptimismSepoliaTransferEvent,
-  handleBscChapelTransferEvent,
-} from "../handlers/events/transfer.event.handlers";
-
-/**
- * Handlers for postRequest transaction
- * @note export more handlers here as support is added for more networks
- */
-export { handlePostRequestTransaction } from "../handlers/transactions/handlePostRequest.transaction.handlers";
+export { handleTransferEvent } from "../handlers/events/erc6160ext20/transfer.event.handlers";

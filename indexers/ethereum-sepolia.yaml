@@ -21,7 +21,7 @@ network:
 dataSources:
   # EthereumHost contract
   - kind: ethereum/Runtime
-    startBlock: 5419532
+    startBlock: 5419571
     options:
       abi: ethereumHost
       address: "0xe4226c474A6f4BF285eA80c2f01c0942B04323e5"
@@ -32,10 +32,25 @@ dataSources:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/LogHandler
-          handler: handleEthereumSepoliaPostRequestHandledEvent
+          handler: handlePostRequestEvent
+          filter:
+            topics:
+              - "PostRequestEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256,uint256)"
+        - kind: ethereum/LogHandler
+          handler: handlePostRequestHandledEvent
           filter:
             topics:
               - "PostRequestHandled(bytes32, address)"
+        - kind: ethereum/LogHandler
+          handler: handlePostResponseEvent
+          filter:
+            topics:
+              - "PostResponseEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256,bytes,uint256,uint256,uint256)"
+        - kind: ethereum/LogHandler
+          handler: handlePostResponseHandledEvent
+          filter:
+            topics:
+              - "PostResponseHandled(bytes32,address)"
 
   # Protocol Fee Token
   - kind: ethereum/Runtime
@@ -50,12 +65,12 @@ dataSources:
       file: ./dist/index.js
       handlers:
         - kind: ethereum/LogHandler
-          handler: handleEthereumSepoliaTransferEvent
+          handler: handleTransferEvent
           filter:
             topics:
               - "Transfer(address indexed from, address indexed to, uint256 amount)"
 
-  # EthereumHost contract
+  # HandlerV1 contract
   - kind: ethereum/Runtime
     startBlock: 5419390
     options:

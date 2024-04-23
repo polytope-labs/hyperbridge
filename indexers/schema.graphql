@@ -203,3 +203,27 @@ type Transfer @entity @compositeIndexes(fields: [["from", "to"]]) {
     """
     to: String! @index
 }
+
+"""
+Supported Event Types on Evm Hosts
+"""
+enum EventType {
+    EVM_HOST_POST_REQUEST
+    EVM_HOST_POST_REQUEST_HANDLED
+    EVM_HOST_POST_RESPONSE
+    EVM_HOST_POST_RESPONSE_HANDLED
+}
+
+"""
+An event that has occured on an EVM Host
+"""
+type Event @entity {
+    id: ID!
+    type: EventType!
+    chain: SupportedChain!
+    blockHash: String!
+    blockNumber: BigInt!
+    transactionHash: String!
+    transactionIndex: BigInt!
+    createdAt: Date!
+}

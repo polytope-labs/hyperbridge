@@ -74,7 +74,7 @@ pub use sp_mmr_primitives::{
 
 pub use mmr::storage::{OffchainStorage, Storage};
 
-mod mmr;
+pub mod mmr;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]

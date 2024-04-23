@@ -39,7 +39,7 @@ fn test_can_veto_state_commitments() {
         assert_eq!(
             result,
             Err(DispatchError::Module(ModuleError {
-                index: 7,
+                index: 8,
                 error: [0, 0, 0, 0],
                 message: Some("AlreadyAdded"),
             }))
@@ -71,7 +71,7 @@ fn test_can_veto_state_commitments() {
         assert_eq!(
             result,
             Err(DispatchError::Module(ModuleError {
-                index: 7,
+                index: 8,
                 error: [2, 0, 0, 0],
                 message: Some("UnauthorizedAction"),
             }))

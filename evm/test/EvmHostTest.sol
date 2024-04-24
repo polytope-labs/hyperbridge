@@ -87,8 +87,8 @@ contract EvmHostTest is BaseTest {
         vm.prank(tx.origin);
         host.fundRequest(keccak256(hex"dead"), 10 * 1e18);
 
-        // another person can't fund your request for safety reasons
-        vm.expectRevert("User can only fund own requests");
+        // another person can fund your request
+        feeToken.mint(address(this), 10 * 1e18, "");
         host.fundRequest(commitment, 10 * 1e18);
     }
 

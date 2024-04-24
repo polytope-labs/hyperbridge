@@ -114,6 +114,7 @@ contract BaseTest is Test {
         feeToken.superApprove(address(tx.origin), address(testModule));
         feeToken.superApprove(address(tx.origin), address(host));
         feeToken.superApprove(address(testModule), address(host));
+        feeToken.superApprove(address(this), address(host));
 
         miniStaking = new MiniStaking(address(feeToken));
     }

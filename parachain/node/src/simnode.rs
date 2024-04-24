@@ -1,6 +1,5 @@
 use crate::runtime_api::{opaque, BaseHostRuntimeApis};
 use cumulus_client_consensus_common::ParachainBlockImport as TParachainBlockImport;
-use gargantua_runtime::MMR_INDEXING_PREFIX;
 use sc_service::{Configuration, PartialComponents, TFullBackend, TFullClient, TaskManager};
 use sc_simnode::{parachain::ParachainSelectChain, Executor};
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorkerHandle};
@@ -117,7 +116,11 @@ where
     task_manager.spawn_handle().spawn(
         "mmr-canonicalizing-gadget",
         "mmr-gadget",
-        mmr_gadget::MmrGadget::start(client.clone(), backend.clone(), MMR_INDEXING_PREFIX.to_vec()),
+        mmr_gadget::MmrGadget::start(
+            client.clone(),
+            backend.clone(),
+            sp_mmr_primitives::INDEXING_PREFIX.to_vec(),
+        ),
     );
 
     let transaction_pool = sc_transaction_pool::BasicPool::new_full(

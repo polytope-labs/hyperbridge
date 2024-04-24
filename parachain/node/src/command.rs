@@ -375,8 +375,9 @@ pub fn run() -> Result<()> {
         #[cfg(feature = "simnode")]
         Some(Subcommand::Simnode(cmd)) => {
             use crate::{rpc, simnode::new_partial_with_executor};
-            let runner = cli.create_runner(&cmd.run.normalize())?;
-            let config = runner.config();
+            let mut runner = cli.create_runner(&cmd.run.normalize())?;
+            let config = runner.config_mut();
+            config.offchain_worker.indexing_enabled = true;
 
             match config.chain_spec.id() {
                 chain if chain.contains("gargantua") || chain.contains("dev") => {

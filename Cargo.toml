@@ -147,7 +147,7 @@ sp-state-machine = { version = "0.35.0", default-features = false }
 sp-storage = { version = "19.0.0", default-features = false }
 pallet-beefy-mmr = { version = "28.0.0", default-features = false }
 pallet-assets = { version = "29.0.0", default-features = false }
-sp-keyring = "28.0.0"
+sp-keyring = "31.0.0"
 
 # client
 frame-benchmarking-cli = "32.0.0"
@@ -276,8 +276,8 @@ nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false 
 
 
 # Simnode
-sc-simnode = { version = "1.6.0" }
-simnode-runtime-api = { version = "1.6.0", default-features = false }
+sc-simnode = { git = "https://github.com/polytope-labs/sc-simnode", rev = "30f783c2a859edaed52556bfca4e7e092deb949e", features = ["babe", "aura"] }
+simnode-runtime-api = { git = "https://github.com/polytope-labs/sc-simnode.git", default-features = false, rev = "30f783c2a859edaed52556bfca4e7e092deb949e" }
 simnode-tests = { path = "modules/trees/mmr/simnode-tests" }
 
 # Subxt

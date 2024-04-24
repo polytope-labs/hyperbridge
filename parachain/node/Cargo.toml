@@ -63,6 +63,7 @@ sp-transaction-pool = { workspace = true }
 substrate-frame-rpc-system = { workspace = true }
 substrate-prometheus-endpoint = { workspace = true }
 try-runtime-cli = { workspace = true,  optional = true }
+sp-mmr-primitives = { workspace = true,  default-features = true }
 
 # Polkadot
 polkadot-cli = { workspace = true }

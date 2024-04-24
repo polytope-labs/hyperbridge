@@ -8,16 +8,18 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-subxt = { workspace = true, default-features = true, features = ["substrate-compat"]}
+subxt = { workspace = true, default-features = true }
 anyhow = "1.0.70"
 futures = "0.3.28"
 tokio = { version = "1.27.0", features = ["macros"] }
 
-codec = { workspace = true, features = ["derive"] }
-sp-core = { workspace = true, features = ["full_crypto"] }
-gargantua-runtime = { workspace = true, features = ["simnode"] }
+codec = { workspace = true, features = ["derive"], default-features = true }
+sp-core = { workspace = true, features = ["full_crypto", "serde"], default-features = true }
 sp-keyring = { workspace = true }
-pallet-ismp-demo = { workspace = true }
-ismp = { workspace = true }
-runtime-types = { workspace = true }
+sp-runtime = { workspace = true, default-features = true }
+ismp = { workspace = true, default-features = true }
+runtime-types = { workspace = true, default-features = true }
 sc-consensus-manual-seal = { workspace = true }
+pallet-ismp = { workspace = true, default-features = true }
+sp-mmr-primitives = { workspace = true, default-features = true }
+mmr-primitives = { workspace = true, default-features = true }

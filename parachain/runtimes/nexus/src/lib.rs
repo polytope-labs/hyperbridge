@@ -71,7 +71,7 @@ use frame_system::{
 };
 use pallet_ismp::{primitives::Proof, ProofKeys};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_mmr_primitives::LeafIndex;
+use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 use xcm::XcmOriginToTransactDispatchOrigin;
 
@@ -88,9 +88,6 @@ use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
 use frame_support::traits::ConstBool;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
-
-/// MMr indexing prefix
-pub const MMR_INDEXING_PREFIX: &'static [u8] = b"ISMP";
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -552,7 +549,7 @@ impl pallet_sudo::Config for Runtime {
 }
 
 impl pallet_mmr::Config for Runtime {
-    const INDEXING_PREFIX: &'static [u8] = MMR_INDEXING_PREFIX;
+    const INDEXING_PREFIX: &'static [u8] = INDEXING_PREFIX;
     type Hashing = Keccak256;
     type Leaf = Leaf;
 }

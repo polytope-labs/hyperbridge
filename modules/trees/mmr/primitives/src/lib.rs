@@ -1,15 +1,14 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 use alloc::{vec, vec::Vec};
+use core::marker::PhantomData;
 use merkle_mountain_range::helper::{get_peaks, parent_offset, pos_height_in_tree, sibling_offset};
 use sp_core::H256;
 use sp_mmr_primitives as primitives;
 use sp_mmr_primitives::NodeIndex;
 use sp_runtime::{scale_info, traits, RuntimeDebug};
 use sp_std::fmt;
-use std::marker::PhantomData;
 
 /// Leaf index and position
 #[derive(

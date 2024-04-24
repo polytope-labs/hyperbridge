@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use frame_support::storage::child;
-use sp_core::{storage::ChildInfo, H256};
+pub use sp_core::{storage::ChildInfo, H256};
 
 use crate::{dispatcher::LeafMetadata, Config, ResponseReceipt};
 

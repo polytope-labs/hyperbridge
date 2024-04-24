@@ -56,7 +56,9 @@ members = [
     "modules/client",
 
     # simnode
-    "modules/trees/mmr/simnode-tests"
+    "modules/trees/mmr/simnode-tests",
+    # subxt codegen
+    "modules/subxt/codegen"
 ]
 
 # Config for 'cargo dist'
@@ -156,6 +158,7 @@ sc-cli = "0.36.0"
 sc-block-builder = "0.33.0"
 sc-client-api = "28.0.0"
 sc-consensus = "0.33.0"
+sc-consensus-manual-seal = "0.35.0"
 sc-executor = "0.32.0"
 sc-network = "0.34.0"
 sc-network-sync = "0.33.0"
@@ -279,3 +282,4 @@ simnode-tests = { path = "modules/trees/mmr/simnode-tests" }
 
 # Subxt
 subxt = { version = "0.30.1", default-features = false }
+runtime-types = { path = "modules/subxt/codegen", default-features = false }

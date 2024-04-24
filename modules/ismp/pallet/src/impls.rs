@@ -10,6 +10,7 @@ use crate::{
     ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStates, Event,
     LatestStateMachineHeight, Pallet, ProofKeys, Responded, WeightConsumed,
 };
+use alloc::{string::ToString, vec, vec::Vec};
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},

@@ -56,11 +56,11 @@
 //! NOTE This pallet is experimental and not proven to work in production.
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use core::marker::PhantomData;
 use frame_system::pallet_prelude::{BlockNumberFor, HeaderFor};
 use log;
 use merkle_mountain_range::MMRStore;
 use sp_core::H256;
-use std::marker::PhantomData;
 
 use sp_runtime::traits::{self, One};
 use sp_std::prelude::*;

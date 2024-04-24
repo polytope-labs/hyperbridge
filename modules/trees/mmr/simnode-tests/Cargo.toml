@@ -17,3 +17,7 @@ codec = { workspace = true, features = ["derive"] }
 sp-core = { workspace = true, features = ["full_crypto"] }
 gargantua-runtime = { workspace = true, features = ["simnode"] }
 sp-keyring = { workspace = true }
+pallet-ismp-demo = { workspace = true }
+ismp = { workspace = true }
+runtime-types = { workspace = true }
+sc-consensus-manual-seal = { workspace = true }

@@ -372,6 +372,52 @@ pub fn run() -> Result<()> {
         Some(Subcommand::TryRuntime) => Err("Try-runtime was not enabled when building the node. \
 			You can enable it with `--features try-runtime`."
             .into()),
+        #[cfg(feature = "simnode")]
+        Some(Subcommand::Simnode(cmd)) => {
+            use crate::{rpc, simnode::new_partial_with_executor};
+            let runner = cli.create_runner(&cmd.run.normalize())?;
+            let config = runner.config();
+
+            match config.chain_spec.id() {
+                chain if chain.contains("gargantua") || chain.contains("dev") => {
+                    let executor = sc_simnode::new_wasm_executor(config);
+                    let components = new_partial_with_executor::<gargantua_runtime::RuntimeApi>(
+                        &config, executor,
+                    )?;
+                    runner.run_node_until_exit(move |config| async move {
+                        let client = components.client.clone();
+                        let pool = components.transaction_pool.clone();
+                        let backend = components.backend.clone();
+                        let task_manager = sc_simnode::parachain::start_simnode::<
+                            crate::simnode::GargantuaRuntimeInfo,
+                            _,
+                            _,
+                            _,
+                            _,
+                            _,
+                        >(sc_simnode::SimnodeParams {
+                            components,
+                            config,
+                            instant: false,
+                            rpc_builder: Box::new(move |deny_unsafe, _| {
+                                let client = client.clone();
+                                let pool = pool.clone();
+                                let backend = backend.clone();
+                                let full_deps =
+                                    rpc::FullDeps { client, pool, deny_unsafe, backend };
+                                let io =
+                                    rpc::create_full(full_deps).expect("Rpc to be initialized");
+
+                                Ok(io)
+                            }),
+                        })
+                        .await?;
+                        Ok(task_manager)
+                    })
+                },
+                chain => panic!("Unknown chain with id: {}", chain),
+            }
+        },
         None => {
             let runner = cli.create_runner(&cli.run.normalize())?;
             let collator_options = cli.run.collator_options();

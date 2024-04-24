@@ -83,6 +83,12 @@ cumulus-relay-chain-interface = { workspace = true }
 cumulus-client-consensus-proposer = { workspace = true }
 cumulus-client-collator = { workspace = true }
 
+# Simnode
+sc-simnode = { workspace = true, optional = true }
+frame-system = { workspace = true, optional = true }
+pallet-transaction-payment = { workspace = true, optional = true }
+simnode-runtime-api = { workspace = true, optional = true }
+
 [build-dependencies]
 substrate-build-script-utils = { version = "11.0.0" }
 
@@ -94,6 +100,7 @@ runtime-benchmarks = [
 	"messier-runtime/runtime-benchmarks",
 	"polkadot-cli/runtime-benchmarks",
 ]
+
 try-runtime = [
 	"try-runtime-cli/try-runtime",
 	"gargantua-runtime/try-runtime",
@@ -102,4 +109,14 @@ try-runtime = [
 async-backing = [
 	"gargantua-runtime/async-backing",
 	"messier-runtime/async-backing"
+]
+
+simnode = [
+	"sc-simnode/parachain",
+	"frame-system",
+	"pallet-transaction-payment",
+	"simnode-runtime-api",
+	"gargantua-runtime/simnode",
+	"nexus-runtime/simnode",
+	"messier-runtime/simnode"
 ]

@@ -1,0 +1,19 @@
+[package]
+name = "simnode-tests"
+version = "0.1.0"
+edition = "2021"
+description = "Simnode tests for mmr gadget"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+subxt = { workspace = true, default-features = true, features = ["substrate-compat"]}
+anyhow = "1.0.70"
+futures = "0.3.28"
+tokio = { version = "1.27.0", features = ["macros"] }
+
+codec = { workspace = true, features = ["derive"] }
+sp-core = { workspace = true, features = ["full_crypto"] }
+gargantua-runtime = { workspace = true, features = ["simnode"] }
+sp-keyring = { workspace = true }

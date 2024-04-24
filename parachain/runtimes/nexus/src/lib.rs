@@ -945,6 +945,45 @@ impl_runtime_apis! {
             Ok(batches)
         }
     }
+
+    #[cfg(feature = "simnode")]
+    impl<RuntimeCall, AccountId> simnode_runtime_api::CreateTransactionApi<Block, RuntimeCall, AccountId> for Runtime
+        where
+            RuntimeCall: codec::Codec,
+            Block: sp_runtime::traits::Block,
+            AccountId: codec::Codec + codec::EncodeLike<sp_runtime::AccountId32>
+                + Into<sp_runtime::AccountId32> + Clone + PartialEq
+                + scale_info::TypeInfo + core::fmt::Debug,
+    {
+        fn create_transaction(account: AccountId, call: RuntimeCall) -> Vec<u8> {
+            use sp_runtime::{
+                generic::Era, MultiSignature,
+                traits::StaticLookup,
+            };
+            use codec::Encode;
+            use sp_core::sr25519;
+            let nonce = frame_system::Pallet::<Runtime>::account_nonce(account.clone());
+            let extra = (
+                        frame_system::CheckNonZeroSender::<Runtime>::new(),
+                        frame_system::CheckSpecVersion::<Runtime>::new(),
+                        frame_system::CheckTxVersion::<Runtime>::new(),
+                        frame_system::CheckGenesis::<Runtime>::new(),
+                        frame_system::CheckEra::<Runtime>::from(Era::Immortal),
+                        frame_system::CheckNonce::<Runtime>::from(nonce),
+                        frame_system::CheckWeight::<Runtime>::new(),
+                        pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
+                );
+            let signature = MultiSignature::from(sr25519::Signature([0_u8;64]));
+            let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());
+            let ext = generic::UncheckedExtrinsic::<Address, RuntimeCall, Signature, SignedExtra>::new_signed(
+                call,
+                address,
+                signature,
+                extra,
+            );
+            ext.encode()
+        }
+    }
 }
 
 cumulus_pallet_parachain_system::register_validate_block! {

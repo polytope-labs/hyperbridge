@@ -520,8 +520,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         );
 
         if (!success) {
-            // so that it can be retried, IIsmpModules should take care not to
-            // allow this become a replay attack vector.
+            // so that it can be retried
             delete _requestReceipts[commitment];
             return;
         }
@@ -544,8 +543,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         );
 
         if (!success) {
-            // so that it can be retried, IIsmpModules should take care not to
-            // allow this become a replay attack vector.
+            // so that it can be retried
             delete _responseReceipts[commitment];
             return;
         }
@@ -569,8 +567,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         );
 
         if (!success) {
-            // so that it can be retried, IIsmpModules should take care not to
-            // allow this become a replay attack vector.
+            // so that it can be retried
             delete _responseReceipts[commitment];
             return;
         }
@@ -598,8 +595,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
 
         if (!success) {
-            // so that it can be retried, IIsmpModules should take care not to
-            // allow this become a replay attack vector.
+            // so that it can be retried
             _requestCommitments[commitment] = meta;
             return;
         }
@@ -627,8 +623,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostRequestTimeout.selector, request));
 
         if (!success) {
-            // so that it can be retried, IIsmpModules should take care not to
-            // allow this become a replay attack vector.
+            // so that it can be retried
             _requestCommitments[commitment] = meta;
             return;
         }
@@ -658,8 +653,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponseTimeout.selector, response));
 
         if (!success) {
-            // so that it can be retried, IIsmpModules should take care not to
-            // allow this become a replay attack vector.
+            // so that it can be retried
             _responseCommitments[commitment] = meta;
             _responded[reqCommitment] = true;
             return;

@@ -75,10 +75,6 @@ pub use sp_mmr_primitives::{
 pub use mmr::storage::{OffchainStorage, Storage};
 
 pub mod mmr;
-#[cfg(test)]
-mod mock;
-#[cfg(test)]
-mod tests;
 
 /// An MMR specific to the pallet.
 type ModuleMmr<StorageType, T, I> = mmr::Mmr<StorageType, T, I, LeafOf<T, I>>;

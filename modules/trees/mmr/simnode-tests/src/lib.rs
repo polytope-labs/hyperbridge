@@ -15,7 +15,7 @@ use sp_mmr_primitives::{
     INDEXING_PREFIX,
 };
 use sp_runtime::traits::Keccak256;
-use std::time::Duration;
+use std::{env, time::Duration};
 use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160, OnlineClient};
 use subxt_utils::{
     gargantua,
@@ -30,7 +30,8 @@ async fn test_all_features() -> Result<(), anyhow::Error> {
 }
 
 async fn dispatch_requests() -> Result<(), anyhow::Error> {
-    let client = OnlineClient::<Hyperbridge>::from_url("ws://127.0.0.1:9990").await?;
+    let port = env::var("PORT").unwrap_or("9990".into());
+    let client = OnlineClient::<Hyperbridge>::from_url(format!("ws://127.0.0.1:{}", port)).await?;
 
     // Initialize MMR Pallet by dispatching some leaves and finalizing
     let params = EvmParams {
@@ -256,7 +257,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
         )
         .await?;
 
-    // Finalize again so stale blocks can be pruned
+    // Finalize again so stale branches can be pruned
     let _ = client
         .rpc()
         .request::<bool>("engine_finalizeBlock", rpc_params![finalized_block.hash])

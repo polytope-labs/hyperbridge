@@ -16882,6 +16882,8 @@ name = "subxt-utils"
 version = "0.1.0"
 dependencies = [
  "ismp",
+ "parity-scale-codec",
+ "sp-core-hashing 15.0.0",
  "subxt",
 ]
 

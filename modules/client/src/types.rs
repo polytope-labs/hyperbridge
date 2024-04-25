@@ -2,47 +2,18 @@ use crate::providers::{evm::EvmClient, interface::Client, substrate::SubstrateCl
 use anyhow::anyhow;
 use codec::Encode;
 use core::pin::Pin;
-use ethers::{types::H160, utils::keccak256};
+use ethers::types::H160;
 pub use evm_common::types::EvmStateProof;
 use futures::Stream;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 pub use pallet_ismp::primitives::{HashAlgorithm, SubstrateStateProof};
 use serde::{Deserialize, Serialize};
-use subxt::{
-    config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
-    tx::TxPayload,
-    utils::{AccountId32, MultiAddress, MultiSignature, H256},
-    Config, Metadata,
-};
+use subxt::{tx::TxPayload, utils::H256, Config, Metadata};
+use subxt_utils::Hyperbridge;
 
 // ========================================
 // TYPES
 // ========================================
-
-/// Implements [`subxt::Config`] for substrate chains with keccak as their hashing algorithm
-#[derive(Clone)]
-pub struct HyperBridgeConfig;
-
-/// A type that can hash values using the keccak_256 algorithm.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode)]
-pub struct KeccakHasher;
-
-impl Hasher for KeccakHasher {
-    type Output = H256;
-    fn hash(s: &[u8]) -> Self::Output {
-        keccak256(s).into()
-    }
-}
-
-impl Config for HyperBridgeConfig {
-    type Hash = H256;
-    type AccountId = AccountId32;
-    type Address = MultiAddress<Self::AccountId, u32>;
-    type Signature = MultiSignature;
-    type Hasher = KeccakHasher;
-    type Header = SubstrateHeader<u32, KeccakHasher>;
-    type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
-}
 
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>>>>;
 
@@ -283,11 +254,9 @@ impl ClientConfig {
         }
     }
 
-    pub async fn hyperbridge_client(
-        &self,
-    ) -> Result<SubstrateClient<HyperBridgeConfig>, anyhow::Error> {
+    pub async fn hyperbridge_client(&self) -> Result<SubstrateClient<Hyperbridge>, anyhow::Error> {
         match self.hyperbridge {
-            ChainConfig::Substrate(ref config) => config.into_client::<HyperBridgeConfig>().await,
+            ChainConfig::Substrate(ref config) => config.into_client::<Hyperbridge>().await,
             _ => Err(anyhow!("Hyperbridge config should be a substrate variant")),
         }
     }

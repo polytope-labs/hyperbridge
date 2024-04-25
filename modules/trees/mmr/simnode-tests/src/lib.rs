@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use codec::{Decode, Encode};
+use codec::Decode;
 use merkle_mountain_range::MerkleProof;
 use mmr_primitives::{DataOrHash, FullLeaf};
 use pallet_ismp::{mmr::Leaf, ProofKeys};
@@ -16,46 +16,17 @@ use sp_mmr_primitives::{
 };
 use sp_runtime::traits::Keccak256;
 use std::{env, time::Duration};
-use subxt::{
-    config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
-    rpc_params,
-    tx::SubmittableExtrinsic,
-    utils::{AccountId32, MultiAddress, MultiSignature, H160},
-    OnlineClient,
-};
+use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160, OnlineClient};
 use subxt_utils::{
     gargantua,
     gargantua::api::runtime_types::{ismp::host::Ethereum, pallet_ismp_demo::pallet::EvmParams},
+    Hyperbridge,
 };
 
 #[tokio::test]
 async fn test_all_features() -> Result<(), anyhow::Error> {
     dispatch_requests().await?;
     Ok(())
-}
-
-#[derive(Clone)]
-pub struct Hyperbridge;
-
-/// A type that can hash values using the keccak_256 algorithm.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode)]
-pub struct RuntimeHasher;
-
-impl Hasher for RuntimeHasher {
-    type Output = H256;
-    fn hash(s: &[u8]) -> Self::Output {
-        keccak_256(s).into()
-    }
-}
-
-impl subxt::Config for Hyperbridge {
-    type Hash = H256;
-    type AccountId = AccountId32;
-    type Address = MultiAddress<Self::AccountId, u32>;
-    type Signature = MultiSignature;
-    type Hasher = RuntimeHasher;
-    type Header = SubstrateHeader<u32, RuntimeHasher>;
-    type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
 }
 
 async fn dispatch_requests() -> Result<(), anyhow::Error> {

@@ -84,8 +84,8 @@ where
                 .into_iter()
                 .map(|request| {
                     let cb = router.module_for_id(request.source_module())?;
-                    let meta = host.delete_request_commitment(&request)?;
                     // Delete commitment to prevent rentrancy attack
+                    let meta = host.delete_request_commitment(&request)?;
                     let mut signer = None;
                     if host.host_state_machine() != request.source_chain() {
                         signer = host.delete_request_receipt(&request).ok();

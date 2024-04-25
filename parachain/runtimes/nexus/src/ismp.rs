@@ -151,7 +151,8 @@ impl pallet_assets::Config for Runtime {
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
         if request.dest != HostStateMachine::get() {
-            let meta = FeeMetadata { origin: [0u8; 32].into(), fee: Default::default() };
+            let meta =
+                FeeMetadata { origin: [0u8; 32].into(), fee: Default::default(), claimed: false };
             return Ismp::dispatch_request(Request::Post(request), meta);
         }
 
@@ -169,7 +170,8 @@ impl IsmpModule for ProxyModule {
 
     fn on_response(&self, response: Response) -> Result<(), Error> {
         if response.dest_chain() != HostStateMachine::get() {
-            let meta = FeeMetadata { origin: [0u8; 32].into(), fee: Default::default() };
+            let meta =
+                FeeMetadata { origin: [0u8; 32].into(), fee: Default::default(), claimed: false };
             return Ismp::dispatch_response(response, meta);
         }
 

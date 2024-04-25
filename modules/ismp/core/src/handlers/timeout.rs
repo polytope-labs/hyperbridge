@@ -84,15 +84,21 @@ where
                 .into_iter()
                 .map(|request| {
                     let cb = router.module_for_id(request.source_module())?;
+                    let meta = host.delete_request_commitment(&request)?;
+                    // Delete commitment to prevent rentrancy attack
+                    let mut signer = None;
+                    if host.host_state_machine() != request.source_chain() {
+                        signer = host.delete_request_receipt(&request).ok();
+                    }
                     let res = cb.on_timeout(request.clone().into()).map(|_| {
                         let commitment = hash_request::<H>(&request);
                         Event::PostRequestTimeoutHandled(TimeoutHandled { commitment })
                     });
-                    if res.is_ok() {
-                        host.delete_request_commitment(&request)?;
-                        // If the request was routed we delete it's receipt
-                        if host.host_state_machine() != request.source_chain() {
-                            host.delete_request_receipt(&request)?;
+                    if res.is_err() {
+                        host.store_request_commitment(&request, meta)?;
+                        // If the request was routed we store it's receipt
+                        if host.host_state_machine() != request.source_chain() && signer.is_some() {
+                            host.store_request_receipt(&request, &signer.expect("Infaliible"))?;
                         }
                     }
                     Ok(res)
@@ -143,15 +149,26 @@ where
                 .into_iter()
                 .map(|response| {
                     let cb = router.module_for_id(response.source_module())?;
+                    // Delete commitment to prevent rentrancy
+                    let meta = host.delete_response_commitment(&response)?;
+                    // If the response was routed we delete it's receipt
+                    let mut signer = None;
+                    if host.host_state_machine() != response.source_chain() {
+                        signer =
+                            host.delete_response_receipt(&Response::Post(response.clone())).ok();
+                    }
                     let res = cb.on_timeout(response.clone().into()).map(|_| {
                         let commitment = hash_post_response::<H>(&response);
                         Event::PostResponseTimeoutHandled(TimeoutHandled { commitment })
                     });
-                    if res.is_ok() {
-                        host.delete_response_commitment(&response)?;
-                        // If the response was routed we delete it's receipt
-                        if host.host_state_machine() != response.source_chain() {
-                            host.delete_response_receipt(&response)?;
+                    if res.is_err() {
+                        host.store_response_commitment(&response, meta)?;
+                        if host.host_state_machine() != response.source_chain() && signer.is_some()
+                        {
+                            host.store_response_receipt(
+                                &Response::Post(response),
+                                &signer.expect("Infallible"),
+                            )?;
                         }
                     }
                     Ok(res)
@@ -181,12 +198,14 @@ where
                 .into_iter()
                 .map(|request| {
                     let cb = router.module_for_id(request.source_module())?;
+                    // Delete commitment to prevent reentrancy
+                    let meta = host.delete_request_commitment(&request)?;
                     let res = cb.on_timeout(request.clone().into()).map(|_| {
                         let commitment = hash_request::<H>(&request);
                         Event::GetRequestTimeoutHandled(TimeoutHandled { commitment })
                     });
-                    if res.is_ok() {
-                        host.delete_request_commitment(&request)?;
+                    if res.is_err() {
+                        host.store_request_commitment(&request, meta)?;
                     }
                     Ok(res)
                 })

@@ -114,7 +114,11 @@ fn test_withdrawal_proof() {
         for request in &requests {
             let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
             let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
-            let fee_metadata = FeeMetadata::<Test> { origin: [0; 32].into(), fee: 1000u128.into() };
+            let fee_metadata = FeeMetadata::<Test> {
+                origin: [0; 32].into(),
+                fee: 1000u128.into(),
+                claimed: false,
+            };
             let leaf_meta =
                 LeafMetadata { mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 }, meta: fee_metadata };
             source_trie.insert(&request_commitment_key, &leaf_meta.encode()).unwrap();
@@ -124,7 +128,11 @@ fn test_withdrawal_proof() {
         for (request, response) in &responses {
             let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
             let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
-            let fee_metadata = FeeMetadata::<Test> { origin: [0; 32].into(), fee: 1000u128.into() };
+            let fee_metadata = FeeMetadata::<Test> {
+                origin: [0; 32].into(),
+                fee: 1000u128.into(),
+                claimed: false,
+            };
             let leaf_meta =
                 LeafMetadata { mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 }, meta: fee_metadata };
             source_trie.insert(&response_commitment_key, &leaf_meta.encode()).unwrap();

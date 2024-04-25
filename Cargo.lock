@@ -4943,6 +4943,7 @@ dependencies = [
  "polkadot-parachain-primitives",
  "polkadot-runtime-common",
  "scale-info",
+ "simnode-runtime-api",
  "smallvec",
  "sp-api",
  "sp-block-builder",
@@ -5496,6 +5497,7 @@ dependencies = [
  "cumulus-relay-chain-interface",
  "frame-benchmarking",
  "frame-benchmarking-cli",
+ "frame-system",
  "futures",
  "gargantua-runtime",
  "jsonrpsee 0.16.3",
@@ -5507,6 +5509,7 @@ dependencies = [
  "pallet-ismp-rpc",
  "pallet-ismp-runtime-api",
  "pallet-mmr-runtime-api",
+ "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
  "polkadot-cli",
@@ -5524,6 +5527,7 @@ dependencies = [
  "sc-offchain",
  "sc-rpc",
  "sc-service",
+ "sc-simnode",
  "sc-sysinfo",
  "sc-telemetry",
  "sc-tracing",
@@ -5531,6 +5535,7 @@ dependencies = [
  "sc-transaction-pool-api",
  "serde",
  "serde_json",
+ "simnode-runtime-api",
  "sp-api",
  "sp-block-builder",
  "sp-blockchain",
@@ -5538,6 +5543,7 @@ dependencies = [
  "sp-core 28.0.0",
  "sp-io 30.0.0",
  "sp-keystore 0.34.0",
+ "sp-mmr-primitives",
  "sp-offchain",
  "sp-runtime 31.0.1",
  "sp-session",
@@ -5572,6 +5578,7 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types",
  "reconnecting-jsonrpsee-ws-client",
+ "runtime-types",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -7325,6 +7332,7 @@ dependencies = [
  "polkadot-parachain-primitives",
  "polkadot-runtime-common",
  "scale-info",
+ "simnode-runtime-api",
  "smallvec",
  "sp-api",
  "sp-block-builder",
@@ -7863,6 +7871,7 @@ dependencies = [
  "polkadot-parachain-primitives",
  "polkadot-runtime-common",
  "scale-info",
+ "simnode-runtime-api",
  "smallvec",
  "sp-api",
  "sp-block-builder",
@@ -12502,6 +12511,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e666a5496a0b2186dbcd0ff6106e29e093c15591bde62c20d3842007c6978a09"
 
 [[package]]
+name = "runtime-types"
+version = "0.1.0"
+dependencies = [
+ "ismp",
+ "subxt",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13256,6 +13273,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "sc-consensus-manual-seal"
+version = "0.35.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b87636dd0b8aa3d294200100196b0fb51c389ed73e6722ff648feb0fd4adafdb"
+dependencies = [
+ "assert_matches",
+ "async-trait",
+ "futures",
+ "futures-timer",
+ "jsonrpsee 0.16.3",
+ "log",
+ "parity-scale-codec",
+ "sc-client-api",
+ "sc-consensus",
+ "sc-consensus-aura",
+ "sc-consensus-babe",
+ "sc-consensus-epochs",
+ "sc-transaction-pool",
+ "sc-transaction-pool-api",
+ "serde",
+ "sp-api",
+ "sp-blockchain",
+ "sp-consensus",
+ "sp-consensus-aura",
+ "sp-consensus-babe",
+ "sp-consensus-slots",
+ "sp-core 28.0.0",
+ "sp-inherents",
+ "sp-keystore 0.34.0",
+ "sp-runtime 31.0.1",
+ "sp-timestamp",
+ "substrate-prometheus-endpoint",
+ "thiserror",
+]
+
+[[package]]
 name = "sc-consensus-slots"
 version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13786,6 +13839,72 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-futures",
+]
+
+[[package]]
+name = "sc-simnode"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d9e89833a86bcf0c106d7be604fecf8d081c5ecd2129d13055265d0b483c2be"
+dependencies = [
+ "async-trait",
+ "clap",
+ "cumulus-client-cli",
+ "cumulus-client-collator",
+ "cumulus-primitives-parachain-inherent",
+ "cumulus-test-relay-sproof-builder",
+ "frame-system",
+ "futures",
+ "jsonrpsee 0.16.3",
+ "log",
+ "num-traits",
+ "parity-scale-codec",
+ "polkadot-primitives",
+ "rand 0.8.5",
+ "sc-basic-authorship",
+ "sc-cli",
+ "sc-client-api",
+ "sc-client-db",
+ "sc-consensus",
+ "sc-consensus-aura",
+ "sc-consensus-babe",
+ "sc-consensus-manual-seal",
+ "sc-consensus-slots",
+ "sc-executor",
+ "sc-informant",
+ "sc-network",
+ "sc-offchain",
+ "sc-rpc",
+ "sc-rpc-server",
+ "sc-service",
+ "sc-telemetry",
+ "sc-tracing",
+ "sc-transaction-pool",
+ "sc-transaction-pool-api",
+ "simnode-runtime-api",
+ "sp-api",
+ "sp-block-builder",
+ "sp-blockchain",
+ "sp-consensus",
+ "sp-consensus-aura",
+ "sp-consensus-babe",
+ "sp-consensus-slots",
+ "sp-core 28.0.0",
+ "sp-externalities 0.25.0",
+ "sp-inherents",
+ "sp-io 30.0.0",
+ "sp-keyring",
+ "sp-offchain",
+ "sp-runtime 31.0.1",
+ "sp-runtime-interface 24.0.0",
+ "sp-session",
+ "sp-state-machine 0.35.0",
+ "sp-timestamp",
+ "sp-transaction-pool",
+ "sp-trie 29.0.0",
+ "sp-wasm-interface 20.0.0",
+ "staging-parachain-info",
+ "tokio",
 ]
 
 [[package]]
@@ -14602,6 +14721,40 @@ dependencies = [
  "num-traits",
  "paste",
  "wide",
+]
+
+[[package]]
+name = "simnode-runtime-api"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6ff679d4634b044994463559e1986c869ed1f5b3e7aabd859ebd585d9b1506c"
+dependencies = [
+ "parity-scale-codec",
+ "sp-api",
+ "sp-std 14.0.0",
+]
+
+[[package]]
+name = "simnode-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ckb-merkle-mountain-range",
+ "futures",
+ "ismp",
+ "mmr-primitives",
+ "pallet-ismp",
+ "pallet-ismp-rpc",
+ "pallet-mmr 0.1.0",
+ "parity-scale-codec",
+ "runtime-types",
+ "sc-consensus-manual-seal",
+ "sp-core 28.0.0",
+ "sp-keyring",
+ "sp-mmr-primitives",
+ "sp-runtime 31.0.1",
+ "subxt",
+ "tokio",
 ]
 
 [[package]]

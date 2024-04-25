@@ -71,7 +71,7 @@ use frame_system::{
 };
 use pallet_ismp::{primitives::Proof, ProofKeys};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_mmr_primitives::LeafIndex;
+use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 use xcm::XcmOriginToTransactDispatchOrigin;
 
@@ -88,9 +88,6 @@ use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
 use frame_support::traits::ConstBool;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
-
-/// MMr indexing prefix
-pub const MMR_INDEXING_PREFIX: &'static [u8] = b"ISMP";
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -552,7 +549,7 @@ impl pallet_sudo::Config for Runtime {
 }
 
 impl pallet_mmr::Config for Runtime {
-    const INDEXING_PREFIX: &'static [u8] = MMR_INDEXING_PREFIX;
+    const INDEXING_PREFIX: &'static [u8] = INDEXING_PREFIX;
     type Hashing = Keccak256;
     type Leaf = Leaf;
 }
@@ -943,6 +940,45 @@ impl_runtime_apis! {
 
             if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
             Ok(batches)
+        }
+    }
+
+    #[cfg(feature = "simnode")]
+    impl<RuntimeCall, AccountId> simnode_runtime_api::CreateTransactionApi<Block, RuntimeCall, AccountId> for Runtime
+        where
+            RuntimeCall: codec::Codec,
+            Block: sp_runtime::traits::Block,
+            AccountId: codec::Codec + codec::EncodeLike<sp_runtime::AccountId32>
+                + Into<sp_runtime::AccountId32> + Clone + PartialEq
+                + scale_info::TypeInfo + core::fmt::Debug,
+    {
+        fn create_transaction(account: AccountId, call: RuntimeCall) -> Vec<u8> {
+            use sp_runtime::{
+                generic::Era, MultiSignature,
+                traits::StaticLookup,
+            };
+            use codec::Encode;
+            use sp_core::sr25519;
+            let nonce = frame_system::Pallet::<Runtime>::account_nonce(account.clone());
+            let extra = (
+                        frame_system::CheckNonZeroSender::<Runtime>::new(),
+                        frame_system::CheckSpecVersion::<Runtime>::new(),
+                        frame_system::CheckTxVersion::<Runtime>::new(),
+                        frame_system::CheckGenesis::<Runtime>::new(),
+                        frame_system::CheckEra::<Runtime>::from(Era::Immortal),
+                        frame_system::CheckNonce::<Runtime>::from(nonce),
+                        frame_system::CheckWeight::<Runtime>::new(),
+                        pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
+                );
+            let signature = MultiSignature::from(sr25519::Signature([0_u8;64]));
+            let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());
+            let ext = generic::UncheckedExtrinsic::<Address, RuntimeCall, Signature, SignedExtra>::new_signed(
+                call,
+                address,
+                signature,
+                extra,
+            );
+            ext.encode()
         }
     }
 }

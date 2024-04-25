@@ -13,10 +13,14 @@ use hex_literal::hex;
 use ismp::{
     consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
     events::{Event, StateMachineUpdated},
-    host::{Ethereum, StateMachine},
+    host::StateMachine,
     messaging::Message,
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
+use pallet_ismp::{
+    child_trie::{ChildInfo, CHILD_TRIE_PREFIX},
+    ResponseReceipt,
+};
 use reconnecting_jsonrpsee_ws_client::{Client as ReconnectClient, SubscriptionId};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -26,8 +30,10 @@ use std::{
 use subxt::{
     config::Header,
     error::RpcError,
-    rpc::{RawValue, RpcClientT, RpcFuture, RpcSubscription},
-    rpc_params, OnlineClient,
+    rpc::{types::StorageData, RawValue, RpcClientT, RpcFuture, RpcSubscription},
+    rpc_params,
+    storage::StorageKey,
+    OnlineClient,
 };
 
 #[derive(Debug, Clone)]
@@ -125,14 +131,16 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     }
 
     async fn query_request_receipt(&self, request_hash: H256) -> Result<H160, Error> {
-        let addr = runtime::api::storage().ismp().request_receipts(&request_hash);
-        let receipt = self.client.storage().at_latest().await?.fetch(&addr).await?;
+        let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
+        let storage_key = StorageKey(self.request_receipt_full_key(request_hash));
+        let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
 
-        if let Some(receipt) = receipt {
-            Ok(H160::from_slice(&receipt[..20]))
-        } else {
-            Ok(H160::zero())
-        }
+        let response: Option<StorageData> =
+            self.client.rpc().request("childstate_getStorage", params).await?;
+        let data = response.ok_or_else(|| anyhow!("Request fee metadata query returned None"))?;
+        let relayer = Vec::decode(&mut &*data.0)?;
+
+        Ok(H160::from_slice(&relayer[..20]))
     }
 
     async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
@@ -155,13 +163,17 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     }
 
     async fn query_response_receipt(&self, request_commitment: H256) -> Result<H160, Error> {
-        let addr = runtime::api::storage().ismp().response_receipts(&request_commitment);
-        let receipt = self.client.storage().at_latest().await?.fetch(&addr).await?;
-        if let Some(receipt) = receipt {
-            Ok(H160::from_slice(&receipt.relayer[..20]))
-        } else {
-            Ok(H160::zero())
-        }
+        let key = self.response_receipt_full_key(request_commitment);
+        let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
+        let storage_key = StorageKey(key);
+        let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
+
+        let response: Option<StorageData> =
+            self.client.rpc().request("childstate_getStorage", params).await?;
+        let data = response.ok_or_else(|| anyhow!("Response fee metadata query returned None"))?;
+        let receipt = ResponseReceipt::decode(&mut &*data.0)?;
+
+        Ok(H160::from_slice(&receipt.relayer[..20]))
     }
 
     async fn ismp_events_stream(
@@ -459,118 +471,5 @@ impl RpcClientT for ClientWrapper {
             let stream = stream.map_err(|e| RpcError::ClientError(Box::new(e))).boxed();
             Ok(RpcSubscription { stream, id })
         })
-    }
-}
-
-impl From<runtime::api::runtime_types::ismp::consensus::StateCommitment> for StateCommitment {
-    fn from(commitment: runtime::api::runtime_types::ismp::consensus::StateCommitment) -> Self {
-        StateCommitment {
-            timestamp: commitment.timestamp,
-            overlay_root: commitment.overlay_root,
-            state_root: commitment.state_root,
-        }
-    }
-}
-
-impl From<runtime::api::runtime_types::ismp::consensus::StateMachineHeight> for StateMachineHeight {
-    fn from(
-        state_machine_height: runtime::api::runtime_types::ismp::consensus::StateMachineHeight,
-    ) -> Self {
-        StateMachineHeight {
-            id: state_machine_height.id.into(),
-            height: state_machine_height.height,
-        }
-    }
-}
-
-impl From<runtime::api::runtime_types::ismp::consensus::StateMachineId> for StateMachineId {
-    fn from(
-        state_machine_id: runtime::api::runtime_types::ismp::consensus::StateMachineId,
-    ) -> Self {
-        StateMachineId {
-            state_id: state_machine_id.state_id.into(),
-            consensus_state_id: state_machine_id.consensus_state_id,
-        }
-    }
-}
-
-impl From<runtime::api::runtime_types::ismp::host::StateMachine> for StateMachine {
-    fn from(state_machine_id: runtime::api::runtime_types::ismp::host::StateMachine) -> Self {
-        match state_machine_id {
-            runtime::api::runtime_types::ismp::host::StateMachine::Ethereum(ethereum) =>
-                match ethereum {
-                    runtime::api::runtime_types::ismp::host::Ethereum::ExecutionLayer =>
-                        StateMachine::Ethereum(Ethereum::ExecutionLayer),
-                    runtime::api::runtime_types::ismp::host::Ethereum::Optimism =>
-                        StateMachine::Ethereum(Ethereum::Optimism),
-                    runtime::api::runtime_types::ismp::host::Ethereum::Arbitrum =>
-                        StateMachine::Ethereum(Ethereum::Arbitrum),
-                    runtime::api::runtime_types::ismp::host::Ethereum::Base =>
-                        StateMachine::Ethereum(Ethereum::Base),
-                },
-            runtime::api::runtime_types::ismp::host::StateMachine::Polkadot(id) =>
-                StateMachine::Polkadot(id),
-            runtime::api::runtime_types::ismp::host::StateMachine::Kusama(id) =>
-                StateMachine::Kusama(id),
-            runtime::api::runtime_types::ismp::host::StateMachine::Grandpa(consensus_state_id) =>
-                StateMachine::Grandpa(consensus_state_id),
-            runtime::api::runtime_types::ismp::host::StateMachine::Beefy(consensus_state_id) =>
-                StateMachine::Beefy(consensus_state_id),
-            runtime::api::runtime_types::ismp::host::StateMachine::Polygon => StateMachine::Polygon,
-            runtime::api::runtime_types::ismp::host::StateMachine::Bsc => StateMachine::Bsc,
-        }
-    }
-}
-
-impl From<StateMachineHeight> for runtime::api::runtime_types::ismp::consensus::StateMachineHeight {
-    fn from(state_machine_height: StateMachineHeight) -> Self {
-        runtime::api::runtime_types::ismp::consensus::StateMachineHeight {
-            id: state_machine_height.id.into(),
-            height: state_machine_height.height,
-        }
-    }
-}
-
-impl From<StateMachineId> for runtime::api::runtime_types::ismp::consensus::StateMachineId {
-    fn from(state_machine_id: StateMachineId) -> Self {
-        Self {
-            state_id: state_machine_id.state_id.into(),
-            consensus_state_id: state_machine_id.consensus_state_id,
-        }
-    }
-}
-
-impl From<StateMachine> for runtime::api::runtime_types::ismp::host::StateMachine {
-    fn from(state_machine_id: StateMachine) -> Self {
-        match state_machine_id {
-            StateMachine::Ethereum(ethereum) => match ethereum {
-                Ethereum::ExecutionLayer =>
-                    runtime::api::runtime_types::ismp::host::StateMachine::Ethereum(
-                        runtime::api::runtime_types::ismp::host::Ethereum::ExecutionLayer,
-                    ),
-                Ethereum::Optimism =>
-                    runtime::api::runtime_types::ismp::host::StateMachine::Ethereum(
-                        runtime::api::runtime_types::ismp::host::Ethereum::Optimism,
-                    ),
-                Ethereum::Arbitrum =>
-                    runtime::api::runtime_types::ismp::host::StateMachine::Ethereum(
-                        runtime::api::runtime_types::ismp::host::Ethereum::Arbitrum,
-                    ),
-                Ethereum::Base => runtime::api::runtime_types::ismp::host::StateMachine::Ethereum(
-                    runtime::api::runtime_types::ismp::host::Ethereum::Base,
-                ),
-            },
-            StateMachine::Polkadot(id) =>
-                runtime::api::runtime_types::ismp::host::StateMachine::Polkadot(id),
-            StateMachine::Kusama(id) =>
-                runtime::api::runtime_types::ismp::host::StateMachine::Kusama(id),
-            StateMachine::Grandpa(consensus_state_id) =>
-                runtime::api::runtime_types::ismp::host::StateMachine::Grandpa(consensus_state_id),
-            StateMachine::Beefy(consensus_state_id) =>
-                runtime::api::runtime_types::ismp::host::StateMachine::Beefy(consensus_state_id),
-
-            StateMachine::Polygon => runtime::api::runtime_types::ismp::host::StateMachine::Polygon,
-            StateMachine::Bsc => runtime::api::runtime_types::ismp::host::StateMachine::Bsc,
-        }
     }
 }

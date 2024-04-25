@@ -1,0 +1,16 @@
+[package]
+name = "runtime-types"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+subxt = { workspace = true }
+ismp = { workspace = true }
+
+[features]
+default = ["std"]
+wasm = ["subxt/web", "subxt/jsonrpsee"]
+std = ["subxt/native", "subxt/jsonrpsee", "ismp/std"]
+

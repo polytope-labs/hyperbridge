@@ -1665,6 +1665,17 @@ pub mod evm_host {
                                     indexed: false,
                                 },
                                 ::ethers::core::abi::ethabi::EventParam {
+                                    name: ::std::borrow::ToOwned::to_owned("stateCommitment"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                            ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
+                                            ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
+                                        ],
+                                    ),
+                                    indexed: false,
+                                },
+                                ::ethers::core::abi::ethabi::EventParam {
                                     name: ::std::borrow::ToOwned::to_owned("fisherman"),
                                     kind: ::ethers::core::abi::ethabi::ParamType::Address,
                                     indexed: false,
@@ -2375,11 +2386,12 @@ pub mod evm_host {
     )]
     #[ethevent(
         name = "StateCommitmentVetoed",
-        abi = "StateCommitmentVetoed(bytes,uint256,address)"
+        abi = "StateCommitmentVetoed(bytes,uint256,(uint256,bytes32,bytes32),address)"
     )]
     pub struct StateCommitmentVetoedFilter {
         pub state_machine_id: ::ethers::core::types::Bytes,
         pub height: ::ethers::core::types::U256,
+        pub state_commitment: StateCommitment,
         pub fisherman: ::ethers::core::types::Address,
     }
     #[derive(

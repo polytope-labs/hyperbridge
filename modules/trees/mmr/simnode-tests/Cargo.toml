@@ -23,3 +23,6 @@ sc-consensus-manual-seal = { workspace = true }
 pallet-ismp = { workspace = true, default-features = true }
 sp-mmr-primitives = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
+pallet-mmr = { workspace = true, default-features = true }
+pallet-ismp-rpc = { workspace = true }
+merkle-mountain-range = { workspace = true }

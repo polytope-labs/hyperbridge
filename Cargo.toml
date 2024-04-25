@@ -276,8 +276,8 @@ nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false 
 
 
 # Simnode
-sc-simnode = { git = "https://github.com/polytope-labs/sc-simnode", rev = "30f783c2a859edaed52556bfca4e7e092deb949e", features = ["babe", "aura"] }
-simnode-runtime-api = { git = "https://github.com/polytope-labs/sc-simnode.git", default-features = false, rev = "30f783c2a859edaed52556bfca4e7e092deb949e" }
+sc-simnode = { version = "1.6.1" }
+simnode-runtime-api = { version = "1.6.0", default-features = false }
 simnode-tests = { path = "modules/trees/mmr/simnode-tests" }
 
 # Subxt

@@ -110,7 +110,7 @@ where
 
     /// Fetch all the positions for all nodes added between these leaf counts including the leaf
     /// positions
-    fn nodes_to_canonicalize(
+    fn nodes_added_by_new_leaves(
         &self,
         block_num: NumberFor<B>,
         action: &str,
@@ -152,7 +152,7 @@ where
 
         // We prune the leaf associated with the provided block and all the nodes added by that
         // leaf.
-        let stale_nodes = self.nodes_to_canonicalize(
+        let stale_nodes = self.nodes_added_by_new_leaves(
             header.number,
             action,
             parent_leaf_count,
@@ -198,7 +198,7 @@ where
 
         // We "canonicalize" the leaves associated with the provided block
         // and all the nodes added by those leaves.
-        let to_canon_nodes = self.nodes_to_canonicalize(
+        let to_canon_nodes = self.nodes_added_by_new_leaves(
             header.number,
             action,
             parent_leaf_count,

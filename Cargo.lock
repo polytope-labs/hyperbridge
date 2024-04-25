@@ -13844,7 +13844,8 @@ dependencies = [
 [[package]]
 name = "sc-simnode"
 version = "1.6.1"
-source = "git+https://github.com/polytope-labs/sc-simnode.git?rev=30f783c2a859edaed52556bfca4e7e092deb949e#30f783c2a859edaed52556bfca4e7e092deb949e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d9e89833a86bcf0c106d7be604fecf8d081c5ecd2129d13055265d0b483c2be"
 dependencies = [
  "async-trait",
  "clap",
@@ -14725,7 +14726,8 @@ dependencies = [
 [[package]]
 name = "simnode-runtime-api"
 version = "1.6.0"
-source = "git+https://github.com/polytope-labs/sc-simnode.git?rev=30f783c2a859edaed52556bfca4e7e092deb949e#30f783c2a859edaed52556bfca4e7e092deb949e"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6ff679d4634b044994463559e1986c869ed1f5b3e7aabd859ebd585d9b1506c"
 dependencies = [
  "parity-scale-codec",
  "sp-api",
@@ -14737,10 +14739,13 @@ name = "simnode-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ckb-merkle-mountain-range",
  "futures",
  "ismp",
  "mmr-primitives",
  "pallet-ismp",
+ "pallet-ismp-rpc",
+ "pallet-mmr 0.1.0",
  "parity-scale-codec",
  "runtime-types",
  "sc-consensus-manual-seal",

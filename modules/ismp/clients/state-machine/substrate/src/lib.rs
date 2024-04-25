@@ -20,7 +20,7 @@
 
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, format, vec, vec::Vec};
+use alloc::{collections::BTreeMap, format, string::ToString, vec, vec::Vec};
 use codec::Decode;
 use core::{fmt::Debug, marker::PhantomData};
 use frame_support::ensure;

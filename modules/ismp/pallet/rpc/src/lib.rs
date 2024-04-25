@@ -31,7 +31,7 @@ use ismp::{
 };
 use pallet_ismp::{
     child_trie::CHILD_TRIE_PREFIX,
-    mmr::primitives::{Leaf, NodeIndex},
+    mmr::Leaf,
     primitives::{LeafIndexAndPos, LeafIndexQuery},
     ProofKeys,
 };
@@ -44,6 +44,7 @@ use sp_core::{
     offchain::{storage::OffchainDb, OffchainDbExt, OffchainStorage},
     H256,
 };
+use sp_mmr_primitives::NodeIndex;
 use sp_runtime::traits::{Block as BlockT, Hash, Header};
 use sp_trie::LayoutV0;
 use std::{collections::HashMap, fmt::Display, sync::Arc};

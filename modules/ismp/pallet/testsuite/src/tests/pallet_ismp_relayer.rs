@@ -37,7 +37,6 @@ use pallet_ismp::{
 use pallet_ismp_relayer::{
     self as pallet_ismp_relayer, message,
     withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
-    Claimed,
 };
 use sp_core::{Pair, H160, H256, U256};
 use sp_trie::LayoutV0;
@@ -114,9 +113,14 @@ fn test_withdrawal_proof() {
         for request in &requests {
             let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
             let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
-            let fee_metadata = FeeMetadata::<Test> { origin: [0; 32].into(), fee: 1000u128.into() };
+            let fee_metadata = FeeMetadata::<Test> {
+                origin: [0; 32].into(),
+                fee: 1000u128.into(),
+                claimed: false,
+            };
             let leaf_meta =
                 LeafMetadata { mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 }, meta: fee_metadata };
+            RequestCommitments::<Test>::insert(*request, leaf_meta.clone());
             source_trie.insert(&request_commitment_key, &leaf_meta.encode()).unwrap();
             dest_trie.insert(&request_receipt_key, &vec![1u8; 32].encode()).unwrap();
         }
@@ -124,9 +128,14 @@ fn test_withdrawal_proof() {
         for (request, response) in &responses {
             let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
             let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
-            let fee_metadata = FeeMetadata::<Test> { origin: [0; 32].into(), fee: 1000u128.into() };
+            let fee_metadata = FeeMetadata::<Test> {
+                origin: [0; 32].into(),
+                fee: 1000u128.into(),
+                claimed: false,
+            };
             let leaf_meta =
                 LeafMetadata { mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 }, meta: fee_metadata };
+            ResponseCommitments::<Test>::insert(*response, leaf_meta.clone());
             source_trie.insert(&response_commitment_key, &leaf_meta.encode()).unwrap();
             let receipt = ResponseReceipt { response: *response, relayer: vec![2; 32] };
             dest_trie.insert(&response_receipt_key, &receipt.encode()).unwrap();
@@ -354,7 +363,32 @@ fn test_evm_accumulate_fees() {
         dbg!(claim_proof.len());
 
         let mut claim_proof = WithdrawalProof::decode(&mut &*claim_proof).unwrap();
-
+        for key in claim_proof.commitments.clone() {
+            match key {
+                Key::Request(req) => {
+                    let leaf_meta = LeafMetadata {
+                        mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+                        meta: FeeMetadata::<Test> {
+                            origin: [0; 32].into(),
+                            fee: 1000u128.into(),
+                            claimed: false,
+                        },
+                    };
+                    RequestCommitments::<Test>::insert(req, leaf_meta)
+                },
+                Key::Response { response_commitment, .. } => {
+                    let leaf_meta = LeafMetadata {
+                        mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+                        meta: FeeMetadata::<Test> {
+                            origin: [0; 32].into(),
+                            fee: 1000u128.into(),
+                            claimed: false,
+                        },
+                    };
+                    ResponseCommitments::<Test>::insert(response_commitment, leaf_meta);
+                },
+            }
+        }
         let mut source_evm_proof =
             EvmStateProof::decode(&mut &*claim_proof.source_proof.proof).unwrap();
         let mut dest_evm_proof =
@@ -507,7 +541,22 @@ fn test_evm_accumulate_fees_with_zero_fee_values() {
         )
         .unwrap();
         assert_eq!(claim_proof.commitments.len(), 6);
-        assert_eq!(Claimed::<Test>::iter().count(), 5);
+        let claimed = claim_proof.commitments.into_iter().fold(0u32, |acc, key| match key {
+            Key::Request(req) => RequestCommitments::<Test>::get(req)
+                .unwrap()
+                .meta
+                .claimed
+                .then(|| acc + 1)
+                .unwrap_or(acc),
+            Key::Response { response_commitment, .. } =>
+                ResponseCommitments::<Test>::get(response_commitment)
+                    .unwrap()
+                    .meta
+                    .claimed
+                    .then(|| acc + 1)
+                    .unwrap_or(acc),
+        });
+        assert_eq!(claimed, 5);
     })
 }
 
@@ -527,6 +576,33 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
     let bsc_host = H160::from(hex!("4e5bbdd9fE89F54157DDb64b21eD4D1CA1CDf9a6"));
 
     let claim_proof = WithdrawalProof::decode(&mut &*claim_proof).unwrap();
+
+    for key in claim_proof.commitments.clone() {
+        match key {
+            Key::Request(req) => {
+                let leaf_meta = LeafMetadata {
+                    mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+                    meta: FeeMetadata::<Test> {
+                        origin: [0; 32].into(),
+                        fee: 1000u128.into(),
+                        claimed: false,
+                    },
+                };
+                RequestCommitments::<Test>::insert(req, leaf_meta)
+            },
+            Key::Response { response_commitment, .. } => {
+                let leaf_meta = LeafMetadata {
+                    mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+                    meta: FeeMetadata::<Test> {
+                        origin: [0; 32].into(),
+                        fee: 1000u128.into(),
+                        claimed: false,
+                    },
+                };
+                ResponseCommitments::<Test>::insert(response_commitment, leaf_meta);
+            },
+        }
+    }
 
     let host = Host::<Test>::default();
     host.store_state_machine_commitment(

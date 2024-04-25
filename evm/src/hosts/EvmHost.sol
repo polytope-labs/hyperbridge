@@ -1,4 +1,17 @@
-// SPDX-License-Identifier: UNLICENSED
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 pragma solidity 0.8.17;
 
 import {Context} from "openzeppelin/utils/Context.sol";
@@ -104,11 +117,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     mapping(uint256 => mapping(uint256 => uint256)) private _stateCommitmentsUpdateTime;
 
     // mapping of state machine identifier to latest known height
-    // (stateMachineId => (blockHeight => timestamp))
+    // (stateMachineId => blockHeight)
     mapping(uint256 => uint256) private _latestStateMachineHeight;
 
     // mapping of all known fishermen accounts
-    // (stateMachineId => (blockHeight => timestamp))
     mapping(address => bool) private _fishermen;
 
     // mapping of state machine identifier to height vetoed to fisherman
@@ -147,7 +159,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     event StateMachineUpdated(bytes stateMachineId, uint256 height);
 
     // Emitted when a state commitment is vetoed by a fisherman
-    event StateCommitmentVetoed(bytes stateMachineId, uint256 height, address fisherman);
+    event StateCommitmentVetoed(
+        bytes stateMachineId, uint256 height, StateCommitment stateCommitment, address fisherman
+    );
 
     // Emitted when a new POST request is dispatched
     event PostRequestEvent(
@@ -451,6 +465,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Delete the state commitment at given state height.
      */
     function deleteStateMachineCommitmentInternal(StateMachineHeight memory height, address fisherman) private {
+        StateCommitment memory stateCommitment = _stateCommitments[height.stateMachineId][height.height];
         delete _stateCommitments[height.stateMachineId][height.height];
         delete _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
         delete _latestStateMachineHeight[height.stateMachineId];
@@ -460,6 +475,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         emit StateCommitmentVetoed({
             stateMachineId: stateMachineId(height.stateMachineId),
+            stateCommitment: stateCommitment,
             height: height.height,
             fisherman: fisherman
         });
@@ -511,16 +527,20 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
+        // replay protection
+        bytes32 commitment = request.hash();
+        _requestReceipts[commitment] = relayer;
+
         (bool success,) = address(destination).call(
             abi.encodeWithSelector(IIsmpModule.onAccept.selector, IncomingPostRequest(request, relayer))
         );
 
-        if (success) {
-            bytes32 commitment = request.hash();
-            _requestReceipts[commitment] = relayer;
-
-            emit PostRequestHandled({commitment: commitment, relayer: relayer});
+        if (!success) {
+            // so that it can be retried
+            delete _requestReceipts[commitment];
+            return;
         }
+        emit PostRequestHandled({commitment: commitment, relayer: relayer});
     }
 
     /**
@@ -529,16 +549,21 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(PostResponse memory response, address relayer) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
+
+        // replay protection
+        bytes32 commitment = response.request.hash();
+        _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: response.hash()});
+
         (bool success,) = address(origin).call(
             abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, IncomingPostResponse(response, relayer))
         );
 
-        if (success) {
-            bytes32 commitment = response.request.hash();
-            _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: response.hash()});
-
-            emit PostResponseHandled({commitment: commitment, relayer: relayer});
+        if (!success) {
+            // so that it can be retried
+            delete _responseReceipts[commitment];
+            return;
         }
+        emit PostResponseHandled({commitment: commitment, relayer: relayer});
     }
 
     /**
@@ -547,21 +572,28 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      */
     function dispatchIncoming(GetResponse memory response, address relayer) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
+
+        // replay protection
+        bytes32 commitment = response.request.hash();
+        // don't commit the full response object, it's unused.
+        _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
+
         (bool success,) = address(origin).call(
             abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, IncomingGetResponse(response, relayer))
         );
 
-        if (success) {
-            FeeMetadata memory meta = _requestCommitments[response.request.hash()];
-            if (meta.fee > 0) {
-                // pay the relayer their fee
-                IERC20(feeToken()).transfer(relayer, meta.fee);
-            }
-            bytes32 commitment = response.request.hash();
-            // don't commit the full response object, it's unused.
-            _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
-            emit PostResponseHandled({commitment: commitment, relayer: relayer});
+        if (!success) {
+            // so that it can be retried
+            delete _responseReceipts[commitment];
+            return;
         }
+
+        FeeMetadata memory meta = _requestCommitments[response.request.hash()];
+        if (meta.fee > 0) {
+            // pay the relayer their fee
+            IERC20(feeToken()).transfer(relayer, meta.fee);
+        }
+        emit PostResponseHandled({commitment: commitment, relayer: relayer});
     }
 
     /**
@@ -573,19 +605,22 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         onlyHandler
     {
         address origin = _bytesToAddress(request.from);
+
+        // replay protection, delete memory of this request
+        delete _requestCommitments[commitment];
         (bool success,) = address(origin).call(abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request));
 
-        if (success) {
-            // delete memory of this request
-            delete _requestCommitments[commitment];
-
-            if (meta.fee > 0) {
-                // refund relayer fee
-                IERC20(feeToken()).transfer(meta.sender, meta.fee);
-            }
-
-            emit GetRequestTimeoutHandled({commitment: commitment});
+        if (!success) {
+            // so that it can be retried
+            _requestCommitments[commitment] = meta;
+            return;
         }
+
+        if (meta.fee > 0) {
+            // refund relayer fee
+            IERC20(feeToken()).transfer(meta.sender, meta.fee);
+        }
+        emit GetRequestTimeoutHandled({commitment: commitment});
     }
 
     /**
@@ -597,20 +632,23 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         onlyHandler
     {
         address origin = _bytesToAddress(request.from);
+
+        // replay protection, delete memory of this request
+        delete _requestCommitments[commitment];
         (bool success,) =
             address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostRequestTimeout.selector, request));
 
-        if (success) {
-            // delete memory of this request
-            delete _requestCommitments[commitment];
-
-            if (meta.fee > 0) {
-                // refund relayer fee
-                IERC20(feeToken()).transfer(meta.sender, meta.fee);
-            }
-
-            emit PostRequestTimeoutHandled({commitment: commitment});
+        if (!success) {
+            // so that it can be retried
+            _requestCommitments[commitment] = meta;
+            return;
         }
+
+        if (meta.fee > 0) {
+            // refund relayer fee
+            IERC20(feeToken()).transfer(meta.sender, meta.fee);
+        }
+        emit PostRequestTimeoutHandled({commitment: commitment});
     }
 
     /**
@@ -622,21 +660,26 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         onlyHandler
     {
         address origin = _bytesToAddress(response.request.to);
+
+        // replay protection, delete memory of this response
+        bytes32 reqCommitment = response.request.hash();
+        delete _responseCommitments[commitment];
+        delete _responded[reqCommitment];
         (bool success,) =
             address(origin).call(abi.encodeWithSelector(IIsmpModule.onPostResponseTimeout.selector, response));
 
-        if (success) {
-            // delete memory of this response
-            delete _responseCommitments[commitment];
-            delete _responded[response.request.hash()];
-
-            if (meta.fee > 0) {
-                // refund relayer fee
-                IERC20(feeToken()).transfer(meta.sender, meta.fee);
-            }
-
-            emit PostResponseTimeoutHandled({commitment: commitment});
+        if (!success) {
+            // so that it can be retried
+            _responseCommitments[commitment] = meta;
+            _responded[reqCommitment] = true;
+            return;
         }
+
+        if (meta.fee > 0) {
+            // refund relayer fee
+            IERC20(feeToken()).transfer(meta.sender, meta.fee);
+        }
+        emit PostResponseTimeoutHandled({commitment: commitment});
     }
 
     /**
@@ -766,7 +809,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         FeeMetadata memory metadata = _requestCommitments[commitment];
 
         require(metadata.sender != address(0), "Unknown request");
-        require(metadata.sender == _msgSender(), "User can only fund own requests");
         IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
 
         metadata.fee += amount;

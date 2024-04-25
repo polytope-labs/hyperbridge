@@ -1,3 +1,4 @@
+use codec::Encode;
 use ismp::{
     consensus::{
         ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
@@ -323,28 +324,28 @@ impl IsmpHost for Host {
         Ok(())
     }
 
-    fn delete_request_commitment(&self, req: &Request) -> Result<(), Error> {
+    fn delete_request_commitment(&self, req: &Request) -> Result<Vec<u8>, Error> {
         let hash = hash_request::<Self>(req);
-        self.requests.borrow_mut().remove(&hash);
-        Ok(())
+        let val = self.requests.borrow_mut().remove(&hash);
+        Ok(val.encode())
     }
 
-    fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error> {
+    fn delete_response_commitment(&self, res: &PostResponse) -> Result<Vec<u8>, Error> {
         let hash = hash_post_response::<Self>(res);
-        self.responses.borrow_mut().remove(&hash);
-        Ok(())
+        let val = self.responses.borrow_mut().remove(&hash);
+        Ok(val.encode())
     }
 
-    fn delete_request_receipt(&self, req: &Request) -> Result<(), Error> {
+    fn delete_request_receipt(&self, req: &Request) -> Result<Vec<u8>, Error> {
         let hash = hash_request::<Self>(req);
-        self.receipts.borrow_mut().remove(&hash);
-        Ok(())
+        let val = self.receipts.borrow_mut().remove(&hash);
+        Ok(val.encode())
     }
 
-    fn delete_response_receipt(&self, res: &PostResponse) -> Result<(), Error> {
-        let hash = hash_post_response::<Self>(res);
-        self.receipts.borrow_mut().remove(&hash);
-        Ok(())
+    fn delete_response_receipt(&self, res: &Response) -> Result<Vec<u8>, Error> {
+        let hash = hash_request::<Self>(&res.request());
+        let val = self.receipts.borrow_mut().remove(&hash);
+        Ok(val.encode())
     }
 
     fn store_request_receipt(&self, req: &Request, _signer: &Vec<u8>) -> Result<(), Error> {
@@ -389,6 +390,18 @@ impl IsmpHost for Host {
 
     fn freeze_state_machine_client(&self, state_machine: StateMachineId) -> Result<(), Error> {
         self.frozen_state_machines.borrow_mut().insert(state_machine, true);
+        Ok(())
+    }
+
+    fn store_request_commitment(&self, req: &Request, _meta: Vec<u8>) -> Result<(), Error> {
+        let hash = hash_request::<Self>(req);
+        self.requests.borrow_mut().insert(hash);
+        Ok(())
+    }
+
+    fn store_response_commitment(&self, res: &PostResponse, _meta: Vec<u8>) -> Result<(), Error> {
+        let hash = hash_request::<Self>(&Request::Post(res.post.clone()));
+        self.responses.borrow_mut().insert(hash);
         Ok(())
     }
 }

@@ -89,6 +89,13 @@ pallet-ismp-host-executive = { workspace = true  }
 pallet-call-decompressor = { workspace = true }
 pallet-asset-gateway = { workspace = true  }
 
+
+pallet-mmr = { workspace = true }
+pallet-mmr-runtime-api = { workspace = true }
+sp-mmr-primitives = { workspace = true }
+
+simnode-runtime-api = { workspace = true, optional = true }
+
 [features]
 default = [
 	"std",
@@ -152,8 +159,11 @@ std = [
 	"pallet-call-decompressor/std",
 	"pallet-asset-gateway/std",
 	"pallet-assets/std",
+	"pallet-mmr/std",
 	"orml-xcm-support/std",
-	"orml-traits/std"
+	"orml-traits/std",
+	"pallet-mmr-runtime-api/std",
+	"sp-mmr-primitives/std"
 ]
 
 runtime-benchmarks = [
@@ -202,4 +212,8 @@ try-runtime = [
 ]
 async-backing = [
 	"pallet-aura/experimental"
+]
+
+simnode = [
+	"simnode-runtime-api"
 ]

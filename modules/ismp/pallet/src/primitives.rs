@@ -14,7 +14,6 @@
 // limitations under the License.
 
 //! Pallet primitives
-use crate::mmr::primitives::NodeIndex;
 use alloc::format;
 use codec::{Decode, Encode};
 use core::time::Duration;
@@ -26,6 +25,7 @@ use sp_core::{
     crypto::{AccountId32, ByteArray},
     H160, H256,
 };
+use sp_mmr_primitives::NodeIndex;
 use sp_runtime::{Digest, DigestItem, RuntimeDebug};
 use sp_std::prelude::*;
 
@@ -38,22 +38,6 @@ pub struct Proof<Hash> {
     pub leaf_count: NodeIndex,
     /// Proof elements (hashes of siblings of inner nodes on the path to the leaf).
     pub items: Vec<Hash>,
-}
-
-/// Merkle Mountain Range operation error.
-#[derive(RuntimeDebug, codec::Encode, codec::Decode, PartialEq, Eq, scale_info::TypeInfo)]
-#[allow(missing_docs)]
-pub enum Error {
-    InvalidNumericOp,
-    Push,
-    GetRoot,
-    Commit,
-    GenerateProof,
-    Verify,
-    LeafNotFound,
-    PalletNotIncluded,
-    InvalidLeafIndex,
-    InvalidBestKnownBlock,
 }
 
 /// A trait that returns a list of all configured consensus clients

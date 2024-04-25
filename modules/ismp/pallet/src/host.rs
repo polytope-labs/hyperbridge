@@ -16,12 +16,14 @@
 //! Host implementation for ISMP
 use crate::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
+    dispatcher::LeafMetadata,
     primitives::ConsensusClientProvider,
     ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
     FrozenConsensusClients, FrozenStateMachine, LatestStateMachineHeight, Nonce, Responded,
     ResponseReceipt, StateCommitments, StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
+use codec::{Decode, Encode};
 use core::time::Duration;
 use frame_support::traits::{Get, UnixTime};
 use ismp::{
@@ -228,33 +230,44 @@ impl<T: Config> IsmpHost for Host<T> {
         Ok(())
     }
 
-    fn delete_request_commitment(&self, req: &Request) -> Result<(), Error> {
+    fn delete_request_commitment(&self, req: &Request) -> Result<Vec<u8>, Error> {
         let hash = hash_request::<Self>(req);
         // We can't delete actual leaves in the mmr so this serves as a replacement for that
+        let meta = RequestCommitments::<T>::get(hash).ok_or_else(|| {
+            Error::ImplementationSpecific("Request Commitment not found".to_string())
+        })?;
         RequestCommitments::<T>::remove(hash);
-        Ok(())
+        Ok(meta.encode())
     }
 
-    fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error> {
+    fn delete_response_commitment(&self, res: &PostResponse) -> Result<Vec<u8>, Error> {
         let req_commitment = hash_request::<Self>(&res.request());
         let hash = hash_post_response::<Self>(res);
-
+        let meta = ResponseCommitments::<T>::get(hash).ok_or_else(|| {
+            Error::ImplementationSpecific("Response Commitment not found".to_string())
+        })?;
         // We can't delete actual leaves in the mmr so this serves as a replacement for that
         ResponseCommitments::<T>::remove(hash);
         Responded::<T>::remove(req_commitment);
-        Ok(())
+        Ok(meta.encode())
     }
 
-    fn delete_request_receipt(&self, req: &Request) -> Result<(), Error> {
+    fn delete_request_receipt(&self, req: &Request) -> Result<Vec<u8>, Error> {
         let req_commitment = hash_request::<Self>(req);
+        let relayer = RequestReceipts::<T>::get(req_commitment).ok_or_else(|| {
+            Error::ImplementationSpecific("Request receipt not found".to_string())
+        })?;
         RequestReceipts::<T>::remove(req_commitment);
-        Ok(())
+        Ok(relayer)
     }
 
-    fn delete_response_receipt(&self, res: &PostResponse) -> Result<(), Error> {
+    fn delete_response_receipt(&self, res: &Response) -> Result<Vec<u8>, Error> {
         let hash = hash_request::<Self>(&res.request());
+        let meta = ResponseReceipts::<T>::get(hash).ok_or_else(|| {
+            Error::ImplementationSpecific("Response receipt not found".to_string())
+        })?;
         ResponseReceipts::<T>::remove(hash);
-        Ok(())
+        Ok(meta.relayer)
     }
 
     fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error> {
@@ -301,6 +314,26 @@ impl<T: Config> IsmpHost for Host<T> {
 
     fn freeze_state_machine_client(&self, state_machine: StateMachineId) -> Result<(), Error> {
         FrozenStateMachine::<T>::insert(state_machine, true);
+        Ok(())
+    }
+
+    fn store_request_commitment(&self, req: &Request, meta: Vec<u8>) -> Result<(), Error> {
+        let hash = hash_request::<Self>(req);
+        let leaf_meta = LeafMetadata::<T>::decode(&mut &*meta).map_err(|_| {
+            Error::ImplementationSpecific("Failed to decode leaf metadata".to_string())
+        })?;
+        RequestCommitments::<T>::insert(hash, leaf_meta);
+        Ok(())
+    }
+
+    fn store_response_commitment(&self, res: &PostResponse, meta: Vec<u8>) -> Result<(), Error> {
+        let hash = hash_post_response::<Self>(res);
+        let req_commitment = hash_request::<Self>(&res.request());
+        let leaf_meta = LeafMetadata::<T>::decode(&mut &*meta).map_err(|_| {
+            Error::ImplementationSpecific("Failed to decode leaf metadata".to_string())
+        })?;
+        ResponseCommitments::<T>::insert(hash, leaf_meta);
+        Responded::<T>::insert(req_commitment, true);
         Ok(())
     }
 }

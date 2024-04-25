@@ -210,9 +210,9 @@ dependencies = [
 
 [[package]]
 name = "anstyle"
-version = "1.0.4"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7079075b41f533b8c61d2a4d073c4676e1f8b249ff94a393b0595db304e0dd87"
+checksum = "8901269c6307e8d93993578286ac0edf7f195079ffff5ebdeea6a59ffb7e36bc"
 
 [[package]]
 name = "anstyle-parse"
@@ -945,7 +945,6 @@ dependencies = [
  "hex",
  "mmr-rpc",
  "pallet-beefy-mmr",
- "pallet-mmr",
  "parity-scale-codec",
  "primitive-types",
  "rs_merkle",
@@ -3409,6 +3408,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "env_filter"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a009aa4810eb158359dda09d0c87378e4bbb89b5a801f016885a4707ba24f7ea"
+dependencies = [
+ "log",
+ "regex",
+]
+
+[[package]]
 name = "env_logger"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3419,6 +3428,19 @@ dependencies = [
  "log",
  "regex",
  "termcolor",
+]
+
+[[package]]
+name = "env_logger"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38b35839ba51819680ba087cd351788c9a3c476841207e0b8cee0b04722343b9"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "env_filter",
+ "humantime",
+ "log",
 ]
 
 [[package]]
@@ -4001,7 +4023,7 @@ version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84f2e425d9790201ba4af4630191feac6dcc98765b118d4d18e91d23c2353866"
 dependencies = [
- "env_logger",
+ "env_logger 0.10.2",
  "log",
 ]
 
@@ -4908,6 +4930,8 @@ dependencies = [
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
  "pallet-message-queue",
+ "pallet-mmr 0.1.0",
+ "pallet-mmr-runtime-api",
  "pallet-session",
  "pallet-sudo",
  "pallet-timestamp",
@@ -4919,6 +4943,7 @@ dependencies = [
  "polkadot-parachain-primitives",
  "polkadot-runtime-common",
  "scale-info",
+ "simnode-runtime-api",
  "smallvec",
  "sp-api",
  "sp-block-builder",
@@ -4926,6 +4951,7 @@ dependencies = [
  "sp-core 28.0.0",
  "sp-genesis-builder",
  "sp-inherents",
+ "sp-mmr-primitives",
  "sp-offchain",
  "sp-runtime 31.0.1",
  "sp-session",
@@ -5471,14 +5497,19 @@ dependencies = [
  "cumulus-relay-chain-interface",
  "frame-benchmarking",
  "frame-benchmarking-cli",
+ "frame-system",
  "futures",
  "gargantua-runtime",
  "jsonrpsee 0.16.3",
  "log",
  "messier-runtime",
+ "mmr-gadget 29.0.0",
  "nexus-runtime",
+ "pallet-ismp",
  "pallet-ismp-rpc",
  "pallet-ismp-runtime-api",
+ "pallet-mmr-runtime-api",
+ "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "parity-scale-codec",
  "polkadot-cli",
@@ -5496,6 +5527,7 @@ dependencies = [
  "sc-offchain",
  "sc-rpc",
  "sc-service",
+ "sc-simnode",
  "sc-sysinfo",
  "sc-telemetry",
  "sc-tracing",
@@ -5503,6 +5535,7 @@ dependencies = [
  "sc-transaction-pool-api",
  "serde",
  "serde_json",
+ "simnode-runtime-api",
  "sp-api",
  "sp-block-builder",
  "sp-blockchain",
@@ -5510,6 +5543,7 @@ dependencies = [
  "sp-core 28.0.0",
  "sp-io 30.0.0",
  "sp-keystore 0.34.0",
+ "sp-mmr-primitives",
  "sp-offchain",
  "sp-runtime 31.0.1",
  "sp-session",
@@ -5548,6 +5582,7 @@ dependencies = [
  "serde-wasm-bindgen",
  "serde_json",
  "subxt",
+ "subxt-utils",
  "tokio",
  "tracing",
  "tracing-wasm",
@@ -5944,7 +5979,7 @@ dependencies = [
  "ethers-contract-abigen",
  "forge-testsuite",
  "ismp",
- "mmr-utils",
+ "mmr-primitives",
  "primitive-types",
  "sp-consensus-beefy",
 ]
@@ -5968,10 +6003,11 @@ dependencies = [
  "ismp",
  "ismp-solidity-abi",
  "libfuzzer-sys",
- "mmr-utils",
+ "mmr-primitives",
  "once_cell",
  "pallet-ismp",
  "pallet-ismp-relayer",
+ "pallet-mmr 0.1.0",
  "parity-scale-codec",
  "primitive-types",
  "rs_merkle",
@@ -7024,9 +7060,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.20"
+version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
+checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
 
 [[package]]
 name = "lru"
@@ -7283,6 +7319,8 @@ dependencies = [
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
  "pallet-message-queue",
+ "pallet-mmr 0.1.0",
+ "pallet-mmr-runtime-api",
  "pallet-session",
  "pallet-sudo",
  "pallet-timestamp",
@@ -7294,6 +7332,7 @@ dependencies = [
  "polkadot-parachain-primitives",
  "polkadot-runtime-common",
  "scale-info",
+ "simnode-runtime-api",
  "smallvec",
  "sp-api",
  "sp-block-builder",
@@ -7301,6 +7340,7 @@ dependencies = [
  "sp-core 28.0.0",
  "sp-genesis-builder",
  "sp-inherents",
+ "sp-mmr-primitives",
  "sp-offchain",
  "sp-runtime 31.0.1",
  "sp-session",
@@ -7403,6 +7443,24 @@ dependencies = [
 [[package]]
 name = "mmr-gadget"
 version = "29.0.0"
+dependencies = [
+ "futures",
+ "log",
+ "pallet-ismp",
+ "pallet-mmr-runtime-api",
+ "parity-scale-codec",
+ "sc-client-api",
+ "sc-offchain",
+ "sp-api",
+ "sp-blockchain",
+ "sp-core 28.0.0",
+ "sp-mmr-primitives",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
+name = "mmr-gadget"
+version = "29.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9d0ba6676a84f182dabd7c3ec2c92f0e882fe4e4179ddf76f02ac132e6eb0ab"
 dependencies = [
@@ -7421,6 +7479,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mmr-primitives"
+version = "0.1.0"
+dependencies = [
+ "ckb-merkle-mountain-range",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-core 28.0.0",
+ "sp-mmr-primitives",
+ "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+]
+
+[[package]]
 name = "mmr-rpc"
 version = "28.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7435,13 +7507,6 @@ dependencies = [
  "sp-core 28.0.0",
  "sp-mmr-primitives",
  "sp-runtime 31.0.1",
-]
-
-[[package]]
-name = "mmr-utils"
-version = "0.1.0"
-dependencies = [
- "ckb-merkle-mountain-range",
 ]
 
 [[package]]
@@ -7793,6 +7858,8 @@ dependencies = [
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
  "pallet-message-queue",
+ "pallet-mmr 0.1.0",
+ "pallet-mmr-runtime-api",
  "pallet-session",
  "pallet-sudo",
  "pallet-timestamp",
@@ -7804,6 +7871,7 @@ dependencies = [
  "polkadot-parachain-primitives",
  "polkadot-runtime-common",
  "scale-info",
+ "simnode-runtime-api",
  "smallvec",
  "sp-api",
  "sp-block-builder",
@@ -7811,6 +7879,7 @@ dependencies = [
  "sp-core 28.0.0",
  "sp-genesis-builder",
  "sp-inherents",
+ "sp-mmr-primitives",
  "sp-offchain",
  "sp-runtime 31.0.1",
  "sp-session",
@@ -8474,7 +8543,7 @@ dependencies = [
  "frame-system",
  "log",
  "pallet-beefy",
- "pallet-mmr",
+ "pallet-mmr 27.0.0",
  "pallet-session",
  "parity-scale-codec",
  "scale-info",
@@ -8820,7 +8889,7 @@ dependencies = [
  "ckb-merkle-mountain-range",
  "derive_more",
  "enum-as-inner",
- "env_logger",
+ "env_logger 0.10.2",
  "fortuples",
  "frame-benchmarking",
  "frame-support",
@@ -8828,7 +8897,9 @@ dependencies = [
  "ismp",
  "ismp-testsuite",
  "log",
+ "mmr-primitives",
  "pallet-balances",
+ "pallet-mmr 0.1.0",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
@@ -8837,6 +8908,7 @@ dependencies = [
  "sp-consensus-aura",
  "sp-core 28.0.0",
  "sp-io 30.0.0",
+ "sp-mmr-primitives",
  "sp-runtime 31.0.1",
  "sp-std 14.0.0",
 ]
@@ -8927,6 +8999,7 @@ dependencies = [
  "sp-api",
  "sp-blockchain",
  "sp-core 28.0.0",
+ "sp-mmr-primitives",
  "sp-runtime 31.0.1",
  "sp-storage 19.0.0",
  "sp-trie 29.0.0",
@@ -8943,6 +9016,7 @@ dependencies = [
  "serde",
  "sp-api",
  "sp-core 28.0.0",
+ "sp-mmr-primitives",
  "sp-std 14.0.0",
 ]
 
@@ -8959,7 +9033,7 @@ dependencies = [
  "cumulus-pallet-xcmp-queue",
  "cumulus-primitives-core",
  "dotenv",
- "env_logger",
+ "env_logger 0.10.2",
  "ethereum-trie",
  "evm-common",
  "frame-support",
@@ -8971,6 +9045,7 @@ dependencies = [
  "ismp-bsc",
  "ismp-sync-committee",
  "ismp-testsuite",
+ "mmr-primitives",
  "pallet-asset-gateway",
  "pallet-assets",
  "pallet-balances",
@@ -8981,6 +9056,7 @@ dependencies = [
  "pallet-ismp-relayer",
  "pallet-ismp-rpc",
  "pallet-message-queue",
+ "pallet-mmr 0.1.0",
  "pallet-timestamp",
  "pallet-xcm",
  "parachains-common",
@@ -9050,6 +9126,29 @@ dependencies = [
 
 [[package]]
 name = "pallet-mmr"
+version = "0.1.0"
+dependencies = [
+ "array-bytes 6.2.2",
+ "ckb-merkle-mountain-range",
+ "env_logger 0.11.3",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "itertools 0.10.5",
+ "log",
+ "mmr-primitives",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-core 28.0.0",
+ "sp-io 30.0.0",
+ "sp-mmr-primitives",
+ "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+]
+
+[[package]]
+name = "pallet-mmr"
 version = "27.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba6565b91d1d585047648793feece7c2c70080b37e1f55ab3a4fb50b4c1bec86"
@@ -9064,6 +9163,18 @@ dependencies = [
  "sp-io 30.0.0",
  "sp-mmr-primitives",
  "sp-runtime 31.0.1",
+ "sp-std 14.0.0",
+]
+
+[[package]]
+name = "pallet-mmr-runtime-api"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "serde",
+ "sp-api",
+ "sp-core 28.0.0",
+ "sp-mmr-primitives",
  "sp-std 14.0.0",
 ]
 
@@ -11106,7 +11217,7 @@ dependencies = [
  "kvdb",
  "kvdb-rocksdb",
  "log",
- "mmr-gadget",
+ "mmr-gadget 29.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "pallet-babe",
  "pallet-im-online",
  "pallet-staking",
@@ -12245,7 +12356,7 @@ dependencies = [
  "pallet-indices",
  "pallet-membership",
  "pallet-message-queue",
- "pallet-mmr",
+ "pallet-mmr 27.0.0",
  "pallet-multisig",
  "pallet-nis",
  "pallet-offences",
@@ -13154,6 +13265,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "sc-consensus-manual-seal"
+version = "0.35.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b87636dd0b8aa3d294200100196b0fb51c389ed73e6722ff648feb0fd4adafdb"
+dependencies = [
+ "assert_matches",
+ "async-trait",
+ "futures",
+ "futures-timer",
+ "jsonrpsee 0.16.3",
+ "log",
+ "parity-scale-codec",
+ "sc-client-api",
+ "sc-consensus",
+ "sc-consensus-aura",
+ "sc-consensus-babe",
+ "sc-consensus-epochs",
+ "sc-transaction-pool",
+ "sc-transaction-pool-api",
+ "serde",
+ "sp-api",
+ "sp-blockchain",
+ "sp-consensus",
+ "sp-consensus-aura",
+ "sp-consensus-babe",
+ "sp-consensus-slots",
+ "sp-core 28.0.0",
+ "sp-inherents",
+ "sp-keystore 0.34.0",
+ "sp-runtime 31.0.1",
+ "sp-timestamp",
+ "substrate-prometheus-endpoint",
+ "thiserror",
+]
+
+[[package]]
 name = "sc-consensus-slots"
 version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13687,6 +13834,72 @@ dependencies = [
 ]
 
 [[package]]
+name = "sc-simnode"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d9e89833a86bcf0c106d7be604fecf8d081c5ecd2129d13055265d0b483c2be"
+dependencies = [
+ "async-trait",
+ "clap",
+ "cumulus-client-cli",
+ "cumulus-client-collator",
+ "cumulus-primitives-parachain-inherent",
+ "cumulus-test-relay-sproof-builder",
+ "frame-system",
+ "futures",
+ "jsonrpsee 0.16.3",
+ "log",
+ "num-traits",
+ "parity-scale-codec",
+ "polkadot-primitives",
+ "rand 0.8.5",
+ "sc-basic-authorship",
+ "sc-cli",
+ "sc-client-api",
+ "sc-client-db",
+ "sc-consensus",
+ "sc-consensus-aura",
+ "sc-consensus-babe",
+ "sc-consensus-manual-seal",
+ "sc-consensus-slots",
+ "sc-executor",
+ "sc-informant",
+ "sc-network",
+ "sc-offchain",
+ "sc-rpc",
+ "sc-rpc-server",
+ "sc-service",
+ "sc-telemetry",
+ "sc-tracing",
+ "sc-transaction-pool",
+ "sc-transaction-pool-api",
+ "simnode-runtime-api",
+ "sp-api",
+ "sp-block-builder",
+ "sp-blockchain",
+ "sp-consensus",
+ "sp-consensus-aura",
+ "sp-consensus-babe",
+ "sp-consensus-slots",
+ "sp-core 28.0.0",
+ "sp-externalities 0.25.0",
+ "sp-inherents",
+ "sp-io 30.0.0",
+ "sp-keyring",
+ "sp-offchain",
+ "sp-runtime 31.0.1",
+ "sp-runtime-interface 24.0.0",
+ "sp-session",
+ "sp-state-machine 0.35.0",
+ "sp-timestamp",
+ "sp-transaction-pool",
+ "sp-trie 29.0.0",
+ "sp-wasm-interface 20.0.0",
+ "staging-parachain-info",
+ "tokio",
+]
+
+[[package]]
 name = "sc-state-db"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13945,9 +14158,9 @@ dependencies = [
 
 [[package]]
 name = "scale-info"
-version = "2.10.0"
+version = "2.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f7d66a1128282b7ef025a8ead62a4a9fcf017382ec53b8ffbf4d7bf77bd3c60"
+checksum = "7c453e59a955f81fb62ee5d596b450383d699f152d350e9d23a0db2adb78e4c0"
 dependencies = [
  "bitvec",
  "cfg-if",
@@ -13959,9 +14172,9 @@ dependencies = [
 
 [[package]]
 name = "scale-info-derive"
-version = "2.10.0"
+version = "2.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "abf2c68b89cafb3b8d918dd07b42be0da66ff202cf1155c5739a4e0c1ea0dc19"
+checksum = "18cf6c6447f813ef19eb450e985bcce6705f9ce7660db221b59093d15c79c4b7"
 dependencies = [
  "proc-macro-crate 1.3.1",
  "proc-macro2",
@@ -14500,6 +14713,40 @@ dependencies = [
  "num-traits",
  "paste",
  "wide",
+]
+
+[[package]]
+name = "simnode-runtime-api"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6ff679d4634b044994463559e1986c869ed1f5b3e7aabd859ebd585d9b1506c"
+dependencies = [
+ "parity-scale-codec",
+ "sp-api",
+ "sp-std 14.0.0",
+]
+
+[[package]]
+name = "simnode-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ckb-merkle-mountain-range",
+ "futures",
+ "ismp",
+ "mmr-primitives",
+ "pallet-ismp",
+ "pallet-ismp-rpc",
+ "pallet-mmr 0.1.0",
+ "parity-scale-codec",
+ "sc-consensus-manual-seal",
+ "sp-core 28.0.0",
+ "sp-keyring",
+ "sp-mmr-primitives",
+ "sp-runtime 31.0.1",
+ "subxt",
+ "subxt-utils",
+ "tokio",
 ]
 
 [[package]]
@@ -16631,6 +16878,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "subxt-utils"
+version = "0.1.0"
+dependencies = [
+ "ismp",
+ "parity-scale-codec",
+ "sp-core-hashing 15.0.0",
+ "subxt",
+]
+
+[[package]]
 name = "svm-rs"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -16713,7 +16970,7 @@ dependencies = [
  "base2",
  "bls_on_arkworks",
  "dotenv",
- "env_logger",
+ "env_logger 0.10.2",
  "ethers",
  "hex",
  "log",
@@ -17023,9 +17280,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.35.1"
+version = "1.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c89b4efa943be685f629b149f53829423f8f5531ea21249408e8e2f8671ec104"
+checksum = "1adbebffeca75fcfd058afa480fb6c0b81e165a0323f9c9d39c9697e37c46787"
 dependencies = [
  "backtrace",
  "bytes",
@@ -18344,7 +18601,7 @@ dependencies = [
  "pallet-indices",
  "pallet-membership",
  "pallet-message-queue",
- "pallet-mmr",
+ "pallet-mmr 27.0.0",
  "pallet-multisig",
  "pallet-nomination-pools",
  "pallet-nomination-pools-benchmarking",

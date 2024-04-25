@@ -23,7 +23,8 @@ use ismp_solidity_abi::{
     shared_types::{PostRequest, PostResponse, StateCommitment, StateMachineHeight},
 };
 
-use pallet_ismp::mmr::primitives::{DataOrHash, Leaf};
+use mmr_primitives::DataOrHash;
+use pallet_ismp::mmr::Leaf;
 use primitive_types::H256;
 use std::{env, path::PathBuf};
 
@@ -60,11 +61,11 @@ async fn test_post_response_proof() -> Result<(), anyhow::Error> {
     }
 
     let pos = mmr.push(response)?;
-    let k_index = mmr_utils::mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
+    let k_index = mmr_primitives::mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
 
     let proof = mmr.gen_proof(vec![pos])?;
-    let overlay_root = mmr.get_root()?.hash::<Keccak256>().0;
-    let multiproof = proof.proof_items().iter().map(|h| h.hash::<Keccak256>().0).collect();
+    let overlay_root = mmr.get_root()?.hash().0;
+    let multiproof = proof.proof_items().iter().map(|h| h.hash().0).collect();
 
     // create intermediate state
     let height = StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(10) };

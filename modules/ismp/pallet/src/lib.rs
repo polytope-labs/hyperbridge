@@ -25,45 +25,34 @@ extern crate core;
 pub mod dispatcher;
 mod errors;
 pub mod events;
-pub mod handlers;
 pub mod host;
 pub mod mmr;
-use events::deposit_ismp_events;
 pub use mmr::ProofKeys;
 pub mod child_trie;
+mod impls;
 pub mod primitives;
 pub mod weight_info;
 
-pub use mmr::utils::NodesUtils;
+pub use sp_mmr_primitives::utils::NodesUtils;
 
 use crate::host::Host;
 use codec::{Decode, Encode};
 use frame_support::{
-    dispatch::{DispatchResult, DispatchResultWithPostInfo, Pays, PostDispatchInfo},
+    dispatch::{DispatchResult, DispatchResultWithPostInfo},
     traits::Get,
 };
 use ismp::{
-    consensus::{ConsensusClientId, StateMachineId},
     handlers::{handle_incoming_message, MessageResult},
     messaging::CreateConsensusState,
-    router::{Request, Response},
+    router::Request,
     util::hash_request,
 };
-use log::debug;
-use sp_core::{offchain::StorageKind, H256};
+use sp_core::H256;
 // Re-export pallet items so that they can be accessed from the crate namespace.
-use crate::{
-    errors::HandlingError,
-    mmr::{
-        primitives::{DataOrHash, Leaf, LeafIndex, NodeIndex},
-        Mmr,
-    },
-    primitives::LeafIndexAndPos,
-    weight_info::get_weight,
-};
+use crate::{mmr::Leaf, weight_info::get_weight};
 use frame_system::pallet_prelude::BlockNumberFor;
-use ismp::{host::IsmpHost, messaging::Message};
-use merkle_mountain_range::leaf_index_to_pos;
+use ismp::host::IsmpHost;
+use mmr_primitives::MerkleMountainRangeTree;
 pub use pallet::*;
 use sp_runtime::{
     traits::ValidateUnsigned,
@@ -71,7 +60,6 @@ use sp_runtime::{
         InvalidTransaction, TransactionLongevity, TransactionSource, TransactionValidity,
         TransactionValidityError, ValidTransaction,
     },
-    RuntimeDebug,
 };
 use sp_std::prelude::*;
 
@@ -87,7 +75,6 @@ pub mod pallet {
     use crate::{
         child_trie::CHILD_TRIE_PREFIX,
         errors::HandlingError,
-        mmr::primitives::{LeafIndex, NodeIndex},
         primitives::{ConsensusClientProvider, WeightUsed, ISMP_ID},
         weight_info::WeightProvider,
     };
@@ -111,9 +98,6 @@ pub mod pallet {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
-        /// Prefix for elements stored in the Off-chain DB via Indexing API
-        const INDEXING_PREFIX: &'static [u8];
-
         /// Admin origin for privileged actions
         type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
@@ -134,6 +118,9 @@ pub mod pallet {
 
         /// Weight provider for consensus clients and module callbacks
         type WeightProvider: WeightProvider;
+
+        /// Mmr Implementation
+        type Mmr: MerkleMountainRangeTree<Leaf = Leaf>;
     }
 
     // Simple declaration of the `Pallet` type. It is placeholder we use to implement traits and
@@ -141,24 +128,6 @@ pub mod pallet {
     #[pallet::pallet]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
-
-    /// Latest MMR Root hash
-    #[pallet::storage]
-    #[pallet::getter(fn mmr_root_hash)]
-    pub type RootHash<T: Config> = StorageValue<_, H256, ValueQuery>;
-
-    /// Current size of the MMR (number of leaves) for requests.
-    #[pallet::storage]
-    #[pallet::getter(fn number_of_leaves)]
-    pub type NumberOfLeaves<T> = StorageValue<_, LeafIndex, ValueQuery>;
-
-    /// Hashes of the nodes in the MMR for requests.
-    ///
-    /// Note this collection only contains MMR peaks, the inner nodes (and leaves)
-    /// are pruned and only stored in the Offchain DB.
-    #[pallet::storage]
-    #[pallet::getter(fn request_peaks)]
-    pub type Nodes<T: Config> = StorageMap<_, Identity, NodeIndex, H256, OptionQuery>;
 
     /// Holds a map of state machine heights to their verified state commitments
     #[pallet::storage]
@@ -238,83 +207,17 @@ pub mod pallet {
     #[pallet::getter(fn weight_consumed)]
     pub type WeightConsumed<T: Config> = StorageValue<_, WeightUsed, ValueQuery>;
 
-    /// Mmr positions to commitments
-    #[pallet::storage]
-    #[pallet::getter(fn mmr_positions)]
-    pub type MmrPositions<T: Config> =
-        StorageMap<_, Blake2_128Concat, NodeIndex, H256, OptionQuery>;
-
-    /// Temporary leaf storage for when the block is still executing
-    #[pallet::storage]
-    #[pallet::getter(fn intermediate_leaves)]
-    pub type IntermediateLeaves<T: Config> =
-        CountedStorageMap<_, Blake2_128Concat, NodeIndex, Leaf, OptionQuery>;
-
-    /// Temporary store to increment the leaf index as the block is executed
-    #[pallet::storage]
-    #[pallet::getter(fn intermediate_number_of_leaves)]
-    pub type IntermediateNumberOfLeaves<T> = StorageValue<_, LeafIndex, ValueQuery>;
-
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
-            IntermediateNumberOfLeaves::<T>::put(Self::number_of_leaves());
-            Weight::default()
-        }
-
         fn on_finalize(_n: BlockNumberFor<T>) {
             // Only finalize if mmr was modified
-            let leaves = Self::intermediate_number_of_leaves();
-            let root = if leaves != 0 {
-                let mut mmr: Mmr<mmr::storage::RuntimeStorage, T> =
-                    Mmr::new(Self::number_of_leaves());
-                let range = Self::number_of_leaves()..leaves;
-                for index in range {
-                    let leaf = IntermediateLeaves::<T>::get(index)
-                        .expect("Infallible: Leaf was inserted in this block");
-                    // Mmr push should never fail
-                    match mmr.push(leaf) {
-                        None => {
-                            log::error!(target: "ismp::mmr", "MMR push failed ");
-                        },
-                        Some(position) => {
-                            log::trace!(target: "ismp::mmr", "MMR push {position}");
-                        },
-                    }
-                }
-
-                // Update the size, `mmr.commit()` should also never fail.
-                match mmr.commit() {
-                    Ok(_) => {
-                        log::trace!(target: "ismp::mmr", "Committed to mmr, No of leaves: {leaves}");
-                    },
-                    Err(e) => {
-                        log::error!(target: "ismp::mmr", "MMR finalize failed: {:?}", e);
-                        return;
-                    },
-                }
-
-                // Calculate the mmr's new root
-                let mmr: Mmr<mmr::storage::RuntimeStorage, T> = Mmr::new(leaves);
-                // Update the size, `mmr.finalize()` should also never fail.
-                let root = match mmr.finalize() {
-                    Ok(root) => root,
-                    Err(e) => {
-                        log::error!(target: "ismp::mmr", "MMR finalize failed: {:?}", e);
-                        return;
-                    },
-                };
-
-                // Insert root in storage
-                <RootHash<T>>::put(root);
-                // Clear intermediate values
-                let total = IntermediateLeaves::<T>::count();
-                let _ = IntermediateLeaves::<T>::clear(total, None);
-                IntermediateNumberOfLeaves::<T>::kill();
-                root
-            } else {
-                H256::default()
+            let root = match T::Mmr::finalize() {
+                Ok(root) => root,
+                Err(e) => {
+                    log::error!(target:"ismp", "Failed to finalize MMR {e:?}");
+                    return
+                },
             };
 
             let child_trie_root = frame_support::storage::child::root(
@@ -324,14 +227,12 @@ pub mod pallet {
 
             let log = IsmpConsensusLog {
                 child_trie_root: H256::from_slice(&child_trie_root),
-                mmr_root: root,
+                mmr_root: root.into(),
             };
 
             let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
             <frame_system::Pallet<T>>::deposit_log(digest);
         }
-
-        fn offchain_worker(_n: BlockNumberFor<T>) {}
     }
 
     /// Params to update the unbonding period for a consensus state
@@ -592,168 +493,4 @@ pub struct ResponseReceipt {
     pub response: H256,
     /// Address of the relayer
     pub relayer: Vec<u8>,
-}
-
-/// Digest log for mmr root hash
-#[derive(RuntimeDebug, Encode, Decode)]
-pub struct RequestResponseLog<T: Config> {
-    /// The mmr root hash
-    mmr_root_hash: <T as frame_system::Config>::Hash,
-}
-
-impl<T: Config> Pallet<T> {
-    /// Generate an MMR proof for the given `leaf_indices`.
-    /// Note this method can only be used from an off-chain context
-    /// (Offchain Worker or Runtime API call), since it requires
-    /// all the leaves to be present.
-    /// It may return an error or panic if used incorrectly.
-    pub fn generate_proof(
-        commitments: ProofKeys,
-    ) -> Result<(Vec<Leaf>, primitives::Proof<H256>), primitives::Error> {
-        let leaves_count = NumberOfLeaves::<T>::get();
-        let mmr = Mmr::<mmr::storage::OffchainStorage, T>::new(leaves_count);
-        mmr.generate_proof(commitments)
-    }
-
-    /// Provides a way to handle messages.
-    pub fn handle_messages(messages: Vec<Message>) -> DispatchResultWithPostInfo {
-        // Define a host
-        WeightConsumed::<T>::kill();
-        let host = Host::<T>::default();
-        let mut errors: Vec<HandlingError> = vec![];
-        let total_weight = get_weight::<T>(&messages);
-        for message in messages {
-            match handle_incoming_message(&host, message.clone()) {
-                Ok(MessageResult::ConsensusMessage(res)) => deposit_ismp_events::<T>(
-                    res.into_iter().map(|ev| Ok(ev)).collect(),
-                    &mut errors,
-                ),
-                Ok(MessageResult::Response(res)) => deposit_ismp_events::<T>(res, &mut errors),
-                Ok(MessageResult::Request(res)) => deposit_ismp_events::<T>(res, &mut errors),
-                Ok(MessageResult::Timeout(res)) => deposit_ismp_events::<T>(res, &mut errors),
-                Ok(MessageResult::FrozenClient(id)) =>
-                    Self::deposit_event(Event::<T>::ConsensusClientFrozen {
-                        consensus_client_id: id,
-                    }),
-                Err(err) => {
-                    errors.push(err.into());
-                },
-            }
-        }
-
-        if !errors.is_empty() {
-            debug!(target: "ismp", "Handling Errors {:?}", errors);
-            Self::deposit_event(Event::<T>::Errors { errors })
-        }
-
-        Ok(PostDispatchInfo {
-            actual_weight: {
-                let acc_weight = WeightConsumed::<T>::get();
-                Some((total_weight - acc_weight.weight_limit) + acc_weight.weight_used)
-            },
-            pays_fee: Pays::Yes,
-        })
-    }
-
-    /// Return the on-chain MMR root hash.
-    pub fn mmr_root() -> H256 {
-        Self::mmr_root_hash()
-    }
-
-    /// Return mmr leaf count
-    pub fn mmr_leaf_count() -> LeafIndex {
-        Self::number_of_leaves()
-    }
-    /// Get a node from runtime storage
-    fn get_node(pos: NodeIndex) -> Option<DataOrHash> {
-        Nodes::<T>::get(pos).map(DataOrHash::Hash)
-    }
-
-    /// Insert a node into storage
-    fn insert_node(pos: NodeIndex, node: H256) {
-        Nodes::<T>::insert(pos, node)
-    }
-
-    /// Set the number of leaves in the mmr
-    fn set_num_leaves(num_leaves: LeafIndex) {
-        NumberOfLeaves::<T>::put(num_leaves)
-    }
-
-    /// Returns the offchain key for a request or response leaf index
-    pub fn full_leaf_offchain_key(commitment: H256) -> Vec<u8> {
-        (T::INDEXING_PREFIX, commitment).encode()
-    }
-
-    /// Gets the request from the offchain storage
-    pub fn get_request(commitment: H256) -> Option<Request> {
-        let key = Pallet::<T>::full_leaf_offchain_key(commitment);
-        if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            let data_or_hash = DataOrHash::decode(&mut &*elem).ok()?;
-            return match data_or_hash {
-                DataOrHash::Data(leaf) => match leaf {
-                    Leaf::Request(req) => Some(req),
-                    _ => None,
-                },
-                _ => None,
-            };
-        }
-        None
-    }
-
-    /// Gets the response from the offchain storage
-    pub fn get_response(commitment: H256) -> Option<Response> {
-        let key = Pallet::<T>::full_leaf_offchain_key(commitment);
-        if let Some(elem) = sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &key) {
-            let data_or_hash = DataOrHash::decode(&mut &*elem).ok()?;
-            return match data_or_hash {
-                DataOrHash::Data(leaf) => match leaf {
-                    Leaf::Response(res) => Some(res),
-                    _ => None,
-                },
-                _ => None,
-            };
-        }
-        None
-    }
-
-    /// Return the scale encoded consensus state
-    pub fn get_consensus_state(id: ConsensusClientId) -> Option<Vec<u8>> {
-        ConsensusStates::<T>::get(id)
-    }
-
-    /// Return the timestamp this client was last updated in seconds
-    pub fn get_consensus_update_time(id: ConsensusClientId) -> Option<u64> {
-        ConsensusClientUpdateTime::<T>::get(id)
-    }
-
-    /// Return the challenge period
-    pub fn get_challenge_period(id: ConsensusClientId) -> Option<u64> {
-        ChallengePeriod::<T>::get(id)
-    }
-
-    /// Return the latest height of the state machine
-    pub fn get_latest_state_machine_height(id: StateMachineId) -> Option<u64> {
-        Some(LatestStateMachineHeight::<T>::get(id))
-    }
-
-    /// Get actual requests
-    pub fn get_requests(commitments: Vec<H256>) -> Vec<Request> {
-        commitments.into_iter().filter_map(|cm| Self::get_request(cm)).collect()
-    }
-
-    /// Get actual requests
-    pub fn get_responses(commitments: Vec<H256>) -> Vec<Response> {
-        commitments.into_iter().filter_map(|cm| Self::get_response(cm)).collect()
-    }
-
-    /// Insert a leaf into the mmr and return the position and leaf index
-    pub(crate) fn mmr_push(leaf: Leaf) -> Option<LeafIndexAndPos> {
-        let commitment = leaf.hash::<Host<T>>();
-        let leaf_index = Pallet::<T>::intermediate_number_of_leaves();
-        IntermediateLeaves::<T>::insert(leaf_index, leaf);
-        let pos = leaf_index_to_pos(leaf_index);
-        IntermediateNumberOfLeaves::<T>::put(leaf_index + 1);
-        MmrPositions::<T>::insert(pos, commitment);
-        Some(LeafIndexAndPos { pos, leaf_index })
-    }
 }

@@ -57,6 +57,10 @@ pub enum Subcommand {
     /// Errors since the binary was not build with `--features try-runtime`.
     #[cfg(not(feature = "try-runtime"))]
     TryRuntime,
+
+    /// Runs the node with signature verification override and manual seal.
+    #[cfg(feature = "simnode")]
+    Simnode(sc_simnode::cli::SimnodeCli),
 }
 
 #[derive(Debug, clap::Parser)]

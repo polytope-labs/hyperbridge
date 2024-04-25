@@ -80,7 +80,7 @@ mod beefy {
     impl From<MmrProof> for RelayChainProof {
         fn from(value: MmrProof) -> Self {
             let leaf_index = value.mmr_proof.leaf_indices[0];
-            let k_index = mmr_utils::mmr_position_to_k_index(
+            let k_index = mmr_primitives::mmr_position_to_k_index(
                 vec![leaf_index_to_pos(leaf_index)],
                 leaf_index_to_mmr_size(leaf_index),
             )[0]

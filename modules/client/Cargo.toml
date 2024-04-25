@@ -40,7 +40,7 @@ pallet-ismp = { workspace = true, features = ["disable-panic-handler"] }
 evm-common = { workspace = true }
 ismp-solidity-abi = { workspace = true }
 ethereum-trie = { workspace = true }
-runtime-types = { workspace = true }
+subxt-utils = { workspace = true }
 
 [dependencies.reconnecting-jsonrpsee-ws-client]
 git = "https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client"
@@ -49,8 +49,8 @@ default-features = false
 
 [features]
 default = ["std"]
-wasm = ["subxt/web", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/web", "runtime-types/wasm"]
-std = ["subxt/native", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/native", "runtime-types/std"]
+wasm = ["subxt/web", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/web", "subxt-utils/wasm"]
+std = ["subxt/native", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/native", "subxt-utils/std"]
 
 [dev-dependencies]
 json = { package = "serde_json", version = "1.0.114", default-features = false }

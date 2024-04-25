@@ -1,5 +1,5 @@
 [package]
-name = "runtime-types"
+name = "subxt-utils"
 version = "0.1.0"
 edition = "2021"
 

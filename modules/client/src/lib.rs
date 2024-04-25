@@ -2,7 +2,7 @@
 
 pub mod internals;
 pub mod providers;
-pub use runtime_types::gargantua as runtime;
+pub use subxt_utils::gargantua as runtime;
 pub mod types;
 
 pub mod interfaces;

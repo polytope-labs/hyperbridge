@@ -6,10 +6,6 @@ use mmr_primitives::{DataOrHash, FullLeaf};
 use pallet_ismp::{mmr::Leaf, ProofKeys};
 use pallet_ismp_rpc::MmrProof;
 use pallet_mmr::mmr::Hasher as MmrHasher;
-use runtime_types::{
-    gargantua,
-    gargantua::api::runtime_types::{ismp::host::Ethereum, pallet_ismp_demo::pallet::EvmParams},
-};
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, offchain::StorageKind, Bytes, H256};
 use sp_keyring::sr25519::Keyring;
@@ -26,6 +22,10 @@ use subxt::{
     tx::SubmittableExtrinsic,
     utils::{AccountId32, MultiAddress, MultiSignature, H160},
     OnlineClient,
+};
+use subxt_utils::{
+    gargantua,
+    gargantua::api::runtime_types::{ismp::host::Ethereum, pallet_ismp_demo::pallet::EvmParams},
 };
 
 #[tokio::test]

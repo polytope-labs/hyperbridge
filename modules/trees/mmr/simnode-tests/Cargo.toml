@@ -18,7 +18,7 @@ sp-core = { workspace = true, features = ["full_crypto", "serde"], default-featu
 sp-keyring = { workspace = true }
 sp-runtime = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
-runtime-types = { workspace = true, default-features = true }
+subxt-utils = { workspace = true, default-features = true }
 sc-consensus-manual-seal = { workspace = true }
 pallet-ismp = { workspace = true, default-features = true }
 sp-mmr-primitives = { workspace = true, default-features = true }

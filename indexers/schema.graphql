@@ -208,10 +208,12 @@ type Transfer @entity @compositeIndexes(fields: [["from", "to"]]) {
 Supported Event Types
 """
 enum EventType {
-    EVM_HOST_POST_REQUEST
     EVM_HOST_POST_REQUEST_HANDLED
-    EVM_HOST_POST_RESPONSE
+    EVM_HOST_POST_REQUEST_TIMEOUT_HANDLED
     EVM_HOST_POST_RESPONSE_HANDLED
+    EVM_HOST_POST_RESPONSE_TIMEOUT_HANDLED
+    EVM_HOST_GET_REQUEST_HANDLED
+    EVM_HOST_GET_REQUEST_TIMEOUT_HANDLED
     HANDLER_V1_STATE_MACHINE_UPDATED
 }
 
@@ -219,6 +221,9 @@ enum EventType {
 An event that has occured on an EVM Host
 """
 type Event @entity {
+    """
+    The ID of the event (also the event commitment)
+    """
     id: ID!
     type: EventType!
     chain: SupportedChain!
@@ -226,14 +231,23 @@ type Event @entity {
     blockNumber: BigInt!
     transactionHash: String!
     transactionIndex: BigInt!
-    metadata: EventMetadata
     createdAt: Date!
 }
 
 """
-Metadata for events
+A StateMachine Update Event
 """
-type EventMetadata @jsonField {
-    stateMachineId: BigInt
-    height: BigInt
+type StateMachineUpdateEvent @entity {
+    """
+    The ID of the StateMachineUpdate  (hash of concatenation of stateMachineId and height)
+    """
+    id: ID!
+    stateMachineId: String!
+    height: BigInt!
+    chain: SupportedChain!
+    blockHash: String!
+    blockNumber: BigInt!
+    transactionHash: String!
+    transactionIndex: BigInt!
+    createdAt: Date!
 }

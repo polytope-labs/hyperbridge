@@ -39,15 +39,35 @@ dataSources:
             topics:
               - "PostRequestHandled(bytes32, address)"
         - kind: ethereum/LogHandler
-          handler: handlePostResponseEvent
-          filter:
-            topics:
-              - "PostResponseEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256,bytes,uint256,uint256,uint256)"
-        - kind: ethereum/LogHandler
           handler: handlePostResponseHandledEvent
           filter:
             topics:
               - "PostResponseHandled(bytes32,address)"
+        - kind: ethereum/LogHandler
+          handler: handlePostRequestTimeoutHandledEvent
+          filter:
+            topics:
+              - "PostRequestTimeoutHandled(bytes32)"
+        - kind: ethereum/LogHandler
+          handler: handlePostResponseTimeoutHandledEvent
+          filter:
+            topics:
+              - "PostResponseTimeoutHandled(bytes32)"
+        - kind: ethereum/LogHandler
+          handler: handleGetRequestHandledEvent
+          filter:
+            topics:
+              - "GetRequestHandled(bytes32,address)"
+        - kind: ethereum/LogHandler
+          handler: handleGetRequestTimeoutHandledEvent
+          filter:
+            topics:
+              - "GetRequestTimeoutHandled(bytes32)"
+        - kind: ethereum/LogHandler
+          handler: handleStateMachineUpdatedEvent
+          filter:
+            topics:
+              - "StateMachineUpdated(bytes,uint256)"
 
   # Protocol Fee Token
   - kind: ethereum/Runtime

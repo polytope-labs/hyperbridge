@@ -13,10 +13,15 @@
   },
   "homepage": "https://github.com/subquery/ethereum-subql-starter",
   "repository": "github:subquery/ethereum-subql-starter",
-  "files": ["dist", "schema.graphql", "project.yaml"],
+  "files": [
+    "dist",
+    "schema.graphql",
+    "project.yaml"
+  ],
   "author": "Polytope Labs",
   "license": "MIT",
   "dependencies": {
+    "@ethersproject/shims": "^5.7.0",
     "@subql/common": "latest",
     "@subql/types-ethereum": "latest",
     "@subql/validator": "latest",
@@ -24,9 +29,9 @@
   },
   "devDependencies": {
     "@subql/cli": "latest",
-    "@subql/types": "latest",
-    "@subql/testing": "latest",
     "@subql/node-ethereum": "latest",
+    "@subql/testing": "latest",
+    "@subql/types": "latest",
     "ethers": "^5.7.2",
     "typescript": "latest"
   }

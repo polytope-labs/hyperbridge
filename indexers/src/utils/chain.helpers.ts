@@ -1,4 +1,3 @@
-import { Transaction } from "ethers";
 import { CHAIN_IDS } from "../constants";
 import { SupportedChain } from "../types/enums";
 import { EthereumResult, EthereumTransaction } from "@subql/types-ethereum";

@@ -1,6 +1,5 @@
 import assert from "assert";
-import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
-import { EventType, SupportedChain } from "../../../types";
+import { SupportedChain } from "../../../types";
 import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { PostRequestEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 
@@ -19,19 +18,10 @@ export async function handlePostRequestEvent(
     transactionIndex,
     block,
     transaction,
+    args,
   } = event;
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 
-  await EvmHostEventsService.createEvent(
-    {
-      transactionHash,
-      transactionIndex,
-      blockHash,
-      blockNumber,
-      timestamp: Number(block.timestamp),
-      type: EventType.EVM_HOST_POST_REQUEST,
-    },
-    chain,
-  );
+  // @Todo Add logic handling PostRequestEvents
 }

@@ -34,7 +34,7 @@ pub enum Receipt {
 }
 
 /// Queries a request leaf in the mmr
-#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
+#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo, Clone)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 #[scale_info(skip_type_params(T))]
 pub struct LeafMetadata<T: crate::Config> {
@@ -45,7 +45,7 @@ pub struct LeafMetadata<T: crate::Config> {
 }
 
 /// This is used for tracking user fee payments for requests
-#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
+#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo, Clone)]
 #[scale_info(skip_type_params(T))]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct FeeMetadata<T: crate::Config> {

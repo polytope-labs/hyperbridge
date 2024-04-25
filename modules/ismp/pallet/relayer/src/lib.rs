@@ -43,7 +43,11 @@ use ismp::{
     router::{DispatchPost, DispatchRequest, IsmpDispatcher},
 };
 pub use pallet::*;
-use pallet_ismp::{dispatcher::Dispatcher, host::Host};
+use pallet_ismp::{
+    child_trie::{RequestCommitments, ResponseCommitments},
+    dispatcher::Dispatcher,
+    host::Host,
+};
 use pallet_ismp_host_executive::HostParams;
 use sp_core::U256;
 use sp_runtime::DispatchError;
@@ -86,11 +90,6 @@ pub mod pallet {
     #[pallet::getter(fn nonce)]
     pub type Nonce<T: Config> =
         StorageDoubleMap<_, Twox64Concat, Vec<u8>, Twox64Concat, StateMachine, u64, ValueQuery>;
-
-    /// Request and response commitments that have been claimed
-    #[pallet::storage]
-    #[pallet::getter(fn claimed)]
-    pub type Claimed<T: Config> = StorageMap<_, Identity, H256, bool, ValueQuery>;
 
     #[pallet::error]
     pub enum Error<T> {
@@ -338,9 +337,22 @@ where
             .commitments
             .into_iter()
             .filter(|key| match key {
-                Key::Request(req) => !Claimed::<T>::contains_key(req),
-                Key::Response { response_commitment, .. } =>
-                    !Claimed::<T>::contains_key(&response_commitment),
+                Key::Request(req) => {
+                    match RequestCommitments::<T>::get(*req) {
+                        Some(leaf_meta) => !leaf_meta.meta.claimed,
+                        // If request commitment does not exist in storage which should not be
+                        // possible, we skip it
+                        None => false,
+                    }
+                },
+                Key::Response { response_commitment, .. } => {
+                    match ResponseCommitments::<T>::get(*response_commitment) {
+                        Some(leaf_meta) => !leaf_meta.meta.claimed,
+                        // If request commitment does not exist in storage which should not be
+                        // possible, we skip it
+                        None => false,
+                    }
+                },
             })
             .collect();
         ensure!(!withdrawal_proof.commitments.is_empty(), Error::<T>::MissingCommitments);
@@ -369,7 +381,7 @@ where
             &withdrawal_proof.dest_proof,
             dest_keys.clone().into_iter().chain(slot_2_keys).collect(),
         )?;
-        let (result, commitments) = Self::validate_results(
+        let (result, claimed_commitments) = Self::validate_results(
             &withdrawal_proof,
             source_keys,
             dest_keys,
@@ -386,8 +398,35 @@ where
             });
         }
 
-        for commitment in commitments {
-            Claimed::<T>::insert(commitment, true)
+        for key in withdrawal_proof.commitments {
+            match key {
+                Key::Request(req) => {
+                    if !claimed_commitments.contains(&req) {
+                        continue
+                    }
+                    match RequestCommitments::<T>::get(req) {
+                        Some(mut leaf_meta) => {
+                            leaf_meta.meta.claimed = true;
+                            RequestCommitments::<T>::insert(req, leaf_meta)
+                        },
+                        // Unreachable
+                        None => {},
+                    }
+                },
+                Key::Response { response_commitment, .. } => {
+                    if !claimed_commitments.contains(&response_commitment) {
+                        continue
+                    }
+                    match ResponseCommitments::<T>::get(response_commitment) {
+                        Some(mut leaf_meta) => {
+                            leaf_meta.meta.claimed = true;
+                            ResponseCommitments::<T>::insert(response_commitment, leaf_meta);
+                        },
+                        // Unreachable
+                        None => {},
+                    }
+                },
+            }
         }
 
         for address in result.keys().collect::<hashbrown::HashSet<_>>().into_iter() {
@@ -435,9 +474,8 @@ where
                     StateMachine::Polkadot(_) |
                     StateMachine::Kusama(_) |
                     StateMachine::Grandpa(_) |
-                    StateMachine::Beefy(_) => keys.push(
-                        pallet_ismp::child_trie::RequestCommitments::<T>::storage_key(*commitment),
-                    ),
+                    StateMachine::Beefy(_) =>
+                        keys.push(RequestCommitments::<T>::storage_key(*commitment)),
                 },
                 Key::Response { response_commitment, .. } => {
                     match proof.source_proof.height.id.state_id {
@@ -454,11 +492,8 @@ where
                         StateMachine::Polkadot(_) |
                         StateMachine::Kusama(_) |
                         StateMachine::Grandpa(_) |
-                        StateMachine::Beefy(_) => keys.push(
-                            pallet_ismp::child_trie::ResponseCommitments::<T>::storage_key(
-                                *response_commitment,
-                            ),
-                        ),
+                        StateMachine::Beefy(_) =>
+                            keys.push(ResponseCommitments::<T>::storage_key(*response_commitment)),
                     }
                 },
             }

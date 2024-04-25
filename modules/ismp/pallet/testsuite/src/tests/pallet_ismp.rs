@@ -16,7 +16,6 @@
 #![cfg(test)]
 
 use crate::runtime::*;
-use frame_support::pallet_prelude::Hooks;
 use pallet_ismp::{child_trie::RequestReceipts, dispatcher::Dispatcher, host::Host};
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -36,8 +35,6 @@ use ismp_testsuite::{
     check_challenge_period, check_client_expiry, missing_state_commitment_check,
     post_request_timeout_check, post_response_timeout_check, write_outgoing_commitments,
 };
-
-use sp_core::H256;
 
 fn set_timestamp(now: Option<u64>) {
     Timestamp::set_timestamp(

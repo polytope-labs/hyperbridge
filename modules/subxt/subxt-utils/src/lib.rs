@@ -1,3 +1,10 @@
+use codec::Encode;
+use sp_core_hashing::keccak_256;
+use subxt::{
+    config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
+    utils::{AccountId32, MultiAddress, MultiSignature, H256},
+};
+
 pub mod gargantua;
 
 mod gargantua_conversion {
@@ -137,4 +144,29 @@ mod gargantua_conversion {
             }
         }
     }
+}
+
+/// Implements [`subxt::Config`] for substrate chains with keccak as their hashing algorithm
+#[derive(Clone)]
+pub struct Hyperbridge;
+
+/// A type that can hash values using the keccak_256 algorithm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode)]
+pub struct RuntimeHasher;
+
+impl Hasher for RuntimeHasher {
+    type Output = H256;
+    fn hash(s: &[u8]) -> Self::Output {
+        keccak_256(s).into()
+    }
+}
+
+impl subxt::Config for Hyperbridge {
+    type Hash = H256;
+    type AccountId = AccountId32;
+    type Address = MultiAddress<Self::AccountId, u32>;
+    type Signature = MultiSignature;
+    type Hasher = RuntimeHasher;
+    type Header = SubstrateHeader<u32, RuntimeHasher>;
+    type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
 }

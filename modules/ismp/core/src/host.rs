@@ -155,20 +155,24 @@ pub trait IsmpHost: Keccak256 {
 
     /// Delete a request commitment from storage, used when a request is timed out.
     /// Make sure to refund the user their relayer fee here.
-    fn delete_request_commitment(&self, req: &Request) -> Result<(), Error>;
+    /// Returns the scale encoded commitment metadata
+    fn delete_request_commitment(&self, req: &Request) -> Result<Vec<u8>, Error>;
 
     /// Delete a request commitment from storage, used when a response is timed out.
     /// Make sure to refund the user their relayer fee here.
     /// Also delete the request from the responded map.
-    fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error>;
+    /// Returns the scale encoded commitment metadata
+    fn delete_response_commitment(&self, res: &PostResponse) -> Result<Vec<u8>, Error>;
 
     /// Delete a request receipt from storage, used when a request is timed out.
     /// Should only ever be called by a routing state machine
-    fn delete_request_receipt(&self, req: &Request) -> Result<(), Error>;
+    /// Returns the signer
+    fn delete_request_receipt(&self, req: &Request) -> Result<Vec<u8>, Error>;
 
-    /// Delete a request commitment from storage, used when a response is timed out.
+    /// Delete a response receipt from storage, used when a response is timed out.
     /// Should only ever be called by a routing state machine
-    fn delete_response_receipt(&self, res: &PostResponse) -> Result<(), Error>;
+    /// Returns the signer
+    fn delete_response_receipt(&self, res: &Response) -> Result<Vec<u8>, Error>;
 
     /// Stores a receipt for an incoming request after it is successfully routed to a module.
     /// Prevents duplicate incoming requests from being processed. Includes the relayer account
@@ -178,6 +182,12 @@ pub trait IsmpHost: Keccak256 {
     /// relayer account
     /// Implementors should map the request commitment to the response object commitment.
     fn store_response_receipt(&self, req: &Response, signer: &Vec<u8>) -> Result<(), Error>;
+
+    /// Stores a commitment for an outgoing request alongside some scale encoded metadata
+    fn store_request_commitment(&self, req: &Request, meta: Vec<u8>) -> Result<(), Error>;
+
+    /// Stores a commitment for an outgoing response alongside some scale encoded metadata
+    fn store_response_commitment(&self, res: &PostResponse, meta: Vec<u8>) -> Result<(), Error>;
 
     /// Should return a handle to the consensus client based on the id
     fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error> {

@@ -1,5 +1,5 @@
 [package]
-name = "runtime-types"
+name = "subxt-utils"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,9 +8,11 @@ edition = "2021"
 [dependencies]
 subxt = { workspace = true }
 ismp = { workspace = true }
+sp-core-hashing = { workspace = true }
+codec = { workspace = true }
 
 [features]
 default = ["std"]
 wasm = ["subxt/web", "subxt/jsonrpsee"]
-std = ["subxt/native", "subxt/jsonrpsee", "ismp/std"]
+std = ["subxt/native", "subxt/jsonrpsee", "ismp/std", "sp-core-hashing/std", "codec/std"]
 

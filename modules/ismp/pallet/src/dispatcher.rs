@@ -34,7 +34,7 @@ pub enum Receipt {
 }
 
 /// Queries a request leaf in the mmr
-#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
+#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo, Clone)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 #[scale_info(skip_type_params(T))]
 pub struct LeafMetadata<T: crate::Config> {
@@ -45,7 +45,7 @@ pub struct LeafMetadata<T: crate::Config> {
 }
 
 /// This is used for tracking user fee payments for requests
-#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
+#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo, Clone)]
 #[scale_info(skip_type_params(T))]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct FeeMetadata<T: crate::Config> {
@@ -53,6 +53,8 @@ pub struct FeeMetadata<T: crate::Config> {
     pub origin: T::AccountId,
     /// The amount they paid
     pub fee: T::Balance,
+    /// Has fee been claimed?
+    pub claimed: bool,
 }
 
 /// The dispatcher commits outgoing requests and responses to the mmr
@@ -116,7 +118,7 @@ where
             },
         };
 
-        Pallet::<T>::dispatch_request(request, FeeMetadata { origin, fee })?;
+        Pallet::<T>::dispatch_request(request, FeeMetadata { origin, fee, claimed: false })?;
 
         Ok(())
     }
@@ -133,7 +135,7 @@ where
         }
 
         let response = Response::Post(response);
-        Pallet::<T>::dispatch_response(response, FeeMetadata { origin, fee })?;
+        Pallet::<T>::dispatch_response(response, FeeMetadata { origin, fee, claimed: false })?;
 
         Ok(())
     }

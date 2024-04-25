@@ -88,6 +88,8 @@ where
                 .into_iter()
                 .map(|response| {
                     let cb = router.module_for_id(response.destination_module())?;
+                    // Store response receipt to prevent reentrancy attack
+                    host.store_response_receipt(&response, &msg.signer)?;
                     let res = cb.on_response(response.clone()).map(|_| {
                         let commitment = hash_response::<H>(&response);
                         Event::PostResponseHandled(RequestResponseHandled {
@@ -95,8 +97,8 @@ where
                             relayer: signer.clone(),
                         })
                     });
-                    if res.is_ok() {
-                        host.store_response_receipt(&response, &msg.signer)?;
+                    if res.is_err() {
+                        host.delete_response_receipt(&response)?;
                     }
                     Ok(res)
                 })
@@ -149,6 +151,11 @@ where
 
                     let router = host.ismp_router();
                     let cb = router.module_for_id(request.from.clone())?;
+                    let response = Response::Get(GetResponse {
+                        get: request.clone(),
+                        values: Default::default(),
+                    });
+                    host.store_response_receipt(&response, &msg.signer)?;
                     let res = cb
                         .on_response(Response::Get(GetResponse { get: request.clone(), values }))
                         .map(|_| {
@@ -158,12 +165,9 @@ where
                                 relayer: signer.clone(),
                             })
                         });
-                    let response = Response::Get(GetResponse {
-                        get: request.clone(),
-                        values: Default::default(),
-                    });
-                    if res.is_ok() {
-                        host.store_response_receipt(&response, &msg.signer)?;
+
+                    if res.is_err() {
+                        host.delete_response_receipt(&response)?;
                     }
                     Ok(res)
                 })

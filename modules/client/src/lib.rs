@@ -2,7 +2,7 @@
 
 pub mod internals;
 pub mod providers;
-pub use runtime_types::gargantua as runtime;
+pub use subxt_utils::gargantua as runtime;
 pub mod types;
 
 pub mod interfaces;
@@ -16,11 +16,12 @@ use anyhow::anyhow;
 use crate::{
     interfaces::{JsClientConfig, JsPost, JsPostResponse},
     providers::{evm::EvmClient, substrate::SubstrateClient},
-    types::{ChainConfig, HyperBridgeConfig, MessageStatusWithMetadata, TimeoutStatus},
+    types::{ChainConfig, MessageStatusWithMetadata, TimeoutStatus},
 };
 use ethers::{types::H256, utils::keccak256};
 use futures::StreamExt;
 use ismp::router::{Post, PostResponse};
+use subxt_utils::Hyperbridge;
 use wasm_bindgen::prelude::*;
 use wasm_streams::ReadableStream;
 
@@ -244,7 +245,7 @@ pub struct HyperClient {
     #[wasm_bindgen(skip)]
     pub dest: EvmClient,
     #[wasm_bindgen(skip)]
-    pub hyperbridge: SubstrateClient<HyperBridgeConfig>,
+    pub hyperbridge: SubstrateClient<Hyperbridge>,
 }
 
 impl HyperClient {

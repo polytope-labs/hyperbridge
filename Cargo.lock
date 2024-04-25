@@ -5578,11 +5578,11 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types",
  "reconnecting-jsonrpsee-ws-client",
- "runtime-types",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
  "subxt",
+ "subxt-utils",
  "tokio",
  "tracing",
  "tracing-wasm",
@@ -12511,14 +12511,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e666a5496a0b2186dbcd0ff6106e29e093c15591bde62c20d3842007c6978a09"
 
 [[package]]
-name = "runtime-types"
-version = "0.1.0"
-dependencies = [
- "ismp",
- "subxt",
-]
-
-[[package]]
 name = "rustc-demangle"
 version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14747,13 +14739,13 @@ dependencies = [
  "pallet-ismp-rpc",
  "pallet-mmr 0.1.0",
  "parity-scale-codec",
- "runtime-types",
  "sc-consensus-manual-seal",
  "sp-core 28.0.0",
  "sp-keyring",
  "sp-mmr-primitives",
  "sp-runtime 31.0.1",
  "subxt",
+ "subxt-utils",
  "tokio",
 ]
 
@@ -16883,6 +16875,16 @@ dependencies = [
  "scale-info",
  "sp-core-hashing 9.0.0",
  "thiserror",
+]
+
+[[package]]
+name = "subxt-utils"
+version = "0.1.0"
+dependencies = [
+ "ismp",
+ "parity-scale-codec",
+ "sp-core-hashing 15.0.0",
+ "subxt",
 ]
 
 [[package]]

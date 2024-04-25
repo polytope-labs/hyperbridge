@@ -15,7 +15,7 @@ use sp_mmr_primitives::{
     INDEXING_PREFIX,
 };
 use sp_runtime::traits::Keccak256;
-use std::{env, time::Duration};
+use std::time::Duration;
 use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160, OnlineClient};
 use subxt_utils::{
     gargantua,
@@ -30,8 +30,7 @@ async fn test_all_features() -> Result<(), anyhow::Error> {
 }
 
 async fn dispatch_requests() -> Result<(), anyhow::Error> {
-    let port = env::var("PORT").unwrap_or("9990".into());
-    let client = OnlineClient::<Hyperbridge>::from_url(format!("ws://127.0.0.1:{}", port)).await?;
+    let client = OnlineClient::<Hyperbridge>::from_url("ws://127.0.0.1:9990").await?;
 
     // Initialize MMR Pallet by dispatching some leaves and finalizing
     let params = EvmParams {

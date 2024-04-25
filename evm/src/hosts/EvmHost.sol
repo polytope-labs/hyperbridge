@@ -1,4 +1,17 @@
-// SPDX-License-Identifier: UNLICENSED
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 pragma solidity 0.8.17;
 
 import {Context} from "openzeppelin/utils/Context.sol";
@@ -104,11 +117,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     mapping(uint256 => mapping(uint256 => uint256)) private _stateCommitmentsUpdateTime;
 
     // mapping of state machine identifier to latest known height
-    // (stateMachineId => (blockHeight => timestamp))
+    // (stateMachineId => blockHeight)
     mapping(uint256 => uint256) private _latestStateMachineHeight;
 
     // mapping of all known fishermen accounts
-    // (stateMachineId => (blockHeight => timestamp))
     mapping(address => bool) private _fishermen;
 
     // mapping of state machine identifier to height vetoed to fisherman
@@ -147,7 +159,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     event StateMachineUpdated(bytes stateMachineId, uint256 height);
 
     // Emitted when a state commitment is vetoed by a fisherman
-    event StateCommitmentVetoed(bytes stateMachineId, uint256 height, address fisherman);
+    event StateCommitmentVetoed(
+        bytes stateMachineId, uint256 height, StateCommitment stateCommitment, address fisherman
+    );
 
     // Emitted when a new POST request is dispatched
     event PostRequestEvent(
@@ -451,6 +465,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Delete the state commitment at given state height.
      */
     function deleteStateMachineCommitmentInternal(StateMachineHeight memory height, address fisherman) private {
+        StateCommitment memory comstateCommitment = _stateCommitments[height.stateMachineId][height.height];
         delete _stateCommitments[height.stateMachineId][height.height];
         delete _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
         delete _latestStateMachineHeight[height.stateMachineId];
@@ -460,6 +475,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         emit StateCommitmentVetoed({
             stateMachineId: stateMachineId(height.stateMachineId),
+            stateCommitment: stateCommitment,
             height: height.height,
             fisherman: fisherman
         });

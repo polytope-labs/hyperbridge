@@ -465,7 +465,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Delete the state commitment at given state height.
      */
     function deleteStateMachineCommitmentInternal(StateMachineHeight memory height, address fisherman) private {
-        StateCommitment memory comstateCommitment = _stateCommitments[height.stateMachineId][height.height];
+        StateCommitment memory stateCommitment = _stateCommitments[height.stateMachineId][height.height];
         delete _stateCommitments[height.stateMachineId][height.height];
         delete _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
         delete _latestStateMachineHeight[height.stateMachineId];

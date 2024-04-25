@@ -24,6 +24,7 @@ use subxt_utils::{
 };
 
 #[tokio::test]
+#[ignore]
 async fn test_all_features() -> Result<(), anyhow::Error> {
     dispatch_requests().await?;
     Ok(())

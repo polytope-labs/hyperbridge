@@ -317,7 +317,7 @@ jobs:
           cargo build -p hyperbridge --release --features simnode
           ./target/release/hyperbridge simnode --chain gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --unsafe-rpc-external --rpc-methods=unsafe &
           sleep 20;
-          cargo test -p simnode-tests -- --nocapture 
+          cargo test -p simnode-tests -- --nocapture --ignored
           kill -9 $!
 
   check-solidity:

@@ -1,4 +1,4 @@
-#[allow(dead_code, unused_imports, non_camel_case_types)]
+#[allow(dead_code, missing_docs, unused_imports, non_camel_case_types)]
 #[allow(clippy::all)]
 #[allow(rustdoc::broken_intra_doc_links)]
 pub mod api {
@@ -1805,9 +1805,9 @@ pub mod api {
             .hash();
         runtime_metadata_hash ==
             [
-                208u8, 60u8, 102u8, 134u8, 169u8, 79u8, 192u8, 230u8, 112u8, 246u8, 133u8, 94u8,
-                143u8, 53u8, 19u8, 36u8, 124u8, 26u8, 179u8, 243u8, 27u8, 33u8, 251u8, 249u8,
-                165u8, 6u8, 138u8, 150u8, 165u8, 217u8, 213u8, 28u8,
+                170u8, 171u8, 126u8, 165u8, 59u8, 45u8, 85u8, 235u8, 10u8, 169u8, 176u8, 184u8,
+                172u8, 23u8, 227u8, 44u8, 201u8, 107u8, 147u8, 21u8, 135u8, 143u8, 165u8, 69u8,
+                62u8, 220u8, 117u8, 220u8, 38u8, 223u8, 241u8, 174u8,
             ]
     }
     pub mod system {
@@ -10597,51 +10597,6 @@ pub mod api {
                             198u8, 35u8, 9u8, 55u8, 199u8, 245u8, 28u8, 184u8, 253u8, 16u8, 58u8,
                             174u8, 28u8, 28u8, 40u8, 185u8, 145u8, 16u8, 58u8, 80u8, 153u8, 151u8,
                             83u8, 232u8, 20u8, 219u8, 39u8, 88u8, 28u8, 152u8, 114u8, 204u8,
-                        ],
-                    )
-                }
-                #[doc = " Request and response commitments that have been claimed"]
-                pub fn claimed(
-                    &self,
-                    _0: impl ::std::borrow::Borrow<::subxt::utils::H256>,
-                ) -> ::subxt::storage::address::Address<
-                    ::subxt::storage::address::StaticStorageMapKey,
-                    ::core::primitive::bool,
-                    ::subxt::storage::address::Yes,
-                    ::subxt::storage::address::Yes,
-                    ::subxt::storage::address::Yes,
-                > {
-                    ::subxt::storage::address::Address::new_static(
-                        "Relayer",
-                        "Claimed",
-                        vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
-                        [
-                            172u8, 193u8, 164u8, 35u8, 40u8, 35u8, 217u8, 209u8, 141u8, 218u8,
-                            195u8, 160u8, 124u8, 100u8, 81u8, 223u8, 247u8, 129u8, 55u8, 117u8,
-                            143u8, 196u8, 243u8, 5u8, 41u8, 139u8, 201u8, 226u8, 75u8, 133u8, 74u8,
-                            233u8,
-                        ],
-                    )
-                }
-                #[doc = " Request and response commitments that have been claimed"]
-                pub fn claimed_root(
-                    &self,
-                ) -> ::subxt::storage::address::Address<
-                    ::subxt::storage::address::StaticStorageMapKey,
-                    ::core::primitive::bool,
-                    (),
-                    ::subxt::storage::address::Yes,
-                    ::subxt::storage::address::Yes,
-                > {
-                    ::subxt::storage::address::Address::new_static(
-                        "Relayer",
-                        "Claimed",
-                        Vec::new(),
-                        [
-                            172u8, 193u8, 164u8, 35u8, 40u8, 35u8, 217u8, 209u8, 141u8, 218u8,
-                            195u8, 160u8, 124u8, 100u8, 81u8, 223u8, 247u8, 129u8, 55u8, 117u8,
-                            143u8, 196u8, 243u8, 5u8, 41u8, 139u8, 201u8, 226u8, 75u8, 133u8, 74u8,
-                            233u8,
                         ],
                     )
                 }

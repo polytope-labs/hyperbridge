@@ -87,6 +87,7 @@ where
                     // Delete commitment to prevent rentrancy attack
                     let meta = host.delete_request_commitment(&request)?;
                     let mut signer = None;
+                    // If it was a routed request delete the receipt
                     if host.host_state_machine() != request.source_chain() {
                         signer = host.delete_request_receipt(&request).ok();
                     }
@@ -94,6 +95,7 @@ where
                         let commitment = hash_request::<H>(&request);
                         Event::PostRequestTimeoutHandled(TimeoutHandled { commitment })
                     });
+                    // If module callback failed restore commitment so it can be retried
                     if res.is_err() {
                         host.store_request_commitment(&request, meta)?;
                         // If the request was routed we store it's receipt
@@ -161,6 +163,7 @@ where
                         let commitment = hash_post_response::<H>(&response);
                         Event::PostResponseTimeoutHandled(TimeoutHandled { commitment })
                     });
+                    // If module callback failed restore commitment so it can be retried
                     if res.is_err() {
                         host.store_response_commitment(&response, meta)?;
                         if host.host_state_machine() != response.source_chain() && signer.is_some()
@@ -204,6 +207,7 @@ where
                         let commitment = hash_request::<H>(&request);
                         Event::GetRequestTimeoutHandled(TimeoutHandled { commitment })
                     });
+                    // If module callback failed, restore commitment so it can be retried
                     if res.is_err() {
                         host.store_request_commitment(&request, meta)?;
                     }

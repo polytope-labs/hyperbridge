@@ -328,10 +328,12 @@ impl<T: Config> IsmpHost for Host<T> {
 
     fn store_response_commitment(&self, res: &PostResponse, meta: Vec<u8>) -> Result<(), Error> {
         let hash = hash_post_response::<Self>(res);
+        let req_commitment = hash_request::<Self>(&res.request());
         let leaf_meta = LeafMetadata::<T>::decode(&mut &*meta).map_err(|_| {
             Error::ImplementationSpecific("Failed to decode leaf metadata".to_string())
         })?;
         ResponseCommitments::<T>::insert(hash, leaf_meta);
+        Responded::<T>::insert(req_commitment, true);
         Ok(())
     }
 }

@@ -97,6 +97,7 @@ where
                             relayer: signer.clone(),
                         })
                     });
+                    // Delete receipt if module callback failed so it can be timed out
                     if res.is_err() {
                         host.delete_response_receipt(&response)?;
                     }
@@ -165,7 +166,7 @@ where
                                 relayer: signer.clone(),
                             })
                         });
-
+                    // Delete receipt if module callback failed so it can be timed out
                     if res.is_err() {
                         host.delete_response_receipt(&response)?;
                     }

@@ -7,7 +7,7 @@
     Debug,
     PartialEq,
     Eq,
-    Hash
+    Hash,
 )]
 pub struct GetRequest {
     pub source: ::ethers::core::types::Bytes,
@@ -27,13 +27,14 @@ pub struct GetRequest {
     Debug,
     PartialEq,
     Eq,
-    Hash
+    Hash,
 )]
 pub struct GetResponse {
     pub request: GetRequest,
     pub values: ::std::vec::Vec<StorageValue>,
 }
-///`IncomingGetResponse(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(bytes,bytes)[]),address)`
+///`IncomingGetResponse(((bytes,bytes,uint64,bytes,uint64,bytes[],uint64),(bytes,bytes)[]),
+/// address)`
 #[derive(
     Clone,
     ::ethers::contract::EthAbiType,
@@ -42,7 +43,7 @@ pub struct GetResponse {
     Debug,
     PartialEq,
     Eq,
-    Hash
+    Hash,
 )]
 pub struct IncomingGetResponse {
     pub response: GetResponse,
@@ -57,7 +58,7 @@ pub struct IncomingGetResponse {
     Debug,
     PartialEq,
     Eq,
-    Hash
+    Hash,
 )]
 pub struct IncomingPostRequest {
     pub request: PostRequest,
@@ -72,7 +73,7 @@ pub struct IncomingPostRequest {
     Debug,
     PartialEq,
     Eq,
-    Hash
+    Hash,
 )]
 pub struct IncomingPostResponse {
     pub response: PostResponse,
@@ -87,7 +88,7 @@ pub struct IncomingPostResponse {
     Debug,
     PartialEq,
     Eq,
-    Hash
+    Hash,
 )]
 pub struct PostRequest {
     pub source: ::ethers::core::types::Bytes,
@@ -107,7 +108,7 @@ pub struct PostRequest {
     Debug,
     PartialEq,
     Eq,
-    Hash
+    Hash,
 )]
 pub struct PostResponse {
     pub request: PostRequest,
@@ -123,7 +124,7 @@ pub struct PostResponse {
     Debug,
     PartialEq,
     Eq,
-    Hash
+    Hash,
 )]
 pub struct StateCommitment {
     pub timestamp: ::ethers::core::types::U256,
@@ -139,7 +140,7 @@ pub struct StateCommitment {
     Debug,
     PartialEq,
     Eq,
-    Hash
+    Hash,
 )]
 pub struct StateMachineHeight {
     pub state_machine_id: ::ethers::core::types::U256,
@@ -154,7 +155,7 @@ pub struct StateMachineHeight {
     Debug,
     PartialEq,
     Eq,
-    Hash
+    Hash,
 )]
 pub struct StorageValue {
     pub key: ::ethers::core::types::Bytes,

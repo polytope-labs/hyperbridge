@@ -21,6 +21,7 @@ pub mod module;
 pub mod router;
 pub mod util;
 
+pub use error::Error;
 pub mod prelude {
     //! Some useful imports in the crate prelude.
     pub use alloc::{format, str::FromStr, string::String, vec, vec::Vec};

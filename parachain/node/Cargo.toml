@@ -23,6 +23,9 @@ messier-runtime = { path = "../runtimes/messier" }
 nexus-runtime = { path = "../runtimes/nexus" }
 pallet-ismp-rpc = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
+mmr-gadget = { workspace = true }
+pallet-mmr-runtime-api = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true }
 
 # Substrate
 frame-benchmarking = { workspace = true }
@@ -60,6 +63,7 @@ sp-transaction-pool = { workspace = true }
 substrate-frame-rpc-system = { workspace = true }
 substrate-prometheus-endpoint = { workspace = true }
 try-runtime-cli = { workspace = true,  optional = true }
+sp-mmr-primitives = { workspace = true,  default-features = true }
 
 # Polkadot
 polkadot-cli = { workspace = true }
@@ -80,6 +84,12 @@ cumulus-relay-chain-interface = { workspace = true }
 cumulus-client-consensus-proposer = { workspace = true }
 cumulus-client-collator = { workspace = true }
 
+# Simnode
+sc-simnode = { workspace = true, optional = true }
+frame-system = { workspace = true, optional = true }
+pallet-transaction-payment = { workspace = true, optional = true }
+simnode-runtime-api = { workspace = true, optional = true }
+
 [build-dependencies]
 substrate-build-script-utils = { version = "11.0.0" }
 
@@ -91,6 +101,7 @@ runtime-benchmarks = [
 	"messier-runtime/runtime-benchmarks",
 	"polkadot-cli/runtime-benchmarks",
 ]
+
 try-runtime = [
 	"try-runtime-cli/try-runtime",
 	"gargantua-runtime/try-runtime",
@@ -99,4 +110,14 @@ try-runtime = [
 async-backing = [
 	"gargantua-runtime/async-backing",
 	"messier-runtime/async-backing"
+]
+
+simnode = [
+	"sc-simnode/parachain",
+	"frame-system",
+	"pallet-transaction-payment",
+	"simnode-runtime-api",
+	"gargantua-runtime/simnode",
+	"nexus-runtime/simnode",
+	"messier-runtime/simnode"
 ]

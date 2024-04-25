@@ -21,7 +21,7 @@ tracing = "0.1.34"
 tracing-subscriber = "0.3.11"
 serde = "1.0.188"
 envy = "0.4.2"
-subxt = { version = "0.30.1", features = ["substrate-compat"] }
+subxt = { workspace = true, features = ["substrate-compat"], default-features = true }
 
 # substrate
 trie-db = { workspace = true, default-features = true }
@@ -32,9 +32,10 @@ sp-trie = { workspace = true, default-features = true }
 ethers = { workspace = true, default-features = true }
 forge-testsuite = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true, features = ["default"] }
-mmr-utils = { workspace = true, default-features = true }
+mmr-primitives = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
+pallet-mmr = { workspace = true, default-features = true }
 beefy-prover = { workspace = true, default-features = true }
 beefy-verifier-primitives = { workspace = true, default-features = true }
 pallet-ismp-relayer = { workspace = true, default-features = true }

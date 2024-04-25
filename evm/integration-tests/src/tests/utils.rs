@@ -1,10 +1,10 @@
-use crate::{Keccak256, Mmr};
+use std::collections::{BTreeMap, HashSet};
+
+use crate::{DataOrHash, Mmr};
 use ismp_solidity_abi::{beefy::StateMachineHeight, handler::Proof};
-use pallet_ismp::mmr::primitives::DataOrHash;
 use primitive_types::{H256, U256};
 use sp_core::KeccakHasher;
 use sp_trie::{LayoutV0, MemoryDB, StorageProof, TrieDBBuilder, EMPTY_PREFIX};
-use std::collections::{BTreeMap, HashSet};
 use trie_db::{HashDB, Recorder, Trie, TrieDBMutBuilder, TrieMut};
 
 /// Initialize an MMR tree, inserting the given leaf into it and returning the root of the tree, the
@@ -28,10 +28,10 @@ pub fn initialize_mmr_tree(
         mmr.push(DataOrHash::Hash(hash))?;
     }
 
-    let k_index = mmr_utils::mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
+    let k_index = mmr_primitives::mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
     let proof = mmr.gen_proof(vec![pos])?;
-    let root = mmr.get_root()?.hash::<Keccak256>().0;
-    let multiproof = proof.proof_items().iter().map(|h| h.hash::<Keccak256>().0).collect();
+    let root = mmr.get_root()?.hash().0;
+    let multiproof = proof.proof_items().iter().map(|h| h.hash().0).collect();
     let height =
         StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(block_height) };
     let proof = Proof { height, multiproof, leaf_count: (61).into() };

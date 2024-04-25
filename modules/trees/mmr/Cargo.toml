@@ -1,9 +1,0 @@
-[package]
-name = "mmr-utils"
-version = "0.1.0"
-edition = "2021"
-description = "Utilities for merkle mountain range trees"
-authors = ["Polytope Labs <hello@polytope.technology>"]
-
-[dependencies]
-merkle-mountain-range = { workspace = true }

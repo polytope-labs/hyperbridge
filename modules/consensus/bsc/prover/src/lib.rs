@@ -51,6 +51,11 @@ impl BscPosProver {
         &self,
         attested_header: CodecHeader,
         validator_size: u64,
+        // Current consensus client epoch
+        epoch: u64,
+        // Use this bool to force fetching of validator set change outside of the default rotation
+        // period
+        fetch_val_set_change: bool,
     ) -> Result<Option<BscClientUpdate>, anyhow::Error> {
         trace!(target: "bsc-prover", "fetching bsc update for  {:?}", attested_header.number);
         let parse_extra_data = parse_extra::<I>(&attested_header.extra_data)
@@ -71,17 +76,18 @@ impl BscPosProver {
             .await?
             .ok_or_else(|| anyhow!("header block could not be fetched {target_hash}"))?;
 
-        let source_header_epoch = compute_epoch(source_header.number.low_u64());
-        let epoch_header_number = source_header_epoch * EPOCH_LENGTH;
-
         let mut epoch_header_ancestry = vec![];
-
+        let epoch_header_number = epoch * EPOCH_LENGTH;
         // If we are still in authority rotation period get the epoch header ancestry alongside
         // update only if the finalized header is not the epoch block
         let rotation_block = get_rotation_block(epoch_header_number, validator_size) - 1;
-        if attested_header.number.low_u64() >= epoch_header_number + 2 &&
+        if (attested_header.number.low_u64() >= epoch_header_number + 2 &&
             attested_header.number.low_u64() <= rotation_block &&
-            source_header.number.low_u64() > epoch_header_number
+            source_header.number.low_u64() > epoch_header_number) ||
+            // If forcing a fetching of validator set, the source header must still be greater than  epoch header number
+            // To avoid the issue seen here https://testnet.bscscan.com/block/39713004 where the source header is lesser than the epoch header
+            // We will skip such updates.
+            (fetch_val_set_change && source_header.number.low_u64() > epoch_header_number)
         {
             let mut header =
                 self.fetch_header(source_header.parent_hash).await?.ok_or_else(|| {
@@ -96,11 +102,16 @@ impl BscPosProver {
             }
         }
 
+        let source_header_number = source_header.number.low_u64();
+        let attested_header_number = attested_header.number.low_u64();
+        let ancestry_len = epoch_header_ancestry.len();
         let bsc_client_update = BscClientUpdate {
             source_header,
             target_header,
             attested_header,
-            epoch_header_ancestry: epoch_header_ancestry.try_into().expect("Infallible: Qed"),
+            epoch_header_ancestry: epoch_header_ancestry.try_into().map_err(|_| {
+                anyhow!("Epoch ancestry too large, Length {:?}, Epoch Header {epoch_header_number:?}, Source Header {source_header_number:?}, Attested Header {attested_header_number:?}",ancestry_len)
+            })?,
         };
 
         Ok(Some(bsc_client_update))

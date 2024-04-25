@@ -15,7 +15,7 @@
 
 use crate::{
     alloc::{boxed::Box, string::ToString},
-    AccountId, Assets, Balance, Balances, Gateway, Ismp, ParachainInfo, Runtime, RuntimeEvent,
+    AccountId, Assets, Balance, Balances, Gateway, Ismp, Mmr, ParachainInfo, Runtime, RuntimeEvent,
     Timestamp, EXISTENTIAL_DEPOSIT,
 };
 use frame_support::{
@@ -68,7 +68,6 @@ impl Get<Option<StateMachine>> for Coprocessor {
 
 impl pallet_ismp::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    const INDEXING_PREFIX: &'static [u8] = b"ISMP";
     type AdminOrigin = EnsureRoot<AccountId>;
     type HostStateMachine = HostStateMachine;
     type TimeProvider = Timestamp;
@@ -78,6 +77,8 @@ impl pallet_ismp::Config for Runtime {
         ismp_bsc::BscClient<Host<Runtime>>,
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Mainnet>,
     );
+
+    type Mmr = Mmr;
     type WeightProvider = ();
 }
 
@@ -150,7 +151,8 @@ impl pallet_assets::Config for Runtime {
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
         if request.dest != HostStateMachine::get() {
-            let meta = FeeMetadata { origin: [0u8; 32].into(), fee: Default::default() };
+            let meta =
+                FeeMetadata { origin: [0u8; 32].into(), fee: Default::default(), claimed: false };
             return Ismp::dispatch_request(Request::Post(request), meta);
         }
 
@@ -168,7 +170,8 @@ impl IsmpModule for ProxyModule {
 
     fn on_response(&self, response: Response) -> Result<(), Error> {
         if response.dest_chain() != HostStateMachine::get() {
-            let meta = FeeMetadata { origin: [0u8; 32].into(), fee: Default::default() };
+            let meta =
+                FeeMetadata { origin: [0u8; 32].into(), fee: Default::default(), claimed: false };
             return Ismp::dispatch_response(response, meta);
         }
 

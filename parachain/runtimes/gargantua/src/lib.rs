@@ -68,11 +68,10 @@ use frame_system::{
     limits::{BlockLength, BlockWeights},
     EnsureRoot, Phase,
 };
-use pallet_ismp::{
-    mmr::primitives::{Leaf, LeafIndex},
-    primitives::Proof,
-};
+
+use pallet_ismp::primitives::Proof;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
+use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 use xcm::XcmOriginToTransactDispatchOrigin;
 
@@ -88,7 +87,7 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
 use frame_support::{derive_impl, traits::ConstBool};
-use pallet_ismp::ProofKeys;
+use pallet_ismp::{mmr::Leaf, ProofKeys};
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -534,6 +533,13 @@ impl pallet_sudo::Config for Runtime {
     type RuntimeCall = RuntimeCall;
     type WeightInfo = ();
 }
+
+impl pallet_mmr::Config for Runtime {
+    const INDEXING_PREFIX: &'static [u8] = INDEXING_PREFIX;
+    type Hashing = Keccak256;
+    type Leaf = Leaf;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime
@@ -560,20 +566,21 @@ construct_runtime!(
         XcmpQueue: cumulus_pallet_xcmp_queue::{Pallet, Call, Storage, Event<T>} = 30,
         PolkadotXcm: pallet_xcm = 31,
         CumulusXcm: cumulus_pallet_xcm::{Pallet, Event<T>, Origin} = 32,
+
         // ISMP stuff
         // Xcm messages are executed in on_initialize of the message queue, pallet ismp must come before the queue so it can
         // setup the mmr
-        Ismp: pallet_ismp = 33,
-        MessageQueue: pallet_message_queue = 34,
+        Mmr: pallet_mmr = 40,
+        Ismp: pallet_ismp = 41,
+        MessageQueue: pallet_message_queue = 42,
 
-
-        IsmpSyncCommittee: ismp_sync_committee::pallet = 41,
-        IsmpDemo: pallet_ismp_demo = 42,
-        Relayer: pallet_ismp_relayer = 43,
-        HostExecutive: pallet_ismp_host_executive = 45,
-        CallDecompressor: pallet_call_decompressor = 46,
-        Gateway: pallet_asset_gateway = 47,
-        Assets: pallet_assets = 48,
+        IsmpSyncCommittee: ismp_sync_committee::pallet = 51,
+        IsmpDemo: pallet_ismp_demo = 52,
+        Relayer: pallet_ismp_relayer = 53,
+        HostExecutive: pallet_ismp_host_executive = 55,
+        CallDecompressor: pallet_call_decompressor = 56,
+        Gateway: pallet_asset_gateway = 57,
+        Assets: pallet_assets = 58,
     }
 );
 
@@ -740,17 +747,24 @@ impl_runtime_apis! {
             TransactionPayment::length_to_fee(length)
         }
     }
+    impl pallet_mmr_runtime_api::MmrRuntimeApi<Block, <Block as BlockT>::Hash, BlockNumber, Leaf> for Runtime {
+        /// Return Block number where pallet-mmr was added to the runtime
+        fn pallet_genesis() -> Result<Option<BlockNumber>, sp_mmr_primitives::Error> {
+            Ok(Mmr::initial_height())
+        }
 
-    impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
         /// Return the number of MMR leaves.
-        fn mmr_leaf_count() -> Result<LeafIndex, pallet_ismp::primitives::Error> {
-            Ok(Ismp::mmr_leaf_count())
+        fn mmr_leaf_count() -> Result<LeafIndex, sp_mmr_primitives::Error> {
+            Ok(Mmr::mmr_leaves())
         }
 
         /// Return the on-chain MMR root hash.
-        fn mmr_root() -> Result<<Block as BlockT>::Hash, pallet_ismp::primitives::Error> {
-            Ok(Ismp::mmr_root())
+        fn mmr_root() -> Result<Hash, sp_mmr_primitives::Error> {
+            Ok(Mmr::mmr_root_hash())
         }
+    }
+
+    impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
 
         fn challenge_period(consensus_state_id: [u8; 4]) -> Option<u64> {
             Ismp::get_challenge_period(consensus_state_id)
@@ -759,7 +773,7 @@ impl_runtime_apis! {
         /// Generate a proof for the provided leaf indices
         fn generate_proof(
             keys: ProofKeys
-        ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), pallet_ismp::primitives::Error> {
+        ) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), sp_mmr_primitives::Error> {
             Ismp::generate_proof(keys)
         }
 
@@ -909,7 +923,7 @@ impl_runtime_apis! {
         }
     }
 
-       impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
+    impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
         fn create_default_config() -> Vec<u8> {
             create_default_config::<RuntimeGenesisConfig>()
         }
@@ -918,6 +932,46 @@ impl_runtime_apis! {
             build_config::<RuntimeGenesisConfig>(config)
         }
     }
+
+    #[cfg(feature = "simnode")]
+    impl<RuntimeCall, AccountId> simnode_runtime_api::CreateTransactionApi<Block, RuntimeCall, AccountId> for Runtime
+        where
+            RuntimeCall: codec::Codec,
+            Block: sp_runtime::traits::Block,
+            AccountId: codec::Codec + codec::EncodeLike<sp_runtime::AccountId32>
+                + Into<sp_runtime::AccountId32> + Clone + PartialEq
+                + scale_info::TypeInfo + core::fmt::Debug,
+    {
+        fn create_transaction(account: AccountId, call: RuntimeCall) -> Vec<u8> {
+            use sp_runtime::{
+                generic::Era, MultiSignature,
+                traits::StaticLookup,
+            };
+            use codec::Encode;
+            use sp_core::sr25519;
+            let nonce = frame_system::Pallet::<Runtime>::account_nonce(account.clone());
+            let extra = (
+                        frame_system::CheckNonZeroSender::<Runtime>::new(),
+                        frame_system::CheckSpecVersion::<Runtime>::new(),
+                        frame_system::CheckTxVersion::<Runtime>::new(),
+                        frame_system::CheckGenesis::<Runtime>::new(),
+                        frame_system::CheckEra::<Runtime>::from(Era::Immortal),
+                        frame_system::CheckNonce::<Runtime>::from(nonce),
+                        frame_system::CheckWeight::<Runtime>::new(),
+                        pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
+                );
+            let signature = MultiSignature::from(sr25519::Signature([0_u8;64]));
+            let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());
+            let ext = generic::UncheckedExtrinsic::<Address, RuntimeCall, Signature, SignedExtra>::new_signed(
+                call,
+                address,
+                signature,
+                extra,
+            );
+            ext.encode()
+        }
+    }
+
 }
 
 cumulus_pallet_parachain_system::register_validate_block! {

@@ -22,24 +22,15 @@ use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     router::{Request, Response},
 };
-use pallet_ismp::{
-    mmr::primitives::{Leaf, LeafIndex},
-    primitives::{Error, Proof},
-    ProofKeys,
-};
+use pallet_ismp::{mmr::Leaf, primitives::Proof, ProofKeys};
 use sp_core::H256;
+use sp_mmr_primitives::Error;
 #[cfg(not(feature = "std"))]
 use sp_std::vec::Vec;
 
 sp_api::decl_runtime_apis! {
     /// ISMP Runtime Apis
     pub trait IsmpRuntimeApi<Hash: codec::Codec> {
-        /// Return the number of MMR leaves.
-        fn mmr_leaf_count() -> Result<LeafIndex, Error>;
-
-        /// Return the on-chain MMR root hash.
-        fn mmr_root() -> Result<Hash, Error>;
-
         /// Generate a proof for the provided leaf indices
         fn generate_proof(
             commitments: ProofKeys

@@ -1,0 +1,29 @@
+[package]
+name = "mmr-primitives"
+version = "0.1.0"
+edition = "2021"
+description = "Utilities for merkle mountain range trees"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+merkle-mountain-range = { workspace = true }
+codec = { workspace = true }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+sp-mmr-primitives = { workspace = true }
+serde = { version = "1.0.136", features = ["derive"], default-features = false }
+scale-info = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "sp-core/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "serde/default",
+    "scale-info/std",
+    "sp-mmr-primitives/std",
+    "merkle-mountain-range/std",
+]

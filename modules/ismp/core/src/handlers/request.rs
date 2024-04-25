@@ -88,6 +88,8 @@ where
             let wrapped_req = Request::Post(request.clone());
             let lambda = || {
                 let cb = router.module_for_id(request.to.clone())?;
+                // Store request receipt to prevent reentrancy attack
+                host.store_request_receipt(&wrapped_req, &msg.signer)?;
                 let res = cb.on_accept(request.clone()).map(|_| {
                     let commitment = hash_request::<H>(&wrapped_req);
                     Event::PostRequestHandled(RequestResponseHandled {
@@ -95,8 +97,9 @@ where
                         relayer: signer.clone(),
                     })
                 });
-                if res.is_ok() {
-                    host.store_request_receipt(&wrapped_req, &msg.signer)?;
+                // Delete receipt if module callback failed so it can be timed out
+                if res.is_err() {
+                    host.delete_request_receipt(&wrapped_req)?;
                 }
                 Ok(res)
             };

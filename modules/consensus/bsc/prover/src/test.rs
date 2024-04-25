@@ -55,7 +55,7 @@ async fn verify_bsc_pos_headers() {
         let block_epoch = compute_epoch(header.number.low_u64());
 
         if let Some(mut update) = prover
-            .fetch_bsc_update::<Host>(header.clone(), validators.len() as u64)
+            .fetch_bsc_update::<Host>(header.clone(), validators.len() as u64, current_epoch, false)
             .await
             .unwrap()
         {

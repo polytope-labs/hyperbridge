@@ -167,6 +167,17 @@ where
         telemetry
     });
 
+    // Spawn mmr canonicalizing task
+    task_manager.spawn_handle().spawn(
+        "mmr-canonicalizing-gadget",
+        "mmr-gadget",
+        mmr_gadget::MmrGadget::start(
+            client.clone(),
+            backend.clone(),
+            sp_mmr_primitives::INDEXING_PREFIX.to_vec(),
+        ),
+    );
+
     let transaction_pool = sc_transaction_pool::BasicPool::new_full(
         config.transaction_pool.clone(),
         config.role.is_authority().into(),
@@ -402,7 +413,7 @@ where
 }
 
 /// Build the import queue for the parachain runtime.
-fn build_import_queue<Runtime, Executor>(
+pub(crate) fn build_import_queue<Runtime, Executor>(
     client: Arc<FullClient<Runtime, Executor>>,
     block_import: ParachainBlockImport<Runtime, Executor>,
     config: &Configuration,

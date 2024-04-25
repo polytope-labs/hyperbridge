@@ -37,7 +37,7 @@ use ismp::{
     router::{IsmpRouter, Post, RequestResponse, Response, Timeout},
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
-use pallet_ismp::{host::Host, primitives::ModuleId};
+use pallet_ismp::{host::Host, mmr::Leaf, primitives::ModuleId};
 use sp_core::{
     crypto::AccountId32,
     offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
@@ -58,6 +58,7 @@ frame_support::construct_runtime!(
         ParachainSystem: cumulus_pallet_parachain_system,
         ParachainInfo: parachain_info,
         Timestamp: pallet_timestamp,
+        Mmr: pallet_mmr,
         Ismp: pallet_ismp,
         Balances: pallet_balances,
         Relayer: pallet_ismp_relayer,
@@ -170,7 +171,6 @@ parameter_types! {
 
 impl pallet_ismp::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    const INDEXING_PREFIX: &'static [u8] = b"ISMP";
     type AdminOrigin = EnsureRoot<AccountId32>;
     type HostStateMachine = StateMachineProvider;
     type Coprocessor = Coprocessor;
@@ -181,7 +181,14 @@ impl pallet_ismp::Config for Test {
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Test>, Sepolia>,
         ismp_bsc::BscClient<Host<Test>>,
     );
+    type Mmr = Mmr;
     type WeightProvider = ();
+}
+
+impl pallet_mmr::Config for Test {
+    const INDEXING_PREFIX: &'static [u8] = b"ISMP";
+    type Hashing = Keccak256;
+    type Leaf = Leaf;
 }
 
 impl pallet_ismp_relayer::Config for Test {

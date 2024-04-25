@@ -1,4 +1,17 @@
-// SPDX-License-Identifier: UNLICENSED
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 pragma solidity 0.8.17;
 
 import {BaseTest} from "./BaseTest.sol";
@@ -87,8 +100,8 @@ contract EvmHostTest is BaseTest {
         vm.prank(tx.origin);
         host.fundRequest(keccak256(hex"dead"), 10 * 1e18);
 
-        // another person can't fund your request for safety reasons
-        vm.expectRevert("User can only fund own requests");
+        // another person can fund your request
+        feeToken.mint(address(this), 10 * 1e18, "");
         host.fundRequest(commitment, 10 * 1e18);
     }
 

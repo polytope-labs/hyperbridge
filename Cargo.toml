@@ -31,9 +31,9 @@ members = [
     "modules/ismp/clients/arbitrum",
     "modules/ismp/clients/optimism",
     "modules/ismp/clients/sync-committee/evm-common",
+    "modules/ismp/clients/bsc",
 
-    # modules
-    "modules/trees/ethereum",
+    # cryptography
     "modules/consensus/sync-committee/prover",
     "modules/consensus/sync-committee/verifier",
     "modules/consensus/sync-committee/primitives",
@@ -42,8 +42,11 @@ members = [
     "modules/consensus/geth-primitives",
     "modules/consensus/bsc/verifier",
     "modules/consensus/bsc/prover",
-    "modules/ismp/clients/bsc",
-    "modules/trees/mmr",
+    "modules/trees/ethereum",
+    "modules/trees/mmr/pallet",
+    "modules/trees/mmr/primitives",
+    "modules/trees/mmr/gadget",
+    "modules/trees/mmr/pallet/runtime-api",
 
     # evm stuff
     "evm/integration-tests",
@@ -51,6 +54,11 @@ members = [
 
     # hyperclient
     "modules/client",
+
+    # simnode
+    "modules/trees/mmr/simnode-tests",
+    # subxt subxt-utils
+    "modules/subxt/subxt-utils"
 ]
 
 # Config for 'cargo dist'
@@ -103,6 +111,7 @@ sp-block-builder = { version = "26.0.0", default-features = false }
 sp-consensus-aura = { version = "0.32.0", default-features = false }
 sp-consensus-beefy = { version = "13.0.0", default-features = false }
 sp-core = { version = "28.0.0", default-features = false }
+sp-core-hashing = { version = "15.0.0", default-features = false }
 sp-inherents = { version = "26.0.0", default-features = false }
 sp-offchain = { version = "26.0.0", default-features = false }
 sp-runtime = { version = "31.0.1", default-features = false }
@@ -138,8 +147,8 @@ sp-mmr-primitives = { version = "26.0.0", default-features = false }
 sp-state-machine = { version = "0.35.0", default-features = false }
 sp-storage = { version = "19.0.0", default-features = false }
 pallet-beefy-mmr = { version = "28.0.0", default-features = false }
-pallet-mmr = { version = "27.0.0", default-features = false }
 pallet-assets = { version = "29.0.0", default-features = false }
+sp-keyring = "31.0.0"
 
 # client
 frame-benchmarking-cli = "32.0.0"
@@ -147,8 +156,10 @@ pallet-transaction-payment-rpc = "30.0.0"
 sc-basic-authorship = "0.34.0"
 sc-chain-spec = "27.0.0"
 sc-cli = "0.36.0"
+sc-block-builder = "0.33.0"
 sc-client-api = "28.0.0"
 sc-consensus = "0.33.0"
+sc-consensus-manual-seal = "0.35.0"
 sc-executor = "0.32.0"
 sc-network = "0.34.0"
 sc-network-sync = "0.33.0"
@@ -197,6 +208,7 @@ codec = { version = "3.1.3", package = "parity-scale-codec", default-features = 
 scale-info = { version = "2.1.1", default-features = false, features = [
     "derive",
 ] }
+log = { version = "0.4.21", default-features = false }
 
 alloy-rlp = { version = "0.3.2", default-features = false }
 alloy-rlp-derive = "0.3.2"
@@ -248,12 +260,27 @@ pallet-ismp-runtime-api = { path = "./modules/ismp/pallet/runtime-api", default-
 pallet-ismp-host-executive = { path = "modules/ismp/pallet/host-executive", default-features = false }
 pallet-call-decompressor = { path = "modules/ismp/pallet/call-decompressor", default-features = false }
 pallet-asset-gateway = { path = "modules/ismp/pallet/asset-gateway", default-features = false }
+pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
+
+# Mmr
+pallet-mmr-runtime-api = { path = "modules/trees/mmr/pallet/runtime-api", default-features = false }
+mmr-gadget = { path = "modules/trees/mmr/gadget" }
 
 # merkle trees
 ethereum-trie = { path = "./modules/trees/ethereum", default-features = false }
-mmr-utils = { path = "./modules/trees/mmr", default-features = false }
+mmr-primitives = { path = "modules/trees/mmr/primitives", default-features = false }
 
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }
 messier-runtime = { path = "./parachain/runtimes/messier", default-features = false }
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }
+
+
+# Simnode
+sc-simnode = { version = "1.6.1" }
+simnode-runtime-api = { version = "1.6.0", default-features = false }
+simnode-tests = { path = "modules/trees/mmr/simnode-tests" }
+
+# Subxt
+subxt = { version = "0.30.1", default-features = false }
+subxt-utils = { path = "modules/subxt/subxt-utils", default-features = false }

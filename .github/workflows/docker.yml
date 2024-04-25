@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   build_and_publish:
-    runs-on: release-runner
+    runs-on: arc-runner-set
     steps:
       - name: Checkout sources
         uses: actions/checkout@v3
@@ -23,12 +23,6 @@ jobs:
         with:
           ssh-private-key: "${{ secrets.SSH_KEY }}"
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          version: '3.9.1'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -36,6 +30,8 @@ jobs:
 
       - name: Add wasm toolchain
         run: |
+          sudo apt-get update
+          sudo apt-get install --assume-yes pkg-config git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
           rustup install nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown

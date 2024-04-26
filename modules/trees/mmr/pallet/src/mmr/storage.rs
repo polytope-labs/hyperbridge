@@ -28,9 +28,9 @@ use sp_std::iter::Peekable;
 use sp_std::prelude::*;
 
 use crate::{
-	mmr::{Node, NodeOf},
-	primitives::NodeIndex,
-	Config, Nodes, LeafCount, Pallet,
+    mmr::{Node, NodeOf},
+    primitives::NodeIndex,
+    Config, LeafCount, Nodes, Pallet,
 };
 
 /// A marker type for runtime-specific storage implementation.

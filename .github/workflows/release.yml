@@ -120,8 +120,6 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
       - run: |
-          sudo apt-get update
-          sudo apt-get install --assume-yes pkg-config git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
           rustup install nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
           rustup target add wasm32-unknown-unknown

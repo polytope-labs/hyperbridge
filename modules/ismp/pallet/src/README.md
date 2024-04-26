@@ -22,10 +22,10 @@ The supported dispatchable functions are documented in the
 ### Terminology
 
 * **ISMP:** Interoperable State Machine Protocol, which is the protocol responsible for handling request messages and response.
-* **State Commitment:** This refers to the state root of a particular state machine.
+* **State Commitment:** This refers to a cryptographic commitment of an entire Blockchain state, otherwise known as state root.
 * **State Machine:** This refers to the Blockchain itself, we identify Blockchains as State Machines since a Blockchain represent states of a particular network.
-* **Consensus State:** Refers to the particular state of a consensus.
-* **Consensus Client:** Refers to the Blockchain client.
+* **Consensus State:** This is the minimum data required by Consensus Client to verify consensus messages.
+* **Consensus Client:** This verifies consensus proofs of a particular state machine.
 * **Unbonding Period:** Refers to the period at which unbonding occurs.
 * **Challenge Period:** Refers to the period at which challenge occurs.
 

@@ -31,7 +31,7 @@ use std::net::SocketAddr;
 use crate::{
     chain_spec,
     cli::{Cli, RelayChainCli, Subcommand},
-    service::{new_partial, GargantuanExecutor, MessierExecutor, NexusExecutor},
+    service::new_partial,
 };
 
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
@@ -115,19 +115,6 @@ impl SubstrateCli for Cli {
 }
 
 impl SubstrateCli for RelayChainCli {
-    fn load_spec(&self, id: &str) -> std::result::Result<Box<dyn sc_service::ChainSpec>, String> {
-        match id {
-            "paseo" => {
-                let chain_spec = Box::new(service::GenericChainSpec::from_json_bytes(Cow::Owned(
-                    include_bytes!("../../chainspec/paseo.raw.json").to_vec(),
-                ))?) as Box<dyn service::ChainSpec>;
-                Ok(chain_spec)
-            },
-            id => polkadot_cli::Cli::from_iter([RelayChainCli::executable_name()].iter())
-                .load_spec(id),
-        }
-    }
-
     fn impl_name() -> String {
         "Hyperbridge".into()
     }
@@ -157,32 +144,48 @@ impl SubstrateCli for RelayChainCli {
     fn copyright_start_year() -> i32 {
         2020
     }
+
+    fn load_spec(&self, id: &str) -> std::result::Result<Box<dyn sc_service::ChainSpec>, String> {
+        match id {
+            "paseo" => {
+                let chain_spec = Box::new(service::GenericChainSpec::from_json_bytes(Cow::Owned(
+                    include_bytes!("../../chainspec/paseo.raw.json").to_vec(),
+                ))?) as Box<dyn service::ChainSpec>;
+                Ok(chain_spec)
+            },
+            id => polkadot_cli::Cli::from_iter([RelayChainCli::executable_name()].iter())
+                .load_spec(id),
+        }
+    }
 }
 
 macro_rules! construct_async_run {
 	(|$components:ident, $cli:ident, $cmd:ident, $config:ident| $( $code:tt )* ) => {{
 		let runner = $cli.create_runner($cmd)?;
-			match runner.config().chain_spec.id() {
-                chain if chain.contains("gargantua") || chain.contains("dev") => {
-                    runner.async_run(|$config| {
-                        let $components = new_partial::<gargantua_runtime::RuntimeApi, GargantuanExecutor>(&$config)?;
-                        Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
-		            })
-                }
-                chain if chain.contains("messier") => {
-                    runner.async_run(|$config| {
-                        let $components = new_partial::<messier_runtime::RuntimeApi, MessierExecutor>(&$config)?;
-                        Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
-		            })
-                }
-                chain if chain.contains("nexus") => {
-                    runner.async_run(|$config| {
-                        let $components = new_partial::<nexus_runtime::RuntimeApi, NexusExecutor>(&$config)?;
-                        Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
-		            })
-                }
-                chain => panic!("Unknown chain with id: {}", chain),
+        match runner.config().chain_spec.id() {
+            chain if chain.contains("gargantua") || chain.contains("dev") => {
+                runner.async_run(|$config| {
+                    let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&$config);
+                    let $components = new_partial::<gargantua_runtime::RuntimeApi, _>(&$config, executor)?;
+                    Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
+                })
             }
+            chain if chain.contains("messier") => {
+                runner.async_run(|$config| {
+                    let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&$config);
+                    let $components = new_partial::<messier_runtime::RuntimeApi, _>(&$config, executor)?;
+                    Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
+                })
+            }
+            chain if chain.contains("nexus") => {
+                runner.async_run(|$config| {
+                    let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&$config);
+                    let $components = new_partial::<nexus_runtime::RuntimeApi, _>(&$config, executor)?;
+                    Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
+                })
+            }
+            chain => panic!("Unknown chain with id: {}", chain),
+        }
 	}}
 }
 
@@ -245,26 +248,32 @@ pub fn run() -> Result<()> {
         },
         Some(Subcommand::ExportGenesisState(cmd)) => {
             let runner = cli.create_runner(cmd)?;
-            runner.sync_run(|config| match config.chain_spec.id() {
-                chain if chain.contains("gargantua") || chain.contains("dev") => {
-                    let components =
-                        new_partial::<gargantua_runtime::RuntimeApi, GargantuanExecutor>(&config)?;
 
-                    cmd.run(components.client.clone())
-                },
-                chain if chain.contains("messier") => {
-                    let components =
-                        new_partial::<messier_runtime::RuntimeApi, MessierExecutor>(&config)?;
+            runner.sync_run(|config| {
+                let executor =
+                    sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config);
 
-                    cmd.run(components.client.clone())
-                },
-                chain if chain.contains("nexus") => {
-                    let components =
-                        new_partial::<nexus_runtime::RuntimeApi, NexusExecutor>(&config)?;
+                match config.chain_spec.id() {
+                    chain if chain.contains("gargantua") || chain.contains("dev") => {
+                        let components =
+                            new_partial::<gargantua_runtime::RuntimeApi, _>(&config, executor)?;
 
-                    cmd.run(components.client.clone())
-                },
-                chain => panic!("Unknown chain with id: {}", chain),
+                        cmd.run(components.client.clone())
+                    },
+                    chain if chain.contains("messier") => {
+                        let components =
+                            new_partial::<messier_runtime::RuntimeApi, _>(&config, executor)?;
+
+                        cmd.run(components.client.clone())
+                    },
+                    chain if chain.contains("nexus") => {
+                        let components =
+                            new_partial::<nexus_runtime::RuntimeApi, _>(&config, executor)?;
+
+                        cmd.run(components.client.clone())
+                    },
+                    chain => panic!("Unknown chain with id: {}", chain),
+                }
             })
         },
         Some(Subcommand::ExportGenesisWasm(cmd)) => {
@@ -286,29 +295,29 @@ pub fn run() -> Result<()> {
 					You can enable it with `--features runtime-benchmarks`."
                             .into())
                     },
-                BenchmarkCmd::Block(cmd) =>
-                    runner.sync_run(|config| match config.chain_spec.id() {
+                BenchmarkCmd::Block(cmd) => runner.sync_run(|config| {
+                    let executor =
+                        sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config);
+
+                    match config.chain_spec.id() {
                         chain if chain.contains("gargantua") || chain.contains("dev") => {
-                            let components = new_partial::<
-                                gargantua_runtime::RuntimeApi,
-                                GargantuanExecutor,
-                            >(&config)?;
+                            let components =
+                                new_partial::<gargantua_runtime::RuntimeApi, _>(&config, executor)?;
                             cmd.run(components.client)
                         },
                         chain if chain.contains("messier") => {
-                            let components = new_partial::<
-                                messier_runtime::RuntimeApi,
-                                MessierExecutor,
-                            >(&config)?;
+                            let components =
+                                new_partial::<messier_runtime::RuntimeApi, _>(&config, executor)?;
                             cmd.run(components.client)
                         },
                         chain if chain.contains("nexus") => {
                             let components =
-                                new_partial::<nexus_runtime::RuntimeApi, NexusExecutor>(&config)?;
+                                new_partial::<nexus_runtime::RuntimeApi, _>(&config, executor)?;
                             cmd.run(components.client)
                         },
                         chain => panic!("Unknown chain with id: {}", chain),
-                    }),
+                    }
+                }),
                 #[cfg(not(feature = "runtime-benchmarks"))]
                 BenchmarkCmd::Storage(_) =>
                     return Err(sc_cli::Error::Input(
@@ -318,28 +327,27 @@ pub fn run() -> Result<()> {
                     )
                     .into()),
                 #[cfg(feature = "runtime-benchmarks")]
-                BenchmarkCmd::Storage(cmd) =>
-                    runner.sync_run(|config| match config.chain_spec.id() {
+                BenchmarkCmd::Storage(cmd) => runner.sync_run(|config| {
+                    let executor =
+                        sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config);
+                    match config.chain_spec.id() {
                         chain if chain.contains("gargantua") || chain.contains("dev") => {
-                            let components = new_partial::<
-                                gargantua_runtime::RuntimeApi,
-                                GargantuanExecutor,
-                            >(&config)?;
+                            let components =
+                                new_partial::<gargantua_runtime::RuntimeApi, _>(&config, executor)?;
                             let db = components.backend.expose_db();
                             let storage = components.backend.expose_storage();
                             cmd.run(config, components.client.clone(), db, storage)
                         },
                         chain if chain.contains("messier") => {
-                            let components = new_partial::<
-                                messier_runtime::RuntimeApi,
-                                MessierExecutor,
-                            >(&config)?;
+                            let components =
+                                new_partial::<messier_runtime::RuntimeApi>(&config, executor)?;
                             let db = components.backend.expose_db();
                             let storage = components.backend.expose_storage();
                             cmd.run(config, components.client.clone(), db, storage)
                         },
                         chain => panic!("Unknown chain with id: {}", chain),
-                    }),
+                    }
+                }),
                 BenchmarkCmd::Machine(cmd) =>
                     runner.sync_run(|config| cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone())),
                 // NOTE: this allows the Client to leniently implement
@@ -352,12 +360,6 @@ pub fn run() -> Result<()> {
         Some(Subcommand::TryRuntime(cmd)) => {
             let runner = cli.create_runner(cmd)?;
 
-            use sc_executor::{sp_wasm_interface::ExtendedHostFunctions, NativeExecutionDispatch};
-            type HostFunctionsOf<E> = ExtendedHostFunctions<
-                sp_io::SubstrateHostFunctions,
-                <E as NativeExecutionDispatch>::ExtendHostFunctions,
-            >;
-
             // grab the task manager.
             let registry = &runner.config().prometheus_config.as_ref().map(|cfg| &cfg.registry);
             let task_manager =
@@ -365,16 +367,16 @@ pub fn run() -> Result<()> {
                     .map_err(|e| format!("Error: {:?}", e))?;
 
             runner.async_run(|_| {
-                Ok((cmd.run::<Block, HostFunctionsOf<GargantuanExecutor>>(), task_manager))
+                Ok((cmd.run::<Block, sp_io::SubstrateHostFunctions>(), task_manager))
             })
         },
         #[cfg(not(feature = "try-runtime"))]
         Some(Subcommand::TryRuntime) => Err("Try-runtime was not enabled when building the node. \
 			You can enable it with `--features try-runtime`."
             .into()),
-        #[cfg(feature = "simnode")]
+
         Some(Subcommand::Simnode(cmd)) => {
-            use crate::{rpc, simnode::new_partial_with_executor};
+            use crate::rpc;
             let mut runner = cli.create_runner(&cmd.run.normalize())?;
             let config = runner.config_mut();
             config.offchain_worker.indexing_enabled = true;
@@ -382,9 +384,8 @@ pub fn run() -> Result<()> {
             match config.chain_spec.id() {
                 chain if chain.contains("gargantua") || chain.contains("dev") => {
                     let executor = sc_simnode::new_wasm_executor(config);
-                    let components = new_partial_with_executor::<gargantua_runtime::RuntimeApi>(
-                        &config, executor,
-                    )?;
+                    let components =
+                        new_partial::<gargantua_runtime::RuntimeApi, _>(&config, executor)?;
                     runner.run_node_until_exit(move |config| async move {
                         let client = components.client.clone();
                         let pool = components.transaction_pool.clone();

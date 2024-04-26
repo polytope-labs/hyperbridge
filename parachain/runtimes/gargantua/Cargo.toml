@@ -91,7 +91,7 @@ pallet-asset-gateway = { workspace = true  }
 pallet-mmr = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
 sp-mmr-primitives = { workspace = true }
-simnode-runtime-api = { workspace = true, optional = true }
+simnode-runtime-api = { workspace = true }
 
 [features]
 default = [
@@ -213,6 +213,3 @@ async-backing = [
 	"pallet-aura/experimental"
 ]
 
-simnode = [
-	"simnode-runtime-api"
-]

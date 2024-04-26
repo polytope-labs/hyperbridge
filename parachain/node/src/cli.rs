@@ -59,7 +59,6 @@ pub enum Subcommand {
     TryRuntime,
 
     /// Runs the node with signature verification override and manual seal.
-    #[cfg(feature = "simnode")]
     Simnode(sc_simnode::cli::SimnodeCli),
 }
 

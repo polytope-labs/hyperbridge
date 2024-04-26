@@ -355,3 +355,58 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
     assert!(res);
     Ok(())
 }
+
+#[cfg(feature = "stress-test")]
+#[tokio::test]
+async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
+    // try to estimate the storage requirements on offchaindb with 1 billion leaves in mmr
+    use indicatif::ProgressBar;
+
+    let port = env::var("PORT").unwrap_or("9990".into());
+    let client = OnlineClient::<Hyperbridge>::from_url(format!("ws://127.0.0.1:{}", port)).await?;
+    let pb = ProgressBar::new(1_000_000);
+    for _ in 0..100_000 {
+        // Initialize MMR Pallet by dispatching some leaves and finalizing
+        let params = EvmParams {
+            module: H160::random(),
+            destination: Ethereum::ExecutionLayer,
+            timeout: 0,
+            count: 10_000,
+        };
+        let call = client
+            .tx()
+            .call_data(&gargantua::api::tx().ismp_demo().dispatch_to_evm(params))?;
+        let _account_id = AsRef::<[u8; 32]>::as_ref(&Keyring::Ferdie.to_account_id()).clone();
+
+        let _ = client
+            .rpc()
+            .request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
+            .await?;
+
+        let extrinsic: Bytes = client
+            .rpc()
+            .request(
+                "simnode_authorExtrinsic",
+                // author an extrinsic from alice
+                rpc_params![Bytes::from(call), Keyring::Ferdie.to_account_id().to_ss58check()],
+            )
+            .await?;
+        SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0).submit().await?;
+
+        let created_block = client
+            .rpc()
+            .request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
+            .await?;
+
+        // Finalize a new block so that we are sure mmr gadget gets the notification
+        let _ = client
+            .rpc()
+            .request::<bool>("engine_finalizeBlock", rpc_params![created_block.hash])
+            .await?;
+        pb.inc(1);
+    }
+
+    pb.finish_with_message("Inserted 1 billion leaves");
+
+    Ok(())
+}

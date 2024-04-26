@@ -249,6 +249,13 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         /// Handles ismp messages
+        ///
+        ///
+        /// The dispatch origin for this call must be an unsigned one.
+        ///
+        /// - `messages`: the messages to handle or process.
+        ///
+        /// Emits different message events based on the Message received if successful.
         #[pallet::weight(get_weight::<T>(&messages))]
         #[pallet::call_index(0)]
         #[frame_support::transactional]
@@ -259,6 +266,11 @@ pub mod pallet {
         }
 
         /// Create a consensus client, using a subjectively chosen consensus state.
+        /// The dispatch origin for this call must be `T::AdminOrigin`.
+        ///
+        /// - `message`: `CreateConsensusState` struct.
+        ///
+        /// Emits `ConsensusClientCreated` if successful.
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
         #[pallet::call_index(1)]
         pub fn create_consensus_client(
@@ -279,6 +291,10 @@ pub mod pallet {
         }
 
         /// Set the unbonding period for a consensus state.
+        /// The dispatch origin for this call must be `T::AdminOrigin`.
+        ///
+        /// - `message`: `UpdateConsensusState` struct.
+        ///
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(2))]
         #[pallet::call_index(2)]
         pub fn update_consensus_state(
@@ -304,6 +320,10 @@ pub mod pallet {
 
         /// This is for validating if an ISMP message would succeed through dry_run, prefer to use
         /// [`Call::handle`] over this.
+        ///  The dispatch origin for this call must be an unsigned one.
+        ///
+        /// - `messages`: the messages to be validated.
+        ///
         #[pallet::weight(get_weight::<T>(&messages))]
         #[pallet::call_index(3)]
         pub fn validate_messages(origin: OriginFor<T>, messages: Vec<Message>) -> DispatchResult {

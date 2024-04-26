@@ -87,13 +87,13 @@ pub struct Get {
     pub from: Vec<u8>,
     /// Raw Storage keys that would be used to fetch the values from the counterparty
     /// For deriving storage keys for ink contract fields follow the guide in the link below
-    /// https://use.ink/datastructures/storage-in-metadata#a-full-example
+    /// `<https://use.ink/datastructures/storage-in-metadata#a-full-example>`
     /// The algorithms for calculating raw storage keys for different substrate pallet storage
     /// types are described in the following links
-    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/map.rs#L34-L42
-    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/double_map.rs#L34-L44
-    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/nmap.rs#L39-L48
-    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37
+    /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/map.rs#L34-L42>`
+    /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/double_map.rs#L34-L44>`
+    /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/nmap.rs#L39-L48>`
+    /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37>`
     /// For fetching keys from EVM contracts each key should be 52 bytes
     /// This should be a concatenation of contract address and slot hash
     pub keys: Vec<Vec<u8>>,
@@ -445,7 +445,7 @@ pub enum Timeout {
     Response(PostResponse),
 }
 
-/// The Ismp router dictates how messsages are routed to [`IsmpModules`]
+/// The Ismp router dictates how messsages are routed to `IsmpModules`
 pub trait IsmpRouter {
     /// Get module handler by id
     /// Should decode the module id and return a handler to the appropriate `IsmpModule`
@@ -492,8 +492,8 @@ pub enum DispatchRequest {
     Get(DispatchGet),
 }
 
-/// The Ismp dispatcher allows [`IsmpModules`] to send out outgoing [`Request`] or [`Response`]
-/// [`Event`] should be emitted after successful dispatch
+/// The Ismp dispatcher allows `IsmpModules` to send out outgoing `Request` or `Response`
+/// `Event` should be emitted after successful dispatch
 pub trait IsmpDispatcher {
     /// Sending account
     type Account;

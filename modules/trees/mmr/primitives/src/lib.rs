@@ -101,12 +101,12 @@ pub trait FullLeaf: Clone + PartialEq + fmt::Debug + codec::FullCodec {
 
 /// An element representing either full data or its hash.
 ///
-/// See [Compact] to see how it may be used in practice to reduce the size
-/// of proofs in case multiple [LeafDataProvider]s are composed together.
+/// See `Compact` to see how it may be used in practice to reduce the size
+/// of proofs in case multiple `LeafDataProvider`s are composed together.
 /// This is also used internally by the MMR to differentiate leaf nodes (data)
 /// and inner nodes (hashes).
 ///
-/// [DataOrHash::hash] method calculates the hash of this element in its compact form,
+/// `DataOrHash::hash` method calculates the hash of this element in its compact form,
 /// so should be used instead of hashing the encoded form (which will always be non-compact).
 #[derive(RuntimeDebug, Clone, PartialEq)]
 pub enum DataOrHash<H: traits::Hash, L> {

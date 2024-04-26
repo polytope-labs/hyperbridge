@@ -20,7 +20,7 @@ pub struct StateMachineUpdated {
     pub latest_height: u64,
 }
 
-/// Emitted when a [`StateCommitment`] has been successfully vetoed by a fisherman
+/// Emitted when a `StateCommitment` has been successfully vetoed by a fisherman
 #[derive(Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize)]
 pub struct StateCommitmentVetoed {
     /// The state commitment identifier
@@ -55,7 +55,7 @@ pub enum Event {
     /// Emitted when a state machine is successfully updated to a new height after the challenge
     /// period has elapsed
     StateMachineUpdated(StateMachineUpdated),
-    /// A [`StateCommitment`] (which is ideally still in it's challenge period) has been vetoed by
+    /// A `StateCommitment` (which is ideally still in it's challenge period) has been vetoed by
     /// a fisherman.
     StateCommitmentVetoed(StateCommitmentVetoed),
     /// An event that is emitted when a post request is dispatched

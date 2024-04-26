@@ -99,6 +99,7 @@ runtime-benchmarks = [
 	"try-runtime-cli/try-runtime",
 	"gargantua-runtime/runtime-benchmarks",
 	"messier-runtime/runtime-benchmarks",
+	"nexus-runtime/runtime-benchmarks",
 	"polkadot-cli/runtime-benchmarks",
 ]
 try-runtime = [

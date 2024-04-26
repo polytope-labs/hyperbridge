@@ -340,7 +340,14 @@ pub fn run() -> Result<()> {
                         },
                         chain if chain.contains("messier") => {
                             let components =
-                                new_partial::<messier_runtime::RuntimeApi>(&config, executor)?;
+                                new_partial::<messier_runtime::RuntimeApi, _>(&config, executor)?;
+                            let db = components.backend.expose_db();
+                            let storage = components.backend.expose_storage();
+                            cmd.run(config, components.client.clone(), db, storage)
+                        },
+                        chain if chain.contains("nexus") => {
+                            let components =
+                                new_partial::<nexus_runtime::RuntimeApi, _>(&config, executor)?;
                             let db = components.backend.expose_db();
                             let storage = components.backend.expose_storage();
                             cmd.run(config, components.client.clone(), db, storage)

@@ -62,10 +62,16 @@ async fn verify_bsc_pos_headers() {
             dbg!(block_epoch);
             dbg!(current_epoch);
             dbg!(header.number);
+            // Validator set rotation sometimes is outside the standard rotation period
+            // Added a fix for that in the relayer, will do the same here
+            // We first check if we can verify the update with the current set
+            let result = verify_bsc_header::<Host>(&validators, update.clone());
+             
             if next_validators.is_some() {
                 update.epoch_header_ancestry = Default::default();
             }
-            if next_validators.is_some() &&
+
+            if result.is_err() && next_validators.is_some() &&
                 update.attested_header.number.low_u64() % EPOCH_LENGTH >=
                     (validators.len() as u64 / 2)
             {
@@ -78,7 +84,7 @@ async fn verify_bsc_pos_headers() {
                     return;
                 }
             }
-            let result = verify_bsc_header::<Host>(&validators, update).unwrap();
+            let result = result.unwrap();
             dbg!(&result.hash);
             dbg!(result.next_validators.is_some());
             if let Some(validators) = result.next_validators {

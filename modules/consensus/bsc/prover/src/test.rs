@@ -66,12 +66,13 @@ async fn verify_bsc_pos_headers() {
             // Added a fix for that in the relayer, will do the same here
             // We first check if we can verify the update with the current set
             let result = verify_bsc_header::<Host>(&validators, update.clone());
-             
+
             if next_validators.is_some() {
                 update.epoch_header_ancestry = Default::default();
             }
 
-            if result.is_err() && next_validators.is_some() &&
+            if result.is_err() &&
+                next_validators.is_some() &&
                 update.attested_header.number.low_u64() % EPOCH_LENGTH >=
                     (validators.len() as u64 / 2)
             {

@@ -280,8 +280,8 @@ jobs:
           sudo chmod +x ./polkadot-execute-worker
           sudo chmod +x ./polkadot-prepare-worker
 
-          cd ../../../
-          ls -la polkadot-sdk/target/release
+          # get back in to hyperbridge
+          cd ../../../hyperbridge
 
           # install zombienet
           wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64

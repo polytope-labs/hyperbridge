@@ -258,6 +258,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: MMR gadget tests
+        run: |
+          # build hyperbridge binary
+          cargo build -p hyperbridge --release
+          ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
+          ./scripts/wait_for_tcp_port_opening.sh localhost 9990
+          cargo test -p simnode-tests -- --nocapture --ignored
+          kill -9 $!
+
       - name: Run Parachain Devnet
         run: |
           # install polkadot binary
@@ -273,10 +282,6 @@ jobs:
 
           cd ../../../
           ls -la polkadot-sdk/target/release
-
-          # build hyperbridge binary
-          cd hyperbridge
-          cargo build -p hyperbridge --release
 
           # install zombienet
           wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
@@ -314,13 +319,6 @@ jobs:
       - name: Binance Smart Chain integration tests
         run: |
           cargo test -p bsc-prover -- --nocapture --ignored
-
-      - name: Mmr gadget tests
-        run: | 
-          ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
-          ../scripts/wait_for_tcp_port_opening.sh localhost 9990
-          cargo test -p simnode-tests -- --nocapture --ignored
-          kill -9 $!
 
   check-solidity:
     name: Check ismp-solidity

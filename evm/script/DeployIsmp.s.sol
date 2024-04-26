@@ -52,10 +52,9 @@ contract DeployScript is Script {
         feeToken.mint(pingDispatcher, 1000000000 * 1e18, "");
 
         // consensus client
-//        RococoVerifier verifier = new RococoVerifier();
-//        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
+        //        RococoVerifier verifier = new RococoVerifier();
+        //        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
         BeefyV1 consensusClient = new BeefyV1{salt: salt}(paraId);
-
 
         // handler
         HandlerV1 handler = new HandlerV1{salt: salt}();
@@ -79,7 +78,7 @@ contract DeployScript is Script {
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            consensusUpdateTimestamp: 0,
+            consensusUpdateTimestamp: block.timestamp,
             consensusState: new bytes(0),
             perByteFee: 3 * 1e15, // $0.003/byte
             hyperbridge: StateMachine.kusama(paraId),

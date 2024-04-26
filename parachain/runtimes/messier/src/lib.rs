@@ -780,7 +780,7 @@ impl_runtime_apis! {
 
         /// Return the number of MMR leaves.
         fn mmr_leaf_count() -> Result<LeafIndex, sp_mmr_primitives::Error> {
-            Ok(Mmr::mmr_leaves())
+            Ok(Mmr::leaf_count())
         }
 
         /// Return the on-chain MMR root hash.

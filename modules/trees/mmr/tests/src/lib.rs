@@ -364,8 +364,8 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
 
     let port = env::var("PORT").unwrap_or("9990".into());
     let client = OnlineClient::<Hyperbridge>::from_url(format!("ws://127.0.0.1:{}", port)).await?;
-    let pb = ProgressBar::new(1_000_000);
-    for _ in 0..100_000 {
+    let pb = ProgressBar::new(100_000);
+    for pos in 6_442..100_000 {
         // Initialize MMR Pallet by dispatching some leaves and finalizing
         let params = EvmParams {
             module: H160::random(),
@@ -403,7 +403,7 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
             .rpc()
             .request::<bool>("engine_finalizeBlock", rpc_params![created_block.hash])
             .await?;
-        pb.inc(1);
+        pb.set_position(pos);
     }
 
     pb.finish_with_message("Inserted 1 billion leaves");

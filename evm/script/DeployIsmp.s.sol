@@ -38,6 +38,7 @@ contract DeployScript is Script {
     using strings for *;
 
     address private admin = vm.envAddress("ADMIN");
+    address private pingDispatcher = vm.envAddress("DISPATCHER");
     uint256 private paraId = vm.envUint("PARA_ID");
     string private host = vm.envString("HOST");
     bytes32 private privateKey = vm.envBytes32("PRIVATE_KEY");
@@ -47,12 +48,14 @@ contract DeployScript is Script {
         vm.startBroadcast(uint256(privateKey));
 
         ERC6160Ext20 feeToken = new ERC6160Ext20{salt: salt}(admin, "Hyper USD", "USD.h");
-        // mint $1b to
-        feeToken.mint(0x276b41950829E5A7B179ba03B758FaaE9A8d7C41, 1000000000 * 1e18, "");
+        // mint $1b to the dispatcher for tests
+        feeToken.mint(pingDispatcher, 1000000000 * 1e18, "");
 
         // consensus client
-        RococoVerifier verifier = new RococoVerifier();
-        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
+//        RococoVerifier verifier = new RococoVerifier();
+//        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
+        BeefyV1 consensusClient = new BeefyV1{salt: salt}(paraId);
+
 
         // handler
         HandlerV1 handler = new HandlerV1{salt: salt}();

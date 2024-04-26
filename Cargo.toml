@@ -56,7 +56,7 @@ members = [
     "modules/client",
 
     # simnode
-    "modules/trees/mmr/simnode-tests",
+    "modules/trees/mmr/tests",
     # subxt subxt-utils
     "modules/subxt/subxt-utils"
 ]
@@ -279,7 +279,7 @@ nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false 
 # Simnode
 sc-simnode = { version = "1.6.1" }
 simnode-runtime-api = { version = "1.6.0", default-features = false }
-simnode-tests = { path = "modules/trees/mmr/simnode-tests" }
+simnode-tests = { path = "modules/trees/mmr/tests" }
 
 # Subxt
 subxt = { version = "0.30.1", default-features = false }

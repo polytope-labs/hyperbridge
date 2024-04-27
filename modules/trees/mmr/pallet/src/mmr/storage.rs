@@ -30,7 +30,7 @@ use sp_std::prelude::*;
 use crate::{
     mmr::{Node, NodeOf},
     primitives::NodeIndex,
-    Config, LeafCount, Nodes, Pallet,
+    Config, Nodes, NumberOfLeaves, Pallet,
 };
 
 /// A marker type for runtime-specific storage implementation.
@@ -118,7 +118,7 @@ where
             elems.iter().map(|elem| elem.hash()).collect::<Vec<_>>()
         );
 
-        let leaves = LeafCount::<T, I>::get();
+        let leaves = NumberOfLeaves::<T, I>::get();
         let size = NodesUtils::new(leaves).size();
 
         if pos != size {
@@ -154,7 +154,7 @@ where
         }
 
         // Update current number of leaves.
-        LeafCount::<T, I>::put(leaf_index);
+        NumberOfLeaves::<T, I>::put(leaf_index);
 
         // And remove all remaining items from `peaks_before` collection.
         for pos in peaks_to_prune {

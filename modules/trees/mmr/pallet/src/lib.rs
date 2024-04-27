@@ -133,7 +133,7 @@ pub mod pallet {
     /// Current size of the MMR (number of leaves).
     #[pallet::storage]
     #[pallet::getter(fn leaf_count)]
-    pub type LeafCount<T: Config<I>, I: 'static = ()> = StorageValue<_, LeafIndex, ValueQuery>;
+    pub type NumberOfLeaves<T: Config<I>, I: 'static = ()> = StorageValue<_, LeafIndex, ValueQuery>;
 
     /// Height at which the pallet started inserting leaves into offchain storage.
     #[pallet::storage]
@@ -161,7 +161,7 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config<I>, I: 'static> Hooks<BlockNumberFor<T>> for Pallet<T, I> {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
-            if LeafCount::<T, I>::get() > 0 && InitialHeight::<T, I>::get().is_none() {
+            if NumberOfLeaves::<T, I>::get() > 0 && InitialHeight::<T, I>::get().is_none() {
                 InitialHeight::<T, I>::put(frame_system::Pallet::<T>::block_number() - One::one())
             }
 
@@ -179,7 +179,7 @@ where
     type Leaf = T::Leaf;
 
     fn leaf_count() -> LeafIndex {
-        LeafCount::<T, I>::get()
+        NumberOfLeaves::<T, I>::get()
     }
 
     fn generate_proof(
@@ -198,7 +198,7 @@ where
 
     fn push(leaf: T::Leaf) -> LeafMetadata {
         let temp_count = IntermediateLeaves::<T, I>::count() as u64;
-        let index = LeafCount::<T, I>::get() + temp_count;
+        let index = NumberOfLeaves::<T, I>::get() + temp_count;
         IntermediateLeaves::<T, I>::insert(temp_count, leaf);
         let position = leaf_index_to_pos(index);
         LeafMetadata { position, index }
@@ -211,7 +211,7 @@ where
             return Ok(RootHash::<T, I>::get().into())
         }
 
-        let leaves = LeafCount::<T, I>::get();
+        let leaves = NumberOfLeaves::<T, I>::get();
         let mut mmr: ModuleMmr<mmr::storage::RuntimeStorage, T, I> = mmr::Mmr::new(leaves);
 
         // append new leaves to MMR
@@ -242,7 +242,7 @@ where
         };
 
         let _ = IntermediateLeaves::<T, I>::clear(buffer_len as u32, None);
-        LeafCount::<T, I>::put(leaves);
+        NumberOfLeaves::<T, I>::put(leaves);
         RootHash::<T, I>::put(root);
 
         Ok(root.into())
@@ -321,7 +321,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
     pub fn generate_proof(
         indices: Vec<LeafIndex>,
     ) -> Result<(Vec<LeafOf<T, I>>, primitives::Proof<HashOf<T, I>>), primitives::Error> {
-        let leaves_count = LeafCount::<T, I>::get();
+        let leaves_count = NumberOfLeaves::<T, I>::get();
         let mmr: ModuleMmr<mmr::storage::OffchainStorage, T, I> = mmr::Mmr::new(leaves_count);
         mmr.generate_proof(indices)
     }
@@ -336,7 +336,7 @@ impl<T: Config<I>, I: 'static> Pallet<T, I> {
         leaves: Vec<LeafOf<T, I>>,
         proof: primitives::Proof<HashOf<T, I>>,
     ) -> Result<(), primitives::Error> {
-        if proof.leaf_count > LeafCount::<T, I>::get() ||
+        if proof.leaf_count > NumberOfLeaves::<T, I>::get() ||
             proof.leaf_count == 0 ||
             (proof.items.len().saturating_add(leaves.len())) as u64 > proof.leaf_count
         {

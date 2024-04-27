@@ -193,12 +193,12 @@ xcm-simulator-example = "7.0.0"
 xcm-simulator = "7.0.0"
 polkadot-runtime-parachains = "7.0.0"
 
-ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "9f77fc1a07ea90059b4d53eeffda569bb126564e", features = [
+ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4", features = [
     "ethers-solc",
 ], default-features = false }
-ethers-contract-abigen = { git = "https://github.com/polytope-labs/ethers-rs", rev = "9f77fc1a07ea90059b4d53eeffda569bb126564e" }
+ethers-contract-abigen = { git = "https://github.com/polytope-labs/ethers-rs", rev = "a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4" }
 
-forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "c3f1589814ef395fd71db0edc403bda3f726f467" }
+forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "faa97adf1b969f64cf77259f8f018a2aafefb70a" }
 merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
 
 trie-db = { version = "0.28.0", default-features = false }

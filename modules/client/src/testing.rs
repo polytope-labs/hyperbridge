@@ -249,7 +249,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
         .find_map(|log| parse_log::<PostRequestEventFilter>(log).ok())
         .expect("Tx should emit post request")
         .try_into()?;
-    tracing::info!("PostRequest {post:#?}");
+    tracing::info!("PostRequest {post}");
 
     let block = receipt.block_number.unwrap();
     tracing::info!("\n\nTx block: {block}\n\n");
@@ -265,7 +265,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
     while let Some(item) = stream.next().await {
         match item {
             Ok(status) => {
-                tracing::info!("Got Status {status:?}");
+                tracing::info!("\nGot Status {status:#?}\n");
                 match status {
                     MessageStatusWithMetadata::Timeout => break,
                     _ => {},
@@ -282,7 +282,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
     while let Some(res) = stream.next().await {
         match res {
             Ok(status) => {
-                tracing::info!("Got Status {:?}", status);
+                tracing::info!("\nGot Status {:?}\n", status);
                 match status {
                     TimeoutStatus::TimeoutMessage { calldata } => {
                         let gas_price = client.get_gas_price().await?;

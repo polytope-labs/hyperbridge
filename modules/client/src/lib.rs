@@ -29,7 +29,7 @@ use wasm_streams::ReadableStream;
 pub mod testing;
 
 #[cfg(test)]
-mod std_tests;
+mod tests;
 
 #[wasm_bindgen(typescript_custom_section)]
 const ICONFIG: &'static str = r#"

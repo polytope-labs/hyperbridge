@@ -10,7 +10,7 @@ pub fn setup_logging() {
 
 #[tokio::test]
 #[ignore]
-async fn std_tests() -> Result<(), anyhow::Error> {
+async fn hyperclient_integration_tests() -> Result<(), anyhow::Error> {
     setup_logging();
     test_timeout_request().await?;
     subscribe_to_request_status().await?;

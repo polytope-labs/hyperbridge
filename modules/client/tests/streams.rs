@@ -16,7 +16,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     hyperclient::testing::subscribe_to_request_status().await
 }
 
-// #[wasm_bindgen_test]
+#[wasm_bindgen_test]
 async fn test_timeout_request() -> Result<(), anyhow::Error> {
     init_tracing();
 

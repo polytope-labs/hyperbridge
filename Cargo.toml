@@ -120,12 +120,12 @@ sp-std = { version = "14.0.0", default-features = false }
 sp-transaction-pool = { version = "26.0.0", default-features = false }
 sp-version = { version = "29.0.0", default-features = false }
 sp-genesis-builder = { version = "0.7.0", default-features = false }
-pallet-xcm = { version = "7.0.0", default-features = false }
-polkadot-parachain-primitives = { version = "6.0.0", default-features = false }
-polkadot-runtime-common = { version = "7.0.0", default-features = false }
-staging-xcm = { version = "7.0.0", default-features = false }
-staging-xcm-builder = { version = "7.0.0", default-features = false }
-staging-xcm-executor = { version = "7.0.0", default-features = false }
+pallet-xcm = { version = "=7.0.0", default-features = false }
+polkadot-parachain-primitives = { version = "=6.0.0", default-features = false }
+polkadot-runtime-common = { version = "=7.0.0", default-features = false }
+staging-xcm = { version = "=7.0.0", default-features = false }
+staging-xcm-builder = { version = "=7.0.0", default-features = false }
+staging-xcm-executor = { version = "=7.0.0", default-features = false }
 cumulus-primitives-aura = { version = "0.7.0", default-features = false }
 cumulus-pallet-session-benchmarking = { version = "9.0.0", default-features = false }
 cumulus-pallet-aura-ext = { version = "0.7.0", default-features = false }
@@ -133,7 +133,7 @@ cumulus-pallet-dmp-queue = { version = "0.7.0", default-features = false }
 cumulus-pallet-parachain-system = { version = "0.7.0", default-features = false, features = [
     "parameterized-consensus-hook",
 ] }
-cumulus-pallet-xcm = { version = "0.7.0", default-features = false }
+cumulus-pallet-xcm = { version = "=0.7.0", default-features = false }
 cumulus-pallet-xcmp-queue = { version = "0.7.0", default-features = false }
 cumulus-primitives-core = { version = "0.7.0", default-features = false }
 cumulus-primitives-timestamp = { version = "0.7.0", default-features = false }
@@ -193,12 +193,12 @@ xcm-simulator-example = "7.0.0"
 xcm-simulator = "7.0.0"
 polkadot-runtime-parachains = "7.0.0"
 
-ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "f8ab49e1ca2d68e8bf1113e705ade38e5f30b850", features = [
+ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "9f77fc1a07ea90059b4d53eeffda569bb126564e", features = [
     "ethers-solc",
 ], default-features = false }
-ethers-contract-abigen = { git = "https://github.com/polytope-labs/ethers-rs", rev = "f8ab49e1ca2d68e8bf1113e705ade38e5f30b850" }
+ethers-contract-abigen = { git = "https://github.com/polytope-labs/ethers-rs", rev = "9f77fc1a07ea90059b4d53eeffda569bb126564e" }
 
-forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "50c6686ddfe61c697013bd067ac5fae7a0d5723e" }
+forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "c3f1589814ef395fd71db0edc403bda3f726f467" }
 merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
 
 trie-db = { version = "0.28.0", default-features = false }
@@ -209,7 +209,7 @@ scale-info = { version = "2.1.1", default-features = false, features = [
     "derive",
 ] }
 log = { version = "0.4.21", default-features = false }
-
+anyhow = {version = "1.0.71", default-features = false }
 alloy-rlp = { version = "0.3.2", default-features = false }
 alloy-rlp-derive = "0.3.2"
 alloy-primitives = { version = "0.6.0", default-features = false, features = [

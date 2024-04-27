@@ -12,7 +12,7 @@ hex-literal = "0.4.1"
 hex = "0.4.3"
 primitive-types = "0.12.1"
 codec = { package = "parity-scale-codec", version = "3.2.2" }
-anyhow = "1.0.72"
+anyhow = {workspace = true, default-features = true }
 libfuzzer-sys = "0.4.6"
 futures = "0.3.27"
 bytes = "1.4.0"
@@ -43,4 +43,4 @@ pallet-ismp-relayer = { workspace = true, default-features = true }
 ismp-solidity-abi = { path = "../abi", features = ["build-abi"] }
 
 rs_merkle = { git = "https://github.com/polytope-labs/rs-merkle", branch = "seun/2d-merkle-proofs" }
-foundry-evm = { git = "https://github.com/polytope-labs/foundry", rev = "068ef4d82e8421f9f96fdc33b061dc4848b7019a" }
+foundry-evm = { git = "https://github.com/polytope-labs/foundry", rev = "59c58aa2d98fa388ef76f7bc22c7547650054d0f" }

@@ -6,7 +6,7 @@ description = "Primitives for geth client"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
-anyhow = { version = "1.0.75", default-features = false }
+anyhow = { workspace = true, default-features = false }
 alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive.workspace = true

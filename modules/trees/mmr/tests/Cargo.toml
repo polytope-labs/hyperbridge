@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 subxt = { workspace = true, default-features = true }
-anyhow = "1.0.70"
+anyhow.workspace = true
 futures = "0.3.28"
 tokio = { version = "1.27.0", features = ["macros"] }
 indicatif = "0.17.8"

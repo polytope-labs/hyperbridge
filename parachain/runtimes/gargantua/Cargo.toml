@@ -160,7 +160,8 @@ std = [
 	"orml-xcm-support/std",
 	"orml-traits/std",
 	"pallet-mmr-runtime-api/std",
-	"sp-mmr-primitives/std"
+	"sp-mmr-primitives/std",
+	"simnode-runtime-api/std"
 ]
 
 runtime-benchmarks = [

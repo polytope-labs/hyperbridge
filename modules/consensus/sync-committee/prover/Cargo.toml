@@ -14,7 +14,7 @@ reqwest-middleware = "0.2.4"
 reqwest-chain = "0.1.0"
 serde = { version = "1.0.185", features = ["derive"] }
 serde_json = { version = "1.0.81"}
-anyhow = "1.0.68"
+anyhow.workspace = true
 tokio = { version =  "1.32.0", features = ["sync"]}
 tokio-stream = { version = "0.1.8" }
 async-stream = { version = "0.3.3"}

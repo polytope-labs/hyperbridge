@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 wasm-bindgen = { version = "0.2.90" }
 subxt = { workspace = true }
 getrandom = { version = "0.2", default-features = false, features = ["js"] }
-anyhow = "1.0.75"
+anyhow.workspace = true
 hex-literal = { version = "0.4.1" }
 serde-wasm-bindgen = { version = "0.6.3", default-features = false }
 serde = { version = "1.0.196", features = ["derive"], default-features = false }

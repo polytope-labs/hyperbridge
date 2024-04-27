@@ -5,8 +5,6 @@ edition = "2021"
 description = "Simnode tests for mmr gadget"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 subxt = { workspace = true, default-features = true }
 anyhow.workspace = true

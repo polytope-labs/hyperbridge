@@ -5,6 +5,7 @@ use subxt::{
     utils::{AccountId32, MultiAddress, MultiSignature, H256},
 };
 
+pub mod client;
 pub mod gargantua;
 
 mod gargantua_conversion {

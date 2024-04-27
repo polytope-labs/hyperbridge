@@ -15,7 +15,7 @@ use sp_mmr_primitives::{
     INDEXING_PREFIX,
 };
 use sp_runtime::traits::Keccak256;
-use std::{env, time::Duration};
+use std::{env, sync::Arc, time::Duration};
 use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160, OnlineClient};
 use subxt_utils::{
     gargantua,
@@ -32,7 +32,11 @@ async fn test_all_features() -> Result<(), anyhow::Error> {
 
 async fn dispatch_requests() -> Result<(), anyhow::Error> {
     let port = env::var("PORT").unwrap_or("9990".into());
-    let client = OnlineClient::<Hyperbridge>::from_url(format!("ws://127.0.0.1:{}", port)).await?;
+    let client = subxt_utils::client::ws_client::<Hyperbridge>(
+        &format!("ws://127.0.0.1:{}", port),
+        u32::MAX,
+    )
+    .await?;
 
     // Initialize MMR Pallet by dispatching some leaves and finalizing
     let params = EvmParams {
@@ -363,9 +367,13 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
     use indicatif::ProgressBar;
 
     let port = env::var("PORT").unwrap_or("9990".into());
-    let client = OnlineClient::<Hyperbridge>::from_url(format!("ws://127.0.0.1:{}", port)).await?;
+    let client = subxt_utils::client::ws_client::<Hyperbridge>(
+        &format!("ws://127.0.0.1:{}", port),
+        u32::MAX,
+    )
+    .await?;
     let pb = ProgressBar::new(100_000);
-    for pos in 6_442..100_000 {
+    for pos in 17149..100_000 {
         // Initialize MMR Pallet by dispatching some leaves and finalizing
         let params = EvmParams {
             module: H160::random(),

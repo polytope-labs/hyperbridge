@@ -58,7 +58,7 @@ members = [
     # simnode
     "modules/trees/mmr/tests",
     # subxt subxt-utils
-    "modules/subxt/subxt-utils"
+    "modules/subxt/utils"
 ]
 
 # Config for 'cargo dist'
@@ -283,4 +283,4 @@ simnode-tests = { path = "modules/trees/mmr/tests" }
 
 # Subxt
 subxt = { version = "0.30.1", default-features = false }
-subxt-utils = { path = "modules/subxt/subxt-utils", default-features = false }
+subxt-utils = { path = "modules/subxt/utils", default-features = false }

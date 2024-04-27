@@ -16882,8 +16882,11 @@ dependencies = [
 name = "subxt-utils"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "futures",
  "ismp",
  "parity-scale-codec",
+ "reconnecting-jsonrpsee-ws-client",
  "sp-core-hashing 15.0.0",
  "subxt",
 ]

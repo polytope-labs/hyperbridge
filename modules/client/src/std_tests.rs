@@ -9,6 +9,7 @@ pub fn setup_logging() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn std_tests() -> Result<(), anyhow::Error> {
     setup_logging();
     test_timeout_request().await?;

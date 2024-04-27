@@ -43,4 +43,4 @@ pallet-ismp-relayer = { workspace = true, default-features = true }
 ismp-solidity-abi = { path = "../abi", features = ["build-abi"] }
 
 rs_merkle = { git = "https://github.com/polytope-labs/rs-merkle", branch = "seun/2d-merkle-proofs" }
-foundry-evm = { git = "https://github.com/polytope-labs/foundry", rev = "59c58aa2d98fa388ef76f7bc22c7547650054d0f" }
+foundry-evm = { workspace = true }

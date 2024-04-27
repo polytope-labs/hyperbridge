@@ -286,7 +286,7 @@ dependencies = [
  "alloy-rlp-derive",
  "ethabi",
  "ethereum-trie",
- "ethers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers",
  "evm-common",
  "geth-primitives",
  "hex",
@@ -1269,7 +1269,7 @@ dependencies = [
  "anyhow",
  "bsc-verifier",
  "dotenv",
- "ethers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers",
  "geth-primitives",
  "ismp",
  "primitive-types",
@@ -3573,42 +3573,16 @@ dependencies = [
 [[package]]
 name = "ethers"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e#9f77fc1a07ea90059b4d53eeffda569bb126564e"
-dependencies = [
- "ethers-addressbook 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-contract 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-etherscan 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-middleware 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-providers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-signers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-solc 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
-]
-
-[[package]]
-name = "ethers"
-version = "2.0.8"
 source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
 dependencies = [
- "ethers-addressbook 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-contract 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-etherscan 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-middleware 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-providers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-signers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-solc 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
-]
-
-[[package]]
-name = "ethers-addressbook"
-version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e#9f77fc1a07ea90059b4d53eeffda569bb126564e"
-dependencies = [
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "once_cell",
- "serde",
- "serde_json",
+ "ethers-addressbook",
+ "ethers-contract",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-middleware",
+ "ethers-providers",
+ "ethers-signers",
+ "ethers-solc",
 ]
 
 [[package]]
@@ -3616,7 +3590,7 @@ name = "ethers-addressbook"
 version = "2.0.8"
 source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
 dependencies = [
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers-core",
  "once_cell",
  "serde",
  "serde_json",
@@ -3625,32 +3599,13 @@ dependencies = [
 [[package]]
 name = "ethers-contract"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e#9f77fc1a07ea90059b4d53eeffda569bb126564e"
-dependencies = [
- "ethers-contract-abigen 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-contract-derive 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-providers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-signers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "futures-util",
- "hex",
- "once_cell",
- "pin-project",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "ethers-contract"
-version = "2.0.8"
 source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
 dependencies = [
- "ethers-contract-abigen 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-contract-derive 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-providers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-signers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers-contract-abigen",
+ "ethers-contract-derive",
+ "ethers-core",
+ "ethers-providers",
+ "ethers-signers",
  "futures-util",
  "hex",
  "once_cell",
@@ -3663,33 +3618,12 @@ dependencies = [
 [[package]]
 name = "ethers-contract-abigen"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e#9f77fc1a07ea90059b4d53eeffda569bb126564e"
-dependencies = [
- "Inflector",
- "dunce",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "eyre",
- "hex",
- "prettyplease 0.2.19",
- "proc-macro2",
- "quote",
- "regex",
- "serde",
- "serde_json",
- "syn 2.0.60",
- "toml 0.7.8",
- "walkdir",
-]
-
-[[package]]
-name = "ethers-contract-abigen"
-version = "2.0.8"
 source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
 dependencies = [
  "Inflector",
  "dunce",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-etherscan 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers-core",
+ "ethers-etherscan",
  "eyre",
  "hex",
  "prettyplease 0.2.19",
@@ -3707,60 +3641,16 @@ dependencies = [
 [[package]]
 name = "ethers-contract-derive"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e#9f77fc1a07ea90059b4d53eeffda569bb126564e"
-dependencies = [
- "Inflector",
- "ethers-contract-abigen 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "hex",
- "proc-macro2",
- "quote",
- "serde_json",
- "syn 2.0.60",
-]
-
-[[package]]
-name = "ethers-contract-derive"
-version = "2.0.8"
 source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
 dependencies = [
  "Inflector",
- "ethers-contract-abigen 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers-contract-abigen",
+ "ethers-core",
  "hex",
  "proc-macro2",
  "quote",
  "serde_json",
  "syn 2.0.60",
-]
-
-[[package]]
-name = "ethers-core"
-version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e#9f77fc1a07ea90059b4d53eeffda569bb126564e"
-dependencies = [
- "arrayvec 0.7.4",
- "bytes",
- "cargo_metadata 0.17.0",
- "chrono",
- "elliptic-curve",
- "ethabi",
- "generic-array 0.14.7",
- "hex",
- "k256",
- "num_enum",
- "once_cell",
- "open-fastrlp",
- "rand 0.8.5",
- "rlp",
- "serde",
- "serde_json",
- "strum 0.25.0",
- "syn 2.0.60",
- "tempfile",
- "thiserror",
- "tiny-keccak",
- "unicode-xid",
 ]
 
 [[package]]
@@ -3795,25 +3685,10 @@ dependencies = [
 [[package]]
 name = "ethers-etherscan"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e#9f77fc1a07ea90059b4d53eeffda569bb126564e"
-dependencies = [
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-solc 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "reqwest",
- "semver 1.0.22",
- "serde",
- "serde_json",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "ethers-etherscan"
-version = "2.0.8"
 source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
 dependencies = [
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-solc 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers-core",
+ "ethers-solc",
  "reqwest",
  "semver 1.0.22",
  "serde",
@@ -3825,41 +3700,15 @@ dependencies = [
 [[package]]
 name = "ethers-middleware"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e#9f77fc1a07ea90059b4d53eeffda569bb126564e"
-dependencies = [
- "async-trait",
- "auto_impl",
- "ethers-contract 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-etherscan 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-providers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-signers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "futures-channel",
- "futures-locks",
- "futures-util",
- "instant",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-futures",
- "url",
-]
-
-[[package]]
-name = "ethers-middleware"
-version = "2.0.8"
 source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
 dependencies = [
  "async-trait",
  "auto_impl",
- "ethers-contract 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-etherscan 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-providers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-signers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers-contract",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-providers",
+ "ethers-signers",
  "futures-channel",
  "futures-locks",
  "futures-util",
@@ -3877,43 +3726,6 @@ dependencies = [
 [[package]]
 name = "ethers-providers"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e#9f77fc1a07ea90059b4d53eeffda569bb126564e"
-dependencies = [
- "anyhow",
- "async-trait",
- "auto_impl",
- "base64 0.21.7",
- "bytes",
- "enr",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "futures-core",
- "futures-timer",
- "futures-util",
- "hashers",
- "hex",
- "http",
- "instant",
- "once_cell",
- "pin-project",
- "reqwest",
- "reqwest-chain",
- "reqwest-middleware",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-futures",
- "url",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "ws_stream_wasm",
-]
-
-[[package]]
-name = "ethers-providers"
-version = "2.0.8"
 source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
 dependencies = [
  "anyhow",
@@ -3922,7 +3734,7 @@ dependencies = [
  "base64 0.21.7",
  "bytes",
  "enr",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers-core",
  "futures-channel",
  "futures-core",
  "futures-timer",
@@ -3953,24 +3765,6 @@ dependencies = [
 [[package]]
 name = "ethers-signers"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e#9f77fc1a07ea90059b4d53eeffda569bb126564e"
-dependencies = [
- "async-trait",
- "coins-bip32",
- "coins-bip39",
- "elliptic-curve",
- "eth-keystore",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "hex",
- "rand 0.8.5",
- "sha2 0.10.8",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "ethers-signers"
-version = "2.0.8"
 source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
 dependencies = [
  "async-trait",
@@ -3978,7 +3772,7 @@ dependencies = [
  "coins-bip39",
  "elliptic-curve",
  "eth-keystore",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers-core",
  "hex",
  "rand 0.8.5",
  "sha2 0.10.8",
@@ -3989,46 +3783,12 @@ dependencies = [
 [[package]]
 name = "ethers-solc"
 version = "2.0.8"
-source = "git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e#9f77fc1a07ea90059b4d53eeffda569bb126564e"
-dependencies = [
- "cfg-if",
- "dirs",
- "dunce",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "futures-util",
- "glob",
- "hex",
- "home",
- "md-5",
- "num_cpus",
- "once_cell",
- "path-slash",
- "rayon",
- "regex",
- "semver 1.0.22",
- "serde",
- "serde_json",
- "sha2 0.10.8",
- "solang-parser",
- "svm-rs",
- "svm-rs-builds",
- "thiserror",
- "tiny-keccak",
- "tokio",
- "tracing",
- "walkdir",
- "yansi 0.5.1",
-]
-
-[[package]]
-name = "ethers-solc"
-version = "2.0.8"
 source = "git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4#a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
 dependencies = [
  "cfg-if",
  "dirs",
  "dunce",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers-core",
  "futures-util",
  "glob",
  "hex",
@@ -4409,12 +4169,12 @@ version = "0.2.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
 dependencies = [
  "comfy-table 6.2.0",
- "ethers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers",
  "eyre",
- "foundry-common 0.1.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "foundry-evm 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "foundry-utils 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
+ "foundry-common",
+ "foundry-config",
+ "foundry-evm",
+ "foundry-utils",
  "glob",
  "hex",
  "once_cell",
@@ -4438,23 +4198,8 @@ version = "0.2.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
 dependencies = [
  "ariadne",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "itertools 0.10.5",
- "semver 1.0.22",
- "solang-parser",
- "thiserror",
- "tracing",
-]
-
-[[package]]
-name = "forge-fmt"
-version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f#59c58aa2d98fa388ef76f7bc22c7547650054d0f"
-dependencies = [
- "ariadne",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f)",
+ "ethers-core",
+ "foundry-config",
  "itertools 0.10.5",
  "semver 1.0.22",
  "solang-parser",
@@ -4467,12 +4212,12 @@ name = "forge-testsuite"
 version = "0.1.0"
 source = "git+https://github.com/polytope-labs/forge-testsuite?rev=faa97adf1b969f64cf77259f8f018a2aafefb70a#faa97adf1b969f64cf77259f8f018a2aafefb70a"
 dependencies = [
- "ethers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-solc 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers",
+ "ethers-solc",
  "forge",
- "foundry-common 0.1.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "foundry-evm 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
+ "foundry-common",
+ "foundry-config",
+ "foundry-evm",
  "once_cell",
 ]
 
@@ -4510,26 +4255,12 @@ name = "foundry-abi"
 version = "0.1.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
 dependencies = [
- "ethers-contract 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-contract-abigen 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-providers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers-contract",
+ "ethers-contract-abigen",
+ "ethers-core",
+ "ethers-providers",
  "eyre",
- "foundry-macros 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "syn 2.0.60",
-]
-
-[[package]]
-name = "foundry-abi"
-version = "0.1.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f#59c58aa2d98fa388ef76f7bc22c7547650054d0f"
-dependencies = [
- "ethers-contract 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-contract-abigen 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-providers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "eyre",
- "foundry-macros 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f)",
+ "foundry-macros",
  "syn 2.0.60",
 ]
 
@@ -4542,45 +4273,14 @@ dependencies = [
  "clap",
  "comfy-table 6.2.0",
  "dunce",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-etherscan 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-middleware 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-providers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-solc 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-middleware",
+ "ethers-providers",
+ "ethers-solc",
  "eyre",
- "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "foundry-macros 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "globset",
- "once_cell",
- "regex",
- "reqwest",
- "semver 1.0.22",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tracing",
- "walkdir",
- "yansi 0.5.1",
-]
-
-[[package]]
-name = "foundry-common"
-version = "0.1.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f#59c58aa2d98fa388ef76f7bc22c7547650054d0f"
-dependencies = [
- "auto_impl",
- "clap",
- "comfy-table 6.2.0",
- "dunce",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-etherscan 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-middleware 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-providers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-solc 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "eyre",
- "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f)",
- "foundry-macros 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f)",
+ "foundry-config",
+ "foundry-macros",
  "globset",
  "once_cell",
  "regex",
@@ -4602,39 +4302,9 @@ source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5
 dependencies = [
  "Inflector",
  "dirs-next",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-etherscan 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-solc 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "eyre",
- "figment",
- "globset",
- "number_prefix",
- "once_cell",
- "open-fastrlp",
- "path-slash",
- "regex",
- "reqwest",
- "semver 1.0.22",
- "serde",
- "serde_json",
- "serde_regex",
- "thiserror",
- "toml 0.7.8",
- "toml_edit 0.19.15",
- "tracing",
- "walkdir",
-]
-
-[[package]]
-name = "foundry-config"
-version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f#59c58aa2d98fa388ef76f7bc22c7547650054d0f"
-dependencies = [
- "Inflector",
- "dirs-next",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-etherscan 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-solc 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-solc",
  "eyre",
  "figment",
  "globset",
@@ -4662,48 +4332,13 @@ source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5
 dependencies = [
  "auto_impl",
  "bytes",
- "ethers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers",
  "eyre",
- "foundry-abi 0.1.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "foundry-common 0.1.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "foundry-macros 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "foundry-utils 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "futures",
- "hashbrown 0.13.2",
- "hex",
- "itertools 0.10.5",
- "jsonpath_lib",
- "once_cell",
- "ordered-float 3.9.2",
- "parking_lot 0.12.2",
- "proptest",
- "revm",
- "semver 1.0.22",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
- "url",
- "walkdir",
- "yansi 0.5.1",
-]
-
-[[package]]
-name = "foundry-evm"
-version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f#59c58aa2d98fa388ef76f7bc22c7547650054d0f"
-dependencies = [
- "auto_impl",
- "bytes",
- "ethers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "eyre",
- "foundry-abi 0.1.0 (git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f)",
- "foundry-common 0.1.0 (git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f)",
- "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f)",
- "foundry-macros 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f)",
- "foundry-utils 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f)",
+ "foundry-abi",
+ "foundry-common",
+ "foundry-config",
+ "foundry-macros",
+ "foundry-utils",
  "futures",
  "hashbrown 0.13.2",
  "hex",
@@ -4730,19 +4365,8 @@ name = "foundry-macros"
 version = "0.2.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
 dependencies = [
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "foundry-macros-impl 0.0.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "foundry-macros"
-version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f#59c58aa2d98fa388ef76f7bc22c7547650054d0f"
-dependencies = [
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "foundry-macros-impl 0.0.0 (git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f)",
+ "ethers-core",
+ "foundry-macros-impl",
  "serde",
  "serde_json",
 ]
@@ -4758,57 +4382,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "foundry-macros-impl"
-version = "0.0.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f#59c58aa2d98fa388ef76f7bc22c7547650054d0f"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.60",
-]
-
-[[package]]
 name = "foundry-utils"
 version = "0.2.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
 dependencies = [
  "dunce",
- "ethers-addressbook 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-contract 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-etherscan 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-providers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-solc 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers-addressbook",
+ "ethers-contract",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-providers",
+ "ethers-solc",
  "eyre",
- "forge-fmt 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
- "futures",
- "glob",
- "hex",
- "once_cell",
- "rand 0.8.5",
- "reqwest",
- "rlp",
- "rustc-hex",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "foundry-utils"
-version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f#59c58aa2d98fa388ef76f7bc22c7547650054d0f"
-dependencies = [
- "dunce",
- "ethers-addressbook 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-contract 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-core 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-etherscan 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-providers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "ethers-solc 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=9f77fc1a07ea90059b4d53eeffda569bb126564e)",
- "eyre",
- "forge-fmt 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f)",
+ "forge-fmt",
  "futures",
  "glob",
  "hex",
@@ -5443,7 +5029,7 @@ dependencies = [
  "alloy-rlp-derive",
  "anyhow",
  "ethabi",
- "ethers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers",
  "ismp",
  "parity-scale-codec",
  "scale-info",
@@ -6017,7 +5603,7 @@ dependencies = [
  "anyhow",
  "console_error_panic_hook",
  "ethereum-trie",
- "ethers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers",
  "evm-common",
  "fluvio-wasm-timer",
  "futures",
@@ -6430,8 +6016,8 @@ dependencies = [
  "anyhow",
  "beefy-verifier-primitives",
  "ckb-merkle-mountain-range",
- "ethers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
- "ethers-contract-abigen 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers",
+ "ethers-contract-abigen",
  "forge-testsuite",
  "ismp",
  "mmr-primitives",
@@ -6449,9 +6035,9 @@ dependencies = [
  "bytes",
  "ckb-merkle-mountain-range",
  "envy",
- "ethers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers",
  "forge-testsuite",
- "foundry-evm 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=59c58aa2d98fa388ef76f7bc22c7547650054d0f)",
+ "foundry-evm",
  "futures",
  "hex",
  "hex-literal 0.4.1",
@@ -17486,7 +17072,7 @@ dependencies = [
  "bls_on_arkworks",
  "dotenv",
  "env_logger 0.10.2",
- "ethers 2.0.8 (git+https://github.com/polytope-labs/ethers-rs?rev=a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4)",
+ "ethers",
  "hex",
  "log",
  "parity-scale-codec",

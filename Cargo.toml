@@ -199,6 +199,7 @@ ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "a61f4fd78c
 ethers-contract-abigen = { git = "https://github.com/polytope-labs/ethers-rs", rev = "a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4" }
 
 forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "faa97adf1b969f64cf77259f8f018a2aafefb70a" }
+foundry-evm = { git = "https://github.com/polytope-labs/foundry", rev = "1ffcca7485e84a9a356c5adb619ee1f038295739" }
 merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
 
 trie-db = { version = "0.28.0", default-features = false }

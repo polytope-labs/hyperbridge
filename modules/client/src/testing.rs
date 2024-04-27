@@ -126,7 +126,7 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
         .find_map(|log| parse_log::<PostRequestEventFilter>(log).ok())
         .expect("Tx should emit post request")
         .try_into()?;
-    tracing::info!("Got PostRequest {post:#?}");
+    tracing::info!("Got PostRequest {post}");
     let block = receipt.block_number.unwrap();
     tracing::info!("\n\nTx block: {block}\n\n");
 
@@ -135,10 +135,10 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     while let Some(res) = stream.next().await {
         match res {
             Ok(status) => {
-                tracing::info!("Got Status {:?}", status);
+                tracing::info!("Got Status {:#?}", status);
             },
             Err(e) => {
-                tracing::info!("Error: {e:?}");
+                tracing::info!("Error: {e:#?}");
                 Err(e)?
             },
         }
@@ -272,7 +272,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
                 };
             },
             Err(err) => {
-                tracing::error!("Got error in request_status_stream: {err:?}")
+                tracing::error!("Got error in request_status_stream: {err:#?}")
             },
         }
     }
@@ -282,7 +282,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
     while let Some(res) = stream.next().await {
         match res {
             Ok(status) => {
-                tracing::info!("\nGot Status {:?}\n", status);
+                tracing::info!("\nGot Status {:#?}\n", status);
                 match status {
                     TimeoutStatus::TimeoutMessage { calldata } => {
                         let gas_price = client.get_gas_price().await?;

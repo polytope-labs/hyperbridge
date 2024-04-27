@@ -1,11 +1,9 @@
 #![cfg(test)]
 
+use std::{env, time::Duration};
+
 use codec::Decode;
 use merkle_mountain_range::MerkleProof;
-use mmr_primitives::{DataOrHash, FullLeaf};
-use pallet_ismp::{mmr::Leaf, ProofKeys};
-use pallet_ismp_rpc::MmrProof;
-use pallet_mmr::mmr::Hasher as MmrHasher;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, offchain::StorageKind, Bytes, H256};
 use sp_keyring::sr25519::Keyring;
@@ -15,8 +13,12 @@ use sp_mmr_primitives::{
     INDEXING_PREFIX,
 };
 use sp_runtime::traits::Keccak256;
-use std::{env, sync::Arc, time::Duration};
-use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160, OnlineClient};
+use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160};
+
+use mmr_primitives::{DataOrHash, FullLeaf};
+use pallet_ismp::{mmr::Leaf, ProofKeys};
+use pallet_ismp_rpc::MmrProof;
+use pallet_mmr::mmr::Hasher as MmrHasher;
 use subxt_utils::{
     gargantua,
     gargantua::api::runtime_types::{ismp::host::Ethereum, pallet_ismp_demo::pallet::EvmParams},

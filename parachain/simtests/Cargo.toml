@@ -1,8 +1,8 @@
 [package]
-name = "mmr-simnode-tests"
+name = "simtests"
 version = "0.1.0"
 edition = "2021"
-description = "Simnode tests for mmr gadget"
+description = "Simnode integration tests for the hyperbridge node subsystems"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]

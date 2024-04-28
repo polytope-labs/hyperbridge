@@ -9066,6 +9066,7 @@ version = "0.1.0"
 dependencies = [
  "frame-system",
  "hash-db",
+ "hex",
  "hex-literal 0.3.4",
  "ismp",
  "jsonrpsee 0.16.3",

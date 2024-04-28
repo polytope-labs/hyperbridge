@@ -375,7 +375,7 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
     )
     .await?;
     let pb = ProgressBar::new(100_000);
-    for pos in 17149..100_000 {
+    for pos in 34_161..100_000 {
         // Initialize MMR Pallet by dispatching some leaves and finalizing
         let params = EvmParams {
             module: H160::random(),

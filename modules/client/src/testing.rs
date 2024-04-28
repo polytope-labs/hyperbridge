@@ -71,7 +71,7 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 
     let hyperbrige_config = SubstrateConfig {
         rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
-        // rpc_url: "ws://192.168.0.197:42609".to_string(),
+        // rpc_url: "ws://127.0.0.1:9901".to_string(),
         consensus_state_id: *b"PARA",
         hash_algo: HashAlgorithm::Keccak,
     };
@@ -170,7 +170,7 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 
     let hyperbrige_config = SubstrateConfig {
         rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
-        // rpc_url: "ws://192.168.0.197:42609".to_string(),
+        // rpc_url: "ws://127.0.0.1:9901".to_string(),
         consensus_state_id: *b"PARA",
         hash_algo: HashAlgorithm::Keccak,
     };

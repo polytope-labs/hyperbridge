@@ -23,7 +23,7 @@ use jsonrpsee::{
     types::{error::CallError, ErrorObject},
 };
 
-use codec::{Decode, Encode};
+use codec::Encode;
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     events::{Event, StateMachineUpdated},
@@ -571,11 +571,16 @@ where
                         // using swap remove should be fine unless the node is in an inconsistent
                         // state
                         .swap_remove(index as usize);
-
+                    let ext_bytes = serde_json::to_string(&extrinsic).map_err(|err| {
+                        runtime_error_into_rpc_error(format!(
+                            "Failed to serialize extrinsic: {err:?}"
+                        ))
+                    })?;
+                    let len = ext_bytes.as_bytes().len() - 1;
                     let extrinsic =
-                        Vec::<u8>::decode(&mut extrinsic.encode().as_slice()).map_err(|err| {
+                        hex::decode(ext_bytes.as_bytes()[3..len].to_vec()).map_err(|err| {
                             runtime_error_into_rpc_error(format!(
-                                "Could not decode extrinsic with index {index:?}: {err:?}"
+                                "Failed to decode extrinsic: {err:?}"
                             ))
                         })?;
                     let extrinsic_hash =

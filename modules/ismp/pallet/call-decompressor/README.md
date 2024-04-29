@@ -38,8 +38,8 @@ This pallet is designed so as to allow for large execution of runtime calls, the
 
 This pallet only supports these 2 runtime call executions:
 
-* pallet ismp handle messages
-* pallet ismp relayer accumulate fees
+* pallet ismp handle messages, `pallet_ismp::Call::handle`
+* pallet ismp relayer accumulate fees, `pallet_ismp_relayer::Call::accumulate_fees`
 
 Any other runtime call executions that compressed and sent to it will result in `ErrorExecutingCall` error
 

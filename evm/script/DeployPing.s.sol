@@ -10,11 +10,11 @@ import {PingModule} from "../examples/PingModule.sol";
 contract DeployScript is Script {
     bytes32 public salt = keccak256(bytes("gargantua-v1000000"));
 
-    address public SEPOLIA_HOST = 0xA4a35A7b9eB3C5196a991E74123463238e9a8a16;
-    address public ARB_SEPOLIA_HOST = 0x49eF4e81209becb5D9C790F67fA6dbf2ca2A48c7;
-    address public OP_SEPOLIA_HOST = 0x70659AAE08099361c97586E178be05DE19175C3F;
-    address public BASE_SEPOLIA_HOST = 0x3f93CEc2136bC6b48557bC9E96D1eEda2a4E5f0B;
-    address public BSC_SEPOLIA_HOST = 0x775De0A63ADc53BFfc9F239Ad542Bf6a5f94Eeaa;
+    address public SEPOLIA_HOST = vm.envAddress("SEPOLIA_HOST");
+    address public ARB_SEPOLIA_HOST = vm.envAddress("ARB_SEPOLIA_HOST");
+    address public OP_SEPOLIA_HOST = vm.envAddress("OP_SEPOLIA_HOST");
+    address public BASE_SEPOLIA_HOST = vm.envAddress("BASE_SEPOLIA_HOST");
+    address public BSC_TESTNET_HOST = vm.envAddress("BSC_TESTNET_HOST");
 
     function run() external {
         address admin = vm.envAddress("ADMIN");
@@ -33,7 +33,7 @@ contract DeployScript is Script {
         } else if (Strings.equal(host, "base-sepolia")) {
             ping.setIsmpHost(BASE_SEPOLIA_HOST);
         } else if (Strings.equal(host, "bsc-testnet")) {
-            ping.setIsmpHost(BSC_SEPOLIA_HOST);
+            ping.setIsmpHost(BSC_TESTNET_HOST);
         }
         vm.stopBroadcast();
     }

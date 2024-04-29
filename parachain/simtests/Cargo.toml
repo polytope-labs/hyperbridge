@@ -1,17 +1,16 @@
 [package]
-name = "simnode-tests"
+name = "simtests"
 version = "0.1.0"
 edition = "2021"
-description = "Simnode tests for mmr gadget"
+description = "Simnode integration tests for the hyperbridge node subsystems"
 authors = ["Polytope Labs <hello@polytope.technology>"]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 subxt = { workspace = true, default-features = true }
-anyhow = "1.0.70"
+anyhow.workspace = true
 futures = "0.3.28"
 tokio = { version = "1.27.0", features = ["macros"] }
+indicatif = "0.17.8"
 
 codec = { workspace = true, features = ["derive"], default-features = true }
 sp-core = { workspace = true, features = ["full_crypto", "serde"], default-features = true }
@@ -26,3 +25,10 @@ mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr = { workspace = true, default-features = true }
 pallet-ismp-rpc = { workspace = true }
 merkle-mountain-range = { workspace = true }
+jsonrpsee-core = { version = "0.22.4", features = ["client"] }
+trie-db = { workspace = true }
+hash-db = { workspace = true }
+sp-trie = { workspace = true }
+
+[features]
+stress-test = []

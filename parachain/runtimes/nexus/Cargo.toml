@@ -94,7 +94,7 @@ pallet-mmr = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
 sp-mmr-primitives = { workspace = true }
 
-simnode-runtime-api = { workspace = true, optional = true }
+simnode-runtime-api = { workspace = true }
 
 [features]
 default = [
@@ -163,7 +163,8 @@ std = [
 	"orml-xcm-support/std",
 	"orml-traits/std",
 	"pallet-mmr-runtime-api/std",
-	"sp-mmr-primitives/std"
+	"sp-mmr-primitives/std", 
+	"simnode-runtime-api/std"
 ]
 
 runtime-benchmarks = [
@@ -212,8 +213,4 @@ try-runtime = [
 ]
 async-backing = [
 	"pallet-aura/experimental"
-]
-
-simnode = [
-	"simnode-runtime-api"
 ]

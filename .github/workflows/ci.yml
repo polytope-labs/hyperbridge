@@ -6,6 +6,9 @@ on:
       - main
   pull_request_target:
     types: [ opened, synchronize ]
+#  pull_request:
+#    branches:
+#      - main
 
 concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}
@@ -14,7 +17,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   FOUNDRY_PROFILE: ci
-  BNB_RPC: ${{ secrets.BNB_RPC }}
   BSC_URL: ${{ secrets.BSC_URL }}
   OP_URL: ${{ secrets.OP_URL }}
   SEPOLIA_URL: ${{ secrets.SEPOLIA_URL }}
@@ -255,6 +257,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Run Simnet Tests
+        run: |
+          # build hyperbridge binary
+          cargo build -p hyperbridge --release
+          ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
+          ./scripts/wait_for_tcp_port_opening.sh localhost 9990
+          cargo test -p simtests -- --nocapture --ignored --test-threads=1
+          kill -9 $!
+
       - name: Run Parachain Devnet
         run: |
           # install polkadot binary
@@ -268,12 +279,8 @@ jobs:
           sudo chmod +x ./polkadot-execute-worker
           sudo chmod +x ./polkadot-prepare-worker
 
-          cd ../../../
-          ls -la polkadot-sdk/target/release
-
-          # build hyperbridge binary
-          cd hyperbridge
-          cargo build -p hyperbridge --release
+          # get back in to hyperbridge
+          cd ../../../hyperbridge
 
           # install zombienet
           wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.89/zombienet-linux-x64
@@ -312,14 +319,6 @@ jobs:
         run: |
           cargo test -p bsc-prover -- --nocapture --ignored
 
-      - name: Mmr gadget tests
-        run: | 
-          cargo build -p hyperbridge --release --features simnode
-          ./target/release/hyperbridge simnode --chain gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --unsafe-rpc-external --rpc-methods=unsafe &
-          sleep 20;
-          cargo test -p simnode-tests -- --nocapture --ignored
-          kill -9 $!
-
   check-solidity:
     name: Check ismp-solidity
     runs-on: ubuntu-latest
@@ -350,7 +349,7 @@ jobs:
   hyperclient-tests:
     name: Hyperclient Integration Tests
     runs-on: ubuntu-latest
-    if: false # disabled for now
+    if: github.event.pull_request.draft == false
     steps:
       - name: Get User Permission
         id: checkAccess
@@ -383,6 +382,6 @@ jobs:
 
       - name: Run WASM tests
         run: |
-          wasm-pack test --headless --chrome --no-default-features --features=wasm
-        working-directory: modules/client
+          wasm-pack test --headless --chrome --no-default-features --features=wasm,testing
+        working-directory: modules/hyperclient
 

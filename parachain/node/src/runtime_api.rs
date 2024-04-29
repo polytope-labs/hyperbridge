@@ -68,53 +68,6 @@ pub mod opaque {
     pub type Address = MultiAddress<AccountId, ()>;
 }
 
-#[cfg(not(feature = "simnode"))]
-pub trait BaseHostRuntimeApis:
-    TaggedTransactionQueue<opaque::Block>
-    + ApiExt<opaque::Block>
-    + BlockBuilder<opaque::Block>
-    + AccountNonceApi<opaque::Block, opaque::AccountId, opaque::Index>
-    + Metadata<opaque::Block>
-    + AuraApi<opaque::Block, sr25519::AuthorityId>
-    + OffchainWorkerApi<opaque::Block>
-    + SessionKeys<opaque::Block>
-    + CollectCollationInfo<opaque::Block>
-    + TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
-    + pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
-    + cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
-    + pallet_mmr_runtime_api::MmrRuntimeApi<
-        opaque::Block,
-        H256,
-        opaque::BlockNumber,
-        pallet_ismp::mmr::Leaf,
-    >
-{
-}
-
-#[cfg(not(feature = "simnode"))]
-impl<Api> BaseHostRuntimeApis for Api where
-    Api: TaggedTransactionQueue<opaque::Block>
-        + ApiExt<opaque::Block>
-        + BlockBuilder<opaque::Block>
-        + AccountNonceApi<opaque::Block, opaque::AccountId, opaque::Index>
-        + Metadata<opaque::Block>
-        + AuraApi<opaque::Block, sr25519::AuthorityId>
-        + OffchainWorkerApi<opaque::Block>
-        + SessionKeys<opaque::Block>
-        + CollectCollationInfo<opaque::Block>
-        + TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
-        + pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
-        + cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
-        + pallet_mmr_runtime_api::MmrRuntimeApi<
-            opaque::Block,
-            H256,
-            opaque::BlockNumber,
-            pallet_ismp::mmr::Leaf,
-        >
-{
-}
-
-#[cfg(feature = "simnode")]
 pub trait BaseHostRuntimeApis:
     TaggedTransactionQueue<opaque::Block>
     + ApiExt<opaque::Block>
@@ -141,7 +94,6 @@ pub trait BaseHostRuntimeApis:
 {
 }
 
-#[cfg(feature = "simnode")]
 impl<Api> BaseHostRuntimeApis for Api where
     Api: TaggedTransactionQueue<opaque::Block>
         + ApiExt<opaque::Block>

@@ -311,7 +311,7 @@ impl Client for EvmClient {
                 let contract = EvmHost::new(client.host_address, client.client.clone());
                 let results = match contract
                     .events()
-                    .address(client.ismp_handler.into())
+                    .address(client.host_address.into())
                     .from_block(latest_height)
                     .to_block(block_number)
                     .query_with_meta()

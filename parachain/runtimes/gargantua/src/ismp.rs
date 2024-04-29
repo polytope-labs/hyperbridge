@@ -15,8 +15,8 @@
 
 use crate::{
     alloc::{boxed::Box, string::ToString},
-    AccountId, Assets, Balance, Balances, Gateway, Ismp, Mmr, ParachainInfo, Runtime, RuntimeEvent,
-    Timestamp, EXISTENTIAL_DEPOSIT,
+    AccountId, Assets, Balance, Balances, Gateway, Ismp, IsmpParachain, Mmr, ParachainInfo,
+    Runtime, RuntimeEvent, Timestamp, EXISTENTIAL_DEPOSIT,
 };
 use frame_support::{
     pallet_prelude::{ConstU32, Get},
@@ -76,6 +76,7 @@ impl pallet_ismp::Config for Runtime {
     type ConsensusClients = (
         ismp_bsc::BscClient<Host<Runtime>>,
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Sepolia>,
+        ismp_parachain::ParachainConsensusClient<Runtime, IsmpParachain>,
     );
     type Mmr = Mmr;
     type WeightProvider = ();
@@ -96,6 +97,10 @@ impl pallet_ismp_host_executive::Config for Runtime {}
 
 impl pallet_call_decompressor::Config for Runtime {
     type MaxCallSize = ConstU32<2>;
+}
+
+impl ismp_parachain::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
 }
 
 // todo: set corrrect parameters

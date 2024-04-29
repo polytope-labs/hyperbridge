@@ -1,6 +1,3 @@
-#![cfg(target_arch = "wasm32")]
-use wasm_bindgen_test::*;
-
 use anyhow::Context;
 use ethers::{
     contract::parse_log,
@@ -14,9 +11,7 @@ use ethers::{
     utils::hex,
 };
 
-use futures::StreamExt;
-use hex_literal::hex;
-use hyperclient::{
+use crate::{
     internals,
     internals::{request_status_stream, timeout_request_stream},
     providers::interface::Client,
@@ -26,6 +21,8 @@ use hyperclient::{
     },
     HyperClient,
 };
+use futures::StreamExt;
+use hex_literal::hex;
 use ismp::{
     consensus::StateMachineId,
     host::{Ethereum, StateMachine},
@@ -38,30 +35,18 @@ use ismp_solidity_abi::{
 };
 use std::sync::Arc;
 
-const OP_HOST: H160 = H160(hex!("39f3D7a7783653a04e2970e35e5f32F0e720daeB"));
-const OP_HANDLER: H160 = H160(hex!("8738b27E29Af7c92ba2AF72B2fcF01C8934e3Db0"));
+const OP_HOST: H160 = H160(hex!("72f7B1310D7dF9fb859f1a216133598f486b8994"));
+const OP_HANDLER: H160 = H160(hex!("B437ffC066F43F45853FF38b6D2e01e0198E308a"));
 
-const SEPOLIA_HOST: H160 = H160(hex!("e4226c474A6f4BF285eA80c2f01c0942B04323e5"));
-const SEPOLIA_HANDLER: H160 = H160(hex!("F763D969aDC8281b1A8459Bde4CE86BA811b0Aaf"));
+const SEPOLIA_HOST: H160 = H160(hex!("cD90465E75479a15f85faCB17B0342e609ef3f5f"));
+const SEPOLIA_HANDLER: H160 = H160(hex!("5a78143bf18411273be0b7fc8F5e08efe2F301E9"));
 
-const BSC_HOST: H160 = H160(hex!("4e5bbdd9fE89F54157DDb64b21eD4D1CA1CDf9a6"));
-const BSC_HANDLER: H160 = H160(hex!("3aBA86C71C86353e5a96E98e1E08411063B5e2DB"));
+const BSC_HOST: H160 = H160(hex!("338B01874A01D7593F85e2e3c1681A46f2f5Df4a"));
+const BSC_HANDLER: H160 = H160(hex!("BF95b5EE6Ac91Dc17821846125D2bc11019c23f9"));
 
-const PING_MODULE: H160 = H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F"));
+const PING_MODULE: H160 = H160(hex!("Ac60c7c10eD4CD11851A9348867Eba198Fef3baA"));
 
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
-
-/// Run the tests by `$ wasm-pack test --firefox --headless`
-
-fn init_tracing() {
-    console_error_panic_hook::set_once();
-    let _ = tracing_wasm::try_set_as_global_default();
-}
-
-#[wasm_bindgen_test]
-async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
-    init_tracing();
-
+pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     tracing::info!("\n\n\n\nStarting request status subscription\n\n\n\n");
 
     let signing_key = env!("SIGNING_KEY").to_string();
@@ -85,8 +70,8 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     };
 
     let hyperbrige_config = SubstrateConfig {
-        rpc_url: "wss://hyperbridge-gargantua-rpc.blockops.network:443".to_string(),
-        // rpc_url: "ws://127.0.0.1:9944".to_string(),
+        rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
+        // rpc_url: "ws://127.0.0.1:9901".to_string(),
         consensus_state_id: *b"PARA",
         hash_algo: HashAlgorithm::Keccak,
     };
@@ -103,14 +88,13 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     let signer = LocalWallet::from(SecretKey::from_slice(signer.as_slice())?)
         .with_chain_id(provider.get_chainid().await?.low_u64());
     let client = Arc::new(provider.with_signer(signer));
-    let ping_addr = H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F"));
     let ping = PingModule::new(PING_MODULE, client.clone());
     let chain = StateMachine::Bsc;
     let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
     let host = EvmHost::new(host_addr, client.clone());
     let erc_20 =
         ERC20::new(host.fee_token().await.context(format!("Error in {chain:?}"))?, client.clone());
-    let call = erc_20.approve(host_addr, U256::max_value());
+    let call = erc_20.approve(PING_MODULE, U256::max_value());
 
     let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
     call.gas(gas)
@@ -121,7 +105,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
         .context(format!("Error in {chain:?}"))?;
     let call = ping.ping(PingMessage {
         dest: dest_chain.state_machine.to_string().as_bytes().to_vec().into(),
-        module: ping_addr.clone().into(),
+        module: PING_MODULE.clone().into(),
         timeout: 10 * 60 * 60,
         fee: U256::from(90_000_000_000_000_000_000u128),
         count: U256::from(1),
@@ -142,7 +126,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
         .find_map(|log| parse_log::<PostRequestEventFilter>(log).ok())
         .expect("Tx should emit post request")
         .try_into()?;
-    tracing::info!("Got PostRequest {post:#?}");
+    tracing::info!("Got PostRequest {post}");
     let block = receipt.block_number.unwrap();
     tracing::info!("\n\nTx block: {block}\n\n");
 
@@ -151,10 +135,10 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     while let Some(res) = stream.next().await {
         match res {
             Ok(status) => {
-                tracing::info!("Got Status {:?}", status);
+                tracing::info!("Got Status {:#?}", status);
             },
             Err(e) => {
-                tracing::info!("Error: {e:?}");
+                tracing::info!("Error: {e:#?}");
                 Err(e)?
             },
         }
@@ -162,10 +146,7 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[wasm_bindgen_test]
-async fn test_timeout_request() -> Result<(), anyhow::Error> {
-    init_tracing();
-
+pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
     tracing::info!("\n\n\n\nStarting timeout request test\n\n\n\n");
 
     let signing_key = env!("SIGNING_KEY").to_string();
@@ -188,8 +169,8 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     };
 
     let hyperbrige_config = SubstrateConfig {
-        rpc_url: "wss://hyperbridge-gargantua-rpc.blockops.network:443".to_string(),
-        // rpc_url: "ws://127.0.0.1:9944".to_string(),
+        rpc_url: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
+        // rpc_url: "ws://127.0.0.1:9901".to_string(),
         consensus_state_id: *b"PARA",
         hash_algo: HashAlgorithm::Keccak,
     };
@@ -214,7 +195,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
 
     let erc_20 =
         ERC20::new(host.fee_token().await.context(format!("Error in {chain:?}"))?, client.clone());
-    let call = erc_20.approve(host_addr, U256::max_value());
+    let call = erc_20.approve(PING_MODULE, U256::max_value());
 
     let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
     call.gas(gas)
@@ -268,7 +249,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
         .find_map(|log| parse_log::<PostRequestEventFilter>(log).ok())
         .expect("Tx should emit post request")
         .try_into()?;
-    tracing::info!("PostRequest {post:#?}");
+    tracing::info!("PostRequest {post}");
 
     let block = receipt.block_number.unwrap();
     tracing::info!("\n\nTx block: {block}\n\n");
@@ -284,14 +265,14 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     while let Some(item) = stream.next().await {
         match item {
             Ok(status) => {
-                tracing::info!("Got Status {status:?}");
+                tracing::info!("\nGot Status {status:#?}\n");
                 match status {
                     MessageStatusWithMetadata::Timeout => break,
                     _ => {},
                 };
             },
             Err(err) => {
-                tracing::error!("Got error in request_status_stream: {err:?}")
+                tracing::error!("Got error in request_status_stream: {err:#?}")
             },
         }
     }
@@ -301,7 +282,7 @@ async fn test_timeout_request() -> Result<(), anyhow::Error> {
     while let Some(res) = stream.next().await {
         match res {
             Ok(status) => {
-                tracing::info!("Got Status {:?}", status);
+                tracing::info!("\nGot Status {:#?}\n", status);
                 match status {
                     TimeoutStatus::TimeoutMessage { calldata } => {
                         let gas_price = client.get_gas_price().await?;

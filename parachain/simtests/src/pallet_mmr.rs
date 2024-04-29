@@ -1,11 +1,9 @@
 #![cfg(test)]
 
+use std::{env, time::Duration};
+
 use codec::Decode;
 use merkle_mountain_range::MerkleProof;
-use mmr_primitives::{DataOrHash, FullLeaf};
-use pallet_ismp::{mmr::Leaf, ProofKeys};
-use pallet_ismp_rpc::MmrProof;
-use pallet_mmr::mmr::Hasher as MmrHasher;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, offchain::StorageKind, Bytes, H256};
 use sp_keyring::sr25519::Keyring;
@@ -15,8 +13,12 @@ use sp_mmr_primitives::{
     INDEXING_PREFIX,
 };
 use sp_runtime::traits::Keccak256;
-use std::{env, time::Duration};
-use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160, OnlineClient};
+use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160};
+
+use mmr_primitives::{DataOrHash, FullLeaf};
+use pallet_ismp::{mmr::Leaf, ProofKeys};
+use pallet_ismp_rpc::MmrProof;
+use pallet_mmr::mmr::Hasher as MmrHasher;
 use subxt_utils::{
     gargantua,
     gargantua::api::runtime_types::{ismp::host::Ethereum, pallet_ismp_demo::pallet::EvmParams},
@@ -30,9 +32,72 @@ async fn test_all_features() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+#[cfg(feature = "stress-test")]
+#[tokio::test]
+async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
+    // try to estimate the storage requirements on offchaindb with 1 billion leaves in mmr
+    use indicatif::ProgressBar;
+
+    let port = env::var("PORT").unwrap_or("9990".into());
+    let client = subxt_utils::client::ws_client::<Hyperbridge>(
+        &format!("ws://127.0.0.1:{}", port),
+        u32::MAX,
+    )
+    .await?;
+    let pb = ProgressBar::new(100_000);
+    for pos in 44_243..100_000 {
+        // Initialize MMR Pallet by dispatching some leaves and finalizing
+        let params = EvmParams {
+            module: H160::random(),
+            destination: Ethereum::ExecutionLayer,
+            timeout: 0,
+            count: 10_000,
+        };
+        let call = client
+            .tx()
+            .call_data(&gargantua::api::tx().ismp_demo().dispatch_to_evm(params))?;
+        let _account_id = AsRef::<[u8; 32]>::as_ref(&Keyring::Ferdie.to_account_id()).clone();
+
+        let _ = client
+            .rpc()
+            .request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
+            .await?;
+
+        let extrinsic: Bytes = client
+            .rpc()
+            .request(
+                "simnode_authorExtrinsic",
+                // author an extrinsic from alice
+                rpc_params![Bytes::from(call), Keyring::Ferdie.to_account_id().to_ss58check()],
+            )
+            .await?;
+        SubmittableExtrinsic::from_bytes(client.clone(), extrinsic.0).submit().await?;
+
+        let created_block = client
+            .rpc()
+            .request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
+            .await?;
+
+        // Finalize a new block so that we are sure mmr gadget gets the notification
+        let _ = client
+            .rpc()
+            .request::<bool>("engine_finalizeBlock", rpc_params![created_block.hash])
+            .await?;
+        pb.set_position(pos);
+    }
+
+    pb.finish_with_message("Inserted 1 billion leaves");
+
+    Ok(())
+}
+
 async fn dispatch_requests() -> Result<(), anyhow::Error> {
     let port = env::var("PORT").unwrap_or("9990".into());
-    let client = OnlineClient::<Hyperbridge>::from_url(format!("ws://127.0.0.1:{}", port)).await?;
+    let client = subxt_utils::client::ws_client::<Hyperbridge>(
+        &format!("ws://127.0.0.1:{}", port),
+        u32::MAX,
+    )
+    .await?;
 
     // Initialize MMR Pallet by dispatching some leaves and finalizing
     let params = EvmParams {
@@ -84,7 +149,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 
     // Get finalized leaves
     let mut leaves = vec![];
-    for idx in 0..10 {
+    for idx in 0..=10 {
         let pos = leaf_index_to_pos(idx as u64);
         let canon_key = NodesUtils::node_canon_offchain_key(INDEXING_PREFIX, pos);
         let value = client
@@ -343,11 +408,11 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
     let res = merkle_proof
         .verify(
             root,
-            leaves[10..]
+            leaves[11..]
                 .to_vec()
                 .into_iter()
                 .enumerate()
-                .map(|(idx, leaf)| (leaf_index_to_pos((10 + idx) as u64), leaf))
+                .map(|(idx, leaf)| (leaf_index_to_pos((11 + idx) as u64), leaf))
                 .collect(),
         )
         .unwrap();

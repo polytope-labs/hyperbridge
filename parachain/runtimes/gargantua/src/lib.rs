@@ -27,6 +27,7 @@ mod ismp;
 mod weights;
 pub mod xcm;
 
+use alloc::vec::Vec;
 use cumulus_pallet_parachain_system::RelayNumberMonotonicallyIncreases;
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::TransformOrigin;
@@ -574,6 +575,8 @@ construct_runtime!(
         Ismp: pallet_ismp = 41,
         MessageQueue: pallet_message_queue = 42,
 
+        // supporting ismp pallets
+        IsmpParachain: ismp_parachain = 50,
         IsmpSyncCommittee: ismp_sync_committee::pallet = 51,
         IsmpDemo: pallet_ismp_demo = 52,
         Relayer: pallet_ismp_relayer = 53,
@@ -755,7 +758,7 @@ impl_runtime_apis! {
 
         /// Return the number of MMR leaves.
         fn mmr_leaf_count() -> Result<LeafIndex, sp_mmr_primitives::Error> {
-            Ok(Mmr::mmr_leaves())
+            Ok(Mmr::leaf_count())
         }
 
         /// Return the on-chain MMR root hash.
@@ -840,11 +843,11 @@ impl_runtime_apis! {
         }
     }
 
-    // impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {
-    //     fn para_ids() -> Vec<u32> {
-    //         IsmpParachain::para_ids()
-    //     }
-    // }
+    impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {
+        fn para_ids() -> Vec<u32> {
+            IsmpParachain::para_ids()
+        }
+    }
 
     impl cumulus_primitives_core::CollectCollationInfo<Block> for Runtime {
         fn collect_collation_info(header: &<Block as BlockT>::Header) -> cumulus_primitives_core::CollationInfo {
@@ -933,7 +936,6 @@ impl_runtime_apis! {
         }
     }
 
-    #[cfg(feature = "simnode")]
     impl<RuntimeCall, AccountId> simnode_runtime_api::CreateTransactionApi<Block, RuntimeCall, AccountId> for Runtime
         where
             RuntimeCall: codec::Codec,
@@ -951,15 +953,15 @@ impl_runtime_apis! {
             use sp_core::sr25519;
             let nonce = frame_system::Pallet::<Runtime>::account_nonce(account.clone());
             let extra = (
-                        frame_system::CheckNonZeroSender::<Runtime>::new(),
-                        frame_system::CheckSpecVersion::<Runtime>::new(),
-                        frame_system::CheckTxVersion::<Runtime>::new(),
-                        frame_system::CheckGenesis::<Runtime>::new(),
-                        frame_system::CheckEra::<Runtime>::from(Era::Immortal),
-                        frame_system::CheckNonce::<Runtime>::from(nonce),
-                        frame_system::CheckWeight::<Runtime>::new(),
-                        pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
-                );
+                frame_system::CheckNonZeroSender::<Runtime>::new(),
+                frame_system::CheckSpecVersion::<Runtime>::new(),
+                frame_system::CheckTxVersion::<Runtime>::new(),
+                frame_system::CheckGenesis::<Runtime>::new(),
+                frame_system::CheckEra::<Runtime>::from(Era::Immortal),
+                frame_system::CheckNonce::<Runtime>::from(nonce),
+                frame_system::CheckWeight::<Runtime>::new(),
+                pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
+            );
             let signature = MultiSignature::from(sr25519::Signature([0_u8;64]));
             let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());
             let ext = generic::UncheckedExtrinsic::<Address, RuntimeCall, Signature, SignedExtra>::new_signed(

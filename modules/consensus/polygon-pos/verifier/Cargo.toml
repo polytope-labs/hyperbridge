@@ -6,7 +6,7 @@ description = "Verifier for the Polygon POS Network's Consensus Proofs"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
-anyhow = { version = "1.0.75", default-features = false }
+anyhow = { workspace = true, default-features = false }
 sp-core = { workspace = true }
 alloy-rlp = { version = "0.3.2", default-features = false }
 alloy-primitives = { version = "0.6.0", default-features = false, features = ["rlp"] }

@@ -11,6 +11,7 @@ export async function handleGetRequestHandledEvent(
   event: GetRequestHandledLog,
 ): Promise<void> {
   assert(event.args, "No handleGetRequestHandledEvent args");
+  logger.info("Handling GetRequestHandled event");
 
   const {
     args,
@@ -20,6 +21,7 @@ export async function handleGetRequestHandledEvent(
     transactionIndex,
     blockHash,
     blockNumber,
+    data,
   } = event;
   const { commitment } = args;
 
@@ -32,6 +34,7 @@ export async function handleGetRequestHandledEvent(
       transactionIndex,
       blockHash,
       blockNumber,
+      data,
       timestamp: Number(block.timestamp),
       type: EventType.EVM_HOST_GET_REQUEST_HANDLED,
     },

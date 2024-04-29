@@ -1,3 +1,4 @@
+// EVM Handlers
 export { handlePostRequestEvent } from "../handlers/events/evmHost/postRequest.event.handler";
 export { handlePostRequestHandledEvent } from "../handlers/events/evmHost/postRequestHandled.event.handler";
 export { handlePostRequestTimeoutHandledEvent } from "../handlers/events/evmHost/postRequestTimeoutHandled.event.handler";
@@ -9,7 +10,7 @@ export { handleGetRequestHandledEvent } from "../handlers/events/evmHost/getRequ
 export { handleGetRequestTimeoutHandledEvent } from "../handlers/events/evmHost/getRequestTimeoutHandled.event.handler";
 
 export { handleStateMachineUpdatedEvent } from "../handlers/events/evmHost/stateMachineUpdated.event.handler";
-
 export { handleTransferEvent } from "../handlers/events/erc6160ext20/transfer.event.handlers";
 
-export { handlePostRequestTransaction } from "../handlers/transactions/handlePostRequest.transaction.handlers";
+// Hyperbridge Handlers
+export { handleIsmpStateMachineUpdatedEvent } from "../handlers/events/hyperbridgeGargantua/stateMachineUpdated.event.handler";

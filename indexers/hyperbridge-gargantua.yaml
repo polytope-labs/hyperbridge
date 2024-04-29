@@ -1,0 +1,30 @@
+specVersion: 1.0.0
+version: 0.0.1
+name: hyperbridge-parachain
+description: Hyperbridge ParaChain Indexer
+runner:
+  node:
+    name: "@subql/node"
+    version: "*"
+  query:
+    name: "@subql/query"
+    version: "*"
+schema:
+  file: ./schema.graphql
+network:
+  chainId: "0x19c5b43935ee2a7e4a090e2bde16ea106bcb1b3668a9abcd37bbceb8c9df16d4"
+  endpoint:
+    - "wss://hyperbridge-gargantua-rpc.blockops.network"
+dataSources:
+  - kind: substrate/Runtime
+    startBlock: 1
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - handler: handleIsmpStateMachineUpdatedEvent
+          kind: substrate/EventHandler
+          filter:
+            module: ismp
+            method: StateMachineUpdated
+
+repository: "https://github.com/polytope-labs/hyperbridge"

@@ -9,19 +9,16 @@ import { PostRequestEventLog } from "../../../types/abi-interfaces/EthereumHostA
 export async function handlePostRequestEvent(
   event: PostRequestEventLog,
 ): Promise<void> {
-  assert(event.args, "No handlePostRequestEvent args");
-
-  const {
-    blockHash,
-    blockNumber,
-    transactionHash,
-    transactionIndex,
-    block,
-    transaction,
-    args,
-  } = event;
-
-  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
-
+  // assert(event.args, "No handlePostRequestEvent args");
+  // const {
+  //   blockHash,
+  //   blockNumber,
+  //   transactionHash,
+  //   transactionIndex,
+  //   block,
+  //   transaction,
+  //   args,
+  // } = event;
+  // const chain: SupportedChain = getEvmChainFromTransaction(transaction);
   // @Todo Add logic handling PostRequestEvents
 }

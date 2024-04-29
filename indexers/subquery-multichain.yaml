@@ -8,3 +8,4 @@ projects:
   - base-sepolia.yaml
   - arbitrum-sepolia.yaml
   - bsc-chapel.yaml
+  - hyperbridge-gargantua.yaml

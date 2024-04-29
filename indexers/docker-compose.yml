@@ -17,6 +17,40 @@ services:
       timeout: 5s
       retries: 5
 
+  subquery-node-hyperbridge-gargantua:
+    image: subquerynetwork/subql-node-substrate:latest
+    depends_on:
+      "postgres":
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_DATABASE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+    volumes:
+      - ./:/app
+    command:
+      - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
+      - -f=app/hyperbridge-gargantua.yaml
+      - --db-schema=app
+      - --workers=1
+      - --batch-size=3
+      - --disable-historical
+      - --multi-chain
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://subquery-node-hyperbridge-gargantua:3000/ready",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
   subquery-node-ethereum-sepolia:
     image: subquerynetwork/subql-node-ethereum:v3.11.0
     depends_on:
@@ -39,6 +73,7 @@ services:
       - --batch-size=3
       - --disable-historical
       - --multi-chain
+      - --unsafe
     healthcheck:
       test:
         [
@@ -73,6 +108,7 @@ services:
       - --batch-size=3
       - --disable-historical
       - --multi-chain
+      - --unsafe
     healthcheck:
       test:
         ["CMD", "curl", "-f", "http://subquery-node-base-sepolia:3000/ready"]
@@ -102,6 +138,7 @@ services:
       - --batch-size=3
       - --disable-historical
       - --multi-chain
+      - --unsafe
     healthcheck:
       test:
         [
@@ -136,6 +173,7 @@ services:
       - --batch-size=3
       - --disable-historical
       - --multi-chain
+      - --unsafe
     healthcheck:
       test:
         [
@@ -170,6 +208,7 @@ services:
       - --batch-size=3
       - --disable-historical
       - --multi-chain
+      - --unsafe
     healthcheck:
       test: ["CMD", "curl", "-f", "http://subquery-node-bsc-chapel:3000/ready"]
       interval: 3s

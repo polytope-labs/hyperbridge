@@ -9,6 +9,8 @@ export const CHAIN_IDS = {
   [SupportedChain.OPTIMISM_SEPOLIA]: "11155420",
   [SupportedChain.ARBITRUM_SEPOLIA]: "421614",
   [SupportedChain.BSC_CHAPEL]: "97",
+  [SupportedChain.HYPERBRIDGE_GARGANTUA]:
+    "0xb2bd3bcf03701f26ae353430c98c01a4acc334a199baa37b207298cad9d6229b",
 };
 
 // Start blocks for indexing
@@ -18,6 +20,7 @@ export const START_BLOCKS = {
   [SupportedChain.OPTIMISM_SEPOLIA]: 8906802,
   [SupportedChain.ARBITRUM_SEPOLIA]: 20034995,
   [SupportedChain.BSC_CHAPEL]: 38301829,
+  [SupportedChain.HYPERBRIDGE_GARGANTUA]: 1,
 };
 
 // Contract addresses
@@ -48,4 +51,4 @@ export const HOST_ADDRESSES = [
   CONTRACT_ADDRESSES[SupportedChain.BSC_CHAPEL].EthereumHost,
 ];
 
-export const HYPERBRIDGE_METRICS_ENTITY_ID = "1";
+export const HYPERBRIDGE_STATS_ENTITY_ID = "1";

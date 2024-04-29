@@ -4958,6 +4958,8 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-bsc",
+ "ismp-parachain",
+ "ismp-parachain-runtime-api",
  "ismp-sync-committee",
  "log",
  "orml-traits",
@@ -14840,8 +14842,10 @@ dependencies = [
  "anyhow",
  "ckb-merkle-mountain-range",
  "futures",
+ "hash-db",
  "indicatif",
  "ismp",
+ "jsonrpsee-core 0.22.4",
  "mmr-primitives",
  "pallet-ismp",
  "pallet-ismp-rpc",
@@ -14852,9 +14856,11 @@ dependencies = [
  "sp-keyring",
  "sp-mmr-primitives",
  "sp-runtime 31.0.1",
+ "sp-trie 29.0.0",
  "subxt",
  "subxt-utils",
  "tokio",
+ "trie-db 0.28.0",
 ]
 
 [[package]]

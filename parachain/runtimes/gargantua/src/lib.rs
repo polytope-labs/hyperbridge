@@ -27,6 +27,7 @@ mod ismp;
 mod weights;
 pub mod xcm;
 
+use alloc::vec::Vec;
 use cumulus_pallet_parachain_system::RelayNumberMonotonicallyIncreases;
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::TransformOrigin;
@@ -574,6 +575,8 @@ construct_runtime!(
         Ismp: pallet_ismp = 41,
         MessageQueue: pallet_message_queue = 42,
 
+        // supporting ismp pallets
+        IsmpParachain: ismp_parachain = 50,
         IsmpSyncCommittee: ismp_sync_committee::pallet = 51,
         IsmpDemo: pallet_ismp_demo = 52,
         Relayer: pallet_ismp_relayer = 53,
@@ -840,11 +843,11 @@ impl_runtime_apis! {
         }
     }
 
-    // impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {
-    //     fn para_ids() -> Vec<u32> {
-    //         IsmpParachain::para_ids()
-    //     }
-    // }
+    impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {
+        fn para_ids() -> Vec<u32> {
+            IsmpParachain::para_ids()
+        }
+    }
 
     impl cumulus_primitives_core::CollectCollationInfo<Block> for Runtime {
         fn collect_collation_info(header: &<Block as BlockT>::Header) -> cumulus_primitives_core::CollationInfo {

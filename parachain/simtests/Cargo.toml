@@ -25,6 +25,10 @@ mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr = { workspace = true, default-features = true }
 pallet-ismp-rpc = { workspace = true }
 merkle-mountain-range = { workspace = true }
+jsonrpsee-core = { version = "0.22.4", features = ["client"] }
+trie-db = { workspace = true }
+hash-db = { workspace = true }
+sp-trie = { workspace = true }
 
 [features]
 stress-test = []

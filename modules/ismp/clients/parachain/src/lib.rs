@@ -134,13 +134,6 @@ pub mod pallet {
             let state = RelaychainDataProvider::<T>::current_relay_chain_state();
             if !RelayChainState::<T>::contains_key(state.number) {
                 RelayChainState::<T>::insert(state.number, state.state_root);
-
-                let digest = sp_runtime::generic::DigestItem::Consensus(
-                    consensus::PARACHAIN_CONSENSUS_ID,
-                    state.number.encode(),
-                );
-
-                <frame_system::Pallet<T>>::deposit_log(digest);
             }
         }
 

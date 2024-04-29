@@ -11,12 +11,12 @@
     "prepack": "rm -rf dist && npm run build",
     "test": "subql build && subql-node-ethereum test"
   },
-  "homepage": "https://github.com/subquery/ethereum-subql-starter",
-  "repository": "github:subquery/ethereum-subql-starter",
+  "homepage": "https://hyperbridge.network/",
+  "repository": "https://github.com/polytope-labs/hyperbridge",
   "files": [
     "dist",
     "schema.graphql",
-    "project.yaml"
+    "subquery-multichain.yaml"
   ],
   "author": "Polytope Labs",
   "license": "MIT",
@@ -25,10 +25,13 @@
     "@subql/common": "latest",
     "@subql/types-ethereum": "latest",
     "@subql/validator": "latest",
-    "assert": "^2.0.0"
+    "assert": "^2.0.0",
+    "node-fetch": "^3.3.2"
   },
   "devDependencies": {
+    "@polkadot/api": "^10",
     "@subql/cli": "latest",
+    "@subql/node": "latest",
     "@subql/node-ethereum": "latest",
     "@subql/testing": "latest",
     "@subql/types": "latest",

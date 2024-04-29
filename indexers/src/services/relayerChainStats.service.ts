@@ -1,28 +1,30 @@
-import { RelayerChainMetrics, SupportedChain } from "../types";
+import { RelayerStatsPerChain, SupportedChain } from "../types";
 
-export class RelayerChainMetricsService {
+export class RelayerChainStatsService {
   /*
    * Find the RelayerChainMetrics record for a relayer on a chain, create it if it doesn't exist
    */
   static async findOrCreate(
     relayer_id: string,
     chain: SupportedChain,
-  ): Promise<RelayerChainMetrics> {
+  ): Promise<RelayerStatsPerChain> {
     let id = `${relayer_id}-${chain}`;
-    let metrics = await RelayerChainMetrics.get(id);
+    let metrics = await RelayerStatsPerChain.get(id);
 
     if (!metrics) {
-      metrics = RelayerChainMetrics.create({
+      metrics = RelayerStatsPerChain.create({
         id,
         postRequestsHandled: BigInt(0),
         relayerId: relayer_id,
         chain,
-        failedPostRequests: BigInt(0),
-        successfulPostRequests: BigInt(0),
+        failedPostRequestsHandled: BigInt(0),
+        successfulPostRequestsHandled: BigInt(0),
         gasUsedForFailedPostRequests: BigInt(0),
         gasUsedForSuccessfulPostRequests: BigInt(0),
-        gasCostForFailedPostRequests: BigInt(0),
-        gasCostForSuccessfulPostRequests: BigInt(0),
+        gasFeeForFailedPostRequests: BigInt(0),
+        gasFeeForSuccessfulPostRequests: BigInt(0),
+        usdGasFeeForFailedPostRequests: BigInt(0),
+        usdGasFeeForSuccessfulPostRequests: BigInt(0),
         feesEarned: BigInt(0),
       });
       await metrics.save();

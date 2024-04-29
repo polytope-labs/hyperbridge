@@ -105,9 +105,5 @@ dataSources:
           filter:
             topics:
               - "StateMachineUpdated(uint256,uint256)"
-        - kind: ethereum/TransactionHandler
-          handler: handlePostRequestTransaction
-          filter:
-            function: "0xfda626c3"
 
 repository: "https://github.com/polytope-labs/hyperbridge"

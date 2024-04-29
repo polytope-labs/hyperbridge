@@ -11,58 +11,102 @@ enum SupportedChain {
     OPTIMISM_SEPOLIA
     ARBITRUM_SEPOLIA
     BSC_CHAPEL
+    HYPERBRIDGE_GARGANTUA
+}
+
+"""
+Supported Event Types
+"""
+enum EventType {
+    EVM_HOST_POST_REQUEST_HANDLED
+    EVM_HOST_POST_REQUEST_TIMEOUT_HANDLED
+    EVM_HOST_POST_RESPONSE_HANDLED
+    EVM_HOST_POST_RESPONSE_TIMEOUT_HANDLED
+    EVM_HOST_GET_REQUEST_HANDLED
+    EVM_HOST_GET_REQUEST_TIMEOUT_HANDLED
+    HANDLER_V1_STATE_MACHINE_UPDATED
 }
 
 """
 Important Hyperbridge Metrics
 """
-type HyperBridgeMetrics @entity {
+type HyperBridgeStats @entity {
     """
-    Unique identifier of the HyperBridgeMetric entry.
+    Unique identifier of the HyperBridgeStats entry.
     N.B This entity is used for overall metric aggregation, and as such only one entry with an ID of 1 will exist
     """
     id: ID!
 
     """
-    Total number of post requests handled by Hyperbridge
+    Total number of messages sent by Hyperbridge
     """
-    postRequestsHandled: BigInt!
+    numberOfMessagesSent: BigInt!
 
     """
-    The total amount of transfers sent into the Hyperbridge Host Contracts (transfers in = protocol fee + relayer fee)
+    Total number of successful messages sent by Hyperbridge
+    """
+    numberOfSuccessfulMessagesSent: BigInt!
+
+    """
+    Total number of timed out messages
+    """
+    numberOfTimedOutMessages: BigInt!
+
+    """
+    Total number of unique relayers that have sent messages to Hyperbridge on the chain
+    """
+    numberOfUniqueRelayers: BigInt!
+
+    """
+    The total amount of transfers sent into the Hyperbridge Host Contracts (transfers in = protocol fees + relayer fees)
     """
     totalTransfersIn: BigInt!
 
     """
     Total amount of fees earned by Hyperbridge (protocol fees)
     """
-    feesEarned: BigInt!
+    protocolFeesEarned: BigInt!
 
     """
     Total amount of fees payed out by Hyperbridge to relayers (relayer fees)
     """
-    feesPayedOut: BigInt!
+    feesPayedOutToRelayers: BigInt!
 
     """
-    The per chain metrics for Hyperbridge
+    The per chain stats for Hyperbridge
     """
-    perChainMetrics: [HyperBridgeChainMetrics]!
-        @derivedFrom(field: "hyperBridgeMetrics")
+    perChainStats: [HyperBridgeChainStats]!
+        @derivedFrom(field: "hyperBridgeStats")
 }
 
 """
-Important Hyperbridge Metrics for a specific chain
+Important Hyperbridge Stats for a specific chain
 """
-type HyperBridgeChainMetrics @entity {
+type HyperBridgeChainStats @entity {
     """
     The chain the metrics are for
     """
     id: ID!
 
     """
-    Total number of post requests handled by Hyperbridge on the chain
+    Total number of messages sent by Hyperbridge on the chain
     """
-    postRequestsHandled: BigInt!
+    numberOfMessagesSent: BigInt!
+
+    """
+    Total number of successful messages sent by Hyperbridge on the chain
+    """
+    numberOfSuccessfulMessagesSent: BigInt!
+
+    """
+    Total number of timed out messages sent by Hyperbridge on the chain
+    """
+    numberOfTimedOutMessages: BigInt!
+
+    """
+    Total number of unique relayers that have sent messages to Hyperbridge on the chain
+    """
+    numberOfUniqueRelayers: BigInt!
 
     """
     The total amount of transfers sent into the Hyperbridge Host Contracts (transfers in = protocol fee + relayer fee)
@@ -72,20 +116,23 @@ type HyperBridgeChainMetrics @entity {
     """
     Total amount of fees earned by Hyperbridge on the chain (protocol fees)
     """
-    feesEarned: BigInt!
+    protocolFeesEarned: BigInt!
 
     """
     Total amount of fees payed out by Hyperbridge to relayers on the chain (relayer fees)
     """
-    feesPayedOut: BigInt!
+    feesPayedOutToRelayers: BigInt!
 
-    hyperBridgeMetrics: HyperBridgeMetrics!
+    """
+    Relationship to the HyperBridgeStats entity
+    """
+    hyperBridgeStats: HyperBridgeStats!
 }
 
 """
-Hyperbridge Metrics for a specific Relayer on a specific chain
+Hyperbridge Stats for a specific Relayer on a specific chain
 """
-type RelayerChainMetrics @entity {
+type RelayerStatsPerChain @entity {
     """
     Unique identifier of the RelayerChainMetrics entry.
     """
@@ -109,32 +156,42 @@ type RelayerChainMetrics @entity {
     """
     Total number of successful post requests handled by the Relayer
     """
-    successfulPostRequests: BigInt!
+    successfulPostRequestsHandled: BigInt!
 
     """
     Total number of failed post requests handled by the Relayer
     """
-    failedPostRequests: BigInt!
+    failedPostRequestsHandled: BigInt!
 
     """
-    Amount of gas spent on successful post requests
+    Amount of gas spent on successful post requests (Gas Cost)
     """
     gasUsedForSuccessfulPostRequests: BigInt!
 
     """
-    Amount of gas spent on failed post requests
+    Amount of gas spent on failed post requests (Gas Cost)
     """
     gasUsedForFailedPostRequests: BigInt!
 
     """
-    Cost of gas spent on successful post requests
+    Gas fee spent on successful post requests (Gas Cost * Gas Price)
     """
-    gasCostForSuccessfulPostRequests: BigInt!
+    gasFeeForSuccessfulPostRequests: BigInt!
 
     """
-    Cost of gas spent on failed post requests
+    Gas fee spent on failed post requests (Gas Cost * Gas Price)
     """
-    gasCostForFailedPostRequests: BigInt!
+    gasFeeForFailedPostRequests: BigInt!
+
+    """
+    The USD value of the gas fee spent on successful post requests (Gas Fee * USD Value of Eth at the time of the transaction)
+    """
+    usdGasFeeForSuccessfulPostRequests: BigInt!
+
+    """
+    The USD value of the gas fee spent on failed post requests (Gas Fee * USD Value of Eth at the time of the transaction)
+    """
+    usdGasFeeForFailedPostRequests: BigInt!
 
     """
     Total fees earned by the relayer
@@ -157,9 +214,9 @@ type Relayer @entity {
     chains: [SupportedChain!]!
 
     """
-    A list of important metrics for the Relayer on every network that they support
+    A list of important stats for the Relayer on every network that they support
     """
-    chainMetrics: [RelayerChainMetrics]! @derivedFrom(field: "relayer")
+    perChainStats: [RelayerStatsPerChain]! @derivedFrom(field: "relayer")
 
     """
     Total number of post requests handled by the Relayer
@@ -205,19 +262,6 @@ type Transfer @entity @compositeIndexes(fields: [["from", "to"]]) {
 }
 
 """
-Supported Event Types
-"""
-enum EventType {
-    EVM_HOST_POST_REQUEST_HANDLED
-    EVM_HOST_POST_REQUEST_TIMEOUT_HANDLED
-    EVM_HOST_POST_RESPONSE_HANDLED
-    EVM_HOST_POST_RESPONSE_TIMEOUT_HANDLED
-    EVM_HOST_GET_REQUEST_HANDLED
-    EVM_HOST_GET_REQUEST_TIMEOUT_HANDLED
-    HANDLER_V1_STATE_MACHINE_UPDATED
-}
-
-"""
 An event that has occured on an EVM Host
 """
 type Event @entity {
@@ -231,6 +275,7 @@ type Event @entity {
     blockNumber: BigInt!
     transactionHash: String!
     transactionIndex: BigInt!
+    data: String!
     createdAt: Date!
 }
 

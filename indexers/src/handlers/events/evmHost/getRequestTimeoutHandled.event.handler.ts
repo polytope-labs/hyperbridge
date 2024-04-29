@@ -11,6 +11,7 @@ export async function handleGetRequestTimeoutHandledEvent(
   event: GetRequestTimeoutHandledLog,
 ): Promise<void> {
   assert(event.args, "No handleGetRequestTimeoutHandledEvent args");
+  logger.info("Handling GetRequestTimeoutHandled event");
 
   const {
     args,
@@ -20,6 +21,7 @@ export async function handleGetRequestTimeoutHandledEvent(
     transactionIndex,
     blockHash,
     blockNumber,
+    data,
   } = event;
   const { commitment } = args;
 
@@ -27,6 +29,7 @@ export async function handleGetRequestTimeoutHandledEvent(
 
   await EvmHostEventsService.createEvent(
     {
+      data,
       commitment,
       transactionHash,
       transactionIndex,

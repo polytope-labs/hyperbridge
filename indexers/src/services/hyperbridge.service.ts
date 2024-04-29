@@ -1,45 +1,112 @@
-import { HYPERBRIDGE_METRICS_ENTITY_ID } from "../constants";
+import { HYPERBRIDGE_STATS_ENTITY_ID } from "../constants";
 import { SupportedChain } from "../types";
-import { HyperBridgeMetrics, Transfer } from "../types/models";
-import { HyperBridgeChainMetricsService } from "./hyperbridgeChainMetrics.service";
+import { HyperBridgeStats, Relayer, Transfer } from "../types/models";
+import { HyperBridgeChainStatsService } from "./hyperbridgeChainStats.service";
+import { RelayerService } from "./relayer.service";
 
 export class HyperBridgeService {
   /**
-   * Get the HyperBridgeMetrics entity
+   * Get the HyperBridgeStats entity
    */
-  static async getMetrics(): Promise<HyperBridgeMetrics> {
-    let metrics = await HyperBridgeMetrics.get(HYPERBRIDGE_METRICS_ENTITY_ID);
+  static async getStats(): Promise<HyperBridgeStats> {
+    let stats = await HyperBridgeStats.get(HYPERBRIDGE_STATS_ENTITY_ID);
 
-    if (!metrics) {
-      metrics = HyperBridgeMetrics.create({
-        id: HYPERBRIDGE_METRICS_ENTITY_ID,
-        postRequestsHandled: BigInt(0),
-        feesPayedOut: BigInt(0),
-        feesEarned: BigInt(0),
+    if (!stats) {
+      stats = HyperBridgeStats.create({
+        id: HYPERBRIDGE_STATS_ENTITY_ID,
+        numberOfMessagesSent: BigInt(0),
+        numberOfSuccessfulMessagesSent: BigInt(0),
+        numberOfTimedOutMessages: BigInt(0),
+        numberOfUniqueRelayers: BigInt(0),
+        feesPayedOutToRelayers: BigInt(0),
+        protocolFeesEarned: BigInt(0),
         totalTransfersIn: BigInt(0),
       });
 
-      await metrics.save();
+      await stats.save();
     }
 
-    return metrics;
+    return stats;
   }
 
   /**
-   * Increment the number of post requests handled by hyperbridge
+   * Perform the necessary actions related to Hyperbridge stats when a PostRequestHandled/PostResponseHandled event is indexed
    */
-  static async incrementNumberOfPostRequestsHandled(
+  static async handlePostRequestOrResponseHandledEvent(
+    relayer_id: string,
+    chain: SupportedChain,
+    transaction_status: boolean,
+  ): Promise<void> {
+    await this.incrementTotalNumberOfMessagesSent(chain);
+    await this.updateNumberOfUniqueRelayers(relayer_id);
+
+    if (transaction_status) {
+      await this.incrementNumberOfSuccessfulMessagesSent(chain);
+    }
+  }
+
+  /**
+   * Increment the total number of messages sent by hyperbridge
+   */
+  static async incrementTotalNumberOfMessagesSent(
     chain: SupportedChain,
   ): Promise<void> {
-    let metrics = await this.getMetrics();
-    metrics.postRequestsHandled += BigInt(1);
+    let stats = await this.getStats();
+    stats.numberOfMessagesSent += BigInt(1);
 
-    // Update the specific chain metrics
-    let chainMetrics =
-      await HyperBridgeChainMetricsService.findOrCreateChainMetrics(chain);
-    chainMetrics.postRequestsHandled += BigInt(1);
+    // Update the specific chain stats
+    let chainStats =
+      await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
+    chainStats.numberOfMessagesSent += BigInt(1);
 
-    Promise.all([await chainMetrics.save(), await metrics.save()]);
+    Promise.all([await chainStats.save(), await stats.save()]);
+  }
+
+  /**
+   * Increment the number of successful messages handled by hyperbridge
+   */
+  static async incrementNumberOfSuccessfulMessagesSent(
+    chain: SupportedChain,
+  ): Promise<void> {
+    let stats = await this.getStats();
+    stats.numberOfSuccessfulMessagesSent += BigInt(1);
+
+    // Update the specific chain stats
+    let chainStats =
+      await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
+    chainStats.numberOfSuccessfulMessagesSent += BigInt(1);
+
+    Promise.all([await chainStats.save(), await stats.save()]);
+  }
+
+  /**
+   * Increment the number of unique relayers on Hyperbridge (if the relayer doesn't exist)
+   */
+  static async updateNumberOfUniqueRelayers(relayer_id: string): Promise<void> {
+    let relayer = await Relayer.get(relayer_id);
+
+    if (typeof relayer === "undefined") {
+      let stats = await this.getStats();
+      stats.numberOfUniqueRelayers += BigInt(1);
+      await stats.save();
+    }
+  }
+
+  /**
+   * Increment the number of timed-out messages handled by hyperbridge
+   */
+  static async incrementNumberOfTimedOutMessagesSent(
+    chain: SupportedChain,
+  ): Promise<void> {
+    let stats = await this.getStats();
+    stats.numberOfTimedOutMessages += BigInt(1);
+
+    // Update the specific chain stats
+    let chainStats =
+      await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
+    chainStats.numberOfTimedOutMessages += BigInt(1);
+
+    Promise.all([await chainStats.save(), await stats.save()]);
   }
 
   /**
@@ -49,18 +116,19 @@ export class HyperBridgeService {
     transfer: Transfer,
     chain: SupportedChain,
   ): Promise<void> {
-    let metrics = await this.getMetrics();
-    metrics.feesPayedOut += BigInt(transfer.amount);
-    metrics.feesEarned = metrics.totalTransfersIn - metrics.feesPayedOut;
+    let stats = await this.getStats();
+    stats.feesPayedOutToRelayers += BigInt(transfer.amount);
+    stats.protocolFeesEarned =
+      stats.totalTransfersIn - stats.feesPayedOutToRelayers;
 
     // Update the specific chain metrics
-    let chainMetrics =
-      await HyperBridgeChainMetricsService.findOrCreateChainMetrics(chain);
-    chainMetrics.feesPayedOut += BigInt(transfer.amount);
-    chainMetrics.feesEarned =
-      chainMetrics.totalTransfersIn - chainMetrics.feesPayedOut;
+    let chainStats =
+      await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
+    chainStats.feesPayedOutToRelayers += BigInt(transfer.amount);
+    chainStats.protocolFeesEarned =
+      chainStats.totalTransfersIn - chainStats.feesPayedOutToRelayers;
 
-    Promise.all([await chainMetrics.save(), await metrics.save()]);
+    Promise.all([await chainStats.save(), await stats.save()]);
   }
 
   /**
@@ -70,17 +138,18 @@ export class HyperBridgeService {
     transfer: Transfer,
     chain: SupportedChain,
   ): Promise<void> {
-    let metrics = await this.getMetrics();
-    metrics.totalTransfersIn += BigInt(transfer.amount);
-    metrics.feesEarned = metrics.totalTransfersIn - metrics.feesPayedOut;
+    let stats = await this.getStats();
+    stats.totalTransfersIn += BigInt(transfer.amount);
+    stats.protocolFeesEarned =
+      stats.totalTransfersIn - stats.feesPayedOutToRelayers;
 
     // Update the specific chain metrics
-    let chainMetrics =
-      await HyperBridgeChainMetricsService.findOrCreateChainMetrics(chain);
-    chainMetrics.totalTransfersIn += BigInt(transfer.amount);
-    chainMetrics.feesEarned =
-      chainMetrics.totalTransfersIn - chainMetrics.feesPayedOut;
+    let chainStats =
+      await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
+    chainStats.totalTransfersIn += BigInt(transfer.amount);
+    chainStats.protocolFeesEarned =
+      chainStats.totalTransfersIn - chainStats.feesPayedOutToRelayers;
 
-    Promise.all([await chainMetrics.save(), await metrics.save()]);
+    Promise.all([await chainStats.save(), await stats.save()]);
   }
 }

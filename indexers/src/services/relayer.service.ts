@@ -1,11 +1,12 @@
-import { HandlePostRequestsTransaction } from "../types/abi-interfaces/HandlerV1Abi";
+import { EthereumResult, EthereumTransaction } from "@subql/types-ethereum";
 import { SupportedChain } from "../types/enums";
-import { Relayer, RelayerChainMetrics, Transfer } from "../types/models";
+import { Relayer, Transfer } from "../types/models";
 import {
   convertArrayToEnumListString,
   convertEnumListStringToArray,
 } from "../utils/enum.helpers";
-import { RelayerChainMetricsService } from "./relayerChainMetrics.service";
+import { RelayerChainStatsService } from "./relayerChainStats.service";
+import { getCurrentEthPriceInUsd } from "../utils/price.helpers";
 
 export class RelayerService {
   /**
@@ -89,38 +90,41 @@ export class RelayerService {
   }
 
   /**
-   * Computes relayer specific metrics from the handlePostRequest transaction
+   * Computes relayer specific stats from the PostRequestHandled event's transaction
    */
-  static async handlePostRequestTransaction(
-    transaction: HandlePostRequestsTransaction,
+  static async handlePostRequestHandledTransaction(
+    relayer_id: string,
+    transaction: EthereumTransaction<EthereumResult>,
     chain: SupportedChain,
   ): Promise<void> {
-    const { to, receipt, gasPrice } = transaction;
-    const { status, gasUsed } = await receipt();
+    const { status, gasUsed, effectiveGasPrice } = await transaction.receipt();
+    const ethPriceInUsd = await getCurrentEthPriceInUsd();
 
-    const relayer_id = to;
-    const gasCost = BigInt(gasPrice) * BigInt(gasUsed);
+    const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
+    const usdFee = gasFee * BigInt(ethPriceInUsd);
 
     const relayer = await RelayerService.findOrCreate(relayer_id, chain);
-    let relayer_chain_metrics = await RelayerChainMetricsService.findOrCreate(
+    let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
       relayer_id,
       chain,
     );
 
-    relayer_chain_metrics.postRequestsHandled += BigInt(1);
+    relayer_chain_stats.postRequestsHandled += BigInt(1);
 
     if (status) {
       // Handle successful requests
-      relayer_chain_metrics.successfulPostRequests += BigInt(1);
-      relayer_chain_metrics.gasUsedForSuccessfulPostRequests += BigInt(gasUsed);
-      relayer_chain_metrics.gasCostForSuccessfulPostRequests += BigInt(gasCost);
+      relayer_chain_stats.successfulPostRequestsHandled += BigInt(1);
+      relayer_chain_stats.gasUsedForSuccessfulPostRequests += BigInt(gasUsed);
+      relayer_chain_stats.gasFeeForSuccessfulPostRequests += BigInt(gasFee);
+      relayer_chain_stats.usdGasFeeForSuccessfulPostRequests += BigInt(usdFee);
     } else {
       // Handle failed requests
-      relayer_chain_metrics.failedPostRequests += BigInt(1);
-      relayer_chain_metrics.gasUsedForFailedPostRequests += BigInt(gasUsed);
-      relayer_chain_metrics.gasCostForFailedPostRequests += BigInt(gasCost);
+      relayer_chain_stats.failedPostRequestsHandled += BigInt(1);
+      relayer_chain_stats.gasUsedForFailedPostRequests += BigInt(gasUsed);
+      relayer_chain_stats.gasFeeForFailedPostRequests += BigInt(gasFee);
+      relayer_chain_stats.usdGasFeeForSuccessfulPostRequests += BigInt(usdFee);
     }
 
-    await relayer_chain_metrics.save();
+    await relayer_chain_stats.save();
   }
 }

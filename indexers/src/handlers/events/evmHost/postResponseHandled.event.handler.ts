@@ -13,6 +13,7 @@ export async function handlePostResponseHandledEvent(
   event: PostResponseHandledLog,
 ): Promise<void> {
   assert(event.args, "No handlePostResponseHandledEvent args");
+  logger.info("Handling PostResponseHandled event");
 
   const {
     args,
@@ -22,14 +23,17 @@ export async function handlePostResponseHandledEvent(
     transactionIndex,
     blockHash,
     blockNumber,
+    data,
   } = event;
-  const { relayer, commitment } = args;
+  const { relayer: relayer_id, commitment } = args;
+  const { status } = await transaction.receipt();
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 
   Promise.all([
     await EvmHostEventsService.createEvent(
       {
+        data,
         commitment,
         transactionHash,
         transactionIndex,
@@ -40,7 +44,14 @@ export async function handlePostResponseHandledEvent(
       },
       chain,
     ),
-    await RelayerService.incrementNumberOfPostRequestsHandled(relayer, chain),
-    await HyperBridgeService.incrementNumberOfPostRequestsHandled(chain),
+    await HyperBridgeService.handlePostRequestOrResponseHandledEvent(
+      relayer_id,
+      chain,
+      status,
+    ),
+    await RelayerService.incrementNumberOfPostRequestsHandled(
+      relayer_id,
+      chain,
+    ),
   ]);
 }

@@ -149,7 +149,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 
     // Get finalized leaves
     let mut leaves = vec![];
-    for idx in 0..10 {
+    for idx in 0..=10 {
         let pos = leaf_index_to_pos(idx as u64);
         let canon_key = NodesUtils::node_canon_offchain_key(INDEXING_PREFIX, pos);
         let value = client
@@ -408,11 +408,11 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
     let res = merkle_proof
         .verify(
             root,
-            leaves[10..]
+            leaves[11..]
                 .to_vec()
                 .into_iter()
                 .enumerate()
-                .map(|(idx, leaf)| (leaf_index_to_pos((10 + idx) as u64), leaf))
+                .map(|(idx, leaf)| (leaf_index_to_pos((11 + idx) as u64), leaf))
                 .collect(),
         )
         .unwrap();

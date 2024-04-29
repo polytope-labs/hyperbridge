@@ -57,7 +57,7 @@ impl ismp::util::Keccak256 for Keccak256 {
 #[tokio::test]
 #[ignore]
 async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Error> {
-    let port = env::var("PORT").unwrap_or("9991".into());
+    let port = env::var("PORT").unwrap_or("9990".into());
     let client = subxt_utils::client::ws_client::<Hyperbridge>(
         &format!("ws://127.0.0.1:{}", port),
         u32::MAX,
@@ -191,28 +191,35 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
     let proof =
         SubstrateStateProof::OverlayProof { hasher: HashAlgorithm::Keccak, storage_proof: proof }
             .encode();
+    let proof = Proof { height, proof };
 
     // 3. next send the requests
     let tx = api::tx().ismp().handle(vec![Message::Request(RequestMessage {
-        requests: vec![post.into()],
-        proof: Proof { height, proof },
+        requests: vec![post.clone().into()],
+        proof: proof.clone(),
         signer: H256::random().as_bytes().to_vec(),
     })]);
 
     // send once
     let progress = client.tx().create_unsigned(&tx)?.submit_and_watch().await?;
     // send twice, txpool should reject it
-    let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
+    {
+        let tx = api::tx().ismp().handle(vec![Message::Request(RequestMessage {
+            requests: vec![post.clone().into()],
+            proof: proof.clone(),
+            signer: H256::random().as_bytes().to_vec(),
+        })]);
+        let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
+        let subxt::Error::Rpc(RpcError::ClientError(err)) = error else {
+            panic!("Unexpected error kind: {error:?}")
+        };
+        let jsonrpsee_error = err.downcast::<jsonrpsee_core::ClientError>().unwrap();
+        let jsonrpsee_core::ClientError::Call(error) = *jsonrpsee_error else {
+            panic!("Unexpected error kind: {jsonrpsee_error:?}")
+        };
 
-    let subxt::Error::Rpc(RpcError::ClientError(err)) = error else {
-        panic!("Unexpected error kind: {error:?}")
+        assert_eq!(error.message(), "Priority is too low: (100 vs 100)");
     };
-    let jsonrpsee_error = err.downcast::<jsonrpsee_core::ClientError>().unwrap();
-    let jsonrpsee_core::ClientError::Call(error) = *jsonrpsee_error else {
-        panic!("Unexpected error kind: {jsonrpsee_error:?}")
-    };
-
-    assert_eq!(error.message(), "Transaction Already Imported");
 
     let block = client
         .rpc()
@@ -225,6 +232,25 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
         .await?;
     assert!(finalized);
     progress.wait_for_finalized_success().await?;
+
+    // send after block inclusion, txpool should reject it
+    {
+        let tx = api::tx().ismp().handle(vec![Message::Request(RequestMessage {
+            requests: vec![post.into()],
+            proof,
+            signer: H256::random().as_bytes().to_vec(),
+        })]);
+        let error = client.tx().create_unsigned(&tx)?.submit_and_watch().await.unwrap_err();
+        let subxt::Error::Rpc(RpcError::ClientError(err)) = error else {
+            panic!("Unexpected error kind: {error:?}")
+        };
+        let jsonrpsee_error = err.downcast::<jsonrpsee_core::ClientError>().unwrap();
+        let jsonrpsee_core::ClientError::Call(error) = *jsonrpsee_error else {
+            panic!("Unexpected error kind: {jsonrpsee_error:?}")
+        };
+
+        assert_eq!(error.message(), "Invalid Transaction");
+    };
 
     Ok(())
 }

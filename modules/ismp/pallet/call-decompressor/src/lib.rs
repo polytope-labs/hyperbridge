@@ -83,8 +83,13 @@ pub mod pallet {
         <T as frame_system::Config>::RuntimeCall: IsSubType<pallet_ismp::Call<T>>,
         <T as frame_system::Config>::RuntimeCall: IsSubType<pallet_ismp_relayer::Call<T>>,
     {
-        /// The encoded_call_size which is the size of the not compressed(decompressed) encoded call
-        /// in bytes
+        /// This is for decompressing and executing compressed encoded runtime calls
+        ///
+        ///  The dispatch origin for this call must be an unsigned one.
+        ///
+        /// - `compressed`: the compressed encoded runtime call represented in bytes.
+        /// - `encoded_call_size`: this is the size of the not compressed(decompressed) encoded call
+        /// in bytes.
         #[pallet::call_index(0)]
         #[pallet::weight({1_000_000})]
         pub fn decompress_call(
@@ -181,6 +186,11 @@ where
     <T as frame_system::Config>::RuntimeCall: IsSubType<pallet_ismp::Call<T>>,
     <T as frame_system::Config>::RuntimeCall: IsSubType<pallet_ismp_relayer::Call<T>>,
 {
+    /// This decompresses the encoded runtime call
+    ///
+    /// - `compressed_bytes`: the compressed encoded runtime call represented in bytes.
+    /// - `encoded_call_size`: this is the size of the not compressed(decompressed) encoded call
+    /// in bytes.
     pub fn decompress(
         compressed_bytes: Vec<u8>,
         encoded_call_size: u32,
@@ -193,6 +203,8 @@ where
         Ok(result)
     }
 
+    /// This decoded and executes the encoded runtime call which is represented in  bytes
+    /// - `call_bytes`: the uncompressed encoded runtime call.
     pub fn decode_and_execute(call_bytes: Vec<u8>) -> DispatchResult {
         let runtime_call = <T as frame_system::Config>::RuntimeCall::decode(&mut &call_bytes[..])
             .map_err(|_| Error::<T>::ErrorDecodingCall)?;

@@ -1,4 +1,4 @@
-//! This crate exposes an implementation of [`trie_db::TrieLayout`] that allows [`trie_db::TrieDb`]
+//! This crate exposes an implementation of `trie_db::TrieLayout` that allows `trie_db::TrieDb`
 //! be used for verifying Ethereum state proofs as per [EIP-1186](https://eips.ethereum.org/EIPS/eip-1186)
 
 #![cfg_attr(not(feature = "std"), no_std)]

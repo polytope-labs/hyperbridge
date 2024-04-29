@@ -16,7 +16,7 @@ To use it in your runtime, you need to implement the ismp
 [`ismp::Config`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/trait.Config.html).
 
 The supported dispatchable functions are documented in the
-[`assets::Call`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/enum.Call.html) enum.
+[`ismp::Call`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/enum.Call.html) enum.
 
 
 ### Terminology
@@ -49,3 +49,23 @@ The ISMP pallet in Substrate is designed to make the following possible:
 
 Please refer to the [`Call`](https://docs.rs/pallet-ismp/latest/pallet_ismp/enum.Call.html) enum and its associated
 variants for documentation on each function.
+
+### Runtime Usage
+
+```rust
+impl pallet_ismp::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type AdminOrigin = EnsureRoot<AccountId>;
+    type HostStateMachine = HostStateMachine;
+    type TimeProvider = Timestamp;
+    type Router = Router;
+    type Coprocessor = Coprocessor;
+    type ConsensusClients = (
+        ismp_bsc::BscClient<Host<Runtime>>,
+        ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Mainnet>,
+    );
+
+    type Mmr = Mmr;
+    type WeightProvider = ();
+}
+```

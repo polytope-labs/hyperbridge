@@ -54,4 +54,4 @@ impl pallet_call_decompressor::Config for Runtime {
 }
 ```
 
-* `MaxCallSize` -  The MaxCallSize represents the maximum original(uncompressed) encoded call size in Megabyte that the pallet allows in the runtime 
+* `MaxCallSize` -  The MaxCallSize represents the maximum original(uncompressed) encoded call size in Megabyte that the pallet allows in the runtime. 

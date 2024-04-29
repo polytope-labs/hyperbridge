@@ -69,3 +69,15 @@ impl pallet_ismp::Config for Runtime {
     type WeightProvider = ();
 }
 ```
+
+
+* `RuntimeEvent` -  The runtime event
+* `AdminOrigin` -  The origin allowed to execute the extrinsic in the pallet.
+* `HostStateMachine` -  The state machine(Blockchain) that is hosting this pallet.
+* `TimeProvider` -  The timestamp used for this pallet.
+* `Router` -  The implementation required for receiving request or response based on the Module defined.
+* `Coprocessor` -  This represents the state machine proxy allowed for verifying requests.
+* `ConsensusClients` -  The consensus clients supported for verification.
+* `Mmr` -  Mmr used, this is not compulsory.
+* `WeightProvider` -  The weights, this is not compulsory.
+

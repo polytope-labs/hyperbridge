@@ -38,68 +38,25 @@ use polkadot_primitives::ValidationCode;
 use frame_benchmarking_cli::SUBSTRATE_REFERENCE_HARDWARE;
 use sc_client_api::Backend;
 use sc_consensus::ImportQueue;
-use sc_executor::{
-    HeapAllocStrategy, NativeElseWasmExecutor, WasmExecutor, DEFAULT_HEAP_ALLOC_STRATEGY,
-};
+use sc_executor::{RuntimeVersionOf, WasmExecutor};
 use sc_network::NetworkBlock;
 use sc_network_sync::SyncingService;
 use sc_service::{Configuration, PartialComponents, TFullBackend, TFullClient, TaskManager};
+use sc_simnode::parachain::ParachainSelectChain;
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker, TelemetryWorkerHandle};
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
 use sp_api::ConstructRuntimeApi;
+use sp_core::traits::CodeExecutor;
 use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Keccak256;
 use substrate_prometheus_endpoint::Registry;
 
-/// Native executor type.
-pub struct GargantuanExecutor;
-
-impl sc_executor::NativeExecutionDispatch for GargantuanExecutor {
-    type ExtendHostFunctions = frame_benchmarking::benchmarking::HostFunctions;
-
-    fn dispatch(method: &str, data: &[u8]) -> Option<Vec<u8>> {
-        gargantua_runtime::api::dispatch(method, data)
-    }
-
-    fn native_version() -> sc_executor::NativeVersion {
-        gargantua_runtime::native_version()
-    }
-}
-
-pub struct MessierExecutor;
-
-impl sc_executor::NativeExecutionDispatch for MessierExecutor {
-    type ExtendHostFunctions = frame_benchmarking::benchmarking::HostFunctions;
-
-    fn dispatch(method: &str, data: &[u8]) -> Option<Vec<u8>> {
-        messier_runtime::api::dispatch(method, data)
-    }
-
-    fn native_version() -> sc_executor::NativeVersion {
-        messier_runtime::native_version()
-    }
-}
-
-pub struct NexusExecutor;
-
-impl sc_executor::NativeExecutionDispatch for crate::service::NexusExecutor {
-    type ExtendHostFunctions = frame_benchmarking::benchmarking::HostFunctions;
-
-    fn dispatch(method: &str, data: &[u8]) -> Option<Vec<u8>> {
-        nexus_runtime::api::dispatch(method, data)
-    }
-
-    fn native_version() -> sc_executor::NativeVersion {
-        nexus_runtime::native_version()
-    }
-}
-
-pub type FullClient<Runtime, Executor> =
-    TFullClient<opaque::Block, Runtime, NativeElseWasmExecutor<Executor>>;
+pub type FullClient<Runtime, Executor = WasmExecutor<sp_io::SubstrateHostFunctions>> =
+    TFullClient<opaque::Block, Runtime, Executor>;
 
 pub type FullBackend = TFullBackend<opaque::Block>;
 
-type ParachainBlockImport<Runtime, Executor> =
+type ParachainBlockImport<Runtime, Executor = WasmExecutor<sp_io::SubstrateHostFunctions>> =
     TParachainBlockImport<opaque::Block, Arc<FullClient<Runtime, Executor>>, FullBackend>;
 
 /// Starts a `ServiceBuilder` for a full service.
@@ -108,11 +65,12 @@ type ParachainBlockImport<Runtime, Executor> =
 /// be able to perform chain operations.
 pub fn new_partial<Runtime, Executor>(
     config: &Configuration,
+    executor: Executor,
 ) -> Result<
     PartialComponents<
         FullClient<Runtime, Executor>,
         FullBackend,
-        (),
+        ParachainSelectChain<FullClient<Runtime, Executor>>,
         sc_consensus::DefaultImportQueue<opaque::Block>,
         sc_transaction_pool::FullPool<opaque::Block, FullClient<Runtime, Executor>>,
         (ParachainBlockImport<Runtime, Executor>, Option<Telemetry>, Option<TelemetryWorkerHandle>),
@@ -125,7 +83,7 @@ where
     Runtime::RuntimeApi: BaseHostRuntimeApis,
     sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
         sc_client_api::StateBackend<Keccak256>,
-    Executor: sc_executor::NativeExecutionDispatch + 'static,
+    Executor: CodeExecutor + RuntimeVersionOf + 'static,
 {
     let telemetry = config
         .telemetry_endpoints
@@ -137,20 +95,6 @@ where
             Ok((worker, telemetry))
         })
         .transpose()?;
-
-    let heap_pages = config
-        .default_heap_pages
-        .map_or(DEFAULT_HEAP_ALLOC_STRATEGY, |h| HeapAllocStrategy::Static { extra_pages: h as _ });
-
-    let wasm = WasmExecutor::builder()
-        .with_execution_method(config.wasm_method)
-        .with_onchain_heap_alloc_strategy(heap_pages)
-        .with_offchain_heap_alloc_strategy(heap_pages)
-        .with_max_runtime_instances(config.max_runtime_instances)
-        .with_runtime_cache_size(config.runtime_cache_size)
-        .build();
-
-    let executor = NativeElseWasmExecutor::<Executor>::new_with_wasm_executor(wasm);
 
     let (client, backend, keystore_container, task_manager) =
         sc_service::new_full_parts::<opaque::Block, Runtime, _>(
@@ -166,6 +110,7 @@ where
         task_manager.spawn_handle().spawn("telemetry", None, worker.run());
         telemetry
     });
+    let select_chain = ParachainSelectChain::new(client.clone());
 
     // Spawn mmr canonicalizing task
     task_manager.spawn_handle().spawn(
@@ -204,7 +149,7 @@ where
         keystore_container,
         task_manager,
         transaction_pool,
-        select_chain: (),
+        select_chain,
         other: (block_import, telemetry, telemetry_worker_handle),
     })
 }
@@ -213,7 +158,7 @@ where
 ///
 /// This is the actual implementation that is abstract over the executor and the runtime api.
 #[sc_tracing::logging::prefix_logs_with("Parachain")]
-async fn start_node_impl<Runtime, Executor>(
+async fn start_node_impl<Runtime>(
     parachain_config: Configuration,
     polkadot_config: Configuration,
     collator_options: CollatorOptions,
@@ -221,16 +166,15 @@ async fn start_node_impl<Runtime, Executor>(
     hwbench: Option<sc_sysinfo::HwBench>,
 ) -> sc_service::error::Result<TaskManager>
 where
-    Runtime:
-        ConstructRuntimeApi<opaque::Block, FullClient<Runtime, Executor>> + Send + Sync + 'static,
+    Runtime: ConstructRuntimeApi<opaque::Block, FullClient<Runtime>> + Send + Sync + 'static,
     Runtime::RuntimeApi: BaseHostRuntimeApis,
     sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
         sc_client_api::StateBackend<Keccak256>,
-    Executor: sc_executor::NativeExecutionDispatch + 'static,
 {
     let parachain_config = prepare_node_config(parachain_config);
-
-    let params = new_partial::<Runtime, Executor>(&parachain_config)?;
+    let executor =
+        sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&parachain_config);
+    let params = new_partial::<Runtime, _>(&parachain_config, executor)?;
     let (block_import, mut telemetry, telemetry_worker_handle) = params.other;
     let net_config = sc_network::config::FullNetworkConfiguration::new(&parachain_config.network);
 
@@ -388,7 +332,7 @@ where
     })?;
 
     if validator {
-        start_consensus::<Runtime, Executor>(
+        start_consensus::<Runtime>(
             client.clone(),
             backend,
             block_import,
@@ -426,7 +370,7 @@ where
     Runtime::RuntimeApi: BaseHostRuntimeApis,
     sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
         sc_client_api::StateBackend<Keccak256>,
-    Executor: sc_executor::NativeExecutionDispatch + 'static,
+    Executor: CodeExecutor + RuntimeVersionOf + 'static,
 {
     let slot_duration = cumulus_client_consensus_aura::slot_duration(&*client)?;
 
@@ -450,17 +394,15 @@ where
     ))
 }
 
-fn start_consensus<Runtime, Executor>(
-    client: Arc<FullClient<Runtime, Executor>>,
+fn start_consensus<Runtime>(
+    client: Arc<FullClient<Runtime>>,
     backend: Arc<FullBackend>,
-    block_import: ParachainBlockImport<Runtime, Executor>,
+    block_import: ParachainBlockImport<Runtime>,
     prometheus_registry: Option<&Registry>,
     telemetry: Option<TelemetryHandle>,
     task_manager: &TaskManager,
     relay_chain_interface: Arc<dyn RelayChainInterface>,
-    transaction_pool: Arc<
-        sc_transaction_pool::FullPool<opaque::Block, FullClient<Runtime, Executor>>,
-    >,
+    transaction_pool: Arc<sc_transaction_pool::FullPool<opaque::Block, FullClient<Runtime>>>,
     sync_oracle: Arc<SyncingService<opaque::Block>>,
     keystore: KeystorePtr,
     relay_chain_slot_duration: Duration,
@@ -470,12 +412,10 @@ fn start_consensus<Runtime, Executor>(
     announce_block: Arc<dyn Fn(opaque::Hash, Option<Vec<u8>>) + Send + Sync>,
 ) -> Result<(), sc_service::Error>
 where
-    Runtime:
-        ConstructRuntimeApi<opaque::Block, FullClient<Runtime, Executor>> + Send + Sync + 'static,
+    Runtime: ConstructRuntimeApi<opaque::Block, FullClient<Runtime>> + Send + Sync + 'static,
     Runtime::RuntimeApi: BaseHostRuntimeApis,
     sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
         sc_client_api::StateBackend<Keccak256>,
-    Executor: sc_executor::NativeExecutionDispatch + 'static,
 {
     // NOTE: because we use Aura here explicitly, we can use `CollatorSybilResistance::Resistant`
     // when starting the network.
@@ -549,7 +489,7 @@ pub async fn start_parachain_node(
 ) -> sc_service::error::Result<TaskManager> {
     match parachain_config.chain_spec.id() {
         chain if chain.contains("gargantua") =>
-            start_node_impl::<gargantua_runtime::RuntimeApi, GargantuanExecutor>(
+            start_node_impl::<gargantua_runtime::RuntimeApi>(
                 parachain_config,
                 polkadot_config,
                 collator_options,
@@ -558,7 +498,7 @@ pub async fn start_parachain_node(
             )
             .await,
         chain if chain.contains("messier") =>
-            start_node_impl::<messier_runtime::RuntimeApi, MessierExecutor>(
+            start_node_impl::<messier_runtime::RuntimeApi>(
                 parachain_config,
                 polkadot_config,
                 collator_options,
@@ -567,7 +507,7 @@ pub async fn start_parachain_node(
             )
             .await,
         chain if chain.contains("nexus") =>
-            start_node_impl::<nexus_runtime::RuntimeApi, NexusExecutor>(
+            start_node_impl::<nexus_runtime::RuntimeApi>(
                 parachain_config,
                 polkadot_config,
                 collator_options,

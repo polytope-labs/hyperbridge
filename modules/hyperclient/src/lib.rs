@@ -25,6 +25,12 @@ use subxt_utils::Hyperbridge;
 use wasm_bindgen::prelude::*;
 use wasm_streams::ReadableStream;
 
+#[cfg(any(feature = "testing", test))]
+pub mod testing;
+
+#[cfg(test)]
+mod tests;
+
 #[wasm_bindgen(typescript_custom_section)]
 const ICONFIG: &'static str = r#"
 interface IConfig {

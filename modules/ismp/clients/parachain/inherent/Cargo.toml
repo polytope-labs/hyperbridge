@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 [dependencies]
 async-trait = { version = "0.1.63" }
 codec = { package = "parity-scale-codec", version = "3.0.0", features = [ "derive" ] }
-anyhow = "1.0.57"
+anyhow.workspace = true
 
 # Substrate
 sp-inherents = { workspace = true, default-features = true }

@@ -17,7 +17,7 @@
 
 use core::{marker::PhantomData, time::Duration};
 
-use alloc::{boxed::Box, collections::BTreeMap, format, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, format, string::ToString, vec::Vec};
 use codec::{Decode, Encode};
 use core::fmt::Debug;
 use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
@@ -209,13 +209,17 @@ where
         Ok(())
     }
 
+    fn consensus_client_id(&self) -> [u8; 4] {
+        PARACHAIN_CONSENSUS_ID
+    }
+
     fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         let para_id = match id {
             StateMachine::Polkadot(id) => id,
             StateMachine::Kusama(id) => id,
-            _ => Err(Error::ImplementationSpecific(format!(
-                "State Machine is not supported by this consensus client"
-            )))?,
+            _ => Err(Error::ImplementationSpecific(
+                "State Machine is not supported by this consensus client".to_string(),
+            ))?,
         };
 
         if !Parachains::<T>::contains_key(&para_id) {
@@ -224,10 +228,6 @@ where
             )))?
         }
         Ok(Box::new(SubstrateStateMachine::<T>::default()))
-    }
-
-    fn consensus_client_id(&self) -> [u8; 4] {
-        PARACHAIN_CONSENSUS_ID
     }
 }
 /// This returns the storage key for a parachain header on the relay chain.

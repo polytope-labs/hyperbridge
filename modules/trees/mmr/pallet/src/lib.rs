@@ -132,7 +132,7 @@ pub mod pallet {
 
     /// Current size of the MMR (number of leaves).
     #[pallet::storage]
-    #[pallet::getter(fn mmr_leaves)]
+    #[pallet::getter(fn leaf_count)]
     pub type NumberOfLeaves<T: Config<I>, I: 'static = ()> = StorageValue<_, LeafIndex, ValueQuery>;
 
     /// Height at which the pallet started inserting leaves into offchain storage.

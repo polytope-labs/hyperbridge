@@ -26,7 +26,6 @@ mod command;
 mod rpc;
 mod runtime_api;
 
-#[cfg(feature = "simnode")]
 mod simnode;
 
 fn main() -> sc_cli::Result<()> {

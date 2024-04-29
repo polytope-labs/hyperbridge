@@ -19,7 +19,7 @@ evm/integration-tests/target/
 
 .uuid*
 
-modules/client/pkg
+modules/hyperclient/pkg
 
 evm/subgraph/build
 evm/subgraph/generated

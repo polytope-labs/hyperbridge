@@ -79,7 +79,11 @@ contract PingModule is IIsmpModule {
 
     function dispatch(PostRequest memory request) public returns (bytes32) {
         uint256 perByteFee = IIsmpHost(_host).perByteFee();
-        IERC20(IIsmpHost(_host).feeToken()).transferFrom(msg.sender, address(this), perByteFee * request.body.length);
+        address feeToken = IIsmpHost(_host).feeToken();
+        uint256 fee = perByteFee * request.body.length;
+
+        IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
+        IERC20(feeToken).approve(_host, fee);
 
         DispatchPost memory post = DispatchPost({
             body: request.body,
@@ -106,6 +110,14 @@ contract PingModule is IIsmpModule {
     }
 
     function ping(PingMessage memory pingMessage) public {
+        bytes memory body = bytes.concat("hello from ", IIsmpHost(_host).host());
+        uint256 perByteFee = IIsmpHost(_host).perByteFee();
+        address feeToken = IIsmpHost(_host).feeToken();
+        uint256 fee = (pingMessage.fee + (perByteFee * body.length)) * pingMessage.count;
+
+        IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
+        IERC20(feeToken).approve(_host, fee);
+
         for (uint256 i = 0; i < pingMessage.count; i++) {
             DispatchPost memory post = DispatchPost({
                 body: bytes.concat("hello from ", IIsmpHost(_host).host()),

@@ -1,0 +1,22 @@
+[package]
+name = "subxt-utils"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+subxt = { workspace = true }
+ismp = { workspace = true }
+sp-core-hashing = { workspace = true }
+codec = { workspace = true }
+anyhow = "1.0.79"
+futures = "0.3.30"
+
+[dependencies.reconnecting-jsonrpsee-ws-client]
+git = "https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client"
+rev = "7c0817478c2741cc0889e7c75c645aad9f3cbb55"
+default-features = false
+
+[features]
+default = ["std"]
+wasm = ["subxt/web", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/web"]
+std = ["subxt/native", "subxt/jsonrpsee", "ismp/std", "sp-core-hashing/std", "codec/std", "reconnecting-jsonrpsee-ws-client/native"]

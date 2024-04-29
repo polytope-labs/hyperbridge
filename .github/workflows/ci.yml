@@ -383,5 +383,5 @@ jobs:
       - name: Run WASM tests
         run: |
           wasm-pack test --headless --chrome --no-default-features --features=wasm,testing
-        working-directory: modules/client
+        working-directory: modules/hyperclient
 

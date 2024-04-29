@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 bsc-verifier = { workspace = true, default-features = true }
-anyhow = "1.0.68"
+anyhow.workspace = true
 primitive-types = { version = "0.12.1", features = ["serde", "impl-codec"] }
 ethers = { workspace = true, features = ["ws", "default"] }
 ismp = { workspace = true, default-features = true }

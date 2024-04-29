@@ -9,7 +9,7 @@ description = "Prover for the BEEFY consensus client"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-anyhow = "1.0.72"
+anyhow.workspace = true
 primitive-types = { version = "0.12.0", features = ["codec"] }
 codec = { package = "parity-scale-codec", version = "3.0.0", features = ["derive"] }
 derive_more = { version = "0.99.17", features = ["from"]  }

@@ -133,14 +133,16 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
     async fn query_request_receipt(&self, request_hash: H256) -> Result<H160, Error> {
         let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
         let storage_key = StorageKey(self.request_receipt_full_key(request_hash));
-        let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
+        let params = rpc_params![child_storage_key, storage_key];
 
         let response: Option<StorageData> =
             self.client.rpc().request("childstate_getStorage", params).await?;
-        let data = response.ok_or_else(|| anyhow!("Request fee metadata query returned None"))?;
-        let relayer = Vec::decode(&mut &*data.0)?;
-
-        Ok(H160::from_slice(&relayer[..20]))
+        if let Some(data) = response {
+            let relayer = Vec::decode(&mut &*data.0)?;
+            Ok(H160::from_slice(&relayer[..20]))
+        } else {
+            Ok(Default::default())
+        }
     }
 
     async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
@@ -166,14 +168,16 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let key = self.response_receipt_full_key(request_commitment);
         let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
         let storage_key = StorageKey(key);
-        let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
+        let params = rpc_params![child_storage_key, storage_key];
 
         let response: Option<StorageData> =
             self.client.rpc().request("childstate_getStorage", params).await?;
-        let data = response.ok_or_else(|| anyhow!("Response fee metadata query returned None"))?;
-        let receipt = ResponseReceipt::decode(&mut &*data.0)?;
-
-        Ok(H160::from_slice(&receipt.relayer[..20]))
+        if let Some(data) = response {
+            let receipt = ResponseReceipt::decode(&mut &*data.0)?;
+            Ok(H160::from_slice(&receipt.relayer[..20]))
+        } else {
+            Ok(Default::default())
+        }
     }
 
     async fn ismp_events_stream(

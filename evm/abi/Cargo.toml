@@ -6,13 +6,13 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "Generated rust types for the ISMP solidity ABI"
 
 [build-dependencies]
-anyhow = "1.0.75"
+anyhow.workspace = true
 ethers-contract-abigen = { workspace = true }
 forge-testsuite = { workspace = true }
 
 [dependencies]
 primitive-types = "0.12.2"
-anyhow = "1.0.79"
+anyhow.workspace = true
 
 ethers = { workspace = true }
 ismp = { workspace =  true }

@@ -52,6 +52,8 @@ struct BeefyConsensusProof {
 }
 
 contract BeefyV1 is IConsensusClient {
+    using HeaderImpl for Header;
+
     /// Slot duration in milliseconds
     uint256 public constant SLOT_DURATION = 12000;
     /// The PayloadId for the mmr root.
@@ -202,31 +204,17 @@ contract BeefyV1 is IConsensusClient {
 
         Header memory header = Codec.DecodeHeader(para.header);
         require(header.number != 0, "Genesis block should not be included");
-        // extract verified metadata from header
-        bytes32 commitment;
-        uint256 timestamp;
-        for (uint256 j = 0; j < header.digests.length; j++) {
-            if (header.digests[j].isConsensus && header.digests[j].consensus.consensusId == ISMP_CONSENSUS_ID) {
-                // yes it may be empty
-                commitment = Bytes.toBytes32(header.digests[j].consensus.data);
-            }
 
-            if (header.digests[j].isPreRuntime && header.digests[j].preruntime.consensusId == AURA_CONSENSUS_ID) {
-                uint256 slot = ScaleCodec.decodeUint256(header.digests[j].preruntime.data);
-                timestamp = slot * SLOT_DURATION;
-            }
-        }
-        require(timestamp != 0, "timestamp not found!");
-
+        // verify header
         leaves[0] = Node(
             para.index,
             keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
         );
-
-        IntermediateState memory intermediate =
-            IntermediateState(para.id, header.number, StateCommitment(timestamp, commitment, header.stateRoot));
-
         require(MerkleMultiProof.VerifyProof(headsRoot, proof.proof, leaves), "Invalid parachains heads proof");
+
+        // extract the state commitment
+        StateCommitment memory commitment = header.stateCommitment();
+        IntermediateState memory intermediate = IntermediateState({stateMachineId: para.id, height: header.number, commitment: commitment});
 
         return intermediate;
     }

@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 log = { version = "0.4.17", default-features = false }
-anyhow = { version = "1.0.75", default-features = false }
+anyhow = { workspace = true }
 sp-core = {version = "27.0.0", default-features = false }
 codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }

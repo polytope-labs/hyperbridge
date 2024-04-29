@@ -83,6 +83,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "again"
+version = "0.1.2"
+source = "git+https://github.com/softprops/again?branch=develop#6db8c5e56bf93b1177ed35a926f8ff7d4adbf93b"
+dependencies = [
+ "getrandom 0.2.14",
+ "log",
+ "rand 0.8.5",
+ "wasm-timer",
+]
+
+[[package]]
 name = "ahash"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5617,7 +5628,7 @@ dependencies = [
  "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",
- "reconnecting-jsonrpsee-ws-client",
+ "reconnecting-jsonrpsee-ws-client 0.3.0 (git+https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client?rev=84fd8400cac12babd1be7c337dc1a8d14ce0c101)",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -12010,9 +12021,26 @@ dependencies = [
 [[package]]
 name = "reconnecting-jsonrpsee-ws-client"
 version = "0.3.0"
+source = "git+https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client?rev=7c0817478c2741cc0889e7c75c645aad9f3cbb55#7c0817478c2741cc0889e7c75c645aad9f3cbb55"
+dependencies = [
+ "again 0.1.2 (git+https://github.com/softprops/again?branch=develop)",
+ "futures",
+ "getrandom 0.2.14",
+ "jsonrpsee 0.22.4",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
+name = "reconnecting-jsonrpsee-ws-client"
+version = "0.3.0"
 source = "git+https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client?rev=84fd8400cac12babd1be7c337dc1a8d14ce0c101#84fd8400cac12babd1be7c337dc1a8d14ce0c101"
 dependencies = [
- "again",
+ "again 0.1.2 (git+https://github.com/polytope-labs/again?branch=develop)",
  "futures",
  "getrandom 0.2.14",
  "jsonrpsee 0.22.4",
@@ -16984,7 +17012,7 @@ dependencies = [
  "futures",
  "ismp",
  "parity-scale-codec",
- "reconnecting-jsonrpsee-ws-client",
+ "reconnecting-jsonrpsee-ws-client 0.3.0 (git+https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client?rev=7c0817478c2741cc0889e7c75c645aad9f3cbb55)",
  "sp-core-hashing 15.0.0",
  "subxt",
 ]

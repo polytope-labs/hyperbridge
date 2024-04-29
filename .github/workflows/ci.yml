@@ -17,7 +17,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   FOUNDRY_PROFILE: ci
-  BNB_RPC: ${{ secrets.BNB_RPC }}
   BSC_URL: ${{ secrets.BSC_URL }}
   OP_URL: ${{ secrets.OP_URL }}
   SEPOLIA_URL: ${{ secrets.SEPOLIA_URL }}
@@ -350,7 +349,7 @@ jobs:
   hyperclient-tests:
     name: Hyperclient Integration Tests
     runs-on: ubuntu-latest
-    if: false # disabled for now
+    if: github.event.pull_request.draft == false
     steps:
       - name: Get User Permission
         id: checkAccess

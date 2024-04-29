@@ -25,7 +25,7 @@ impl Keccak256 for Host {
 
 async fn setup_prover() -> BscPosProver {
     dotenv::dotenv().ok();
-    let consensus_url = std::env::var("BNB_RPC").unwrap();
+    let consensus_url = std::env::var("BSC_URL").unwrap();
     let mut provider = Provider::<Http>::connect(&consensus_url).await;
     // Bsc block time is 3s we don't want to deal with missing authority set changes while polling
     // for blocks in our tests
@@ -55,24 +55,24 @@ async fn verify_bsc_pos_headers() {
         let block_epoch = compute_epoch(header.number.low_u64());
 
         if let Some(mut update) = prover
-            .fetch_bsc_update::<Host>(header.clone(), validators.len() as u64, current_epoch, false)
+            .fetch_bsc_update::<Host>(
+                header.clone(),
+                validators.len() as u64,
+                current_epoch + 1,
+                block_epoch > current_epoch,
+            )
             .await
             .unwrap()
         {
             dbg!(block_epoch);
             dbg!(current_epoch);
             dbg!(header.number);
-            // Validator set rotation sometimes is outside the standard rotation period
-            // Added a fix for that in the relayer, will do the same here
-            // We first check if we can verify the update with the current set
-            let result = verify_bsc_header::<Host>(&validators, update.clone());
 
             if next_validators.is_some() {
                 update.epoch_header_ancestry = Default::default();
             }
 
-            if result.is_err() &&
-                next_validators.is_some() &&
+            if next_validators.is_some() &&
                 update.attested_header.number.low_u64() % EPOCH_LENGTH >=
                     (validators.len() as u64 / 2)
             {
@@ -83,9 +83,12 @@ async fn verify_bsc_pos_headers() {
                 if result.is_ok() {
                     println!("VALIDATOR SET ROTATED SUCCESSFULLY");
                     return;
+                } else {
+                    println!("VALIDATOR SET NOT YET ROTATED");
+                    continue;
                 }
             }
-            let result = result.unwrap();
+            let result = verify_bsc_header::<Host>(&validators, update.clone()).unwrap();
             dbg!(&result.hash);
             dbg!(result.next_validators.is_some());
             if let Some(validators) = result.next_validators {

@@ -189,6 +189,7 @@ impl pallet_mmr::Config for Test {
     const INDEXING_PREFIX: &'static [u8] = b"ISMP";
     type Hashing = Keccak256;
     type Leaf = Leaf;
+    type ForkIdentifierProvider = Ismp;
 }
 
 impl pallet_ismp_relayer::Config for Test {

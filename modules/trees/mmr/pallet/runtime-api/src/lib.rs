@@ -17,5 +17,8 @@ sp_api::decl_runtime_apis! {
 
         /// Return the on-chain MMR root hash.
         fn mmr_root() -> Result<Hash, Error>;
+
+        /// Return the unique hash used as the offchain prefix at a particular block
+        fn fork_identifier() -> Result<Hash, Error>;
     }
 }

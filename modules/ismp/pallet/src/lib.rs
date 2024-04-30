@@ -504,7 +504,7 @@ pub struct ResponseReceipt {
 }
 
 impl<T: Config> ForkIdentifier<T> for Pallet<T> {
-    fn fork_identifier() -> <T as frame_system::Config>::Hash {
+    fn identifier() -> <T as frame_system::Config>::Hash {
         Self::child_trie_root()
     }
 }

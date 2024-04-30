@@ -16,7 +16,7 @@
 #![doc = include_str!("../README.md")]
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
-#![deny(missing_docs)]
+#![deny(missing_docs, unused_imports, unused_crate_dependencies, unused_extern_crates)]
 
 extern crate alloc;
 extern crate core;
@@ -28,8 +28,8 @@ pub mod events;
 pub mod host;
 mod impls;
 pub mod mmr;
-pub mod primitives;
-pub mod weight_info;
+mod utils;
+pub mod weights;
 
 use crate::host::Host;
 use codec::Encode;
@@ -38,7 +38,7 @@ use frame_support::{
     traits::Get,
 };
 // Re-export pallet items so that they can be accessed from the crate namespace.
-use crate::{mmr::Leaf, weight_info::get_weight};
+use crate::{mmr::Leaf, weights::get_weight};
 use frame_system::pallet_prelude::BlockNumberFor;
 use ismp::host::IsmpHost;
 use mmr_primitives::{MerkleMountainRangeTree, NoOpTree};
@@ -49,6 +49,7 @@ use sp_runtime::transaction_validity::{
     ValidTransaction,
 };
 use sp_std::prelude::*;
+pub use utils::*;
 
 /// No-op mmr implementation for runtimes that don't want to build an offchain mmr tree. This
 /// implementation does not panic for any runtime called methods, eg `push` or `finalize`
@@ -61,13 +62,12 @@ pub type NoOpMmrTree = NoOpTree<Leaf>;
 // `construct_runtime`.
 #[frame_support::pallet]
 pub mod pallet {
-    use self::primitives::{ConsensusLog, UpdateConsensusState};
     use super::*;
     use crate::{
         child_trie::CHILD_TRIE_PREFIX,
         errors::HandlingError,
-        primitives::{ConsensusClientProvider, ISMP_ID},
-        weight_info::WeightProvider,
+        utils::{ConsensusClientProvider, ISMP_ID},
+        weights::WeightProvider,
     };
     use frame_support::{pallet_prelude::*, traits::UnixTime};
     use frame_system::pallet_prelude::*;
@@ -226,7 +226,7 @@ pub mod pallet {
                 Default::default(),
             );
 
-            let log = ConsensusLog {
+            let log = ConsensusDigest {
                 child_trie_root: H256::from_slice(&child_trie_root),
                 mmr_root: root.into(),
             };
@@ -266,7 +266,7 @@ pub mod pallet {
         ///
         /// The dispatch origin for this call must be an unsigned one.
         ///
-        /// - `messages`: the messages to handle or process.
+        /// - `messages`: A set of ISMP [`Message`]s to handle or process.
         ///
         /// Emits different message events based on the Message received if successful.
         #[cfg(not(feature = "unsigned"))]
@@ -283,9 +283,9 @@ pub mod pallet {
         /// be used to overwrite an existing consensus state. The dispatch origin for this
         /// call must be `T::AdminOrigin`.
         ///
-        /// - `message`: `CreateConsensusState` struct.
+        /// - `message`: [`CreateConsensusState`] struct.
         ///
-        /// Emits `ConsensusClientCreated` if successful.
+        /// Emits [`Event::ConsensusClientCreated`] if successful.
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
         #[pallet::call_index(2)]
         pub fn create_consensus_client(

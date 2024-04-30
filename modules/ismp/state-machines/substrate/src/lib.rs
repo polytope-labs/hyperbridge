@@ -21,7 +21,7 @@
 extern crate alloc;
 
 use alloc::{collections::BTreeMap, format, string::ToString, vec, vec::Vec};
-use codec::Decode;
+use codec::{Decode, Encode};
 use core::{fmt::Debug, marker::PhantomData, time::Duration};
 use frame_support::ensure;
 use ismp::{
@@ -35,7 +35,7 @@ use ismp::{
 use pallet_ismp::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
     host::Host,
-    primitives::{HashAlgorithm, SubstrateStateProof, ISMP_ID},
+    utils::ISMP_ID,
 };
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_core::H256;
@@ -44,6 +44,53 @@ use sp_runtime::{
     Digest, DigestItem,
 };
 use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
+
+/// Hashing algorithm for the state proof
+#[derive(
+    Debug, Encode, Decode, Clone, Copy, serde::Deserialize, serde::Serialize, PartialEq, Eq,
+)]
+pub enum HashAlgorithm {
+    /// For chains that use keccak as their hashing algo
+    Keccak,
+    /// For chains that use blake2 as their hashing algo
+    Blake2,
+}
+
+///
+#[derive(Debug, Encode, Decode, Clone)]
+pub struct StateMachineProof {
+    /// Algorithm to use for state proof verification
+    hasher: HashAlgorithm,
+    /// Storage proof for the parachain headers
+    storage_proof: Vec<Vec<u8>>,
+}
+
+/// Holds the relevant data needed for state proof verification
+#[derive(Debug, Encode, Decode, Clone)]
+pub enum SubstrateStateProof {
+    /// Uses overlay root for verification
+    OverlayProof(StateMachineProof),
+    /// Uses state root for verification
+    StateProof(StateMachineProof),
+}
+
+impl SubstrateStateProof {
+    /// Returns hash algo
+    pub fn hasher(&self) -> HashAlgorithm {
+        match self {
+            Self::OverlayProof(proof) => *proof.hasher,
+            Self::StateProof(proof) => *proof.hasher,
+        }
+    }
+
+    /// Returns storage proof
+    pub fn storage_proof(self) -> Vec<Vec<u8>> {
+        match self {
+            Self::OverlayProof(proof) => proof.storage_proof,
+            Self::StateProof(proof) => proof.storage_proof,
+        }
+    }
+}
 
 /// The parachain and grandpa consensus client implementation for ISMP.
 pub struct SubstrateStateMachine<T>(PhantomData<T>);

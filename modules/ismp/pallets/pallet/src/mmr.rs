@@ -12,16 +12,46 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
 //! Mmr utilities
 
 use codec::{Decode, Encode};
+use frame_support::__private::RuntimeDebug;
+use ismp::router::{Request, Response};
+use mmr_primitives::FullLeaf;
 use scale_info::TypeInfo;
 use sp_core::H256;
+use sp_mmr_primitives::NodeIndex;
 use sp_std::prelude::*;
 
-use ismp::router::{Request, Response};
+/// Queries a request leaf in the mmr
+#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+pub struct LeafIndexQuery {
+    /// Request or response commitment
+    pub commitment: H256,
+}
 
-use mmr_primitives::FullLeaf;
+/// Leaf index and position
+#[derive(
+    codec::Encode,
+    codec::Decode,
+    scale_info::TypeInfo,
+    Ord,
+    PartialOrd,
+    Eq,
+    PartialEq,
+    Clone,
+    Copy,
+    RuntimeDebug,
+)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+pub struct LeafIndexAndPos {
+    /// Leaf index
+    pub leaf_index: u64,
+    /// Leaf position
+    pub pos: u64,
+}
 
 /// A concrete Leaf for the MMR
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
@@ -49,4 +79,15 @@ pub enum ProofKeys {
     Requests(Vec<H256>),
     /// Response commitments
     Responses(Vec<H256>),
+}
+
+/// An MMR proof data for a group of leaves.
+#[derive(codec::Encode, codec::Decode, RuntimeDebug, Clone, PartialEq, Eq, TypeInfo)]
+pub struct Proof<Hash> {
+    /// The positions of the leaves the proof is for.
+    pub leaf_positions: Vec<LeafIndexAndPos>,
+    /// Number of leaves in MMR, when the proof was generated.
+    pub leaf_count: NodeIndex,
+    /// Proof elements (hashes of siblings of inner nodes on the path to the leaf).
+    pub items: Vec<Hash>,
 }

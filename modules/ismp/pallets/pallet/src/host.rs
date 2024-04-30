@@ -13,11 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Host implementation for ISMP
+//! [`IsmpHost`] implementation for pallet-ismp
+
 use crate::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
     dispatcher::LeafMetadata,
-    primitives::{ConsensusClientProvider, ResponseReceipt},
+    utils::{ConsensusClientProvider, ResponseReceipt},
     ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
     FrozenConsensusClients, FrozenStateMachine, LatestStateMachineHeight, Nonce, Responded,
     StateCommitments, StateMachineUpdateTime, UnbondingPeriod,
@@ -40,7 +41,7 @@ use sp_core::H256;
 use sp_runtime::SaturatedConversion;
 use sp_std::prelude::*;
 
-/// An implementation for the IsmpHost
+/// An implementation for the [`IsmpHost`]
 #[derive(Clone)]
 pub struct Host<T: Config>(core::marker::PhantomData<T>);
 
@@ -212,8 +213,6 @@ impl<T: Config> IsmpHost for Host<T> {
         state: StateCommitment,
     ) -> Result<(), Error> {
         StateCommitments::<T>::insert(height, state);
-
-        // state_machine => consensus_state_id
         Ok(())
     }
 

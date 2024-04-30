@@ -13,7 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Ismp Errors conversions
+//! Pallet error definitions and conversions
+
 use codec::{Decode, Encode};
 use ismp::{
     consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},

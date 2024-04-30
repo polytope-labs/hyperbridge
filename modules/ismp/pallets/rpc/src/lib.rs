@@ -32,7 +32,7 @@ use ismp::{
 use pallet_ismp::{
     child_trie::CHILD_TRIE_PREFIX,
     mmr::{Leaf, ProofKeys},
-    primitives::{LeafIndexAndPos, LeafIndexQuery},
+    utils::{LeafIndexAndPos, LeafIndexQuery},
 };
 use pallet_ismp_runtime_api::IsmpRuntimeApi;
 use sc_client_api::{Backend, BlockBackend, ChildInfo, ProofProvider, StateBackend};
@@ -243,7 +243,7 @@ where
             .ok()
             .flatten()
             .ok_or_else(|| runtime_error_into_rpc_error("invalid block height provided"))?;
-        let (_, proof): (Vec<Leaf>, pallet_ismp::primitives::Proof<Block::Hash>) = api
+        let (_, proof): (Vec<Leaf>, pallet_ismp::utils::Proof<Block::Hash>) = api
             .generate_proof(at, keys)
             .map_err(|_| runtime_error_into_rpc_error("Error calling runtime api"))?
             .map_err(|_| runtime_error_into_rpc_error("Error generating mmr proof"))?;

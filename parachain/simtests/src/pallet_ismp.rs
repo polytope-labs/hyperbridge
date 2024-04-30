@@ -23,7 +23,7 @@ use ismp::{
 use pallet_ismp::{
     child_trie,
     child_trie::H256,
-    primitives::{HashAlgorithm, SubstrateStateProof},
+    utils::{HashAlgorithm, SubstrateStateProof},
 };
 use subxt_utils::{
     gargantua::{

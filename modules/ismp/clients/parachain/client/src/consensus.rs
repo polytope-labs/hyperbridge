@@ -30,7 +30,7 @@ use ismp::{
     host::{IsmpHost, StateMachine},
     messaging::StateCommitmentHeight,
 };
-use pallet_ismp::primitives::{ConsensusLog, ISMP_ID};
+use pallet_ismp::utils::{ConsensusDigest, ISMP_ID};
 use primitive_types::H256;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_runtime::{
@@ -154,7 +154,7 @@ where
                     DigestItem::Consensus(consensus_engine_id, value)
                         if *consensus_engine_id == ISMP_ID =>
                     {
-                        let log = ConsensusLog::decode(&mut &value[..]);
+                        let log = ConsensusDigest::decode(&mut &value[..]);
                         if let Ok(log) = log {
                             overlay_root = log.child_trie_root;
                         } else {

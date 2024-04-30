@@ -38,7 +38,7 @@ pub mod pallet {
         host::StateMachine,
         router::{DispatchPost, DispatchRequest, IsmpDispatcher},
     };
-    use pallet_ismp::{dispatcher::Dispatcher, primitives::ModuleId};
+    use pallet_ismp::{dispatcher::Dispatcher, utils::ModuleId};
 
     /// ISMP module identifier
     pub const PALLET_ID: ModuleId = ModuleId::Pallet(PalletId(*b"hostexec"));

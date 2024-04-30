@@ -695,7 +695,7 @@ where
                             StateMachine::Kusama(_) |
                             StateMachine::Polkadot(_) => {
                                 use codec::Decode;
-                                let receipt = pallet_ismp::primitives::ResponseReceipt::decode(
+                                let receipt = pallet_ismp::utils::ResponseReceipt::decode(
                                     &mut &*encoded_receipt,
                                 )
                                 .map_err(|_| Error::<T>::ProofValidationError)?;

@@ -37,7 +37,7 @@ use ismp::{
     router::{IsmpRouter, Post, RequestResponse, Response, Timeout},
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
-use pallet_ismp::{host::Host, mmr::Leaf, primitives::ModuleId};
+use pallet_ismp::{host::Host, mmr::Leaf, utils::ModuleId};
 use sp_core::{
     crypto::AccountId32,
     offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},

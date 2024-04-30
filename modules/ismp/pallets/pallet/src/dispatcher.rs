@@ -15,7 +15,7 @@
 
 //! Implementation for the low-level ISMP Dispatcher
 
-use crate::{child_trie::RequestReceipts, host::Host, primitives::LeafIndexAndPos, Pallet};
+use crate::{child_trie::RequestReceipts, host::Host, mmr::LeafIndexAndPos, Pallet};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use frame_support::traits::UnixTime;
@@ -26,13 +26,6 @@ use ismp::{
     router::{DispatchRequest, Get, IsmpDispatcher, Post, PostResponse, Request, Response},
     util::hash_request,
 };
-
-/// A receipt or an outgoing or incoming request or response
-#[derive(Encode, Decode, scale_info::TypeInfo)]
-pub enum Receipt {
-    /// Ok
-    Ok,
-}
 
 /// Queries a request leaf in the mmr
 #[derive(codec::Encode, codec::Decode, scale_info::TypeInfo, Clone)]

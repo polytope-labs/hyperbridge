@@ -24,7 +24,7 @@ use ismp::{
 };
 use pallet_ismp::{
     mmr::{Leaf, ProofKeys},
-    primitives::Proof,
+    utils::Proof,
 };
 use sp_core::H256;
 use sp_mmr_primitives::Error;

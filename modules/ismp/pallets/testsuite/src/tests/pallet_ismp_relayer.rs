@@ -31,7 +31,7 @@ use pallet_ismp::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
     dispatcher::FeeMetadata,
     host::Host,
-    primitives::{HashAlgorithm, ResponseReceipt, SubstrateStateProof},
+    utils::{HashAlgorithm, ResponseReceipt, SubstrateStateProof},
 };
 use pallet_ismp_relayer::{
     self as pallet_ismp_relayer, message,
@@ -49,7 +49,7 @@ use crate::runtime::{
 use ismp::host::Ethereum;
 use ismp_bsc::BSC_CONSENSUS_ID;
 use ismp_sync_committee::BEACON_CONSENSUS_ID;
-use pallet_ismp::{dispatcher::LeafMetadata, primitives::LeafIndexAndPos};
+use pallet_ismp::{dispatcher::LeafMetadata, utils::LeafIndexAndPos};
 
 #[test]
 fn test_withdrawal_proof() {

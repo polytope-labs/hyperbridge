@@ -13,28 +13,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Users of ismp should benchmark consensus clients and module callbacks
-//! This module provides a guide on how to provide static weights for consensus clients and module
-//! callbacks
+//! Utilities for providing the static weights for module callbacks
 
+use crate::{utils::ModuleId, Config};
 use alloc::boxed::Box;
-
 use frame_support::weights::Weight;
-
 use ismp::{
     messaging::{Message, TimeoutMessage},
     router::{GetResponse, Post, Request, RequestResponse, Response, Timeout},
 };
 
-use crate::{primitives::ModuleId, Config};
-
-/// A trait that provides weight information about how module callbacks execute
+/// Interface for providing the weight information about [`IsmpModule`](ismp::module::IsmpModule)
+/// callbacks
 pub trait IsmpModuleWeight {
-    /// Returns the weight used in processing this request
+    /// Should return the weight used in processing this request
     fn on_accept(&self, request: &Post) -> Weight;
-    /// Returns the weight used in processing this timeout
+    /// Should return the weight used in processing this timeout
     fn on_timeout(&self, request: &Timeout) -> Weight;
-    /// Returns the weight used in processing this response
+    /// Should return the weight used in processing this response
     fn on_response(&self, response: &Response) -> Weight;
 }
 
@@ -42,17 +38,16 @@ impl IsmpModuleWeight for () {
     fn on_accept(&self, _request: &Post) -> Weight {
         Weight::zero()
     }
-
     fn on_timeout(&self, _request: &Timeout) -> Weight {
         Weight::zero()
     }
-
     fn on_response(&self, _response: &Response) -> Weight {
         Weight::zero()
     }
 }
 
-/// Provides references to consensus and module weight providers
+/// An interface for querying the [`IsmpModuleWeight`] for a given
+/// [`IsmpModule`](ismp::module::IsmpModule)
 pub trait WeightProvider {
     /// Returns a reference to the weight provider for a module
     fn module_callback(dest_module: ModuleId) -> Option<Box<dyn IsmpModuleWeight>>;
@@ -65,7 +60,7 @@ impl WeightProvider for () {
 }
 
 /// Returns the weight that would be consumed when executing a batch of messages
-pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
+pub(crate) fn get_weight<T: Config>(messages: &[Message]) -> Weight {
     messages.into_iter().fold(Weight::zero(), |acc, msg| match msg {
         Message::Request(msg) => {
             let cb_weight = msg.requests.iter().fold(Weight::zero(), |acc, req| {

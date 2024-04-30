@@ -32,7 +32,7 @@ use ismp::{
     router::{Post, Request, Response, Timeout},
 };
 pub use pallet::*;
-use pallet_ismp::primitives::ModuleId;
+use pallet_ismp::utils::ModuleId;
 use sp_core::H160;
 
 /// Constant Pallet ID

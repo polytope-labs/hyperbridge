@@ -20,7 +20,7 @@
 use codec::Encode;
 use log::{debug, trace};
 use merkle_mountain_range::helper;
-use mmr_primitives::OffchainPrefix;
+use mmr_primitives::ForkIdentifier;
 use sp_core::offchain::StorageKind;
 use sp_io::offchain_index;
 use sp_mmr_primitives::utils::NodesUtils;
@@ -138,7 +138,7 @@ where
 
         // Use a uniquely generated hash for every block as an extra identifier
         // in offchain DB to avoid DB collisions and overwrites in case of forks.
-        let prefix = <T::OffchainPrefixProvider as OffchainPrefix<T>>::prefix();
+        let prefix = <T::ForkIdentifierProvider as ForkIdentifier<T>>::fork_identifier();
         for elem in elems {
             // On-chain we are going to only store new peaks.
             if peaks_to_store.next_if_eq(&node_index).is_some() {

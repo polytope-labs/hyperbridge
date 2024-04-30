@@ -91,7 +91,7 @@ pub(crate) type HashOf<T, I> = <<T as Config<I>>::Hashing as traits::Hash>::Outp
 pub mod pallet {
     use super::*;
     use frame_support::pallet_prelude::*;
-    use mmr_primitives::OffchainPrefix;
+    use mmr_primitives::ForkIdentifier;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -124,8 +124,8 @@ pub mod pallet {
 
         /// Generic leaf type to be inserted into the MMR.
         type Leaf: mmr_primitives::FullLeaf + scale_info::TypeInfo;
-        /// Unique Offchain Prefix provider
-        type OffchainPrefixProvider: OffchainPrefix<Self>;
+        /// A type that returns a hash unique to every block as a fork identifer for offchain keys
+        type ForkIdentifierProvider: ForkIdentifier<Self>;
     }
 
     /// Latest MMR Root hash.
@@ -290,14 +290,18 @@ where
 }
 
 impl<T: Config<I>, I: 'static> Pallet<T, I> {
-    /// Build offchain key from `parent_hash` of block that originally added node `pos` to MMR.
+    /// Build offchain key from a combination of a fork resistant hash, position and indexing prefix
     ///
     /// This combination makes the offchain (key,value) entry resilient to chain forks.
     fn node_temp_offchain_key(
         pos: NodeIndex,
-        prefix: <T as frame_system::Config>::Hash,
+        fork_identifier: <T as frame_system::Config>::Hash,
     ) -> sp_std::prelude::Vec<u8> {
-        NodesUtils::node_temp_offchain_key::<HeaderFor<T>>(&T::INDEXING_PREFIX, pos, prefix)
+        NodesUtils::node_temp_offchain_key::<HeaderFor<T>>(
+            &T::INDEXING_PREFIX,
+            pos,
+            fork_identifier,
+        )
     }
 
     /// Build canonical offchain key for node `pos` in MMR.

@@ -52,7 +52,7 @@ use sp_core::H256;
 use crate::{mmr::Leaf, weight_info::get_weight};
 use frame_system::pallet_prelude::BlockNumberFor;
 use ismp::host::IsmpHost;
-use mmr_primitives::{MerkleMountainRangeTree, OffchainPrefix};
+use mmr_primitives::{ForkIdentifier, MerkleMountainRangeTree};
 pub use pallet::*;
 use sp_runtime::{
     traits::ValidateUnsigned,
@@ -503,8 +503,8 @@ pub struct ResponseReceipt {
     pub relayer: Vec<u8>,
 }
 
-impl<T: Config> OffchainPrefix<T> for Pallet<T> {
-    fn prefix() -> <T as frame_system::Config>::Hash {
+impl<T: Config> ForkIdentifier<T> for Pallet<T> {
+    fn fork_identifier() -> <T as frame_system::Config>::Hash {
         Self::child_trie_root()
     }
 }

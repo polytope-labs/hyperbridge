@@ -19,6 +19,6 @@ sp_api::decl_runtime_apis! {
         fn mmr_root() -> Result<Hash, Error>;
 
         /// Return the unique hash used as the offchain prefix at a particular block
-        fn offchain_prefix() -> Result<Hash, Error>;
+        fn fork_identifier() -> Result<Hash, Error>;
     }
 }

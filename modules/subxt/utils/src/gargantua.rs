@@ -1257,7 +1257,7 @@ pub mod api {
                     )
                 }
                 #[doc = " Return the unique hash used as the offchain prefix at a particular block"]
-                pub fn offchain_prefix(
+                pub fn fork_identifier(
                     &self,
                 ) -> ::subxt::runtime_api::Payload<
                     types::OffchainPrefix,
@@ -1268,7 +1268,7 @@ pub mod api {
                 > {
                     ::subxt::runtime_api::Payload::new_static(
                         "MmrRuntimeApi",
-                        "offchain_prefix",
+                        "fork_identifier",
                         types::OffchainPrefix {},
                         [
                             91u8, 56u8, 116u8, 65u8, 129u8, 7u8, 206u8, 129u8, 128u8, 37u8, 140u8,

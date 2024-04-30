@@ -183,7 +183,8 @@ where
 
         // Don't canonicalize branches corresponding to blocks for which the MMR pallet
         // wasn't yet initialized.
-        if header.number < self.first_mmr_block {
+        // Or headers less than the best canonicalized
+        if header.number < self.first_mmr_block || header.number <= self.best_canonicalized {
             return
         }
 

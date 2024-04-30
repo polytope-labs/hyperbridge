@@ -75,8 +75,8 @@ where
         })
     }
 
-    fn node_temp_offchain_key(&self, pos: NodeIndex, fotk_identifier: B::Hash) -> Vec<u8> {
-        NodesUtils::node_temp_offchain_key::<B::Header>(&self.indexing_prefix, pos, fotk_identifier)
+    fn node_temp_offchain_key(&self, pos: NodeIndex, fork_identifier: B::Hash) -> Vec<u8> {
+        NodesUtils::node_temp_offchain_key::<B::Header>(&self.indexing_prefix, pos, fork_identifier)
     }
 
     fn node_canon_offchain_key(&self, pos: NodeIndex) -> Vec<u8> {

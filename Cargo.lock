@@ -13939,9 +13939,9 @@ dependencies = [
 
 [[package]]
 name = "sc-simnode"
-version = "1.6.1"
+version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d9e89833a86bcf0c106d7be604fecf8d081c5ecd2129d13055265d0b483c2be"
+checksum = "55d290526deddb819a41c068a4086e8195fcb8b717bf541404c414c79fea57a9"
 dependencies = [
  "async-trait",
  "clap",

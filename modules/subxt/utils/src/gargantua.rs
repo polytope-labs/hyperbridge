@@ -1256,6 +1256,27 @@ pub mod api {
                         ],
                     )
                 }
+                #[doc = " Return the unique hash used as the offchain prefix at a particular block"]
+                pub fn offchain_prefix(
+                    &self,
+                ) -> ::subxt::runtime_api::Payload<
+                    types::OffchainPrefix,
+                    ::core::result::Result<
+                        ::subxt::utils::H256,
+                        runtime_types::sp_mmr_primitives::Error,
+                    >,
+                > {
+                    ::subxt::runtime_api::Payload::new_static(
+                        "MmrRuntimeApi",
+                        "offchain_prefix",
+                        types::OffchainPrefix {},
+                        [
+                            91u8, 56u8, 116u8, 65u8, 129u8, 7u8, 206u8, 129u8, 128u8, 37u8, 140u8,
+                            112u8, 13u8, 89u8, 46u8, 97u8, 167u8, 78u8, 26u8, 209u8, 0u8, 49u8,
+                            25u8, 207u8, 167u8, 144u8, 33u8, 100u8, 110u8, 227u8, 214u8, 182u8,
+                        ],
+                    )
+                }
             }
             pub mod types {
                 use super::runtime_types;
@@ -1301,6 +1322,20 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct MmrRoot {}
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub struct OffchainPrefix {}
             }
         }
         pub mod ismp_runtime_api {
@@ -2035,9 +2070,9 @@ pub mod api {
             .hash();
         runtime_metadata_hash ==
             [
-                54u8, 202u8, 111u8, 85u8, 41u8, 31u8, 95u8, 107u8, 67u8, 1u8, 6u8, 41u8, 37u8,
-                205u8, 138u8, 159u8, 80u8, 52u8, 223u8, 131u8, 209u8, 174u8, 30u8, 23u8, 85u8,
-                108u8, 160u8, 112u8, 233u8, 160u8, 200u8, 42u8,
+                28u8, 109u8, 171u8, 236u8, 194u8, 253u8, 161u8, 151u8, 221u8, 216u8, 132u8, 201u8,
+                191u8, 182u8, 234u8, 92u8, 66u8, 189u8, 53u8, 27u8, 255u8, 215u8, 21u8, 75u8,
+                150u8, 6u8, 14u8, 97u8, 163u8, 197u8, 212u8, 207u8,
             ]
     }
     pub mod system {
@@ -10378,6 +10413,28 @@ pub mod api {
                             220u8, 190u8, 35u8, 208u8, 219u8, 235u8, 179u8, 113u8, 54u8, 170u8,
                             151u8, 88u8, 121u8, 112u8, 50u8, 44u8, 164u8, 150u8, 180u8, 61u8, 18u8,
                             65u8, 59u8, 75u8, 123u8, 181u8, 181u8, 174u8, 97u8, 252u8, 49u8, 163u8,
+                        ],
+                    )
+                }
+                #[doc = " A child trie root"]
+                pub fn child_trie_root(
+                    &self,
+                ) -> ::subxt::storage::address::Address<
+                    ::subxt::storage::address::StaticStorageMapKey,
+                    ::subxt::utils::H256,
+                    ::subxt::storage::address::Yes,
+                    ::subxt::storage::address::Yes,
+                    (),
+                > {
+                    ::subxt::storage::address::Address::new_static(
+                        "Ismp",
+                        "ChildTrieRoot",
+                        vec![],
+                        [
+                            34u8, 16u8, 226u8, 194u8, 6u8, 122u8, 213u8, 244u8, 234u8, 160u8,
+                            196u8, 243u8, 17u8, 59u8, 90u8, 186u8, 107u8, 66u8, 22u8, 129u8, 161u8,
+                            226u8, 111u8, 122u8, 207u8, 173u8, 11u8, 207u8, 202u8, 187u8, 140u8,
+                            116u8,
                         ],
                     )
                 }

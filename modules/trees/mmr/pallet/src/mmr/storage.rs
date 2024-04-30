@@ -183,7 +183,7 @@ where
         // finality notification that follows, when we are not worried about forks anymore.
         let temp_key = Pallet::<T, I>::node_temp_offchain_key(pos, prefix);
         debug!(
-            target: "pallet-mmr::offchain", "offchain db set: pos {} parent_hash {:?} key {:?}",
+            target: "pallet-mmr::offchain", "offchain db set: pos {} prefix {:?} key {:?}",
             pos, prefix, temp_key
         );
         // Indexing API is used to store the full node content.

@@ -170,7 +170,7 @@ where
         for pos in stale_nodes {
             let temp_key = self.node_temp_offchain_key(pos, prefix);
             self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
-            debug!(target: LOG_TARGET, "Pruned elem at pos {} parent_hash {:?} header_hash {:?}", pos, header.parent, block_hash);
+            debug!(target: LOG_TARGET, "Pruned elem at pos {} prefix {:?} header_hash {:?}", pos, prefix, block_hash);
         }
     }
 
@@ -231,16 +231,16 @@ where
                 self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
                 debug!(
                     target: LOG_TARGET,
-                    "Moved elem at pos {}, parent_hash {:?} header_hash {:?} to canon key {:?}",
+                    "Moved elem at pos {}, prefix {:?} header_hash {:?} to canon key {:?}",
                     pos,
-                    header.parent,
+                    prefix,
                     block_hash,
                     canon_key
                 );
             } else {
                 debug!(
                     target: LOG_TARGET,
-                    "Couldn't canonicalize elem at pos {}, parent_hash {:?} header_hash {:?}", pos, header.parent, block_hash
+                    "Couldn't canonicalize elem at pos {}, prefix {:?} header_hash {:?}", pos, prefix, block_hash
                 );
             }
         }

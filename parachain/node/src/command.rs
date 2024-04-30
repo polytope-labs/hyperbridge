@@ -196,6 +196,9 @@ pub fn run() -> Result<()> {
     // all full nodes should store request/responses, otherwise they'd basically be useless without
     // it.
     cli.run.base.offchain_worker_params.indexing_enabled = true;
+    // Set max rpc request and response size to 150mb
+    cli.run.base.rpc_max_request_size = 150;
+    cli.run.base.rpc_max_response_size = 150;
 
     match &cli.subcommand {
         Some(Subcommand::BuildSpec(cmd)) => {

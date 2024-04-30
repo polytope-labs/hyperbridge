@@ -278,7 +278,7 @@ nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false 
 
 
 # Simnode
-sc-simnode = { version = "1.6.1" }
+sc-simnode = { version = "1.6.2" }
 simnode-runtime-api = { version = "1.6.0", default-features = false }
 simnode-tests = { path = "parachain/simtests" }
 

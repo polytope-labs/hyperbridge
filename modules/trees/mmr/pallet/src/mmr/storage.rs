@@ -136,7 +136,7 @@ where
         let mut leaf_index = leaves;
         let mut node_index = size;
 
-        // Use a uniquely hash as an extra identifier
+        // Use a uniquely generated hash for every block as an extra identifier
         // in offchain DB to avoid DB collisions and overwrites in case of forks.
         let prefix = <T::OffchainPrefixProvider as OffchainPrefix<T>>::prefix();
         for elem in elems {

@@ -212,7 +212,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("gargantua"),
     impl_name: create_runtime_str!("gargantua"),
     authoring_version: 1,
-    spec_version: 231,
+    spec_version: 232,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -539,6 +539,7 @@ impl pallet_mmr::Config for Runtime {
     const INDEXING_PREFIX: &'static [u8] = INDEXING_PREFIX;
     type Hashing = Keccak256;
     type Leaf = Leaf;
+    type ForkIdentifierProvider = Ismp;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -764,6 +765,10 @@ impl_runtime_apis! {
         /// Return the on-chain MMR root hash.
         fn mmr_root() -> Result<Hash, sp_mmr_primitives::Error> {
             Ok(Mmr::mmr_root_hash())
+        }
+
+        fn fork_identifier() -> Result<Hash, sp_mmr_primitives::Error> {
+            Ok(Ismp::child_trie_root())
         }
     }
 

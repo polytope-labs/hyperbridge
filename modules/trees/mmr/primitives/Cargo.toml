@@ -14,6 +14,7 @@ sp-std = { workspace = true }
 sp-mmr-primitives = { workspace = true }
 serde = { version = "1.0.136", features = ["derive"], default-features = false }
 scale-info = { workspace = true }
+frame-system = { workspace = true }
 
 [features]
 default = ["std"]
@@ -26,4 +27,5 @@ std = [
     "scale-info/std",
     "sp-mmr-primitives/std",
     "merkle-mountain-range/std",
+    "frame-system/std"
 ]

@@ -5534,7 +5534,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -7546,6 +7546,7 @@ name = "mmr-primitives"
 version = "0.1.0"
 dependencies = [
  "ckb-merkle-mountain-range",
+ "frame-system",
  "parity-scale-codec",
  "scale-info",
  "serde",
@@ -13938,9 +13939,9 @@ dependencies = [
 
 [[package]]
 name = "sc-simnode"
-version = "1.6.1"
+version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d9e89833a86bcf0c106d7be604fecf8d081c5ecd2129d13055265d0b483c2be"
+checksum = "55d290526deddb819a41c068a4086e8195fcb8b717bf541404c414c79fea57a9"
 dependencies = [
  "async-trait",
  "clap",

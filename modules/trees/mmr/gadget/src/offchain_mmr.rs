@@ -75,8 +75,8 @@ where
         })
     }
 
-    fn node_temp_offchain_key(&self, pos: NodeIndex, parent_hash: B::Hash) -> Vec<u8> {
-        NodesUtils::node_temp_offchain_key::<B::Header>(&self.indexing_prefix, pos, parent_hash)
+    fn node_temp_offchain_key(&self, pos: NodeIndex, prefix: B::Hash) -> Vec<u8> {
+        NodesUtils::node_temp_offchain_key::<B::Header>(&self.indexing_prefix, pos, prefix)
     }
 
     fn node_canon_offchain_key(&self, pos: NodeIndex) -> Vec<u8> {
@@ -150,6 +150,14 @@ where
             },
         };
 
+        let prefix = match self.client.runtime_api().offchain_prefix(header.hash) {
+            Ok(Ok(prefix)) => prefix,
+            _ => {
+                debug!(target: LOG_TARGET, "Failed to offchain prefix at {:?}", header.hash);
+                return
+            },
+        };
+
         // We prune the leaf associated with the provided block and all the nodes added by that
         // leaf.
         let stale_nodes = self.nodes_added_by_new_leaves(
@@ -160,9 +168,9 @@ where
         );
 
         for pos in stale_nodes {
-            let temp_key = self.node_temp_offchain_key(pos, header.parent);
+            let temp_key = self.node_temp_offchain_key(pos, prefix);
             self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
-            debug!(target: LOG_TARGET, "Pruned elem at pos {} with temp key {:?}", pos, temp_key);
+            debug!(target: LOG_TARGET, "Pruned elem at pos {} parent_hash {:?} header_hash {:?}", pos, header.parent, block_hash);
         }
     }
 
@@ -196,6 +204,14 @@ where
             },
         };
 
+        let prefix = match self.client.runtime_api().offchain_prefix(header.hash) {
+            Ok(Ok(prefix)) => prefix,
+            _ => {
+                debug!(target: LOG_TARGET, "Failed to offchain prefix at {:?}", header.hash);
+                return
+            },
+        };
+
         // We "canonicalize" the leaves associated with the provided block
         // and all the nodes added by those leaves.
         let to_canon_nodes = self.nodes_added_by_new_leaves(
@@ -206,7 +222,7 @@ where
         );
 
         for pos in to_canon_nodes {
-            let temp_key = self.node_temp_offchain_key(pos, header.parent);
+            let temp_key = self.node_temp_offchain_key(pos, prefix);
             if let Some(elem) =
                 self.offchain_db.local_storage_get(StorageKind::PERSISTENT, &temp_key)
             {
@@ -215,15 +231,16 @@ where
                 self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
                 debug!(
                     target: LOG_TARGET,
-                    "Moved elem at pos {} from temp key {:?} to canon key {:?}",
+                    "Moved elem at pos {}, parent_hash {:?} header_hash {:?} to canon key {:?}",
                     pos,
-                    temp_key,
+                    header.parent,
+                    block_hash,
                     canon_key
                 );
             } else {
                 debug!(
                     target: LOG_TARGET,
-                    "Couldn't canonicalize elem at pos {} using temp key {:?}", pos, temp_key
+                    "Couldn't canonicalize elem at pos {}, parent_hash {:?} header_hash {:?}", pos, header.parent, block_hash
                 );
             }
         }
@@ -287,6 +304,7 @@ where
         self.handle_potential_pallet_reset(&notification);
 
         // Move offchain MMR nodes for finalized blocks to canonical keys.
+
         for hash in notification.tree_route.iter().chain(std::iter::once(&notification.hash)) {
             self.canonicalize_branch(*hash);
         }

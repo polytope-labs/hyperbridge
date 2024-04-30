@@ -145,11 +145,11 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
         .await?;
 
     // Wait for some seconds for the async mmr gadget to complete
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_secs(30)).await;
 
     // Get finalized leaves
     let mut leaves = vec![];
-    for idx in 0..=10 {
+    for idx in 0..10 {
         let pos = leaf_index_to_pos(idx as u64);
         let canon_key = NodesUtils::node_canon_offchain_key(INDEXING_PREFIX, pos);
         let value = client
@@ -290,7 +290,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
     // Fetch mmr leaves on Fork B pre-finality
 
     let initial_leaf_count = leaves.len() as u64;
-    for (idx, (parent_hash, _)) in chain_b_commitments.clone().into_iter().enumerate() {
+    for (idx, (parent_hash, _)) in chain_a_commitments.clone().into_iter().enumerate() {
         let pos = leaf_index_to_pos(initial_leaf_count + idx as u64);
         let non_canon_key = NodesUtils::node_temp_offchain_key::<
             sp_runtime::generic::Header<u32, Keccak256>,
@@ -308,10 +308,10 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
         leaves.push(leaf);
     }
 
-    // Finalize fork b
+    // Finalize fork a
     let res = client
         .rpc()
-        .request::<bool>("engine_finalizeBlock", rpc_params![chain_b.last().cloned().unwrap()])
+        .request::<bool>("engine_finalizeBlock", rpc_params![chain_a.last().cloned().unwrap()])
         .await?;
     assert!(res);
 
@@ -319,7 +319,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
         .rpc()
         .request::<CreatedBlock<H256>>(
             "engine_createBlock",
-            rpc_params![true, false, chain_b.last().cloned().unwrap()],
+            rpc_params![true, false, chain_a.last().cloned().unwrap()],
         )
         .await?;
 
@@ -333,7 +333,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
     tokio::time::sleep(Duration::from_secs(20)).await;
 
     // All Non canonical keys should no longer exist in storage as they should have been pruned
-    for (idx, (parent_hash, _)) in chain_a_commitments.into_iter().enumerate() {
+    for (idx, (parent_hash, _)) in chain_b_commitments.into_iter().enumerate() {
         let pos = leaf_index_to_pos(initial_leaf_count + idx as u64);
         let non_canon_key = NodesUtils::node_temp_offchain_key::<
             sp_runtime::generic::Header<u32, Keccak256>,
@@ -350,7 +350,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 
     // Canonical keys should exist and the commitment should match the commitments we have for chain
     // B
-    for (idx, (parent_hash, commitment)) in chain_b_commitments.clone().into_iter().enumerate() {
+    for (idx, (parent_hash, commitment)) in chain_a_commitments.clone().into_iter().enumerate() {
         let pos = leaf_index_to_pos(initial_leaf_count + idx as u64);
         let non_canon_key = NodesUtils::node_temp_offchain_key::<
             sp_runtime::generic::Header<u32, Keccak256>,
@@ -392,7 +392,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 
     // Fetch mmr proof from finalized branch
     let keys = ProofKeys::Requests(
-        chain_b_commitments.into_iter().map(|(.., commitment)| commitment).collect(),
+        chain_a_commitments.into_iter().map(|(.., commitment)| commitment).collect(),
     );
     let params = rpc_params![at, keys];
     let response: pallet_ismp_rpc::Proof =
@@ -408,11 +408,13 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
     let res = merkle_proof
         .verify(
             root,
-            leaves[11..]
+            leaves[(initial_leaf_count as usize)..]
                 .to_vec()
                 .into_iter()
                 .enumerate()
-                .map(|(idx, leaf)| (leaf_index_to_pos((11 + idx) as u64), leaf))
+                .map(|(idx, leaf)| {
+                    (leaf_index_to_pos((initial_leaf_count + idx as u64) as u64), leaf)
+                })
                 .collect(),
         )
         .unwrap();

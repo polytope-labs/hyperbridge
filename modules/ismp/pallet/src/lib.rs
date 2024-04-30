@@ -52,7 +52,7 @@ use sp_core::H256;
 use crate::{mmr::Leaf, weight_info::get_weight};
 use frame_system::pallet_prelude::BlockNumberFor;
 use ismp::host::IsmpHost;
-use mmr_primitives::MerkleMountainRangeTree;
+use mmr_primitives::{MerkleMountainRangeTree, OffchainPrefix};
 pub use pallet::*;
 use sp_runtime::{
     traits::ValidateUnsigned,
@@ -207,10 +207,26 @@ pub mod pallet {
     #[pallet::getter(fn weight_consumed)]
     pub type WeightConsumed<T: Config> = StorageValue<_, WeightUsed, ValueQuery>;
 
+    /// A child trie root
+    #[pallet::storage]
+    #[pallet::getter(fn child_trie_root)]
+    pub type ChildTrieRoot<T: Config> =
+        StorageValue<_, <T as frame_system::Config>::Hash, ValueQuery>;
+
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
-    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
+    where
+        <T as frame_system::Config>::Hash: From<H256>,
+    {
         fn on_finalize(_n: BlockNumberFor<T>) {
+            let child_trie_root = frame_support::storage::child::root(
+                &ChildInfo::new_default(CHILD_TRIE_PREFIX),
+                Default::default(),
+            );
+
+            let child_trie_root = H256::from_slice(&child_trie_root);
+            ChildTrieRoot::<T>::put::<<T as frame_system::Config>::Hash>(child_trie_root.into());
             // Only finalize if mmr was modified
             let root = match T::Mmr::finalize() {
                 Ok(root) => root,
@@ -220,15 +236,7 @@ pub mod pallet {
                 },
             };
 
-            let child_trie_root = frame_support::storage::child::root(
-                &ChildInfo::new_default(CHILD_TRIE_PREFIX),
-                Default::default(),
-            );
-
-            let log = IsmpConsensusLog {
-                child_trie_root: H256::from_slice(&child_trie_root),
-                mmr_root: root.into(),
-            };
+            let log = IsmpConsensusLog { child_trie_root, mmr_root: root.into() };
 
             let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
             <frame_system::Pallet<T>>::deposit_log(digest);
@@ -493,4 +501,10 @@ pub struct ResponseReceipt {
     pub response: H256,
     /// Address of the relayer
     pub relayer: Vec<u8>,
+}
+
+impl<T: Config> OffchainPrefix<T> for Pallet<T> {
+    fn prefix() -> <T as frame_system::Config>::Hash {
+        Self::child_trie_root()
+    }
 }

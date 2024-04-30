@@ -552,6 +552,7 @@ impl pallet_mmr::Config for Runtime {
     const INDEXING_PREFIX: &'static [u8] = INDEXING_PREFIX;
     type Hashing = Keccak256;
     type Leaf = Leaf;
+    type OffchainPrefixProvider = Ismp;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -786,6 +787,10 @@ impl_runtime_apis! {
         /// Return the on-chain MMR root hash.
         fn mmr_root() -> Result<Hash, sp_mmr_primitives::Error> {
             Ok(Mmr::mmr_root_hash())
+        }
+
+        fn offchain_prefix() -> Result<Hash, sp_mmr_primitives::Error> {
+            Ok(Ismp::child_trie_root())
         }
     }
 

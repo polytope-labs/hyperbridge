@@ -7546,6 +7546,7 @@ name = "mmr-primitives"
 version = "0.1.0"
 dependencies = [
  "ckb-merkle-mountain-range",
+ "frame-system",
  "parity-scale-codec",
  "scale-info",
  "serde",

@@ -31,9 +31,8 @@ use ismp::{
 };
 use pallet_ismp::{
     child_trie::CHILD_TRIE_PREFIX,
-    mmr::Leaf,
+    mmr::{Leaf, ProofKeys},
     primitives::{LeafIndexAndPos, LeafIndexQuery},
-    ProofKeys,
 };
 use pallet_ismp_runtime_api::IsmpRuntimeApi;
 use sc_client_api::{Backend, BlockBackend, ChildInfo, ProofProvider, StateBackend};

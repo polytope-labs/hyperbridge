@@ -21,26 +21,22 @@
 extern crate alloc;
 extern crate core;
 
+pub mod child_trie;
 pub mod dispatcher;
 pub mod errors;
 pub mod events;
 pub mod host;
-pub mod mmr;
-pub use mmr::ProofKeys;
-pub mod child_trie;
 mod impls;
+pub mod mmr;
 pub mod primitives;
 pub mod weight_info;
 
-pub use sp_mmr_primitives::utils::NodesUtils;
-
 use crate::host::Host;
-use codec::{Decode, Encode};
+use codec::Encode;
 use frame_support::{
     dispatch::{DispatchResult, DispatchResultWithPostInfo},
     traits::Get,
 };
-use sp_core::H256;
 // Re-export pallet items so that they can be accessed from the crate namespace.
 use crate::{mmr::Leaf, weight_info::get_weight};
 use frame_system::pallet_prelude::BlockNumberFor;
@@ -65,7 +61,7 @@ pub type NoOpMmrTree = NoOpTree<Leaf>;
 // `construct_runtime`.
 #[frame_support::pallet]
 pub mod pallet {
-    use self::primitives::IsmpConsensusLog;
+    use self::primitives::{ConsensusLog, UpdateConsensusState};
     use super::*;
     use crate::{
         child_trie::CHILD_TRIE_PREFIX,
@@ -230,7 +226,7 @@ pub mod pallet {
                 Default::default(),
             );
 
-            let log = IsmpConsensusLog {
+            let log = ConsensusLog {
                 child_trie_root: H256::from_slice(&child_trie_root),
                 mmr_root: root.into(),
             };
@@ -238,17 +234,6 @@ pub mod pallet {
             let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
             <frame_system::Pallet<T>>::deposit_log(digest);
         }
-    }
-
-    /// Params to update the unbonding period for a consensus state
-    #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-    pub struct UpdateConsensusState {
-        /// Consensus state identifier
-        pub consensus_state_id: ConsensusStateId,
-        /// Unbonding duration
-        pub unbonding_period: Option<u64>,
-        /// Challenge period duration
-        pub challenge_period: Option<u64>,
     }
 
     #[pallet::call]
@@ -525,13 +510,4 @@ pub mod pallet {
             })
         }
     }
-}
-
-/// Receipt for a Response
-#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
-pub struct ResponseReceipt {
-    /// Hash of the response object
-    pub response: H256,
-    /// Address of the relayer
-    pub relayer: Vec<u8>,
 }

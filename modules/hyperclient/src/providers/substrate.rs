@@ -19,7 +19,7 @@ use ismp::{
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use pallet_ismp::{
     child_trie::{ChildInfo, CHILD_TRIE_PREFIX},
-    ResponseReceipt,
+    primitives::ResponseReceipt,
 };
 use reconnecting_jsonrpsee_ws_client::{Client as ReconnectClient, SubscriptionId};
 use serde::{Deserialize, Serialize};

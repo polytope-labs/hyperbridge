@@ -27,7 +27,7 @@ members = [
     "modules/ismp/clients/parachain/client",
     "modules/ismp/clients/parachain/inherent",
     "modules/ismp/clients/parachain/runtime-api",
-    "modules/ismp/clients/state-machine/substrate",
+    "modules/ismp/state-machines/substrate",
     "modules/ismp/clients/arbitrum",
     "modules/ismp/clients/optimism",
     "modules/ismp/clients/sync-committee/evm-common",
@@ -58,7 +58,7 @@ members = [
     # simnode
     "parachain/simtests",
     # subxt subxt-utils
-    "modules/subxt/utils"
+    "modules/subxt/utils",
 ]
 
 # Config for 'cargo dist'
@@ -219,6 +219,7 @@ alloy-primitives = { version = "0.6.0", default-features = false, features = [
 ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
 orml-xcm-support = { version = "=0.7.0", default-features = false }
 orml-traits = { version = "=0.7.0", default-features = false }
+primitive-types = { version = "0.12.1", default-features = false }
 
 # local dependencies
 # ismp core
@@ -249,7 +250,7 @@ arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
 
 # state machine clients
-substrate-state-machine = { path = "./modules/ismp/clients/state-machine/substrate", default-features = false }
+substrate-state-machine = { path = "modules/ismp/state-machines/substrate", default-features = false }
 
 # pallets
 pallet-ismp = { path = "modules/ismp/pallets/pallet", default-features = false }

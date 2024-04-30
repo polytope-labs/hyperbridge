@@ -4,7 +4,7 @@
 The interoperable state machine protocol implementation for substrate-based chains. This pallet provides the ability to
 
 1. Track the finalized state of a remote state machine (blockchain) through the use of consensus proofs which attest to a finalized "state commitment".
-2. Execute incoming ISMP-compliant messages from a connected chain, through the use of state proofs which are verified through a known, previously finalized state commitment. 
+2. Execute incoming ISMP-compliant messages from a connected chain, through the use of state proofs which are verified through a known, previously finalized state commitment.
 3. Dispatch ISMP requests and responses to a connected chain.
 
 
@@ -17,8 +17,8 @@ The ISMP Pallet itself provides Calls which alow for:
 * Executing ISMP Messages
 
 To use it in your runtime, you need to implement the ismp
-[`ismp::Config`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/trait.Config.html). The supported dispatchable functions are documented in the
-[`ismp::Call`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/enum.Call.html) enum.
+[`pallet_ismp::Config`](pallet/trait.Config.html). The supported dispatchable functions are documented in the
+[`pallet_ismp::Call`](pallet/enum.Call.html) enum.
 
 
 ### Terminology
@@ -39,8 +39,6 @@ The ISMP pallet in Substrate is designed to make the following possible:
 * Update consensus client metadata.
 * Execute ISMP messages
 
-## Interface
-
 ### Dispatchable Functions
 
 * `handle` - Handles incoming ISMP messages.
@@ -48,10 +46,10 @@ The ISMP pallet in Substrate is designed to make the following possible:
 * `update_consensus_state` - Updates consensus client properties in storage. Can only be called by the `AdminOrigin`.
 
 
-Please refer to the [`Call`](https://docs.rs/pallet-ismp/latest/pallet_ismp/enum.Call.html) enum and its associated
+Please refer to the [`Call`](pallet/enum.Call.html) enum and its associated
 variants for documentation on each function.
 
-### Runtime Usage
+### Runtime Configuration
 
 The following example shows how to configure `pallet-ismp` in your runtime
 
@@ -66,7 +64,7 @@ parameter_types! {
 impl pallet_ismp::Config for Runtime {
     // configure the runtime event
     type RuntimeEvent = RuntimeEvent;
-    // Permissioned origin who can create or update consensus clients 
+    // Permissioned origin who can create or update consensus clients
     type AdminOrigin = EnsureRoot<AccountId>;
     // The state machine identifier for this state machine
     type HostStateMachine = HostStateMachine;
@@ -107,20 +105,20 @@ impl IsmpRouter for Router {
 #[derive(Default)]
 struct YourModule;
 
-impl IsmpModule for YourModule {    
+impl IsmpModule for YourModule {
     /// Called by the ISMP hanlder, to notify module of a new POST request
     /// the module may choose to respond immediately, or in a later block
     fn on_accept(&self, request: PostRequest) -> Result<(), Error> {
         // do something useful with the request
     }
-        
-    /// Called by the ISMP hanlder, to notify module of a response to a previously  
+
+    /// Called by the ISMP hanlder, to notify module of a response to a previously
     /// sent out request
 	fn on_response(&self, response: Response) -> Result<(), Error> {
         // do something useful with the response
     }
-        
-    /// Called by the ISMP hanlder, to notify module of requests that were previously   
+
+    /// Called by the ISMP hanlder, to notify module of requests that were previously
     /// sent but have now timed-out
 	fn on_timeout(&self, request: Timeout) -> Result<(), Error> {
         // revert any state changes that were made prior to dispatching the request

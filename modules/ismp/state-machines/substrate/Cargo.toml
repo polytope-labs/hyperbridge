@@ -8,6 +8,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 # substrate
 frame-system = { workspace = true }
 sp-runtime = { workspace = true }
+sp-consensus-aura = { workspace = true }
 
 # polytope labs
 ismp = { workspace = true }

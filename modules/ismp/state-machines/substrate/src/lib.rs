@@ -22,7 +22,7 @@ extern crate alloc;
 
 use alloc::{collections::BTreeMap, format, string::ToString, vec, vec::Vec};
 use codec::Decode;
-use core::{fmt::Debug, marker::PhantomData};
+use core::{fmt::Debug, marker::PhantomData, time::Duration};
 use frame_support::ensure;
 use ismp::{
     consensus::{StateCommitment, StateMachineClient},
@@ -35,9 +35,14 @@ use ismp::{
 use pallet_ismp::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
     host::Host,
-    primitives::{HashAlgorithm, SubstrateStateProof},
+    primitives::{HashAlgorithm, SubstrateStateProof, ISMP_ID},
 };
-use sp_runtime::traits::{BlakeTwo256, Keccak256};
+use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
+use sp_core::H256;
+use sp_runtime::{
+    traits::{BlakeTwo256, Keccak256},
+    Digest, DigestItem,
+};
 use sp_trie::{HashDBT, LayoutV0, StorageProof, Trie, TrieDBBuilder, EMPTY_PREFIX};
 
 /// The parachain and grandpa consensus client implementation for ISMP.
@@ -242,4 +247,39 @@ where
     }
 
     Ok(result)
+}
+
+/// Fetches the overlay(ismp) root and timestamp from the header digest
+pub fn fetch_overlay_root_and_timestamp(
+    digest: &Digest,
+    slot_duration: u64,
+) -> Result<(u64, H256), Error> {
+    let (mut timestamp, mut overlay_root) = (0, H256::default());
+
+    for digest in digest.logs.iter() {
+        match digest {
+            DigestItem::PreRuntime(consensus_engine_id, value)
+                if *consensus_engine_id == AURA_ENGINE_ID =>
+            {
+                let slot = Slot::decode(&mut &value[..])
+                    .map_err(|e| Error::ImplementationSpecific(format!("Cannot slot: {e:?}")))?;
+                timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
+            },
+            DigestItem::Consensus(consensus_engine_id, value)
+                if *consensus_engine_id == ISMP_ID =>
+            {
+                if value.len() != 32 {
+                    Err(Error::ImplementationSpecific(
+                        "Header contains an invalid ismp root".into(),
+                    ))?
+                }
+
+                overlay_root = H256::from_slice(&value);
+            },
+            // don't really care about the rest
+            _ => {},
+        };
+    }
+
+    Ok((timestamp, overlay_root))
 }

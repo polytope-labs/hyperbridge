@@ -17,10 +17,10 @@
 use crate::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
     dispatcher::LeafMetadata,
-    primitives::ConsensusClientProvider,
+    primitives::{ConsensusClientProvider, ResponseReceipt},
     ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
     FrozenConsensusClients, FrozenStateMachine, LatestStateMachineHeight, Nonce, Responded,
-    ResponseReceipt, StateCommitments, StateMachineUpdateTime, UnbondingPeriod,
+    StateCommitments, StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use codec::{Decode, Encode};
@@ -212,6 +212,8 @@ impl<T: Config> IsmpHost for Host<T> {
         state: StateCommitment,
     ) -> Result<(), Error> {
         StateCommitments::<T>::insert(height, state);
+
+        // state_machine => consensus_state_id
         Ok(())
     }
 

@@ -16,7 +16,7 @@ use sp_runtime::traits::Keccak256;
 use subxt::{rpc_params, tx::SubmittableExtrinsic, utils::H160};
 
 use mmr_primitives::{DataOrHash, FullLeaf};
-use pallet_ismp::{mmr::Leaf, ProofKeys};
+use pallet_ismp::mmr::{Leaf, ProofKeys};
 use pallet_ismp_rpc::MmrProof;
 use pallet_mmr::mmr::Hasher as MmrHasher;
 use subxt_utils::{

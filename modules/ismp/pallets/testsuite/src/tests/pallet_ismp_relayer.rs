@@ -31,8 +31,7 @@ use pallet_ismp::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
     dispatcher::FeeMetadata,
     host::Host,
-    primitives::{HashAlgorithm, SubstrateStateProof},
-    ResponseReceipt,
+    primitives::{HashAlgorithm, ResponseReceipt, SubstrateStateProof},
 };
 use pallet_ismp_relayer::{
     self as pallet_ismp_relayer, message,

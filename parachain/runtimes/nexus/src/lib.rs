@@ -69,7 +69,7 @@ use frame_system::{
     limits::{BlockLength, BlockWeights},
     EnsureRoot, Phase,
 };
-use pallet_ismp::{primitives::Proof, ProofKeys};
+use pallet_ismp::{mmr::ProofKeys, primitives::Proof};
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
 pub use sp_runtime::{MultiAddress, Perbill, Permill};

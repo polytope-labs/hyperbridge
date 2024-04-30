@@ -6,7 +6,7 @@ use core::marker::PhantomData;
 use frame_support::storage::child;
 pub use sp_core::{storage::ChildInfo, H256};
 
-use crate::{dispatcher::LeafMetadata, Config, ResponseReceipt};
+use crate::{dispatcher::LeafMetadata, primitives::ResponseReceipt, Config};
 
 /// Commitments for outgoing requests
 /// The key is the request commitment

@@ -2,11 +2,11 @@ use crate::{
     child_trie::{RequestCommitments, ResponseCommitments},
     dispatcher::{FeeMetadata, LeafMetadata},
     host::Host,
-    mmr::Leaf,
+    mmr::{Leaf, ProofKeys},
     primitives::{LeafIndexAndPos, Proof},
     weight_info::get_weight,
     ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStates, Error, Event,
-    LatestStateMachineHeight, Pallet, ProofKeys, Responded,
+    LatestStateMachineHeight, Pallet, Responded,
 };
 use alloc::{string::ToString, vec, vec::Vec};
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};

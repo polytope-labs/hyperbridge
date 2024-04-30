@@ -14,19 +14,16 @@
 // limitations under the License.
 
 //! Pallet primitives
-use alloc::format;
 use codec::{Decode, Encode};
-use core::time::Duration;
 use frame_support::{weights::Weight, PalletId};
-use ismp::consensus::ConsensusClient;
+use ismp::consensus::{ConsensusClient, ConsensusStateId};
 use scale_info::TypeInfo;
-use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_core::{
     crypto::{AccountId32, ByteArray},
     H160, H256,
 };
 use sp_mmr_primitives::NodeIndex;
-use sp_runtime::{Digest, DigestItem, RuntimeDebug};
+use sp_runtime::RuntimeDebug;
 use sp_std::prelude::*;
 
 /// An MMR proof data for a group of leaves.
@@ -45,6 +42,26 @@ pub struct Proof<Hash> {
 pub trait ConsensusClientProvider {
     /// Returns a list of all configured consensus clients
     fn consensus_clients() -> Vec<Box<dyn ConsensusClient>>;
+}
+
+/// Params to update the unbonding period for a consensus state
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+pub struct UpdateConsensusState {
+    /// Consensus state identifier
+    pub consensus_state_id: ConsensusStateId,
+    /// Unbonding duration
+    pub unbonding_period: Option<u64>,
+    /// Challenge period duration
+    pub challenge_period: Option<u64>,
+}
+
+/// Receipt for a Response
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+pub struct ResponseReceipt {
+    /// Hash of the response object
+    pub response: H256,
+    /// Address of the relayer
+    pub relayer: Vec<u8>,
 }
 
 fortuples::fortuples! {
@@ -113,7 +130,7 @@ pub const ISMP_ID: sp_runtime::ConsensusEngineId = *b"ISMP";
 
 /// Consensus log digest for pallet ismp
 #[derive(Encode, Decode, Clone, scale_info::TypeInfo)]
-pub struct IsmpConsensusLog {
+pub struct ConsensusLog {
     /// Mmr root hash
     pub mmr_root: H256,
     /// Child trie root hash
@@ -206,40 +223,4 @@ pub struct MembershipProof {
     pub leaf_indices: Vec<u64>,
     /// Mmr proof
     pub proof: Vec<H256>,
-}
-
-/// Fetches the overlay(ismp) root and timestamp from the header digest
-pub fn fetch_overlay_root_and_timestamp(
-    digest: &Digest,
-    slot_duration: u64,
-) -> Result<(u64, H256), ismp::error::Error> {
-    let (mut timestamp, mut overlay_root) = (0, H256::default());
-
-    for digest in digest.logs.iter() {
-        match digest {
-            DigestItem::PreRuntime(consensus_engine_id, value)
-                if *consensus_engine_id == AURA_ENGINE_ID =>
-            {
-                let slot = Slot::decode(&mut &value[..]).map_err(|e| {
-                    ismp::error::Error::ImplementationSpecific(format!("Cannot slot: {e:?}"))
-                })?;
-                timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
-            },
-            DigestItem::Consensus(consensus_engine_id, value)
-                if *consensus_engine_id == ISMP_ID =>
-            {
-                if value.len() != 32 {
-                    Err(ismp::error::Error::ImplementationSpecific(
-                        "Header contains an invalid ismp root".into(),
-                    ))?
-                }
-
-                overlay_root = H256::from_slice(&value);
-            },
-            // don't really care about the rest
-            _ => {},
-        };
-    }
-
-    Ok((timestamp, overlay_root))
 }

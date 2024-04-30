@@ -22,7 +22,10 @@ use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     router::{Request, Response},
 };
-use pallet_ismp::{mmr::Leaf, primitives::Proof, ProofKeys};
+use pallet_ismp::{
+    mmr::{Leaf, ProofKeys},
+    primitives::Proof,
+};
 use sp_core::H256;
 use sp_mmr_primitives::Error;
 #[cfg(not(feature = "std"))]

@@ -39,7 +39,7 @@ use sp_runtime::Percent;
 
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::mainnet::Mainnet;
-use pallet_ismp::{dispatcher::FeeMetadata, host::Host, utils::ModuleId};
+use pallet_ismp::{dispatcher::FeeMetadata, host::Host, ModuleId};
 use sp_std::prelude::*;
 use staging_xcm::latest::MultiLocation;
 
@@ -77,7 +77,6 @@ impl pallet_ismp::Config for Runtime {
         ismp_bsc::BscClient<Host<Runtime>>,
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Mainnet>,
     );
-
     type Mmr = Mmr;
     type WeightProvider = ();
 }

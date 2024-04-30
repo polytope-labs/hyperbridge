@@ -20,11 +20,9 @@ use ismp::{
     router::{Post, Request},
     util::hash_request,
 };
-use pallet_ismp::{
-    child_trie,
-    child_trie::H256,
-    utils::{HashAlgorithm, SubstrateStateProof},
-};
+use pallet_ismp::child_trie;
+use primitive_types::H256;
+use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
 use subxt_utils::{
     gargantua::{
         api,
@@ -188,9 +186,11 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 
     assert_eq!(item, now.as_secs());
 
-    let proof =
-        SubstrateStateProof::OverlayProof { hasher: HashAlgorithm::Keccak, storage_proof: proof }
-            .encode();
+    let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
+        hasher: HashAlgorithm::Keccak,
+        storage_proof: proof,
+    })
+    .encode();
     let proof = Proof { height, proof };
 
     // 3. next send the requests

@@ -83,9 +83,10 @@ pub enum ProofKeys {
 
 /// An MMR proof data for a group of leaves.
 #[derive(codec::Encode, codec::Decode, RuntimeDebug, Clone, PartialEq, Eq, TypeInfo)]
+#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Proof<Hash> {
-    /// The positions of the leaves the proof is for.
-    pub leaf_positions: Vec<LeafIndexAndPos>,
+    /// The indices and positions of the leaves in the proof.
+    pub leaf_indices_and_pos: Vec<LeafIndexAndPos>,
     /// Number of leaves in MMR, when the proof was generated.
     pub leaf_count: NodeIndex,
     /// Proof elements (hashes of siblings of inner nodes on the path to the leaf).

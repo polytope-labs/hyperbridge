@@ -130,9 +130,6 @@ cumulus-primitives-aura = { version = "0.7.0", default-features = false }
 cumulus-pallet-session-benchmarking = { version = "9.0.0", default-features = false }
 cumulus-pallet-aura-ext = { version = "0.7.0", default-features = false }
 cumulus-pallet-dmp-queue = { version = "0.7.0", default-features = false }
-cumulus-pallet-parachain-system = { version = "0.7.0", default-features = false, features = [
-    "parameterized-consensus-hook",
-] }
 cumulus-pallet-xcm = { version = "=0.7.0", default-features = false }
 cumulus-pallet-xcmp-queue = { version = "0.7.0", default-features = false }
 cumulus-primitives-core = { version = "0.7.0", default-features = false }
@@ -193,40 +190,30 @@ xcm-simulator-example = "7.0.0"
 xcm-simulator = "7.0.0"
 polkadot-runtime-parachains = "7.0.0"
 
-ethers = { git = "https://github.com/polytope-labs/ethers-rs", rev = "a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4", features = [
-    "ethers-solc",
-], default-features = false }
-ethers-contract-abigen = { git = "https://github.com/polytope-labs/ethers-rs", rev = "a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4" }
-
-forge-testsuite = { git = "https://github.com/polytope-labs/forge-testsuite", rev = "faa97adf1b969f64cf77259f8f018a2aafefb70a" }
-foundry-evm = { git = "https://github.com/polytope-labs/foundry", rev = "1ffcca7485e84a9a356c5adb619ee1f038295739" }
-merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
-
+# crates.io
+serde = { version = "1", default-features = false }
 trie-db = { version = "0.28.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
 codec = { version = "3.1.3", package = "parity-scale-codec", default-features = false }
-scale-info = { version = "2.1.1", default-features = false, features = [
-    "derive",
-] }
 log = { version = "0.4.21", default-features = false }
 anyhow = {version = "1.0.71", default-features = false }
 alloy-rlp = { version = "0.3.2", default-features = false }
 alloy-rlp-derive = "0.3.2"
-alloy-primitives = { version = "0.6.0", default-features = false, features = [
-    "rlp",
-] }
 ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
 orml-xcm-support = { version = "=0.7.0", default-features = false }
 orml-traits = { version = "=0.7.0", default-features = false }
 primitive-types = { version = "0.12.1", default-features = false }
+sc-simnode = { version = "1.6.1" }
+simnode-runtime-api = { version = "1.6.0", default-features = false }
+subxt = { version = "0.30.1", default-features = false }
 
-# local dependencies
-# ismp core
+# local crates
 ismp = { path = "./modules/ismp/core", default-features = false }
 ismp-testsuite = { path = "./modules/ismp/testsuite" }
 ismp-solidity-abi = { path = "./evm/abi", default-features = false }
-
+simnode-tests = { path = "parachain/simtests" }
+subxt-utils = { path = "modules/subxt/utils", default-features = false }
 hyperclient = { path = "modules/hyperclient", default-features = false }
 
 # consensus provers & verifiers
@@ -264,11 +251,9 @@ pallet-call-decompressor = { path = "modules/ismp/pallets/call-decompressor", de
 pallet-asset-gateway = { path = "modules/ismp/pallets/asset-gateway", default-features = false }
 pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
 
-# Mmr
+# merkle trees
 pallet-mmr-runtime-api = { path = "modules/trees/mmr/pallet/runtime-api", default-features = false }
 mmr-gadget = { path = "modules/trees/mmr/gadget" }
-
-# merkle trees
 ethereum-trie = { path = "./modules/trees/ethereum", default-features = false }
 mmr-primitives = { path = "modules/trees/mmr/primitives", default-features = false }
 
@@ -277,12 +262,42 @@ gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features 
 messier-runtime = { path = "./parachain/runtimes/messier", default-features = false }
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }
 
+[workspace.dependencies.cumulus-pallet-parachain-system]
+version = "0.7.0"
+default-features = false
+features = [
+    "parameterized-consensus-hook",
+]
 
-# Simnode
-sc-simnode = { version = "1.6.1" }
-simnode-runtime-api = { version = "1.6.0", default-features = false }
-simnode-tests = { path = "parachain/simtests" }
+[workspace.dependencies.ethers]
+git = "https://github.com/polytope-labs/ethers-rs"
+rev = "a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+features = ["ethers-solc"]
+default-features = false
 
-# Subxt
-subxt = { version = "0.30.1", default-features = false }
-subxt-utils = { path = "modules/subxt/utils", default-features = false }
+[workspace.dependencies.ethers-contract-abigen]
+git = "https://github.com/polytope-labs/ethers-rs"
+rev = "a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
+
+[workspace.dependencies.forge-testsuite]
+git = "https://github.com/polytope-labs/forge-testsuite"
+rev = "faa97adf1b969f64cf77259f8f018a2aafefb70a"
+
+[workspace.dependencies.foundry-evm]
+git = "https://github.com/polytope-labs/foundry"
+rev = "1ffcca7485e84a9a356c5adb619ee1f038295739"
+
+[workspace.dependencies.merkle-mountain-range]
+package = "ckb-merkle-mountain-range"
+version = "0.5.2"
+default-features = false
+
+[workspace.dependencies.alloy-primitives]
+version = "0.6.0"
+default-features = false
+features = ["rlp"]
+
+[workspace.dependencies.scale-info]
+version = "2.1.1"
+default-features = false
+features = ["derive"]

@@ -18,18 +18,16 @@
 #![allow(clippy::too_many_arguments)]
 #![deny(missing_docs)]
 
+extern crate alloc;
+
+use alloc::vec::Vec;
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     router::{Request, Response},
 };
-use pallet_ismp::{
-    mmr::{Leaf, ProofKeys},
-    utils::Proof,
-};
-use sp_core::H256;
+use pallet_ismp::mmr::{Leaf, Proof, ProofKeys};
+use primitive_types::H256;
 use sp_mmr_primitives::Error;
-#[cfg(not(feature = "std"))]
-use sp_std::vec::Vec;
 
 sp_api::decl_runtime_apis! {
     /// ISMP Runtime Apis

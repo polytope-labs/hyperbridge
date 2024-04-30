@@ -5634,6 +5634,8 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "sp-core 28.0.0",
+ "substrate-state-machine",
  "subxt",
  "subxt-utils",
  "tokio",
@@ -8956,8 +8958,6 @@ name = "pallet-ismp"
 version = "1.6.0"
 dependencies = [
  "ckb-merkle-mountain-range",
- "derive_more",
- "enum-as-inner",
  "env_logger 0.10.2",
  "fortuples",
  "frame-benchmarking",
@@ -9083,11 +9083,10 @@ dependencies = [
  "ismp",
  "pallet-ismp",
  "parity-scale-codec",
+ "primitive-types",
  "serde",
  "sp-api",
- "sp-core 28.0.0",
  "sp-mmr-primitives",
- "sp-std 14.0.0",
 ]
 
 [[package]]
@@ -14851,12 +14850,14 @@ dependencies = [
  "pallet-ismp-rpc",
  "pallet-mmr 0.1.0",
  "parity-scale-codec",
+ "primitive-types",
  "sc-consensus-manual-seal",
  "sp-core 28.0.0",
  "sp-keyring",
  "sp-mmr-primitives",
  "sp-runtime 31.0.1",
  "sp-trie 29.0.0",
+ "substrate-state-machine",
  "subxt",
  "subxt-utils",
  "tokio",
@@ -16832,7 +16833,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "0.1.0"
+version = "1.6.0"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-support",
@@ -16845,7 +16846,6 @@ dependencies = [
  "scale-info",
  "serde",
  "sp-consensus-aura",
- "sp-core 28.0.0",
  "sp-runtime 31.0.1",
  "sp-trie 29.0.0",
 ]

@@ -70,7 +70,7 @@ impl<T: Config> Pallet<T> {
             leaf_indices_and_positions.iter().map(|val| val.leaf_index).collect::<Vec<_>>();
         let (leaves, proof) = T::Mmr::generate_proof(indices)?;
         let proof = Proof {
-            leaf_positions: leaf_indices_and_positions,
+            leaf_indices_and_pos: leaf_indices_and_positions,
             leaf_count: proof.leaf_count,
             items: proof.items,
         };

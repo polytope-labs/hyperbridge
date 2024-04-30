@@ -30,7 +30,7 @@ use ismp::{
     host::{IsmpHost, StateMachine},
     messaging::StateCommitmentHeight,
 };
-use pallet_ismp::utils::{ConsensusDigest, ISMP_ID};
+use pallet_ismp::{ConsensusDigest, ISMP_ID};
 use primitive_types::H256;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
 use sp_runtime::{
@@ -53,7 +53,7 @@ impl<T, R> Default for ParachainConsensusClient<T, R> {
     }
 }
 
-/// Information necessary to prove the sibling parachain's finalization to this
+/// Information necessary to prove the finality of a sibling parachain's state commitment to this
 /// parachain.
 #[derive(Debug, Encode, Decode)]
 pub struct ParachainConsensusProof {
@@ -65,7 +65,7 @@ pub struct ParachainConsensusProof {
     pub storage_proof: Vec<Vec<u8>>,
 }
 
-/// ConsensusClientId for [`ParachainConsensusClient`]
+/// [`ConsensusClientId`] for [`ParachainConsensusClient`]
 pub const PARACHAIN_CONSENSUS_ID: ConsensusClientId = *b"PARA";
 
 /// Slot duration in milliseconds

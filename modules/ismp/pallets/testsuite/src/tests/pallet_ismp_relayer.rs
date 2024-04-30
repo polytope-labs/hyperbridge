@@ -31,7 +31,7 @@ use pallet_ismp::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
     dispatcher::FeeMetadata,
     host::Host,
-    utils::{HashAlgorithm, ResponseReceipt, SubstrateStateProof},
+    ResponseReceipt,
 };
 use pallet_ismp_relayer::{
     self as pallet_ismp_relayer, message,
@@ -40,6 +40,7 @@ use pallet_ismp_relayer::{
 use sp_core::{Pair, H160, H256, U256};
 use sp_trie::LayoutV0;
 use std::{fs::File, io::Read, time::Duration};
+use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStateProof};
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 
 use crate::runtime::{
@@ -49,7 +50,7 @@ use crate::runtime::{
 use ismp::host::Ethereum;
 use ismp_bsc::BSC_CONSENSUS_ID;
 use ismp_sync_committee::BEACON_CONSENSUS_ID;
-use pallet_ismp::{dispatcher::LeafMetadata, utils::LeafIndexAndPos};
+use pallet_ismp::{dispatcher::LeafMetadata, mmr::LeafIndexAndPos};
 
 #[test]
 fn test_withdrawal_proof() {
@@ -181,15 +182,15 @@ fn test_withdrawal_proof() {
             source_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
         let dest_keys_proof = dest_recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
 
-        let source_state_proof = SubstrateStateProof::OverlayProof {
+        let source_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
             hasher: HashAlgorithm::Keccak,
             storage_proof: source_keys_proof,
-        };
+        });
 
-        let dest_state_proof = SubstrateStateProof::OverlayProof {
+        let dest_state_proof = SubstrateStateProof::OverlayProof(StateMachineProof {
             hasher: HashAlgorithm::Keccak,
             storage_proof: dest_keys_proof,
-        };
+        });
 
         let host = Host::<Test>::default();
         host.store_state_machine_commitment(

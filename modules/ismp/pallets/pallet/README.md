@@ -53,7 +53,7 @@ variants for documentation on each function.
 
 The following example shows how to configure `pallet-ismp` in your runtime
 
-```rust
+```rust,ignore
 parameter_types! {
     // The hyperbridge parachain on Polkadot
     pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));

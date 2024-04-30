@@ -16,7 +16,6 @@
 //! Implementation for the low-level ISMP Dispatcher
 
 use crate::{child_trie::RequestReceipts, host::Host, mmr::LeafIndexAndPos, Pallet};
-use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use frame_support::traits::UnixTime;
 use ismp::{

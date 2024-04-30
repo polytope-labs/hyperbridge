@@ -36,8 +36,6 @@ mmr-primitives = { workspace = true }
 fortuples = "0.9.1"
 log = { version = "0.4.17", default-features = false }
 serde = { version = "1.0.136", features = ["derive"], default-features = false }
-derive_more = { version = "0.99.17", default-features = false, features = ["from", "into", "display"] }
-enum-as-inner = "=0.5.1"
 
 [dev-dependencies]
 env_logger = "0.10.0"

@@ -16,15 +16,12 @@
 //! Pallet utilities
 
 use codec::{Decode, Encode};
-use frame_support::{weights::Weight, PalletId};
+use frame_support::PalletId;
 use ismp::consensus::{ConsensusClient, ConsensusStateId};
-use scale_info::TypeInfo;
 use sp_core::{
     crypto::{AccountId32, ByteArray},
     H160, H256,
 };
-use sp_mmr_primitives::NodeIndex;
-use sp_runtime::RuntimeDebug;
 use sp_std::prelude::*;
 
 /// Params to update the unbonding period for a consensus state

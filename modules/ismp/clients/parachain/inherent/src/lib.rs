@@ -30,7 +30,8 @@ use ismp_parachain_runtime_api::IsmpParachainApi;
 use sp_runtime::traits::Block as BlockT;
 use std::sync::Arc;
 
-/// Implements [`InherentDataProvider`] for providing parachain consensus updates as inherents.
+/// Implements [`InherentDataProvider`](sp_inherents::InherentDataProvider) for providing parachain
+/// consensus updates as inherents.
 pub struct ConsensusInherentProvider(Option<ConsensusMessage>);
 
 impl ConsensusInherentProvider {

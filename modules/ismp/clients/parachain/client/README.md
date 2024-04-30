@@ -1,1 +1,1 @@
-# IsmSMP Parachain Client
+# ISMP Parachain Client

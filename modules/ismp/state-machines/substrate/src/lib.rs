@@ -13,9 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The state machine implementation in Substrate
+//! The [`StateMachineClient`] implementation for substrate state machines
+
 #![cfg_attr(not(feature = "std"), no_std)]
-#![allow(clippy::all)]
 #![deny(missing_docs)]
 
 extern crate alloc;
@@ -35,10 +35,10 @@ use ismp::{
 use pallet_ismp::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
     host::Host,
-    utils::ISMP_ID,
+    ISMP_ID,
 };
+use primitive_types::H256;
 use sp_consensus_aura::{Slot, AURA_ENGINE_ID};
-use sp_core::H256;
 use sp_runtime::{
     traits::{BlakeTwo256, Keccak256},
     Digest, DigestItem,
@@ -56,13 +56,14 @@ pub enum HashAlgorithm {
     Blake2,
 }
 
-///
+/// The substrate state machine proof. This will be a base-16 merkle patricia proof.
+/// It's [`TrieLayout`](sp_trie::TrieLayout) will be the [`LayoutV0`]
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct StateMachineProof {
     /// Algorithm to use for state proof verification
-    hasher: HashAlgorithm,
-    /// Storage proof for the parachain headers
-    storage_proof: Vec<Vec<u8>>,
+    pub hasher: HashAlgorithm,
+    /// Intermediate trie nodes in the key path from the root to their relevant values.
+    pub storage_proof: Vec<Vec<u8>>,
 }
 
 /// Holds the relevant data needed for state proof verification
@@ -78,8 +79,8 @@ impl SubstrateStateProof {
     /// Returns hash algo
     pub fn hasher(&self) -> HashAlgorithm {
         match self {
-            Self::OverlayProof(proof) => *proof.hasher,
-            Self::StateProof(proof) => *proof.hasher,
+            Self::OverlayProof(proof) => proof.hasher,
+            Self::StateProof(proof) => proof.hasher,
         }
     }
 
@@ -92,7 +93,8 @@ impl SubstrateStateProof {
     }
 }
 
-/// The parachain and grandpa consensus client implementation for ISMP.
+/// The [`StateMachineClient`] implementation for substrate state machines. Assumes requests are
+/// stored in a child trie.
 pub struct SubstrateStateMachine<T>(PhantomData<T>);
 
 impl<T> Default for SubstrateStateMachine<T> {
@@ -296,7 +298,7 @@ where
     Ok(result)
 }
 
-/// Fetches the overlay(ismp) root and timestamp from the header digest
+/// Fetches the overlay (ismp) root and timestamp from the header digest
 pub fn fetch_overlay_root_and_timestamp(
     digest: &Digest,
     slot_duration: u64,

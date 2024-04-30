@@ -6,8 +6,8 @@ use ethers::types::H160;
 pub use evm_common::types::EvmStateProof;
 use futures::Stream;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
-pub use pallet_ismp::utils::{HashAlgorithm, SubstrateStateProof};
 use serde::{Deserialize, Serialize};
+pub use substrate_state_machine::{HashAlgorithm, SubstrateStateProof};
 use subxt::{tx::TxPayload, utils::H256, Config, Metadata};
 use subxt_utils::Hyperbridge;
 

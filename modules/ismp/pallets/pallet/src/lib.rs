@@ -16,7 +16,7 @@
 #![doc = include_str!("../README.md")]
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
-#![deny(missing_docs, unused_imports, unused_crate_dependencies, unused_extern_crates)]
+#![deny(missing_docs, unused_imports)]
 
 extern crate alloc;
 extern crate core;
@@ -31,17 +31,16 @@ pub mod mmr;
 mod utils;
 pub mod weights;
 
-use crate::host::Host;
+use crate::{host::Host, mmr::Leaf, weights::get_weight};
 use codec::Encode;
 use frame_support::{
     dispatch::{DispatchResult, DispatchResultWithPostInfo},
     traits::Get,
 };
-// Re-export pallet items so that they can be accessed from the crate namespace.
-use crate::{mmr::Leaf, weights::get_weight};
 use frame_system::pallet_prelude::BlockNumberFor;
 use ismp::host::IsmpHost;
 use mmr_primitives::{MerkleMountainRangeTree, NoOpTree};
+// Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
 #[cfg(feature = "unsigned")]
 use sp_runtime::transaction_validity::{
@@ -99,23 +98,27 @@ pub mod pallet {
         /// machine.
         type HostStateMachine: Get<StateMachine>;
 
-        /// The coprocessor state machine which proxies requests on our behalf. The coprocessor in
-        /// question performs costly consensus proof verification needed to verify
-        /// requests/responses that are addressed to this host state machine. Before then
-        /// providing cheap proofs of consensus and state needed to verify the legitimacy of
-        /// the requests
+        /// The coprocessor is a state machine which proxies requests on our behalf. The coprocessor
+        /// does this by performing the costly consensus and state proof verification needed to
+        /// verify requests/responses that are addressed to this host state machine.
+        ///
+        /// The ISMP framework permits the coprocessor to aggregate messages from potentially
+        /// multiple state machines. Finally producing much cheaper proofs of consensus and state
+        /// needed to verify the legitimacy of the messages.
         type Coprocessor: Get<Option<StateMachine>>;
 
-        /// Timestamp provider, for various checks within the ISMP subsystems. This should be the
-        /// pallet_timestamp::Pallet.
+        /// Timestamp interface [`UnixTime`] for querying the current timestamp. This is used within
+        /// the various ISMP sub-protocols.
         type TimestampProvider: UnixTime;
 
-        /// Router implementation for routing requests & responses to their appropriate modules.
+        /// [`IsmpRouter`] implementation for routing requests & responses to their appropriate
+        /// modules.
         type Router: IsmpRouter + Default;
 
-        /// Consenus clients which should be used to validate incoming requests or responses. There
-        /// should be at least one consensus client present to allow messages be processed by the
-        /// ISMP subsystems,
+        /// This should provide a list of [`ConsenusClient`](ismp::consensus::ConsensusClient)s
+        /// which should be used to validate incoming requests or responses. There should be
+        /// at least one consensus client present to allow messages be processed by the ISMP
+        /// subsystems.
         type ConsensusClients: ConsensusClientProvider;
 
         /// This implementation should provide the weight consumed by `IsmpModule` callbacks from

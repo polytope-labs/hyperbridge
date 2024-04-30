@@ -15,7 +15,7 @@
 
 #![deny(missing_docs)]
 
-//! RPC Implementation for the Interoperable State Machine Protocol
+//! RPC API Implementation for pallet-ismp
 
 use jsonrpsee::{
     core::{Error as RpcError, RpcResult as Result},
@@ -31,8 +31,7 @@ use ismp::{
 };
 use pallet_ismp::{
     child_trie::CHILD_TRIE_PREFIX,
-    mmr::{Leaf, ProofKeys},
-    utils::{LeafIndexAndPos, LeafIndexQuery},
+    mmr::{Leaf, LeafIndexQuery, ProofKeys},
 };
 use pallet_ismp_runtime_api::IsmpRuntimeApi;
 use sc_client_api::{Backend, BlockBackend, ChildInfo, ProofProvider, StateBackend};
@@ -43,7 +42,6 @@ use sp_core::{
     offchain::{storage::OffchainDb, OffchainDbExt, OffchainStorage},
     H256,
 };
-use sp_mmr_primitives::NodeIndex;
 use sp_runtime::traits::{Block as BlockT, Hash, Header};
 use sp_trie::LayoutV0;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
@@ -66,17 +64,6 @@ impl<Hash: std::fmt::Debug> Display for BlockNumberOrHash<Hash> {
             BlockNumberOrHash::Number(block_num) => write!(f, "{}", block_num),
         }
     }
-}
-
-/// An MMR proof data for a group of leaves.
-#[derive(codec::Encode, codec::Decode, Clone, PartialEq, Eq)]
-pub struct MmrProof<Hash> {
-    /// The positions and leaf indices the proof is for.
-    pub leaf_positions_and_indices: Vec<LeafIndexAndPos>,
-    /// Number of leaves in MMR, when the proof was generated.
-    pub leaf_count: NodeIndex,
-    /// Proof elements (hashes of siblings of inner nodes on the path to the leaf).
-    pub items: Vec<Hash>,
 }
 
 /// Contains a scale encoded Mmr Proof or Trie proof
@@ -243,15 +230,10 @@ where
             .ok()
             .flatten()
             .ok_or_else(|| runtime_error_into_rpc_error("invalid block height provided"))?;
-        let (_, proof): (Vec<Leaf>, pallet_ismp::utils::Proof<Block::Hash>) = api
+        let (_, proof): (Vec<Leaf>, pallet_ismp::mmr::Proof<Block::Hash>) = api
             .generate_proof(at, keys)
             .map_err(|_| runtime_error_into_rpc_error("Error calling runtime api"))?
             .map_err(|_| runtime_error_into_rpc_error("Error generating mmr proof"))?;
-        let proof = MmrProof {
-            leaf_positions_and_indices: proof.leaf_positions,
-            leaf_count: proof.leaf_count,
-            items: proof.items,
-        };
         Ok(Proof { proof: proof.encode(), height })
     }
 

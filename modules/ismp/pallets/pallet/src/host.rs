@@ -101,7 +101,7 @@ impl<T: Config> IsmpHost for Host<T> {
     }
 
     fn timestamp(&self) -> Duration {
-        <T::TimeProvider as UnixTime>::now()
+        <T::TimestampProvider as UnixTime>::now()
     }
 
     fn is_state_machine_frozen(&self, machine: StateMachineId) -> Result<(), Error> {

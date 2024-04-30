@@ -1,8 +1,15 @@
 [package]
 name = "ismp-parachain"
-version = "0.1.0"
+version = "1.6.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/parachain/client"
+homepage = "https://docs.hyperbridge.netwoprk/integrations/polkadot-sdk"
+documentation = "https://docs.rs/ismp-parachain"
+description = "Parachain consensus client for pallet-ismp"
+keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
+readme = "./README.md"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -55,7 +62,6 @@ std = [
     "serde",
     "substrate-state-machine/std"
 ]
-
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",

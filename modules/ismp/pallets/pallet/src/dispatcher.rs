@@ -13,14 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Implementation for the ISMP Router
+//! Implementation for the low-level ISMP Dispatcher
+
 use crate::{child_trie::RequestReceipts, host::Host, primitives::LeafIndexAndPos, Pallet};
-use alloc::string::ToString;
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use frame_support::traits::UnixTime;
 use ismp::{
     error::Error as IsmpError,
+    events::Meta,
     host::IsmpHost,
     router::{DispatchRequest, Get, IsmpDispatcher, Post, PostResponse, Request, Response},
     util::hash_request,
@@ -93,7 +94,7 @@ where
                     timeout_timestamp: if dispatch_get.timeout_timestamp == 0 {
                         0
                     } else {
-                        <T::TimeProvider as UnixTime>::now().as_secs() +
+                        <T::TimestampProvider as UnixTime>::now().as_secs() +
                             dispatch_get.timeout_timestamp
                     },
                 };
@@ -109,7 +110,7 @@ where
                     timeout_timestamp: if dispatch_post.timeout_timestamp == 0 {
                         0
                     } else {
-                        <T::TimeProvider as UnixTime>::now().as_secs() +
+                        <T::TimestampProvider as UnixTime>::now().as_secs() +
                             dispatch_post.timeout_timestamp
                     },
                     data: dispatch_post.data,
@@ -131,7 +132,13 @@ where
     ) -> Result<(), IsmpError> {
         let req_commitment = hash_request::<Host<T>>(&response.request());
         if !RequestReceipts::<T>::contains_key(req_commitment) {
-            Err(IsmpError::ImplementationSpecific("Unknown request for response".to_string()))?
+            Err(IsmpError::UnknownRequest {
+                meta: Meta {
+                    source: response.request().source_chain(),
+                    dest: response.request().dest_chain(),
+                    nonce: response.request().nonce(),
+                },
+            })?
         }
 
         let response = Response::Post(response);

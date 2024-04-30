@@ -167,7 +167,7 @@ impl<H: traits::Hash, L: FullLeaf> DataOrHash<H, L> {
 }
 
 /// Converts a node's mmr position, to it's k-index. The k-index is the node's index within a layer
-/// of the subtree. Refer to https://research.polytope.technology/merkle-mountain-range-multi-proofs
+/// of the subtree. Refer to <https://research.polytope.technology/merkle-mountain-range-multi-proofs>
 pub fn mmr_position_to_k_index(mut leaves: Vec<u64>, mmr_size: u64) -> Vec<(u64, usize)> {
     let peaks = get_peaks(mmr_size);
     let mut leaves_with_k_indices = vec![];

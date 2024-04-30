@@ -1,9 +1,15 @@
 [package]
 name = "pallet-ismp"
-version = "0.1.0"
+version = "1.6.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/pallets/pallet"
+homepage = "https://docs.hyperbridge.netwoprk/integrations/polkadot-sdk"
+documentation = "https://docs.rs/pallet-ismp"
 description = "The substrate runtime implementation of the Interoperable State Machine Protocol"
+keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
+readme = "./README.md"
 
 [dependencies]
 # substrate
@@ -36,7 +42,7 @@ enum-as-inner = "=0.5.1"
 [dev-dependencies]
 env_logger = "0.10.0"
 pallet-timestamp = { workspace = true, features = ["default"] }
-ismp-testsuite = { path = "../testsuite" }
+ismp-testsuite = { path = "../../testsuite" }
 
 [features]
 default = ["std"]
@@ -61,21 +67,17 @@ std = [
     "pallet-mmr/std",
     "mmr-primitives/std"
 ]
-
 disable-panic-handler = ["sp-io/disable_panic_handler", "sp-io/disable_oom", "sp-io/disable_allocator"]
-
-
 testing = ["pallet-timestamp/std"]
-
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",
     "pallet-timestamp/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
     "frame-support/runtime-benchmarks"
 ]
-
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"sp-runtime/try-runtime",
 ]
+unsigned = []

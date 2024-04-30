@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![doc = include_str!("../README.md")]
+
 //! ISMP Parachain Consensus Client
 //!
 //! This allows parachains communicate over ISMP leveraging the relay chain as a consensus oracle.

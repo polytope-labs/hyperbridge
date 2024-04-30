@@ -13,7 +13,7 @@ codec = { package = "parity-scale-codec", version = "3.2.2", default-features = 
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 
 # polytope labs
-ismp = {path = "../../core", default-features = false }
+ismp = { workspace = true, default-features = false }
 
 # substrate
 frame-support = { workspace = true }
@@ -23,7 +23,7 @@ sp-runtime = { workspace = true }
 sp-core = { workspace = true }
 
 # local
-pallet-ismp = { path = "..", default-features = false }
+pallet-ismp = { workspace = true, default-features = false }
 
 [dev-dependencies]
 

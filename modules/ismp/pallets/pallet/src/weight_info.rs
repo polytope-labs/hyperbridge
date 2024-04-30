@@ -17,32 +17,16 @@
 //! This module provides a guide on how to provide static weights for consensus clients and module
 //! callbacks
 
-use crate::{primitives::ModuleId, Config};
 use alloc::boxed::Box;
+
 use frame_support::weights::Weight;
+
 use ismp::{
-    consensus::ConsensusClientId,
-    messaging::{ConsensusMessage, FraudProofMessage, Message, TimeoutMessage},
+    messaging::{Message, TimeoutMessage},
     router::{GetResponse, Post, Request, RequestResponse, Response, Timeout},
 };
 
-/// A trait that provides information about how consensus client execute in the runtime
-pub trait ConsensusClientWeight {
-    /// Returns the weight that would be used in processing this consensus message
-    fn verify_consensus(&self, msg: &ConsensusMessage) -> Weight;
-    /// Returns the weight that would be used in processing this fraud proof message
-    fn verify_fraud_proof(&self, msg: &FraudProofMessage) -> Weight;
-}
-
-impl ConsensusClientWeight for () {
-    fn verify_consensus(&self, _msg: &ConsensusMessage) -> Weight {
-        Weight::zero()
-    }
-
-    fn verify_fraud_proof(&self, _msg: &FraudProofMessage) -> Weight {
-        Weight::zero()
-    }
-}
+use crate::{primitives::ModuleId, Config};
 
 /// A trait that provides weight information about how module callbacks execute
 pub trait IsmpModuleWeight {
@@ -70,18 +54,11 @@ impl IsmpModuleWeight for () {
 
 /// Provides references to consensus and module weight providers
 pub trait WeightProvider {
-    /// Returns a reference to the weight provider for a consensus client
-    fn consensus_client(id: ConsensusClientId) -> Option<Box<dyn ConsensusClientWeight>>;
-
     /// Returns a reference to the weight provider for a module
     fn module_callback(dest_module: ModuleId) -> Option<Box<dyn IsmpModuleWeight>>;
 }
 
 impl WeightProvider for () {
-    fn consensus_client(_id: ConsensusClientId) -> Option<Box<dyn ConsensusClientWeight>> {
-        None
-    }
-
     fn module_callback(_dest_module: ModuleId) -> Option<Box<dyn IsmpModuleWeight>> {
         None
     }
@@ -90,12 +67,6 @@ impl WeightProvider for () {
 /// Returns the weight that would be consumed when executing a batch of messages
 pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
     messages.into_iter().fold(Weight::zero(), |acc, msg| match msg {
-        Message::Consensus(msg) => {
-            let consensus_handler =
-                <T as Config>::WeightProvider::consensus_client(msg.consensus_state_id)
-                    .unwrap_or(Box::new(()));
-            consensus_handler.verify_consensus(&msg)
-        },
         Message::Request(msg) => {
             let cb_weight = msg.requests.iter().fold(Weight::zero(), |acc, req| {
                 let dest_module = ModuleId::from_bytes(req.to.as_slice()).ok();
@@ -187,12 +158,6 @@ pub fn get_weight<T: Config>(messages: &[Message]) -> Weight {
                 acc + cb_weight
             },
         },
-
-        Message::FraudProof(msg) => {
-            let consensus_handler =
-                <T as Config>::WeightProvider::consensus_client(msg.consensus_state_id)
-                    .unwrap_or(Box::new(()));
-            consensus_handler.verify_fraud_proof(&msg)
-        },
+        Message::Consensus(_) | Message::FraudProof(_) => acc,
     })
 }

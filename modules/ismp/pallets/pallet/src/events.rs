@@ -99,6 +99,41 @@ pub fn to_core_protocol_event<T: Config>(event: PalletEvent<T>) -> Option<Event>
     }
 }
 
+impl<T: Config> From<ismp::events::Event> for PalletEvent<T> {
+    fn from(event: ismp::events::Event) -> Self {
+        match event {
+            ismp::events::Event::PostRequestHandled(handled) =>
+                PalletEvent::<T>::PostRequestHandled(handled),
+            ismp::events::Event::PostResponseHandled(handled) =>
+                PalletEvent::<T>::PostResponseHandled(handled),
+            ismp::events::Event::PostRequestTimeoutHandled(handled) =>
+                PalletEvent::<T>::PostRequestTimeoutHandled(handled),
+            ismp::events::Event::PostResponseTimeoutHandled(handled) =>
+                PalletEvent::<T>::PostResponseTimeoutHandled(handled),
+            ismp::events::Event::GetRequestHandled(handled) =>
+                PalletEvent::<T>::GetRequestHandled(handled),
+            ismp::events::Event::GetRequestTimeoutHandled(handled) =>
+                PalletEvent::<T>::GetRequestTimeoutHandled(handled),
+            ismp::events::Event::StateMachineUpdated(ev) => PalletEvent::<T>::StateMachineUpdated {
+                state_machine_id: ev.state_machine_id,
+                latest_height: ev.latest_height,
+            },
+            ismp::events::Event::StateCommitmentVetoed(ev) =>
+                PalletEvent::<T>::StateCommitmentVetoed {
+                    height: ev.height,
+                    fisherman: BoundedVec::truncate_from(ev.fisherman),
+                },
+            // These events are only deposited when messages are dispatched, they should never
+            // be deposited when a message is handled
+            ismp::events::Event::PostRequest(_) |
+            ismp::events::Event::PostResponse(_) |
+            ismp::events::Event::GetRequest(_) => {
+                unimplemented!("Event should not originate from handler")
+            },
+        }
+    }
+}
+
 /// Deposit some ismp events
 /// We only want to deposit Request Handled and time out events at this point
 pub fn deposit_ismp_events<T: Config>(

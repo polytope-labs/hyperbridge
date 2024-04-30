@@ -79,7 +79,7 @@ parachains-common = { workspace = true  }
 
 # ismp modules
 ismp = { workspace = true  }
-pallet-ismp = { workspace = true  }
+pallet-ismp = { workspace = true, features = ["unsigned"]  }
 pallet-ismp-demo = { workspace = true  }
 pallet-ismp-runtime-api = { workspace = true  }
 ismp-sync-committee = { workspace = true  }

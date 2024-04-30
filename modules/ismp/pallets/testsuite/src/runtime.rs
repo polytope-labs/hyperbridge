@@ -174,7 +174,7 @@ impl pallet_ismp::Config for Test {
     type AdminOrigin = EnsureRoot<AccountId32>;
     type HostStateMachine = StateMachineProvider;
     type Coprocessor = Coprocessor;
-    type TimeProvider = Timestamp;
+    type TimestampProvider = Timestamp;
     type Router = ModuleRouter;
     type ConsensusClients = (
         MockConsensusClient,

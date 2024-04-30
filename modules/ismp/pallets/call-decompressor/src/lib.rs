@@ -139,7 +139,7 @@ pub mod pallet {
                 IsSubType::<pallet_ismp::Call<T>>::is_sub_type(&runtime_call).cloned()
             {
                 let _: Result<(), TransactionValidityError> = match call {
-                    pallet_ismp::Call::handle { messages: _ } => Ok(()),
+                    pallet_ismp::Call::handle_unsigned { messages: _ } => Ok(()),
                     _ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
                 };
 
@@ -211,8 +211,8 @@ where
 
         if let Some(call) = IsSubType::<pallet_ismp::Call<T>>::is_sub_type(&runtime_call).cloned() {
             match call {
-                pallet_ismp::Call::handle { messages } =>
-                    <pallet_ismp::Pallet<T>>::handle(frame_system::RawOrigin::None.into(), messages)
+                pallet_ismp::Call::handle_unsigned { messages } =>
+                    <pallet_ismp::Pallet<T>>::handle_messages(messages)
                         .map_err(|_| Error::<T>::ErrorExecutingCall)?,
                 _ => Err(Error::<T>::CallNotSupported)?,
             };

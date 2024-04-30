@@ -70,7 +70,7 @@ impl pallet_ismp::Config for Runtime {
     type AdminOrigin = EnsureRoot<AccountId>;
     type HostStateMachine = HostStateMachine;
     type Coprocessor = Coprocessor;
-    type TimeProvider = Timestamp;
+    type TimestampProvider = Timestamp;
     type Router = Router;
 
     type ConsensusClients = (

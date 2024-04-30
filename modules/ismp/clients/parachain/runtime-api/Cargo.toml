@@ -1,11 +1,15 @@
 [package]
 name = "ismp-parachain-runtime-api"
-version = "0.1.0"
+version = "1.6.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
-
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/parachain/runtime-api"
+homepage = "https://docs.hyperbridge.netwoprk/integrations/polkadot-sdk"
+documentation = "https://docs.rs/ismp-parachain"
+description = "Substrate runtime API for the ISMP Parachain consensus client"
+keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
+readme = "./README.md"
 
 [dependencies]
 sp-api = { workspace = true, default-features = false }

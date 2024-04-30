@@ -1,14 +1,12 @@
 use crate::{
     child_trie::{RequestCommitments, ResponseCommitments},
     dispatcher::{FeeMetadata, LeafMetadata},
-    errors::HandlingError,
-    events::deposit_ismp_events,
     host::Host,
     mmr::Leaf,
     primitives::{LeafIndexAndPos, Proof},
     weight_info::get_weight,
-    ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStates, Event,
-    LatestStateMachineHeight, Pallet, ProofKeys, Responded, WeightConsumed,
+    ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStates, Error, Event,
+    LatestStateMachineHeight, Pallet, ProofKeys, Responded,
 };
 use alloc::{string::ToString, vec, vec::Vec};
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
@@ -67,39 +65,42 @@ impl<T: Config> Pallet<T> {
     /// Provides a way to handle messages.
     pub fn handle_messages(messages: Vec<Message>) -> DispatchResultWithPostInfo {
         // Define a host
-        WeightConsumed::<T>::kill();
         let host = Host::<T>::default();
-        let mut errors: Vec<HandlingError> = vec![];
-        let total_weight = get_weight::<T>(&messages);
-        for message in messages {
-            match handle_incoming_message(&host, message.clone()) {
-                Ok(MessageResult::ConsensusMessage(res)) => deposit_ismp_events::<T>(
-                    res.into_iter().map(|ev| Ok(ev)).collect(),
-                    &mut errors,
-                ),
-                Ok(MessageResult::Response(res)) => deposit_ismp_events::<T>(res, &mut errors),
-                Ok(MessageResult::Request(res)) => deposit_ismp_events::<T>(res, &mut errors),
-                Ok(MessageResult::Timeout(res)) => deposit_ismp_events::<T>(res, &mut errors),
-                Ok(MessageResult::FrozenClient(id)) =>
-                    Self::deposit_event(Event::<T>::ConsensusClientFrozen {
-                        consensus_client_id: id,
-                    }),
-                Err(err) => {
-                    errors.push(err.into());
-                },
-            }
-        }
+        let events = messages
+            .iter()
+            .map(|msg| handle_incoming_message(&host, msg.clone()))
+            .collect::<Result<Vec<_>, _>>()
+            .and_then(|result| {
+                result
+                    .into_iter()
+                    // check that requests will be successfully dispatched
+                    // so we can not be spammed with failing txs
+                    .map(|result| match result {
+                        MessageResult::Request(results) |
+                        MessageResult::Response(results) |
+                        MessageResult::Timeout(results) => results,
+                        MessageResult::ConsensusMessage(events) =>
+                            events.into_iter().map(Ok).collect(),
+                        MessageResult::FrozenClient(_) => {
+                            vec![]
+                        },
+                    })
+                    .flatten()
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .map_err(|err| {
+                debug!(target: "ismp", "Handling Error {:?}", err);
+                Pallet::<T>::deposit_event(Event::<T>::Errors { errors: vec![err.into()] });
+                Error::<T>::InvalidMessage
+            })?;
 
-        if !errors.is_empty() {
-            debug!(target: "ismp", "Handling Errors {:?}", errors);
-            Self::deposit_event(Event::<T>::Errors { errors })
+        for event in events {
+            // deposit any relevant events
+            Pallet::<T>::deposit_event(event.into())
         }
 
         Ok(PostDispatchInfo {
-            actual_weight: {
-                let acc_weight = WeightConsumed::<T>::get();
-                Some((total_weight - acc_weight.weight_limit) + acc_weight.weight_used)
-            },
+            actual_weight: Some(get_weight::<T>(&messages)),
             pays_fee: Pays::Yes,
         })
     }

@@ -14,6 +14,7 @@
 // limitations under the License.
 
 #![deny(missing_docs)]
+#![doc = include_str!("../README.md")]
 
 //! ISMP Parachain Consensus Inherent Provider
 //!

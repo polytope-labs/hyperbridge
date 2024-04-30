@@ -151,9 +151,9 @@ where
         };
 
         let fork_identifier = match self.client.runtime_api().fork_identifier(header.hash) {
-            Ok(Ok(prefix)) => prefix,
+            Ok(Ok(fork_identifier)) => fork_identifier,
             _ => {
-                debug!(target: LOG_TARGET, "Failed to offchain prefix at {:?}", header.hash);
+                debug!(target: LOG_TARGET, "Failed to fetch  fork_identifier at {:?}", header.hash);
                 return
             },
         };
@@ -170,7 +170,7 @@ where
         for pos in stale_nodes {
             let temp_key = self.node_temp_offchain_key(pos, fork_identifier);
             self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
-            debug!(target: LOG_TARGET, "Pruned elem at pos {} prefix {:?} header_hash {:?}", pos, fork_identifier, block_hash);
+            debug!(target: LOG_TARGET, "Pruned elem at pos {} fork_identifier {:?} header_hash {:?}", pos, fork_identifier, block_hash);
         }
     }
 
@@ -205,9 +205,9 @@ where
         };
 
         let fork_identifier = match self.client.runtime_api().fork_identifier(header.hash) {
-            Ok(Ok(prefix)) => prefix,
+            Ok(Ok(fork_identifier)) => fork_identifier,
             _ => {
-                debug!(target: LOG_TARGET, "Failed to offchain prefix at {:?}", header.hash);
+                debug!(target: LOG_TARGET, "Failed to fetch  fork_identifier at {:?}", header.hash);
                 return
             },
         };
@@ -231,7 +231,7 @@ where
                 self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
                 debug!(
                     target: LOG_TARGET,
-                    "Moved elem at pos {}, prefix {:?} header_hash {:?} to canon key {:?}",
+                    "Moved elem at pos {}, fork_identifier {:?} header_hash {:?} to canon key {:?}",
                     pos,
                     fork_identifier,
                     block_hash,
@@ -240,7 +240,7 @@ where
             } else {
                 debug!(
                     target: LOG_TARGET,
-                    "Couldn't canonicalize elem at pos {}, prefix {:?} header_hash {:?}", pos, fork_identifier, block_hash
+                    "Couldn't canonicalize elem at pos {}, fork_identifier {:?} header_hash {:?}", pos, fork_identifier, block_hash
                 );
             }
         }

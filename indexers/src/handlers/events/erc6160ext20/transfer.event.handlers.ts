@@ -12,7 +12,7 @@ import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
  */
 export async function handleTransferEvent(event: TransferLog): Promise<void> {
   assert(event.args, "No handleTransferEvent args");
-  logger.info("Handling Transfer event");
+  logger.info("Handling Transfer event " + event.blockNumber);
 
   const { args, transactionHash, transaction } = event;
   const { from, to, value } = args;
@@ -32,7 +32,10 @@ export async function handleTransferEvent(event: TransferLog): Promise<void> {
     if (HOST_ADDRESSES.includes(from)) {
       Promise.all([
         await RelayerService.updateFeesEarned(transfer),
-        await HyperBridgeService.updateFeesPayedOut(transfer, chain),
+        await HyperBridgeService.handleTransferOutOfHostAccounts(
+          transfer,
+          chain,
+        ),
       ]);
     }
 

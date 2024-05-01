@@ -13,7 +13,7 @@ export async function handlePostResponseHandledEvent(
   event: PostResponseHandledLog,
 ): Promise<void> {
   assert(event.args, "No handlePostResponseHandledEvent args");
-  logger.info("Handling PostResponseHandled event");
+  logger.info("Handling PostResponseHandled event: " + event.blockNumber);
 
   const {
     args,

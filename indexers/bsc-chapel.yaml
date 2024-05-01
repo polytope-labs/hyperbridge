@@ -21,7 +21,7 @@ dataSources:
     startBlock: 38301829
     options:
       abi: ethereumHost
-      address: "0x4e5bbdd9fE89F54157DDb64b21eD4D1CA1CDf9a6"
+      address: "0x338B01874A01D7593F85e2e3c1681A46f2f5Df4a"
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json

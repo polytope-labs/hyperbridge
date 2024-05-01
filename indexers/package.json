@@ -22,14 +22,13 @@
   "license": "MIT",
   "dependencies": {
     "@ethersproject/shims": "^5.7.0",
+    "@polkadot/api": "^10.13.1",
     "@subql/common": "latest",
     "@subql/types-ethereum": "latest",
     "@subql/validator": "latest",
-    "assert": "^2.0.0",
-    "node-fetch": "^3.3.2"
+    "assert": "^2.0.0"
   },
   "devDependencies": {
-    "@polkadot/api": "^10",
     "@subql/cli": "latest",
     "@subql/node": "latest",
     "@subql/node-ethereum": "latest",

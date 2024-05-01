@@ -24,7 +24,7 @@ pub use pallet::*;
 pub mod pallet {
     use super::*;
     use alloc::vec;
-    use frame_support::{pallet_prelude::*};
+    use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use ismp::{
         consensus::{StateCommitment, StateMachineHeight},

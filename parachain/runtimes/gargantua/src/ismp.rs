@@ -93,7 +93,9 @@ impl pallet_ismp_relayer::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
 }
 
-impl pallet_ismp_host_executive::Config for Runtime { type Dispatcher = Host<Runtime>; }
+impl pallet_ismp_host_executive::Config for Runtime {
+    type Dispatcher = Host<Runtime>;
+}
 
 impl pallet_call_decompressor::Config for Runtime {
     type MaxCallSize = ConstU32<2>;
@@ -163,8 +165,7 @@ impl pallet_assets::Config for Runtime {
 impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
         if request.dest != HostStateMachine::get() {
-            let meta =
-                FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() };
+            let meta = FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() };
             return Ismp::dispatch_request(Request::Post(request), meta);
         }
 
@@ -184,8 +185,7 @@ impl IsmpModule for ProxyModule {
 
     fn on_response(&self, response: Response) -> Result<(), Error> {
         if response.dest_chain() != HostStateMachine::get() {
-            let meta =
-                FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() };
+            let meta = FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() };
             return Ismp::dispatch_response(response, meta);
         }
 

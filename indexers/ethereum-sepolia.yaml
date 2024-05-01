@@ -17,14 +17,13 @@ network:
     - "https://ethereum-sepolia-rpc.publicnode.com"
     - "https://sepolia.drpc.org"
     - "https://rpc2.sepolia.org"
-  dictionary: https://api.subquery.network/sq/subquery/dictionary-ethereum
 dataSources:
   # EthereumHost contract
   - kind: ethereum/Runtime
-    startBlock: 5419571
+    startBlock: 5802180
     options:
       abi: ethereumHost
-      address: "0xe4226c474A6f4BF285eA80c2f01c0942B04323e5"
+      address: "0xcD90465E75479a15f85faCB17B0342e609ef3f5f"
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -35,7 +34,7 @@ dataSources:
           handler: handlePostRequestEvent
           filter:
             topics:
-              - "PostRequestEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256,uint256)"
+              - PostRequestEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256,uint256)
         - kind: ethereum/LogHandler
           handler: handlePostRequestHandledEvent
           filter:
@@ -74,7 +73,7 @@ dataSources:
 
   # Protocol Fee Token
   - kind: ethereum/Runtime
-    startBlock: 5419390
+    startBlock: 5802180
     options:
       abi: erc6160ext20
       address: "0x6df8dE86458D15a3Be3A6B907e6aE6B7af352452"
@@ -91,21 +90,21 @@ dataSources:
               - "Transfer(address indexed from, address indexed to, uint256 amount)"
 
   # HandlerV1 contract
-  - kind: ethereum/Runtime
-    startBlock: 5419390
-    options:
-      abi: handlerV1
-      address: "0xF763D969aDC8281b1A8459Bde4CE86BA811b0Aaf"
-    assets:
-      handlerV1:
-        file: ./abis/HandlerV1.abi.json
-    mapping:
-      file: ./dist/index.js
-      handlers:
-        - kind: ethereum/LogHandler
-          handler: handleStateMachineUpdatedEvent
-          filter:
-            topics:
-              - "StateMachineUpdated(uint256,uint256)"
+  # - kind: ethereum/Runtime
+  #   startBlock: 5419390
+  #   options:
+  #     abi: handlerV1
+  #     address: "0xF763D969aDC8281b1A8459Bde4CE86BA811b0Aaf"
+  #   assets:
+  #     handlerV1:
+  #       file: ./abis/HandlerV1.abi.json
+  #   mapping:
+  #     file: ./dist/index.js
+  #     handlers:
+  #       - kind: ethereum/LogHandler
+  #         handler: handleStateMachineUpdatedEvent
+  #         filter:
+  #           topics:
+  #             - "StateMachineUpdated(uint256,uint256)"
 
 repository: "https://github.com/polytope-labs/hyperbridge"

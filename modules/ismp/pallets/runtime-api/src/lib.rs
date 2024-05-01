@@ -13,8 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! pallet-ismp runtime APIs
-
+#![doc = include_str!("../README.md")]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::too_many_arguments)]
 #![deny(missing_docs)]
@@ -24,6 +23,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
+    host::StateMachine,
     router::{Request, Response},
 };
 use pallet_ismp::mmr::{Leaf, Proof, ProofKeys};
@@ -33,6 +33,9 @@ use sp_mmr_primitives::Error;
 sp_api::decl_runtime_apis! {
     /// Required runtime APIs needed for client subsystems like the RPC
     pub trait IsmpRuntimeApi<Hash: codec::Codec> {
+        /// Should return the host's state machine identifier
+        fn host_state_machine() -> StateMachine;
+
         /// Generate a proof for the provided leaf indices
         fn generate_proof(
             commitments: ProofKeys
@@ -56,10 +59,10 @@ sp_api::decl_runtime_apis! {
         /// Return the latest height of the state machine
         fn latest_state_machine_height(id: StateMachineId) -> Option<u64>;
 
-        /// Get actual requests
-        fn get_requests(leaf_positions: Vec<H256>) -> Vec<Request>;
+        /// Fetch the requests for the given commitments.
+        fn requests(request_commitments: Vec<H256>) -> Vec<Request>;
 
-        /// Get actual responses
-        fn get_responses(leaf_positions: Vec<H256>) -> Vec<Response>;
+        /// Fetch the responses for the given commitments.
+        fn responses(response_commitments: Vec<H256>) -> Vec<Response>;
     }
 }

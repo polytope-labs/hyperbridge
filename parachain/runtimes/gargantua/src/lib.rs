@@ -28,10 +28,7 @@ mod weights;
 pub mod xcm;
 
 use alloc::vec::Vec;
-use cumulus_pallet_parachain_system::{
-    RelayChainState, RelayNumberMonotonicallyIncreases, RelaychainDataProvider,
-    RelaychainStateProvider,
-};
+use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::TransformOrigin;
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
@@ -70,7 +67,7 @@ use frame_support::{
 };
 use frame_system::{
     limits::{BlockLength, BlockWeights},
-    EnsureRoot, Phase,
+    EnsureRoot,
 };
 
 use pallet_ismp::mmr::Proof;
@@ -88,10 +85,12 @@ use polkadot_runtime_common::{BlockHashCount, SlowAdjustingFeeUpdate};
 use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 
 // XCM Imports
+use ::ismp::host::StateMachine;
 use ::staging_xcm::latest::prelude::BodyId;
 use cumulus_primitives_core::ParaId;
 use frame_support::{derive_impl, traits::ConstBool};
 use pallet_ismp::mmr::{Leaf, ProofKeys};
+use sp_core::Get;
 
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
@@ -771,8 +770,12 @@ impl_runtime_apis! {
     }
 
     impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
+        fn host_state_machine() -> StateMachine {
+            <Runtime as pallet_ismp::Config>::HostStateMachine::get()
+        }
+
         fn challenge_period(consensus_state_id: [u8; 4]) -> Option<u64> {
-            Ismp::get_challenge_period(consensus_state_id)
+            Ismp::challenge_period(consensus_state_id)
         }
 
         /// Generate a proof for the provided leaf indices
@@ -782,40 +785,14 @@ impl_runtime_apis! {
             Ismp::generate_proof(keys)
         }
 
-        /// Fetch all ISMP events
+        /// Fetch all ISMP events in the block, should only be called from runtime-api.
         fn block_events() -> Vec<pallet_ismp::events::Event> {
-            let raw_events = frame_system::Pallet::<Self>::read_events_no_consensus().into_iter();
-            raw_events.filter_map(|e| {
-                let frame_system::EventRecord{ event, ..} = *e;
-
-                match event {
-                    RuntimeEvent::Ismp(event) => {
-                        pallet_ismp::events::to_core_protocol_event(event)
-                    },
-                    _ => None
-                }
-            }).collect()
+            Ismp::block_events()
         }
 
-        /// Fetch all ISMP events and their extrinsic metadata
+        /// Fetch all ISMP events and their extrinsic metadata, should only be called from runtime-api.
         fn block_events_with_metadata() -> Vec<(pallet_ismp::events::Event, u32)> {
-            let raw_events = frame_system::Pallet::<Self>::read_events_no_consensus().into_iter();
-            raw_events.filter_map(|e| {
-                let frame_system::EventRecord { event, phase, ..} = *e;
-                let Phase::ApplyExtrinsic(index) = phase else {
-                    None?
-                };
-
-                match event {
-                    RuntimeEvent::Ismp(event) => {
-                        pallet_ismp::events::to_core_protocol_event(event)
-                            .map(|event| {
-                            (event, index)
-                        })
-                    },
-                    _ => None
-                }
-            }).collect()
+            Ismp::block_events_with_metadata()
         }
 
         /// Return the scale encoded consensus state
@@ -830,18 +807,18 @@ impl_runtime_apis! {
 
         /// Return the latest height of the state machine
         fn latest_state_machine_height(id: StateMachineId) -> Option<u64> {
-            Ismp::get_latest_state_machine_height(id)
+            Ismp::latest_state_machine_height(id)
         }
 
 
         /// Get actual requests
-        fn get_requests(commitments: Vec<H256>) -> Vec<Request> {
-            Ismp::get_requests(commitments)
+        fn requests(commitments: Vec<H256>) -> Vec<Request> {
+            Ismp::requests(commitments)
         }
 
         /// Get actual requests
-        fn get_responses(commitments: Vec<H256>) -> Vec<Response> {
-            Ismp::get_responses(commitments)
+        fn responses(commitments: Vec<H256>) -> Vec<Response> {
+            Ismp::responses(commitments)
         }
     }
 
@@ -851,7 +828,7 @@ impl_runtime_apis! {
         }
 
         fn current_relay_chain_state() -> RelayChainState {
-            RelaychainDataProvider::<Runtime>::current_relay_chain_state()
+            IsmpParachain::current_relay_chain_state()
         }
     }
 

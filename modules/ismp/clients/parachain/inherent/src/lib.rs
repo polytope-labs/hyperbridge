@@ -42,8 +42,8 @@ impl ConsensusInherentProvider {
     /// Create the [`ConsensusMessage`] for the latest height. Will be [`None`] if no para ids have
     /// been configured.
     pub async fn create<C, B>(
-        client: Arc<C>,
         parent: B::Hash,
+        client: Arc<C>,
         relay_chain_interface: Arc<dyn RelayChainInterface>,
     ) -> Result<ConsensusInherentProvider, anyhow::Error>
     where
@@ -86,19 +86,18 @@ impl ConsensusInherentProvider {
                 continue;
             };
 
-            let mut state_machine_id = StateMachineId {
-                consensus_state_id: PARACHAIN_CONSENSUS_ID,
-                state_id: StateMachine::Kusama(id),
+            let state_id = match client.runtime_api().host_state_machine(parent)? {
+                StateMachine::Polkadot(_) => StateMachine::Polkadot(id),
+                StateMachine::Kusama(_) => StateMachine::Kusama(id),
+                id => Err(anyhow!("Unsupported state machine: {id:?}"))?,
             };
-            // first try kusama
-            let height_kusama =
-                client.runtime_api().latest_state_machine_height(parent, state_machine_id)?;
-            // try polkadot
-            state_machine_id.state_id = StateMachine::Polkadot(id);
-            let height_polkadot =
-                client.runtime_api().latest_state_machine_height(parent, state_machine_id)?;
-
-            let Some(height) = height_kusama.or(height_polkadot) else { continue };
+            let Some(height) = client.runtime_api().latest_state_machine_height(
+                parent,
+                StateMachineId { consensus_state_id: PARACHAIN_CONSENSUS_ID, state_id },
+            )?
+            else {
+                continue
+            };
 
             if height >= header.number as u64 {
                 continue

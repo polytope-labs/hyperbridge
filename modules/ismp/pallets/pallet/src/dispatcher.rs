@@ -15,8 +15,13 @@
 
 //! Implementation for the low-level ISMP Dispatcher
 
-use crate::{child_trie::RequestReceipts, host::Host, mmr::LeafIndexAndPos, Pallet};
-use alloc::format;
+use crate::{
+    child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments},
+    host::Host,
+    mmr::LeafIndexAndPos,
+    Config, Pallet,
+};
+use alloc::{boxed::Box, format, vec::Vec};
 use frame_support::{
     traits::{Currency, ExistenceRequirement, UnixTime},
     PalletId,
@@ -27,16 +32,18 @@ use ismp::{
     error::Error as IsmpError,
     events::Meta,
     host::IsmpHost,
-    messaging::hash_request,
-    router::{Get, Post, PostResponse, Request, Response},
+    messaging::{hash_post_response, hash_request},
+    module::IsmpModule,
+    router::{Get, IsmpRouter, Post, PostResponse, Request, Response, Timeout},
 };
 use sp_runtime::traits::{AccountIdConversion, Zero};
+use std::marker::PhantomData;
 
 /// Metadata about an outgoing request
 #[derive(codec::Encode, codec::Decode, scale_info::TypeInfo, Clone)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 #[scale_info(skip_type_params(T))]
-pub struct RequestMetadata<T: crate::Config> {
+pub struct RequestMetadata<T: Config> {
     /// Information about where it's stored in the offchain db
     pub mmr: LeafIndexAndPos,
     /// Other metadata about the request
@@ -54,9 +61,14 @@ pub type FeeMetadata<T> = dispatcher::FeeMetadata<
 /// [`PalletId`] for collecting relayer fees
 pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
 
+/// The low-level dispatcher. This can be used to dispatch requests while locking up a fee to be
+/// paid to relayers for request delivery and execution.
+///
+/// If the dispatched request times-out, then pallet-ismp's inner subsystems will refund the
+/// fees to the sponsor of the request.
 impl<T> IsmpDispatcher for Host<T>
 where
-    T: crate::Config,
+    T: Config,
 {
     type Account = T::AccountId;
     type Balance = T::Balance;
@@ -159,5 +171,91 @@ where
         Pallet::<T>::dispatch_response(response, fee)?;
 
         Ok(())
+    }
+}
+
+/// An [`IsmpRouter`] implementation that delegates to an inner module which always refunds
+/// relayer fees on_timeout.
+pub(crate) struct RefundingRouter<T> {
+    /// Inner [`IsmpModule`]
+    inner: Box<dyn IsmpRouter>,
+    /// Phantom type for pinning generics
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Config> RefundingRouter<T> {
+    /// Create an instance of a refunding router
+    pub fn new(inner: Box<dyn IsmpRouter>) -> Self {
+        Self { inner, _phantom: PhantomData }
+    }
+}
+
+impl<T: Config> IsmpRouter for RefundingRouter<T> {
+    fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, IsmpError> {
+        let module = self.inner.module_for_id(id)?;
+
+        Ok(Box::new(RefundingModule::<T>::new(module)))
+    }
+}
+
+/// An implementation of [`IsmpModule`] that wraps an inner implementation and refunds any relayer
+/// fees on_timeout. This allows the ISMP framework refund the relayer fees when requests time-out.
+pub(crate) struct RefundingModule<T> {
+    /// Inner [`IsmpModule`]
+    inner: Box<dyn IsmpModule>,
+    /// Phantom type for pinning generics
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Config> RefundingModule<T> {
+    /// Create an instance of a refunding module
+    pub fn new(inner: Box<dyn IsmpModule>) -> Self {
+        Self { inner, _phantom: PhantomData }
+    }
+}
+
+impl<T: Config> IsmpModule for RefundingModule<T> {
+    fn on_accept(&self, request: Post) -> Result<(), IsmpError> {
+        self.inner.on_accept(request)
+    }
+
+    fn on_response(&self, response: Response) -> Result<(), IsmpError> {
+        self.inner.on_response(response)
+    }
+
+    fn on_timeout(&self, timeout: Timeout) -> Result<(), IsmpError> {
+        let result = self.inner.on_timeout(timeout.clone());
+
+        // only refund if module returns Ok(())
+        if result.is_ok() {
+            let fee_metadata = match timeout {
+                Timeout::Request(request) => {
+                    let commitment = hash_request::<Host<T>>(&request);
+                    RequestCommitments::<T>::get(commitment).map(|meta| meta.fee)
+                },
+                Timeout::Response(response) => {
+                    let commitment = hash_post_response::<Host<T>>(&response);
+                    ResponseCommitments::<T>::get(commitment).map(|meta| meta.fee)
+                },
+            };
+
+            if let Some(fee) = fee_metadata {
+                if fee.fee > Zero::zero() {
+                    T::Currency::transfer(
+                        &RELAYER_FEE_ACCOUNT.into_account_truncating(),
+                        &fee.payer,
+                        fee.fee,
+                        ExistenceRequirement::AllowDeath,
+                    )
+                    .map_err(|err| {
+                        IsmpError::ImplementationSpecific(format!(
+                            "Error withdrawing request fees: {err:?}"
+                        ))
+                    })?;
+                }
+            }
+        }
+
+        result
     }
 }

@@ -18,16 +18,16 @@
 use crate::{
     child_trie::{RequestCommitments, ResponseCommitments},
     dispatcher::{FeeMetadata, RequestMetadata},
+    events,
     host::Host,
     mmr::{Leaf, LeafIndexAndPos, Proof, ProofKeys},
     weights::get_weight,
-    ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStates, Error, Event,
-    LatestStateMachineHeight, Pallet, Responded,
+    Config, Error, Event, Pallet, Responded,
 };
 use alloc::{string::ToString, vec, vec::Vec};
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
+use frame_system::Phase;
 use ismp::{
-    consensus::{ConsensusClientId, StateMachineId},
     handlers::{handle_incoming_message, MessageResult},
     messaging::{hash_request, hash_response, Message},
     router::{Request, Response},
@@ -41,6 +41,7 @@ impl<T: Config> Pallet<T> {
     pub fn deposit_pallet_event<E: Into<Event<T>>>(event: E) {
         Self::deposit_event(event.into())
     }
+
     /// Generate an MMR proof for the given `leaf_indices`.
     /// Note this method can only be used from an off-chain context
     /// (Offchain Worker or Runtime API call), since it requires
@@ -195,46 +196,57 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Gets the request from the offchain storage
-    pub fn get_request(commitment: H256) -> Option<Request> {
+    pub fn request(commitment: H256) -> Option<Request> {
         let pos = RequestCommitments::<T>::get(commitment)?.mmr.pos;
         let Ok(Some(Leaf::Request(req))) = T::Mmr::get_leaf(pos) else { None? };
         Some(req)
     }
 
     /// Gets the response from the offchain storage
-    pub fn get_response(commitment: H256) -> Option<Response> {
+    pub fn response(commitment: H256) -> Option<Response> {
         let pos = ResponseCommitments::<T>::get(commitment)?.mmr.pos;
         let Ok(Some(Leaf::Response(res))) = T::Mmr::get_leaf(pos) else { None? };
         Some(res)
     }
 
-    /// Return the scale encoded consensus state
-    pub fn get_consensus_state(id: ConsensusClientId) -> Option<Vec<u8>> {
-        ConsensusStates::<T>::get(id)
+    /// Fetch all ISMP handler events in the block, should only be called from runtime-api.
+    pub fn block_events() -> Vec<events::Event>
+    where
+        <T as frame_system::Config>::RuntimeEvent: TryInto<Event<T>>,
+    {
+        frame_system::Pallet::<T>::read_events_no_consensus()
+            .filter_map(|e| {
+                let frame_system::EventRecord { event, .. } = *e;
+
+                events::to_handler_events::<T>(event.try_into().ok()?)
+            })
+            .collect()
     }
 
-    /// Return the timestamp this client was last updated in seconds
-    pub fn get_consensus_update_time(id: ConsensusClientId) -> Option<u64> {
-        ConsensusClientUpdateTime::<T>::get(id)
+    /// Fetch all ISMP handler events and their extrinsic metadata, should only be called from
+    /// runtime-api.
+    pub fn block_events_with_metadata() -> Vec<(events::Event, u32)>
+    where
+        <T as frame_system::Config>::RuntimeEvent: TryInto<Event<T>>,
+    {
+        frame_system::Pallet::<T>::read_events_no_consensus()
+            .filter_map(|e| {
+                let frame_system::EventRecord { event, phase, .. } = *e;
+                let Phase::ApplyExtrinsic(index) = phase else { None? };
+                let event = events::to_handler_events::<T>(event.try_into().ok()?)?;
+
+                Some((event, index))
+            })
+            .collect()
     }
 
-    /// Return the challenge period
-    pub fn get_challenge_period(id: ConsensusClientId) -> Option<u64> {
-        ChallengePeriod::<T>::get(id)
+    /// Fetches the full requests from the offchain for the given commitments.
+    pub fn requests(commitments: Vec<H256>) -> Vec<Request> {
+        commitments.into_iter().filter_map(|cm| Self::request(cm)).collect()
     }
 
-    /// Return the latest height of the state machine
-    pub fn get_latest_state_machine_height(id: StateMachineId) -> Option<u64> {
-        Some(LatestStateMachineHeight::<T>::get(id))
-    }
-
-    /// Get actual requests
-    pub fn get_requests(commitments: Vec<H256>) -> Vec<Request> {
-        commitments.into_iter().filter_map(|cm| Self::get_request(cm)).collect()
-    }
-
-    /// Get actual requests
-    pub fn get_responses(commitments: Vec<H256>) -> Vec<Response> {
-        commitments.into_iter().filter_map(|cm| Self::get_response(cm)).collect()
+    /// Fetches the full responses from the offchain for the given commitments.
+    pub fn responses(commitments: Vec<H256>) -> Vec<Response> {
+        commitments.into_iter().filter_map(|cm| Self::response(cm)).collect()
     }
 }

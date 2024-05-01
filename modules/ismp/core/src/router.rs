@@ -437,7 +437,7 @@ pub enum RequestResponse {
 }
 
 /// Timeout message
-#[derive(derive_more::From)]
+#[derive(derive_more::From, Clone)]
 pub enum Timeout {
     /// A request timed out
     Request(Request),

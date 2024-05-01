@@ -35,8 +35,8 @@ fn start_consensus(
             let relay_chain_interface = relay_chain_interface_clone.clone();
             async move {
                 let inherent = ismp_parachain_inherent::ConsensusInherentProvider::create(
-                    client,
                     parent,
+                    client,
                     relay_chain_interface,
                 ).await?;
 

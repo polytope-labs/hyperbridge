@@ -17,7 +17,7 @@
 
 use crate::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
-    dispatcher::RequestMetadata,
+    dispatcher::{RefundingRouter, RequestMetadata},
     utils::{ConsensusClientProvider, ResponseReceipt},
     ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
     FrozenConsensusClients, FrozenStateMachine, LatestStateMachineHeight, Nonce, Responded,
@@ -57,7 +57,7 @@ impl<T: Config> IsmpHost for Host<T> {
     }
 
     fn latest_commitment_height(&self, id: StateMachineId) -> Result<u64, Error> {
-        Ok(LatestStateMachineHeight::<T>::get(id))
+        Ok(LatestStateMachineHeight::<T>::get(id).unwrap_or_default())
     }
 
     fn state_machine_commitment(
@@ -310,7 +310,7 @@ impl<T: Config> IsmpHost for Host<T> {
     }
 
     fn ismp_router(&self) -> Box<dyn IsmpRouter> {
-        Box::new(T::Router::default())
+        Box::new(RefundingRouter::<T>::new(Box::new(T::Router::default())))
     }
 
     fn freeze_state_machine_client(&self, state_machine: StateMachineId) -> Result<(), Error> {

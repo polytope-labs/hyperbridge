@@ -320,6 +320,7 @@ pub mod pallet {
 
     /// A mapping of consensus state identifiers to their challenge periods
     #[pallet::storage]
+    #[pallet::getter(fn challenge_period)]
     pub type ChallengePeriod<T: Config> =
         StorageMap<_, Blake2_128Concat, ConsensusStateId, u64, OptionQuery>;
 
@@ -332,9 +333,9 @@ pub mod pallet {
 
     /// The latest verified height for a state machine
     #[pallet::storage]
-    #[pallet::getter(fn latest_state_height)]
+    #[pallet::getter(fn latest_state_machine_height)]
     pub type LatestStateMachineHeight<T: Config> =
-        StorageMap<_, Blake2_128Concat, StateMachineId, u64, ValueQuery>;
+        StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
 
     /// Holds the timestamp at which a consensus client was recently updated.
     /// Used in ensuring that the configured challenge period elapses.

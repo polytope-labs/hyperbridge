@@ -262,7 +262,7 @@ where
         let mut api = self.client.runtime_api();
         api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
         let at = self.client.info().best_hash;
-        api.get_requests(at, query.into_iter().map(|query| query.commitment).collect())
+        api.requests(at, query.into_iter().map(|query| query.commitment).collect())
             .map_err(|_| runtime_error_into_rpc_error("Error fetching requests"))
     }
 
@@ -270,7 +270,7 @@ where
         let mut api = self.client.runtime_api();
         api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
         let at = self.client.info().best_hash;
-        api.get_responses(at, query.into_iter().map(|query| query.commitment).collect())
+        api.responses(at, query.into_iter().map(|query| query.commitment).collect())
             .map_err(|_| runtime_error_into_rpc_error("Error fetching responses"))
     }
 
@@ -467,7 +467,7 @@ where
                 .collect();
 
             let request_events = api
-                .get_requests(at, request_commitments)
+                .requests(at, request_commitments)
                 .map_err(|_| runtime_error_into_rpc_error("Error fetching requests"))?
                 .into_iter()
                 .map(|req| match req {
@@ -476,7 +476,7 @@ where
                 });
 
             let response_events = api
-                .get_responses(at, response_commitments)
+                .responses(at, response_commitments)
                 .map_err(|_| runtime_error_into_rpc_error("Error fetching response"))?
                 .into_iter()
                 .filter_map(|res| match res {
@@ -549,7 +549,7 @@ where
             for (event, index) in block_events {
                 let event = match event {
                     pallet_ismp::events::Event::Request { commitment, .. } => api
-                        .get_requests(at, vec![commitment])
+                        .requests(at, vec![commitment])
                         .map_err(|_| runtime_error_into_rpc_error("Error fetching requests"))?
                         .into_iter()
                         .map(|req| match req {
@@ -558,7 +558,7 @@ where
                         })
                         .next(),
                     pallet_ismp::events::Event::Response { commitment, .. } => api
-                        .get_responses(at, vec![commitment])
+                        .responses(at, vec![commitment])
                         .map_err(|_| runtime_error_into_rpc_error("Error fetching response"))?
                         .into_iter()
                         .filter_map(|res| match res {

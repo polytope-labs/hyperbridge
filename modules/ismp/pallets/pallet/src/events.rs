@@ -26,7 +26,7 @@ use ismp::{
 };
 use sp_core::H256;
 
-/// Ismp Core Protocol Events
+/// Ismp Handler Events
 #[derive(Clone, codec::Encode, codec::Decode, Debug, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub enum Event {
@@ -74,7 +74,7 @@ pub enum Event {
 }
 
 /// Convert from pallet event to Ismp event
-pub fn to_core_protocol_event<T: Config>(event: PalletEvent<T>) -> Option<Event> {
+pub fn to_handler_events<T: Config>(event: PalletEvent<T>) -> Option<Event> {
     match event {
         PalletEvent::StateMachineUpdated { state_machine_id, latest_height } =>
             Some(Event::StateMachineUpdated { state_machine_id, latest_height }),

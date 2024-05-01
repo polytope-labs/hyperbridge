@@ -24,6 +24,9 @@ pub mod consensus;
 pub use consensus::*;
 
 use alloc::{vec, vec::Vec};
+use cumulus_pallet_parachain_system::{
+    RelayChainState, RelaychainDataProvider, RelaychainStateProvider,
+};
 use cumulus_primitives_core::relay_chain;
 use ismp::{handlers, messaging::CreateConsensusState};
 pub use pallet::*;
@@ -32,7 +35,6 @@ use pallet_ismp::host::Host;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use cumulus_pallet_parachain_system::{RelaychainDataProvider, RelaychainStateProvider};
     use cumulus_primitives_core::relay_chain;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
@@ -53,18 +55,19 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
     }
 
-    /// Mapping of relay chain heights to it's state root. Gotten from parachain-system.
+    /// Mapping of relay chain heights to it's state commitment. The state commitment of the parent
+    /// relay block is inserted at every block in `on_finalize`. This commitment is gotten from
+    /// parachain-system.
     #[pallet::storage]
     #[pallet::getter(fn relay_chain_state)]
-    pub type RelayChainState<T: Config> =
+    pub type RelayChainStateCommitments<T: Config> =
         StorageMap<_, Blake2_128Concat, relay_chain::BlockNumber, relay_chain::Hash, OptionQuery>;
 
     /// Tracks whether we've already seen the `update_parachain_consensus` inherent
     #[pallet::storage]
     pub type ConsensusUpdated<T: Config> = StorageValue<_, bool>;
 
-    /// List of parachains who's headers will be inserted in the `update_parachain_consensus`
-    /// inherent
+    /// List of parachains that this state machine is interested in.
     #[pallet::storage]
     pub type Parachains<T: Config> = StorageMap<_, Identity, u32, ()>;
 
@@ -144,8 +147,8 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_finalize(_n: BlockNumberFor<T>) {
             let state = RelaychainDataProvider::<T>::current_relay_chain_state();
-            if !RelayChainState::<T>::contains_key(state.number) {
-                RelayChainState::<T>::insert(state.number, state.state_root);
+            if !RelayChainStateCommitments::<T>::contains_key(state.number) {
+                RelayChainStateCommitments::<T>::insert(state.number, state.state_root);
             }
         }
 
@@ -215,6 +218,11 @@ impl<T: Config> Pallet<T> {
         Parachains::<T>::iter_keys().collect()
     }
 
+    /// Returns the current relay chain state
+    pub fn current_relay_chain_state() -> RelayChainState {
+        RelaychainDataProvider::<T>::current_relay_chain_state()
+    }
+
     /// Initializes the parachain consensus state. Rather than requiring a seperate
     /// `create_consensus_state` call, simply including this pallet in your runtime will create the
     /// ismp parachain client consensus state, either through `genesis_build` or `on_initialize`.
@@ -241,6 +249,6 @@ pub trait RelayChainOracle {
 
 impl<T: Config> RelayChainOracle for Pallet<T> {
     fn state_root(height: relay_chain::BlockNumber) -> Option<relay_chain::Hash> {
-        RelayChainState::<T>::get(height)
+        RelayChainStateCommitments::<T>::get(height)
     }
 }

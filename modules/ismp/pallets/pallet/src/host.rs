@@ -17,7 +17,7 @@
 
 use crate::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
-    dispatcher::LeafMetadata,
+    dispatcher::RequestMetadata,
     utils::{ConsensusClientProvider, ResponseReceipt},
     ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
     FrozenConsensusClients, FrozenStateMachine, LatestStateMachineHeight, Nonce, Responded,
@@ -34,8 +34,8 @@ use ismp::{
     },
     error::Error,
     host::{IsmpHost, StateMachine},
+    messaging::{hash_post_response, hash_request, hash_response},
     router::{IsmpRouter, PostResponse, Request, Response},
-    util::{hash_post_response, hash_request, hash_response},
 };
 use sp_core::H256;
 use sp_runtime::SaturatedConversion;
@@ -320,7 +320,7 @@ impl<T: Config> IsmpHost for Host<T> {
 
     fn store_request_commitment(&self, req: &Request, meta: Vec<u8>) -> Result<(), Error> {
         let hash = hash_request::<Self>(req);
-        let leaf_meta = LeafMetadata::<T>::decode(&mut &*meta).map_err(|_| {
+        let leaf_meta = RequestMetadata::<T>::decode(&mut &*meta).map_err(|_| {
             Error::ImplementationSpecific("Failed to decode leaf metadata".to_string())
         })?;
         RequestCommitments::<T>::insert(hash, leaf_meta);
@@ -330,7 +330,7 @@ impl<T: Config> IsmpHost for Host<T> {
     fn store_response_commitment(&self, res: &PostResponse, meta: Vec<u8>) -> Result<(), Error> {
         let hash = hash_post_response::<Self>(res);
         let req_commitment = hash_request::<Self>(&res.request());
-        let leaf_meta = LeafMetadata::<T>::decode(&mut &*meta).map_err(|_| {
+        let leaf_meta = RequestMetadata::<T>::decode(&mut &*meta).map_err(|_| {
             Error::ImplementationSpecific("Failed to decode leaf metadata".to_string())
         })?;
         ResponseCommitments::<T>::insert(hash, leaf_meta);
@@ -339,7 +339,7 @@ impl<T: Config> IsmpHost for Host<T> {
     }
 }
 
-impl<T: Config> ismp::util::Keccak256 for Host<T> {
+impl<T: Config> ismp::messaging::Keccak256 for Host<T> {
     fn keccak256(bytes: &[u8]) -> H256
     where
         Self: Sized,

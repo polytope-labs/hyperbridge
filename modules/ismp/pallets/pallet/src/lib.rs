@@ -31,24 +31,10 @@ pub mod mmr;
 mod utils;
 pub mod weights;
 
-use crate::{host::Host, mmr::Leaf, weights::get_weight};
-use codec::Encode;
-use frame_support::{
-    dispatch::{DispatchResult, DispatchResultWithPostInfo},
-    traits::Get,
-};
-use frame_system::pallet_prelude::BlockNumberFor;
-use ismp::host::IsmpHost;
+use crate::mmr::Leaf;
 use mmr_primitives::{MerkleMountainRangeTree, NoOpTree};
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
-#[cfg(feature = "unsigned")]
-use sp_runtime::transaction_validity::{
-    InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
-    ValidTransaction,
-};
-use sp_std::prelude::*;
-pub use utils::*;
 
 /// No-op mmr implementation for runtimes that don't want to build an offchain mmr tree. This
 /// implementation does not panic for any runtime called methods, eg `push` or `finalize`
@@ -65,11 +51,16 @@ pub mod pallet {
     use crate::{
         child_trie::CHILD_TRIE_PREFIX,
         errors::HandlingError,
-        utils::{ConsensusClientProvider, ISMP_ID},
-        weights::WeightProvider,
+        host::Host,
+        weights::{get_weight, WeightProvider},
     };
-    use frame_support::{pallet_prelude::*, traits::UnixTime};
-    use frame_system::pallet_prelude::*;
+    use codec::Encode;
+    use frame_support::{
+        dispatch::{DispatchResult, DispatchResultWithPostInfo},
+        pallet_prelude::*,
+        traits::{Currency, Get, UnixTime},
+    };
+    use frame_system::pallet_prelude::{BlockNumberFor, *};
     use ismp::{
         consensus::{
             ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
@@ -77,11 +68,18 @@ pub mod pallet {
         },
         events::{RequestResponseHandled, TimeoutHandled},
         handlers,
-        host::StateMachine,
+        host::{IsmpHost, StateMachine},
         messaging::{CreateConsensusState, Message},
         router::IsmpRouter,
     };
     use sp_core::{storage::ChildInfo, H256};
+    #[cfg(feature = "unsigned")]
+    use sp_runtime::transaction_validity::{
+        InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
+        ValidTransaction,
+    };
+    use sp_std::prelude::*;
+    pub use utils::*;
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_balances::Config {
@@ -91,6 +89,15 @@ pub mod pallet {
         /// Admin origin for privileged actions such as adding new consensus clients as well as
         /// modifying existing consensus clients (eg. challenge period, unbonding period)
         type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
+        /// Timestamp interface [`UnixTime`] for querying the current timestamp. This is used within
+        /// the various ISMP sub-protocols.
+        type TimestampProvider: UnixTime;
+
+        /// The currency implementation that is offered to relayers as payment for request delivery
+        /// and execution. This should ideally be a stablecoin of some kind to guarantee
+        /// predictable and stable revenue for relayers.
+        type Currency: Currency<Self::AccountId, Balance = Self::Balance>;
 
         /// The state machine identifier for the host chain. This is the identifier that will be
         /// used to accept requests that are addressed to this state machine. Remote chains
@@ -106,10 +113,6 @@ pub mod pallet {
         /// multiple state machines. Finally producing much cheaper proofs of consensus and state
         /// needed to verify the legitimacy of the messages.
         type Coprocessor: Get<Option<StateMachine>>;
-
-        /// Timestamp interface [`UnixTime`] for querying the current timestamp. This is used within
-        /// the various ISMP sub-protocols.
-        type TimestampProvider: UnixTime;
 
         /// [`IsmpRouter`] implementation for routing requests & responses to their appropriate
         /// modules.
@@ -432,9 +435,8 @@ pub mod pallet {
         fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
             use ismp::{
                 handlers::MessageResult,
-                messaging::{ConsensusMessage, FraudProofMessage, RequestMessage},
+                messaging::{hash_request, ConsensusMessage, FraudProofMessage, RequestMessage},
                 router::Request,
-                util::hash_request,
             };
             let messages = match call {
                 Call::handle_unsigned { messages } => messages,

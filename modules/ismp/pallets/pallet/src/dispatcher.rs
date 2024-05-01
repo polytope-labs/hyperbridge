@@ -16,51 +16,44 @@
 //! Implementation for the low-level ISMP Dispatcher
 
 use crate::{child_trie::RequestReceipts, host::Host, mmr::LeafIndexAndPos, Pallet};
-use core::marker::PhantomData;
-use frame_support::traits::UnixTime;
+use frame_support::{
+    traits::{Currency, ExistenceRequirement, UnixTime},
+    PalletId,
+};
 use ismp::{
+    dispatcher,
+    dispatcher::{DispatchRequest, IsmpDispatcher},
     error::Error as IsmpError,
     events::Meta,
     host::IsmpHost,
-    router::{DispatchRequest, Get, IsmpDispatcher, Post, PostResponse, Request, Response},
-    util::hash_request,
+    messaging::hash_request,
+    router::{Get, Post, PostResponse, Request, Response},
 };
+use sp_runtime::traits::{AccountIdConversion, Zero};
 
-/// Queries a request leaf in the mmr
+/// Metadata about an outgoing request
 #[derive(codec::Encode, codec::Decode, scale_info::TypeInfo, Clone)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 #[scale_info(skip_type_params(T))]
-pub struct LeafMetadata<T: crate::Config> {
+pub struct RequestMetadata<T: crate::Config> {
     /// Information about where it's stored in the offchain db
     pub mmr: LeafIndexAndPos,
     /// Other metadata about the request
-    pub meta: FeeMetadata<T>,
-}
-
-/// This is used for tracking user fee payments for requests
-#[derive(codec::Encode, codec::Decode, scale_info::TypeInfo, Clone)]
-#[scale_info(skip_type_params(T))]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
-pub struct FeeMetadata<T: crate::Config> {
-    /// The user who paid for this fee
-    pub origin: T::AccountId,
-    /// The amount they paid
-    pub fee: T::Balance,
+    pub fee: FeeMetadata<T>,
     /// Has fee been claimed?
     pub claimed: bool,
 }
 
-/// The dispatcher commits outgoing requests and responses to the mmr
-/// This dispatcher charges no fees, use only if you intend to self-relay.
-pub struct Dispatcher<T>(PhantomData<T>);
+/// This is used for tracking user fee payments for requests
+pub type FeeMetadata<T> = dispatcher::FeeMetadata<
+    <T as frame_system::Config>::AccountId,
+    <T as pallet_balances::Config>::Balance,
+>;
 
-impl<T> Default for Dispatcher<T> {
-    fn default() -> Self {
-        Self(PhantomData)
-    }
-}
+/// [`PalletId`] for collecting relayer fees
+pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
 
-impl<T> IsmpDispatcher for Dispatcher<T>
+impl<T> IsmpDispatcher for Host<T>
 where
     T: crate::Config,
 {
@@ -70,9 +63,23 @@ where
     fn dispatch_request(
         &self,
         request: DispatchRequest,
-        origin: Self::Account,
-        fee: Self::Balance,
+        fee: FeeMetadata<T>,
     ) -> Result<(), IsmpError> {
+        // collect payment for the request
+        if fee.fee != Zero::zero() {
+            T::Currency::transfer(
+                &fee.payer,
+                &RELAYER_FEE_ACCOUNT.into_account_truncating(),
+                fee.fee,
+                ExistenceRequirement::AllowDeath,
+            )
+            .map_err(|err| {
+                IsmpError::ImplementationSpecific(format!(
+                    "Error withdrawing request fees: {err:?}"
+                ))
+            })?;
+        }
+
         let host = Host::<T>::default();
         let request = match request {
             DispatchRequest::Get(dispatch_get) => {
@@ -111,7 +118,7 @@ where
             },
         };
 
-        Pallet::<T>::dispatch_request(request, FeeMetadata { origin, fee, claimed: false })?;
+        Pallet::<T>::dispatch_request(request, fee)?;
 
         Ok(())
     }
@@ -119,9 +126,23 @@ where
     fn dispatch_response(
         &self,
         response: PostResponse,
-        origin: Self::Account,
-        fee: Self::Balance,
+        fee: FeeMetadata<T>,
     ) -> Result<(), IsmpError> {
+        // collect payment for the response
+        if fee.fee != Zero::zero() {
+            T::Currency::transfer(
+                &fee.payer,
+                &RELAYER_FEE_ACCOUNT.into_account_truncating(),
+                fee.fee,
+                ExistenceRequirement::AllowDeath,
+            )
+            .map_err(|err| {
+                IsmpError::ImplementationSpecific(format!(
+                    "Error withdrawing request fees: {err:?}"
+                ))
+            })?;
+        }
+
         let req_commitment = hash_request::<Host<T>>(&response.request());
         if !RequestReceipts::<T>::contains_key(req_commitment) {
             Err(IsmpError::UnknownRequest {
@@ -134,7 +155,7 @@ where
         }
 
         let response = Response::Post(response);
-        Pallet::<T>::dispatch_response(response, FeeMetadata { origin, fee, claimed: false })?;
+        Pallet::<T>::dispatch_response(response, fee)?;
 
         Ok(())
     }

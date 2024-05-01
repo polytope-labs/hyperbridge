@@ -23,9 +23,8 @@ use frame_support::crypto::ecdsa::ECDSAExt;
 use ismp::{
     consensus::{StateCommitment, StateMachineHeight, StateMachineId},
     host::{IsmpHost, StateMachine},
-    messaging::Proof,
+    messaging::{hash_post_response, hash_request, Proof},
     router::{Post, Request},
-    util::{hash_post_response, hash_request},
 };
 use pallet_ismp::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
@@ -50,7 +49,7 @@ use crate::runtime::{
 use ismp::host::Ethereum;
 use ismp_bsc::BSC_CONSENSUS_ID;
 use ismp_sync_committee::BEACON_CONSENSUS_ID;
-use pallet_ismp::{dispatcher::LeafMetadata, mmr::LeafIndexAndPos};
+use pallet_ismp::{dispatcher::RequestMetadata, mmr::LeafIndexAndPos};
 
 #[test]
 fn test_withdrawal_proof() {
@@ -113,13 +112,12 @@ fn test_withdrawal_proof() {
         for request in &requests {
             let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
             let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
-            let fee_metadata = FeeMetadata::<Test> {
-                origin: [0; 32].into(),
-                fee: 1000u128.into(),
+            let fee_metadata = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() };
+            let leaf_meta = RequestMetadata {
+                mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+                fee: fee_metadata,
                 claimed: false,
             };
-            let leaf_meta =
-                LeafMetadata { mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 }, meta: fee_metadata };
             RequestCommitments::<Test>::insert(*request, leaf_meta.clone());
             source_trie.insert(&request_commitment_key, &leaf_meta.encode()).unwrap();
             dest_trie.insert(&request_receipt_key, &vec![1u8; 32].encode()).unwrap();
@@ -128,13 +126,12 @@ fn test_withdrawal_proof() {
         for (request, response) in &responses {
             let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
             let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
-            let fee_metadata = FeeMetadata::<Test> {
-                origin: [0; 32].into(),
-                fee: 1000u128.into(),
+            let fee_metadata = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() };
+            let leaf_meta = RequestMetadata {
+                mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+                fee: fee_metadata,
                 claimed: false,
             };
-            let leaf_meta =
-                LeafMetadata { mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 }, meta: fee_metadata };
             ResponseCommitments::<Test>::insert(*response, leaf_meta.clone());
             source_trie.insert(&response_commitment_key, &leaf_meta.encode()).unwrap();
             let receipt = ResponseReceipt { response: *response, relayer: vec![2; 32] };
@@ -366,24 +363,18 @@ fn test_evm_accumulate_fees() {
         for key in claim_proof.commitments.clone() {
             match key {
                 Key::Request(req) => {
-                    let leaf_meta = LeafMetadata {
+                    let leaf_meta = RequestMetadata {
                         mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
-                        meta: FeeMetadata::<Test> {
-                            origin: [0; 32].into(),
-                            fee: 1000u128.into(),
-                            claimed: false,
-                        },
+                        fee: FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() },
+                        claimed: false,
                     };
                     RequestCommitments::<Test>::insert(req, leaf_meta)
                 },
                 Key::Response { response_commitment, .. } => {
-                    let leaf_meta = LeafMetadata {
+                    let leaf_meta = RequestMetadata {
                         mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
-                        meta: FeeMetadata::<Test> {
-                            origin: [0; 32].into(),
-                            fee: 1000u128.into(),
-                            claimed: false,
-                        },
+                        fee: FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() },
+                        claimed: false,
                     };
                     ResponseCommitments::<Test>::insert(response_commitment, leaf_meta);
                 },
@@ -544,14 +535,12 @@ fn test_evm_accumulate_fees_with_zero_fee_values() {
         let claimed = claim_proof.commitments.into_iter().fold(0u32, |acc, key| match key {
             Key::Request(req) => RequestCommitments::<Test>::get(req)
                 .unwrap()
-                .meta
                 .claimed
                 .then(|| acc + 1)
                 .unwrap_or(acc),
             Key::Response { response_commitment, .. } =>
                 ResponseCommitments::<Test>::get(response_commitment)
                     .unwrap()
-                    .meta
                     .claimed
                     .then(|| acc + 1)
                     .unwrap_or(acc),
@@ -580,24 +569,18 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
     for key in claim_proof.commitments.clone() {
         match key {
             Key::Request(req) => {
-                let leaf_meta = LeafMetadata {
+                let leaf_meta = RequestMetadata {
                     mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
-                    meta: FeeMetadata::<Test> {
-                        origin: [0; 32].into(),
-                        fee: 1000u128.into(),
-                        claimed: false,
-                    },
+                    fee: FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() },
+                    claimed: false,
                 };
                 RequestCommitments::<Test>::insert(req, leaf_meta)
             },
             Key::Response { response_commitment, .. } => {
-                let leaf_meta = LeafMetadata {
+                let leaf_meta = RequestMetadata {
                     mmr: LeafIndexAndPos { leaf_index: 0, pos: 0 },
-                    meta: FeeMetadata::<Test> {
-                        origin: [0; 32].into(),
-                        fee: 1000u128.into(),
-                        claimed: false,
-                    },
+                    fee: FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() },
+                    claimed: false,
                 };
                 ResponseCommitments::<Test>::insert(response_commitment, leaf_meta);
             },

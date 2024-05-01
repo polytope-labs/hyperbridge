@@ -35,10 +35,10 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::*;
     use ismp::{
+        dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
         host::StateMachine,
-        router::{DispatchPost, DispatchRequest, IsmpDispatcher},
     };
-    use pallet_ismp::{dispatcher::Dispatcher, ModuleId};
+    use pallet_ismp::ModuleId;
 
     /// ISMP module identifier
     pub const PALLET_ID: ModuleId = ModuleId::Pallet(PalletId(*b"hostexec"));
@@ -49,7 +49,11 @@ pub mod pallet {
 
     /// The config trait
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_ismp::Config {}
+    pub trait Config: frame_system::Config + pallet_ismp::Config {
+        /// The [`IsmpDispatcher`] implementation to use for dispatching requests
+        type Dispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>
+            + Default;
+    }
 
     /// Host Manager Addresses on different chains
     #[pallet::storage]
@@ -105,7 +109,7 @@ pub mod pallet {
             HostParamRlp::try_from(params.clone())
                 .expect("u128 will always fit inside a U256; qed")
                 .encode(&mut data);
-            let dispatcher = Dispatcher::<T>::default();
+            let dispatcher = T::Dispatcher::default();
             dispatcher
                 .dispatch_request(
                     DispatchRequest::Post(DispatchPost {
@@ -115,8 +119,7 @@ pub mod pallet {
                         timeout_timestamp: 0,
                         data,
                     }),
-                    [0u8; 32].into(),
-                    Default::default(),
+                    FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
                 )
                 .map_err(|_| Error::<T>::DispatchFailed)?;
 

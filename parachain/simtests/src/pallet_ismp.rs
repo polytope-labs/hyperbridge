@@ -17,8 +17,8 @@ use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 
 use ismp::{
     host::StateMachine,
+    messaging::hash_request,
     router::{Post, Request},
-    util::hash_request,
 };
 use pallet_ismp::child_trie;
 use primitive_types::H256;
@@ -43,7 +43,7 @@ use subxt_utils::{
 #[derive(Clone, Default)]
 pub struct Keccak256;
 
-impl ismp::util::Keccak256 for Keccak256 {
+impl ismp::messaging::Keccak256 for Keccak256 {
     fn keccak256(bytes: &[u8]) -> H256
     where
         Self: Sized,

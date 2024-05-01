@@ -176,6 +176,7 @@ impl pallet_ismp::Config for Test {
     type Coprocessor = Coprocessor;
     type TimestampProvider = Timestamp;
     type Router = ModuleRouter;
+    type Currency = Balances;
     type ConsensusClients = (
         MockConsensusClient,
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Test>, Sepolia>,
@@ -195,7 +196,9 @@ impl pallet_ismp_relayer::Config for Test {
     type RuntimeEvent = RuntimeEvent;
 }
 
-impl pallet_ismp_host_executive::Config for Test {}
+impl pallet_ismp_host_executive::Config for Test {
+    type Dispatcher = Host<Test>;
+}
 
 impl pallet_call_decompressor::Config for Test {
     type MaxCallSize = ConstU32<2>;

@@ -16,21 +16,19 @@
 #![cfg(test)]
 
 use crate::runtime::*;
-use pallet_ismp::{child_trie::RequestReceipts, dispatcher::Dispatcher, host::Host};
+use pallet_ismp::{child_trie::RequestReceipts, host::Host};
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ismp::{
     consensus::{StateMachineHeight, StateMachineId},
+    dispatcher::{DispatchGet, DispatchRequest, IsmpDispatcher},
     host::{Ethereum, IsmpHost, StateMachine},
-    messaging::{Proof, ResponseMessage, TimeoutMessage},
-    router::{
-        DispatchGet, DispatchRequest, GetResponse, IsmpDispatcher, Post, Request, RequestResponse,
-    },
-    util::hash_request,
+    messaging::{hash_request, Proof, ResponseMessage, TimeoutMessage},
+    router::{GetResponse, Post, Request, RequestResponse},
 };
 
-use ismp::{messaging::Message, router::Response};
+use ismp::{dispatcher::FeeMetadata, messaging::Message, router::Response};
 use ismp_testsuite::{
     check_challenge_period, check_client_expiry, missing_state_commitment_check,
     post_request_timeout_check, post_response_timeout_check, write_outgoing_commitments,
@@ -49,7 +47,6 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
     ext.execute_with(|| {
         set_timestamp(Some(1));
         let host = Host::<Test>::default();
-        let dispatcher = Dispatcher::<Test>::default();
         let post = Post {
             source: StateMachine::Kusama(2000),
             dest: host.host_state_machine(),
@@ -62,7 +59,7 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
 
         let request_commitment = hash_request::<Host<Test>>(&Request::Post(post.clone()));
         RequestReceipts::<Test>::insert(request_commitment, &vec![0u8; 32]);
-        write_outgoing_commitments(&host, &dispatcher).unwrap();
+        write_outgoing_commitments(&host).unwrap();
     })
 }
 
@@ -110,9 +107,8 @@ fn should_handle_post_request_timeouts_correctly() {
     ext.execute_with(|| {
         set_timestamp(Some(0));
         let host = Host::<Test>::default();
-        let dispatcher = Dispatcher::<Test>::default();
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 0).unwrap();
-        post_request_timeout_check(&host, &dispatcher).unwrap()
+        post_request_timeout_check(&host).unwrap()
     })
 }
 
@@ -123,9 +119,8 @@ fn should_handle_post_response_timeouts_correctly() {
     ext.execute_with(|| {
         set_timestamp(None);
         let host = Host::<Test>::default();
-        let dispatcher = Dispatcher::<Test>::default();
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
-        post_response_timeout_check(&host, &dispatcher).unwrap()
+        post_response_timeout_check(&host).unwrap()
     })
 }
 
@@ -147,10 +142,11 @@ fn should_handle_get_request_timeouts_correctly() {
                     timeout_timestamp: 1000,
                 };
 
-                let dispatcher = Dispatcher::<Test>::default();
-                dispatcher
-                    .dispatch_request(DispatchRequest::Get(msg), [0u8; 32].into(), 0u32.into())
-                    .unwrap();
+                host.dispatch_request(
+                    DispatchRequest::Get(msg),
+                    FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+                )
+                .unwrap();
                 let get = ismp::router::Get {
                     source: host.host_state_machine(),
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
@@ -195,10 +191,11 @@ fn should_handle_get_request_responses_correctly() {
                     timeout_timestamp: 2_000_000_000,
                 };
 
-                let dispatcher = Dispatcher::<Test>::default();
-                dispatcher
-                    .dispatch_request(DispatchRequest::Get(msg), [0u8; 32].into(), 0u32.into())
-                    .unwrap();
+                host.dispatch_request(
+                    DispatchRequest::Get(msg),
+                    FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+                )
+                .unwrap();
                 let get = ismp::router::Get {
                     source: host.host_state_machine(),
                     dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),

@@ -259,6 +259,7 @@ impl cumulus_pallet_parachain_system::Config for Test {
 }
 
 use frame_support::traits::TransformOrigin;
+use pallet_ismp::host::Host;
 use parachains_common::message_queue::ParaIdToSibling;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
 
@@ -339,6 +340,7 @@ impl pallet_asset_gateway::Config for Test {
     type PalletId = AssetPalletId;
     type ProtocolAccount = ProtocolAccount;
     type Params = TransferParams;
+    type Dispatcher = Host<Test>;
     type Assets = Assets;
 }
 

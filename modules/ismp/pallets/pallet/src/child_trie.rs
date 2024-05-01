@@ -19,7 +19,7 @@
 //! because child tries provide cheaper state proofs compared the global state trie. This module
 //! describes the storage layout in the child trie.
 
-use crate::{dispatcher::LeafMetadata, utils::ResponseReceipt, Config};
+use crate::{dispatcher::RequestMetadata, utils::ResponseReceipt, Config};
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use frame_support::storage::child;
@@ -80,12 +80,12 @@ impl<T: Config> RequestCommitments<T> {
     }
 
     /// Get the provided key from the child trie
-    pub fn get(key: H256) -> Option<LeafMetadata<T>> {
+    pub fn get(key: H256) -> Option<RequestMetadata<T>> {
         child::get(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key))
     }
 
     /// Insert the key and value into the child trie
-    pub fn insert(key: H256, meta: LeafMetadata<T>) {
+    pub fn insert(key: H256, meta: RequestMetadata<T>) {
         child::put(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key), &meta);
     }
 
@@ -107,12 +107,12 @@ impl<T: Config> ResponseCommitments<T> {
     }
 
     /// Get the provided key from the child trie
-    pub fn get(key: H256) -> Option<LeafMetadata<T>> {
+    pub fn get(key: H256) -> Option<RequestMetadata<T>> {
         child::get(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key))
     }
 
     /// Insert the key and value into the child trie
-    pub fn insert(key: H256, meta: LeafMetadata<T>) {
+    pub fn insert(key: H256, meta: RequestMetadata<T>) {
         child::put(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key), &meta);
     }
 

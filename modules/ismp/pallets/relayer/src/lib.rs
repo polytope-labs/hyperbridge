@@ -37,15 +37,14 @@ use evm_common::{
 use frame_support::{dispatch::DispatchResult, ensure};
 use frame_system::pallet_prelude::OriginFor;
 use ismp::{
+    dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
     handlers::validate_state_machine,
     host::{IsmpHost, StateMachine},
     messaging::Proof,
-    router::{DispatchPost, DispatchRequest, IsmpDispatcher},
 };
 pub use pallet::*;
 use pallet_ismp::{
     child_trie::{RequestCommitments, ResponseCommitments},
-    dispatcher::Dispatcher,
     host::Host,
 };
 use pallet_ismp_host_executive::HostParams;
@@ -275,7 +274,7 @@ where
         if available_amount < withdrawal_data.amount {
             Err(Error::<T>::InvalidAmount)?
         }
-        let dispatcher = Dispatcher::<T>::default();
+        let dispatcher = T::Dispatcher::default();
         let relayer_manager_address = match withdrawal_data.dest_chain {
             StateMachine::Beefy(_) |
             StateMachine::Grandpa(_) |
@@ -313,7 +312,10 @@ where
 
         // Account is not useful in this case
         dispatcher
-            .dispatch_request(DispatchRequest::Post(post), H256::default().0.into(), 0u32.into())
+            .dispatch_request(
+                DispatchRequest::Post(post),
+                FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+            )
             .map_err(|_| Error::<T>::DispatchFailed)?;
 
         Fees::<T>::insert(
@@ -339,7 +341,7 @@ where
             .filter(|key| match key {
                 Key::Request(req) => {
                     match RequestCommitments::<T>::get(*req) {
-                        Some(leaf_meta) => !leaf_meta.meta.claimed,
+                        Some(leaf_meta) => !leaf_meta.claimed,
                         // If request commitment does not exist in storage which should not be
                         // possible, we skip it
                         None => false,
@@ -347,7 +349,7 @@ where
                 },
                 Key::Response { response_commitment, .. } => {
                     match ResponseCommitments::<T>::get(*response_commitment) {
-                        Some(leaf_meta) => !leaf_meta.meta.claimed,
+                        Some(leaf_meta) => !leaf_meta.claimed,
                         // If request commitment does not exist in storage which should not be
                         // possible, we skip it
                         None => false,
@@ -406,7 +408,7 @@ where
                     }
                     match RequestCommitments::<T>::get(req) {
                         Some(mut leaf_meta) => {
-                            leaf_meta.meta.claimed = true;
+                            leaf_meta.claimed = true;
                             RequestCommitments::<T>::insert(req, leaf_meta)
                         },
                         // Unreachable
@@ -419,7 +421,7 @@ where
                     }
                     match ResponseCommitments::<T>::get(response_commitment) {
                         Some(mut leaf_meta) => {
-                            leaf_meta.meta.claimed = true;
+                            leaf_meta.claimed = true;
                             ResponseCommitments::<T>::insert(response_commitment, leaf_meta);
                         },
                         // Unreachable
@@ -590,13 +592,14 @@ where
                             StateMachine::Kusama(_) |
                             StateMachine::Polkadot(_) => {
                                 use codec::Decode;
-                                let fee: u128 = pallet_ismp::dispatcher::LeafMetadata::<T>::decode(
-                                    &mut &*encoded_metadata,
-                                )
-                                .map_err(|_| Error::<T>::ProofValidationError)?
-                                .meta
-                                .fee
-                                .into();
+                                let fee: u128 =
+                                    pallet_ismp::dispatcher::RequestMetadata::<T>::decode(
+                                        &mut &*encoded_metadata,
+                                    )
+                                    .map_err(|_| Error::<T>::ProofValidationError)?
+                                    .fee
+                                    .fee
+                                    .into();
                                 U256::from(fee)
                             },
                         }
@@ -653,13 +656,14 @@ where
                             StateMachine::Kusama(_) |
                             StateMachine::Polkadot(_) => {
                                 use codec::Decode;
-                                let fee: u128 = pallet_ismp::dispatcher::LeafMetadata::<T>::decode(
-                                    &mut &*encoded_metadata,
-                                )
-                                .map_err(|_| Error::<T>::ProofValidationError)?
-                                .meta
-                                .fee
-                                .into();
+                                let fee: u128 =
+                                    pallet_ismp::dispatcher::RequestMetadata::<T>::decode(
+                                        &mut &*encoded_metadata,
+                                    )
+                                    .map_err(|_| Error::<T>::ProofValidationError)?
+                                    .fee
+                                    .fee
+                                    .into();
                                 U256::from(fee)
                             },
                         }

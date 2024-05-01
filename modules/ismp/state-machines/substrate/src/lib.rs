@@ -28,9 +28,8 @@ use ismp::{
     consensus::{StateCommitment, StateMachineClient},
     error::Error,
     host::IsmpHost,
-    messaging::Proof,
+    messaging::{hash_post_response, hash_request, hash_response, Proof},
     router::{Request, RequestResponse, Response},
-    util::{hash_post_response, hash_request, hash_response},
 };
 use pallet_ismp::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},

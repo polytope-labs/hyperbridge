@@ -17,7 +17,7 @@
 
 use crate::{
     child_trie::{RequestCommitments, ResponseCommitments},
-    dispatcher::{FeeMetadata, LeafMetadata},
+    dispatcher::{FeeMetadata, RequestMetadata},
     host::Host,
     mmr::{Leaf, LeafIndexAndPos, Proof, ProofKeys},
     weights::get_weight,
@@ -29,9 +29,8 @@ use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo
 use ismp::{
     consensus::{ConsensusClientId, StateMachineId},
     handlers::{handle_incoming_message, MessageResult},
-    messaging::Message,
+    messaging::{hash_request, hash_response, Message},
     router::{Request, Response},
-    util::{hash_request, hash_response},
 };
 use log::debug;
 use mmr_primitives::MerkleMountainRangeTree;
@@ -146,12 +145,13 @@ impl<T: Config> Pallet<T> {
 
         RequestCommitments::<T>::insert(
             commitment,
-            LeafMetadata {
+            RequestMetadata {
                 mmr: LeafIndexAndPos {
                     leaf_index: leaf_index_and_pos.index,
                     pos: leaf_index_and_pos.position,
                 },
-                meta,
+                fee: meta,
+                claimed: false,
             },
         );
 
@@ -181,12 +181,13 @@ impl<T: Config> Pallet<T> {
         });
         ResponseCommitments::<T>::insert(
             commitment,
-            LeafMetadata {
+            RequestMetadata {
                 mmr: LeafIndexAndPos {
                     leaf_index: leaf_index_and_pos.index,
                     pos: leaf_index_and_pos.position,
                 },
-                meta,
+                fee: meta,
+                claimed: false,
             },
         );
         Responded::<T>::insert(req_commitment, true);

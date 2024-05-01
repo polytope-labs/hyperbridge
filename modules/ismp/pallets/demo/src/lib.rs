@@ -51,8 +51,8 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::*;
     use ismp::{
+        dispatcher::{DispatchGet, DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
         host::{Ethereum, StateMachine},
-        router::{DispatchGet, DispatchPost, DispatchRequest, IsmpDispatcher},
     };
 
     #[pallet::pallet]
@@ -163,7 +163,10 @@ pub mod pallet {
             // dispatch the request
             let dispatcher = T::IsmpDispatcher::default();
             dispatcher
-                .dispatch_request(DispatchRequest::Post(post), origin, 0u32.into())
+                .dispatch_request(
+                    DispatchRequest::Post(post),
+                    FeeMetadata { payer: origin, fee: Default::default() },
+                )
                 .map_err(|_| Error::<T>::TransferFailed)?;
 
             // let the user know, they've successfully sent the funds
@@ -199,7 +202,10 @@ pub mod pallet {
 
             let dispatcher = T::IsmpDispatcher::default();
             dispatcher
-                .dispatch_request(DispatchRequest::Get(get), origin, 0u32.into())
+                .dispatch_request(
+                    DispatchRequest::Get(get),
+                    FeeMetadata { payer: origin, fee: Default::default() },
+                )
                 .map_err(|_| Error::<T>::GetDispatchFailed)?;
             Ok(())
         }
@@ -222,8 +228,7 @@ pub mod pallet {
                 dispatcher
                     .dispatch_request(
                         DispatchRequest::Post(post.clone()),
-                        origin.clone(),
-                        0u32.into(),
+                        FeeMetadata { payer: origin.clone(), fee: Default::default() },
                     )
                     .map_err(|_| Error::<T>::TransferFailed)?;
             }

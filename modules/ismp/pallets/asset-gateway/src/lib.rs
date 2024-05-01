@@ -15,14 +15,11 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-pub mod xcm_utilities;
-
 extern crate alloc;
 
-use alloc::{boxed::Box, string::ToString};
+use alloc::{boxed::Box, string::ToString, vec};
 use core::marker::PhantomData;
 
-use alloc::vec;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use frame_support::{
     ensure,
@@ -32,30 +29,36 @@ use frame_support::{
         Get,
     },
 };
-use ismp::{
-    events::Meta,
-    host::StateMachine,
-    module::IsmpModule,
-    router::{DispatchPost, DispatchRequest, IsmpDispatcher, Request, Timeout},
-    util::hash_request,
-};
-pub use pallet::*;
-use pallet_ismp::{dispatcher::Dispatcher, host::Host};
 use sp_core::{H160, H256, U256};
 use sp_runtime::{traits::AccountIdConversion, Percent};
 use staging_xcm::{
     v3::{AssetId, Fungibility, Junction, MultiAsset, MultiAssets, MultiLocation, WeightLimit},
     VersionedMultiAssets, VersionedMultiLocation,
 };
+
+use ismp::{
+    dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
+    events::Meta,
+    host::StateMachine,
+    messaging::hash_request,
+    module::IsmpModule,
+    router::{Request, Timeout},
+};
+pub use pallet::*;
+use pallet_ismp::host::Host;
 use xcm_utilities::MultiAccount;
+
+pub mod xcm_utilities;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use super::*;
     use alloc::vec;
+
     use frame_support::{pallet_prelude::*, traits::fungibles, PalletId};
     use frame_system::pallet_prelude::OriginFor;
     use sp_runtime::Percent;
+
+    use super::*;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -79,6 +82,10 @@ pub mod pallet {
         /// Pallet parameters
         #[pallet::constant]
         type Params: Get<TokenGatewayParams>;
+
+        /// The [`IsmpDispatcher`] implementation to use for dispatching requests
+        type Dispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>
+            + Default;
 
         /// Fungible asset implementation
         type Assets: fungibles::Mutate<Self::AccountId> + fungibles::Inspect<Self::AccountId>;
@@ -224,7 +231,7 @@ where
         multi_account: MultiAccount<T::AccountId>,
         amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
     ) -> Result<(), Error<T>> {
-        let dispatcher = Dispatcher::<T>::default();
+        let dispatcher = T::Dispatcher::default();
 
         let mut to = [0u8; 32];
         to[..20].copy_from_slice(&multi_account.evm_account.0);
@@ -256,12 +263,10 @@ where
             },
         };
 
+        let metadata =
+            FeeMetadata { payer: multi_account.substrate_account.clone(), fee: Default::default() };
         dispatcher
-            .dispatch_request(
-                DispatchRequest::Post(dispatch_post),
-                multi_account.substrate_account.clone(),
-                Default::default(),
-            )
+            .dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
             .map_err(|_| Error::<T>::DispatchPostError)?;
 
         Self::deposit_event(Event::<T>::AssetTeleported {
@@ -458,7 +463,7 @@ where
                         nonce: request.nonce(),
                     },
                 })?;
-                let beneficiary = fee_metadata.meta.origin;
+                let beneficiary = fee_metadata.fee.payer;
                 let body: Body =
                     alloy_rlp::Decodable::decode(&mut &post.data[1..]).map_err(|_| {
                         ismp::error::Error::ModuleDispatchError {

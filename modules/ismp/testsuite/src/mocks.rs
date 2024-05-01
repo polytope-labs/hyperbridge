@@ -1,26 +1,25 @@
-use codec::Encode;
-use ismp::{
-    consensus::{
-        ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
-        StateMachineHeight, StateMachineId, VerifiedCommitments,
-    },
-    error::Error,
-    host::{Ethereum, IsmpHost, StateMachine},
-    messaging::Proof,
-    module::IsmpModule,
-    router::{
-        DispatchRequest, Get, IsmpDispatcher, IsmpRouter, Post, PostResponse, Request,
-        RequestResponse, Response, Timeout,
-    },
-    util::{hash_post_response, hash_request, hash_response, Keccak256},
-};
-use primitive_types::H256;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet, HashMap},
     rc::Rc,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+use codec::Encode;
+use primitive_types::H256;
+
+use ismp::{
+    consensus::{
+        ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
+        StateMachineHeight, StateMachineId, VerifiedCommitments,
+    },
+    dispatcher::{DispatchRequest, FeeMetadata, IsmpDispatcher},
+    error::Error,
+    host::{Ethereum, IsmpHost, StateMachine},
+    messaging::{hash_post_response, hash_request, hash_response, Keccak256, Proof},
+    module::IsmpModule,
+    router::{Get, IsmpRouter, Post, PostResponse, Request, RequestResponse, Response, Timeout},
 };
 
 #[derive(Default)]
@@ -442,17 +441,16 @@ impl IsmpRouter for MockRouter {
 
 pub struct MockDispatcher(pub Arc<Host>);
 
-impl IsmpDispatcher for MockDispatcher {
+impl IsmpDispatcher for Host {
     type Account = Vec<u8>;
     type Balance = u32;
 
     fn dispatch_request(
         &self,
         request: DispatchRequest,
-        _who: Self::Account,
-        _fee: Self::Balance,
+        _fee: FeeMetadata<Self::Account, Self::Balance>,
     ) -> Result<(), Error> {
-        let host = self.0.clone();
+        let host = self.clone();
         let request = match request {
             DispatchRequest::Get(dispatch_get) => {
                 let get = Get {
@@ -487,10 +485,9 @@ impl IsmpDispatcher for MockDispatcher {
     fn dispatch_response(
         &self,
         response: PostResponse,
-        _who: Self::Account,
-        _fee: Self::Balance,
+        _fee: FeeMetadata<Self::Account, Self::Balance>,
     ) -> Result<(), Error> {
-        let host = self.0.clone();
+        let host = self.clone();
         let response = Response::Post(response);
         let hash = hash_response::<Host>(&response);
         if host.responses.borrow().contains(&hash) {

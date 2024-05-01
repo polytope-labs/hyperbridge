@@ -72,7 +72,6 @@ impl pallet_ismp::Config for Runtime {
     type Coprocessor = Coprocessor;
     type TimestampProvider = Timestamp;
     type Router = Router;
-
     type ConsensusClients = (
         ismp_bsc::BscClient<Host<Runtime>>,
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Sepolia>,
@@ -80,20 +79,21 @@ impl pallet_ismp::Config for Runtime {
     );
     type Mmr = Mmr;
     type WeightProvider = ();
+    type Currency = Balances;
 }
 
 impl pallet_ismp_demo::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Balance = Balance;
     type NativeCurrency = Balances;
-    type IsmpDispatcher = pallet_ismp::dispatcher::Dispatcher<Runtime>;
+    type IsmpDispatcher = Host<Runtime>;
 }
 
 impl pallet_ismp_relayer::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
 }
 
-impl pallet_ismp_host_executive::Config for Runtime {}
+impl pallet_ismp_host_executive::Config for Runtime { type Dispatcher = Host<Runtime>; }
 
 impl pallet_call_decompressor::Config for Runtime {
     type MaxCallSize = ConstU32<2>;
@@ -116,6 +116,7 @@ impl pallet_asset_gateway::Config for Runtime {
     type ProtocolAccount = ProtocolAccount;
     type Params = TransferParams;
     type Assets = Assets;
+    type Dispatcher = Host<Runtime>;
 }
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -163,7 +164,7 @@ impl IsmpModule for ProxyModule {
     fn on_accept(&self, request: Post) -> Result<(), Error> {
         if request.dest != HostStateMachine::get() {
             let meta =
-                FeeMetadata { origin: [0u8; 32].into(), fee: Default::default(), claimed: false };
+                FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() };
             return Ismp::dispatch_request(Request::Post(request), meta);
         }
 
@@ -184,7 +185,7 @@ impl IsmpModule for ProxyModule {
     fn on_response(&self, response: Response) -> Result<(), Error> {
         if response.dest_chain() != HostStateMachine::get() {
             let meta =
-                FeeMetadata { origin: [0u8; 32].into(), fee: Default::default(), claimed: false };
+                FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() };
             return Ismp::dispatch_response(response, meta);
         }
 

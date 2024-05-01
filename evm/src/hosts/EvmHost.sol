@@ -393,6 +393,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function setHostParamsAdmin(HostParams memory params) public onlyAdmin {
         require(chainId() != block.chainid, "Cannot set params on mainnet");
 
+        uint256 whitelistLength = params.stateMachineWhitelist.length;
+        for (uint256 i = 0; i < whitelistLength; i++) {
+            delete _latestStateMachineHeight[params.stateMachineWhitelist[i]];
+        }
         updateHostParamsInternal(params);
     }
 

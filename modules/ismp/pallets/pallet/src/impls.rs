@@ -38,6 +38,10 @@ use mmr_primitives::MerkleMountainRangeTree;
 use sp_core::H256;
 
 impl<T: Config> Pallet<T> {
+    /// Deposit a pallet [`Event<T>`]
+    pub fn deposit_pallet_event<E: Into<Event<T>>>(event: E) {
+        Self::deposit_event(event.into())
+    }
     /// Generate an MMR proof for the given `leaf_indices`.
     /// Note this method can only be used from an off-chain context
     /// (Offchain Worker or Runtime API call), since it requires

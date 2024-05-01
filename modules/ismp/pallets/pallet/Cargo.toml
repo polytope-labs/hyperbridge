@@ -22,14 +22,10 @@ sp-runtime = { workspace = true }
 sp-core = { workspace = true }
 sp-std = { workspace = true }
 sp-api = { workspace = true }
-merkle-mountain-range = { workspace = true }
-pallet-timestamp = { workspace = true, optional = true }
-sp-consensus-aura = { workspace = true }
 ismp = { workspace = true }
 codec = { workspace = true }
 scale-info = { workspace = true }
 sp-mmr-primitives = { workspace = true }
-pallet-mmr = { workspace = true }
 mmr-primitives = { workspace = true }
 
 # crates.io
@@ -56,20 +52,16 @@ std = [
     "sp-std/std",
     "sp-core/std",
     "ismp/std",
-    "merkle-mountain-range/std",
     "sp-api/std",
     "serde/default",
     "pallet-balances/std",
-    "sp-consensus-aura/std",
     "sp-mmr-primitives/std",
-    "pallet-mmr/std",
     "mmr-primitives/std"
 ]
 disable-panic-handler = ["sp-io/disable_panic_handler", "sp-io/disable_oom", "sp-io/disable_allocator"]
 testing = ["pallet-timestamp/std"]
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",
-    "pallet-timestamp/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
     "frame-support/runtime-benchmarks"
 ]

@@ -194,7 +194,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
     let proof = Proof { height, proof };
 
     // 3. next send the requests
-    let tx = api::tx().ismp().handle(vec![Message::Request(RequestMessage {
+    let tx = api::tx().ismp().handle_unsigned(vec![Message::Request(RequestMessage {
         requests: vec![post.clone().into()],
         proof: proof.clone(),
         signer: H256::random().as_bytes().to_vec(),
@@ -204,7 +204,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
     let progress = client.tx().create_unsigned(&tx)?.submit_and_watch().await?;
     // send twice, txpool should reject it
     {
-        let tx = api::tx().ismp().handle(vec![Message::Request(RequestMessage {
+        let tx = api::tx().ismp().handle_unsigned(vec![Message::Request(RequestMessage {
             requests: vec![post.clone().into()],
             proof: proof.clone(),
             signer: H256::random().as_bytes().to_vec(),
@@ -235,7 +235,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 
     // send after block inclusion, txpool should reject it
     {
-        let tx = api::tx().ismp().handle(vec![Message::Request(RequestMessage {
+        let tx = api::tx().ismp().handle_unsigned(vec![Message::Request(RequestMessage {
             requests: vec![post.into()],
             proof,
             signer: H256::random().as_bytes().to_vec(),

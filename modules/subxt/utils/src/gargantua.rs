@@ -1054,9 +1054,9 @@ pub mod api {
                         "query_call_info",
                         types::QueryCallInfo { call, len },
                         [
-                            150u8, 87u8, 254u8, 64u8, 166u8, 81u8, 197u8, 103u8, 50u8, 114u8, 67u8,
-                            117u8, 175u8, 58u8, 203u8, 159u8, 250u8, 252u8, 133u8, 27u8, 251u8,
-                            165u8, 192u8, 46u8, 1u8, 30u8, 20u8, 245u8, 48u8, 4u8, 59u8, 120u8,
+                            113u8, 79u8, 146u8, 120u8, 134u8, 52u8, 105u8, 34u8, 246u8, 75u8, 77u8,
+                            72u8, 214u8, 219u8, 248u8, 93u8, 53u8, 71u8, 196u8, 5u8, 124u8, 160u8,
+                            200u8, 254u8, 143u8, 239u8, 188u8, 190u8, 121u8, 6u8, 151u8, 171u8,
                         ],
                     )
                 }
@@ -1076,9 +1076,9 @@ pub mod api {
                         "query_call_fee_details",
                         types::QueryCallFeeDetails { call, len },
                         [
-                            155u8, 15u8, 62u8, 95u8, 82u8, 197u8, 61u8, 244u8, 157u8, 197u8, 66u8,
-                            177u8, 170u8, 69u8, 34u8, 43u8, 20u8, 135u8, 243u8, 94u8, 252u8, 144u8,
-                            169u8, 222u8, 80u8, 171u8, 181u8, 50u8, 57u8, 160u8, 136u8, 162u8,
+                            101u8, 72u8, 42u8, 56u8, 76u8, 213u8, 106u8, 28u8, 61u8, 128u8, 62u8,
+                            209u8, 170u8, 93u8, 136u8, 188u8, 196u8, 19u8, 51u8, 85u8, 142u8, 22u8,
+                            220u8, 254u8, 41u8, 249u8, 127u8, 217u8, 179u8, 15u8, 250u8, 122u8,
                         ],
                     )
                 }
@@ -1317,7 +1317,7 @@ pub mod api {
                     ::core::result::Result<
                         (
                             ::std::vec::Vec<runtime_types::pallet_ismp::mmr::Leaf>,
-                            runtime_types::pallet_ismp::primitives::Proof<::subxt::utils::H256>,
+                            runtime_types::pallet_ismp::mmr::Proof<::subxt::utils::H256>,
                         ),
                         runtime_types::sp_mmr_primitives::Error,
                     >,
@@ -1327,10 +1327,9 @@ pub mod api {
                         "generate_proof",
                         types::GenerateProof { commitments },
                         [
-                            195u8, 163u8, 200u8, 21u8, 175u8, 11u8, 89u8, 42u8, 128u8, 156u8,
-                            243u8, 55u8, 228u8, 143u8, 52u8, 129u8, 198u8, 54u8, 171u8, 99u8, 72u8,
-                            37u8, 124u8, 19u8, 102u8, 149u8, 229u8, 117u8, 56u8, 241u8, 224u8,
-                            51u8,
+                            52u8, 204u8, 96u8, 113u8, 10u8, 227u8, 194u8, 37u8, 106u8, 102u8,
+                            118u8, 40u8, 74u8, 63u8, 155u8, 60u8, 181u8, 61u8, 100u8, 213u8, 182u8,
+                            199u8, 67u8, 94u8, 200u8, 62u8, 119u8, 186u8, 130u8, 6u8, 121u8, 74u8,
                         ],
                     )
                 }
@@ -1637,7 +1636,7 @@ pub mod api {
         }
         pub mod ismp_parachain_api {
             use super::{root_mod, runtime_types};
-            #[doc = " Ismp Parachain Runtime Apis"]
+            #[doc = " Ismp Parachain consensus client runtime APIs"]
             pub struct IsmpParachainApi;
             impl IsmpParachainApi {
                 #[doc = " Return all the para_ids this runtime is interested in. Used by the inherent provider"]
@@ -1838,9 +1837,9 @@ pub mod api {
                         "create_transaction",
                         types::CreateTransaction { account, call },
                         [
-                            90u8, 112u8, 15u8, 179u8, 49u8, 254u8, 114u8, 37u8, 84u8, 70u8, 236u8,
-                            225u8, 142u8, 177u8, 0u8, 152u8, 114u8, 130u8, 199u8, 94u8, 19u8,
-                            124u8, 40u8, 98u8, 239u8, 50u8, 67u8, 149u8, 70u8, 143u8, 110u8, 60u8,
+                            42u8, 64u8, 249u8, 175u8, 166u8, 91u8, 249u8, 193u8, 16u8, 25u8, 167u8,
+                            132u8, 191u8, 180u8, 0u8, 148u8, 55u8, 246u8, 214u8, 188u8, 198u8,
+                            21u8, 203u8, 241u8, 63u8, 30u8, 27u8, 16u8, 85u8, 36u8, 46u8, 222u8,
                         ],
                     )
                 }
@@ -2035,9 +2034,9 @@ pub mod api {
             .hash();
         runtime_metadata_hash ==
             [
-                54u8, 202u8, 111u8, 85u8, 41u8, 31u8, 95u8, 107u8, 67u8, 1u8, 6u8, 41u8, 37u8,
-                205u8, 138u8, 159u8, 80u8, 52u8, 223u8, 131u8, 209u8, 174u8, 30u8, 23u8, 85u8,
-                108u8, 160u8, 112u8, 233u8, 160u8, 200u8, 42u8,
+                78u8, 185u8, 111u8, 105u8, 123u8, 221u8, 148u8, 224u8, 12u8, 33u8, 26u8, 214u8,
+                132u8, 66u8, 123u8, 134u8, 106u8, 213u8, 25u8, 202u8, 123u8, 241u8, 223u8, 98u8,
+                222u8, 139u8, 116u8, 61u8, 231u8, 144u8, 251u8, 59u8,
             ]
     }
     pub mod system {
@@ -6873,9 +6872,9 @@ pub mod api {
                         "sudo",
                         types::Sudo { call: ::std::boxed::Box::new(call) },
                         [
-                            63u8, 125u8, 177u8, 113u8, 56u8, 210u8, 209u8, 83u8, 196u8, 77u8,
-                            209u8, 16u8, 5u8, 94u8, 65u8, 101u8, 168u8, 138u8, 96u8, 90u8, 57u8,
-                            8u8, 26u8, 128u8, 68u8, 23u8, 76u8, 122u8, 106u8, 238u8, 130u8, 144u8,
+                            233u8, 125u8, 196u8, 225u8, 10u8, 31u8, 71u8, 56u8, 156u8, 222u8, 54u8,
+                            167u8, 129u8, 215u8, 64u8, 142u8, 207u8, 209u8, 63u8, 47u8, 66u8,
+                            128u8, 151u8, 102u8, 45u8, 37u8, 174u8, 60u8, 45u8, 74u8, 69u8, 195u8,
                         ],
                     )
                 }
@@ -6890,9 +6889,9 @@ pub mod api {
                         "sudo_unchecked_weight",
                         types::SudoUncheckedWeight { call: ::std::boxed::Box::new(call), weight },
                         [
-                            1u8, 185u8, 105u8, 40u8, 47u8, 41u8, 87u8, 115u8, 217u8, 164u8, 186u8,
-                            187u8, 120u8, 98u8, 233u8, 46u8, 24u8, 33u8, 193u8, 207u8, 221u8,
-                            239u8, 177u8, 132u8, 159u8, 249u8, 32u8, 30u8, 14u8, 34u8, 185u8, 76u8,
+                            244u8, 239u8, 195u8, 125u8, 121u8, 105u8, 66u8, 225u8, 15u8, 177u8,
+                            75u8, 117u8, 115u8, 169u8, 99u8, 194u8, 26u8, 121u8, 66u8, 13u8, 192u8,
+                            78u8, 95u8, 30u8, 142u8, 133u8, 184u8, 174u8, 43u8, 84u8, 71u8, 137u8,
                         ],
                     )
                 }
@@ -6923,10 +6922,10 @@ pub mod api {
                         "sudo_as",
                         types::SudoAs { who, call: ::std::boxed::Box::new(call) },
                         [
-                            176u8, 198u8, 166u8, 202u8, 4u8, 141u8, 34u8, 198u8, 19u8, 201u8,
-                            185u8, 229u8, 82u8, 168u8, 171u8, 124u8, 138u8, 105u8, 110u8, 136u8,
-                            25u8, 104u8, 99u8, 124u8, 94u8, 109u8, 108u8, 21u8, 86u8, 52u8, 212u8,
-                            137u8,
+                            136u8, 210u8, 33u8, 28u8, 100u8, 36u8, 194u8, 179u8, 174u8, 111u8,
+                            141u8, 238u8, 49u8, 199u8, 99u8, 189u8, 102u8, 32u8, 227u8, 0u8, 13u8,
+                            248u8, 208u8, 173u8, 47u8, 115u8, 36u8, 34u8, 182u8, 85u8, 225u8,
+                            238u8,
                         ],
                     )
                 }
@@ -9427,12 +9426,12 @@ pub mod api {
                 # [codec (crate = :: subxt :: ext :: codec)]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct Handle {
+                pub struct HandleUnsigned {
                     pub messages: ::std::vec::Vec<runtime_types::ismp::messaging::Message>,
                 }
-                impl ::subxt::blocks::StaticExtrinsic for Handle {
+                impl ::subxt::blocks::StaticExtrinsic for HandleUnsigned {
                     const PALLET: &'static str = "Ismp";
-                    const CALL: &'static str = "handle";
+                    const CALL: &'static str = "handle_unsigned";
                 }
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,
@@ -9468,49 +9467,29 @@ pub mod api {
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct UpdateConsensusState {
-                    pub message: runtime_types::pallet_ismp::pallet::UpdateConsensusState,
+                    pub message: runtime_types::pallet_ismp::utils::UpdateConsensusState,
                 }
                 impl ::subxt::blocks::StaticExtrinsic for UpdateConsensusState {
                     const PALLET: &'static str = "Ismp";
                     const CALL: &'static str = "update_consensus_state";
                 }
-                #[derive(
-                    :: subxt :: ext :: codec :: Decode,
-                    :: subxt :: ext :: codec :: Encode,
-                    :: subxt :: ext :: scale_decode :: DecodeAsType,
-                    :: subxt :: ext :: scale_encode :: EncodeAsType,
-                    Clone,
-                    Debug,
-                    Eq,
-                    PartialEq,
-                )]
-                # [codec (crate = :: subxt :: ext :: codec)]
-                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
-                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct ValidateMessages {
-                    pub messages: ::std::vec::Vec<runtime_types::ismp::messaging::Message>,
-                }
-                impl ::subxt::blocks::StaticExtrinsic for ValidateMessages {
-                    const PALLET: &'static str = "Ismp";
-                    const CALL: &'static str = "validate_messages";
-                }
             }
             pub struct TransactionApi;
             impl TransactionApi {
-                #[doc = "See [`Pallet::handle`]."]
-                pub fn handle(
+                #[doc = "See [`Pallet::handle_unsigned`]."]
+                pub fn handle_unsigned(
                     &self,
                     messages: ::std::vec::Vec<runtime_types::ismp::messaging::Message>,
-                ) -> ::subxt::tx::Payload<types::Handle> {
+                ) -> ::subxt::tx::Payload<types::HandleUnsigned> {
                     ::subxt::tx::Payload::new_static(
                         "Ismp",
-                        "handle",
-                        types::Handle { messages },
+                        "handle_unsigned",
+                        types::HandleUnsigned { messages },
                         [
-                            35u8, 201u8, 248u8, 163u8, 33u8, 231u8, 183u8, 60u8, 164u8, 53u8,
-                            179u8, 60u8, 105u8, 69u8, 251u8, 153u8, 139u8, 141u8, 44u8, 197u8,
-                            124u8, 189u8, 55u8, 30u8, 67u8, 248u8, 129u8, 78u8, 121u8, 202u8, 47u8,
-                            227u8,
+                            23u8, 192u8, 40u8, 163u8, 126u8, 108u8, 113u8, 223u8, 200u8, 102u8,
+                            152u8, 199u8, 87u8, 152u8, 144u8, 182u8, 137u8, 52u8, 43u8, 43u8,
+                            223u8, 38u8, 191u8, 83u8, 145u8, 105u8, 105u8, 128u8, 92u8, 78u8,
+                            126u8, 129u8,
                         ],
                     )
                 }
@@ -9534,7 +9513,7 @@ pub mod api {
                 #[doc = "See [`Pallet::update_consensus_state`]."]
                 pub fn update_consensus_state(
                     &self,
-                    message: runtime_types::pallet_ismp::pallet::UpdateConsensusState,
+                    message: runtime_types::pallet_ismp::utils::UpdateConsensusState,
                 ) -> ::subxt::tx::Payload<types::UpdateConsensusState> {
                     ::subxt::tx::Payload::new_static(
                         "Ismp",
@@ -9548,26 +9527,9 @@ pub mod api {
                         ],
                     )
                 }
-                #[doc = "See [`Pallet::validate_messages`]."]
-                pub fn validate_messages(
-                    &self,
-                    messages: ::std::vec::Vec<runtime_types::ismp::messaging::Message>,
-                ) -> ::subxt::tx::Payload<types::ValidateMessages> {
-                    ::subxt::tx::Payload::new_static(
-                        "Ismp",
-                        "validate_messages",
-                        types::ValidateMessages { messages },
-                        [
-                            144u8, 222u8, 18u8, 46u8, 111u8, 117u8, 19u8, 9u8, 192u8, 33u8, 224u8,
-                            197u8, 195u8, 157u8, 125u8, 72u8, 243u8, 41u8, 78u8, 82u8, 206u8,
-                            112u8, 143u8, 43u8, 92u8, 146u8, 105u8, 123u8, 175u8, 132u8, 95u8,
-                            14u8,
-                        ],
-                    )
-                }
             }
         }
-        #[doc = "The `Event` enum of this pallet"]
+        #[doc = "Pallet Events"]
         pub type Event = runtime_types::pallet_ismp::pallet::Event;
         pub mod events {
             use super::runtime_types;
@@ -9847,7 +9809,8 @@ pub mod api {
             use super::runtime_types;
             pub struct StorageApi;
             impl StorageApi {
-                #[doc = " Holds a map of state machine heights to their verified state commitments"]
+                #[doc = " Holds a map of state machine heights to their verified state commitments. These state"]
+                #[doc = " commitments end up here after they are successfully verified by a `ConsensusClient`"]
                 pub fn state_commitments(
                     &self,
                     _0: impl ::std::borrow::Borrow<runtime_types::ismp::consensus::StateMachineHeight>,
@@ -9870,7 +9833,8 @@ pub mod api {
                         ],
                     )
                 }
-                #[doc = " Holds a map of state machine heights to their verified state commitments"]
+                #[doc = " Holds a map of state machine heights to their verified state commitments. These state"]
+                #[doc = " commitments end up here after they are successfully verified by a `ConsensusClient`"]
                 pub fn state_commitments_root(
                     &self,
                 ) -> ::subxt::storage::address::Address<
@@ -9892,7 +9856,7 @@ pub mod api {
                         ],
                     )
                 }
-                #[doc = " Holds a map of consensus clients to their consensus state."]
+                #[doc = " Holds a map of consensus state identifiers to their consensus state."]
                 pub fn consensus_states(
                     &self,
                     _0: impl ::std::borrow::Borrow<[::core::primitive::u8; 4usize]>,
@@ -9914,7 +9878,7 @@ pub mod api {
                         ],
                     )
                 }
-                #[doc = " Holds a map of consensus clients to their consensus state."]
+                #[doc = " Holds a map of consensus state identifiers to their consensus state."]
                 pub fn consensus_states_root(
                     &self,
                 ) -> ::subxt::storage::address::Address<
@@ -9980,7 +9944,7 @@ pub mod api {
                         ],
                     )
                 }
-                #[doc = " A mapping of ConsensusStateId to ConsensusClientId"]
+                #[doc = " A mapping of consensus state identifier to it's associated consensus client identifier"]
                 pub fn consensus_state_client(
                     &self,
                     _0: impl ::std::borrow::Borrow<[::core::primitive::u8; 4usize]>,
@@ -10002,7 +9966,7 @@ pub mod api {
                         ],
                     )
                 }
-                #[doc = " A mapping of ConsensusStateId to ConsensusClientId"]
+                #[doc = " A mapping of consensus state identifier to it's associated consensus client identifier"]
                 pub fn consensus_state_client_root(
                     &self,
                 ) -> ::subxt::storage::address::Address<
@@ -10023,7 +9987,7 @@ pub mod api {
                         ],
                     )
                 }
-                #[doc = " A mapping of ConsensusStateId to Unbonding periods"]
+                #[doc = " A mapping of consensus state identifiers to their unbonding periods"]
                 pub fn unbonding_period(
                     &self,
                     _0: impl ::std::borrow::Borrow<[::core::primitive::u8; 4usize]>,
@@ -10045,7 +10009,7 @@ pub mod api {
                         ],
                     )
                 }
-                #[doc = " A mapping of ConsensusStateId to Unbonding periods"]
+                #[doc = " A mapping of consensus state identifiers to their unbonding periods"]
                 pub fn unbonding_period_root(
                     &self,
                 ) -> ::subxt::storage::address::Address<
@@ -10066,7 +10030,7 @@ pub mod api {
                         ],
                     )
                 }
-                #[doc = " A mapping of ConsensusStateId to Challenge periods"]
+                #[doc = " A mapping of consensus state identifiers to their challenge periods"]
                 pub fn challenge_period(
                     &self,
                     _0: impl ::std::borrow::Borrow<[::core::primitive::u8; 4usize]>,
@@ -10088,7 +10052,7 @@ pub mod api {
                         ],
                     )
                 }
-                #[doc = " A mapping of ConsensusStateId to Challenge periods"]
+                #[doc = " A mapping of consensus state identifiers to their challenge periods"]
                 pub fn challenge_period_root(
                     &self,
                 ) -> ::subxt::storage::address::Address<
@@ -10356,28 +10320,6 @@ pub mod api {
                             47u8, 101u8, 89u8, 252u8, 98u8, 25u8, 178u8, 154u8, 17u8, 57u8, 185u8,
                             10u8, 133u8, 94u8, 73u8, 160u8, 137u8, 150u8, 97u8, 119u8, 8u8, 146u8,
                             149u8, 146u8, 212u8, 60u8, 141u8, 24u8, 124u8, 28u8, 57u8, 19u8,
-                        ],
-                    )
-                }
-                #[doc = " Contains a tuple of the weight consumed and weight limit in executing contract callbacks in"]
-                #[doc = " a transaction"]
-                pub fn weight_consumed(
-                    &self,
-                ) -> ::subxt::storage::address::Address<
-                    ::subxt::storage::address::StaticStorageMapKey,
-                    runtime_types::pallet_ismp::primitives::WeightUsed,
-                    ::subxt::storage::address::Yes,
-                    ::subxt::storage::address::Yes,
-                    (),
-                > {
-                    ::subxt::storage::address::Address::new_static(
-                        "Ismp",
-                        "WeightConsumed",
-                        vec![],
-                        [
-                            220u8, 190u8, 35u8, 208u8, 219u8, 235u8, 179u8, 113u8, 54u8, 170u8,
-                            151u8, 88u8, 121u8, 112u8, 50u8, 44u8, 164u8, 150u8, 180u8, 61u8, 18u8,
-                            65u8, 59u8, 75u8, 123u8, 181u8, 181u8, 174u8, 97u8, 252u8, 49u8, 163u8,
                         ],
                     )
                 }
@@ -17667,6 +17609,42 @@ pub mod api {
                 # [codec (crate = :: subxt :: ext :: codec)]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub struct LeafIndexAndPos {
+                    pub leaf_index: ::core::primitive::u64,
+                    pub pos: ::core::primitive::u64,
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub struct Proof<_0> {
+                    pub leaf_indices_and_pos:
+                        ::std::vec::Vec<runtime_types::pallet_ismp::mmr::LeafIndexAndPos>,
+                    pub leaf_count: ::core::primitive::u64,
+                    pub items: ::std::vec::Vec<_0>,
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub enum ProofKeys {
                     #[codec(index = 0)]
                     Requests(::std::vec::Vec<::subxt::utils::H256>),
@@ -17692,22 +17670,19 @@ pub mod api {
                 #[doc = "Contains a variant per dispatchable extrinsic that this pallet has."]
                 pub enum Call {
                     #[codec(index = 0)]
-                    #[doc = "See [`Pallet::handle`]."]
-                    handle { messages: ::std::vec::Vec<runtime_types::ismp::messaging::Message> },
-                    #[codec(index = 1)]
+                    #[doc = "See [`Pallet::handle_unsigned`]."]
+                    handle_unsigned {
+                        messages: ::std::vec::Vec<runtime_types::ismp::messaging::Message>,
+                    },
+                    #[codec(index = 2)]
                     #[doc = "See [`Pallet::create_consensus_client`]."]
                     create_consensus_client {
                         message: runtime_types::ismp::messaging::CreateConsensusState,
                     },
-                    #[codec(index = 2)]
+                    #[codec(index = 3)]
                     #[doc = "See [`Pallet::update_consensus_state`]."]
                     update_consensus_state {
-                        message: runtime_types::pallet_ismp::pallet::UpdateConsensusState,
-                    },
-                    #[codec(index = 3)]
-                    #[doc = "See [`Pallet::validate_messages`]."]
-                    validate_messages {
-                        messages: ::std::vec::Vec<runtime_types::ismp::messaging::Message>,
+                        message: runtime_types::pallet_ismp::utils::UpdateConsensusState,
                     },
                 }
                 #[derive(
@@ -17751,7 +17726,7 @@ pub mod api {
                 # [codec (crate = :: subxt :: ext :: codec)]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                #[doc = "The `Event` enum of this pallet"]
+                #[doc = "Pallet Events"]
                 pub enum Event {
                     #[codec(index = 0)]
                     #[doc = "Emitted when a state machine is successfully updated to a new height"]
@@ -17813,6 +17788,9 @@ pub mod api {
                     #[doc = "Get request timeout handled"]
                     GetRequestTimeoutHandled(runtime_types::ismp::events::TimeoutHandled),
                 }
+            }
+            pub mod utils {
+                use super::runtime_types;
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,
                     :: subxt :: ext :: codec :: Encode,
@@ -17830,62 +17808,6 @@ pub mod api {
                     pub consensus_state_id: [::core::primitive::u8; 4usize],
                     pub unbonding_period: ::core::option::Option<::core::primitive::u64>,
                     pub challenge_period: ::core::option::Option<::core::primitive::u64>,
-                }
-            }
-            pub mod primitives {
-                use super::runtime_types;
-                #[derive(
-                    :: subxt :: ext :: codec :: Decode,
-                    :: subxt :: ext :: codec :: Encode,
-                    :: subxt :: ext :: scale_decode :: DecodeAsType,
-                    :: subxt :: ext :: scale_encode :: EncodeAsType,
-                    Clone,
-                    Debug,
-                    Eq,
-                    PartialEq,
-                )]
-                # [codec (crate = :: subxt :: ext :: codec)]
-                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
-                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct LeafIndexAndPos {
-                    pub leaf_index: ::core::primitive::u64,
-                    pub pos: ::core::primitive::u64,
-                }
-                #[derive(
-                    :: subxt :: ext :: codec :: Decode,
-                    :: subxt :: ext :: codec :: Encode,
-                    :: subxt :: ext :: scale_decode :: DecodeAsType,
-                    :: subxt :: ext :: scale_encode :: EncodeAsType,
-                    Clone,
-                    Debug,
-                    Eq,
-                    PartialEq,
-                )]
-                # [codec (crate = :: subxt :: ext :: codec)]
-                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
-                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct Proof<_0> {
-                    pub leaf_positions:
-                        ::std::vec::Vec<runtime_types::pallet_ismp::primitives::LeafIndexAndPos>,
-                    pub leaf_count: ::core::primitive::u64,
-                    pub items: ::std::vec::Vec<_0>,
-                }
-                #[derive(
-                    :: subxt :: ext :: codec :: Decode,
-                    :: subxt :: ext :: codec :: Encode,
-                    :: subxt :: ext :: scale_decode :: DecodeAsType,
-                    :: subxt :: ext :: scale_encode :: EncodeAsType,
-                    Clone,
-                    Debug,
-                    Eq,
-                    PartialEq,
-                )]
-                # [codec (crate = :: subxt :: ext :: codec)]
-                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
-                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct WeightUsed {
-                    pub weight_used: runtime_types::sp_weights::weight_v2::Weight,
-                    pub weight_limit: runtime_types::sp_weights::weight_v2::Weight,
                 }
             }
         }

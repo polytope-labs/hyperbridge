@@ -55,7 +55,7 @@ pub mod pallet {
         AlreadyAdded,
         /// Account wasn't found in the set.
         NotInSet,
-        /// An accounnt not in the fishermen set attempted to execute a veto
+        /// An account not in the fishermen set attempted to execute a veto
         UnauthorizedAction,
         /// State commitment was not found
         VetoFailed,
@@ -107,8 +107,6 @@ pub mod pallet {
         /// challenge period) is infact fraudulent and misrepresentative of the state
         /// changes at the provided height. This allows them to veto the state commitment.
         /// They aren't required to provide any proofs for this.
-        ///
-        /// This will eventually become permissionless with the `evm-block-executor`.
         #[pallet::call_index(2)]
         #[pallet::weight({1_000_000})]
         pub fn veto_state_commitment(
@@ -124,16 +122,12 @@ pub mod pallet {
             ismp_host.delete_state_commitment(height).map_err(|_| Error::<T>::VetoFailed)?;
 
             Self::deposit_event(Event::StateCommitmentVetoed { height, commitment });
-            pallet_ismp::events::deposit_ismp_events::<T>(
-                vec![Ok(ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
+            pallet_ismp::Pallet::<T>::deposit_pallet_event(
+                ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
                     height,
-                    fisherman: origin
-                        .into_signer()
-                        .expect("origin is signed; qed")
-                        .as_ref()
-                        .to_vec(),
-                }))],
-                &mut vec![],
+                    fisherman: account.as_ref().to_vec(),
+                })
+                .into(),
             );
             Ok(())
         }

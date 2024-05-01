@@ -204,7 +204,7 @@ ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-featu
 orml-xcm-support = { version = "=0.7.0", default-features = false }
 orml-traits = { version = "=0.7.0", default-features = false }
 primitive-types = { version = "0.12.1", default-features = false }
-sc-simnode = { version = "1.6.1" }
+sc-simnode = { version = "1.6.2" }
 simnode-runtime-api = { version = "1.6.0", default-features = false }
 subxt = { version = "0.30.1", default-features = false }
 

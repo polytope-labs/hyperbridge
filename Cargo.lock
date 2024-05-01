@@ -8957,7 +8957,6 @@ dependencies = [
 name = "pallet-ismp"
 version = "1.6.0"
 dependencies = [
- "ckb-merkle-mountain-range",
  "env_logger 0.10.2",
  "fortuples",
  "frame-benchmarking",
@@ -8968,13 +8967,11 @@ dependencies = [
  "log",
  "mmr-primitives",
  "pallet-balances",
- "pallet-mmr 0.1.0",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
  "serde",
  "sp-api",
- "sp-consensus-aura",
  "sp-core 28.0.0",
  "sp-io 30.0.0",
  "sp-mmr-primitives",
@@ -13937,9 +13934,9 @@ dependencies = [
 
 [[package]]
 name = "sc-simnode"
-version = "1.6.1"
+version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d9e89833a86bcf0c106d7be604fecf8d081c5ecd2129d13055265d0b483c2be"
+checksum = "55d290526deddb819a41c068a4086e8195fcb8b717bf541404c414c79fea57a9"
 dependencies = [
  "async-trait",
  "clap",
@@ -16835,7 +16832,6 @@ dependencies = [
 name = "substrate-state-machine"
 version = "1.6.0"
 dependencies = [
- "ckb-merkle-mountain-range",
  "frame-support",
  "frame-system",
  "hash-db",

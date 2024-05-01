@@ -25,7 +25,7 @@ pub struct StateMachineUpdated {
 pub struct StateCommitmentVetoed {
     /// The state commitment identifier
     pub height: StateMachineHeight,
-    /// The responsible relayer
+    /// The account responsible
     pub fisherman: Vec<u8>,
 }
 

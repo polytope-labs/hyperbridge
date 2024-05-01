@@ -3,7 +3,7 @@
   "id": "gargantua",
   "chainType": "Live",
   "bootNodes": [
-    "/ip4/35.195.142.66/tcp/30333/p2p/12D3KooWHyxaKqfQgQsnVAXzgJr7BkXmpXd9zwF5AwbL9uy7ozKV"
+    "/ip4/35.195.142.66/tcp/30333/p2p/12D3KooWN7QkT3GfSuavu3HeZ6Cm7eMrM3g8FjNLx1RvC8bCigHX"
   ],
   "telemetryEndpoints": [
     [

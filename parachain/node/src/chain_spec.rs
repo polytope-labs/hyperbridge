@@ -121,7 +121,7 @@ pub fn gargantua_development_config(id: u32) -> ChainSpec<gargantua_runtime::Run
             get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
         ],
         get_account_id_from_seed::<sr25519::Public>("Alice"),
-        id.into(),
+        id,
     ))
     .build()
 }
@@ -171,7 +171,7 @@ pub fn messier_development_config(id: u32) -> ChainSpec<messier_runtime::Runtime
             get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
         ],
         get_account_id_from_seed::<sr25519::Public>("Alice"),
-        id.into(),
+        id,
     ))
     .build()
 }
@@ -221,7 +221,7 @@ pub fn nexus_development_config(id: u32) -> ChainSpec<nexus_runtime::RuntimeGene
             get_account_id_from_seed::<sr25519::Public>("Ferdie//stash"),
         ],
         get_account_id_from_seed::<sr25519::Public>("Alice"),
-        id.into(),
+        id,
     ))
     .build()
 }
@@ -230,19 +230,31 @@ fn testnet_genesis(
     invulnerables: Vec<(AccountId, AuraId)>,
     endowed_accounts: Vec<AccountId>,
     root: AccountId,
-    id: ParaId,
+    id: u32,
 ) -> serde_json::Value {
     let asset_id = MultiLocation::parent();
+    let para_id: ParaId = id.into();
+
+    // sibling parachain for tests
+    let sibling = match id {
+        2000 => 2001u32,
+        2001 => 2000u32,
+        _ => unimplemented!(),
+    };
+
     serde_json::json!({
         "balances": {
             "balances": endowed_accounts.iter().cloned().map(|k| (k, 1u64 << 60)).collect::<Vec<_>>(),
         },
         "parachainInfo": {
-            "parachainId": id,
+            "parachainId": para_id,
         },
         "collatorSelection": {
             "invulnerables": invulnerables.iter().cloned().map(|(acc, _)| acc).collect::<Vec<_>>(),
             "candidacyBond": EXISTENTIAL_DEPOSIT * 16,
+        },
+        "ismpParachain": {
+            "parachains": vec![sibling]
         },
         "session": {
             "keys": invulnerables

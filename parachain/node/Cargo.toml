@@ -26,6 +26,8 @@ pallet-ismp-runtime-api = { workspace = true }
 mmr-gadget = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
+ismp-parachain-inherent = { workspace = true }
+ismp-parachain-runtime-api = { workspace = true }
 
 # Substrate
 frame-benchmarking = { workspace = true }

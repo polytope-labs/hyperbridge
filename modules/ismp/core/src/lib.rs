@@ -22,12 +22,12 @@
 //!
 //! This repo provides an implementation of the neccessary components laid out in the [ISMP protocol specification](https://docs.hyperbridge.network/protocol/ismp).
 //!
-//! - [x] [`Message` Definitions](messaging)
-//! - [x] [`Message` Handlers](handlers)
-//! - [x] [`ConsensusClient` and `StateMachineClient` definitions](consensus)
-//! - [x] [`IsmpHost` definitions](host)
-//! - [x] [`IsmpRouter` definitions](router)
-//! - [x] [`IsmpDispatcher` definitions](dispatcher)
+//! - [`Message` Definitions](messaging)
+//! - [`Message` Handlers](handlers)
+//! - [`ConsensusClient` and `StateMachineClient` definitions](consensus)
+//! - [`IsmpHost` definitions](host)
+//! - [`IsmpRouter` definitions](router)
+//! - [`IsmpDispatcher` definitions](dispatcher)
 //!
 //! **NOTE**: All timestamps are denominated in seconds
 

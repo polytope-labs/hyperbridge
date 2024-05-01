@@ -28,7 +28,10 @@ mod weights;
 pub mod xcm;
 
 use alloc::vec::Vec;
-use cumulus_pallet_parachain_system::RelayNumberMonotonicallyIncreases;
+use cumulus_pallet_parachain_system::{
+    RelayChainState, RelayNumberMonotonicallyIncreases, RelaychainDataProvider,
+    RelaychainStateProvider,
+};
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::TransformOrigin;
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
@@ -768,7 +771,6 @@ impl_runtime_apis! {
     }
 
     impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
-
         fn challenge_period(consensus_state_id: [u8; 4]) -> Option<u64> {
             Ismp::get_challenge_period(consensus_state_id)
         }
@@ -846,6 +848,10 @@ impl_runtime_apis! {
     impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {
         fn para_ids() -> Vec<u32> {
             IsmpParachain::para_ids()
+        }
+
+        fn current_relay_chain_state() -> RelayChainState {
+            RelaychainDataProvider::<Runtime>::current_relay_chain_state()
         }
     }
 

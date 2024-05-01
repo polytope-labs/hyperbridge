@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
 repository = "https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/parachain/runtime-api"
-homepage = "https://docs.hyperbridge.netwoprk/integrations/polkadot-sdk"
+homepage = "https://docs.hyperbridge.network/integrations/polkadot-sdk"
 documentation = "https://docs.rs/ismp-parachain"
 description = "Substrate runtime API for the ISMP Parachain consensus client"
 keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
@@ -13,7 +13,8 @@ readme = "./README.md"
 
 [dependencies]
 sp-api = { workspace = true, default-features = false }
+cumulus-pallet-parachain-system = { workspace = true,  default-features = false }
 
 [features]
 default = ["std"]
-std = ["sp-api/std"]
+std = ["sp-api/std", "cumulus-pallet-parachain-system/std"]

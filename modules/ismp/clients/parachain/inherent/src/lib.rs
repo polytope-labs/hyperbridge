@@ -16,59 +16,111 @@
 #![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 
-//! ISMP Parachain Consensus Inherent Provider
-//!
-//! This exports the inherent provider for including ISMP parachain consensus updates as block
-//! inherents.
-
-use codec::Encode;
-use cumulus_primitives_core::PersistedValidationData;
-use cumulus_relay_chain_interface::{PHash, RelayChainInterface};
-use ismp::messaging::ConsensusMessage;
-use ismp_parachain::consensus::{parachain_header_storage_key, ParachainConsensusProof};
-use ismp_parachain_runtime_api::IsmpParachainApi;
-use sp_runtime::traits::Block as BlockT;
 use std::sync::Arc;
+
+use anyhow::anyhow;
+use codec::{Decode, Encode};
+use cumulus_relay_chain_interface::RelayChainInterface;
+use sp_runtime::{
+    generic::{BlockId, Header},
+    traits::{BlakeTwo256, Block as BlockT},
+};
+
+use ismp::{consensus::StateMachineId, host::StateMachine, messaging::ConsensusMessage};
+use ismp_parachain::{
+    consensus::{parachain_header_storage_key, ParachainConsensusProof},
+    PARACHAIN_CONSENSUS_ID,
+};
+use ismp_parachain_runtime_api::IsmpParachainApi;
+use pallet_ismp_runtime_api::IsmpRuntimeApi;
 
 /// Implements [`InherentDataProvider`](sp_inherents::InherentDataProvider) for providing parachain
 /// consensus updates as inherents.
 pub struct ConsensusInherentProvider(Option<ConsensusMessage>);
 
 impl ConsensusInherentProvider {
-    /// Create the [`ConsensusMessage`] at the given `relay_parent`. Will be [`None`] if no para ids
-    /// have been confguired.
+    /// Create the [`ConsensusMessage`] for the latest height. Will be [`None`] if no para ids have
+    /// been configured.
     pub async fn create<C, B>(
         client: Arc<C>,
-        relay_parent: PHash,
-        relay_chain_interface: &impl RelayChainInterface,
-        validation_data: PersistedValidationData,
+        parent: B::Hash,
+        relay_chain_interface: Arc<dyn RelayChainInterface>,
     ) -> Result<ConsensusInherentProvider, anyhow::Error>
     where
         C: sp_api::ProvideRuntimeApi<B> + sp_blockchain::HeaderBackend<B>,
-        C::Api: IsmpParachainApi<B>,
+        C::Api: IsmpParachainApi<B> + IsmpRuntimeApi<B, B::Hash>,
         B: BlockT,
     {
-        let head = client.info().best_hash;
-        let para_ids = client.runtime_api().para_ids(head)?;
+        let para_ids = client.runtime_api().para_ids(parent)?;
 
         if para_ids.is_empty() {
             return Ok(ConsensusInherentProvider(None));
         }
 
-        let keys = para_ids.iter().map(|id| parachain_header_storage_key(*id).0).collect();
+        let state = client.runtime_api().current_relay_chain_state(parent)?;
+
+        // parachain is just starting
+        if state.number == 0u32 {
+            return Ok(ConsensusInherentProvider(None));
+        }
+
+        let relay_header = relay_chain_interface
+            .header(BlockId::Number(state.number))
+            .await?
+            .ok_or_else(|| anyhow!("Relay chain header for height {} not found", state.number))?;
+
+        let mut para_ids_to_fetch = vec![];
+        for id in para_ids {
+            let Some(head) = relay_chain_interface
+                .get_storage_by_key(relay_header.hash(), parachain_header_storage_key(id).as_ref())
+                .await?
+            else {
+                continue
+            };
+
+            let Ok(intermediate) = Vec::<u8>::decode(&mut &head[..]) else {
+                continue;
+            };
+
+            let Ok(header) = Header::<u32, BlakeTwo256>::decode(&mut &intermediate[..]) else {
+                continue;
+            };
+
+            let mut state_machine_id = StateMachineId {
+                consensus_state_id: PARACHAIN_CONSENSUS_ID,
+                state_id: StateMachine::Kusama(id),
+            };
+            // first try kusama
+            let height_kusama =
+                client.runtime_api().latest_state_machine_height(parent, state_machine_id)?;
+            // try polkadot
+            state_machine_id.state_id = StateMachine::Polkadot(id);
+            let height_polkadot =
+                client.runtime_api().latest_state_machine_height(parent, state_machine_id)?;
+
+            let Some(height) = height_kusama.or(height_polkadot) else { continue };
+
+            if height >= header.number as u64 {
+                continue
+            }
+
+            para_ids_to_fetch.push(id);
+        }
+
+        if para_ids_to_fetch.is_empty() {
+            return Ok(ConsensusInherentProvider(None));
+        }
+
+        let keys = para_ids_to_fetch.iter().map(|id| parachain_header_storage_key(*id).0).collect();
         let storage_proof = relay_chain_interface
-            .prove_read(relay_parent, &keys)
+            .prove_read(relay_header.hash(), &keys)
             .await?
             .into_iter_nodes()
             .collect();
 
-        let consensus_proof = ParachainConsensusProof {
-            para_ids,
-            relay_height: validation_data.relay_parent_number,
-            storage_proof,
-        };
+        let consensus_proof = ParachainConsensusProof { relay_height: state.number, storage_proof };
         let message = ConsensusMessage {
-            consensus_state_id: ismp_parachain::consensus::PARACHAIN_CONSENSUS_ID,
+            consensus_state_id: PARACHAIN_CONSENSUS_ID,
             consensus_proof: consensus_proof.encode(),
             signer: Default::default(),
         };

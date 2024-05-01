@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
 repository = "https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/parachain/inherent"
-homepage = "https://docs.hyperbridge.netwoprk/integrations/polkadot-sdk"
+homepage = "https://docs.hyperbridge.network/integrations/polkadot-sdk"
 documentation = "https://docs.rs/ismp-parachain-inherent"
 description = "Parachain ISMPconsensus client inherent provider"
 keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
@@ -31,3 +31,5 @@ cumulus-relay-chain-interface = {  workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
 ismp-parachain = { workspace = true, default-features = true }
 ismp-parachain-runtime-api = { workspace = true, default-features = true }
+pallet-ismp-runtime-api = { workspace = true, default-features = true }
+log = "0.4.21"

@@ -90,6 +90,10 @@ impl pallet_ismp_host_executive::Config for Runtime {
     type Dispatcher = Host<Runtime>;
 }
 
+impl ismp_parachain::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+}
+
 impl pallet_call_decompressor::Config for Runtime {
     type MaxCallSize = ConstU32<3>;
 }

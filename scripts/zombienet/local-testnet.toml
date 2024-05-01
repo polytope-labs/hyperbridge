@@ -50,6 +50,23 @@ args = [
 	"-lbasic-authorship=trace,ismp=trace,xcm=trace", "--enable-offchain-indexing=true", "--pruning=archive"
 ]
 
+#[[parachains]]
+#id = 2001
+#chain = "gargantua-2001"
+#cumulus_based = true
+#
+## run alice as parachain collator
+#[[parachains.collators]]
+#name = "alice"
+#validator = true
+#rpc_port = 8956
+#ws_port = 9991
+#port = 40338
+#command = "./target/release/hyperbridge"
+#args = [
+#	"-lbasic-authorship=trace,ismp=trace,xcm=trace", "--enable-offchain-indexing=true", "--pruning=archive"
+#]
+
 ## run bob as parachain collator
 #[[parachains.collators]]
 #name = "bob"

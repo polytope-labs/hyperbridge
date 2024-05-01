@@ -12,7 +12,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//! Pallet-ismp runtime Apis
+
+//! pallet-ismp runtime APIs
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(clippy::too_many_arguments)]
@@ -30,7 +31,7 @@ use primitive_types::H256;
 use sp_mmr_primitives::Error;
 
 sp_api::decl_runtime_apis! {
-    /// ISMP Runtime Apis
+    /// Required runtime APIs needed for client subsystems like the RPC
     pub trait IsmpRuntimeApi<Hash: codec::Codec> {
         /// Generate a proof for the provided leaf indices
         fn generate_proof(

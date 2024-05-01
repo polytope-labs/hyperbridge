@@ -5553,6 +5553,8 @@ dependencies = [
  "frame-system",
  "futures",
  "gargantua-runtime",
+ "ismp-parachain-inherent",
+ "ismp-parachain-runtime-api",
  "jsonrpsee 0.16.3",
  "log",
  "messier-runtime",
@@ -5986,6 +5988,7 @@ dependencies = [
  "frame-system",
  "hex-literal 0.4.1",
  "ismp",
+ "log",
  "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",
@@ -6010,6 +6013,8 @@ dependencies = [
  "ismp",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
+ "log",
+ "pallet-ismp-runtime-api",
  "parity-scale-codec",
  "sp-api",
  "sp-blockchain",
@@ -6021,6 +6026,7 @@ dependencies = [
 name = "ismp-parachain-runtime-api"
 version = "1.6.0"
 dependencies = [
+ "cumulus-pallet-parachain-system",
  "sp-api",
 ]
 
@@ -7367,6 +7373,8 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-bsc",
+ "ismp-parachain",
+ "ismp-parachain-runtime-api",
  "ismp-sync-committee",
  "log",
  "orml-traits",
@@ -7906,6 +7914,8 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-bsc",
+ "ismp-parachain",
+ "ismp-parachain-runtime-api",
  "ismp-sync-committee",
  "log",
  "orml-traits",
@@ -9050,6 +9060,7 @@ dependencies = [
 name = "pallet-ismp-rpc"
 version = "1.6.0"
 dependencies = [
+ "anyhow",
  "frame-system",
  "hash-db",
  "hex",

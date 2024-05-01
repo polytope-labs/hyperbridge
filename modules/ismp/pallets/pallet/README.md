@@ -10,15 +10,15 @@ The interoperable state machine protocol implementation for substrate-based chai
 
 ## Overview
 
-The ISMP Pallet itself provides Calls which alow for:
+The ISMP Pallet provides calls which alow for:
 
-* Creating Consensus Clients
-* Updating Consensus Clients
-* Executing ISMP Messages
+* Creating consensus clients with their respective unbonding, challenge periods and any initial state machine commitments.
+* Updating consensus clients metadata
+* Executing ISMP-compliant Messages
 
 To use it in your runtime, you need to implement the ismp
-[`pallet_ismp::Config`](pallet/trait.Config.html). The supported dispatchable functions are documented in the
-[`pallet_ismp::Call`](pallet/enum.Call.html) enum.
+[`pallet_ismp::Config`](https://docs.rs/pallet-ismp/latest/pallet-ismp/pallet/trait.Config.html). The supported dispatchable functions are documented in the
+[`pallet_ismp::Call`](https://docs.rs/pallet-ismp/latest/pallet-ismp/pallet/enum.Call.html) enum.
 
 
 ### Terminology
@@ -31,22 +31,15 @@ To use it in your runtime, you need to implement the ismp
 * **Unbonding Period:** Refers to how long it takes for validators to unstake their funds from the connected chain.
 * **Challenge Period:** A configurable value for how long to wait for state commitments to be challenged, before they can be used to verify incoming requests/responses.
 
-### Goals
-
-The ISMP pallet in Substrate is designed to make the following possible:
-
-* Create consensus clients with their respective unbonding, challenge periods and any initial state machine commitments.
-* Update consensus client metadata.
-* Execute ISMP messages
-
 ### Dispatchable Functions
 
 * `handle` - Handles incoming ISMP messages.
+* `handle_unsigned` Unsigned variant for handling incoming messages, enabled by `feature = ["unsigned"]`
 * `create_consensus_client` - Handles creation of various properties for a particular consensus client. Can only be called by the `AdminOrigin`.
 * `update_consensus_state` - Updates consensus client properties in storage. Can only be called by the `AdminOrigin`.
 
 
-Please refer to the [`Call`](pallet/enum.Call.html) enum and its associated
+Please refer to the [`Call`](https://docs.rs/pallet-ismp/latest/pallet-ismp/pallet/enum.Call.html) enum and its associated
 variants for documentation on each function.
 
 ### Runtime Configuration
@@ -54,6 +47,14 @@ variants for documentation on each function.
 The following example shows how to configure `pallet-ismp` in your runtime
 
 ```rust,ignore
+use frame_support::parameter_types;
+use frame_system::EnsureRoot;
+use ismp::Error;
+use pallet_ismp::NoOpMmrTree;
+use ismp::host::StateMachine;
+use ismp::module::IsmpModule;
+use ismp::router::{IsmpRouter, Post, Response, Timeout};
+
 parameter_types! {
     // The hyperbridge parachain on Polkadot
     pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));
@@ -69,7 +70,9 @@ impl pallet_ismp::Config for Runtime {
     // The state machine identifier for this state machine
     type HostStateMachine = HostStateMachine;
     // The pallet_timestamp pallet
-    type TimeProvider = Timestamp;
+    type TimestampProvider = Timestamp;
+    // The currency implementation that is offered to relayers
+    type Currency = Balances;
     // Router implementation for routing requests/responses to their respective modules
     type Router = Router;
     // Optional coprocessor for incoming requests/responses
@@ -88,14 +91,12 @@ impl pallet_ismp::Config for Runtime {
 
 #[derive(Default)]
 struct Router;
-
 impl IsmpRouter for Router {
     fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
         let module = match id {
             YOUR_MODULE_ID => Box::new(YourModule::default()),
             _ => Err(Error::ModuleNotFound(id))?
         };
-
         Ok(module)
     }
 }
@@ -108,20 +109,27 @@ struct YourModule;
 impl IsmpModule for YourModule {
     /// Called by the ISMP hanlder, to notify module of a new POST request
     /// the module may choose to respond immediately, or in a later block
-    fn on_accept(&self, request: PostRequest) -> Result<(), Error> {
+    fn on_accept(&self, request: Post) -> Result<(), Error> {
         // do something useful with the request
+        Ok(())
     }
 
     /// Called by the ISMP hanlder, to notify module of a response to a previously
     /// sent out request
-	fn on_response(&self, response: Response) -> Result<(), Error> {
+    fn on_response(&self, response: Response) -> Result<(), Error> {
         // do something useful with the response
+        Ok(())
     }
 
     /// Called by the ISMP hanlder, to notify module of requests that were previously
     /// sent but have now timed-out
 	fn on_timeout(&self, request: Timeout) -> Result<(), Error> {
         // revert any state changes that were made prior to dispatching the request
+        Ok(())
     }
 }
 ```
+
+## License
+
+This library is licensed under the Apache 2.0 License, Copyright (c) 2023 Polytope Labs.

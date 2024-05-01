@@ -16,6 +16,7 @@
 //! Implementation for the low-level ISMP Dispatcher
 
 use crate::{child_trie::RequestReceipts, host::Host, mmr::LeafIndexAndPos, Pallet};
+use alloc::format;
 use frame_support::{
     traits::{Currency, ExistenceRequirement, UnixTime},
     PalletId,

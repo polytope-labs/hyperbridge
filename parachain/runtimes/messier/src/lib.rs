@@ -32,7 +32,10 @@ use frame_support::traits::TransformOrigin;
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
 use codec::{Decode, Encode, MaxEncodedLen};
-use cumulus_pallet_parachain_system::RelayNumberMonotonicallyIncreases;
+use cumulus_pallet_parachain_system::{
+    RelayChainState, RelayNumberMonotonicallyIncreases, RelaychainDataProvider,
+    RelaychainStateProvider,
+};
 use scale_info::TypeInfo;
 use smallvec::smallvec;
 use sp_api::impl_runtime_apis;
@@ -589,6 +592,7 @@ construct_runtime!(
         MessageQueue: pallet_message_queue = 35,
 
 
+        IsmpParachain: ismp_parachain = 40,
         IsmpSyncCommittee: ismp_sync_committee::pallet::{Pallet, Call} = 41,
         Relayer: pallet_ismp_relayer = 42,
         HostExecutive: pallet_ismp_host_executive = 43,
@@ -863,11 +867,15 @@ impl_runtime_apis! {
         }
     }
 
-    // impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {
-    //     fn para_ids() -> Vec<u32> {
-    //         IsmpParachain::para_ids()
-    //     }
-    // }
+    impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {
+        fn para_ids() -> Vec<u32> {
+            IsmpParachain::para_ids()
+        }
+
+        fn current_relay_chain_state() -> RelayChainState {
+            RelaychainDataProvider::<Runtime>::current_relay_chain_state()
+        }
+    }
 
     impl cumulus_primitives_core::CollectCollationInfo<Block> for Runtime {
         fn collect_collation_info(header: &<Block as BlockT>::Header) -> cumulus_primitives_core::CollationInfo {

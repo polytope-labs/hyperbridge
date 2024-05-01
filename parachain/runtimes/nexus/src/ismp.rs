@@ -95,6 +95,10 @@ impl pallet_call_decompressor::Config for Runtime {
     type MaxCallSize = ConstU32<3>;
 }
 
+impl ismp_parachain::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+}
+
 // todo: set corrrect parameters
 parameter_types! {
     pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");

@@ -14,10 +14,6 @@
 // limitations under the License.
 
 #![doc = include_str!("../README.md")]
-
-//! ISMP Parachain Consensus Client
-//!
-//! This allows parachains communicate over ISMP leveraging the relay chain as a consensus oracle.
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 
@@ -74,13 +70,24 @@ pub mod pallet {
 
     /// Events emitted by this pallet
     #[pallet::event]
-    pub enum Event<T: Config> {}
+    #[pallet::generate_deposit(pub(super) fn deposit_event)]
+    pub enum Event<T: Config> {
+        /// Parachains with the `para_ids` have been added to the whitelist
+        ParachainsAdded {
+            /// The parachains in question
+            para_ids: Vec<u32>,
+        },
+        /// Parachains with the `para_ids` have been removed from the whitelist
+        ParachainsRemoved {
+            /// The parachains in question
+            para_ids: Vec<u32>,
+        },
+    }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Rather than users manually submitting consensus updates for sibling parachains, we
-        /// instead make it the responsibility of the block builder to insert the consensus
-        /// updates as an inherent.
+        /// This allows block builders submit parachain consensus proofs as inherents. If the
+        /// provided [`ConsensusMessage`] is not for a parachain, this call will fail.
         #[pallet::call_index(0)]
         #[pallet::weight((0, DispatchClass::Mandatory))]
         pub fn update_parachain_consensus(
@@ -89,41 +96,44 @@ pub mod pallet {
         ) -> DispatchResultWithPostInfo {
             ensure_none(origin)?;
             assert!(
-                !<ConsensusUpdated<T>>::exists(),
+                !ConsensusUpdated::<T>::exists(),
                 "ValidationData must be updated only once in a block",
             );
 
             assert_eq!(
-                data.consensus_state_id,
-                consensus::PARACHAIN_CONSENSUS_ID,
+                data.consensus_state_id, PARACHAIN_CONSENSUS_ID,
                 "Only parachain consensus updates should be passed in the inherents!"
             );
-
             pallet_ismp::Pallet::<T>::handle_messages(vec![Message::Consensus(data)])?;
+            ConsensusUpdated::<T>::put(true);
 
             Ok(Pays::No.into())
         }
 
-        /// Add some new parachains to the list of parachains we care about
+        /// Add some new parachains to the parachains whitelist
         #[pallet::call_index(1)]
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(para_ids.len() as u64))]
         pub fn add_parachain(origin: OriginFor<T>, para_ids: Vec<u32>) -> DispatchResult {
             T::AdminOrigin::ensure_origin(origin)?;
-            for id in para_ids {
-                Parachains::<T>::insert(id, ());
+            for id in &para_ids {
+                Parachains::<T>::insert(*id, ());
             }
+
+            Self::deposit_event(Event::ParachainsAdded { para_ids });
 
             Ok(())
         }
 
-        /// Remove some parachains from the list of parachains we care about
+        /// Removes some parachains from the parachains whitelist
         #[pallet::call_index(2)]
         #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(para_ids.len() as u64))]
         pub fn remove_parachain(origin: OriginFor<T>, para_ids: Vec<u32>) -> DispatchResult {
             T::AdminOrigin::ensure_origin(origin)?;
-            for id in para_ids {
+            for id in &para_ids {
                 Parachains::<T>::remove(id);
             }
+
+            Self::deposit_event(Event::ParachainsRemoved { para_ids });
 
             Ok(())
         }
@@ -144,7 +154,7 @@ pub mod pallet {
             ConsensusUpdated::<T>::kill();
 
             let host = Host::<T>::default();
-            if let Err(_) = host.consensus_state(consensus::PARACHAIN_CONSENSUS_ID) {
+            if let Err(_) = host.consensus_state(PARACHAIN_CONSENSUS_ID) {
                 Pallet::<T>::initialize(host);
             }
 
@@ -214,8 +224,8 @@ impl<T: Config> Pallet<T> {
             consensus_state: vec![],
             unbonding_period: u64::MAX,
             challenge_period: 0,
-            consensus_state_id: consensus::PARACHAIN_CONSENSUS_ID,
-            consensus_client_id: consensus::PARACHAIN_CONSENSUS_ID,
+            consensus_state_id: PARACHAIN_CONSENSUS_ID,
+            consensus_client_id: PARACHAIN_CONSENSUS_ID,
             state_machine_commitments: vec![],
         };
         handlers::create_client(&host, message)

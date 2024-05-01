@@ -57,8 +57,6 @@ impl<T, R> Default for ParachainConsensusClient<T, R> {
 /// parachain.
 #[derive(Debug, Encode, Decode)]
 pub struct ParachainConsensusProof {
-    /// List of para ids contained in the proof
-    pub para_ids: Vec<u32>,
     /// Height of the relay chain for the given proof
     pub relay_height: u32,
     /// Storage proof for the parachain headers
@@ -113,28 +111,21 @@ where
         let storage_proof = StorageProof::new(update.storage_proof);
         let mut intermediates = BTreeMap::new();
 
-        let keys = update.para_ids.iter().map(|id| parachain_header_storage_key(*id).0);
+        let keys = Parachains::<T>::iter_keys().map(|id| parachain_header_storage_key(id).0);
         let headers =
             read_proof_check::<BlakeTwo256, _>(&root, storage_proof, keys).map_err(|e| {
                 Error::ImplementationSpecific(format!("Error verifying parachain header {e:?}",))
             })?;
 
         for (key, header) in headers {
+            let Some(header) = header else { continue };
+
             let mut state_commitments_vec = Vec::new();
 
             let id = codec::Decode::decode(&mut &key[(key.len() - 4)..]).map_err(|e| {
                 Error::ImplementationSpecific(format!("Error decoding parachain header: {e}"))
             })?;
 
-            if matches!(super::Parachains::<T>::get(id), None) {
-                Err(Error::ImplementationSpecific(format!("Unknown parachain with Id({id})")))?
-            }
-
-            let header = header.ok_or_else(|| {
-                Error::ImplementationSpecific(format!(
-                    "Cannot find parachain header for ParaId({id})",
-                ))
-            })?;
             // ideally all parachain headers are the same
             let header = Header::<u32, BlakeTwo256>::decode(&mut &*header).map_err(|e| {
                 Error::ImplementationSpecific(format!("Error decoding parachain header: {e}"))
@@ -169,7 +160,7 @@ where
             }
 
             if timestamp == 0 {
-                Err(Error::ImplementationSpecific("Timestamp or ismp root not found".into()))?
+                Err(Error::ImplementationSpecific("Timestamp not found".into()))?
             }
 
             let height: u32 = (*header.number()).into();

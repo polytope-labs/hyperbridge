@@ -4177,15 +4177,15 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 [[package]]
 name = "forge"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
 dependencies = [
  "comfy-table 6.2.0",
  "ethers",
  "eyre",
- "foundry-common",
- "foundry-config",
- "foundry-evm",
- "foundry-utils",
+ "foundry-common 0.1.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
+ "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
+ "foundry-evm 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
+ "foundry-utils 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
  "glob",
  "hex",
  "once_cell",
@@ -4210,7 +4210,22 @@ source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5
 dependencies = [
  "ariadne",
  "ethers-core",
- "foundry-config",
+ "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
+ "itertools 0.10.5",
+ "semver 1.0.22",
+ "solang-parser",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "forge-fmt"
+version = "0.2.0"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+dependencies = [
+ "ariadne",
+ "ethers-core",
+ "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
  "itertools 0.10.5",
  "semver 1.0.22",
  "solang-parser",
@@ -4221,14 +4236,14 @@ dependencies = [
 [[package]]
 name = "forge-testsuite"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/forge-testsuite?rev=faa97adf1b969f64cf77259f8f018a2aafefb70a#faa97adf1b969f64cf77259f8f018a2aafefb70a"
+source = "git+https://github.com/polytope-labs/forge-testsuite?rev=9a4e82498e60b6c90c09be1685dfc80bca057fc2#9a4e82498e60b6c90c09be1685dfc80bca057fc2"
 dependencies = [
  "ethers",
  "ethers-solc",
  "forge",
- "foundry-common",
- "foundry-config",
- "foundry-evm",
+ "foundry-common 0.1.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
+ "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
+ "foundry-evm 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
  "once_cell",
 ]
 
@@ -4271,7 +4286,21 @@ dependencies = [
  "ethers-core",
  "ethers-providers",
  "eyre",
- "foundry-macros",
+ "foundry-macros 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
+ "syn 2.0.60",
+]
+
+[[package]]
+name = "foundry-abi"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+dependencies = [
+ "ethers-contract",
+ "ethers-contract-abigen",
+ "ethers-core",
+ "ethers-providers",
+ "eyre",
+ "foundry-macros 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
  "syn 2.0.60",
 ]
 
@@ -4290,8 +4319,39 @@ dependencies = [
  "ethers-providers",
  "ethers-solc",
  "eyre",
- "foundry-config",
- "foundry-macros",
+ "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
+ "foundry-macros 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
+ "globset",
+ "once_cell",
+ "regex",
+ "reqwest",
+ "semver 1.0.22",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "walkdir",
+ "yansi 0.5.1",
+]
+
+[[package]]
+name = "foundry-common"
+version = "0.1.0"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+dependencies = [
+ "auto_impl",
+ "clap",
+ "comfy-table 6.2.0",
+ "dunce",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-middleware",
+ "ethers-providers",
+ "ethers-solc",
+ "eyre",
+ "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
+ "foundry-macros 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
  "globset",
  "once_cell",
  "regex",
@@ -4337,6 +4397,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "foundry-config"
+version = "0.2.0"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+dependencies = [
+ "Inflector",
+ "dirs-next",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-solc",
+ "eyre",
+ "figment",
+ "globset",
+ "number_prefix",
+ "once_cell",
+ "open-fastrlp",
+ "path-slash",
+ "regex",
+ "reqwest",
+ "semver 1.0.22",
+ "serde",
+ "serde_json",
+ "serde_regex",
+ "thiserror",
+ "toml 0.7.8",
+ "toml_edit 0.19.15",
+ "tracing",
+ "walkdir",
+]
+
+[[package]]
 name = "foundry-evm"
 version = "0.2.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
@@ -4345,11 +4435,11 @@ dependencies = [
  "bytes",
  "ethers",
  "eyre",
- "foundry-abi",
- "foundry-common",
- "foundry-config",
- "foundry-macros",
- "foundry-utils",
+ "foundry-abi 0.1.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
+ "foundry-common 0.1.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
+ "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
+ "foundry-macros 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
+ "foundry-utils 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
  "futures",
  "hashbrown 0.13.2",
  "hex",
@@ -4359,7 +4449,42 @@ dependencies = [
  "ordered-float 3.9.2",
  "parking_lot 0.12.2",
  "proptest",
- "revm",
+ "revm 3.3.0 (git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658)",
+ "semver 1.0.22",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+ "walkdir",
+ "yansi 0.5.1",
+]
+
+[[package]]
+name = "foundry-evm"
+version = "0.2.0"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+dependencies = [
+ "auto_impl",
+ "bytes",
+ "ethers",
+ "eyre",
+ "foundry-abi 0.1.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
+ "foundry-common 0.1.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
+ "foundry-config 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
+ "foundry-macros 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
+ "foundry-utils 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
+ "futures",
+ "hashbrown 0.13.2",
+ "hex",
+ "itertools 0.10.5",
+ "jsonpath_lib",
+ "once_cell",
+ "ordered-float 3.9.2",
+ "parking_lot 0.12.2",
+ "proptest",
+ "revm 3.3.0 (git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2)",
  "semver 1.0.22",
  "serde",
  "serde_json",
@@ -4377,7 +4502,18 @@ version = "0.2.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
 dependencies = [
  "ethers-core",
- "foundry-macros-impl",
+ "foundry-macros-impl 0.0.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "foundry-macros"
+version = "0.2.0"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+dependencies = [
+ "ethers-core",
+ "foundry-macros-impl 0.0.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
  "serde",
  "serde_json",
 ]
@@ -4386,6 +4522,16 @@ dependencies = [
 name = "foundry-macros-impl"
 version = "0.0.0"
 source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.60",
+]
+
+[[package]]
+name = "foundry-macros-impl"
+version = "0.0.0"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4405,7 +4551,35 @@ dependencies = [
  "ethers-providers",
  "ethers-solc",
  "eyre",
- "forge-fmt",
+ "forge-fmt 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
+ "futures",
+ "glob",
+ "hex",
+ "once_cell",
+ "rand 0.8.5",
+ "reqwest",
+ "rlp",
+ "rustc-hex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "foundry-utils"
+version = "0.2.0"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
+dependencies = [
+ "dunce",
+ "ethers-addressbook",
+ "ethers-contract",
+ "ethers-core",
+ "ethers-etherscan",
+ "ethers-providers",
+ "ethers-solc",
+ "eyre",
+ "forge-fmt 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514)",
  "futures",
  "glob",
  "hex",
@@ -6058,7 +6232,7 @@ dependencies = [
  "envy",
  "ethers",
  "forge-testsuite",
- "foundry-evm",
+ "foundry-evm 0.2.0 (git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739)",
  "futures",
  "hex",
  "hex-literal 0.4.1",
@@ -12296,8 +12470,20 @@ version = "3.3.0"
 source = "git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658#88337924f4d16ed1f5e4cde12a03d0cb755cd658"
 dependencies = [
  "auto_impl",
- "revm-interpreter",
- "revm-precompile",
+ "revm-interpreter 1.1.2 (git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658)",
+ "revm-precompile 2.0.3 (git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658)",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "revm"
+version = "3.3.0"
+source = "git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2#c681ca0d51b21a16595cb4c5795832d938ce2dc2"
+dependencies = [
+ "auto_impl",
+ "revm-interpreter 1.1.2 (git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2)",
+ "revm-precompile 2.0.3 (git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2)",
  "serde",
  "serde_json",
 ]
@@ -12309,7 +12495,19 @@ source = "git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a0
 dependencies = [
  "derive_more",
  "enumn",
- "revm-primitives",
+ "revm-primitives 1.1.2 (git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658)",
+ "serde",
+ "sha3",
+]
+
+[[package]]
+name = "revm-interpreter"
+version = "1.1.2"
+source = "git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2#c681ca0d51b21a16595cb4c5795832d938ce2dc2"
+dependencies = [
+ "derive_more",
+ "enumn",
+ "revm-primitives 1.1.2 (git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2)",
  "serde",
  "sha3",
 ]
@@ -12322,7 +12520,23 @@ dependencies = [
  "k256",
  "num",
  "once_cell",
- "revm-primitives",
+ "revm-primitives 1.1.2 (git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658)",
+ "ripemd",
+ "secp256k1 0.27.0",
+ "sha2 0.10.8",
+ "sha3",
+ "substrate-bn",
+]
+
+[[package]]
+name = "revm-precompile"
+version = "2.0.3"
+source = "git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2#c681ca0d51b21a16595cb4c5795832d938ce2dc2"
+dependencies = [
+ "k256",
+ "num",
+ "once_cell",
+ "revm-primitives 1.1.2 (git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2)",
  "ripemd",
  "secp256k1 0.27.0",
  "sha2 0.10.8",
@@ -12334,6 +12548,27 @@ dependencies = [
 name = "revm-primitives"
 version = "1.1.2"
 source = "git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658#88337924f4d16ed1f5e4cde12a03d0cb755cd658"
+dependencies = [
+ "auto_impl",
+ "bitvec",
+ "bytes",
+ "derive_more",
+ "enumn",
+ "fixed-hash",
+ "hashbrown 0.13.2",
+ "hex",
+ "hex-literal 0.4.1",
+ "primitive-types",
+ "rlp",
+ "ruint",
+ "serde",
+ "sha3",
+]
+
+[[package]]
+name = "revm-primitives"
+version = "1.1.2"
+source = "git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2#c681ca0d51b21a16595cb4c5795832d938ce2dc2"
 dependencies = [
  "auto_impl",
  "bitvec",

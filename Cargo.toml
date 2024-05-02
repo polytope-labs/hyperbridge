@@ -281,7 +281,7 @@ rev = "a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
 
 [workspace.dependencies.forge-testsuite]
 git = "https://github.com/polytope-labs/forge-testsuite"
-rev = "faa97adf1b969f64cf77259f8f018a2aafefb70a"
+rev = "9a4e82498e60b6c90c09be1685dfc80bca057fc2"
 
 [workspace.dependencies.foundry-evm]
 git = "https://github.com/polytope-labs/foundry"

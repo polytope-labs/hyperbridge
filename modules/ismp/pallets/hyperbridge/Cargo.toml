@@ -10,7 +10,6 @@ frame-system = { workspace = true }
 codec = { workspace = true }
 scale-info = { workspace = true }
 pallet-ismp = { workspace = true }
-pallet-balances = { workspace = true }
 sp-std = { workspace = true }
 
 [features]
@@ -22,6 +21,5 @@ std = [
     "codec/std",
     "scale-info/std",
     "pallet-ismp/std",
-    "pallet-balances/std",
     "sp-std/std",
 ]

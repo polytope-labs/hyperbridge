@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Polytope Labs.
+// Copyright (c) 2024 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,7 +23,7 @@ use crate::{
 };
 use alloc::{boxed::Box, format, vec::Vec};
 use core::marker::PhantomData;
-use frame_support::traits::{Currency, ExistenceRequirement, UnixTime};
+use frame_support::traits::{fungible::Mutate, tokens::Preservation, UnixTime};
 use ismp::{
     dispatcher,
     dispatcher::{DispatchRequest, IsmpDispatcher},
@@ -51,10 +51,8 @@ pub struct RequestMetadata<T: Config> {
 }
 
 /// This is used for tracking user fee payments for requests
-pub type FeeMetadata<T> = dispatcher::FeeMetadata<
-    <T as frame_system::Config>::AccountId,
-    <T as pallet_balances::Config>::Balance,
->;
+pub type FeeMetadata<T> =
+    dispatcher::FeeMetadata<<T as frame_system::Config>::AccountId, <T as Config>::Balance>;
 
 /// The low-level dispatcher. This can be used to dispatch requests while locking up a fee to be
 /// paid to relayers for request delivery and execution.
@@ -79,13 +77,9 @@ where
                 &fee.payer,
                 &RELAYER_FEE_ACCOUNT.into_account_truncating(),
                 fee.fee,
-                ExistenceRequirement::AllowDeath,
+                Preservation::Expendable,
             )
-            .map_err(|err| {
-                IsmpError::ImplementationSpecific(format!(
-                    "Error withdrawing request fees: {err:?}"
-                ))
-            })?;
+            .map_err(|err| IsmpError::Custom(format!("Error withdrawing request fees: {err:?}")))?;
         }
 
         let host = Host::<T>::default();
@@ -142,13 +136,9 @@ where
                 &fee.payer,
                 &RELAYER_FEE_ACCOUNT.into_account_truncating(),
                 fee.fee,
-                ExistenceRequirement::AllowDeath,
+                Preservation::Expendable,
             )
-            .map_err(|err| {
-                IsmpError::ImplementationSpecific(format!(
-                    "Error withdrawing request fees: {err:?}"
-                ))
-            })?;
+            .map_err(|err| IsmpError::Custom(format!("Error withdrawing request fees: {err:?}")))?;
         }
 
         let req_commitment = hash_request::<Host<T>>(&response.request());
@@ -240,12 +230,10 @@ impl<T: Config> IsmpModule for RefundingModule<T> {
                         &RELAYER_FEE_ACCOUNT.into_account_truncating(),
                         &fee.payer,
                         fee.fee,
-                        ExistenceRequirement::AllowDeath,
+                        Preservation::Expendable,
                     )
                     .map_err(|err| {
-                        IsmpError::ImplementationSpecific(format!(
-                            "Error withdrawing request fees: {err:?}"
-                        ))
+                        IsmpError::Custom(format!("Error withdrawing request fees: {err:?}"))
                     })?;
                 }
             }

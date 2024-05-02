@@ -92,12 +92,7 @@ pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
     };
 
     let proof_value = <alloy_primitives::U256 as Decodable>::decode(&mut &*proof_value)
-        .map_err(|_| {
-            Error::ImplementationSpecific(format!(
-                "Error decoding output root from {:?}",
-                &proof_value
-            ))
-        })?
+        .map_err(|_| Error::Custom(format!("Error decoding output root from {:?}", &proof_value)))?
         .to_be_bytes::<32>();
 
     if proof_value != output_root.0 {
@@ -121,7 +116,7 @@ pub fn verify_optimism_payload<H: IsmpHost + Send + Sync>(
     let block_and_timestamp =
         <alloy_primitives::U256 as Decodable>::decode(&mut &*block_and_timestamp)
             .map_err(|_| {
-                Error::ImplementationSpecific(format!(
+                Error::Custom(format!(
                     "Error decoding block and timestamp from{:?}",
                     &block_and_timestamp
                 ))
@@ -256,10 +251,7 @@ pub fn verify_optimism_dispute_game_proof<H: IsmpHost + Send + Sync>(
 
     let mut encoded_game_id = <alloy_primitives::Bytes as Decodable>::decode(&mut &*proof_value)
         .map_err(|_| {
-            Error::ImplementationSpecific(format!(
-                "Error decoding dispute game id from {:?}",
-                &proof_value
-            ))
+            Error::Custom(format!("Error decoding dispute game id from {:?}", &proof_value))
         })?
         .0
         .to_vec();

@@ -17695,7 +17695,7 @@ pub mod api {
                     #[codec(index = 10)]
                     CannotHandleMessage,
                     #[codec(index = 11)]
-                    ImplementationSpecific { msg: ::std::vec::Vec<::core::primitive::u8> },
+                    Custom { msg: ::std::vec::Vec<::core::primitive::u8> },
                     #[codec(index = 12)]
                     UnbondingPeriodElapsed { id: [::core::primitive::u8; 4usize] },
                     #[codec(index = 13)]

@@ -114,15 +114,13 @@ where
         proof: &Proof,
     ) -> Result<(), Error> {
         let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
-            .map_err(|e| Error::ImplementationSpecific(format!("failed to decode proof: {e:?}")))?;
+            .map_err(|e| Error::Custom(format!("failed to decode proof: {e:?}")))?;
         ensure!(
             matches!(state_proof, SubstrateStateProof::OverlayProof { .. }),
-            Error::ImplementationSpecific("Expected Overlay Proof".to_string())
+            Error::Custom("Expected Overlay Proof".to_string())
         );
         let root = state.overlay_root.ok_or_else(|| {
-            Error::ImplementationSpecific(
-                "Child trie root is not available for provided state commitment".into(),
-            )
+            Error::Custom("Child trie root is not available for provided state commitment".into())
         })?;
         let keys = match item {
             RequestResponse::Request(requests) => requests
@@ -148,10 +146,10 @@ where
                 keys.into_iter()
                     .map(|key| {
                         let value = trie.get(&key).map_err(|e| {
-                            Error::ImplementationSpecific(format!(
+                            Error::Custom(format!(
                                 "Error reading state proof: {e:?}"
                             ))
-                        })?.ok_or_else(|| Error::ImplementationSpecific(format!(
+                        })?.ok_or_else(|| Error::Custom(format!(
                             "Every key in a membership proof should have a value, found a key {:?} with None", key
                         )))?;
                         Ok((key, value))
@@ -166,10 +164,10 @@ where
                 keys.into_iter()
                     .map(|key| {
                         let value = trie.get(&key).map_err(|e| {
-                            Error::ImplementationSpecific(format!(
+                            Error::Custom(format!(
                                 "Error reading state proof: {e:?}"
                             ))
-                        })?.ok_or_else(|| Error::ImplementationSpecific(format!(
+                        })?.ok_or_else(|| Error::Custom(format!(
                             "Every key in a membership proof should have a value, found a key {:?} with None", key
                         )))?;
                         Ok((key, value))
@@ -218,10 +216,10 @@ where
         proof: &Proof,
     ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
         let state_proof: SubstrateStateProof = codec::Decode::decode(&mut &*proof.proof)
-            .map_err(|e| Error::ImplementationSpecific(format!("failed to decode proof: {e:?}")))?;
+            .map_err(|e| Error::Custom(format!("failed to decode proof: {e:?}")))?;
         let root = match &state_proof {
             SubstrateStateProof::OverlayProof { .. } => root.overlay_root.ok_or_else(|| {
-                Error::ImplementationSpecific(
+                Error::Custom(
                     "Child trie root is not available for provided state commitment".into(),
                 )
             })?,
@@ -235,9 +233,7 @@ where
                 keys.into_iter()
                     .map(|key| {
                         let value = trie.get(&key).map_err(|e| {
-                            Error::ImplementationSpecific(format!(
-                                "Error reading state proof: {e:?}"
-                            ))
+                            Error::Custom(format!("Error reading state proof: {e:?}"))
                         })?;
                         Ok((key, value))
                     })
@@ -251,9 +247,7 @@ where
                 keys.into_iter()
                     .map(|key| {
                         let value = trie.get(&key).map_err(|e| {
-                            Error::ImplementationSpecific(format!(
-                                "Error reading state proof: {e:?}"
-                            ))
+                            Error::Custom(format!("Error reading state proof: {e:?}"))
                         })?;
                         Ok((key, value))
                     })
@@ -280,7 +274,7 @@ where
     let db = proof.into_memory_db();
 
     if !db.contains(root, EMPTY_PREFIX) {
-        Err(Error::ImplementationSpecific("Invalid Proof".into()))?
+        Err(Error::Custom("Invalid Proof".into()))?
     }
 
     let trie = TrieDBBuilder::<LayoutV0<H>>::new(&db, root).build();
@@ -289,7 +283,7 @@ where
     for key in keys.into_iter() {
         let value = trie
             .get(key.as_ref())
-            .map_err(|e| Error::ImplementationSpecific(format!("Error reading from trie: {e:?}")))?
+            .map_err(|e| Error::Custom(format!("Error reading from trie: {e:?}")))?
             .and_then(|val| Decode::decode(&mut &val[..]).ok());
         result.insert(key.as_ref().to_vec(), value);
     }
@@ -310,16 +304,14 @@ pub fn fetch_overlay_root_and_timestamp(
                 if *consensus_engine_id == AURA_ENGINE_ID =>
             {
                 let slot = Slot::decode(&mut &value[..])
-                    .map_err(|e| Error::ImplementationSpecific(format!("Cannot slot: {e:?}")))?;
+                    .map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?;
                 timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
             },
             DigestItem::Consensus(consensus_engine_id, value)
                 if *consensus_engine_id == ISMP_ID =>
             {
                 if value.len() != 32 {
-                    Err(Error::ImplementationSpecific(
-                        "Header contains an invalid ismp root".into(),
-                    ))?
+                    Err(Error::Custom("Header contains an invalid ismp root".into()))?
                 }
 
                 overlay_root = H256::from_slice(&value);

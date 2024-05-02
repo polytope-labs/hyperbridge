@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Polytope Labs.
+// Copyright (c) 2024 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -206,11 +206,12 @@ pub mod pallet {
         host::Host,
         weights::{get_weight, WeightProvider},
     };
-    use codec::Encode;
+    use codec::{Codec, Encode};
+    use core::fmt::Debug;
     use frame_support::{
         dispatch::{DispatchResult, DispatchResultWithPostInfo},
         pallet_prelude::*,
-        traits::{Currency, ExistenceRequirement, Get, UnixTime},
+        traits::{fungible::Mutate, tokens::Preservation, Get, UnixTime},
         PalletId,
     };
     use frame_system::pallet_prelude::{BlockNumberFor, *};
@@ -226,11 +227,14 @@ pub mod pallet {
         router::IsmpRouter,
     };
     use sp_core::{storage::ChildInfo, H256};
-    use sp_runtime::traits::AccountIdConversion;
     #[cfg(feature = "unsigned")]
     use sp_runtime::transaction_validity::{
         InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
         ValidTransaction,
+    };
+    use sp_runtime::{
+        traits::{AccountIdConversion, AtLeast32BitUnsigned},
+        FixedPointOperand,
     };
     use sp_std::prelude::*;
     pub use utils::*;
@@ -239,7 +243,7 @@ pub mod pallet {
     pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
 
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_balances::Config {
+    pub trait Config: frame_system::Config {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
@@ -251,10 +255,26 @@ pub mod pallet {
         /// the various ISMP sub-protocols.
         type TimestampProvider: UnixTime;
 
-        /// The currency implementation that is offered to relayers as payment for request delivery
+        /// The balance of an account.
+        type Balance: Parameter
+            + Member
+            + AtLeast32BitUnsigned
+            + Codec
+            + Default
+            + Copy
+            + MaybeSerializeDeserialize
+            + Debug
+            + MaxEncodedLen
+            + TypeInfo
+            + FixedPointOperand;
+
+        /// The currency that is offered to relayers as payment for request delivery
         /// and execution. This should ideally be a stablecoin of some kind to guarantee
         /// predictable and stable revenue for relayers.
-        type Currency: Currency<Self::AccountId, Balance = Self::Balance>;
+        ///
+        /// This can also be used with pallet-assets through the
+        /// [ItemOf](frame_support::traits::tokens::fungible::ItemOf) implementation
+        type Currency: Mutate<Self::AccountId, Balance = Self::Balance>;
 
         /// The state machine identifier for the host chain. This is the identifier that will be
         /// used to accept requests that are addressed to this state machine. Remote chains
@@ -530,7 +550,7 @@ pub mod pallet {
                 &account,
                 &RELAYER_FEE_ACCOUNT.into_account_truncating(),
                 message.amount,
-                ExistenceRequirement::AllowDeath,
+                Preservation::Expendable,
             )?;
 
             match message.commitment {

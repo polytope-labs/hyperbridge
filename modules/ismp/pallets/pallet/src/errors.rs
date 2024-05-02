@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Polytope Labs.
+// Copyright (c) 2024 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -63,7 +63,7 @@ pub enum HandlingError {
         id: ConsensusClientId,
     },
     CannotHandleMessage,
-    ImplementationSpecific {
+    Custom {
         msg: Vec<u8>,
     },
     UnbondingPeriodElapsed {
@@ -199,8 +199,7 @@ impl From<ismp::error::Error> for HandlingError {
             IsmpError::ExpiredConsensusClient { id } =>
                 HandlingError::ExpiredConsensusClient { id },
             IsmpError::CannotHandleMessage => HandlingError::CannotHandleMessage,
-            IsmpError::ImplementationSpecific(msg) =>
-                HandlingError::ImplementationSpecific { msg: msg.as_bytes().to_vec() },
+            IsmpError::Custom(msg) => HandlingError::Custom { msg: msg.as_bytes().to_vec() },
             IsmpError::UnbondingPeriodElapsed { consensus_state_id } =>
                 HandlingError::UnbondingPeriodElapsed { id: consensus_state_id },
             IsmpError::MembershipProofVerificationFailed(msg) =>

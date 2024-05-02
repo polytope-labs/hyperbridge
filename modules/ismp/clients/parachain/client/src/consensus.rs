@@ -84,9 +84,7 @@ where
     ) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
         let update: ParachainConsensusProof =
             codec::Decode::decode(&mut &proof[..]).map_err(|e| {
-                Error::ImplementationSpecific(format!(
-                    "Cannot decode parachain consensus proof: {e:?}"
-                ))
+                Error::Custom(format!("Cannot decode parachain consensus proof: {e:?}"))
             })?;
 
         // first check our oracle's registry
@@ -103,34 +101,27 @@ where
             })
             // well, we couldn't find it
             .ok_or_else(|| {
-                Error::ImplementationSpecific(format!(
-                    "Cannot find relay chain height: {}",
-                    update.relay_height
-                ))
+                Error::Custom(format!("Cannot find relay chain height: {}", update.relay_height))
             })?;
 
         let storage_proof = StorageProof::new(update.storage_proof);
         let mut intermediates = BTreeMap::new();
 
         let keys = Parachains::<T>::iter_keys().map(|id| parachain_header_storage_key(id).0);
-        let headers =
-            read_proof_check::<BlakeTwo256, _>(&root, storage_proof, keys).map_err(|e| {
-                Error::ImplementationSpecific(format!("Error verifying parachain header {e:?}",))
-            })?;
+        let headers = read_proof_check::<BlakeTwo256, _>(&root, storage_proof, keys)
+            .map_err(|e| Error::Custom(format!("Error verifying parachain header {e:?}",)))?;
 
         for (key, header) in headers {
             let Some(header) = header else { continue };
 
             let mut state_commitments_vec = Vec::new();
 
-            let id = codec::Decode::decode(&mut &key[(key.len() - 4)..]).map_err(|e| {
-                Error::ImplementationSpecific(format!("Error decoding parachain header: {e}"))
-            })?;
+            let id = codec::Decode::decode(&mut &key[(key.len() - 4)..])
+                .map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
 
             // ideally all parachain headers are the same
-            let header = Header::<u32, BlakeTwo256>::decode(&mut &*header).map_err(|e| {
-                Error::ImplementationSpecific(format!("Error decoding parachain header: {e}"))
-            })?;
+            let header = Header::<u32, BlakeTwo256>::decode(&mut &*header)
+                .map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
 
             let (mut timestamp, mut overlay_root) = (0, H256::default());
             for digest in header.digest().logs.iter() {
@@ -138,9 +129,8 @@ where
                     DigestItem::PreRuntime(consensus_engine_id, value)
                         if *consensus_engine_id == AURA_ENGINE_ID =>
                     {
-                        let slot = Slot::decode(&mut &value[..]).map_err(|e| {
-                            Error::ImplementationSpecific(format!("Cannot slot: {e:?}"))
-                        })?;
+                        let slot = Slot::decode(&mut &value[..])
+                            .map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?;
                         timestamp = Duration::from_millis(*slot * SLOT_DURATION).as_secs();
                     },
                     DigestItem::Consensus(consensus_engine_id, value)
@@ -150,7 +140,7 @@ where
                         if let Ok(log) = log {
                             overlay_root = log.child_trie_root;
                         } else {
-                            Err(Error::ImplementationSpecific(
+                            Err(Error::Custom(
                                 "Header contains an invalid ismp consensus log".into(),
                             ))?
                         }
@@ -161,7 +151,7 @@ where
             }
 
             if timestamp == 0 {
-                Err(Error::ImplementationSpecific("Timestamp not found".into()))?
+                Err(Error::Custom("Timestamp not found".into()))?
             }
 
             let height: u32 = (*header.number()).into();
@@ -169,9 +159,7 @@ where
             let state_id = match host.host_state_machine() {
                 StateMachine::Kusama(_) => StateMachine::Kusama(id),
                 StateMachine::Polkadot(_) => StateMachine::Polkadot(id),
-                _ => Err(Error::ImplementationSpecific(
-                    "Host state machine should be a parachain".into(),
-                ))?,
+                _ => Err(Error::Custom("Host state machine should be a parachain".into()))?,
             };
 
             let intermediate = StateCommitmentHeight {
@@ -209,15 +197,13 @@ where
         let para_id = match id {
             StateMachine::Polkadot(id) => id,
             StateMachine::Kusama(id) => id,
-            _ => Err(Error::ImplementationSpecific(
+            _ => Err(Error::Custom(
                 "State Machine is not supported by this consensus client".to_string(),
             ))?,
         };
 
         if !Parachains::<T>::contains_key(&para_id) {
-            Err(Error::ImplementationSpecific(format!(
-                "Parachain with id {para_id} not registered"
-            )))?
+            Err(Error::Custom(format!("Parachain with id {para_id} not registered")))?
         }
 
         Ok(Box::new(S::default()))

@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Polytope Labs.
+// Copyright (c) 2024 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -177,6 +177,7 @@ impl pallet_ismp::Config for Test {
     type Coprocessor = Coprocessor;
     type TimestampProvider = Timestamp;
     type Router = ModuleRouter;
+    type Balance = Balance;
     type Currency = Balances;
     type ConsensusClients = (
         MockConsensusClient,

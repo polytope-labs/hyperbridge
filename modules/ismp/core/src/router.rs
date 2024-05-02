@@ -216,8 +216,7 @@ impl Request {
     /// Returns a get request or an error
     pub fn get_request(&self) -> Result<Get, Error> {
         match self {
-            Request::Post(_) =>
-                Err(Error::ImplementationSpecific("Expected Get request".to_string())),
+            Request::Post(_) => Err(Error::Custom("Expected Get request".to_string())),
             Request::Get(get) => Ok(get.clone()),
         }
     }

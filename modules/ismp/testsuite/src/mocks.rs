@@ -64,7 +64,7 @@ impl ConsensusClient for MockClient {
         match _id {
             StateMachine::Ethereum(Ethereum::ExecutionLayer) =>
                 Ok(Box::new(MockStateMachineClient)),
-            _ => Err(Error::ImplementationSpecific("Invalid state machine".to_string())),
+            _ => Err(Error::Custom("Invalid state machine".to_string())),
         }
     }
 }
@@ -97,7 +97,7 @@ impl ConsensusClient for MockProxyClient {
     fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         match _id {
             StateMachine::Kusama(2000) => Ok(Box::new(MockStateMachineClient)),
-            _ => Err(Error::ImplementationSpecific("Invalid state machine".to_string())),
+            _ => Err(Error::Custom("Invalid state machine".to_string())),
         }
     }
 }
@@ -156,7 +156,7 @@ impl IsmpHost for Host {
             .borrow()
             .get(&id)
             .copied()
-            .ok_or_else(|| Error::ImplementationSpecific("latest height not found".into()))
+            .ok_or_else(|| Error::Custom("latest height not found".into()))
     }
 
     fn state_machine_commitment(
@@ -175,7 +175,7 @@ impl IsmpHost for Host {
             .borrow()
             .get(&id)
             .copied()
-            .ok_or_else(|| Error::ImplementationSpecific("Consensus update time not found".into()))
+            .ok_or_else(|| Error::Custom("Consensus update time not found".into()))
     }
 
     fn state_machine_update_time(
@@ -186,7 +186,7 @@ impl IsmpHost for Host {
             .borrow()
             .get(&state_machine_height.id.consensus_state_id)
             .copied()
-            .ok_or_else(|| Error::ImplementationSpecific("Consensus update time not found".into()))
+            .ok_or_else(|| Error::Custom("Consensus update time not found".into()))
     }
 
     fn consensus_client_id(
@@ -201,7 +201,7 @@ impl IsmpHost for Host {
             .borrow()
             .get(&id)
             .cloned()
-            .ok_or_else(|| Error::ImplementationSpecific("consensus state not found".into()))
+            .ok_or_else(|| Error::Custom("consensus state not found".into()))
     }
 
     fn timestamp(&self) -> Duration {
@@ -233,7 +233,7 @@ impl IsmpHost for Host {
             .borrow()
             .contains(&hash)
             .then_some(())
-            .ok_or_else(|| Error::ImplementationSpecific("Request commitment not found".into()))
+            .ok_or_else(|| Error::Custom("Request commitment not found".into()))
     }
 
     fn response_commitment(&self, hash: H256) -> Result<(), Error> {
@@ -241,7 +241,7 @@ impl IsmpHost for Host {
             .borrow()
             .contains(&hash)
             .then_some(())
-            .ok_or_else(|| Error::ImplementationSpecific("Request commitment not found".into()))
+            .ok_or_else(|| Error::Custom("Request commitment not found".into()))
     }
 
     fn next_nonce(&self) -> u64 {
@@ -491,7 +491,7 @@ impl IsmpDispatcher for Host {
         let response = Response::Post(response);
         let hash = hash_response::<Host>(&response);
         if host.responses.borrow().contains(&hash) {
-            return Err(Error::ImplementationSpecific("Duplicate response".to_string()));
+            return Err(Error::Custom("Duplicate response".to_string()));
         }
         host.responses.borrow_mut().insert(hash);
         Ok(hash)

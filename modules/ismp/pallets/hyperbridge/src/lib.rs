@@ -13,7 +13,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Pallet Hyperbridge
+//! # Pallet Hyperbridge
+//!
+//! Pallet hyperbridge mediates the connection between hyperbridge and substrate-based chains. This
+//! pallet provides:
+//!
+//!  - An [`IsmpDispatcher`] implementation which collects protocol fees and commits the reciepts
+//!    for these fees to child storage. Hyperbridge only accepts messages that have been paid for
+//!    using this module.
+//!  - An [`IsmpModule`] which recieves and processes requests from hyperbridge. These requests are
+//!    dispatched by hyperbridge governance and may adjust fees or request payouts for both relayers
+//!    and protocol revenue.
+//!
+//! This pallet contains no calls and dispatches no requests. Substrate based chains should use this
+//! to dispatch requests that should be processed by hyperbridge.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
@@ -23,7 +36,7 @@ extern crate alloc;
 use codec::{Decode, Encode};
 use frame_support::{
     sp_runtime::{testing::H256, traits::AccountIdConversion},
-    traits::{Currency, ExistenceRequirement, Get},
+    traits::{fungible::Mutate, tokens::Preservation, Get},
 };
 use ismp::{
     dispatcher::{DispatchRequest, FeeMetadata, IsmpDispatcher},
@@ -41,6 +54,12 @@ pub use pallet::*;
 pub enum VersionedHostParams<Balance> {
     /// The per-byte fee that hyperbridge charges for outgoing requests and responses.
     V1(Balance),
+}
+
+impl<Balance: Default> Default for VersionedHostParams<Balance> {
+    fn default() -> Self {
+        VersionedHostParams::V1(Default::default())
+    }
 }
 
 #[frame_support::pallet]
@@ -65,39 +84,41 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn host_params)]
     pub type HostParams<T> =
-        StorageValue<_, VersionedHostParams<<T as pallet_balances::Config>::Balance>, OptionQuery>;
+        StorageValue<_, VersionedHostParams<<T as pallet_ismp::Config>::Balance>, ValueQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// Hyperbridge governance has now updated it's per-byte fee.
-        PerByteFeeChanged {
-            /// The old per-byte fee
-            old: T::Balance,
-            /// The new per-byte fee
-            new: T::Balance,
+        /// Hyperbridge governance has now updated it's host params on this chain.
+        HostParamsUpdated {
+            /// The old host params
+            old: VersionedHostParams<<T as pallet_ismp::Config>::Balance>,
+            /// The new host params
+            new: VersionedHostParams<<T as pallet_ismp::Config>::Balance>,
+        },
+        /// A relayer has withdrawn some fees
+        RelayerFeeWithdrawn {
+            /// The amount that was withdrawn
+            amount: <T as pallet_ismp::Config>::Balance,
+            /// The withdrawal beneficiary
+            account: T::AccountId,
+        },
+        /// Hyperbridge has withdrawn it's protocol revenue
+        ProtocolRevenueWithdrawn {
+            /// The amount that was withdrawn
+            amount: <T as pallet_ismp::Config>::Balance,
+            /// The withdrawal beneficiary
+            account: T::AccountId,
         },
     }
 
-    // Errors inform users that something went wrong.
+    // Errors encountered by pallet-hyperbridge
     #[pallet::error]
-    pub enum Error<T> {
-        /// Error names should be descriptive.
-        NoneValue,
-        /// Errors should have helpful documentation associated with them.
-        StorageOverflow,
-    }
+    pub enum Error<T> {}
 
-    #[pallet::hooks]
-    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
-            // todo: how to initialize this pallet?
-            Weight::zero()
-        }
-    }
-
-
-    // Hack for implementing the [`Default`] bound
+    // Hack for implementing the [`Default`] bound needed for
+    // [`IsmpDispatcher`](ismp::dispatcher::IsmpDispatcher) and
+    // [`IsmpModule`](ismp::module::IsmpModule)
     impl<T> Default for Pallet<T> {
         fn default() -> Self {
             Self(PhantomData)
@@ -124,25 +145,19 @@ where
         fee: FeeMetadata<Self::Account, Self::Balance>,
     ) -> Result<H256, ismp::Error> {
         if let DispatchRequest::Post(ref post) = request {
-            let Some(VersionedHostParams::V1(per_byte_fee)) = Self::host_params() else {
-                // can't dispatch requests unfortunately.
-                Err(ismp::Error::ImplementationSpecific(
-                    "HostParams is not yet configured!".to_string(),
-                ))?
-            };
+            let VersionedHostParams::V1(per_byte_fee) = Self::host_params();
             let fees = per_byte_fee.into() * post.data.len() as u128;
+
             // collect protocol fees
             if fees != 0 {
                 T::Currency::transfer(
                     &fee.payer,
                     &PALLET_HYPERBRIDGE.into_account_truncating(),
                     fees.into(),
-                    ExistenceRequirement::AllowDeath,
+                    Preservation::Expendable,
                 )
                 .map_err(|err| {
-                    ismp::Error::ImplementationSpecific(format!(
-                        "Error withdrawing request fees: {err:?}"
-                    ))
+                    ismp::Error::Custom(format!("Error withdrawing request fees: {err:?}"))
                 })?;
             }
         };
@@ -150,7 +165,7 @@ where
         let host = Host::<T>::default();
         host.dispatch_request(request, fee)
 
-        // commit the request commitment to child-trie
+        // commit the request commitment and fee collected to child-trie
     }
 
     fn dispatch_response(
@@ -159,12 +174,7 @@ where
         fee: FeeMetadata<Self::Account, Self::Balance>,
     ) -> Result<H256, ismp::Error> {
         // collect protocol fees
-        let Some(VersionedHostParams::V1(per_byte_fee)) = Self::host_params() else {
-            // can't dispatch responses unfortunately.
-            Err(ismp::Error::ImplementationSpecific(
-                "HostParams is not yet configured!".to_string(),
-            ))?
-        };
+        let VersionedHostParams::V1(per_byte_fee) = Self::host_params();
         let fees = per_byte_fee.into() * response.response.len() as u128;
 
         if fees != 0 {
@@ -172,19 +182,17 @@ where
                 &fee.payer,
                 &PALLET_HYPERBRIDGE.into_account_truncating(),
                 fees.into(),
-                ExistenceRequirement::AllowDeath,
+                Preservation::Expendable,
             )
             .map_err(|err| {
-                ismp::Error::ImplementationSpecific(format!(
-                    "Error withdrawing request fees: {err:?}"
-                ))
+                ismp::Error::Custom(format!("Error withdrawing request fees: {err:?}"))
             })?;
         }
 
         let host = Host::<T>::default();
         host.dispatch_response(response, fee)
 
-        // commit the response commitment to child-trie
+        // commit the response commitment and fee collected to child-trie
     }
 }
 
@@ -216,54 +224,47 @@ where
 {
     fn on_accept(&self, request: Post) -> Result<(), ismp::Error> {
         // this of course assumes that hyperbridge is configured as the coprocessor.
-        // any attempts to fool this module into setting a lower per-byte fee will be moot
-        // as hyperbridge will check the amount paid for every request before accepting them
         let source = request.source;
         if Some(source) != T::Coprocessor::get() {
-            Err(ismp::Error::ImplementationSpecific(format!("Invalid request source: {source}")))?
+            Err(ismp::Error::Custom(format!("Invalid request source: {source}")))?
         }
 
         let message =
             Message::<T::AccountId, T::Balance>::decode(&mut &request.data[..]).map_err(|err| {
-                ismp::Error::ImplementationSpecific(format!(
-                    "Failed to decode per-byte fee: {err:?}"
-                ))
+                ismp::Error::Custom(format!("Failed to decode per-byte fee: {err:?}"))
             })?;
 
         match message {
-            Message::UpdateHostParams(params) => {
-                // todo: events
-                HostParams::<T>::put(params)
+            Message::UpdateHostParams(new) => {
+                let old = HostParams::<T>::get();
+                HostParams::<T>::put(new.clone());
+                Self::deposit_event(Event::<T>::HostParamsUpdated { old, new });
             },
-            Message::WithdrawProtocolFees(withdrawal) => {
-                // todo: events
-
+            Message::WithdrawProtocolFees(WithdrawalRequest { account, amount }) => {
                 T::Currency::transfer(
                     &PALLET_HYPERBRIDGE.into_account_truncating(),
-                    &withdrawal.account,
-                    withdrawal.amount,
-                    ExistenceRequirement::AllowDeath,
+                    &account,
+                    amount,
+                    Preservation::Expendable,
                 )
                 .map_err(|err| {
-                    ismp::Error::ImplementationSpecific(format!(
-                        "Error withdrawing protocol fees: {err:?}"
-                    ))
+                    ismp::Error::Custom(format!("Error withdrawing protocol fees: {err:?}"))
                 })?;
-            },
-            Message::WithdrawRelayerFees(withdrawal) => {
-                // todo: events
 
+                Self::deposit_event(Event::<T>::ProtocolRevenueWithdrawn { account, amount })
+            },
+            Message::WithdrawRelayerFees(WithdrawalRequest { account, amount }) => {
                 T::Currency::transfer(
                     &RELAYER_FEE_ACCOUNT.into_account_truncating(),
-                    &withdrawal.account,
-                    withdrawal.amount,
-                    ExistenceRequirement::AllowDeath,
+                    &account,
+                    amount,
+                    Preservation::Expendable,
                 )
                 .map_err(|err| {
-                    ismp::Error::ImplementationSpecific(format!(
-                        "Error withdrawing protocol fees: {err:?}"
-                    ))
+                    ismp::Error::Custom(format!("Error withdrawing protocol fees: {err:?}"))
                 })?;
+
+                Self::deposit_event(Event::<T>::RelayerFeeWithdrawn { account, amount })
             },
         };
 

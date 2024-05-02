@@ -98,16 +98,16 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
     ) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), ismp::error::Error> {
         let PolygonClientUpdate { consensus_update, chain_head } =
             PolygonClientUpdate::decode(&mut &proof[..]).map_err(|_| {
-                Error::ImplementationSpecific("Cannot decode polygon client update".to_string())
+                Error::Custom("Cannot decode polygon client update".to_string())
             })?;
 
         let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
             .map_err(|_| {
-                Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
+                Error::Custom("Cannot decode trusted consensus state".to_string())
             })?;
 
         if consensus_update.is_empty() {
-            Err(Error::ImplementationSpecific("Consensus update is empty".to_string()))?
+            Err(Error::Custom("Consensus update is empty".to_string()))?
         }
 
         if consensus_update[0].parent_hash == consensus_state.finalized_hash {
@@ -120,7 +120,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
             let mut parent_hash = consensus_update[0].parent_hash;
             for header in consensus_update {
                 if parent_hash != header.parent_hash {
-                    Err(Error::ImplementationSpecific(
+                    Err(Error::Custom(
                         "Headers are meant to be in sequential order".to_string(),
                     ))?
                 }
@@ -129,7 +129,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                 let validators =
                     chain.validators.get(&span).unwrap_or(&consensus_state.finalized_validators);
                 let result = verify_polygon_header::<H>(validators, header)
-                    .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
+                    .map_err(|e| Error::Custom(e.to_string()))?;
                 parent_hash = result.hash;
                 chain.update_fork(result.clone());
 
@@ -145,14 +145,14 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
             {
                 chain
             } else {
-                Err(Error::ImplementationSpecific("chain not found".to_string()))?
+                Err(Error::Custom("chain not found".to_string()))?
             };
 
             let mut parent_hash = chain_head;
 
             for header in consensus_update {
                 if parent_hash != header.parent_hash {
-                    Err(Error::ImplementationSpecific(
+                    Err(Error::Custom(
                         "Headers are meant to be in sequential order".to_string(),
                     ))?
                 }
@@ -161,7 +161,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
                     chain.validators.get(&span).unwrap_or(&consensus_state.finalized_validators);
 
                 let result = verify_polygon_header::<H>(validators, header)
-                    .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
+                    .map_err(|e| Error::Custom(e.to_string()))?;
                 parent_hash = result.hash;
                 chain.update_fork(result.clone());
                 Headers::<T>::insert(result.hash, result.header)
@@ -236,7 +236,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
             let finalized_hash = longest_chain.hashes[finality_index].1;
 
             let header = Headers::<T>::get(finalized_hash).ok_or_else(|| {
-                Error::ImplementationSpecific("Expected header to be found in storage".to_string())
+                Error::Custom("Expected header to be found in storage".to_string())
             })?;
             let state_commitment = StateCommitmentHeight {
                 commitment: StateCommitment {
@@ -271,28 +271,28 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         proof_2: Vec<u8>,
     ) -> Result<(), ismp::error::Error> {
         let header_1 = CodecHeader::decode(&mut &*proof_1)
-            .map_err(|_| Error::ImplementationSpecific("Failed to decode header".to_string()))?;
+            .map_err(|_| Error::Custom("Failed to decode header".to_string()))?;
         let header_2 = CodecHeader::decode(&mut &*proof_2)
-            .map_err(|_| Error::ImplementationSpecific("Failed to decode header".to_string()))?;
+            .map_err(|_| Error::Custom("Failed to decode header".to_string()))?;
 
         if header_1.number != header_2.number {
-            Err(Error::ImplementationSpecific("Invalid Fraud proof".to_string()))?
+            Err(Error::Custom("Invalid Fraud proof".to_string()))?
         }
 
         let consensus_state =
             ConsensusState::decode(&mut &trusted_consensus_state[..]).map_err(|_| {
-                Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
+                Error::Custom("Cannot decode trusted consensus state".to_string())
             })?;
         let res_1 =
             verify_polygon_header::<H>(&consensus_state.finalized_validators, header_1.clone())
                 .map_err(|_| {
-                    Error::ImplementationSpecific("Failed to verify first header".to_string())
+                    Error::Custom("Failed to verify first header".to_string())
                 })?;
 
         let res_2 =
             verify_polygon_header::<H>(&consensus_state.finalized_validators, header_2.clone())
                 .map_err(|_| {
-                    Error::ImplementationSpecific("Failed to verify second header".to_string())
+                    Error::Custom("Failed to verify second header".to_string())
                 })?;
 
         // Fraud proof Scenario 1: Same block number with different hashes signed by the same
@@ -309,7 +309,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
             return Ok(())
         }
 
-        Err(Error::ImplementationSpecific("Invalid Fraud Proof".to_string()))
+        Err(Error::Custom("Invalid Fraud Proof".to_string()))
     }
 
     fn consensus_client_id(&self) -> ConsensusClientId {
@@ -323,7 +323,7 @@ impl<T: Config, H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient
         match id {
             StateMachine::Bsc => Ok(Box::new(<EvmStateMachine<H>>::default())),
             state_machine =>
-                return Err(Error::ImplementationSpecific(alloc::format!(
+                return Err(Error::Custom(alloc::format!(
                     "Unsupported state machine: {state_machine:?}"
                 ))),
         }
@@ -347,7 +347,7 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
     ) -> Result<(), Error> {
         let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
         let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode consensus state".to_string())
+            Error::Custom("Cannot decode consensus state".to_string())
         })?;
 
         verify_membership::<H>(item, root, proof, consensus_state.ismp_contract_address)
@@ -366,7 +366,7 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
     ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
         let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
         let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode consensus state".to_string())
+            Error::Custom("Cannot decode consensus state".to_string())
         })?;
 
         verify_state_proof::<H>(keys, root, proof, consensus_state.ismp_contract_address)

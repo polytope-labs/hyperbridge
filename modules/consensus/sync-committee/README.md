@@ -49,4 +49,4 @@ The major dependencies for this SDK/Library are:
 
 
 ## License
-This library is licensed under the [Apache 2.0 License](./LICENSE), Copyright (c) 2023 Polytope Labs.
+This library is licensed under the [Apache 2.0 License](./LICENSE), Copyright (c) 2024 Polytope Labs.

@@ -58,7 +58,7 @@ members = [
     # simnode
     "parachain/simtests",
     # subxt subxt-utils
-    "modules/subxt/utils",
+    "modules/subxt/utils", "modules/ismp/pallets/hyperbridge",
 ]
 
 # Config for 'cargo dist'

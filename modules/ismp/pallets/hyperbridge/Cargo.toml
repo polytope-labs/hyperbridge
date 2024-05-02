@@ -1,0 +1,27 @@
+[package]
+name = "pallet-hyperbridge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ismp = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+codec = { workspace = true }
+scale-info = { workspace = true }
+pallet-ismp = { workspace = true }
+pallet-balances = { workspace = true }
+sp-std = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "ismp/std",
+    "frame-support/std",
+    "frame-system/std",
+    "codec/std",
+    "scale-info/std",
+    "pallet-ismp/std",
+    "pallet-balances/std",
+    "sp-std/std",
+]

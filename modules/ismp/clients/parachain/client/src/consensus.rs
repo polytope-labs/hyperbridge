@@ -45,9 +45,9 @@ use substrate_state_machine::{read_proof_check, SubstrateStateMachine};
 use crate::{Parachains, RelayChainOracle};
 
 /// The parachain consensus client implementation for ISMP.
-pub struct ParachainConsensusClient<T, R>(PhantomData<(T, R)>);
+pub struct ParachainConsensusClient<T, R, S = SubstrateStateMachine<T>>(PhantomData<(T, R, S)>);
 
-impl<T, R> Default for ParachainConsensusClient<T, R> {
+impl<T, R, S> Default for ParachainConsensusClient<T, R, S> {
     fn default() -> Self {
         Self(PhantomData)
     }
@@ -69,10 +69,11 @@ pub const PARACHAIN_CONSENSUS_ID: ConsensusClientId = *b"PARA";
 /// Slot duration in milliseconds
 const SLOT_DURATION: u64 = 12_000;
 
-impl<T, R> ConsensusClient for ParachainConsensusClient<T, R>
+impl<T, R, S> ConsensusClient for ParachainConsensusClient<T, R, S>
 where
     R: RelayChainOracle,
     T: pallet_ismp::Config + super::Config,
+    S: StateMachineClient + Default + 'static,
 {
     fn verify_consensus(
         &self,
@@ -218,9 +219,11 @@ where
                 "Parachain with id {para_id} not registered"
             )))?
         }
-        Ok(Box::new(SubstrateStateMachine::<T>::default()))
+
+        Ok(Box::new(S::default()))
     }
 }
+
 /// This returns the storage key for a parachain header on the relay chain.
 pub fn parachain_header_storage_key(para_id: u32) -> StorageKey {
     let mut storage_key = frame_support::storage::storage_prefix(b"Paras", b"Heads").to_vec();

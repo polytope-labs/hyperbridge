@@ -214,7 +214,8 @@ contract BeefyV1 is IConsensusClient {
 
         // extract the state commitment
         StateCommitment memory commitment = header.stateCommitment();
-        IntermediateState memory intermediate = IntermediateState({stateMachineId: para.id, height: header.number, commitment: commitment});
+        IntermediateState memory intermediate =
+            IntermediateState({stateMachineId: para.id, height: header.number, commitment: commitment});
 
         return intermediate;
     }

@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use codec::{Decode, Encode};
 use ethabi::ethereum_types::H160;
 use geth_primitives::CodecHeader;
-use ismp::util::Keccak256;
+use ismp::messaging::Keccak256;
 use sp_core::ConstU32;
 
 pub const EPOCH_LENGTH: u64 = 200;

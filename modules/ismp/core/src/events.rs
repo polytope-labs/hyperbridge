@@ -1,4 +1,19 @@
-//! Canonical ISMP Events
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Event definitions
 
 use crate::{
     consensus::{StateMachineHeight, StateMachineId},
@@ -20,12 +35,12 @@ pub struct StateMachineUpdated {
     pub latest_height: u64,
 }
 
-/// Emitted when a [`StateCommitment`] has been successfully vetoed by a fisherman
+/// Emitted when a `StateCommitment` has been successfully vetoed by a fisherman
 #[derive(Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize)]
 pub struct StateCommitmentVetoed {
     /// The state commitment identifier
     pub height: StateMachineHeight,
-    /// The responsible relayer
+    /// The account responsible
     pub fisherman: Vec<u8>,
 }
 
@@ -55,7 +70,7 @@ pub enum Event {
     /// Emitted when a state machine is successfully updated to a new height after the challenge
     /// period has elapsed
     StateMachineUpdated(StateMachineUpdated),
-    /// A [`StateCommitment`] (which is ideally still in it's challenge period) has been vetoed by
+    /// A `StateCommitment` (which is ideally still in it's challenge period) has been vetoed by
     /// a fisherman.
     StateCommitmentVetoed(StateCommitmentVetoed),
     /// An event that is emitted when a post request is dispatched

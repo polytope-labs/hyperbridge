@@ -10,7 +10,7 @@ description = "Integration tests for ismp-solidity"
 once_cell = "1.17.0"
 hex-literal = "0.4.1"
 hex = "0.4.3"
-primitive-types = "0.12.1"
+primitive-types = { workspace = true, default-features = true }
 codec = { package = "parity-scale-codec", version = "3.2.2" }
 anyhow = {workspace = true, default-features = true }
 libfuzzer-sys = "0.4.6"

@@ -17,16 +17,15 @@ use ismp::{
     messaging::Message,
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
-use pallet_ismp::{
-    child_trie::{ChildInfo, CHILD_TRIE_PREFIX},
-    ResponseReceipt,
-};
+use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, ResponseReceipt};
 use reconnecting_jsonrpsee_ws_client::{Client as ReconnectClient, SubscriptionId};
 use serde::{Deserialize, Serialize};
+use sp_core::storage::ChildInfo;
 use std::{
     ops::{Deref, RangeInclusive},
     sync::Arc,
 };
+use substrate_state_machine::StateMachineProof;
 use subxt::{
     config::Header,
     error::RpcError,
@@ -159,8 +158,10 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let response: RpcProof =
             self.client.rpc().request("ismp_queryChildTrieProof", params).await?;
         let storage_proof: Vec<Vec<u8>> = Decode::decode(&mut &*response.proof)?;
-        let proof =
-            SubstrateStateProof::OverlayProof { hasher: self.hashing.clone(), storage_proof };
+        let proof = SubstrateStateProof::OverlayProof(StateMachineProof {
+            hasher: self.hashing.clone(),
+            storage_proof,
+        });
         Ok(proof.encode())
     }
 

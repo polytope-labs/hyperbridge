@@ -1,0 +1,47 @@
+[package]
+name = "substrate-state-machine"
+version = "1.6.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/state-machines/substrate"
+homepage = "https://docs.hyperbridge.network/integrations/polkadot-sdk"
+documentation = "https://docs.rs/substrate-state-machine"
+description = "ISMP state machine client implementation for substrate-based chains "
+keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
+readme = "./README.md"
+
+[dependencies]
+# substrate
+frame-system = { workspace = true }
+sp-runtime = { workspace = true }
+sp-consensus-aura = { workspace = true }
+
+# polytope labs
+ismp = { workspace = true }
+pallet-ismp = { workspace = true }
+
+# crates.io
+codec = { workspace = true, default-features = false }
+primitive-types = { workspace = true }
+serde = { workspace = true, features = ["derive"]}
+scale-info = { workspace = true, features = ["derive"] }
+frame-support = { workspace = true }
+sp-trie = { workspace = true }
+hash-db = { workspace = true, default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "frame-system/std",
+    "ismp/std",
+    "codec/std",
+    "sp-runtime/std",
+    "primitive-types/std",
+    "scale-info/std",
+    "serde/std",
+    "frame-support/std",
+    "pallet-ismp/std",
+    "sp-trie/std",
+    "hash-db/std"
+]

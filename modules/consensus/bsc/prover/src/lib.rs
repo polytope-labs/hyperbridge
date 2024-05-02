@@ -9,7 +9,7 @@ use ethers::{
     types::BlockId,
 };
 use geth_primitives::CodecHeader;
-use ismp::util::Keccak256;
+use ismp::messaging::Keccak256;
 use sp_core::H256;
 use std::{fmt::Debug, sync::Arc};
 use sync_committee_primitives::constants::BlsPublicKey;

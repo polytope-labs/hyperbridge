@@ -4,7 +4,7 @@
 use alloc::vec::Vec;
 use anyhow::anyhow;
 use ark_ec::AffineRepr;
-use ismp::util::Keccak256;
+use ismp::messaging::Keccak256;
 use primitives::{parse_extra, BscClientUpdate, EPOCH_LENGTH, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
 use sync_committee_verifier::crypto::{pairing, pubkey_to_projective};

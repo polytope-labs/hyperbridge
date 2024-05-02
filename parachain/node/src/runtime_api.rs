@@ -79,6 +79,7 @@ pub trait BaseHostRuntimeApis:
     + SessionKeys<opaque::Block>
     + CollectCollationInfo<opaque::Block>
     + TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
+    + ismp_parachain_runtime_api::IsmpParachainApi<opaque::Block>
     + pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
     + cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
     + pallet_mmr_runtime_api::MmrRuntimeApi<
@@ -105,6 +106,7 @@ impl<Api> BaseHostRuntimeApis for Api where
         + SessionKeys<opaque::Block>
         + CollectCollationInfo<opaque::Block>
         + TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
+        + ismp_parachain_runtime_api::IsmpParachainApi<opaque::Block>
         + pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
         + cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
         + pallet_mmr_runtime_api::MmrRuntimeApi<

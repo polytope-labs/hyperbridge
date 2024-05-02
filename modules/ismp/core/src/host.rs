@@ -21,9 +21,9 @@ use crate::{
         StateMachineId,
     },
     error::Error,
+    messaging::Keccak256,
     prelude::Vec,
     router::{IsmpRouter, PostResponse, Request, Response},
-    util::Keccak256,
 };
 use alloc::{
     boxed::Box,

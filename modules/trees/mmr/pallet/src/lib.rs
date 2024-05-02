@@ -124,6 +124,7 @@ pub mod pallet {
 
         /// Generic leaf type to be inserted into the MMR.
         type Leaf: mmr_primitives::FullLeaf + scale_info::TypeInfo;
+
         /// A type that returns a hash unique to every block as a fork identifer for offchain keys
         type ForkIdentifierProvider: ForkIdentifier<Self>;
     }

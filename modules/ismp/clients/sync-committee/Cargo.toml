@@ -7,12 +7,12 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 # polytope labs
-ismp = { path = "../../core", default-features = false }
-sync-committee-primitives = { path = "../../../consensus/sync-committee/primitives", default-features = false }
-sync-committee-verifier = { path = "../../../consensus/sync-committee/verifier", default-features = false }
-ethereum-trie = { path = "../../../trees/ethereum", default-features = false }
-pallet-ismp = { path = "../../pallet", default-features = false }
-geth-primitives = { path = "../../../consensus/geth-primitives", default-features = false }
+ismp = { workspace = true, default-features = false }
+sync-committee-primitives = { workspace = true, default-features = false }
+sync-committee-verifier = { workspace = true, default-features = false }
+ethereum-trie = { workspace = true, default-features = false }
+pallet-ismp = { workspace = true, default-features = false }
+geth-primitives = { workspace = true, default-features = false }
 evm-common = { workspace = true }
 arbitrum-verifier = { workspace = true }
 op-verifier = { workspace = true }

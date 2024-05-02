@@ -1,13 +1,21 @@
 [package]
 name = "ismp-parachain-inherent"
-version = "0.1.0"
+version = "1.6.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/parachain/inherent"
+homepage = "https://docs.hyperbridge.network/integrations/polkadot-sdk"
+documentation = "https://docs.rs/ismp-parachain-inherent"
+description = "Parachain ISMPconsensus client inherent provider"
+keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
+readme = "./README.md"
 
 [dependencies]
+ # crates.io
 async-trait = { version = "0.1.63" }
-codec = { package = "parity-scale-codec", version = "3.0.0", features = [ "derive" ] }
-anyhow.workspace = true
+codec = { workspace = true, features = [ "derive" ], default-features = true }
+anyhow = { workspace = true }
 
 # Substrate
 sp-inherents = { workspace = true, default-features = true }
@@ -19,9 +27,9 @@ sp-runtime = { workspace = true, default-features = true }
 cumulus-primitives-core = {  workspace = true, default-features = true }
 cumulus-relay-chain-interface = {  workspace = true, default-features = true }
 
-# polytope-labs
-ismp = { path = "../../../core" }
-
 # local
-ismp-parachain = { path = "../" }
-ismp-parachain-runtime-api = { path = "../runtime-api" }
+ismp = { workspace = true, default-features = true }
+ismp-parachain = { workspace = true, default-features = true }
+ismp-parachain-runtime-api = { workspace = true, default-features = true }
+pallet-ismp-runtime-api = { workspace = true, default-features = true }
+log = "0.4.21"

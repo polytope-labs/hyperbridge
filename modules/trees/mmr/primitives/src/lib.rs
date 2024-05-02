@@ -208,3 +208,10 @@ fn take_while_vec<T, P: Fn(&T) -> bool>(v: &mut Vec<T>, p: P) -> Vec<T> {
     }
     v.drain(..).collect()
 }
+
+/// This trait should provide a hash that is unique to each block
+/// This hash will be used as an identifier when creating the non canonical offchain key
+pub trait ForkIdentifier<T: frame_system::Config> {
+    /// Returns a unique identifier for the current block
+    fn identifier() -> T::Hash;
+}

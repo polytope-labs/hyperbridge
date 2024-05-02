@@ -7,9 +7,9 @@ This exports the runtime API definitions required by client subsystems like the 
 The required methods are already implemented in [`pallet_ismp::Pallet<T>`](https://docs.rs/pallet-ismp/latest/pallet-ismp/pallet/struct.Pallet.html)
 
 
-```rust
+```rust,ignore
 
-impl_runtime_apis! {
+sp_api::impl_runtime_apis! {
     impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
         fn host_state_machine() -> StateMachine {
             <Runtime as pallet_ismp::Config>::HostStateMachine::get()

@@ -20,6 +20,7 @@
 use codec::Encode;
 use log::{debug, trace};
 use merkle_mountain_range::helper;
+use mmr_primitives::ForkIdentifier;
 use sp_core::offchain::StorageKind;
 use sp_io::offchain_index;
 use sp_mmr_primitives::utils::NodesUtils;
@@ -135,16 +136,16 @@ where
         let mut leaf_index = leaves;
         let mut node_index = size;
 
-        // Use parent hash of block adding new nodes (this block) as extra identifier
+        // Use a uniquely generated hash for every block as an extra identifier
         // in offchain DB to avoid DB collisions and overwrites in case of forks.
-        let parent_hash = <frame_system::Pallet<T>>::parent_hash();
+        let fork_identifier = <T::ForkIdentifierProvider as ForkIdentifier<T>>::identifier();
         for elem in elems {
             // On-chain we are going to only store new peaks.
             if peaks_to_store.next_if_eq(&node_index).is_some() {
                 Nodes::<T, I>::insert(node_index, elem.hash());
             }
             // We are storing full node off-chain (using indexing API).
-            Self::store_to_offchain(node_index, parent_hash, &elem);
+            Self::store_to_offchain(node_index, fork_identifier, &elem);
 
             // Increase the indices.
             if let Node::Data(..) = elem {
@@ -173,17 +174,17 @@ where
 {
     fn store_to_offchain(
         pos: NodeIndex,
-        parent_hash: <T as frame_system::Config>::Hash,
+        fork_identifier: <T as frame_system::Config>::Hash,
         node: &NodeOf<T, I, L>,
     ) {
         let encoded_node = node.encode();
-        // We store this leaf offchain keyed by `(parent_hash, node_index)` to make it
+        // We store this leaf offchain keyed by `(prefix, node_index)` to make it
         // fork-resistant. The MMR client gadget task will "canonicalize" it on the first
         // finality notification that follows, when we are not worried about forks anymore.
-        let temp_key = Pallet::<T, I>::node_temp_offchain_key(pos, parent_hash);
+        let temp_key = Pallet::<T, I>::node_temp_offchain_key(pos, fork_identifier);
         debug!(
-            target: "pallet-mmr::offchain", "offchain db set: pos {} parent_hash {:?} key {:?}",
-            pos, parent_hash, temp_key
+            target: "pallet-mmr::offchain", "offchain db set: pos {} fork_identifier {:?} key {:?}",
+            pos, fork_identifier, temp_key
         );
         // Indexing API is used to store the full node content.
         offchain_index::set(&temp_key, &encoded_node);

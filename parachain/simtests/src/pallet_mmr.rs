@@ -98,6 +98,23 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
     )
     .await?;
 
+    let address = subxt_utils::gargantua::api::storage().mmr().number_of_leaves();
+    let leaf_count_at_start = client
+        .storage()
+        .at_latest()
+        .await?
+        .fetch(&address)
+        .await
+        .unwrap()
+        .unwrap_or_default();
+    dbg!(leaf_count_at_start);
+    let get_child_trie_root = |block_hash: H256| {
+        let client = client.clone();
+        let block_hash = block_hash.clone();
+        let address = subxt_utils::gargantua::api::storage().ismp().child_trie_root();
+        async move { client.storage().at(block_hash).fetch(&address).await.unwrap() }
+    };
+
     // Initialize MMR Pallet by dispatching some leaves and finalizing
     let params = EvmParams {
         module: H160::random(),
@@ -144,11 +161,11 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
         .await?;
 
     // Wait for some seconds for the async mmr gadget to complete
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_secs(30)).await;
 
     // Get finalized leaves
     let mut leaves = vec![];
-    for idx in 0..=10 {
+    for idx in 0..(leaf_count_at_start + 10) {
         let pos = leaf_index_to_pos(idx as u64);
         let canon_key = NodesUtils::node_canon_offchain_key(INDEXING_PREFIX, pos);
         let value = client
@@ -204,6 +221,8 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
                 .await?;
             let events = client.events().at(created_block.hash).await?;
 
+            let child_trie_root = get_child_trie_root(created_block.hash).await.unwrap();
+            dbg!(child_trie_root);
             let events = events
                 .iter()
                 .filter_map(|ev| {
@@ -211,7 +230,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
                         ev.as_event::<gargantua::api::ismp::events::Request>()
                             .ok()
                             .flatten()
-                            .and_then(|ev| Some((parent_hash, ev.commitment)))
+                            .and_then(|ev| Some((child_trie_root, ev.commitment)))
                     })
                 })
                 .collect::<Vec<_>>();
@@ -263,6 +282,8 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 
             let events = client.events().at(created_block.hash).await?;
 
+            let child_trie_root = get_child_trie_root(created_block.hash).await.unwrap();
+            dbg!(child_trie_root);
             let events = events
                 .iter()
                 .filter_map(|ev| {
@@ -270,7 +291,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
                         ev.as_event::<gargantua::api::ismp::events::Request>()
                             .ok()
                             .flatten()
-                            .and_then(|ev| Some((parent_hash, ev.commitment)))
+                            .and_then(|ev| Some((child_trie_root, ev.commitment)))
                     })
                 })
                 .collect::<Vec<_>>();
@@ -286,14 +307,17 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 
     println!("Finished creating Fork B");
 
-    // Fetch mmr leaves on Fork B pre-finality
+    // Fetch mmr leaves on Fork A pre-finality
 
     let initial_leaf_count = leaves.len() as u64;
-    for (idx, (parent_hash, _)) in chain_b_commitments.clone().into_iter().enumerate() {
+    dbg!(initial_leaf_count);
+    let mut positions = vec![];
+    for (idx, (prefix, _)) in chain_a_commitments.clone().into_iter().enumerate() {
         let pos = leaf_index_to_pos(initial_leaf_count + idx as u64);
+        positions.push(pos);
         let non_canon_key = NodesUtils::node_temp_offchain_key::<
             sp_runtime::generic::Header<u32, Keccak256>,
-        >(INDEXING_PREFIX, pos, parent_hash);
+        >(INDEXING_PREFIX, pos, prefix);
         let value = client
             .rpc()
             .request::<Option<Bytes>>(
@@ -307,10 +331,12 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
         leaves.push(leaf);
     }
 
-    // Finalize fork b
+    dbg!(positions.len());
+
+    // Finalize fork a
     let res = client
         .rpc()
-        .request::<bool>("engine_finalizeBlock", rpc_params![chain_b.last().cloned().unwrap()])
+        .request::<bool>("engine_finalizeBlock", rpc_params![chain_a.last().cloned().unwrap()])
         .await?;
     assert!(res);
 
@@ -318,7 +344,7 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
         .rpc()
         .request::<CreatedBlock<H256>>(
             "engine_createBlock",
-            rpc_params![true, false, chain_b.last().cloned().unwrap()],
+            rpc_params![true, false, chain_a.last().cloned().unwrap()],
         )
         .await?;
 
@@ -332,11 +358,11 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
     tokio::time::sleep(Duration::from_secs(20)).await;
 
     // All Non canonical keys should no longer exist in storage as they should have been pruned
-    for (idx, (parent_hash, _)) in chain_a_commitments.into_iter().enumerate() {
+    for (idx, (prefix, _)) in chain_b_commitments.into_iter().enumerate() {
         let pos = leaf_index_to_pos(initial_leaf_count + idx as u64);
         let non_canon_key = NodesUtils::node_temp_offchain_key::<
             sp_runtime::generic::Header<u32, Keccak256>,
-        >(INDEXING_PREFIX, pos, parent_hash);
+        >(INDEXING_PREFIX, pos, prefix);
         let value = client
             .rpc()
             .request::<Option<Bytes>>(
@@ -349,11 +375,11 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 
     // Canonical keys should exist and the commitment should match the commitments we have for chain
     // B
-    for (idx, (parent_hash, commitment)) in chain_b_commitments.clone().into_iter().enumerate() {
+    for (idx, (prefix, commitment)) in chain_a_commitments.clone().into_iter().enumerate() {
         let pos = leaf_index_to_pos(initial_leaf_count + idx as u64);
         let non_canon_key = NodesUtils::node_temp_offchain_key::<
             sp_runtime::generic::Header<u32, Keccak256>,
-        >(INDEXING_PREFIX, pos, parent_hash);
+        >(INDEXING_PREFIX, pos, prefix);
         let canon_key = NodesUtils::node_canon_offchain_key(INDEXING_PREFIX, pos);
         let value = client
             .rpc()
@@ -381,17 +407,22 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
         assert_eq!(commitment.0, request);
     }
 
+    let finalized_hash = chain_a.last().cloned().unwrap();
+    let address = subxt_utils::gargantua::api::storage().mmr().number_of_leaves();
+    let mmr_leaf_count =
+        client.storage().at(finalized_hash).fetch(&address).await.unwrap().unwrap();
+    assert_eq!(mmr_leaf_count, leaves.len() as u64);
     // Construct mmr tree from pre-finalized leaves
     let mut mmr = MemMMR::<DataOrHash<Keccak256, Leaf>, MmrHasher<Keccak256, Leaf>>::default();
     for leaf in leaves.clone() {
         mmr.push(leaf).unwrap();
     }
 
-    let at = client.rpc().header(Some(finalized_block.hash)).await?.unwrap().number;
+    let at = client.rpc().header(Some(finalized_hash)).await?.unwrap().number;
 
     // Fetch mmr proof from finalized branch
     let keys = ProofKeys::Requests(
-        chain_b_commitments.into_iter().map(|(.., commitment)| commitment).collect(),
+        chain_a_commitments.into_iter().map(|(.., commitment)| commitment).collect(),
     );
     let params = rpc_params![at, keys];
     let response: pallet_ismp_rpc::Proof =
@@ -407,11 +438,9 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
     let res = merkle_proof
         .verify(
             root,
-            leaves[11..]
-                .to_vec()
+            positions
                 .into_iter()
-                .enumerate()
-                .map(|(idx, leaf)| (leaf_index_to_pos((11 + idx) as u64), leaf))
+                .zip(leaves[(initial_leaf_count as usize)..].to_vec())
                 .collect(),
         )
         .unwrap();

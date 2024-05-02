@@ -75,8 +75,8 @@ where
         })
     }
 
-    fn node_temp_offchain_key(&self, pos: NodeIndex, parent_hash: B::Hash) -> Vec<u8> {
-        NodesUtils::node_temp_offchain_key::<B::Header>(&self.indexing_prefix, pos, parent_hash)
+    fn node_temp_offchain_key(&self, pos: NodeIndex, fork_identifier: B::Hash) -> Vec<u8> {
+        NodesUtils::node_temp_offchain_key::<B::Header>(&self.indexing_prefix, pos, fork_identifier)
     }
 
     fn node_canon_offchain_key(&self, pos: NodeIndex) -> Vec<u8> {
@@ -150,6 +150,14 @@ where
             },
         };
 
+        let fork_identifier = match self.client.runtime_api().fork_identifier(header.hash) {
+            Ok(Ok(fork_identifier)) => fork_identifier,
+            _ => {
+                debug!(target: LOG_TARGET, "Failed to fetch  fork_identifier at {:?}", header.hash);
+                return
+            },
+        };
+
         // We prune the leaf associated with the provided block and all the nodes added by that
         // leaf.
         let stale_nodes = self.nodes_added_by_new_leaves(
@@ -160,9 +168,9 @@ where
         );
 
         for pos in stale_nodes {
-            let temp_key = self.node_temp_offchain_key(pos, header.parent);
+            let temp_key = self.node_temp_offchain_key(pos, fork_identifier);
             self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
-            debug!(target: LOG_TARGET, "Pruned elem at pos {} with temp key {:?}", pos, temp_key);
+            debug!(target: LOG_TARGET, "Pruned elem at pos {} fork_identifier {:?} header_hash {:?}", pos, fork_identifier, block_hash);
         }
     }
 
@@ -175,7 +183,8 @@ where
 
         // Don't canonicalize branches corresponding to blocks for which the MMR pallet
         // wasn't yet initialized.
-        if header.number < self.first_mmr_block {
+        // Or headers less than the best canonicalized
+        if header.number < self.first_mmr_block || header.number <= self.best_canonicalized {
             return
         }
 
@@ -196,6 +205,14 @@ where
             },
         };
 
+        let fork_identifier = match self.client.runtime_api().fork_identifier(header.hash) {
+            Ok(Ok(fork_identifier)) => fork_identifier,
+            _ => {
+                debug!(target: LOG_TARGET, "Failed to fetch  fork_identifier at {:?}", header.hash);
+                return
+            },
+        };
+
         // We "canonicalize" the leaves associated with the provided block
         // and all the nodes added by those leaves.
         let to_canon_nodes = self.nodes_added_by_new_leaves(
@@ -206,7 +223,7 @@ where
         );
 
         for pos in to_canon_nodes {
-            let temp_key = self.node_temp_offchain_key(pos, header.parent);
+            let temp_key = self.node_temp_offchain_key(pos, fork_identifier);
             if let Some(elem) =
                 self.offchain_db.local_storage_get(StorageKind::PERSISTENT, &temp_key)
             {
@@ -215,15 +232,16 @@ where
                 self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
                 debug!(
                     target: LOG_TARGET,
-                    "Moved elem at pos {} from temp key {:?} to canon key {:?}",
+                    "Moved elem at pos {}, fork_identifier {:?} header_hash {:?} to canon key {:?}",
                     pos,
-                    temp_key,
+                    fork_identifier,
+                    block_hash,
                     canon_key
                 );
             } else {
                 debug!(
                     target: LOG_TARGET,
-                    "Couldn't canonicalize elem at pos {} using temp key {:?}", pos, temp_key
+                    "Couldn't canonicalize elem at pos {}, fork_identifier {:?} header_hash {:?}", pos, fork_identifier, block_hash
                 );
             }
         }
@@ -287,6 +305,7 @@ where
         self.handle_potential_pallet_reset(&notification);
 
         // Move offchain MMR nodes for finalized blocks to canonical keys.
+
         for hash in notification.tree_route.iter().chain(std::iter::once(&notification.hash)) {
             self.canonicalize_branch(*hash);
         }

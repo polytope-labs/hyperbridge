@@ -34,8 +34,10 @@ use ismp_testsuite::{
     post_request_timeout_check, post_response_timeout_check, write_outgoing_commitments,
 };
 use pallet_ismp::{
-    child_trie::RequestReceipts, host::Host, mmr::Leaf, FundMessageParams, MessageCommitment,
-    RELAYER_FEE_ACCOUNT,
+    child_trie::{RequestCommitments, RequestReceipts},
+    host::Host,
+    mmr::Leaf,
+    FundMessageParams, MessageCommitment, RELAYER_FEE_ACCOUNT,
 };
 
 use crate::runtime::*;
@@ -357,5 +359,8 @@ fn test_fund_message() {
         .unwrap();
 
         assert_eq!(Balances::balance(&RELAYER_FEE_ACCOUNT.into_account_truncating()), 20 * UNIT);
+
+        let metadata = RequestCommitments::<Test>::get(commitment).unwrap();
+        assert_eq!(metadata.fee.fee, 20 * UNIT);
     });
 }

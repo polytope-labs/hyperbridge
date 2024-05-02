@@ -33,7 +33,7 @@ use ismp::{
     router::{Request, Response},
 };
 use log::debug;
-use mmr_primitives::MerkleMountainRangeTree;
+use mmr_primitives::{ForkIdentifier, MerkleMountainRangeTree};
 use sp_core::H256;
 
 impl<T: Config> Pallet<T> {
@@ -251,5 +251,11 @@ impl<T: Config> Pallet<T> {
     /// Fetches the full responses from the offchain for the given commitments.
     pub fn responses(commitments: Vec<H256>) -> Vec<Response> {
         commitments.into_iter().filter_map(|cm| Self::response(cm)).collect()
+    }
+}
+
+impl<T: Config> ForkIdentifier<T> for Pallet<T> {
+    fn identifier() -> <T as frame_system::Config>::Hash {
+        Self::child_trie_root()
     }
 }

@@ -372,10 +372,26 @@ pub mod pallet {
     #[pallet::getter(fn nonce)]
     pub type Nonce<T> = StorageValue<_, u64, ValueQuery>;
 
+    /// The child trie root of messages
+    #[pallet::storage]
+    #[pallet::getter(fn child_trie_root)]
+    pub type ChildTrieRoot<T: Config> =
+        StorageValue<_, <T as frame_system::Config>::Hash, ValueQuery>;
+
     // Pallet implements [`Hooks`] trait to define some logic to execute in some context.
     #[pallet::hooks]
-    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
+    where
+        <T as frame_system::Config>::Hash: From<H256>,
+    {
         fn on_finalize(_n: BlockNumberFor<T>) {
+            let child_trie_root = storage::child::root(
+                &ChildInfo::new_default(CHILD_TRIE_PREFIX),
+                Default::default(),
+            );
+
+            let child_trie_root = H256::from_slice(&child_trie_root);
+            ChildTrieRoot::<T>::put::<<T as frame_system::Config>::Hash>(child_trie_root.into());
             // Only finalize if mmr was modified
             let root = match T::Mmr::finalize() {
                 Ok(root) => root,
@@ -385,15 +401,7 @@ pub mod pallet {
                 },
             };
 
-            let child_trie_root = frame_support::storage::child::root(
-                &ChildInfo::new_default(CHILD_TRIE_PREFIX),
-                Default::default(),
-            );
-
-            let log = ConsensusDigest {
-                child_trie_root: H256::from_slice(&child_trie_root),
-                mmr_root: root.into(),
-            };
+            let log = ConsensusDigest { child_trie_root, mmr_root: root.into() };
 
             let digest = sp_runtime::generic::DigestItem::Consensus(ISMP_ID, log.encode());
             <frame_system::Pallet<T>>::deposit_log(digest);

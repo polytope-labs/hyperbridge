@@ -5534,7 +5534,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.4.2"
+version = "0.4.4"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -7556,6 +7556,7 @@ name = "mmr-primitives"
 version = "0.1.0"
 dependencies = [
  "ckb-merkle-mountain-range",
+ "frame-system",
  "parity-scale-codec",
  "scale-info",
  "serde",

@@ -41,7 +41,7 @@ pub(crate) fn write_gadget_state<B: Block, BE: AuxStore>(
     backend: &BE,
     state: &PersistedState<B>,
 ) -> ClientResult<()> {
-    trace!(target: LOG_TARGET, "persisting {:?}", state);
+    trace!(target: LOG_TARGET, "Storing best canonicalized block {:?}", state);
     backend.insert_aux(&[(GADGET_STATE, state.encode().as_slice())], &[])
 }
 

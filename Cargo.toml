@@ -285,7 +285,7 @@ rev = "9a4e82498e60b6c90c09be1685dfc80bca057fc2"
 
 [workspace.dependencies.foundry-evm]
 git = "https://github.com/polytope-labs/foundry"
-rev = "1ffcca7485e84a9a356c5adb619ee1f038295739"
+rev = "521813b3ebaf1aa05055d1780b555f9001071514"
 
 [workspace.dependencies.merkle-mountain-range]
 package = "ckb-merkle-mountain-range"

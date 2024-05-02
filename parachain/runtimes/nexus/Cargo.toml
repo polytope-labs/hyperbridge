@@ -4,6 +4,8 @@ version = "0.1.0"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "Parachain runtime implementation of the hyperbridge protocol (Polkadot)"
 edition = "2021"
+publish = false
+
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

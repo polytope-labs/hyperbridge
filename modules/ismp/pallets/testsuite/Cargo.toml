@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Testsuite for the ismp pallet crates"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
 
 [dependencies]
 codec = { workspace = true, default-features = true }

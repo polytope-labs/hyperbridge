@@ -3,6 +3,8 @@ name = "pallet-ismp-demo"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

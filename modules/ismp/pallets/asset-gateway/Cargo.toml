@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "Pallet for custodying relay chain assets received through XCM"
+publish = false
+
 
 [dependencies]
 # substrate

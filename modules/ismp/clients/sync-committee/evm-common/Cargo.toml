@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Contains methods and types commonly used in evm state verification"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
 
 [dependencies]
 # polytope labs

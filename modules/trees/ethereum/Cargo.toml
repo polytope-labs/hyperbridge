@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Ethereum EIP-1886 layout implementation for parity/trie"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
 
 
 [dependencies]

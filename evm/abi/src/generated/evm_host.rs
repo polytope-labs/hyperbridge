@@ -646,6 +646,37 @@ pub mod evm_host {
                     ],
                 ),
                 (
+                    ::std::borrow::ToOwned::to_owned("fundResponse"),
+                    ::std::vec![
+                        ::ethers::core::abi::ethabi::Function {
+                            name: ::std::borrow::ToOwned::to_owned("fundResponse"),
+                            inputs: ::std::vec![
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("commitment"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::FixedBytes(
+                                        32usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("bytes32"),
+                                    ),
+                                },
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("amount"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Uint(
+                                        256usize,
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("uint256"),
+                                    ),
+                                },
+                            ],
+                            outputs: ::std::vec![],
+                            constant: ::core::option::Option::None,
+                            state_mutability: ::ethers::core::abi::ethabi::StateMutability::NonPayable,
+                        },
+                    ],
+                ),
+                (
                     ::std::borrow::ToOwned::to_owned("host"),
                     ::std::vec![
                         ::ethers::core::abi::ethabi::Function {
@@ -1922,6 +1953,16 @@ pub mod evm_host {
                 .method_hash([185, 234, 50, 137], (commitment, amount))
                 .expect("method not found (this should never happen)")
         }
+        ///Calls the contract's `fundResponse` (0xfadce3c7) function
+        pub fn fund_response(
+            &self,
+            commitment: [u8; 32],
+            amount: ::ethers::core::types::U256,
+        ) -> ::ethers::contract::builders::ContractCall<M, ()> {
+            self.0
+                .method_hash([250, 220, 227, 199], (commitment, amount))
+                .expect("method not found (this should never happen)")
+        }
         ///Calls the contract's `host` (0xf437bc59) function
         pub fn host(
             &self,
@@ -2870,6 +2911,23 @@ pub mod evm_host {
         pub commitment: [u8; 32],
         pub amount: ::ethers::core::types::U256,
     }
+    ///Container type for all input parameters for the `fundResponse` function with signature
+    /// `fundResponse(bytes32,uint256)` and selector `0xfadce3c7`
+    #[derive(
+        Clone,
+        ::ethers::contract::EthCall,
+        ::ethers::contract::EthDisplay,
+        Default,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+    )]
+    #[ethcall(name = "fundResponse", abi = "fundResponse(bytes32,uint256)")]
+    pub struct FundResponseCall {
+        pub commitment: [u8; 32],
+        pub amount: ::ethers::core::types::U256,
+    }
     ///Container type for all input parameters for the `host` function with signature `host()` and
     /// selector `0xf437bc59`
     #[derive(
@@ -3231,6 +3289,7 @@ pub mod evm_host {
         FeeToken(FeeTokenCall),
         Frozen(FrozenCall),
         FundRequest(FundRequestCall),
+        FundResponse(FundResponseCall),
         Host(HostCall),
         HostParams(HostParamsCall),
         Hyperbridge(HyperbridgeCall),
@@ -3341,6 +3400,10 @@ pub mod evm_host {
             }
             if let Ok(decoded) = <FundRequestCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::FundRequest(decoded));
+            }
+            if let Ok(decoded) = <FundResponseCall as ::ethers::core::abi::AbiDecode>::decode(data)
+            {
+                return Ok(Self::FundResponse(decoded));
             }
             if let Ok(decoded) = <HostCall as ::ethers::core::abi::AbiDecode>::decode(data) {
                 return Ok(Self::Host(decoded));
@@ -3469,6 +3532,7 @@ pub mod evm_host {
                 Self::FeeToken(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Frozen(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::FundRequest(element) => ::ethers::core::abi::AbiEncode::encode(element),
+                Self::FundResponse(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Host(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::HostParams(element) => ::ethers::core::abi::AbiEncode::encode(element),
                 Self::Hyperbridge(element) => ::ethers::core::abi::AbiEncode::encode(element),
@@ -3526,6 +3590,7 @@ pub mod evm_host {
                 Self::FeeToken(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Frozen(element) => ::core::fmt::Display::fmt(element, f),
                 Self::FundRequest(element) => ::core::fmt::Display::fmt(element, f),
+                Self::FundResponse(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Host(element) => ::core::fmt::Display::fmt(element, f),
                 Self::HostParams(element) => ::core::fmt::Display::fmt(element, f),
                 Self::Hyperbridge(element) => ::core::fmt::Display::fmt(element, f),
@@ -3645,6 +3710,11 @@ pub mod evm_host {
     impl ::core::convert::From<FundRequestCall> for EvmHostCalls {
         fn from(value: FundRequestCall) -> Self {
             Self::FundRequest(value)
+        }
+    }
+    impl ::core::convert::From<FundResponseCall> for EvmHostCalls {
+        fn from(value: FundResponseCall) -> Self {
+            Self::FundResponse(value)
         }
     }
     impl ::core::convert::From<HostCall> for EvmHostCalls {

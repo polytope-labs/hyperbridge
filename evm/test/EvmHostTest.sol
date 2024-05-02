@@ -149,8 +149,8 @@ contract EvmHostTest is BaseTest {
         assert(host.latestStateMachineHeight(height.stateMachineId) == 100);
 
         // add the new state machine
-        vm.prank(params.admin);
-        host.setHostParamsAdmin(params);
+        vm.prank(params.hostManager);
+        host.updateHostParams(params);
         // should be unchanged
         assert(host.latestStateMachineHeight(height.stateMachineId) == 100);
         // should be set to 1

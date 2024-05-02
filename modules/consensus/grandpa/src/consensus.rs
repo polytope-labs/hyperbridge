@@ -26,7 +26,6 @@ use ismp::{
     host::{IsmpHost, StateMachine},
     messaging::StateCommitmentHeight,
 };
-use ismp_primitives::fetch_overlay_root_and_timestamp;
 use primitive_types::H256;
 use primitives::{
     justification::{AncestryChain, GrandpaJustification},

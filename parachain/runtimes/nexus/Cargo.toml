@@ -79,9 +79,11 @@ parachains-common = { workspace = true  }
 
 # ismp modules
 ismp = { workspace = true  }
-pallet-ismp = { workspace = true  }
+pallet-ismp = { workspace = true, features = ["unsigned"]  }
 pallet-ismp-demo = { workspace = true  }
 pallet-ismp-runtime-api = { workspace = true  }
+ismp-parachain = { workspace = true  }
+ismp-parachain-runtime-api = { workspace = true  }
 ismp-sync-committee = { workspace = true  }
 ismp-bsc = { workspace = true  }
 pallet-ismp-relayer = { workspace = true  }
@@ -154,6 +156,8 @@ std = [
 	"parachains-common/std",
 	"sp-genesis-builder/std",
 	"ismp-bsc/std",
+	"ismp-parachain/std",
+	"ismp-parachain-runtime-api/std",
 	"pallet-ismp-relayer/std",
 	"pallet-ismp-host-executive/std",
 	"pallet-call-decompressor/std",

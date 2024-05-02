@@ -31,7 +31,7 @@ use ismp::{
     },
     error::Error,
     host::{Ethereum, IsmpHost, StateMachine},
-    util::Keccak256,
+    messaging::Keccak256,
 };
 
 // Constants

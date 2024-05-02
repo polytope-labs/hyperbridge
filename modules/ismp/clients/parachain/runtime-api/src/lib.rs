@@ -13,19 +13,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Runtime API for parachains.
+//! Runtime API for the parachain consensus client.
 
+#![doc = include_str!("../README.md")]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 
 extern crate alloc;
 
 use alloc::vec::Vec;
+use cumulus_pallet_parachain_system::RelayChainState;
 
 sp_api::decl_runtime_apis! {
-    /// Ismp Parachain Runtime Apis
+    /// Ismp Parachain consensus client runtime APIs
     pub trait IsmpParachainApi {
         /// Return all the para_ids this runtime is interested in. Used by the inherent provider
         fn para_ids() -> Vec<u32>;
+
+        /// Return the current relay chain state.
+        fn current_relay_chain_state() -> RelayChainState;
     }
 }

@@ -10,9 +10,9 @@ use forge_testsuite::Runner;
 use hex_literal::hex;
 use ismp::{
     host::{Ethereum, StateMachine},
+    messaging::hash_response,
     router,
     router::{Post, Request, Response},
-    util::hash_response,
 };
 use ismp_solidity_abi::{
     beefy::IntermediateState,

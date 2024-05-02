@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Consensus client definitions
+//! Consensus and state machine client definitions
 
 use crate::{
     error::Error,

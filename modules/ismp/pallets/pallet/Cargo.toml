@@ -1,0 +1,73 @@
+[package]
+name = "pallet-ismp"
+version = "1.6.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/pallets/pallet"
+homepage = "https://docs.hyperbridge.network/integrations/polkadot-sdk"
+documentation = "https://docs.rs/pallet-ismp"
+description = "The substrate runtime implementation of the Interoperable State Machine Protocol"
+keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
+readme = "./README.md"
+
+[dependencies]
+# substrate
+frame-benchmarking = { workspace = true, optional = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+pallet-balances = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+sp-core = { workspace = true }
+sp-std = { workspace = true }
+sp-api = { workspace = true }
+ismp = { workspace = true }
+codec = { workspace = true }
+scale-info = { workspace = true }
+sp-mmr-primitives = { workspace = true }
+mmr-primitives = { workspace = true }
+
+# crates.io
+fortuples = "0.9.1"
+log = { version = "0.4.17", default-features = false }
+serde = { version = "1.0.136", features = ["derive"], default-features = false }
+
+[dev-dependencies]
+env_logger = "0.10.0"
+pallet-timestamp = { workspace = true, features = ["default"] }
+ismp-testsuite = { path = "../../testsuite" }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-benchmarking/std",
+    "frame-support/std",
+    "frame-system/std",
+    "log/std",
+    "scale-info/std",
+    "sp-io/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "sp-core/std",
+    "ismp/std",
+    "sp-api/std",
+    "serde/default",
+    "pallet-balances/std",
+    "sp-mmr-primitives/std",
+    "mmr-primitives/std"
+]
+disable-panic-handler = ["sp-io/disable_panic_handler", "sp-io/disable_oom", "sp-io/disable_allocator"]
+testing = ["pallet-timestamp/std"]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "frame-support/runtime-benchmarks"
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]
+unsigned = []

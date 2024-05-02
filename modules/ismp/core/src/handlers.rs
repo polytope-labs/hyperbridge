@@ -31,7 +31,7 @@ mod request;
 mod response;
 mod timeout;
 
-/// The result of successfully processing a [`CreateConsensusClient`] message
+/// The result of successfully processing a `CreateConsensusClient` message
 pub struct ConsensusClientCreatedResult {
     /// Consensus client Id
     pub consensus_client_id: ConsensusClientId,
@@ -42,7 +42,7 @@ pub struct ConsensusClientCreatedResult {
 /// Result returned when ismp messages are handled successfully
 #[derive(Debug)]
 pub enum MessageResult {
-    /// The [`ConsensusMessage`] result
+    /// The `ConsensusMessage` result
     ConsensusMessage(Vec<Event>),
     /// Result of freezing a consensus state.
     FrozenClient(ConsensusStateId),

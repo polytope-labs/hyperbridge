@@ -20,9 +20,8 @@ use crate::{
     events::{Event, RequestResponseHandled},
     handlers::{validate_state_machine, MessageResult},
     host::{IsmpHost, StateMachine},
-    messaging::RequestMessage,
+    messaging::{hash_request, RequestMessage},
     router::{Request, RequestResponse},
-    util::hash_request,
 };
 use alloc::vec::Vec;
 

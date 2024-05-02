@@ -23,7 +23,7 @@ impl rs_merkle::Hasher for Keccak256 {
     }
 }
 
-impl ismp::util::Keccak256 for Keccak256 {
+impl ismp::messaging::Keccak256 for Keccak256 {
     fn keccak256(bytes: &[u8]) -> H256
     where
         Self: Sized,

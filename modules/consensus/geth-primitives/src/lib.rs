@@ -8,7 +8,7 @@ use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use ethabi::ethereum_types::{Bloom, H160, H256, H64, U256};
 #[cfg(feature = "std")]
 use ethers::types::{Block, U64};
-use ismp::util::Keccak256;
+use ismp::messaging::Keccak256;
 
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
 #[rlp(trailing)]

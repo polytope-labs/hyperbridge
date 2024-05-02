@@ -5553,6 +5553,8 @@ dependencies = [
  "frame-system",
  "futures",
  "gargantua-runtime",
+ "ismp-parachain-inherent",
+ "ismp-parachain-runtime-api",
  "jsonrpsee 0.16.3",
  "log",
  "messier-runtime",
@@ -5634,6 +5636,8 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "sp-core 28.0.0",
+ "substrate-state-machine",
  "subxt",
  "subxt-utils",
  "tokio",
@@ -5976,7 +5980,7 @@ version = "0.1.0"
 
 [[package]]
 name = "ismp-parachain"
-version = "0.1.0"
+version = "1.6.0"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "cumulus-primitives-core",
@@ -5984,6 +5988,7 @@ dependencies = [
  "frame-system",
  "hex-literal 0.4.1",
  "ismp",
+ "log",
  "pallet-ismp",
  "parity-scale-codec",
  "primitive-types",
@@ -5999,7 +6004,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "0.1.0"
+version = "1.6.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6008,6 +6013,8 @@ dependencies = [
  "ismp",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
+ "log",
+ "pallet-ismp-runtime-api",
  "parity-scale-codec",
  "sp-api",
  "sp-blockchain",
@@ -6017,8 +6024,9 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-runtime-api"
-version = "0.1.0"
+version = "1.6.0"
 dependencies = [
+ "cumulus-pallet-parachain-system",
  "sp-api",
 ]
 
@@ -7365,6 +7373,8 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-bsc",
+ "ismp-parachain",
+ "ismp-parachain-runtime-api",
  "ismp-sync-committee",
  "log",
  "orml-traits",
@@ -7905,6 +7915,8 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-bsc",
+ "ismp-parachain",
+ "ismp-parachain-runtime-api",
  "ismp-sync-committee",
  "log",
  "orml-traits",
@@ -8954,11 +8966,8 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "0.1.0"
+version = "1.6.0"
 dependencies = [
- "ckb-merkle-mountain-range",
- "derive_more",
- "enum-as-inner",
  "env_logger 0.10.2",
  "fortuples",
  "frame-benchmarking",
@@ -8969,13 +8978,11 @@ dependencies = [
  "log",
  "mmr-primitives",
  "pallet-balances",
- "pallet-mmr 0.1.0",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
  "serde",
  "sp-api",
- "sp-consensus-aura",
  "sp-core 28.0.0",
  "sp-io 30.0.0",
  "sp-mmr-primitives",
@@ -9052,8 +9059,9 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-rpc"
-version = "0.1.0"
+version = "1.6.0"
 dependencies = [
+ "anyhow",
  "frame-system",
  "hash-db",
  "hex",
@@ -9079,16 +9087,15 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-runtime-api"
-version = "0.1.0"
+version = "1.6.0"
 dependencies = [
  "ismp",
  "pallet-ismp",
  "parity-scale-codec",
+ "primitive-types",
  "serde",
  "sp-api",
- "sp-core 28.0.0",
  "sp-mmr-primitives",
- "sp-std 14.0.0",
 ]
 
 [[package]]
@@ -14852,12 +14859,14 @@ dependencies = [
  "pallet-ismp-rpc",
  "pallet-mmr 0.1.0",
  "parity-scale-codec",
+ "primitive-types",
  "sc-consensus-manual-seal",
  "sp-core 28.0.0",
  "sp-keyring",
  "sp-mmr-primitives",
  "sp-runtime 31.0.1",
  "sp-trie 29.0.0",
+ "substrate-state-machine",
  "subxt",
  "subxt-utils",
  "tokio",
@@ -16833,9 +16842,8 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "0.1.0"
+version = "1.6.0"
 dependencies = [
- "ckb-merkle-mountain-range",
  "frame-support",
  "frame-system",
  "hash-db",
@@ -16845,7 +16853,7 @@ dependencies = [
  "primitive-types",
  "scale-info",
  "serde",
- "sp-core 28.0.0",
+ "sp-consensus-aura",
  "sp-runtime 31.0.1",
  "sp-trie 29.0.0",
 ]

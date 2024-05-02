@@ -11,9 +11,8 @@ use ethers::prelude::H160;
 use futures::{stream, StreamExt};
 use ismp::{
     consensus::StateMachineHeight,
-    messaging::{Message, Proof, TimeoutMessage},
+    messaging::{hash_request, Message, Proof, TimeoutMessage},
     router::{Post, PostResponse, Request, Response},
-    util::hash_request,
 };
 
 use ismp::events::Event;

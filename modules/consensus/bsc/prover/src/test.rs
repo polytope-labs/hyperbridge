@@ -7,7 +7,7 @@ use ethers::{
     providers::{Http, Provider},
 };
 use geth_primitives::CodecHeader;
-use ismp::util::Keccak256;
+use ismp::messaging::Keccak256;
 use std::time::Duration;
 
 use crate::BscPosProver;

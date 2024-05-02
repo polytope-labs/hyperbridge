@@ -79,16 +79,7 @@ where
 
     module.merge(System::new(client.clone(), pool, deny_unsafe).into_rpc())?;
     module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
-    module.merge(
-        IsmpRpcHandler::new(
-            client,
-            backend.clone(),
-            backend
-                .offchain_storage()
-                .ok_or("Backend doesn't provide the required offchain storage")?,
-        )
-        .into_rpc(),
-    )?;
+    module.merge(IsmpRpcHandler::new(client, backend.clone())?.into_rpc())?;
 
     Ok(module)
 }

@@ -820,6 +820,24 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @dev Increase the relayer fee for a previously dispatched response.
+     * This is provided for use only on pending responses, such that when they timeout,
+     * the user can recover the entire relayer fee.
+     *
+     * If called on an already delivered response, these funds will be seen as a donation to the hyperbridge protocol.
+     * @param commitment - The response commitment
+     */
+    function fundResponse(bytes32 commitment, uint256 amount) public {
+        FeeMetadata memory metadata = _responseCommitments[commitment];
+
+        require(metadata.sender != address(0), "Unknown request");
+        IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
+
+        metadata.fee += amount;
+        _responseCommitments[commitment] = metadata;
+    }
+
+    /**
      * @dev A fisherman has determined that some [`StateCommitment`]
      *  (which is ideally still in it's challenge period)
      *  is infact fraudulent and misrepresentative of the state

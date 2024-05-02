@@ -125,8 +125,8 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// Dispatch an outgoing request
-    pub fn dispatch_request(request: Request, meta: FeeMetadata<T>) -> Result<(), ismp::Error> {
+    /// Dispatch an outgoing request, returns the request commitment
+    pub fn dispatch_request(request: Request, meta: FeeMetadata<T>) -> Result<H256, ismp::Error> {
         let commitment = hash_request::<Host<T>>(&request);
 
         if RequestCommitments::<T>::contains_key(commitment) {
@@ -156,11 +156,14 @@ impl<T: Config> Pallet<T> {
             },
         );
 
-        Ok(())
+        Ok(commitment)
     }
 
-    /// Dispatch an outgoing response
-    pub fn dispatch_response(response: Response, meta: FeeMetadata<T>) -> Result<(), ismp::Error> {
+    /// Dispatch an outgoing response, returns the response commitment
+    pub fn dispatch_response(
+        response: Response,
+        meta: FeeMetadata<T>,
+    ) -> Result<H256, ismp::Error> {
         let req_commitment = hash_request::<Host<T>>(&response.request());
 
         if Responded::<T>::contains_key(req_commitment) {
@@ -192,7 +195,7 @@ impl<T: Config> Pallet<T> {
             },
         );
         Responded::<T>::insert(req_commitment, true);
-        Ok(())
+        Ok(commitment)
     }
 
     /// Gets the request from the offchain storage

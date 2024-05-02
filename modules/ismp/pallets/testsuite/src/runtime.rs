@@ -35,6 +35,7 @@ use ismp::{
     messaging::{CreateConsensusState, Proof, StateCommitmentHeight},
     module::IsmpModule,
     router::{IsmpRouter, Post, RequestResponse, Response, Timeout},
+    Error,
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{host::Host, mmr::Leaf, ModuleId};
@@ -205,10 +206,31 @@ impl pallet_call_decompressor::Config for Test {
 }
 
 #[derive(Default)]
+pub struct ErrorModule;
+
+impl IsmpModule for ErrorModule {
+    fn on_accept(&self, _request: Post) -> Result<(), Error> {
+        Err(Error::InsufficientProofHeight)
+    }
+
+    fn on_response(&self, _response: Response) -> Result<(), Error> {
+        Err(Error::InsufficientProofHeight)
+    }
+
+    fn on_timeout(&self, _request: Timeout) -> Result<(), Error> {
+        Err(Error::InsufficientProofHeight)
+    }
+}
+
+#[derive(Default)]
 pub struct ModuleRouter;
 
 impl IsmpRouter for ModuleRouter {
-    fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, ismp::error::Error> {
+    fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+        let error_module: Vec<u8> = vec![12, 24, 36, 48];
+        if _bytes == error_module {
+            return Ok(Box::new(ErrorModule))
+        }
         Ok(Box::new(MockModule))
     }
 }

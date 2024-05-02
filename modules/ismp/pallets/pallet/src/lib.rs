@@ -19,11 +19,13 @@
 //! The interoperable state machine protocol implementation for substrate-based chains. This pallet
 //! provides the ability to
 //!
-//! 1. Track the finalized state of a remote state machine (blockchain) through the use of consensus
-//!    proofs which attest to a finalized "state commitment".
-//! 2. Execute incoming ISMP-compliant messages from a connected chain, through the use of state
-//!    proofs which are verified through a known, previously finalized state commitment.
-//! 3. Dispatch ISMP requests and responses to a connected chain.
+//! * Track the finalized state of a remote state machine (blockchain) through the use of consensus
+//!   proofs which attest to a finalized "state commitment".
+//! * Execute incoming ISMP-compliant messages from a connected chain, through the use of state
+//!   proofs which are verified through a known, previously finalized state commitment.
+//! * Dispatch ISMP requests and responses to a connected chain.
+//! * Funding in-flight messages (Request or Response)
+//!
 //!
 //!
 //! ## Overview
@@ -66,7 +68,10 @@
 //!   client. Can only be called by the `AdminOrigin`.
 //! * `update_consensus_state` - Updates consensus client properties in storage. Can only be called
 //!   by the `AdminOrigin`.
-//!
+//! * `fund_message` - In cases where the initially provided relayer fees have now become
+//!   insufficient, perhaps due to a transaction fee spike on the destination chain. Allows a user
+//!   to add more funds to the message to be used for delivery and execution. Should never be called
+//!   on a completed message.
 //!
 //! Please refer to the [`Call`](pallet/enum.Call.html) enum and its associated
 //! variants for documentation on each function.
@@ -196,7 +201,7 @@ pub type NoOpMmrTree = NoOpTree<Leaf>;
 pub mod pallet {
     use super::*;
     use crate::{
-        child_trie::CHILD_TRIE_PREFIX,
+        child_trie::{RequestCommitments, ResponseCommitments, CHILD_TRIE_PREFIX},
         errors::HandlingError,
         host::Host,
         weights::{get_weight, WeightProvider},
@@ -205,7 +210,8 @@ pub mod pallet {
     use frame_support::{
         dispatch::{DispatchResult, DispatchResultWithPostInfo},
         pallet_prelude::*,
-        traits::{Currency, Get, UnixTime},
+        traits::{Currency, ExistenceRequirement, Get, UnixTime},
+        PalletId,
     };
     use frame_system::pallet_prelude::{BlockNumberFor, *};
     use ismp::{
@@ -220,6 +226,7 @@ pub mod pallet {
         router::IsmpRouter,
     };
     use sp_core::{storage::ChildInfo, H256};
+    use sp_runtime::traits::AccountIdConversion;
     #[cfg(feature = "unsigned")]
     use sp_runtime::transaction_validity::{
         InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
@@ -227,6 +234,9 @@ pub mod pallet {
     };
     use sp_std::prelude::*;
     pub use utils::*;
+
+    /// [`PalletId`] where relayer fees will be collected
+    pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_balances::Config {
@@ -485,6 +495,49 @@ pub mod pallet {
 
             Ok(())
         }
+
+        /// Add more funds to a message (request or response) to be used for delivery and execution.
+        ///
+        /// Should not be called on a message that has been completed (delivered or timed-out) as
+        /// those funds will be lost forever.
+        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().writes(5))]
+        #[pallet::call_index(4)]
+        pub fn fund_message(
+            origin: OriginFor<T>,
+            message: FundMessageParams<T::Balance>,
+        ) -> DispatchResult {
+            let account = ensure_signed(origin)?;
+
+            let metadata = match message.commitment {
+                MessageCommitment::Request(commitment) => RequestCommitments::<T>::get(commitment),
+                MessageCommitment::Response(commitment) =>
+                    ResponseCommitments::<T>::get(commitment),
+            };
+
+            let Some(mut metadata) = metadata else {
+                return Err(Error::<T>::MessageNotFound.into())
+            };
+
+            T::Currency::transfer(
+                &account,
+                &RELAYER_FEE_ACCOUNT.into_account_truncating(),
+                message.amount,
+                ExistenceRequirement::AllowDeath,
+            )?;
+
+            match message.commitment {
+                MessageCommitment::Request(commiment) => {
+                    metadata.fee.fee += message.amount;
+                    RequestCommitments::<T>::insert(commiment, metadata);
+                },
+                MessageCommitment::Response(commiment) => {
+                    metadata.fee.fee += message.amount;
+                    ResponseCommitments::<T>::insert(commiment, metadata);
+                },
+            };
+
+            Ok(())
+        }
     }
 
     /// Pallet Events
@@ -561,6 +614,8 @@ pub mod pallet {
     pub enum Error<T> {
         /// Invalid ISMP message
         InvalidMessage,
+        /// Requested message was not found
+        MessageNotFound,
         /// Encountered an error while creating the consensus client.
         ConsensusClientCreationFailed,
         /// Couldn't update unbonding period

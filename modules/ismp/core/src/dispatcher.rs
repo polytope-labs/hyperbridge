@@ -18,6 +18,7 @@
 use crate::{host::StateMachine, router::PostResponse, Error};
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
+use primitive_types::H256;
 
 /// Simplified POST request, intended to be used for sending outgoing requests
 #[derive(Clone)]
@@ -96,18 +97,18 @@ pub trait IsmpDispatcher {
     /// or an overlay tree
     ///
     /// The account `who` is needed as a way to identify the account which triggered this request.
-    /// The `amount`
+    /// The `amount`. Returns the request commitment
     fn dispatch_request(
         &self,
         request: DispatchRequest,
         fee: FeeMetadata<Self::Account, Self::Balance>,
-    ) -> Result<(), Error>;
+    ) -> Result<H256, Error>;
 
     /// Dispatches an outgoing response, the dispatcher should commit them to host's state trie or
-    /// overlay tree
+    /// overlay tree. Returns the response commitment
     fn dispatch_response(
         &self,
         response: PostResponse,
         fee: FeeMetadata<Self::Account, Self::Balance>,
-    ) -> Result<(), Error>;
+    ) -> Result<H256, Error>;
 }

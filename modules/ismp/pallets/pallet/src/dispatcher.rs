@@ -19,13 +19,11 @@ use crate::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments},
     host::Host,
     mmr::LeafIndexAndPos,
-    Config, Pallet,
+    Config, Pallet, RELAYER_FEE_ACCOUNT,
 };
 use alloc::{boxed::Box, format, vec::Vec};
-use frame_support::{
-    traits::{Currency, ExistenceRequirement, UnixTime},
-    PalletId,
-};
+use core::marker::PhantomData;
+use frame_support::traits::{Currency, ExistenceRequirement, UnixTime};
 use ismp::{
     dispatcher,
     dispatcher::{DispatchRequest, IsmpDispatcher},
@@ -36,8 +34,8 @@ use ismp::{
     module::IsmpModule,
     router::{Get, IsmpRouter, Post, PostResponse, Request, Response, Timeout},
 };
+use sp_core::H256;
 use sp_runtime::traits::{AccountIdConversion, Zero};
-use std::marker::PhantomData;
 
 /// Metadata about an outgoing request
 #[derive(codec::Encode, codec::Decode, scale_info::TypeInfo, Clone)]
@@ -58,9 +56,6 @@ pub type FeeMetadata<T> = dispatcher::FeeMetadata<
     <T as pallet_balances::Config>::Balance,
 >;
 
-/// [`PalletId`] for collecting relayer fees
-pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
-
 /// The low-level dispatcher. This can be used to dispatch requests while locking up a fee to be
 /// paid to relayers for request delivery and execution.
 ///
@@ -77,7 +72,7 @@ where
         &self,
         request: DispatchRequest,
         fee: FeeMetadata<T>,
-    ) -> Result<(), IsmpError> {
+    ) -> Result<H256, IsmpError> {
         // collect payment for the request
         if fee.fee != Zero::zero() {
             T::Currency::transfer(
@@ -131,16 +126,16 @@ where
             },
         };
 
-        Pallet::<T>::dispatch_request(request, fee)?;
+        let commitment = Pallet::<T>::dispatch_request(request, fee)?;
 
-        Ok(())
+        Ok(commitment)
     }
 
     fn dispatch_response(
         &self,
         response: PostResponse,
         fee: FeeMetadata<T>,
-    ) -> Result<(), IsmpError> {
+    ) -> Result<H256, IsmpError> {
         // collect payment for the response
         if fee.fee != Zero::zero() {
             T::Currency::transfer(
@@ -168,9 +163,9 @@ where
         }
 
         let response = Response::Post(response);
-        Pallet::<T>::dispatch_response(response, fee)?;
+        let commitment = Pallet::<T>::dispatch_response(response, fee)?;
 
-        Ok(())
+        Ok(commitment)
     }
 }
 

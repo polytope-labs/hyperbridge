@@ -15,24 +15,30 @@
 
 #![cfg(test)]
 
-use crate::runtime::*;
-use pallet_ismp::{child_trie::RequestReceipts, host::Host};
-
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use frame_support::traits::fungible::{Inspect, Mutate};
+use frame_system::Origin;
+use sp_core::{crypto::AccountId32, H256};
+use sp_runtime::traits::AccountIdConversion;
 
 use ismp::{
     consensus::{StateMachineHeight, StateMachineId},
-    dispatcher::{DispatchGet, DispatchRequest, IsmpDispatcher},
+    dispatcher::{DispatchGet, DispatchRequest, FeeMetadata, IsmpDispatcher},
     host::{Ethereum, IsmpHost, StateMachine},
-    messaging::{hash_request, Proof, ResponseMessage, TimeoutMessage},
-    router::{GetResponse, Post, Request, RequestResponse},
+    messaging::{hash_request, Message, Proof, ResponseMessage, TimeoutMessage},
+    router::{GetResponse, Post, Request, RequestResponse, Response, Timeout},
 };
-
-use ismp::{dispatcher::FeeMetadata, messaging::Message, router::Response};
 use ismp_testsuite::{
     check_challenge_period, check_client_expiry, missing_state_commitment_check,
     post_request_timeout_check, post_response_timeout_check, write_outgoing_commitments,
 };
+use pallet_ismp::{
+    child_trie::RequestReceipts, host::Host, mmr::Leaf, FundMessageParams, MessageCommitment,
+    RELAYER_FEE_ACCOUNT,
+};
+
+use crate::runtime::*;
 
 fn set_timestamp(now: Option<u64>) {
     Timestamp::set_timestamp(
@@ -206,7 +212,7 @@ fn should_handle_get_request_responses_correctly() {
                     timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() +
                         2_000_000_000,
                 };
-                ismp::router::Request::Get(get)
+                Request::Get(get)
             })
             .collect::<Vec<_>>();
 
@@ -238,8 +244,118 @@ fn should_handle_get_request_responses_correctly() {
 }
 
 #[test]
-fn ensure_that_we_commit_requests_to_the_mmr_alongside_state() {
-    // this should prevent requests from being committed to the mmr without being committed to the
-    // state which would allow requests to be both delivered to the destination and
-    // simultaneosly time out on the host.
+fn test_dispatch_fees_and_refunds() {
+    let mut ext = new_test_ext();
+    let account: AccountId32 = H256::random().0.into();
+    let host = Host::<Test>::default();
+
+    ext.execute_with(|| {
+        let msg = DispatchGet {
+            dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+            from: vec![0u8; 32],
+            keys: vec![vec![1u8; 32], vec![1u8; 32]],
+            height: 3,
+            timeout_timestamp: 2_000_000_000,
+        };
+
+        assert_eq!(Balances::balance(&account), Default::default());
+        Balances::mint_into(&account, 10 * UNIT).unwrap();
+        assert_eq!(Balances::balance(&account), 10 * UNIT);
+
+        host.dispatch_request(
+            DispatchRequest::Get(msg.clone()),
+            // lets pay 10 units
+            FeeMetadata { payer: account.clone().into(), fee: 10 * UNIT },
+        )
+        .unwrap();
+
+        // we should no longer have it
+        assert_eq!(Balances::balance(&account), Default::default());
+
+        // now pallet-ismp has it
+        assert_eq!(Balances::balance(&RELAYER_FEE_ACCOUNT.into_account_truncating()), 10 * UNIT);
+
+        // fetch directly from pallet-mmr's buffer
+        let Leaf::Request(request) = Mmr::intermediate_leaves(0).unwrap() else {
+            panic!("Leaf not found!")
+        };
+
+        // ask the host to timeout the request
+        host.ismp_router()
+            .module_for_id(vec![])
+            .unwrap()
+            .on_timeout(Timeout::Request(request.clone()))
+            .unwrap();
+
+        // money should've been refunded to the account
+        assert_eq!(Balances::balance(&account), 10 * UNIT);
+
+        // unhappy case
+        host.dispatch_request(
+            DispatchRequest::Get(msg),
+            // lets pay 10 units
+            FeeMetadata { payer: account.clone().into(), fee: 10 * UNIT },
+        )
+        .unwrap();
+
+        // we should no longer have it
+        assert_eq!(Balances::balance(&account), Default::default());
+
+        // now pallet-ismp has it
+        assert_eq!(Balances::balance(&RELAYER_FEE_ACCOUNT.into_account_truncating()), 10 * UNIT);
+
+        // ask the host to timeout the request, using the error module
+        host.ismp_router()
+            .module_for_id(vec![12, 24, 36, 48])
+            .unwrap()
+            .on_timeout(Timeout::Request(request.clone()))
+            .unwrap_err();
+
+        // pallet-ismp still has it
+        assert_eq!(Balances::balance(&RELAYER_FEE_ACCOUNT.into_account_truncating()), 10 * UNIT);
+    });
+}
+
+#[test]
+fn test_fund_message() {
+    let mut ext = new_test_ext();
+    let account: AccountId32 = H256::random().0.into();
+    let host = Host::<Test>::default();
+
+    ext.execute_with(|| {
+        let msg = DispatchGet {
+            dest: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+            from: vec![0u8; 32],
+            keys: vec![vec![1u8; 32], vec![1u8; 32]],
+            height: 3,
+            timeout_timestamp: 2_000_000_000,
+        };
+
+        assert_eq!(Balances::balance(&account), Default::default());
+        Balances::mint_into(&account, 20 * UNIT).unwrap();
+        assert_eq!(Balances::balance(&account), 20 * UNIT);
+
+        let commitment = host
+            .dispatch_request(
+                DispatchRequest::Get(msg.clone()),
+                // lets pay 10 units
+                FeeMetadata { payer: account.clone().into(), fee: 10 * UNIT },
+            )
+            .unwrap();
+
+        // pallet-ismp now has it
+        assert_eq!(Balances::balance(&RELAYER_FEE_ACCOUNT.into_account_truncating()), 10 * UNIT);
+
+        // fund the request
+        Ismp::fund_message(
+            Origin::<Test>::Signed(account).into(),
+            FundMessageParams {
+                commitment: MessageCommitment::Request(commitment),
+                amount: 10 * UNIT,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(Balances::balance(&RELAYER_FEE_ACCOUNT.into_account_truncating()), 20 * UNIT);
+    });
 }

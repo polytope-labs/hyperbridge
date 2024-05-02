@@ -449,7 +449,7 @@ impl IsmpDispatcher for Host {
         &self,
         request: DispatchRequest,
         _fee: FeeMetadata<Self::Account, Self::Balance>,
-    ) -> Result<(), Error> {
+    ) -> Result<H256, Error> {
         let host = self.clone();
         let request = match request {
             DispatchRequest::Get(dispatch_get) => {
@@ -479,14 +479,14 @@ impl IsmpDispatcher for Host {
         };
         let hash = hash_request::<Host>(&request);
         host.requests.borrow_mut().insert(hash);
-        Ok(())
+        Ok(hash)
     }
 
     fn dispatch_response(
         &self,
         response: PostResponse,
         _fee: FeeMetadata<Self::Account, Self::Balance>,
-    ) -> Result<(), Error> {
+    ) -> Result<H256, Error> {
         let host = self.clone();
         let response = Response::Post(response);
         let hash = hash_response::<Host>(&response);
@@ -494,6 +494,6 @@ impl IsmpDispatcher for Host {
             return Err(Error::ImplementationSpecific("Duplicate response".to_string()));
         }
         host.responses.borrow_mut().insert(hash);
-        Ok(())
+        Ok(hash)
     }
 }

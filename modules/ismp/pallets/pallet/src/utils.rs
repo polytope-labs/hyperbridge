@@ -35,6 +35,24 @@ pub struct UpdateConsensusState {
     pub challenge_period: Option<u64>,
 }
 
+/// Holds a commitment to either a request or response
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+pub enum MessageCommitment {
+    /// A request message
+    Request(H256),
+    /// A response message
+    Response(H256),
+}
+
+/// Params to add more funds for request delivery
+#[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
+pub struct FundMessageParams<Balance> {
+    /// Message commitment
+    pub commitment: MessageCommitment,
+    /// Amount to fund message by
+    pub amount: Balance,
+}
+
 /// Receipt for a Response
 #[derive(Debug, Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 pub struct ResponseReceipt {

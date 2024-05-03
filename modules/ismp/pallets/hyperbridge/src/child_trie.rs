@@ -20,20 +20,18 @@
 //! before it routes them to their destination chain.
 
 use alloc::vec::Vec;
-use core::marker::PhantomData;
+
 use frame_support::storage::{child, child::ChildInfo};
 use primitive_types::H256;
 
 // we share the same child trie prefix as pallet-ismp
 use pallet_ismp::child_trie::CHILD_TRIE_PREFIX;
 
-use crate::Config;
-
 /// Stores the payment receipts for outgoing requests. The key is the request commitment
-pub struct RequestPayments<T: Config>(PhantomData<T>);
+pub struct RequestPayments;
 
 /// Stores the payment receipts for outgoing responses. The key is the response commitment
-pub struct ResponsePayments<T: Config>(PhantomData<T>);
+pub struct ResponsePayments;
 
 /// Returns the storage key for a request commitment in the child trie
 pub fn request_payment_storage_key(key: H256) -> Vec<u8> {
@@ -49,19 +47,19 @@ pub fn response_payment_storage_key(key: H256) -> Vec<u8> {
     full_key
 }
 
-impl<T: Config> RequestPayments<T> {
+impl RequestPayments {
     /// Returns the hashed storage key
     pub fn storage_key(key: H256) -> Vec<u8> {
         request_payment_storage_key(key)
     }
 
     /// Get the provided key from the child trie
-    pub fn get(key: H256) -> Option<T::Balance> {
+    pub fn get(key: H256) -> Option<u128> {
         child::get(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key))
     }
 
     /// Insert the key and value into the child trie
-    pub fn insert(key: H256, meta: T::Balance) {
+    pub fn insert(key: H256, meta: u128) {
         child::put(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key), &meta);
     }
 
@@ -76,19 +74,19 @@ impl<T: Config> RequestPayments<T> {
     }
 }
 
-impl<T: Config> ResponsePayments<T> {
+impl ResponsePayments {
     /// Returns the hashed storage key
     pub fn storage_key(key: H256) -> Vec<u8> {
         response_payment_storage_key(key)
     }
 
     /// Get the provided key from the child trie
-    pub fn get(key: H256) -> Option<T::Balance> {
+    pub fn get(key: H256) -> Option<u128> {
         child::get(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key))
     }
 
     /// Insert the key and value into the child trie
-    pub fn insert(key: H256, meta: T::Balance) {
+    pub fn insert(key: H256, meta: u128) {
         child::put(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key), &meta);
     }
 

@@ -202,8 +202,8 @@ where
         let host = Host::<T>::default();
         let commitment = host.dispatch_request(request, fee)?;
 
-        // commit the request commitment and fee collected to child-trie
-        child_trie::RequestPayments::<T>::insert(commitment, fees.into());
+        // commit the fee collected to child-trie
+        child_trie::RequestPayments::insert(commitment, fees);
 
         Ok(commitment)
     }
@@ -232,8 +232,8 @@ where
         let host = Host::<T>::default();
         let commitment = host.dispatch_response(response, fee)?;
 
-        // commit the request commitment and fee collected to child-trie
-        child_trie::RequestPayments::<T>::insert(commitment, fees.into());
+        // commit the collected to child-trie
+        child_trie::ResponsePayments::insert(commitment, fees);
 
         Ok(commitment)
     }

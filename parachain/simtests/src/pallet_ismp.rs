@@ -65,9 +65,26 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
     let para_id = 3000u32;
     // 1. initialize the ismp parachain client by adding the whitelisted paraId
     {
-        let call = RuntimeCall::IsmpParachain(
-            runtime_types::ismp_parachain::pallet::Call::add_parachain { para_ids: vec![para_id] },
-        );
+        let calls = vec![
+            RuntimeCall::IsmpParachain(
+                runtime_types::ismp_parachain::pallet::Call::add_parachain { para_ids: vec![para_id] },
+            ),
+            // init the host executive
+            RuntimeCall::HostExecutive(
+                runtime_types::pallet_ismp_host_executive::pallet::Call::set_host_params {
+                    params: vec![
+                        (
+                            StateMachine::Polkadot(para_id).into(),
+                            runtime_types::pallet_ismp_host_executive::params::HostParam::SubstrateHostParam(
+                                runtime_types::pallet_hyperbridge::VersionedHostParams::V1(0)
+                            )
+                        )
+                    ]
+                }
+            )
+        ];
+        let call =
+            RuntimeCall::Utility(runtime_types::pallet_utility::pallet::Call::batch_all { calls });
         let call = client.tx().call_data(&api::tx().sudo().sudo(call))?;
         let extrinsic: Bytes = client
             .rpc()

@@ -11,7 +11,7 @@ pallet-ismp = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-hyperbridge = { workspace = true }
 substrate-state-machine = { workspace = true }
-
+log = { workspace = true, default-features = false }
 
 sp-trie = { workspace = true }
 sp-runtime = { workspace = true }
@@ -31,4 +31,5 @@ std = [
     "sp-runtime/std",
     "hash-db/std",
     "codec/std",
+    "log/std",
 ]

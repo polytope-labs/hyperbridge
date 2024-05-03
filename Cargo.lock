@@ -4985,6 +4985,7 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-utility",
  "pallet-xcm",
  "parachains-common",
  "parity-scale-codec",
@@ -5618,6 +5619,7 @@ version = "0.1.0"
 dependencies = [
  "hash-db",
  "ismp",
+ "log",
  "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",
@@ -14887,6 +14889,7 @@ dependencies = [
  "ismp",
  "jsonrpsee-core 0.22.4",
  "mmr-primitives",
+ "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-rpc",
  "pallet-mmr 0.1.0",

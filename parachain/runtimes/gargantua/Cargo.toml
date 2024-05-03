@@ -6,10 +6,6 @@ description = "Parachain runtime implementation of the hyperbridge protocol"
 edition = "2021"
 publish = false
 
-
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
-
 [build-dependencies]
 substrate-wasm-builder = { workspace = true }
 
@@ -37,6 +33,7 @@ pallet-balances = { workspace = true }
 pallet-assets = { workspace = true }
 pallet-session = { workspace = true }
 pallet-sudo = { workspace = true }
+pallet-utility = { workspace = true }
 pallet-timestamp = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
@@ -125,6 +122,7 @@ std = [
 	"pallet-collator-selection/std",
 	"pallet-session/std",
 	"pallet-sudo/std",
+	"pallet-utility/std",
 	"pallet-timestamp/std",
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
@@ -210,6 +208,7 @@ try-runtime = [
 	"pallet-ismp-host-executive/try-runtime",
 	"pallet-session/try-runtime",
 	"pallet-sudo/try-runtime",
+	"pallet-utility/try-runtime",
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 	"pallet-xcm/try-runtime",

@@ -18,10 +18,9 @@
 
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, format};
-
+use alloc::{collections::BTreeMap, format, vec::Vec};
 use codec::Decode;
-use sp_runtime::traits::{BlakeTwo256, Keccak256};
+use sp_runtime::traits::{BlakeTwo256, Keccak256, Zero};
 use sp_trie::{LayoutV0, StorageProof, Trie, TrieDBBuilder};
 
 use ismp::{
@@ -131,26 +130,31 @@ where
                             ))
                         })?;
 
-                    let paid = trie
-                        .get(&payment_key)
-                        .map_err(|e| Error::Custom(format!("Error reading state proof: {e:?}")))?
-                        .map(|value| u128::decode(&mut &value[..]))
-                        .transpose()
-                        .map_err(|err| {
-                            Error::Custom(format!("Failed to decode payment receipt: {err:?}",))
-                        })?
-                        .ok_or_else(|| {
-                            Error::Custom(format!(
-                                "Request payment not present in path: {payment_key:?}",
-                            ))
-                        })?;
+                    // only check for payments if a fee is configured
+                    if per_byte_fee > Zero::zero() {
+                        let paid = trie
+                            .get(&payment_key)
+                            .map_err(|e| {
+                                Error::Custom(format!("Error reading state proof: {e:?}"))
+                            })?
+                            .map(|value| u128::decode(&mut &value[..]))
+                            .transpose()
+                            .map_err(|err| {
+                                Error::Custom(format!("Failed to decode payment receipt: {err:?}",))
+                            })?
+                            .ok_or_else(|| {
+                                Error::Custom(format!(
+                                    "Request payment not present in path: {payment_key:?}",
+                                ))
+                            })?;
 
-                    let cost = size * per_byte_fee.into();
+                        let cost = size * per_byte_fee.into();
 
-                    if cost < paid {
-                        Err(Error::Custom(format!(
-                            "Insufficient payment for request. Expected: {cost}, got: {paid}"
-                        )))?
+                        if cost > paid {
+                            Err(Error::Custom(format!(
+                                "Insufficient payment for request. Expected: {cost}, got: {paid}"
+                            )))?
+                        }
                     }
                 }
             },
@@ -168,26 +172,31 @@ where
                             ))
                         })?;
 
-                    let paid = trie
-                        .get(&payment_key)
-                        .map_err(|e| Error::Custom(format!("Error reading state proof: {e:?}")))?
-                        .map(|value| u128::decode(&mut &value[..]))
-                        .transpose()
-                        .map_err(|err| {
-                            Error::Custom(format!("Failed to decode payment receipt: {err:?}",))
-                        })?
-                        .ok_or_else(|| {
-                            Error::Custom(format!(
-                                "Response payment not present in path: {payment_key:?}",
-                            ))
-                        })?;
+                    // only check for payments if a fee is configured
+                    if per_byte_fee > Zero::zero() {
+                        let paid = trie
+                            .get(&payment_key)
+                            .map_err(|e| {
+                                Error::Custom(format!("Error reading state proof: {e:?}"))
+                            })?
+                            .map(|value| u128::decode(&mut &value[..]))
+                            .transpose()
+                            .map_err(|err| {
+                                Error::Custom(format!("Failed to decode payment receipt: {err:?}",))
+                            })?
+                            .ok_or_else(|| {
+                                Error::Custom(format!(
+                                    "Request payment not present in path: {payment_key:?}",
+                                ))
+                            })?;
 
-                    let cost = size * per_byte_fee.into();
+                        let cost = size * per_byte_fee.into();
 
-                    if cost < paid {
-                        Err(Error::Custom(format!(
-                            "Insufficient payment for request. Expected: {cost}, got: {paid}"
-                        )))?
+                        if cost > paid {
+                            Err(Error::Custom(format!(
+                                "Insufficient payment for request. Expected: {cost}, got: {paid}"
+                            )))?
+                        }
                     }
                 }
             },

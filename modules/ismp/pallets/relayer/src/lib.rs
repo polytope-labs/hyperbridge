@@ -43,11 +43,12 @@ use ismp::{
     messaging::Proof,
 };
 pub use pallet::*;
+use pallet_hyperbridge::PALLET_HYPERBRIDGE;
 use pallet_ismp::{
     child_trie::{RequestCommitments, ResponseCommitments},
     host::Host,
 };
-use pallet_ismp_host_executive::HostParams;
+use pallet_ismp_host_executive::{HostParam, HostParams};
 use sp_core::U256;
 use sp_runtime::DispatchError;
 use sp_std::prelude::*;
@@ -102,6 +103,8 @@ pub mod pallet {
         EmptyBalance,
         /// Invalid Amount
         InvalidAmount,
+        /// Encountered a mis-match in the requested state machine
+        MismatchedStateMachine,
         /// Relayer Manager Address on Dest chain not set
         MissingMangerAddress,
         /// Failed to dispatch request
@@ -279,12 +282,17 @@ where
             StateMachine::Beefy(_) |
             StateMachine::Grandpa(_) |
             StateMachine::Kusama(_) |
-            StateMachine::Polkadot(_) => MODULE_ID.to_vec(),
-            _ => HostParams::<T>::get(withdrawal_data.dest_chain)
-                .ok_or_else(|| Error::<T>::MissingMangerAddress)?
-                .host_manager
-                .0
-                .to_vec(),
+            StateMachine::Polkadot(_) => PALLET_HYPERBRIDGE.0.to_vec(),
+            _ => {
+                let HostParam::EvmHostParam(params) =
+                    HostParams::<T>::get(withdrawal_data.dest_chain)
+                        .ok_or_else(|| Error::<T>::MissingMangerAddress)?
+                else {
+                    Err(Error::<T>::MismatchedStateMachine)?
+                };
+
+                params.host_manager.0.to_vec()
+            },
         };
         Nonce::<T>::try_mutate(address.clone(), withdrawal_data.dest_chain, |value| {
             *value += 1;
@@ -306,8 +314,8 @@ where
             dest: withdrawal_data.dest_chain,
             from: MODULE_ID.to_vec(),
             to: relayer_manager_address,
-            timeout_timestamp: 0,
-            data,
+            timeout: 0,
+            body: data,
         };
 
         // Account is not useful in this case

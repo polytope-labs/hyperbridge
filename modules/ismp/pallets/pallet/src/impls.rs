@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Polytope Labs.
+// Copyright (c) 2024 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -130,7 +130,7 @@ impl<T: Config> Pallet<T> {
         let commitment = hash_request::<Host<T>>(&request);
 
         if RequestCommitments::<T>::contains_key(commitment) {
-            Err(ismp::Error::ImplementationSpecific("Duplicate request".to_string()))?
+            Err(ismp::Error::Custom("Duplicate request".to_string()))?
         }
 
         let (dest_chain, source_chain, nonce) =
@@ -167,7 +167,7 @@ impl<T: Config> Pallet<T> {
         let req_commitment = hash_request::<Host<T>>(&response.request());
 
         if Responded::<T>::contains_key(req_commitment) {
-            Err(ismp::Error::ImplementationSpecific("Request has been responded to".to_string()))?
+            Err(ismp::Error::Custom("Request has been responded to".to_string()))?
         }
 
         let commitment = hash_response::<Host<T>>(&response);

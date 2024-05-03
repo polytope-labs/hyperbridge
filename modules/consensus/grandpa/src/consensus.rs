@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Polytope Labs.
+// Copyright (c) 2024 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -70,7 +70,7 @@ where
         // decode the proof into consensus message
         let consensus_message: ConsensusMessage =
             codec::Decode::decode(&mut &proof[..]).map_err(|e| {
-                Error::ImplementationSpecific(format!(
+                Error::Custom(format!(
                     "Cannot decode consensus message from proof: {e:?}",
                 ))
             })?;
@@ -78,7 +78,7 @@ where
         // decode the consensus state
         let consensus_state: ConsensusState =
             codec::Decode::decode(&mut &trusted_consensus_state[..]).map_err(|e| {
-                Error::ImplementationSpecific(format!(
+                Error::Custom(format!(
                     "Cannot decode consensus state from trusted consensus state bytes: {e:?}",
                 ))
             })?;
@@ -99,7 +99,7 @@ where
                         headers_with_finality_proof,
                     )
                     .map_err(|_| {
-                        Error::ImplementationSpecific(format!("Error verifying parachain headers"))
+                        Error::Custom(format!("Error verifying parachain headers"))
                     })?;
 
                 for (para_id, header_vec) in parachain_headers {
@@ -108,7 +108,7 @@ where
                     let state_id: StateMachine = match consensus_state.state_machine {
                         StateMachine::Polkadot(_) => StateMachine::Polkadot(para_id),
                         StateMachine::Kusama(_) => StateMachine::Kusama(para_id),
-                        _ => Err(Error::ImplementationSpecific(
+                        _ => Err(Error::Custom(
                             "Host state machine should be a parachain".into(),
                         ))?,
                     };
@@ -120,7 +120,7 @@ where
                         )?;
 
                         if timestamp == 0 {
-                            Err(Error::ImplementationSpecific(
+                            Err(Error::Custom(
                                 "Timestamp or ismp root not found".into(),
                             ))?
                         }
@@ -151,7 +151,7 @@ where
                     standalone_chain_message.finality_proof,
                 )
                 .map_err(|_| {
-                    Error::ImplementationSpecific(
+                    Error::Custom(
                         "Error verifying parachain headers".parse().unwrap(),
                     )
                 })?;
@@ -161,7 +161,7 @@ where
                 )?;
 
                 if timestamp == 0 {
-                    Err(Error::ImplementationSpecific("Timestamp or ismp root not found".into()))?
+                    Err(Error::Custom("Timestamp or ismp root not found".into()))?
                 }
 
                 let height: u32 = (*header.number()).into();
@@ -197,27 +197,27 @@ where
         // decode the consensus state
         let consensus_state: ConsensusState =
             codec::Decode::decode(&mut &trusted_consensus_state[..]).map_err(|e| {
-                Error::ImplementationSpecific(format!(
+                Error::Custom(format!(
                     "Cannot decode consensus state from trusted consensus state bytes: {e:?}",
                 ))
             })?;
 
         let first_proof: FinalityProof<T::Header> = codec::Decode::decode(&mut &proof_1[..])
             .map_err(|e| {
-                Error::ImplementationSpecific(format!(
+                Error::Custom(format!(
                     "Cannot decode first finality proof from proof_1 bytes: {e:?}",
                 ))
             })?;
 
         let second_proof: FinalityProof<T::Header> = codec::Decode::decode(&mut &proof_2[..])
             .map_err(|e| {
-                Error::ImplementationSpecific(format!(
+                Error::Custom(format!(
                     "Cannot decode second finality proof from proof_2 bytes: {e:?}",
                 ))
             })?;
 
         if first_proof.block == second_proof.block {
-            return Err(Error::ImplementationSpecific(format!(
+            return Err(Error::Custom(format!(
                 "Fraud proofs are for the same block",
             )))
         }
@@ -225,42 +225,42 @@ where
         let first_headers = AncestryChain::<T::Header>::new(&first_proof.unknown_headers);
         let first_target =
             first_proof.unknown_headers.iter().max_by_key(|h| *h.number()).ok_or_else(|| {
-                Error::ImplementationSpecific(format!("Unknown headers can't be empty!"))
+                Error::Custom(format!("Unknown headers can't be empty!"))
             })?;
 
         let second_headers = AncestryChain::<T::Header>::new(&second_proof.unknown_headers);
         let second_target =
             second_proof.unknown_headers.iter().max_by_key(|h| *h.number()).ok_or_else(|| {
-                Error::ImplementationSpecific(format!("Unknown headers can't be empty!"))
+                Error::Custom(format!("Unknown headers can't be empty!"))
             })?;
 
         if first_target.hash() != first_proof.block || second_target.hash() != second_proof.block {
-            return Err(Error::ImplementationSpecific(format!(
+            return Err(Error::Custom(format!(
                 "Fraud proofs are not for the same chain"
             )))
         }
 
         let first_base =
             first_proof.unknown_headers.iter().min_by_key(|h| *h.number()).ok_or_else(|| {
-                Error::ImplementationSpecific(format!("Unknown headers can't be empty!"))
+                Error::Custom(format!("Unknown headers can't be empty!"))
             })?;
         first_headers
             .ancestry(first_base.hash(), first_target.hash())
-            .map_err(|_| Error::ImplementationSpecific(format!("Invalid ancestry!")))?;
+            .map_err(|_| Error::Custom(format!("Invalid ancestry!")))?;
 
         let second_base =
             second_proof.unknown_headers.iter().min_by_key(|h| *h.number()).ok_or_else(|| {
-                Error::ImplementationSpecific(format!("Unknown headers can't be empty!"))
+                Error::Custom(format!("Unknown headers can't be empty!"))
             })?;
         second_headers
             .ancestry(second_base.hash(), second_target.hash())
-            .map_err(|_| Error::ImplementationSpecific(format!("Invalid ancestry!")))?;
+            .map_err(|_| Error::Custom(format!("Invalid ancestry!")))?;
 
         let first_parent = first_base.parent_hash();
         let second_parent = second_base.parent_hash();
 
         if first_parent != second_parent {
-            return Err(Error::ImplementationSpecific(format!(
+            return Err(Error::Custom(format!(
                 "Fraud proofs are not for the same ancestor"
             )))
         }
@@ -268,19 +268,19 @@ where
         let first_justification =
             GrandpaJustification::<T::Header>::decode(&mut &first_proof.justification[..])
                 .map_err(|_| {
-                    Error::ImplementationSpecific(format!("Could not decode first justification"))
+                    Error::Custom(format!("Could not decode first justification"))
                 })?;
 
         let second_justification =
             GrandpaJustification::<T::Header>::decode(&mut &second_proof.justification[..])
                 .map_err(|_| {
-                    Error::ImplementationSpecific(format!("Could not decode second justification"))
+                    Error::Custom(format!("Could not decode second justification"))
                 })?;
 
         if first_proof.block != first_justification.commit.target_hash ||
             second_proof.block != second_justification.commit.target_hash
         {
-            Err(Error::ImplementationSpecific(
+            Err(Error::Custom(
                 format!("First or second finality proof block hash does not match justification target hash")
             ))?
         }
@@ -288,7 +288,7 @@ where
         if first_justification.commit.target_hash != consensus_state.latest_hash &&
             second_justification.commit.target_hash != consensus_state.latest_hash
         {
-            Err(Error::ImplementationSpecific(format!(
+            Err(Error::Custom(format!(
                 "First or second justification does not match consensus latest hash"
             )))?
         }
@@ -301,7 +301,7 @@ where
             .is_ok();
 
         if !first_valid || !second_valid {
-            Err(Error::ImplementationSpecific(format!("Invalid justification")))?
+            Err(Error::Custom(format!("Invalid justification")))?
         }
 
         Ok(())

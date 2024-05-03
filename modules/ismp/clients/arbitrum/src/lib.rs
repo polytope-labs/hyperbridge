@@ -131,7 +131,7 @@ pub fn verify_arbitrum_payload<H: IsmpHost + Send + Sync>(
 
     let header: Header = payload.arbitrum_header.as_ref().into();
     if &payload.global_state.send_root[..] != &payload.arbitrum_header.extra_data {
-        Err(Error::ImplementationSpecific(
+        Err(Error::Custom(
             "Arbitrum header extra data does not match send root in global state".to_string(),
         ))?
     }
@@ -142,7 +142,7 @@ pub fn verify_arbitrum_payload<H: IsmpHost + Send + Sync>(
 
     let header_hash = header.hash::<H>();
     if payload.global_state.block_hash != header_hash {
-        Err(Error::ImplementationSpecific(
+        Err(Error::Custom(
             "Arbitrum header hash does not match block hash in global state".to_string(),
         ))?
     }
@@ -163,9 +163,7 @@ pub fn verify_arbitrum_payload<H: IsmpHost + Send + Sync>(
     };
 
     let proof_value = <alloy_primitives::U256 as Decodable>::decode(&mut &*proof_value)
-        .map_err(|_| {
-            Error::ImplementationSpecific(format!("Error decoding state hash {:?}", &proof_value))
-        })?
+        .map_err(|_| Error::Custom(format!("Error decoding state hash {:?}", &proof_value)))?
         .to_be_bytes::<32>();
 
     if proof_value != state_hash.0 {

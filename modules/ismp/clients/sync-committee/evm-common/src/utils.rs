@@ -62,7 +62,7 @@ pub fn construct_intermediate_state(
 
 pub fn decode_evm_state_proof(proof: &Proof) -> Result<EvmStateProof, Error> {
     let evm_state_proof = EvmStateProof::decode(&mut &proof.proof[..])
-        .map_err(|_| Error::ImplementationSpecific(format!("Cannot decode evm state proof")))?;
+        .map_err(|_| Error::Custom(format!("Cannot decode evm state proof")))?;
 
     Ok(evm_state_proof)
 }
@@ -119,7 +119,7 @@ pub fn req_res_receipt_keys<H: IsmpHost>(item: RequestResponse) -> Vec<Vec<u8>> 
 
 pub(super) fn to_bytes_32(bytes: &[u8]) -> Result<[u8; 32], Error> {
     if bytes.len() != 32 {
-        return Err(Error::ImplementationSpecific(format!(
+        return Err(Error::Custom(format!(
             "Input vector must have exactly 32 elements {:?}",
             bytes
         )));
@@ -142,16 +142,11 @@ pub fn get_contract_storage_root<H: IsmpHost + Send + Sync>(
     let key = H::keccak256(contract_address).0;
     let result = trie
         .get(&key)
-        .map_err(|_| Error::ImplementationSpecific("Invalid contract account proof".to_string()))?
-        .ok_or_else(|| {
-            Error::ImplementationSpecific("Contract account is not present in proof".to_string())
-        })?;
+        .map_err(|_| Error::Custom("Invalid contract account proof".to_string()))?
+        .ok_or_else(|| Error::Custom("Contract account is not present in proof".to_string()))?;
 
     let contract_account = <Account as Decodable>::decode(&mut &*result).map_err(|_| {
-        Error::ImplementationSpecific(format!(
-            "Error decoding contract account from value {:?}",
-            &result
-        ))
+        Error::Custom(format!("Error decoding contract account from value {:?}", &result))
     })?;
 
     Ok(contract_account.storage_root.0.into())
@@ -213,9 +208,7 @@ pub fn get_values_from_proof<H: IsmpHost + Send + Sync>(
     let proof_db = StorageProof::new(proof).into_memory_db::<KeccakHasher<H>>();
     let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&proof_db, &root).build();
     for key in keys {
-        let val = trie
-            .get(&key)
-            .map_err(|_| Error::ImplementationSpecific(format!("Error reading proof db")))?;
+        let val = trie.get(&key).map_err(|_| Error::Custom(format!("Error reading proof db")))?;
         values.push(val);
     }
 
@@ -231,7 +224,7 @@ pub fn get_value_from_proof<H: IsmpHost + Send + Sync>(
     let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&proof_db, &root).build();
     let val = trie
         .get(&key)
-        .map_err(|e| Error::ImplementationSpecific(format!("Error reading proof db {:?}", e)))?;
+        .map_err(|e| Error::Custom(format!("Error reading proof db {:?}", e)))?;
 
     Ok(val)
 }

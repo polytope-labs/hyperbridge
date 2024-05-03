@@ -59,17 +59,14 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
         trusted_consensus_state: Vec<u8>,
         proof: Vec<u8>,
     ) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), ismp::error::Error> {
-        let bsc_client_update = BscClientUpdate::decode(&mut &proof[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode bsc client update".to_string())
-        })?;
+        let bsc_client_update = BscClientUpdate::decode(&mut &proof[..])
+            .map_err(|_| Error::Custom("Cannot decode bsc client update".to_string()))?;
 
         let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
-            .map_err(|_| {
-                Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
-            })?;
+            .map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
 
         if consensus_state.finalized_height >= bsc_client_update.source_header.number.low_u64() {
-            Err(Error::ImplementationSpecific("Expired Update".to_string()))?
+            Err(Error::Custom("Expired Update".to_string()))?
         }
 
         if let Some(next_validators) = consensus_state.next_validators.clone() {
@@ -83,7 +80,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
                 let source_header_epoch =
                     compute_epoch(bsc_client_update.source_header.number.low_u64());
                 if source_header_epoch != epoch {
-                    Err(Error::ImplementationSpecific("The Source Header must be from the same epoch with the attested epoch during an authority set rotation".to_string()))?
+                    Err(Error::Custom("The Source Header must be from the same epoch with the attested epoch during an authority set rotation".to_string()))?
                 }
                 consensus_state.current_validators = next_validators.validators;
                 consensus_state.next_validators = None;
@@ -93,7 +90,7 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
 
         let VerificationResult { hash, finalized_header, next_validators } =
             verify_bsc_header::<H>(&consensus_state.current_validators, bsc_client_update)
-                .map_err(|e| Error::ImplementationSpecific(e.to_string()))?;
+                .map_err(|e| Error::Custom(e.to_string()))?;
 
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
             BTreeMap::new();
@@ -125,41 +122,35 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
         proof_2: Vec<u8>,
     ) -> Result<(), ismp::error::Error> {
         let bsc_client_update_1 = BscClientUpdate::decode(&mut &proof_1[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode bsc client update for proof 1".to_string())
+            Error::Custom("Cannot decode bsc client update for proof 1".to_string())
         })?;
 
         let bsc_client_update_2 = BscClientUpdate::decode(&mut &proof_2[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode bsc client update for proof 2".to_string())
+            Error::Custom("Cannot decode bsc client update for proof 2".to_string())
         })?;
 
         let header_1 = bsc_client_update_1.attested_header.clone();
         let header_2 = bsc_client_update_2.attested_header.clone();
 
         if header_1.number != header_2.number {
-            Err(Error::ImplementationSpecific("Invalid Fraud proof".to_string()))?
+            Err(Error::Custom("Invalid Fraud proof".to_string()))?
         }
 
         let header_1_hash = Header::from(&header_1).hash::<H>();
         let header_2_hash = Header::from(&header_2).hash::<H>();
 
         if header_1_hash == header_2_hash {
-            return Err(Error::ImplementationSpecific("Invalid Fraud proof".to_string()));
+            return Err(Error::Custom("Invalid Fraud proof".to_string()));
         }
 
-        let consensus_state =
-            ConsensusState::decode(&mut &trusted_consensus_state[..]).map_err(|_| {
-                Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
-            })?;
+        let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
+            .map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
 
         let _ = verify_bsc_header::<H>(&consensus_state.current_validators, bsc_client_update_1)
-            .map_err(|_| {
-                Error::ImplementationSpecific("Failed to verify first header".to_string())
-            })?;
+            .map_err(|_| Error::Custom("Failed to verify first header".to_string()))?;
 
         let _ = verify_bsc_header::<H>(&consensus_state.current_validators, bsc_client_update_2)
-            .map_err(|_| {
-                Error::ImplementationSpecific("Failed to verify second header".to_string())
-            })?;
+            .map_err(|_| Error::Custom("Failed to verify second header".to_string()))?;
 
         Ok(())
     }
@@ -174,9 +165,8 @@ impl<H: IsmpHost + Send + Sync + Default + 'static> ConsensusClient for BscClien
     ) -> Result<Box<dyn StateMachineClient>, ismp::error::Error> {
         match id {
             StateMachine::Bsc => Ok(Box::new(<EvmStateMachine<H>>::default())),
-            state_machine => Err(Error::ImplementationSpecific(alloc::format!(
-                "Unsupported state machine: {state_machine:?}"
-            ))),
+            state_machine =>
+                Err(Error::Custom(alloc::format!("Unsupported state machine: {state_machine:?}"))),
         }
     }
 }
@@ -193,9 +183,8 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
         proof: &Proof,
     ) -> Result<(), Error> {
         let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
-        let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode consensus state".to_string())
-        })?;
+        let consensus_state = ConsensusState::decode(&mut &consensus_state[..])
+            .map_err(|_| Error::Custom("Cannot decode consensus state".to_string()))?;
 
         verify_membership::<H>(item, root, proof, consensus_state.ismp_contract_address)
     }
@@ -212,9 +201,8 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
         proof: &Proof,
     ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
         let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
-        let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode consensus state".to_string())
-        })?;
+        let consensus_state = ConsensusState::decode(&mut &consensus_state[..])
+            .map_err(|_| Error::Custom("Cannot decode consensus state".to_string()))?;
 
         verify_state_proof::<H>(keys, root, proof, consensus_state.ismp_contract_address)
     }

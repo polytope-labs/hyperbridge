@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Polytope Labs.
+// Copyright (c) 2024 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -156,8 +156,8 @@ pub mod pallet {
                 dest,
                 from: PALLET_ID.to_bytes(),
                 to: PALLET_ID.to_bytes(),
-                timeout_timestamp: params.timeout,
-                data: payload.encode(),
+                timeout: params.timeout,
+                body: payload.encode(),
             };
 
             // dispatch the request
@@ -197,7 +197,7 @@ pub mod pallet {
                 from: PALLET_ID.to_bytes(),
                 keys: params.keys,
                 height: params.height as u64,
-                timeout_timestamp: params.timeout,
+                timeout: params.timeout,
             };
 
             let dispatcher = T::IsmpDispatcher::default();
@@ -219,8 +219,8 @@ pub mod pallet {
                 dest: StateMachine::Ethereum(params.destination),
                 from: PALLET_ID.to_bytes(),
                 to: params.module.0.to_vec(),
-                timeout_timestamp: params.timeout,
-                data: b"Hello from polkadot".to_vec(),
+                timeout: params.timeout,
+                body: b"Hello from polkadot".to_vec(),
             };
             let dispatcher = T::IsmpDispatcher::default();
             for _ in 0..params.count {
@@ -325,18 +325,12 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
                     <Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(
                         &mut &*request.data,
                     )
-                    .map_err(|_| {
-                        IsmpError::ImplementationSpecific(
-                            "Failed to decode request data".to_string(),
-                        )
-                    })?;
+                    .map_err(|_| IsmpError::Custom("Failed to decode request data".to_string()))?;
                 <T::NativeCurrency as Mutate<T::AccountId>>::mint_into(
                     &payload.to,
                     payload.amount.into(),
                 )
-                .map_err(|_| {
-                    IsmpError::ImplementationSpecific("Failed to mint funds".to_string())
-                })?;
+                .map_err(|_| IsmpError::Custom("Failed to mint funds".to_string()))?;
                 Pallet::<T>::deposit_event(Event::<T>::BalanceReceived {
                     from: payload.from,
                     to: payload.to,
@@ -344,8 +338,7 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
                     source_chain,
                 });
             },
-            source =>
-                Err(IsmpError::ImplementationSpecific(format!("Unsupported source {source:?}")))?,
+            source => Err(IsmpError::Custom(format!("Unsupported source {source:?}")))?,
         }
 
         Ok(())
@@ -353,7 +346,7 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 
     fn on_response(&self, response: Response) -> Result<(), IsmpError> {
         match response {
-            Response::Post(_) => Err(IsmpError::ImplementationSpecific(
+            Response::Post(_) => Err(IsmpError::Custom(
                 "Balance transfer protocol does not accept post responses".to_string(),
             ))?,
             Response::Get(res) => Pallet::<T>::deposit_event(Event::<T>::GetResponse(
@@ -367,23 +360,19 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
     fn on_timeout(&self, timeout: Timeout) -> Result<(), IsmpError> {
         let request = match timeout {
             Timeout::Request(Request::Post(post)) => Request::Post(post),
-            _ => Err(IsmpError::ImplementationSpecific(
-                "Only Post requests allowed, found Get".to_string(),
-            ))?,
+            _ => Err(IsmpError::Custom("Only Post requests allowed, found Get".to_string()))?,
         };
         let source_chain = request.source_chain();
 
         let payload = <Payload<T::AccountId, <T as Config>::Balance> as codec::Decode>::decode(
             &mut &*request.data().expect("Request has been checked; qed"),
         )
-        .map_err(|_| {
-            IsmpError::ImplementationSpecific("Failed to decode request data".to_string())
-        })?;
+        .map_err(|_| IsmpError::Custom("Failed to decode request data".to_string()))?;
         <T::NativeCurrency as Mutate<T::AccountId>>::mint_into(
             &payload.from,
             payload.amount.into(),
         )
-        .map_err(|_| IsmpError::ImplementationSpecific("Failed to mint funds".to_string()))?;
+        .map_err(|_| IsmpError::Custom("Failed to mint funds".to_string()))?;
         Pallet::<T>::deposit_event(Event::<T>::BalanceReceived {
             from: payload.from,
             to: payload.to,

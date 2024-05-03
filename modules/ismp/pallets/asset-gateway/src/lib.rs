@@ -254,8 +254,8 @@ where
             dest: multi_account.dest_state_machine,
             from: Self::token_gateway_address().0.to_vec(),
             to: Self::token_gateway_address().0.to_vec(),
-            timeout_timestamp: multi_account.timeout,
-            data: {
+            timeout: multi_account.timeout,
+            body: {
                 // Prefix with the handleIncomingAsset enum variant
                 let mut encoded = vec![0];
                 encoded.extend_from_slice(&alloy_rlp::encode(body));

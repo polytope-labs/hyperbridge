@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Polytope Labs.
+// Copyright (c) 2024 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -61,6 +61,7 @@ frame_support::construct_runtime!(
         Timestamp: pallet_timestamp,
         Mmr: pallet_mmr,
         Ismp: pallet_ismp,
+        Hyperbridge: pallet_hyperbridge,
         Balances: pallet_balances,
         Relayer: pallet_ismp_relayer,
         Fishermen: pallet_fishermen,
@@ -167,7 +168,7 @@ impl pallet_timestamp::Config for Test {
 }
 
 parameter_types! {
-    pub const Coprocessor: Option<StateMachine> = None;
+    pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));
 }
 
 impl pallet_ismp::Config for Test {
@@ -177,6 +178,7 @@ impl pallet_ismp::Config for Test {
     type Coprocessor = Coprocessor;
     type TimestampProvider = Timestamp;
     type Router = ModuleRouter;
+    type Balance = Balance;
     type Currency = Balances;
     type ConsensusClients = (
         MockConsensusClient,
@@ -185,6 +187,10 @@ impl pallet_ismp::Config for Test {
     );
     type Mmr = Mmr;
     type WeightProvider = ();
+}
+
+impl pallet_hyperbridge::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
 }
 
 impl pallet_mmr::Config for Test {
@@ -199,6 +205,7 @@ impl pallet_ismp_relayer::Config for Test {
 }
 
 impl pallet_ismp_host_executive::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
     type Dispatcher = Host<Test>;
 }
 
@@ -226,13 +233,14 @@ impl IsmpModule for ErrorModule {
 #[derive(Default)]
 pub struct ModuleRouter;
 
+pub const ERROR_MODULE_ID: &'static [u8] = &[12, 24, 36, 48];
+
 impl IsmpRouter for ModuleRouter {
-    fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
-        let error_module: Vec<u8> = vec![12, 24, 36, 48];
-        if _bytes == error_module {
-            return Ok(Box::new(ErrorModule))
-        }
-        Ok(Box::new(MockModule))
+    fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+        return match id.as_slice() {
+            ERROR_MODULE_ID => Ok(Box::new(ErrorModule)),
+            _ => Ok(Box::new(MockModule)),
+        };
     }
 }
 

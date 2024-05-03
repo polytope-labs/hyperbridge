@@ -16,7 +16,6 @@ readme = "./README.md"
 frame-benchmarking = { workspace = true, optional = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
-pallet-balances = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 sp-core = { workspace = true }
@@ -54,7 +53,6 @@ std = [
     "ismp/std",
     "sp-api/std",
     "serde/default",
-    "pallet-balances/std",
     "sp-mmr-primitives/std",
     "mmr-primitives/std"
 ]

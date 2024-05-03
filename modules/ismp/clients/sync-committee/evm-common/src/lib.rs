@@ -47,9 +47,7 @@ pub fn verify_membership<H: IsmpHost + Send + Sync>(
     let storage_proof = evm_state_proof
         .storage_proof
         .remove(&contract_address.0.to_vec())
-        .ok_or_else(|| {
-            Error::ImplementationSpecific("Ismp contract account trie proof is missing".to_string())
-        })?;
+        .ok_or_else(|| Error::Custom("Ismp contract account trie proof is missing".to_string()))?;
     let keys = req_res_to_key::<H>(item);
     let root = H256::from_slice(&root.state_root[..]);
     let contract_root = get_contract_storage_root::<H>(
@@ -60,7 +58,7 @@ pub fn verify_membership<H: IsmpHost + Send + Sync>(
     let values = get_values_from_proof::<H>(keys, contract_root, storage_proof)?;
 
     if values.into_iter().any(|val| val.is_none()) {
-        Err(Error::ImplementationSpecific("Missing values for some keys in the proof".to_string()))?
+        Err(Error::Custom("Missing values for some keys in the proof".to_string()))?
     }
 
     Ok(())

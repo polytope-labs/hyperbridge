@@ -155,9 +155,7 @@ impl TimeoutMessage {
     pub fn timeout_proof(&self) -> Result<&Proof, Error> {
         match self {
             TimeoutMessage::Post { timeout_proof, .. } => Ok(timeout_proof),
-            _ => Err(Error::ImplementationSpecific(
-                "Method should not be called on Get request".to_string(),
-            )),
+            _ => Err(Error::Custom("Method should not be called on Get request".to_string())),
         }
     }
 }

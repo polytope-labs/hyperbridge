@@ -8908,6 +8908,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-hyperbridge"
+version = "1.6.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "primitive-types",
+ "scale-info",
+ "sp-std 14.0.0",
+]
+
+[[package]]
 name = "pallet-identity"
 version = "28.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8977,7 +8991,6 @@ dependencies = [
  "ismp-testsuite",
  "log",
  "mmr-primitives",
- "pallet-balances",
  "pallet-timestamp",
  "parity-scale-codec",
  "scale-info",
@@ -9016,6 +9029,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "ismp",
+ "pallet-hyperbridge",
  "pallet-ismp",
  "parity-scale-codec",
  "scale-info",
@@ -9043,6 +9057,7 @@ dependencies = [
  "ismp-sync-committee",
  "log",
  "pallet-balances",
+ "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "pallet-timestamp",
@@ -9129,6 +9144,7 @@ dependencies = [
  "pallet-balances",
  "pallet-call-decompressor",
  "pallet-fishermen",
+ "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",

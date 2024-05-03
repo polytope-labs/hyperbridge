@@ -194,9 +194,7 @@ pub trait IsmpHost: Keccak256 {
         self.consensus_clients()
             .into_iter()
             .find(|client| client.consensus_client_id() == id)
-            .ok_or_else(|| {
-                Error::ImplementationSpecific(format!("Consensus client for id {id:?} not found"))
-            })
+            .ok_or_else(|| Error::Custom(format!("Consensus client for id {id:?} not found")))
     }
 
     /// Should return the list of all configured consensus clients

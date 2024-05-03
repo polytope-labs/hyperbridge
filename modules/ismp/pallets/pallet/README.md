@@ -95,7 +95,7 @@ impl pallet_ismp::Config for Runtime {
 struct Router;
 impl IsmpRouter for Router {
     fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
-        let module = match id {
+        let module = match id.as_slice() {
             YOUR_MODULE_ID => Box::new(YourModule::default()),
             _ => Err(Error::ModuleNotFound(id))?
         };
@@ -107,6 +107,8 @@ impl IsmpRouter for Router {
 /// This could also be a pallet itself.
 #[derive(Default)]
 struct YourModule;
+
+pub const YOUR_MODULE_ID: &'static [u8] = &[12, 24, 36, 48];
 
 impl IsmpModule for YourModule {
     /// Called by the ISMP hanlder, to notify module of a new POST request
@@ -134,4 +136,4 @@ impl IsmpModule for YourModule {
 
 ## License
 
-This library is licensed under the Apache 2.0 License, Copyright (c) 2023 Polytope Labs.
+This library is licensed under the Apache 2.0 License, Copyright (c) 2024 Polytope Labs.

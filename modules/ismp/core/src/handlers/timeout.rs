@@ -73,9 +73,7 @@ where
             let keys = state_machine.state_trie_key(requests.clone().into());
             let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
             if values.into_iter().any(|(_key, val)| val.is_some()) {
-                Err(Error::ImplementationSpecific(
-                    "Some Requests in the batch have been delivered".into(),
-                ))?
+                Err(Error::Custom("Some Requests in the batch have been delivered".into()))?
             }
 
             let router = host.ismp_router();
@@ -140,9 +138,7 @@ where
             let keys = state_machine.state_trie_key(items.into());
             let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
             if values.into_iter().any(|(_key, val)| val.is_some()) {
-                Err(Error::ImplementationSpecific(
-                    "Some responses in the batch have been delivered".into(),
-                ))?
+                Err(Error::Custom("Some responses in the batch have been delivered".into()))?
             }
 
             let router = host.ismp_router();

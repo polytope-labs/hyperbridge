@@ -1,14 +1,37 @@
 use alloc::vec::Vec;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use frame_support::{pallet_prelude::ConstU32, BoundedVec};
+use pallet_hyperbridge::VersionedHostParams;
 use sp_core::H160;
 use sp_runtime::RuntimeDebug;
 
 /// The host parameters of all connected chains
 #[derive(
+    Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+)]
+pub enum HostParam<T> {
+    /// Host params for substrate-based hosts
+    SubstrateHostParam(VersionedHostParams<T>),
+    /// Host params for evm-based hosts
+    EvmHostParam(EvmHostParam),
+}
+
+/// Struct for modifying the host parameters of all connected chains
+#[derive(
+    Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug,
+)]
+pub enum HostParamUpdate<T> {
+    /// Host param updates for substrate-based hosts
+    SubstrateHostParam(VersionedHostParams<T>),
+    /// Host params updates for evm-based hosts
+    EvmHostParam(EvmHostParamUpdate),
+}
+
+/// The host parameters for evm-based hosts
+#[derive(
     Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug, Default,
 )]
-pub struct HostParam {
+pub struct EvmHostParam {
     /// the minimum default timeout in seconds
     pub default_timeout: u128,
     /// The fee to charge per byte
@@ -39,9 +62,9 @@ pub struct HostParam {
     pub hyperbridge: BoundedVec<u8, ConstU32<1_000>>,
 }
 
-impl HostParam {
+impl EvmHostParam {
     /// Update the host params with the update struct. Will only modify fields that are set.
-    pub fn update(&mut self, update: HostParamUpdate) {
+    pub fn update(&mut self, update: EvmHostParamUpdate) {
         if let Some(default_timeout) = update.default_timeout {
             self.default_timeout = default_timeout;
         }
@@ -104,7 +127,7 @@ impl HostParam {
 #[derive(
     Clone, codec::Encode, codec::Decode, scale_info::TypeInfo, PartialEq, Eq, RuntimeDebug, Default,
 )]
-pub struct HostParamUpdate {
+pub struct EvmHostParamUpdate {
     /// the minimum default timeout in seconds
     pub default_timeout: Option<u128>,
     /// The fee to charge per byte
@@ -137,7 +160,7 @@ pub struct HostParamUpdate {
 
 /// The host parameters of all connected chains, ethereum friendly version
 #[derive(Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
-pub struct HostParamRlp {
+pub struct EvmHostParamRlp {
     /// the minimum default timeout in seconds
     pub default_timeout: alloy_primitives::U256,
     /// The fee to charge per byte
@@ -168,11 +191,11 @@ pub struct HostParamRlp {
     pub hyperbridge: alloy_primitives::Bytes,
 }
 
-impl TryFrom<HostParam> for HostParamRlp {
+impl TryFrom<EvmHostParam> for EvmHostParamRlp {
     type Error = anyhow::Error;
 
-    fn try_from(value: HostParam) -> Result<Self, anyhow::Error> {
-        Ok(HostParamRlp {
+    fn try_from(value: EvmHostParam) -> Result<Self, anyhow::Error> {
+        Ok(EvmHostParamRlp {
             default_timeout: value.default_timeout.try_into().map_err(anyhow::Error::msg)?,
             per_byte_fee: value.per_byte_fee.try_into().map_err(anyhow::Error::msg)?,
             fee_token: value.fee_token.0.try_into().map_err(anyhow::Error::msg)?,

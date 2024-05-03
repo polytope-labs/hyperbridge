@@ -106,8 +106,8 @@ pub enum Error {
     MembershipProofVerificationFailed(String),
     /// Non-membership proof verification failed
     NonMembershipProofVerificationFailed(String),
-    /// Some implementation specific error
-    ImplementationSpecific(String),
+    /// Some custom error message
+    Custom(String),
     /// A consensus client with the given identifier already exists
     CannotCreateAlreadyExistingConsensusClient {
         /// The consensus client identifier

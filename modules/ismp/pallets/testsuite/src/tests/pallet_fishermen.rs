@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Polytope Labs.
+// Copyright (c) 2024 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -39,7 +39,7 @@ fn test_can_veto_state_commitments() {
         assert_eq!(
             result,
             Err(DispatchError::Module(ModuleError {
-                index: 8,
+                index: 9,
                 error: [0, 0, 0, 0],
                 message: Some("AlreadyAdded"),
             }))
@@ -71,7 +71,7 @@ fn test_can_veto_state_commitments() {
         assert_eq!(
             result,
             Err(DispatchError::Module(ModuleError {
-                index: 8,
+                index: 9,
                 error: [2, 0, 0, 0],
                 message: Some("UnauthorizedAction"),
             }))

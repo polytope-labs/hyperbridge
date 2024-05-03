@@ -58,21 +58,18 @@ impl<
             mut dispute_game_payload,
             consensus_update,
             mut arbitrum_payload,
-        } = BeaconClientUpdate::decode(&mut &consensus_proof[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode beacon client update".to_string())
-        })?;
+        } = BeaconClientUpdate::decode(&mut &consensus_proof[..])
+            .map_err(|_| Error::Custom("Cannot decode beacon client update".to_string()))?;
 
-        let consensus_state =
-            ConsensusState::decode(&mut &trusted_consensus_state[..]).map_err(|_| {
-                Error::ImplementationSpecific("Cannot decode trusted consensus state".to_string())
-            })?;
+        let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
+            .map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
 
         let new_light_client_state =
             sync_committee_verifier::verify_sync_committee_attestation::<C>(
                 consensus_state.light_client_state,
                 consensus_update.clone(),
             )
-            .map_err(|e| Error::ImplementationSpecific(format!("{:?}", e)))?;
+            .map_err(|e| Error::Custom(format!("{:?}", e)))?;
 
         let mut state_machine_map: BTreeMap<StateMachine, Vec<StateCommitmentHeight>> =
             BTreeMap::new();
@@ -164,9 +161,7 @@ impl<
         let new_consensus_state = ConsensusState {
             frozen_height: None,
             light_client_state: new_light_client_state.try_into().map_err(|_| {
-                Error::ImplementationSpecific(format!(
-                    "Cannot convert light client state to codec type"
-                ))
+                Error::Custom(format!("Cannot convert light client state to codec type"))
             })?,
             ismp_contract_addresses: consensus_state.ismp_contract_addresses,
             l2_consensus: consensus_state.l2_consensus,
@@ -182,7 +177,7 @@ impl<
         _proof_1: Vec<u8>,
         _proof_2: Vec<u8>,
     ) -> Result<(), Error> {
-        Err(Error::ImplementationSpecific("fraud proof verification unimplemented".to_string()))
+        Err(Error::Custom("fraud proof verification unimplemented".to_string()))
     }
 
     fn consensus_client_id(&self) -> ConsensusClientId {
@@ -192,7 +187,7 @@ impl<
     fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         match id {
             StateMachine::Ethereum(_) => Ok(Box::new(<EvmStateMachine<H>>::default())),
-            _ => Err(Error::ImplementationSpecific("State machine not supported".to_string())),
+            _ => Err(Error::Custom("State machine not supported".to_string())),
         }
     }
 }
@@ -209,17 +204,14 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
         proof: &Proof,
     ) -> Result<(), Error> {
         let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
-        let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode consensus state".to_string())
-        })?;
+        let consensus_state = ConsensusState::decode(&mut &consensus_state[..])
+            .map_err(|_| Error::Custom("Cannot decode consensus state".to_string()))?;
 
         let contract_address = consensus_state
             .ismp_contract_addresses
             .get(&proof.height.id.state_id)
             .cloned()
-            .ok_or_else(|| {
-                Error::ImplementationSpecific("Ismp contract address not found".to_string())
-            })?;
+            .ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
         verify_membership::<H>(item, root, proof, contract_address)
     }
 
@@ -237,16 +229,13 @@ impl<H: IsmpHost + Send + Sync> StateMachineClient for EvmStateMachine<H> {
         proof: &Proof,
     ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
         let consensus_state = host.consensus_state(proof.height.id.consensus_state_id)?;
-        let consensus_state = ConsensusState::decode(&mut &consensus_state[..]).map_err(|_| {
-            Error::ImplementationSpecific("Cannot decode consensus state".to_string())
-        })?;
+        let consensus_state = ConsensusState::decode(&mut &consensus_state[..])
+            .map_err(|_| Error::Custom("Cannot decode consensus state".to_string()))?;
         let ismp_address = consensus_state
             .ismp_contract_addresses
             .get(&proof.height.id.state_id)
             .cloned()
-            .ok_or_else(|| {
-                Error::ImplementationSpecific("Ismp contract address not found".to_string())
-            })?;
+            .ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
 
         verify_state_proof::<H>(keys, root, proof, ismp_address)
     }

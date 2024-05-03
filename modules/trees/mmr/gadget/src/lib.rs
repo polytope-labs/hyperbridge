@@ -128,7 +128,8 @@ where
 
                 // We need to make sure all blocks leading up to current notification
                 // have also been canonicalized.
-                offchain_mmr.canonicalize_catch_up(&notification);
+                let first = notification.tree_route.first().unwrap_or(&notification.hash);
+                offchain_mmr.canonicalize_catch_up(*first);
                 // We have to canonicalize and prune the blocks in the finality
                 // notification that lead to building the offchain-mmr as well.
                 offchain_mmr.canonicalize_and_prune(notification);

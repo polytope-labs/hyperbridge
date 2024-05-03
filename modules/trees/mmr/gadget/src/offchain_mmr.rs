@@ -22,7 +22,7 @@
 #![warn(missing_docs)]
 
 use crate::{aux_schema, HashFor, MmrClient, LOG_TARGET};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use pallet_ismp::mmr::Leaf;
 use pallet_mmr_runtime_api::MmrRuntimeApi;
 use sc_client_api::{Backend, FinalityNotification};
@@ -168,9 +168,15 @@ where
         );
 
         for pos in stale_nodes {
-            let temp_key = self.node_temp_offchain_key(pos, fork_identifier);
-            self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
-            debug!(target: LOG_TARGET, "Pruned elem at pos {} fork_identifier {:?} header_hash {:?}", pos, fork_identifier, block_hash);
+            // Only prune nodes that have been moved to the canonical path to prevent deleting nodes
+            // from forks that share the same child trie root before they are finalized.
+            let canon_key = self.node_canon_offchain_key(pos);
+            if let Some(_) = self.offchain_db.local_storage_get(StorageKind::PERSISTENT, &canon_key)
+            {
+                let temp_key = self.node_temp_offchain_key(pos, fork_identifier);
+                self.offchain_db.local_storage_clear(StorageKind::PERSISTENT, &temp_key);
+                debug!(target: LOG_TARGET, "Pruned elem at pos {} fork_identifier {:?} header_hash {:?}", pos, fork_identifier, block_hash);
+            }
         }
     }
 
@@ -252,15 +258,16 @@ where
                 self.best_canonicalized,
                 header.number,
             );
+            // If a block has been skipped canonicalize all blocks in between
+            self.canonicalize_catch_up(header.parent);
         }
         self.best_canonicalized = header.number;
     }
 
     /// In case of missed finality notifications (node restarts for example),
     /// make sure to also canon everything leading up to `notification.tree_route`.
-    pub fn canonicalize_catch_up(&mut self, notification: &FinalityNotification<B>) {
-        let first = notification.tree_route.first().unwrap_or(&notification.hash);
-        if let Some(mut header) = self.header_metadata_or_log(*first, "canonicalize") {
+    pub fn canonicalize_catch_up(&mut self, first: HashFor<B>) {
+        if let Some(mut header) = self.header_metadata_or_log(first, "canonicalize") {
             let mut to_canon = VecDeque::<<B as Block>::Hash>::new();
             // Walk up the chain adding all blocks newer than `self.best_canonicalized`.
             loop {
@@ -304,8 +311,22 @@ where
         // Update the first MMR block in case of a pallet reset.
         self.handle_potential_pallet_reset(&notification);
 
-        // Move offchain MMR nodes for finalized blocks to canonical keys.
+        // // Run catchup to just to be sure no blocks are skipped
+        // self.canonicalize_catch_up(&notification);
 
+        trace!(target: LOG_TARGET, "Got new finality notification {:?}, Best Canonicalized {:?}", notification.hash, self.best_canonicalized);
+        let mut block_nums = vec![];
+        for hash in notification.tree_route.iter().chain(std::iter::once(&notification.hash)) {
+            match self.header_metadata_or_log(*hash, "canonicalize") {
+                Some(header) => {
+                    block_nums.push(header.number);
+                },
+                _ => {},
+            };
+        }
+
+        trace!(target: LOG_TARGET, "Canonicalizing Blocks{block_nums:?}");
+        // Move offchain MMR nodes for finalized blocks to canonical keys.
         for hash in notification.tree_route.iter().chain(std::iter::once(&notification.hash)) {
             self.canonicalize_branch(*hash);
         }

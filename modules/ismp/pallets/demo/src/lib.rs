@@ -156,8 +156,8 @@ pub mod pallet {
                 dest,
                 from: PALLET_ID.to_bytes(),
                 to: PALLET_ID.to_bytes(),
-                timeout_timestamp: params.timeout,
-                data: payload.encode(),
+                timeout: params.timeout,
+                body: payload.encode(),
             };
 
             // dispatch the request
@@ -197,7 +197,7 @@ pub mod pallet {
                 from: PALLET_ID.to_bytes(),
                 keys: params.keys,
                 height: params.height as u64,
-                timeout_timestamp: params.timeout,
+                timeout: params.timeout,
             };
 
             let dispatcher = T::IsmpDispatcher::default();
@@ -219,8 +219,8 @@ pub mod pallet {
                 dest: StateMachine::Ethereum(params.destination),
                 from: PALLET_ID.to_bytes(),
                 to: params.module.0.to_vec(),
-                timeout_timestamp: params.timeout,
-                data: b"Hello from polkadot".to_vec(),
+                timeout: params.timeout,
+                body: b"Hello from polkadot".to_vec(),
             };
             let dispatcher = T::IsmpDispatcher::default();
             for _ in 0..params.count {

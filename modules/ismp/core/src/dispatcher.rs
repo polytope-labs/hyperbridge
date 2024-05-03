@@ -30,9 +30,9 @@ pub struct DispatchPost {
     /// Module identifier of the receiving module
     pub to: Vec<u8>,
     /// Relative from the current timestamp at which this request expires in seconds.
-    pub timeout_timestamp: u64,
-    /// Encoded Request.
-    pub data: Vec<u8>,
+    pub timeout: u64,
+    /// Encoded request body
+    pub body: Vec<u8>,
 }
 
 /// Simplified GET request, intended to be used for sending outgoing requests
@@ -47,7 +47,7 @@ pub struct DispatchGet {
     /// Height at which to read the state machine.
     pub height: u64,
     /// Relative from the current timestamp at which this request expires in seconds.
-    pub timeout_timestamp: u64,
+    pub timeout: u64,
 }
 
 /// Simplified request, intended to be used for sending outgoing requests
@@ -86,7 +86,7 @@ pub struct FeeMetadata<A, B> {
 /// [`Response`](crate::router::Response)s.
 ///
 /// An [`Event`](crate::events::Event) should be emitted after successful dispatch
-pub trait IsmpDispatcher {
+pub trait IsmpDispatcher: Default {
     /// Sending account type
     type Account;
 

@@ -92,11 +92,10 @@ where
                     from: dispatch_get.from,
                     keys: dispatch_get.keys,
                     height: dispatch_get.height,
-                    timeout_timestamp: if dispatch_get.timeout_timestamp == 0 {
+                    timeout_timestamp: if dispatch_get.timeout == 0 {
                         0
                     } else {
-                        <T::TimestampProvider as UnixTime>::now().as_secs() +
-                            dispatch_get.timeout_timestamp
+                        <T::TimestampProvider as UnixTime>::now().as_secs() + dispatch_get.timeout
                     },
                 };
                 Request::Get(get)
@@ -108,13 +107,12 @@ where
                     nonce: host.next_nonce(),
                     from: dispatch_post.from,
                     to: dispatch_post.to,
-                    timeout_timestamp: if dispatch_post.timeout_timestamp == 0 {
+                    timeout_timestamp: if dispatch_post.timeout == 0 {
                         0
                     } else {
-                        <T::TimestampProvider as UnixTime>::now().as_secs() +
-                            dispatch_post.timeout_timestamp
+                        <T::TimestampProvider as UnixTime>::now().as_secs() + dispatch_post.timeout
                     },
-                    data: dispatch_post.data,
+                    data: dispatch_post.body,
                 };
                 Request::Post(post)
             },

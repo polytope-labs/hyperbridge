@@ -88,6 +88,7 @@ impl pallet_ismp_relayer::Config for Runtime {
 }
 
 impl pallet_ismp_host_executive::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
     type Dispatcher = Host<Runtime>;
 }
 

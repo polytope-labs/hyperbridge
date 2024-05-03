@@ -320,8 +320,8 @@ where
         dest: intermediate_state.height.id.state_id,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
-        timeout_timestamp: intermediate_state.commitment.timestamp,
-        data: vec![0u8; 64],
+        timeout: intermediate_state.commitment.timestamp,
+        body: vec![0u8; 64],
     };
     let post = Post {
         source: host.host_state_machine(),
@@ -427,8 +427,8 @@ where
         dest: StateMachine::Kusama(2000),
         from: vec![0u8; 32],
         to: vec![0u8; 32],
-        timeout_timestamp: 0,
-        data: vec![0u8; 64],
+        timeout: 0,
+        body: vec![0u8; 64],
     };
     let dispatch_request = DispatchRequest::Post(post);
     // Dispatch the request the first time
@@ -529,8 +529,8 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
         dest: direct_conn_state_machine,
         from: vec![0u8; 32],
         to: vec![0u8; 32],
-        timeout_timestamp: proxy.commitment.timestamp,
-        data: vec![0u8; 64],
+        timeout: proxy.commitment.timestamp,
+        body: vec![0u8; 64],
     };
 
     let post = Post {
@@ -785,8 +785,8 @@ pub fn check_response_source() -> Result<(), &'static str> {
         dest: StateMachine::Polkadot(900),
         from: vec![0u8; 32],
         to: vec![0u8; 32],
-        timeout_timestamp: 0,
-        data: vec![0u8; 64],
+        timeout: 0,
+        body: vec![0u8; 64],
     };
 
     let dispatch_request = DispatchRequest::Post(dispatch_post);

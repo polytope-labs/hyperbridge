@@ -17,7 +17,7 @@
 
 use crate::runtime::{last_event, new_test_ext, RuntimeEvent, RuntimeOrigin, Test};
 use ismp::host::StateMachine;
-use pallet_ismp_host_executive::{HostParam, HostParamUpdate};
+use pallet_ismp_host_executive::{EvmHostParam, EvmHostParamUpdate, HostParam, HostParamUpdate};
 use sp_core::{crypto::AccountId32, H160, H256};
 use sp_runtime::DispatchError;
 use std::collections::BTreeMap;
@@ -29,8 +29,9 @@ fn test_host_executive() {
 
         let handler = H160::random();
         let mut map = BTreeMap::new();
-        let mut params = HostParam::default();
-        params.handler = handler;
+        let mut evm_host_params = EvmHostParam::default();
+        evm_host_params.handler = handler;
+        let params = HostParam::EvmHostParam(evm_host_params);
         map.insert(StateMachine::Polkadot(2000), params.clone());
 
         // sanity check non-root can't dispatch requests
@@ -43,22 +44,23 @@ fn test_host_executive() {
         pallet_ismp_host_executive::Pallet::<Test>::set_host_params(RuntimeOrigin::root(), map)
             .unwrap();
 
-        let mut params = HostParamUpdate::default();
+        let mut params = EvmHostParamUpdate::default();
         let new_handler = H160::random();
         params.handler = Some(new_handler);
         pallet_ismp_host_executive::Pallet::<Test>::update_host_params(
             RuntimeOrigin::root(),
             StateMachine::Polkadot(2000),
-            params,
+            HostParamUpdate::EvmHostParam(params),
         )
         .unwrap();
 
-        let RuntimeEvent::Ismp(pallet_ismp::Event::<Test>::Request { dest_chain, .. }) =
-            last_event::<Test>()
+        let RuntimeEvent::HostExecutive(
+            pallet_ismp_host_executive::Event::<Test>::HostParamsUpdated { state_machine, .. },
+        ) = last_event::<Test>()
         else {
             panic!("Ismp request not found")
         };
 
-        assert_eq!(dest_chain, StateMachine::Polkadot(2000))
+        assert_eq!(state_machine, StateMachine::Polkadot(2000))
     })
 }

@@ -17,6 +17,7 @@ sp-core = { workspace = true }
 # polytope labs
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
+pallet-hyperbridge = { workspace = true }
 
 alloy-rlp-derive = { workspace = true }
 alloy-rlp = { workspace = true }
@@ -43,6 +44,7 @@ std = [
     "ismp/std",
     "anyhow/std",
     "pallet-ismp/std",
+    "pallet-hyperbridge/std",
 ]
 
 try-runtime = [

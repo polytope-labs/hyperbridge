@@ -1,7 +1,15 @@
 [package]
 name = "pallet-hyperbridge"
-version = "0.1.0"
+version = "1.6.0"
 edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/pallets/hyperbridge"
+homepage = "https://docs.hyperbridge.network/integrations/polkadot-sdk"
+documentation = "https://docs.rs/pallet-hyperbridge"
+description = "Pallet hyperbridge mediates the connection between hyperbridge and substrate-based chains."
+keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
+readme = "./README.md"
 
 [dependencies]
 ismp = { workspace = true }
@@ -11,6 +19,7 @@ codec = { workspace = true }
 scale-info = { workspace = true }
 pallet-ismp = { workspace = true }
 sp-std = { workspace = true }
+primitive-types = { workspace = true }
 
 [features]
 default = ["std"]
@@ -22,4 +31,5 @@ std = [
     "scale-info/std",
     "pallet-ismp/std",
     "sp-std/std",
+    "primitive-types/std",
 ]

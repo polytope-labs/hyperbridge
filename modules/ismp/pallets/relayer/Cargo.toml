@@ -18,6 +18,7 @@ sp-io = { workspace = true }
 pallet-ismp = { workspace = true }
 evm-common = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
+pallet-hyperbridge = { workspace = true }
 
 # polytope labs
 ismp = { workspace = true }
@@ -60,6 +61,7 @@ std = [
     "sp-io/std",
     "ismp/std",
     "pallet-ismp/std",
+    "pallet-hyperbridge/std",
     "alloy-primitives/std",
     "alloy-rlp/std",
     "ethabi/std",

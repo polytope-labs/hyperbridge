@@ -147,7 +147,7 @@ fn should_handle_get_request_timeouts_correctly() {
                     from: vec![0u8; 32],
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 2,
-                    timeout_timestamp: 1000,
+                    timeout: 1000,
                 };
 
                 host.dispatch_request(
@@ -196,7 +196,7 @@ fn should_handle_get_request_responses_correctly() {
 
                     keys: vec![vec![1u8; 32], vec![1u8; 32]],
                     height: 3,
-                    timeout_timestamp: 2_000_000_000,
+                    timeout: 2_000_000_000,
                 };
 
                 host.dispatch_request(
@@ -257,7 +257,7 @@ fn test_dispatch_fees_and_refunds() {
             from: vec![0u8; 32],
             keys: vec![vec![1u8; 32], vec![1u8; 32]],
             height: 3,
-            timeout_timestamp: 2_000_000_000,
+            timeout: 2_000_000_000,
         };
 
         assert_eq!(Balances::balance(&account), Default::default());
@@ -308,7 +308,7 @@ fn test_dispatch_fees_and_refunds() {
 
         // ask the host to timeout the request, using the error module
         host.ismp_router()
-            .module_for_id(vec![12, 24, 36, 48])
+            .module_for_id(ERROR_MODULE_ID.to_vec())
             .unwrap()
             .on_timeout(Timeout::Request(request.clone()))
             .unwrap_err();
@@ -330,7 +330,7 @@ fn test_fund_message() {
             from: vec![0u8; 32],
             keys: vec![vec![1u8; 32], vec![1u8; 32]],
             height: 3,
-            timeout_timestamp: 2_000_000_000,
+            timeout: 2_000_000_000,
         };
 
         assert_eq!(Balances::balance(&account), Default::default());

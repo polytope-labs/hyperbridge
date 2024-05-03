@@ -243,6 +243,7 @@ substrate-state-machine = { version = "1.6.0", path = "modules/ismp/state-machin
 pallet-ismp = { version = "1.6.0", path = "modules/ismp/pallets/pallet", default-features = false }
 pallet-ismp-rpc = { version = "1.6.0", path = "modules/ismp/pallets/rpc" }
 pallet-ismp-runtime-api = { version = "1.6.0", path = "modules/ismp/pallets/runtime-api", default-features = false }
+pallet-hyperbridge = { path = "modules/ismp/pallets/hyperbridge", default-features = false }
 pallet-fishermen = { path = "modules/ismp/pallets/fishermen", default-features = false }
 pallet-ismp-demo = { path = "modules/ismp/pallets/demo", default-features = false }
 pallet-ismp-relayer = { path = "modules/ismp/pallets/relayer", default-features = false }

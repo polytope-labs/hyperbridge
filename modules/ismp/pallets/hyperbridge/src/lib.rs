@@ -18,24 +18,50 @@
 //! Pallet hyperbridge mediates the connection between hyperbridge and substrate-based chains. This
 //! pallet provides:
 //!
-//!  - An [`IsmpDispatcher`] implementation which collects protocol fees and commits the reciepts
-//!    for these fees to child storage. Hyperbridge only accepts messages that have been paid for
-//!    using this module.
+//!  - An [`IsmpDispatcher`] implementation which collects hyperbridge's protocol fees and commits
+//!    the reciepts for these fees to child storage. Hyperbridge will only accept messages that have
+//!    been paid for using this module.
 //!  - An [`IsmpModule`] which recieves and processes requests from hyperbridge. These requests are
 //!    dispatched by hyperbridge governance and may adjust fees or request payouts for both relayers
 //!    and protocol revenue.
 //!
 //! This pallet contains no calls and dispatches no requests. Substrate based chains should use this
 //! to dispatch requests that should be processed by hyperbridge.
+//!
+//! ## Usage
+//!
+//! This module must be configured as an [`IsmpModule`] in your [`IsmpRouter`] implementation so
+//! that it may receive important messages from hyperbridge such as paramter updates or relayer fee
+//! withdrawals.
+//!
+//! ```rust,ignore
+//! use ismp::Error;
+//! use ismp::module::IsmpModule;
+//! use ismp::router::IsmpRouter;
+//! use pallet_hyperbridge::PALLET_HYPERBRIDGE_ID;
+//!
+//! #[derive(Default)]
+//! struct ModuleRouter;
+//!
+//! impl IsmpRouter for ModuleRouter {
+//!     fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+//!         return match id.as_slice() {
+//!             PALLET_HYPERBRIDGE_ID => Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
+//!             _ => Err(Error::ModuleNotFound(id)),
+//!         };
+//!     }
+//! }
+//! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 
 extern crate alloc;
 
+use alloc::format;
 use codec::{Decode, Encode};
 use frame_support::{
-    sp_runtime::{testing::H256, traits::AccountIdConversion},
+    sp_runtime::traits::AccountIdConversion,
     traits::{fungible::Mutate, tokens::Preservation, Get},
 };
 use ismp::{
@@ -44,8 +70,11 @@ use ismp::{
     router::{Post, PostResponse, Response, Timeout},
 };
 use pallet_ismp::{host::Host, RELAYER_FEE_ACCOUNT};
+use primitive_types::H256;
 
 pub use pallet::*;
+
+pub mod child_trie;
 
 /// Parameters that govern the working operations of this module. Versioned for ease of migration.
 #[derive(
@@ -67,6 +96,9 @@ pub mod pallet {
     use super::*;
     use frame_support::{pallet_prelude::*, PalletId};
     use frame_system::pallet_prelude::*;
+
+    /// [`IsmpModule`] module identifier for incoming requests from hyperbridge
+    pub const PALLET_HYPERBRIDGE_ID: &'static [u8] = b"HYPR-FEE";
 
     /// [`PalletId`] where protocol fees will be collected
     pub const PALLET_HYPERBRIDGE: PalletId = PalletId(*b"HYPR-FEE");
@@ -144,28 +176,36 @@ where
         request: DispatchRequest,
         fee: FeeMetadata<Self::Account, Self::Balance>,
     ) -> Result<H256, ismp::Error> {
-        if let DispatchRequest::Post(ref post) = request {
-            let VersionedHostParams::V1(per_byte_fee) = Self::host_params();
-            let fees = per_byte_fee.into() * post.data.len() as u128;
+        let fees = match request {
+            DispatchRequest::Post(ref post) => {
+                let VersionedHostParams::V1(per_byte_fee) = Self::host_params();
+                let fees = per_byte_fee.into() * post.body.len() as u128;
 
-            // collect protocol fees
-            if fees != 0 {
-                T::Currency::transfer(
-                    &fee.payer,
-                    &PALLET_HYPERBRIDGE.into_account_truncating(),
-                    fees.into(),
-                    Preservation::Expendable,
-                )
-                .map_err(|err| {
-                    ismp::Error::Custom(format!("Error withdrawing request fees: {err:?}"))
-                })?;
-            }
+                // collect protocol fees
+                if fees != 0 {
+                    T::Currency::transfer(
+                        &fee.payer,
+                        &PALLET_HYPERBRIDGE.into_account_truncating(),
+                        fees.into(),
+                        Preservation::Expendable,
+                    )
+                    .map_err(|err| {
+                        ismp::Error::Custom(format!("Error withdrawing request fees: {err:?}"))
+                    })?;
+                }
+
+                fees
+            },
+            DispatchRequest::Get(_) => Default::default(),
         };
 
         let host = Host::<T>::default();
-        host.dispatch_request(request, fee)
+        let commitment = host.dispatch_request(request, fee)?;
 
         // commit the request commitment and fee collected to child-trie
+        child_trie::RequestPayments::<T>::insert(commitment, fees.into());
+
+        Ok(commitment)
     }
 
     fn dispatch_response(
@@ -190,9 +230,12 @@ where
         }
 
         let host = Host::<T>::default();
-        host.dispatch_response(response, fee)
+        let commitment = host.dispatch_response(response, fee)?;
 
-        // commit the response commitment and fee collected to child-trie
+        // commit the request commitment and fee collected to child-trie
+        child_trie::RequestPayments::<T>::insert(commitment, fees.into());
+
+        Ok(commitment)
     }
 }
 

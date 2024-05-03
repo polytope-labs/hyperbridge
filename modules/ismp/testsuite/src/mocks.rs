@@ -460,7 +460,7 @@ impl IsmpDispatcher for Host {
                     from: dispatch_get.from,
                     keys: dispatch_get.keys,
                     height: dispatch_get.height,
-                    timeout_timestamp: dispatch_get.timeout_timestamp,
+                    timeout_timestamp: dispatch_get.timeout,
                 };
                 Request::Get(get)
             },
@@ -471,8 +471,8 @@ impl IsmpDispatcher for Host {
                     nonce: host.next_nonce(),
                     from: dispatch_post.from,
                     to: dispatch_post.to,
-                    timeout_timestamp: dispatch_post.timeout_timestamp,
-                    data: dispatch_post.data,
+                    timeout_timestamp: dispatch_post.timeout,
+                    data: dispatch_post.body,
                 };
                 Request::Post(post)
             },

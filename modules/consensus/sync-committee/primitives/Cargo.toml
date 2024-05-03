@@ -3,6 +3,8 @@ name = "sync-committee-primitives"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs"]
+publish = false
+
 
 
 [dependencies]

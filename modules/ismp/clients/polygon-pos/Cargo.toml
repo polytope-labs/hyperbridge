@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "ISMP Consensus Client for the Polygon POS Network's Consensus Protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
 
 [dependencies]
 anyhow = { workspace = true }

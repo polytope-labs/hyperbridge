@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Verifier for the Polygon POS Network's Consensus Proofs"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
 
 [dependencies]
 anyhow = { workspace = true, default-features = false }

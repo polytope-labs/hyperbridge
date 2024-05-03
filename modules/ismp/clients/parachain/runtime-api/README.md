@@ -4,7 +4,7 @@ This exports the runtime API definitions required by client subsystems like the 
 
 ## Usage
 
-The required methods are already implemented in [`ismp_parachain::Pallet<T>`](https://docs.rs/ismp-parachain/latest/ismp-parachain/pallet/struct.Pallet.html)
+The required methods are already implemented in [`ismp_parachain::Pallet<T>`](https://docs.rs/ismp-parachain/latest/ismp_parachain/pallet/struct.Pallet.html)
 
 ```rust,ignore
 impl_runtime_apis! {

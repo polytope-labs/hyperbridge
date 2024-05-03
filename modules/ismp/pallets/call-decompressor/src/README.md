@@ -11,10 +11,10 @@ This Pallet provides functionality which includes:
 * Executing encoded calls.
 
 To use it in your runtime, you need to implement the call decompressor config
-[`call_decompressor::Config`](https://docs.rs/pallet-ismp/latest/pallet_call_decompressor/pallet/trait.Config.html).
+[`call_decompressor::Config`](https://docs.rs/pallet-call-decompressor/latest/pallet_call_decompressor/pallet/trait.Config.html).
 
 The supported dispatchable functions are documented in the
-[`call_decompressor::Call`](https://docs.rs/pallet-ismp/latest/pallet_call_decompressor/pallet/enum.Call.html) enum.
+[`call_decompressor::Call`](https://docs.rs/pallet-call-decompressor/latest/pallet_call_decompressor/pallet/enum.Call.html) enum.
 
 
 ### Terminology
@@ -43,7 +43,7 @@ This pallet only supports these 2 runtime call executions:
 
 Any other runtime call executions that compressed and sent to it will result in `ErrorExecutingCall` error
 
-Please refer to the [`Call`](https://docs.rs/pallet-ismp/latest/pallet_call_decompressor/enum.Call.html) enum and its associated
+Please refer to the [`Call`](https://docs.rs/pallet-call-decompressor/latest/pallet_call_decompressor/enum.Call.html) enum and its associated
 variants for documentation on each function.
 
 ### Runtime Usage

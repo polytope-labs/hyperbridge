@@ -2,6 +2,8 @@
 name = "ismp-grandpa-verifier"
 version = "0.1.0"
 edition = "2021"
+publish = false
+
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

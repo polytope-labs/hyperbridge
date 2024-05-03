@@ -32,9 +32,8 @@ use ismp::{
     },
     error::Error,
     host::{IsmpHost, StateMachine},
-    messaging::Proof,
+    messaging::{hash_request, hash_response, Proof},
     router::RequestResponse,
-    util::{hash_request, hash_response},
 };
 use trie_db::{DBValue, Trie, TrieDBBuilder};
 

@@ -1,0 +1,66 @@
+[package]
+name = "ismp-parachain"
+version = "1.6.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/parachain/client"
+homepage = "https://docs.hyperbridge.network/integrations/polkadot-sdk"
+documentation = "https://docs.rs/ismp-parachain"
+description = "Parachain consensus client for pallet-ismp"
+keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
+readme = "./README.md"
+
+[dependencies]
+# crates.io
+serde = { workspace = true, features = ["derive"], optional = true }
+codec = { workspace = true, features = ["derive"] }
+scale-info = { workspace = true, features = ["derive"] }
+hex-literal = "0.4.1"
+primitive-types = { workspace = true }
+log = { workspace = true }
+
+# substrate
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-trie = { workspace = true }
+sp-inherents = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+sp-consensus-aura = { workspace = true }
+
+# cumulus
+cumulus-pallet-parachain-system = { workspace = true,  default-features = false }
+cumulus-primitives-core = { workspace = true, default-features = false }
+
+# local
+substrate-state-machine = { workspace = true }
+ismp = { workspace = true }
+pallet-ismp = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-support/std",
+    "frame-system/std",
+    "scale-info/std",
+    "cumulus-pallet-parachain-system/std",
+    "cumulus-primitives-core/std",
+    "ismp/std",
+    "log/std",
+    "sp-trie/std",
+    "sp-consensus-aura/std",
+    "sp-runtime/std",
+    "sp-io/std",
+    "sp-inherents/std",
+    "primitive-types/std",
+    "pallet-ismp/std",
+    "serde",
+    "substrate-state-machine/std"
+]
+try-runtime = [
+	"frame-support/try-runtime",
+	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
+]

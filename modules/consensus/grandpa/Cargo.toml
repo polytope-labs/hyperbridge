@@ -2,12 +2,14 @@
 name = "ismp-grandpa"
 version = "0.1.0"
 edition = "2021"
+publish = false
+
 
 [dependencies]
 codec = { package = "parity-scale-codec", version = "3.2.2", default-features = false, features = [
     "derive"
 ] }
-primitive-types = { version = "0.12.1", default-features = false }
+primitive-types = { workspace = true }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
 finality-grandpa = { version = "0.16.0", features = ["derive-codec"], default-features = false }

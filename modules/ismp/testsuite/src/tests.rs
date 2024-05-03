@@ -1,22 +1,20 @@
+use std::sync::Arc;
+
 use ismp::host::{Ethereum, StateMachine};
 
 use crate::{
     check_challenge_period, check_client_expiry, check_request_source_and_destination,
     check_response_source, frozen_consensus_client_check, frozen_state_machine_check,
-    missing_state_commitment_check,
-    mocks::{Host, MockDispatcher},
-    post_request_timeout_check, post_response_timeout_check,
-    prevent_request_processing_on_proxy_with_known_state_machine,
+    missing_state_commitment_check, mocks::Host, post_request_timeout_check,
+    post_response_timeout_check, prevent_request_processing_on_proxy_with_known_state_machine,
     prevent_request_timeout_on_proxy_with_known_state_machine,
     prevent_response_timeout_on_proxy_with_known_state_machine, write_outgoing_commitments,
 };
-use std::sync::Arc;
 
 #[test]
 fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
     let host = Arc::new(Host::default());
-    let dispatcher = MockDispatcher(host.clone());
-    write_outgoing_commitments(&*host, &dispatcher).unwrap();
+    write_outgoing_commitments(&*host).unwrap();
 }
 
 #[test]
@@ -51,15 +49,13 @@ fn should_reject_expired_check_clients() {
 #[test]
 fn should_process_post_request_timeouts_correctly() {
     let host = Arc::new(Host::default());
-    let dispatcher = MockDispatcher(host.clone());
-    post_request_timeout_check(&*host, &dispatcher).unwrap()
+    post_request_timeout_check(&*host).unwrap()
 }
 
 #[test]
 fn should_process_post_response_timeouts_correctly() {
     let host = Arc::new(Host::default());
-    let dispatcher = MockDispatcher(host.clone());
-    post_response_timeout_check(&*host, &dispatcher).unwrap()
+    post_response_timeout_check(&*host).unwrap()
 }
 
 #[test]

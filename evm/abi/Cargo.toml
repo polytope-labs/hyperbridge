@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "Generated rust types for the ISMP solidity ABI"
+publish = false
+
 
 [build-dependencies]
 anyhow.workspace = true
@@ -11,7 +13,7 @@ ethers-contract-abigen = { workspace = true }
 forge-testsuite = { workspace = true }
 
 [dependencies]
-primitive-types = "0.12.2"
+primitive-types = { workspace = true, default-features = true }
 anyhow.workspace = true
 
 ethers = { workspace = true }

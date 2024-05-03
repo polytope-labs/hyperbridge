@@ -1,0 +1,51 @@
+[package]
+name = "pallet-asset-gateway"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+description = "Pallet for custodying relay chain assets received through XCM"
+publish = false
+
+
+[dependencies]
+# substrate
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-runtime = { workspace = true }
+sp-core = { workspace = true }
+sp-std = { workspace = true }
+
+# polytope labs
+ismp = { workspace = true }
+pallet-ismp = { workspace = true }
+
+# crates.io
+codec = { workspace = true }
+scale-info = { workspace = true }
+
+alloy-rlp = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-rlp-derive.workspace = true
+
+pallet-xcm = { workspace = true }
+staging-xcm = { workspace = true }
+staging-xcm-builder = { workspace = true }
+staging-xcm-executor = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-support/std",
+    "frame-system/std",
+    "scale-info/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "sp-core/std",
+    "ismp/std",
+    "pallet-ismp/std",
+    "pallet-xcm/std",
+    "staging-xcm/std",
+    "staging-xcm-builder/std",
+    "staging-xcm-executor/std"
+]

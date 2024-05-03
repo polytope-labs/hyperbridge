@@ -8,8 +8,8 @@ use forge_testsuite::Runner;
 use hex_literal::hex;
 use ismp::{
     host::{Ethereum, StateMachine},
+    messaging::hash_request,
     router::{Post, Request},
-    util::hash_request,
 };
 use ismp_solidity_abi::{
     beefy::IntermediateState,

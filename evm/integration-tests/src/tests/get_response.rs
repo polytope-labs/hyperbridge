@@ -6,8 +6,8 @@ use ethers::{
 use forge_testsuite::Runner;
 use ismp::{
     host::{Ethereum, StateMachine},
+    messaging::hash_request,
     router::{Get, Request},
-    util::hash_request,
 };
 use ismp_solidity_abi::{
     beefy::{IntermediateState, StateCommitment, StateMachineHeight},

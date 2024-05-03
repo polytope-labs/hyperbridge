@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "ISMP Consensus Client for the Polygon POS Network's Consensus Protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
 
 [dependencies]
 anyhow = { workspace = true }
@@ -14,7 +16,7 @@ log = { version = "0.4.17", default-features = false }
 ismp = { path = "../../core", default-features = false }
 polygon-pos-verifier = { path = "../../../consensus/polygon-pos/verifier", default-features = false }
 geth-primitives = { path = "../../../consensus/geth-primitives", default-features = false }
-pallet-ismp = { path = "../../pallet", default-features = false }
+pallet-ismp = { path = "../../pallets", default-features = false }
 ismp-sync-committee = {path = "../sync-committee", default-features = false}
 
 frame-support = { workspace = true }
@@ -23,7 +25,7 @@ sp-runtime = { workspace = true }
 sp-core = { workspace = true }
 
 [dev-dependencies]
-pallet-ismp = { path = "../../pallet", features = [ "testing" ] }
+pallet-ismp = { path = "../../pallets", features = [ "testing" ] }
 pallet-timestamp = { workspace = true }
 pallet-balances = { workspace = true }
 

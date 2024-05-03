@@ -15,30 +15,28 @@
 
 //! ISMP Testsuite
 
-pub mod mocks;
-#[cfg(test)]
-mod tests;
+use std::vec;
 
-use crate::mocks::{
-    Host, MockDispatcher, MOCK_CONSENSUS_CLIENT_ID, MOCK_PROXY_CONSENSUS_CLIENT_ID,
-};
 use ismp::{
     consensus::{
         ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
     },
+    dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
     error::Error,
     handlers::handle_incoming_message,
     host::{Ethereum, IsmpHost, StateMachine},
     messaging::{
-        ConsensusMessage, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage,
+        hash_post_response, hash_request, ConsensusMessage, Message, Proof, RequestMessage,
+        ResponseMessage, TimeoutMessage,
     },
-    router::{
-        DispatchPost, DispatchRequest, IsmpDispatcher, Post, PostResponse, Request,
-        RequestResponse, Response,
-    },
-    util::{hash_post_response, hash_request},
+    router::{Post, PostResponse, Request, RequestResponse, Response},
 };
-use std::{sync::Arc, vec};
+
+use crate::mocks::{Host, MOCK_CONSENSUS_CLIENT_ID, MOCK_PROXY_CONSENSUS_CLIENT_ID};
+
+pub mod mocks;
+#[cfg(test)]
+mod tests;
 
 fn mock_consensus_state_id() -> ConsensusStateId {
     *b"mock"
@@ -305,12 +303,11 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 }
 
 /// Ensure post request timeouts are handled properly
-pub fn post_request_timeout_check<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
+pub fn post_request_timeout_check<H>(host: &H) -> Result<(), &'static str>
 where
-    H: IsmpHost,
-    D: IsmpDispatcher,
-    D::Account: From<[u8; 32]>,
-    D::Balance: From<u32>,
+    H: IsmpHost + IsmpDispatcher,
+    H::Account: From<[u8; 32]>,
+    H::Balance: From<u32> + Default,
 {
     let intermediate_state = setup_mock_client(host);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
@@ -337,9 +334,11 @@ where
     };
     let request = Request::Post(post);
     let dispatch_request = DispatchRequest::Post(dispatch_post);
-    dispatcher
-        .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
-        .unwrap();
+    host.dispatch_request(
+        dispatch_request,
+        FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+    )
+    .unwrap();
 
     // Timeout message handling check
     let timeout_message = Message::Timeout(TimeoutMessage::Post {
@@ -357,12 +356,11 @@ where
 }
 
 /// Ensure post request timeouts are handled properly
-pub fn post_response_timeout_check<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
+pub fn post_response_timeout_check<H>(host: &H) -> Result<(), &'static str>
 where
-    H: IsmpHost,
-    D: IsmpDispatcher,
-    D::Account: From<[u8; 32]>,
-    D::Balance: From<u32>,
+    H: IsmpHost + IsmpDispatcher,
+    H::Account: From<[u8; 32]>,
+    H::Balance: From<u32> + Default,
 {
     let intermediate_state = setup_mock_client(host);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
@@ -393,9 +391,11 @@ where
     assert!(matches!(host.request_receipt(&Request::Post(request.clone())), Some(_)));
 
     let response = PostResponse { post: request, response: vec![], timeout_timestamp: 100 };
-    dispatcher
-        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
-        .unwrap();
+    host.dispatch_response(
+        response.clone(),
+        FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+    )
+    .unwrap();
 
     let timeout_message = Message::Timeout(TimeoutMessage::PostResponse {
         responses: vec![response.clone()],
@@ -417,12 +417,11 @@ where
 
 /// Check that dispatcher stores commitments for outgoing requests and responses and rejects
 /// duplicate responses
-pub fn write_outgoing_commitments<H, D>(host: &H, dispatcher: &D) -> Result<(), &'static str>
+pub fn write_outgoing_commitments<H>(host: &H) -> Result<(), &'static str>
 where
-    H: IsmpHost,
-    D: IsmpDispatcher,
-    D::Account: From<[u8; 32]>,
-    D::Balance: From<u32>,
+    H: IsmpHost + IsmpDispatcher,
+    H::Account: From<[u8; 32]>,
+    H::Balance: From<u32> + Default,
 {
     let post = DispatchPost {
         dest: StateMachine::Kusama(2000),
@@ -433,9 +432,11 @@ where
     };
     let dispatch_request = DispatchRequest::Post(post);
     // Dispatch the request the first time
-    dispatcher
-        .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
-        .map_err(|_| "Dispatcher failed to dispatch request")?;
+    host.dispatch_request(
+        dispatch_request,
+        FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+    )
+    .map_err(|_| "Dispatcher failed to dispatch request")?;
     // Fetch commitment from storage
     let post = Post {
         source: host.host_state_machine(),
@@ -461,11 +462,16 @@ where
     };
     let response = PostResponse { post, response: vec![], timeout_timestamp: 0 };
     // Dispatch the outgoing response for the first time
-    dispatcher
-        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
-        .map_err(|_| "Router failed to dispatch request")?;
+    host.dispatch_response(
+        response.clone(),
+        FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+    )
+    .map_err(|_| "Router failed to dispatch request")?;
     // Dispatch the same response a second time
-    let err = dispatcher.dispatch_response(response, [0; 32].into(), 0u32.into());
+    let err = host.dispatch_response(
+        response,
+        FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+    );
     assert!(err.is_err(), "Expected router to return error for duplicate response");
 
     Ok(())
@@ -483,7 +489,6 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
     let proxy_state_machine = StateMachine::Kusama(2000);
     let mut host = Host::default();
     host.proxy = Some(proxy_state_machine);
-    let dispatcher = MockDispatcher(Arc::new(host.clone()));
 
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
@@ -541,9 +546,11 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
     let request = Request::Post(post.clone());
 
     let dispatch_request = DispatchRequest::Post(dispatch_post);
-    dispatcher
-        .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
-        .unwrap();
+    host.dispatch_request(
+        dispatch_request,
+        FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+    )
+    .unwrap();
 
     let timeout_message = Message::Timeout(TimeoutMessage::Post {
         requests: vec![request.clone()],
@@ -565,7 +572,6 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine(
     let proxy_state_machine = StateMachine::Kusama(2000);
     let mut host = Host::default();
     host.proxy = Some(proxy_state_machine);
-    let dispatcher = MockDispatcher(Arc::new(host.clone()));
 
     let intermediate_state = setup_mock_client(&host);
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
@@ -628,9 +634,7 @@ pub fn prevent_response_timeout_on_proxy_with_known_state_machine(
     assert!(matches!(host.request_receipt(&Request::Post(request.clone())), Some(_)));
 
     let response = PostResponse { post: request, response: vec![], timeout_timestamp: 100 };
-    dispatcher
-        .dispatch_response(response.clone(), [0; 32].into(), 0u32.into())
-        .unwrap();
+    host.dispatch_response(response.clone(), Default::default()).unwrap();
 
     let timeout_message = Message::Timeout(TimeoutMessage::PostResponse {
         responses: vec![response.clone()],
@@ -757,7 +761,6 @@ pub fn check_request_source_and_destination() -> Result<(), &'static str> {
 pub fn check_response_source() -> Result<(), &'static str> {
     let host = Host::default();
     let intermediate_state = setup_mock_client(&host);
-    let dispatcher = MockDispatcher(Arc::new(host.clone()));
     let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
     let previous_update_time = host.timestamp() - (challenge_period * 2);
     host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
@@ -787,9 +790,11 @@ pub fn check_response_source() -> Result<(), &'static str> {
     };
 
     let dispatch_request = DispatchRequest::Post(dispatch_post);
-    dispatcher
-        .dispatch_request(dispatch_request, [0; 32].into(), 0u32.into())
-        .unwrap();
+    host.dispatch_request(
+        dispatch_request,
+        FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
+    )
+    .unwrap();
 
     let response = PostResponse { post, response: vec![], timeout_timestamp: 0 };
 

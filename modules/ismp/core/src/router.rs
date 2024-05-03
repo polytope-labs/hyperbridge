@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! IsmpRouter definition
+//! Message router definitions
 
 use crate::{error::Error, host::StateMachine, module::IsmpModule, prelude::Vec};
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString};
@@ -39,13 +39,13 @@ pub struct Post {
     pub dest: StateMachine,
     /// The nonce of this request on the source chain
     pub nonce: u64,
-    /// Module Id of the sending module
+    /// Module identifier of the sending module
     pub from: Vec<u8>,
-    /// Module ID of the receiving module
+    /// Module identifier of the receiving module
     pub to: Vec<u8>,
     /// Timestamp which this request expires in seconds.
     pub timeout_timestamp: u64,
-    /// Encoded Request.
+    /// Encoded request body
     pub data: Vec<u8>,
 }
 
@@ -83,17 +83,17 @@ pub struct Get {
     pub dest: StateMachine,
     /// The nonce of this request on the source chain
     pub nonce: u64,
-    /// Module Id of the sending module
+    /// Module identifier of the sending module
     pub from: Vec<u8>,
     /// Raw Storage keys that would be used to fetch the values from the counterparty
     /// For deriving storage keys for ink contract fields follow the guide in the link below
-    /// https://use.ink/datastructures/storage-in-metadata#a-full-example
+    /// `<https://use.ink/datastructures/storage-in-metadata#a-full-example>`
     /// The algorithms for calculating raw storage keys for different substrate pallet storage
     /// types are described in the following links
-    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/map.rs#L34-L42
-    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/double_map.rs#L34-L44
-    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/nmap.rs#L39-L48
-    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37
+    /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/map.rs#L34-L42>`
+    /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/double_map.rs#L34-L44>`
+    /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/nmap.rs#L39-L48>`
+    /// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37>`
     /// For fetching keys from EVM contracts each key should be 52 bytes
     /// This should be a concatenation of contract address and slot hash
     pub keys: Vec<Vec<u8>>,
@@ -437,7 +437,7 @@ pub enum RequestResponse {
 }
 
 /// Timeout message
-#[derive(derive_more::From)]
+#[derive(derive_more::From, Clone)]
 pub enum Timeout {
     /// A request timed out
     Request(Request),
@@ -445,77 +445,9 @@ pub enum Timeout {
     Response(PostResponse),
 }
 
-/// The Ismp router dictates how messsages are routed to [`IsmpModules`]
+/// The Ismp router dictates how messsages are routed to [`IsmpModule`]
 pub trait IsmpRouter {
-    /// Get module handler by id
-    /// Should decode the module id and return a handler to the appropriate `IsmpModule`
-    /// implementation
+    /// Return an instance of a configured [`IsmpModule`] associated with the provided module
+    /// identifier.
     fn module_for_id(&self, bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error>;
-}
-
-/// Simplified POST request, intended to be used for sending outgoing requests
-#[derive(Clone)]
-pub struct DispatchPost {
-    /// The destination state machine of this request.
-    pub dest: StateMachine,
-    /// Module Id of the sending module
-    pub from: Vec<u8>,
-    /// Module ID of the receiving module
-    pub to: Vec<u8>,
-    /// Relative from the current timestamp at which this request expires in seconds.
-    pub timeout_timestamp: u64,
-    /// Encoded Request.
-    pub data: Vec<u8>,
-}
-
-/// Simplified GET request, intended to be used for sending outgoing requests
-#[derive(Clone)]
-pub struct DispatchGet {
-    /// The destination state machine of this request.
-    pub dest: StateMachine,
-    /// Module Id of the sending module
-    pub from: Vec<u8>,
-    /// Raw Storage keys that would be used to fetch the values from the counterparty
-    pub keys: Vec<Vec<u8>>,
-    /// Height at which to read the state machine.
-    pub height: u64,
-    /// Relative from the current timestamp at which this request expires in seconds.
-    pub timeout_timestamp: u64,
-}
-
-/// Simplified request, intended to be used for sending outgoing requests
-#[derive(Clone)]
-pub enum DispatchRequest {
-    /// The POST variant
-    Post(DispatchPost),
-    /// The GET variant
-    Get(DispatchGet),
-}
-
-/// The Ismp dispatcher allows [`IsmpModules`] to send out outgoing [`Request`] or [`Response`]
-/// [`Event`] should be emitted after successful dispatch
-pub trait IsmpDispatcher {
-    /// Sending account
-    type Account;
-
-    /// The balance type
-    type Balance;
-
-    /// Dispatches an outgoing request, the dispatcher should commit them to host's state trie or
-    /// overlay tree
-    fn dispatch_request(
-        &self,
-        request: DispatchRequest,
-        who: Self::Account,
-        amount: Self::Balance,
-    ) -> Result<(), Error>;
-
-    /// Dispatches an outgoing response, the dispatcher should commit them to host's state trie or
-    /// overlay tree
-    fn dispatch_response(
-        &self,
-        response: PostResponse,
-        who: Self::Account,
-        amount: Self::Balance,
-    ) -> Result<(), Error>;
 }

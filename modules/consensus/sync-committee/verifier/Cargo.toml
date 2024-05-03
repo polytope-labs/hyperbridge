@@ -3,6 +3,8 @@ name = "sync-committee-verifier"
 version = "0.1.0"
 edition = "2021"
 authors = ["Polytope Labs"]
+publish = false
+
 
 [dependencies]
 sync-committee-primitives = { path= "../primitives", default-features = false }

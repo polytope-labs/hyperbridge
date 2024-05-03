@@ -32,7 +32,12 @@ dataSources:
           handler: handlePostRequestEvent
           filter:
             topics:
-              - "PostRequestEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256,uint256)"
+              - PostRequestEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256)
+        - kind: ethereum/LogHandler
+          handler: handlePostResponseEvent
+          filter:
+            topics:
+              - PostResponseEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,bytes,uint256,uint256)
         - kind: ethereum/LogHandler
           handler: handlePostRequestHandledEvent
           filter:

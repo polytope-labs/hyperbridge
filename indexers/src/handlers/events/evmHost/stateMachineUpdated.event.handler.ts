@@ -10,29 +10,31 @@ import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
 export async function handleStateMachineUpdatedEvent(
   event: StateMachineUpdatedLog,
 ): Promise<void> {
-  //@Todo - Implement this function
-  // assert(event.args, "No handleStateMachineUpdatedEvent args");
-  // const {
-  //   blockHash,
-  //   blockNumber,
-  //   transactionHash,
-  //   transactionIndex,
-  //   block,
-  //   transaction,
-  //   args,
-  // } = event;
-  // const { stateMachineId, height } = args;
-  // const chain: SupportedChain = getEvmChainFromTransaction(transaction);
-  // await EvmHostEventsService.createStateMachineUpdatedEvent(
-  //   {
-  //     transactionHash,
-  //     transactionIndex,
-  //     blockHash,
-  //     blockNumber,
-  //     timestamp: Number(block.timestamp),
-  //     stateMachineId: stateMachineId,
-  //     height: height.toBigInt(),
-  //   },
-  //   chain,
-  // );
+  assert(
+    event.args,
+    `No handleStateMachineUpdatedEvent args. Tx Hash: ${event.transactionHash}`,
+  );
+  const {
+    blockHash,
+    blockNumber,
+    transactionHash,
+    transactionIndex,
+    block,
+    transaction,
+    args,
+  } = event;
+  const { stateMachineId, height } = args;
+  const chain: SupportedChain = getEvmChainFromTransaction(transaction);
+  await EvmHostEventsService.createStateMachineUpdatedEvent(
+    {
+      transactionHash,
+      transactionIndex,
+      blockHash,
+      blockNumber,
+      timestamp: Number(block.timestamp),
+      stateMachineId: stateMachineId,
+      height: height.toBigInt(),
+    },
+    chain,
+  );
 }

@@ -1,17 +1,17 @@
 import assert from "assert";
 import { SupportedChain } from "../../../types";
 import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
-import { PostRequestEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
+import { PostResponseEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 
 /**
  * Handles the PostRequest event from Evm Hosts
  */
-export async function handlePostRequestEvent(
-  event: PostRequestEventLog,
+export async function handlePostResponseEvent(
+  event: PostResponseEventLog,
 ): Promise<void> {
-  assert(event.args, "No handlePostRequestEvent args");
-  logger.info("Handling PostRequest event");
+  assert(event.args, "No handlePostResponseEvent args");
+  logger.info("Handling PostResponse event");
 
   const { transaction } = event;
 

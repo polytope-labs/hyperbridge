@@ -1,7 +1,7 @@
 specVersion: 1.0.0
 query:
-  name: "@subql/query"
-  version: "*"
+  name: '@subql/query'
+  version: '*'
 projects:
   - ethereum-sepolia.yaml
   - optimism-sepolia.yaml

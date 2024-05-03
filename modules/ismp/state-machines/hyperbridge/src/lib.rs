@@ -12,6 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#![cfg_attr(not(feature = "std"), no_std)]
 
 //! The [`StateMachineClient`] for connected substrate-based chains which checks for protocol fees
 
@@ -48,6 +49,7 @@ use substrate_state_machine::{HashAlgorithm, SubstrateStateMachine, SubstrateSta
 pub struct HyperbridgeClientMachine<T> {
     /// The [`StateMachine`] for whom we are to verify proofs for
     state_machine: StateMachine,
+    /// The inner substrate state machine
     client: SubstrateStateMachine<T>,
 }
 

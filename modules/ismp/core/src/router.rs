@@ -417,7 +417,7 @@ impl Response {
         }
     }
 
-    /// Returns true if the destination chain timestamp has exceeded the response timeout timestamp
+    /// Returns the encoded post response if it exists
     pub fn response(&self) -> Option<Vec<u8>> {
         match self {
             Response::Get(_) => None,

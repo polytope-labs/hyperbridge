@@ -1,6 +1,5 @@
 import { Event, StateMachineUpdateEvent } from "../types/models";
 import { EventType, SupportedChain } from "../types";
-import "@ethersproject/shims";
 import { sha256 } from "ethers/lib/utils";
 
 interface IEvmHostEventArgs {

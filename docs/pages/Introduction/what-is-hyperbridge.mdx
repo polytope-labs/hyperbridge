@@ -17,10 +17,14 @@ Ensuring secure cross-chain communication involves verifying consensus, consensu
  A single state machine can quickly become bottlenecked if it is to verify consensus proofs, state proofs & (re-execute) state transitions of it’s multiple connected state machines. This necessitates that the coprocessor must be multi-core and capable of verifying multiple state machines in parallel.
 
 ### The architecture
-Hyperbridge verifies multiple state machines, a single Polkadot consensus proof attests to the validity of all its state machines. Which allows developers to aggregate the cross-chain messages from multiple connected blockchains, which are verified on multiple parachain cores, into a single zk consensus & state proof that can be verified cheaply on any chain.
+Hyperbridge does the consensus and state proof verifications of all it's connected networks on-chain, because it has access to more compute. This allows developers to aggregate the cross-chain messages from multiple connected blockchains, which are verified on multiple parachain cores, into a single zk consensus & state proof that can be verified cheaply on any chain.
 
 ### The Coprocessor model
-Since verification is too expensive to be performed onchain, this necessitates the coprocessor model. Where the computation is performed off-chain and the results of the execution are presented onchain alongside cryptographic proofs of its correct execution. The following diagram gives a visual overview of hyperbridge cores. 
+We can view a consensus proof as evidence of completed work. By doing so, we can affirm that state machines embedded within protocols execute computations that are confirmable through consensus proofs. With this perspective, instead of depending exclusively on a zero-knowledge Zk-coprocessor, we can utilize another blockchain as a supplementary coprocessor.
+
+This coprocessor must also be highly scalable and must not bottleneck message passing across it’s connected chains. You can see how a single state machine can quickly become bottlenecked if it is to verify consensus proofs, state proofs & (re-execute) state transitions of it’s multiple connected state machines. This necessitates that the coprocessor must be **multi-core**.
+
+Ultimately, this blockchain coprocessor should boast the most cost-effective consensus and state proofs. Considering its primary function is to validate costly consensus proofs, it's counterproductive if the coprocessor itself incurs high expenses for this task. Economical consensus proofs can be realized through the utilization of BLS signatures and the APK proofs scheme, as suggested by researchers at the web3 foundation. By integrating these two approaches, only two pairing checks are necessary for consensus proof validation. Similarly, state proof verification should also be highly economical. Verkle tries utilizing KZG commitments remain the most economical known state trie scheme, allowing for the amortization of verification costs across multiple items in a state proof through a constant-sized proof and a single pairing check.
 
 {  /* Diagrams */}
 

@@ -29,6 +29,7 @@ members = [
     "modules/ismp/clients/parachain/inherent",
     "modules/ismp/clients/parachain/runtime-api",
     "modules/ismp/state-machines/substrate",
+    "modules/ismp/state-machines/hyperbridge",
     "modules/ismp/clients/arbitrum",
     "modules/ismp/clients/optimism",
     "modules/ismp/clients/sync-committee/evm-common",
@@ -239,6 +240,7 @@ op-verifier = { path = "./modules/ismp/clients/optimism", default-features = fal
 
 # state machine clients
 substrate-state-machine = { version = "1.6.0", path = "modules/ismp/state-machines/substrate", default-features = false }
+hyperbridge-client-machine = { path = "modules/ismp/state-machines/substrate", default-features = false }
 
 # pallets
 pallet-ismp = { version = "1.6.0", path = "modules/ismp/pallets/pallet", default-features = false }

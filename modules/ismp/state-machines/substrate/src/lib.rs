@@ -27,7 +27,7 @@ use frame_support::ensure;
 use ismp::{
     consensus::{StateCommitment, StateMachineClient},
     error::Error,
-    host::IsmpHost,
+    host::{IsmpHost, StateMachine},
     messaging::{hash_post_response, hash_request, hash_response, Proof},
     router::{Request, RequestResponse, Response},
 };
@@ -99,6 +99,12 @@ pub struct SubstrateStateMachine<T>(PhantomData<T>);
 impl<T> Default for SubstrateStateMachine<T> {
     fn default() -> Self {
         Self(PhantomData)
+    }
+}
+
+impl<T> From<StateMachine> for SubstrateStateMachine<T> {
+    fn from(_state_machine: StateMachine) -> Self {
+        Self::default()
     }
 }
 

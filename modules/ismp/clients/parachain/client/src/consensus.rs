@@ -73,7 +73,7 @@ impl<T, R, S> ConsensusClient for ParachainConsensusClient<T, R, S>
 where
     R: RelayChainOracle,
     T: pallet_ismp::Config + super::Config,
-    S: StateMachineClient + Default + 'static,
+    S: StateMachineClient + From<StateMachine> + Default + 'static,
 {
     fn verify_consensus(
         &self,
@@ -206,7 +206,7 @@ where
             Err(Error::Custom(format!("Parachain with id {para_id} not registered")))?
         }
 
-        Ok(Box::new(S::default()))
+        Ok(Box::new(S::from(id)))
     }
 }
 

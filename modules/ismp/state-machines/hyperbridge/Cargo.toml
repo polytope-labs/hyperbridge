@@ -1,0 +1,34 @@
+[package]
+name = "hyperbridge-client-machine"
+version = "0.1.0"
+edition = "2021"
+description = "State machine client for connected substrate-based chains which checks for protocol fees"
+publish = false
+
+[dependencies]
+ismp = { workspace = true }
+pallet-ismp = { workspace = true }
+pallet-ismp-host-executive = { workspace = true }
+pallet-hyperbridge = { workspace = true }
+substrate-state-machine = { workspace = true }
+
+
+sp-trie = { workspace = true }
+sp-runtime = { workspace = true }
+hash-db = { workspace = true, default-features = false }
+
+codec = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "ismp/std",
+    "pallet-ismp/std",
+    "pallet-ismp-host-executive/std",
+    "pallet-hyperbridge/std",
+    "substrate-state-machine/std",
+    "sp-trie/std",
+    "sp-runtime/std",
+    "hash-db/std",
+    "codec/std",
+]

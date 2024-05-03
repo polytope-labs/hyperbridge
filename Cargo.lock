@@ -5612,6 +5612,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyperbridge-client-machine"
+version = "0.1.0"
+dependencies = [
+ "hash-db",
+ "ismp",
+ "pallet-hyperbridge",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "sp-runtime 31.0.1",
+ "sp-trie 29.0.0",
+ "substrate-state-machine",
+]
+
+[[package]]
 name = "hyperclient"
 version = "0.3.17"
 dependencies = [
@@ -16861,7 +16876,6 @@ name = "substrate-state-machine"
 version = "1.6.0"
 dependencies = [
  "frame-support",
- "frame-system",
  "hash-db",
  "ismp",
  "pallet-ismp",

@@ -13,27 +13,25 @@ readme = "./README.md"
 
 [dependencies]
 # substrate
-frame-system = { workspace = true }
+frame-support = { workspace = true }
 sp-runtime = { workspace = true }
 sp-consensus-aura = { workspace = true }
+sp-trie = { workspace = true }
 
 # polytope labs
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 
 # crates.io
-codec = { workspace = true, default-features = false }
+codec = { workspace = true }
 primitive-types = { workspace = true }
 serde = { workspace = true, features = ["derive"]}
 scale-info = { workspace = true, features = ["derive"] }
-frame-support = { workspace = true }
-sp-trie = { workspace = true }
-hash-db = { workspace = true, default-features = false }
+hash-db = { workspace = true }
 
 [features]
 default = ["std"]
 std = [
-    "frame-system/std",
     "sp-consensus-aura/std",
     "ismp/std",
     "codec/std",

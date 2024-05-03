@@ -78,7 +78,7 @@ pallet-collator-selection = { workspace = true }
 parachain-info = { workspace = true }
 parachains-common = { workspace = true  }
 
-# ismp modules
+# local modules
 ismp = { workspace = true  }
 pallet-ismp = { workspace = true, features = ["unsigned"]  }
 pallet-ismp-demo = { workspace = true  }
@@ -91,11 +91,11 @@ pallet-ismp-relayer = { workspace = true  }
 pallet-ismp-host-executive = { workspace = true  }
 pallet-call-decompressor = { workspace = true }
 pallet-asset-gateway = { workspace = true  }
-
 pallet-mmr = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
 sp-mmr-primitives = { workspace = true }
 simnode-runtime-api = { workspace = true }
+hyperbridge-client-machine = { workspace = true }
 
 [features]
 default = [
@@ -167,7 +167,8 @@ std = [
 	"orml-traits/std",
 	"pallet-mmr-runtime-api/std",
 	"sp-mmr-primitives/std",
-	"simnode-runtime-api/std"
+	"simnode-runtime-api/std",
+	"hyperbridge-client-machine/std",
 ]
 
 runtime-benchmarks = [

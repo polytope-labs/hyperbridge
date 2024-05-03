@@ -37,6 +37,7 @@ use pallet_assets::BenchmarkHelper;
 use sp_core::{crypto::AccountId32, H160, H256};
 use sp_runtime::Percent;
 
+use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{dispatcher::FeeMetadata, host::Host, ModuleId};
@@ -77,7 +78,11 @@ impl pallet_ismp::Config for Runtime {
     type ConsensusClients = (
         ismp_bsc::BscClient<Host<Runtime>>,
         ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Sepolia>,
-        ismp_parachain::ParachainConsensusClient<Runtime, IsmpParachain>,
+        ismp_parachain::ParachainConsensusClient<
+            Runtime,
+            IsmpParachain,
+            HyperbridgeClientMachine<Runtime>,
+        >,
     );
     type Mmr = Mmr;
     type WeightProvider = ();

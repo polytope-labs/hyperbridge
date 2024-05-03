@@ -4956,6 +4956,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
  "hex-literal 0.4.1",
+ "hyperbridge-client-machine",
  "ismp",
  "ismp-bsc",
  "ismp-parachain",

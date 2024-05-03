@@ -209,7 +209,7 @@ simnode-runtime-api = { version = "1.6.0", default-features = false }
 subxt = { version = "0.30.1", default-features = false }
 
 # local crates
-ismp = { path = "./modules/ismp/core", default-features = false }
+ismp = { version = "0.1.0", path = "./modules/ismp/core", default-features = false }
 ismp-testsuite = { path = "./modules/ismp/testsuite" }
 ismp-solidity-abi = { path = "./evm/abi", default-features = false }
 simnode-tests = { path = "parachain/simtests" }
@@ -228,24 +228,24 @@ sync-committee-verifier = { path = "./modules/consensus/sync-committee/verifier"
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
-ismp-parachain = { path = "./modules/ismp/clients/parachain/client", default-features = false }
-ismp-parachain-inherent = { path = "./modules/ismp/clients/parachain/inherent" }
-ismp-parachain-runtime-api = { path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
+ismp-parachain = { version = "1.6.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
+ismp-parachain-inherent = { version = "1.6.0", path = "./modules/ismp/clients/parachain/inherent" }
+ismp-parachain-runtime-api = { version = "1.6.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
 evm-common = { path = "./modules/ismp/clients/sync-committee/evm-common", default-features = false }
 arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features = false }
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
 
 # state machine clients
-substrate-state-machine = { path = "modules/ismp/state-machines/substrate", default-features = false }
+substrate-state-machine = { version = "1.6.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 
 # pallets
-pallet-ismp = { path = "modules/ismp/pallets/pallet", default-features = false }
+pallet-ismp = { version = "1.6.0", path = "modules/ismp/pallets/pallet", default-features = false }
+pallet-ismp-rpc = { version = "1.6.0", path = "modules/ismp/pallets/rpc" }
+pallet-ismp-runtime-api = { version = "1.6.0", path = "modules/ismp/pallets/runtime-api", default-features = false }
 pallet-fishermen = { path = "modules/ismp/pallets/fishermen", default-features = false }
 pallet-ismp-demo = { path = "modules/ismp/pallets/demo", default-features = false }
 pallet-ismp-relayer = { path = "modules/ismp/pallets/relayer", default-features = false }
-pallet-ismp-rpc = { path = "modules/ismp/pallets/rpc" }
-pallet-ismp-runtime-api = { path = "modules/ismp/pallets/runtime-api", default-features = false }
 pallet-ismp-host-executive = { path = "modules/ismp/pallets/host-executive", default-features = false }
 pallet-call-decompressor = { path = "modules/ismp/pallets/call-decompressor", default-features = false }
 pallet-asset-gateway = { path = "modules/ismp/pallets/asset-gateway", default-features = false }
@@ -255,7 +255,7 @@ pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
 pallet-mmr-runtime-api = { path = "modules/trees/mmr/pallet/runtime-api", default-features = false }
 mmr-gadget = { path = "modules/trees/mmr/gadget" }
 ethereum-trie = { path = "./modules/trees/ethereum", default-features = false }
-mmr-primitives = { path = "modules/trees/mmr/primitives", default-features = false }
+mmr-primitives = { version = "1.6.0", path = "modules/trees/mmr/primitives", default-features = false }
 
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }
@@ -281,11 +281,11 @@ rev = "a61f4fd78cd9a417c74a1609e5007e17f0f0ebb4"
 
 [workspace.dependencies.forge-testsuite]
 git = "https://github.com/polytope-labs/forge-testsuite"
-rev = "faa97adf1b969f64cf77259f8f018a2aafefb70a"
+rev = "9a4e82498e60b6c90c09be1685dfc80bca057fc2"
 
 [workspace.dependencies.foundry-evm]
 git = "https://github.com/polytope-labs/foundry"
-rev = "1ffcca7485e84a9a356c5adb619ee1f038295739"
+rev = "521813b3ebaf1aa05055d1780b555f9001071514"
 
 [workspace.dependencies.merkle-mountain-range]
 package = "ckb-merkle-mountain-range"

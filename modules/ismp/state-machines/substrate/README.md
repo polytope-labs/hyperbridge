@@ -1,6 +1,6 @@
 # Substrate State Machine
 
-The `StateMachineClient` implementation for substrate state machines
+The [`StateMachineClient`](https://docs.rs/ismp/latest/ismp/consensus/trait.StateMachineClient.html) implementation for substrate state machines
 
 ## License
 

@@ -18,8 +18,8 @@ The ISMP Pallet provides calls which allow for:
 * Funding in-flight messages (Request or Response)
 
 To use it in your runtime, you need to implement the ismp
-[`pallet_ismp::Config`](https://docs.rs/pallet-ismp/latest/pallet-ismp/pallet/trait.Config.html). The supported dispatchable functions are documented in the
-[`pallet_ismp::Call`](https://docs.rs/pallet-ismp/latest/pallet-ismp/pallet/enum.Call.html) enum.
+[`pallet_ismp::Config`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/trait.Config.html). The supported dispatchable functions are documented in the
+[`pallet_ismp::Call`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/enum.Call.html) enum.
 
 
 ### Terminology
@@ -41,7 +41,7 @@ To use it in your runtime, you need to implement the ismp
 * `fund_message` - In cases where the initially provided relayer fees have now become insufficient, due to a transaction fee spike on the destination chain. Allows a user to add more funds to the request to be used for delivery and execution. Should never be called on a completed request.
 
 
-Please refer to the [`Call`](https://docs.rs/pallet-ismp/latest/pallet-ismp/pallet/enum.Call.html) enum and its associated
+Please refer to the [`Call`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/enum.Call.html) enum and its associated
 variants for documentation on each function.
 
 ### Runtime Configuration

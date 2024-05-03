@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Ismp Consensus Client for the Beacon Chain's Casper FFG Consensus Protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
 
 [dependencies]

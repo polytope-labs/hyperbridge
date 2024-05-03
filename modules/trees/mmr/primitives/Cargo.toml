@@ -1,9 +1,16 @@
 [package]
 name = "mmr-primitives"
-version = "0.1.0"
+version = "1.6.0"
 edition = "2021"
-description = "Utilities for merkle mountain range trees"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge/tree/main/modules/trees/mmr/primitives"
+homepage = "https://docs.hyperbridge.network/integrations/polkadot-sdk"
+documentation = "https://docs.rs/ismp-parachain"
+description = "Merkle mountain range primitives for pallet-ismp"
+keywords = ["substrate", "polkadot-sdk", "ISMP", "interoperability"]
+readme = "./README.md"
+
 
 [dependencies]
 merkle-mountain-range = { workspace = true }

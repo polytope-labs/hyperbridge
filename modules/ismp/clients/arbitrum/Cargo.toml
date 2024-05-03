@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Verifier for Arbitrum rollup protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
 
 [dependencies]
 # polytope labs

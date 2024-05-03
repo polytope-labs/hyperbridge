@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "ISMP Consensus Client for the Beacon Chain's Sync Committee Consensus Protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
 
 [dependencies]
 # polytope labs

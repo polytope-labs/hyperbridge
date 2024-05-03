@@ -8,7 +8,7 @@ proofs for the relevant parachains configured in the pallet at every block.
 
 ## Overview
 
-The Pallet allows the [`AdminOrigin`](https://docs.rs/pallet_ismp/latest/pallet_ismp/pallet/trait.Config.html#associatedtype.AdminOrigin) configured in [`pallet-ismp`](https://docs.rs/pallet_ismp/latest/pallet_ismp) to dispatch calls for adding and removing parachains from the pallet whitelist.
+The Pallet allows the [`AdminOrigin`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/trait.Config.html#associatedtype.AdminOrigin) configured in [`pallet-ismp`](https://docs.rs/pallet-ismp/latest/pallet_ismp) to dispatch calls for adding and removing parachains from the pallet whitelist.
 
 ## License
 

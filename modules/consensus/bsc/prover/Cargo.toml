@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Prover for Binance Smart Chain Network's Consensus Protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
 
 [dependencies]
 bsc-verifier = { workspace = true, default-features = true }

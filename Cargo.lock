@@ -4177,7 +4177,7 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 [[package]]
 name = "forge"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
 dependencies = [
  "comfy-table 6.2.0",
  "ethers",
@@ -4206,7 +4206,7 @@ dependencies = [
 [[package]]
 name = "forge-fmt"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
 dependencies = [
  "ariadne",
  "ethers-core",
@@ -4221,7 +4221,7 @@ dependencies = [
 [[package]]
 name = "forge-testsuite"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/forge-testsuite?rev=faa97adf1b969f64cf77259f8f018a2aafefb70a#faa97adf1b969f64cf77259f8f018a2aafefb70a"
+source = "git+https://github.com/polytope-labs/forge-testsuite?rev=9a4e82498e60b6c90c09be1685dfc80bca057fc2#9a4e82498e60b6c90c09be1685dfc80bca057fc2"
 dependencies = [
  "ethers",
  "ethers-solc",
@@ -4264,7 +4264,7 @@ dependencies = [
 [[package]]
 name = "foundry-abi"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
 dependencies = [
  "ethers-contract",
  "ethers-contract-abigen",
@@ -4278,7 +4278,7 @@ dependencies = [
 [[package]]
 name = "foundry-common"
 version = "0.1.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
 dependencies = [
  "auto_impl",
  "clap",
@@ -4309,7 +4309,7 @@ dependencies = [
 [[package]]
 name = "foundry-config"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
 dependencies = [
  "Inflector",
  "dirs-next",
@@ -4339,7 +4339,7 @@ dependencies = [
 [[package]]
 name = "foundry-evm"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
 dependencies = [
  "auto_impl",
  "bytes",
@@ -4374,7 +4374,7 @@ dependencies = [
 [[package]]
 name = "foundry-macros"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
 dependencies = [
  "ethers-core",
  "foundry-macros-impl",
@@ -4385,7 +4385,7 @@ dependencies = [
 [[package]]
 name = "foundry-macros-impl"
 version = "0.0.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4395,7 +4395,7 @@ dependencies = [
 [[package]]
 name = "foundry-utils"
 version = "0.2.0"
-source = "git+https://github.com/polytope-labs/foundry?rev=1ffcca7485e84a9a356c5adb619ee1f038295739#1ffcca7485e84a9a356c5adb619ee1f038295739"
+source = "git+https://github.com/polytope-labs/foundry?rev=521813b3ebaf1aa05055d1780b555f9001071514#521813b3ebaf1aa05055d1780b555f9001071514"
 dependencies = [
  "dunce",
  "ethers-addressbook",
@@ -7553,7 +7553,7 @@ dependencies = [
 
 [[package]]
 name = "mmr-primitives"
-version = "0.1.0"
+version = "1.6.0"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-system",
@@ -12293,7 +12293,7 @@ dependencies = [
 [[package]]
 name = "revm"
 version = "3.3.0"
-source = "git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658#88337924f4d16ed1f5e4cde12a03d0cb755cd658"
+source = "git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2#c681ca0d51b21a16595cb4c5795832d938ce2dc2"
 dependencies = [
  "auto_impl",
  "revm-interpreter",
@@ -12305,7 +12305,7 @@ dependencies = [
 [[package]]
 name = "revm-interpreter"
 version = "1.1.2"
-source = "git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658#88337924f4d16ed1f5e4cde12a03d0cb755cd658"
+source = "git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2#c681ca0d51b21a16595cb4c5795832d938ce2dc2"
 dependencies = [
  "derive_more",
  "enumn",
@@ -12317,7 +12317,7 @@ dependencies = [
 [[package]]
 name = "revm-precompile"
 version = "2.0.3"
-source = "git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658#88337924f4d16ed1f5e4cde12a03d0cb755cd658"
+source = "git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2#c681ca0d51b21a16595cb4c5795832d938ce2dc2"
 dependencies = [
  "k256",
  "num",
@@ -12333,7 +12333,7 @@ dependencies = [
 [[package]]
 name = "revm-primitives"
 version = "1.1.2"
-source = "git+https://github.com/bluealloy/revm/?rev=88337924f4d16ed1f5e4cde12a03d0cb755cd658#88337924f4d16ed1f5e4cde12a03d0cb755cd658"
+source = "git+https://github.com/polytope-labs/revm/?rev=c681ca0d51b21a16595cb4c5795832d938ce2dc2#c681ca0d51b21a16595cb4c5795832d938ce2dc2"
 dependencies = [
  "auto_impl",
  "bitvec",

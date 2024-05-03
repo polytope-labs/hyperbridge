@@ -4,7 +4,7 @@ This exports the runtime API definitions required by client subsystems like the 
 
 ## Usage
 
-The required methods are already implemented in [`pallet_ismp::Pallet<T>`](https://docs.rs/pallet-ismp/latest/pallet-ismp/pallet/struct.Pallet.html)
+The required methods are already implemented in [`pallet_ismp::Pallet<T>`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/struct.Pallet.html)
 
 
 ```rust,ignore

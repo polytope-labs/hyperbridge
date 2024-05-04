@@ -108,7 +108,7 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// The underlying [`IsmpHost`] implementation
-        type Host: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance> + Default;
+        type IsmpHost: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance> + Default;
     }
 
     #[pallet::pallet]
@@ -201,7 +201,7 @@ where
             DispatchRequest::Get(_) => Default::default(),
         };
 
-        let host = <T as Config>::Host::default();
+        let host = <T as Config>::IsmpHost::default();
         let commitment = host.dispatch_request(request, fee)?;
 
         // commit the fee collected to child-trie
@@ -231,7 +231,7 @@ where
             })?;
         }
 
-        let host = <T as Config>::Host::default();
+        let host = <T as Config>::IsmpHost::default();
         let commitment = host.dispatch_response(response, fee)?;
 
         // commit the collected to child-trie

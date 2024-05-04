@@ -54,7 +54,7 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// The underlying [`IsmpHost`] implementation
-        type Host: IsmpHost + Default;
+        type IsmpHost: IsmpHost + Default;
     }
 
     /// Mapping of relay chain heights to it's state commitment. The state commitment of the parent
@@ -157,7 +157,7 @@ pub mod pallet {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
             // kill the storage, since this is the beginning of a new block.
             ConsensusUpdated::<T>::kill();
-            let host = T::Host::default();
+            let host = T::IsmpHost::default();
             if let Err(_) = host.consensus_state(PARACHAIN_CONSENSUS_ID) {
                 Pallet::<T>::initialize();
             }
@@ -227,7 +227,7 @@ impl<T: Config> Pallet<T> {
     /// `create_consensus_state` call, simply including this pallet in your runtime will create the
     /// ismp parachain client consensus state, either through `genesis_build` or `on_initialize`.
     pub fn initialize() {
-        let host = T::Host::default();
+        let host = T::IsmpHost::default();
         let message = CreateConsensusState {
             // insert empty bytes
             consensus_state: vec![],

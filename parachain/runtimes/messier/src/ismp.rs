@@ -56,7 +56,7 @@ impl Get<StateMachine> for HostStateMachine {
 
 impl ismp_sync_committee::pallet::Config for Runtime {
     type AdminOrigin = EnsureRoot<AccountId>;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 pub struct Coprocessor;
@@ -86,17 +86,17 @@ impl pallet_ismp::Config for Runtime {
 
 impl pallet_ismp_relayer::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 impl pallet_ismp_host_executive::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 impl ismp_parachain::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 impl pallet_call_decompressor::Config for Runtime {
@@ -115,7 +115,7 @@ impl pallet_asset_gateway::Config for Runtime {
     type PalletId = AssetPalletId;
     type ProtocolAccount = ProtocolAccount;
     type Params = TransferParams;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
     type Assets = Assets;
 }
 

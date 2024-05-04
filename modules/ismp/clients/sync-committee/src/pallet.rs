@@ -34,7 +34,7 @@ pub mod pallet {
         type AdminOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
 
         /// The underlying [`IsmpHost`] implementation
-        type Host: IsmpHost + Default;
+        type IsmpHost: IsmpHost + Default;
     }
 
     #[pallet::error]
@@ -64,7 +64,7 @@ pub mod pallet {
         ) -> DispatchResult {
             <T as Config>::AdminOrigin::ensure_origin(origin)?;
 
-            let host = <T as Config>::Host::default();
+            let host = <T as Config>::IsmpHost::default();
             let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
             let encoded_consensus_state = host
                 .consensus_state(consensus_state_id)
@@ -94,7 +94,7 @@ pub mod pallet {
         ) -> DispatchResult {
             <T as Config>::AdminOrigin::ensure_origin(origin)?;
 
-            let host = <T as Config>::Host::default();
+            let host = <T as Config>::IsmpHost::default();
             let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
 
             let encoded_consensus_state = host

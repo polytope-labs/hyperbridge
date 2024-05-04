@@ -43,7 +43,7 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// The underlying [`IsmpHost`] implementation
-        type Host: IsmpHost + Default;
+        type IsmpHost: IsmpHost + Default;
     }
 
     /// Set of whitelisted fishermen accounts
@@ -118,7 +118,7 @@ pub mod pallet {
             let account = ensure_signed(origin.clone())?;
             ensure!(Fishermen::<T>::contains_key(&account), Error::<T>::UnauthorizedAction);
 
-            let ismp_host = <T as Config>::Host::default();
+            let ismp_host = <T as Config>::IsmpHost::default();
             let commitment =
                 ismp_host.state_machine_commitment(height).map_err(|_| Error::<T>::VetoFailed)?;
             ismp_host.delete_state_commitment(height).map_err(|_| Error::<T>::VetoFailed)?;

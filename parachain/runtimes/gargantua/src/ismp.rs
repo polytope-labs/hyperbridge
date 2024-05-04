@@ -57,7 +57,7 @@ impl Get<StateMachine> for HostStateMachine {
 
 impl ismp_sync_committee::pallet::Config for Runtime {
     type AdminOrigin = EnsureRoot<AccountId>;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 pub struct Coprocessor;
@@ -98,12 +98,12 @@ impl pallet_ismp_demo::Config for Runtime {
 
 impl pallet_ismp_relayer::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 impl pallet_ismp_host_executive::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 impl pallet_call_decompressor::Config for Runtime {
@@ -112,7 +112,7 @@ impl pallet_call_decompressor::Config for Runtime {
 
 impl ismp_parachain::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 // todo: set corrrect parameters
@@ -128,7 +128,7 @@ impl pallet_asset_gateway::Config for Runtime {
     type ProtocolAccount = ProtocolAccount;
     type Params = TransferParams;
     type Assets = Assets;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 #[cfg(feature = "runtime-benchmarks")]

@@ -340,7 +340,7 @@ impl pallet_asset_gateway::Config for Test {
     type ProtocolAccount = ProtocolAccount;
     type Params = TransferParams;
     type Assets = Assets;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 impl pallet_assets::Config for Test {

@@ -130,7 +130,7 @@ impl pallet_balances::Config for Test {
 
 impl pallet_fishermen::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
@@ -192,7 +192,7 @@ impl pallet_ismp::Config for Test {
 
 impl pallet_hyperbridge::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 impl pallet_mmr::Config for Test {
@@ -204,12 +204,12 @@ impl pallet_mmr::Config for Test {
 
 impl pallet_ismp_relayer::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 impl pallet_ismp_host_executive::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    type Host = Ismp;
+    type IsmpHost = Ismp;
 }
 
 impl pallet_call_decompressor::Config for Test {

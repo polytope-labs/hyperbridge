@@ -76,7 +76,7 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// The underlying [`IsmpHost`] implementation
-        type Host: IsmpHost + IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
+        type IsmpHost: IsmpHost + IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
     }
 
     /// double map of address to source chain, which holds the amount of the relayer address
@@ -277,7 +277,7 @@ where
         if available_amount < withdrawal_data.amount {
             Err(Error::<T>::InvalidAmount)?
         }
-        let dispatcher = <T as Config>::Host::default();
+        let dispatcher = <T as Config>::IsmpHost::default();
         let relayer_manager_address = match withdrawal_data.dest_chain {
             StateMachine::Beefy(_) |
             StateMachine::Grandpa(_) |
@@ -453,7 +453,7 @@ where
         proof: &Proof,
         keys: Vec<Vec<u8>>,
     ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, DispatchError> {
-        let host = <T as Config>::Host::default();
+        let host = <T as Config>::IsmpHost::default();
         let state_machine = validate_state_machine(&host, proof.height)
             .map_err(|_| Error::<T>::ProofValidationError)?;
         let state = host
@@ -473,7 +473,7 @@ where
                 Key::Request(commitment) => match proof.source_proof.height.id.state_id {
                     StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                         keys.push(
-                            derive_unhashed_map_key::<<T as Config>::Host>(
+                            derive_unhashed_map_key::<<T as Config>::IsmpHost>(
                                 commitment.0.to_vec(),
                                 REQUEST_COMMITMENTS_SLOT,
                             )
@@ -491,7 +491,7 @@ where
                     match proof.source_proof.height.id.state_id {
                         StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                             keys.push(
-                                derive_unhashed_map_key::<<T as Config>::Host>(
+                                derive_unhashed_map_key::<<T as Config>::IsmpHost>(
                                     response_commitment.0.to_vec(),
                                     RESPONSE_COMMITMENTS_SLOT,
                                 )
@@ -519,7 +519,7 @@ where
                 Key::Request(commitment) => match proof.dest_proof.height.id.state_id {
                     StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                         keys.push(
-                            derive_unhashed_map_key::<<T as Config>::Host>(
+                            derive_unhashed_map_key::<<T as Config>::IsmpHost>(
                                 commitment.0.to_vec(),
                                 REQUEST_RECEIPTS_SLOT,
                             )
@@ -538,7 +538,7 @@ where
                     match proof.dest_proof.height.id.state_id {
                         StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc => {
                             keys.push(
-                                derive_unhashed_map_key::<<T as Config>::Host>(
+                                derive_unhashed_map_key::<<T as Config>::IsmpHost>(
                                     request_commitment.0.to_vec(),
                                     RESPONSE_RECEIPTS_SLOT,
                                 )

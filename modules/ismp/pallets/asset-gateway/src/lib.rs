@@ -83,7 +83,7 @@ pub mod pallet {
         type Params: Get<TokenGatewayParams>;
 
         /// The [`IsmpDispatcher`] implementation to use for dispatching requests
-        type Host: IsmpHost + IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
+        type IsmpHost: IsmpHost + IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
 
         /// Fungible asset implementation
         type Assets: fungibles::Mutate<Self::AccountId> + fungibles::Inspect<Self::AccountId>;
@@ -229,7 +229,7 @@ where
         multi_account: MultiAccount<T::AccountId>,
         amount: <T::Assets as fungibles::Inspect<T::AccountId>>::Balance,
     ) -> Result<(), Error<T>> {
-        let dispatcher = <T as Config>::Host::default();
+        let dispatcher = <T as Config>::IsmpHost::default();
 
         let mut to = [0u8; 32];
         to[..20].copy_from_slice(&multi_account.evm_account.0);
@@ -449,7 +449,7 @@ where
         match request {
             Timeout::Request(Request::Post(post)) => {
                 let request = Request::Post(post.clone());
-                let commitment = hash_request::<<T as Config>::Host>(&request);
+                let commitment = hash_request::<<T as Config>::IsmpHost>(&request);
                 let fee_metadata = pallet_ismp::child_trie::RequestCommitments::<T>::get(
                     commitment,
                 )

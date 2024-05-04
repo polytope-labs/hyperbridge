@@ -362,7 +362,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
     fn encode(&self, msg: Message) -> Result<Vec<u8>, Error> {
         let call = vec![msg].encode();
-        let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle", call);
+        let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
         let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
         Ok(ext.into_encoded())
     }
@@ -376,7 +376,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
     async fn submit(&self, msg: Message) -> Result<EventMetadata, Error> {
         let call = vec![msg].encode();
-        let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle", call);
+        let hyper_bridge_timeout_extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
         let ext = self.client.tx().create_unsigned(&hyper_bridge_timeout_extrinsic)?;
         let in_block = ext.submit_and_watch().await?.wait_for_finalized_success().await?;
 

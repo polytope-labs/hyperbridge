@@ -38,7 +38,7 @@ use ismp::{
     Error,
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
-use pallet_ismp::{host::Host, mmr::Leaf, ModuleId};
+use pallet_ismp::{mmr::Leaf, ModuleId};
 use sp_core::{
     crypto::AccountId32,
     offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
@@ -130,6 +130,7 @@ impl pallet_balances::Config for Test {
 
 impl pallet_fishermen::Config for Test {
     type RuntimeEvent = RuntimeEvent;
+    type IsmpHost = Ismp;
 }
 
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
@@ -182,8 +183,8 @@ impl pallet_ismp::Config for Test {
     type Currency = Balances;
     type ConsensusClients = (
         MockConsensusClient,
-        ismp_sync_committee::SyncCommitteeConsensusClient<Host<Test>, Sepolia>,
-        ismp_bsc::BscClient<Host<Test>>,
+        ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia>,
+        ismp_bsc::BscClient<Ismp>,
     );
     type Mmr = Mmr;
     type WeightProvider = ();
@@ -191,6 +192,7 @@ impl pallet_ismp::Config for Test {
 
 impl pallet_hyperbridge::Config for Test {
     type RuntimeEvent = RuntimeEvent;
+    type IsmpHost = Ismp;
 }
 
 impl pallet_mmr::Config for Test {
@@ -202,11 +204,12 @@ impl pallet_mmr::Config for Test {
 
 impl pallet_ismp_relayer::Config for Test {
     type RuntimeEvent = RuntimeEvent;
+    type IsmpHost = Ismp;
 }
 
 impl pallet_ismp_host_executive::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    type Dispatcher = Host<Test>;
+    type IsmpHost = Ismp;
 }
 
 impl pallet_call_decompressor::Config for Test {

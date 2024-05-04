@@ -46,18 +46,12 @@ ethereum-trie = { workspace = true }
 subxt-utils = { workspace = true }
 hex = "0.4.3"
 
-[dependencies.reconnecting-jsonrpsee-ws-client]
-git = "https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client"
-rev = "84fd8400cac12babd1be7c337dc1a8d14ce0c101"
-default-features = false
-
 [features]
 default = ["std"]
-wasm = ["subxt/web", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/web", "subxt-utils/wasm"]
+wasm = ["subxt/web", "subxt/jsonrpsee", "subxt-utils/wasm"]
 std = [
     "subxt/native",
     "subxt/jsonrpsee",
-    "reconnecting-jsonrpsee-ws-client/native",
     "subxt-utils/std",
     "sp-core/std",
     "substrate-state-machine/std",

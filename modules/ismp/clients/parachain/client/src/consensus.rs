@@ -73,7 +73,7 @@ impl<T, R, S> ConsensusClient for ParachainConsensusClient<T, R, S>
 where
     R: RelayChainOracle,
     T: pallet_ismp::Config + super::Config,
-    S: StateMachineClient + Default + 'static,
+    S: StateMachineClient + From<StateMachine> + 'static,
 {
     fn verify_consensus(
         &self,
@@ -195,8 +195,7 @@ where
 
     fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
         let para_id = match id {
-            StateMachine::Polkadot(id) => id,
-            StateMachine::Kusama(id) => id,
+            StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
             _ => Err(Error::Custom(
                 "State Machine is not supported by this consensus client".to_string(),
             ))?,
@@ -206,7 +205,7 @@ where
             Err(Error::Custom(format!("Parachain with id {para_id} not registered")))?
         }
 
-        Ok(Box::new(S::default()))
+        Ok(Box::new(S::from(id)))
     }
 }
 

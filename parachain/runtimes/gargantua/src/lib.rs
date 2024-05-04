@@ -544,6 +544,13 @@ impl pallet_mmr::Config for Runtime {
     type ForkIdentifierProvider = Ismp;
 }
 
+impl pallet_utility::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+    type PalletsOrigin = OriginCaller;
+    type WeightInfo = ();
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime
@@ -553,6 +560,7 @@ construct_runtime!(
         Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 1,
         ParachainSystem: cumulus_pallet_parachain_system = 2,
         ParachainInfo: parachain_info = 3,
+        Utility: pallet_utility = 4,
 
         // Monetary stuff.
         Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>} = 10,

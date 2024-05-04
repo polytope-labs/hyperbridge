@@ -4956,6 +4956,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
  "hex-literal 0.4.1",
+ "hyperbridge-client-machine",
  "ismp",
  "ismp-bsc",
  "ismp-parachain",
@@ -4984,6 +4985,7 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-utility",
  "pallet-xcm",
  "parachains-common",
  "parity-scale-codec",
@@ -5609,6 +5611,22 @@ dependencies = [
  "substrate-frame-rpc-system",
  "substrate-prometheus-endpoint",
  "try-runtime-cli",
+]
+
+[[package]]
+name = "hyperbridge-client-machine"
+version = "0.1.0"
+dependencies = [
+ "hash-db",
+ "ismp",
+ "log",
+ "pallet-hyperbridge",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "sp-runtime 31.0.1",
+ "sp-trie 29.0.0",
+ "substrate-state-machine",
 ]
 
 [[package]]
@@ -14871,6 +14889,7 @@ dependencies = [
  "ismp",
  "jsonrpsee-core 0.22.4",
  "mmr-primitives",
+ "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-rpc",
  "pallet-mmr 0.1.0",
@@ -16861,7 +16880,6 @@ name = "substrate-state-machine"
 version = "1.6.0"
 dependencies = [
  "frame-support",
- "frame-system",
  "hash-db",
  "ismp",
  "pallet-ismp",

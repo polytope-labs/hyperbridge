@@ -30,9 +30,9 @@
 //!
 //! ## Usage
 //!
-//! This module must be configured as an [`IsmpModule`] in your [`IsmpRouter`] implementation so
-//! that it may receive important messages from hyperbridge such as paramter updates or relayer fee
-//! withdrawals.
+//! This module must be configured as an [`IsmpModule`] in your
+//! [`IsmpRouter`](ismp::router::IsmpRouter) implementation so that it may receive important
+//! messages from hyperbridge such as paramter updates or relayer fee withdrawals.
 //!
 //! ```rust,ignore
 //! use ismp::Error;
@@ -95,7 +95,6 @@ impl<Balance: Default> Default for VersionedHostParams<Balance> {
 pub mod pallet {
     use super::*;
     use frame_support::{pallet_prelude::*, PalletId};
-    use frame_system::pallet_prelude::*;
 
     /// [`IsmpModule`] module identifier for incoming requests from hyperbridge
     pub const PALLET_HYPERBRIDGE_ID: &'static [u8] = b"HYPR-FEE";

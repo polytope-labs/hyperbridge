@@ -29,6 +29,7 @@ members = [
     "modules/ismp/clients/parachain/inherent",
     "modules/ismp/clients/parachain/runtime-api",
     "modules/ismp/state-machines/substrate",
+    "modules/ismp/state-machines/hyperbridge",
     "modules/ismp/clients/arbitrum",
     "modules/ismp/clients/optimism",
     "modules/ismp/clients/sync-committee/evm-common",
@@ -100,6 +101,7 @@ pallet-authorship = { version = "28.0.0", default-features = false }
 pallet-balances = { version = "28.0.0", default-features = false }
 pallet-session = { version = "28.0.0", default-features = false }
 pallet-sudo = { version = "28.0.0", default-features = false }
+pallet-utility = { version = "28.0.0", default-features = false }
 pallet-timestamp = { version = "27.0.0", default-features = false }
 pallet-transaction-payment = { version = "28.0.0", default-features = false }
 pallet-transaction-payment-rpc-runtime-api = { version = "28.0.0", default-features = false }
@@ -239,6 +241,7 @@ op-verifier = { path = "./modules/ismp/clients/optimism", default-features = fal
 
 # state machine clients
 substrate-state-machine = { version = "1.6.0", path = "modules/ismp/state-machines/substrate", default-features = false }
+hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
 # pallets
 pallet-ismp = { version = "1.6.0", path = "modules/ismp/pallets/pallet", default-features = false }

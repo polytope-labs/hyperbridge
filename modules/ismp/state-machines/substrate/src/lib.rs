@@ -33,7 +33,6 @@ use ismp::{
 };
 use pallet_ismp::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
-    host::Host,
     ISMP_ID,
 };
 use primitive_types::H256;
@@ -132,14 +131,14 @@ where
             RequestResponse::Request(requests) => requests
                 .into_iter()
                 .map(|request| {
-                    let commitment = hash_request::<Host<T>>(&request);
+                    let commitment = hash_request::<pallet_ismp::Pallet<T>>(&request);
                     RequestCommitments::<T>::storage_key(commitment)
                 })
                 .collect::<Vec<Vec<u8>>>(),
             RequestResponse::Response(responses) => responses
                 .into_iter()
                 .map(|response| {
-                    let commitment = hash_response::<Host<T>>(&response);
+                    let commitment = hash_response::<pallet_ismp::Pallet<T>>(&response);
                     ResponseCommitments::<T>::storage_key(commitment)
                 })
                 .collect::<Vec<Vec<u8>>>(),
@@ -193,7 +192,7 @@ where
                     match req {
                         Request::Post(post) => {
                             let request = Request::Post(post);
-                            let commitment = hash_request::<Host<T>>(&request);
+                            let commitment = hash_request::<pallet_ismp::Pallet<T>>(&request);
                             keys.push(RequestReceipts::<T>::storage_key(commitment));
                         },
                         Request::Get(_) => continue,
@@ -203,7 +202,8 @@ where
                 for res in responses {
                     match res {
                         Response::Post(post_response) => {
-                            let commitment = hash_post_response::<Host<T>>(&post_response);
+                            let commitment =
+                                hash_post_response::<pallet_ismp::Pallet<T>>(&post_response);
                             keys.push(ResponseReceipts::<T>::storage_key(commitment));
                         },
                         Response::Get(_) => continue,

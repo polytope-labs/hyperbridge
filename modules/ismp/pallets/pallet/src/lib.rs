@@ -203,7 +203,6 @@ pub mod pallet {
     use crate::{
         child_trie::{RequestCommitments, ResponseCommitments, CHILD_TRIE_PREFIX},
         errors::HandlingError,
-        host::Host,
         weights::{get_weight, WeightProvider},
     };
     use codec::{Codec, Encode};
@@ -417,7 +416,7 @@ pub mod pallet {
                 Ok(root) => root,
                 Err(e) => {
                     log::error!(target:"ismp", "Failed to finalize MMR {e:?}");
-                    return
+                    return;
                 },
             };
 
@@ -485,7 +484,7 @@ pub mod pallet {
             message: CreateConsensusState,
         ) -> DispatchResult {
             T::AdminOrigin::ensure_origin(origin)?;
-            let host = Host::<T>::default();
+            let host = Pallet::<T>::default();
 
             let result = handlers::create_client(&host, message)
                 .map_err(|_| Error::<T>::ConsensusClientCreationFailed)?;
@@ -509,7 +508,7 @@ pub mod pallet {
         ) -> DispatchResult {
             T::AdminOrigin::ensure_origin(origin)?;
 
-            let host = Host::<T>::default();
+            let host = Pallet::<T>::default();
 
             if let Some(unbonding_period) = message.unbonding_period {
                 host.store_unbonding_period(message.consensus_state_id, unbonding_period)
@@ -543,7 +542,7 @@ pub mod pallet {
             };
 
             let Some(mut metadata) = metadata else {
-                return Err(Error::<T>::MessageNotFound.into())
+                return Err(Error::<T>::MessageNotFound.into());
             };
 
             T::Currency::transfer(
@@ -674,7 +673,7 @@ pub mod pallet {
                 _ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
             };
 
-            let host = Host::<T>::default();
+            let host = Pallet::<T>::default();
             let _ = messages
                 .iter()
                 .map(|msg| handlers::handle_incoming_message(&host, msg.clone()))
@@ -714,17 +713,17 @@ pub mod pallet {
                     ],
                     Message::Request(RequestMessage { requests, .. }) => requests
                         .into_iter()
-                        .map(|post| hash_request::<Host<T>>(&Request::Post(post.clone())))
+                        .map(|post| hash_request::<Pallet<T>>(&Request::Post(post.clone())))
                         .collect::<Vec<_>>(),
                     Message::Response(message) => message
                         .requests()
                         .iter()
-                        .map(|request| hash_request::<Host<T>>(request))
+                        .map(|request| hash_request::<Pallet<T>>(request))
                         .collect::<Vec<_>>(),
                     Message::Timeout(message) => message
                         .requests()
                         .iter()
-                        .map(|request| hash_request::<Host<T>>(request))
+                        .map(|request| hash_request::<Pallet<T>>(request))
                         .collect::<Vec<_>>(),
                 })
                 .collect::<Vec<_>>();
@@ -745,6 +744,15 @@ pub mod pallet {
                 // always propagate
                 propagate: true,
             })
+        }
+    }
+
+    // Hack for implementing the [`Default`] bound needed for
+    // [`IsmpDispatcher`](ismp::dispatcher::IsmpDispatcher) and
+    // [`IsmpModule`](ismp::module::IsmpModule)
+    impl<T> Default for Pallet<T> {
+        fn default() -> Self {
+            Self(PhantomData)
         }
     }
 }

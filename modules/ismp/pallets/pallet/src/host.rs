@@ -20,7 +20,7 @@ use crate::{
     dispatcher::{RefundingRouter, RequestMetadata},
     utils::{ConsensusClientProvider, ResponseReceipt},
     ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
-    FrozenConsensusClients, FrozenStateMachine, LatestStateMachineHeight, Nonce, Responded,
+    FrozenConsensusClients, FrozenStateMachine, LatestStateMachineHeight, Nonce, Pallet, Responded,
     StateCommitments, StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
@@ -41,19 +41,9 @@ use sp_core::H256;
 use sp_runtime::SaturatedConversion;
 use sp_std::prelude::*;
 
-/// An implementation for the [`IsmpHost`]
-#[derive(Clone)]
-pub struct Host<T: Config>(core::marker::PhantomData<T>);
-
-impl<T: Config> Default for Host<T> {
-    fn default() -> Self {
-        Self(core::marker::PhantomData)
-    }
-}
-
-impl<T: Config> IsmpHost for Host<T> {
+impl<T: Config> IsmpHost for Pallet<T> {
     fn host_state_machine(&self) -> StateMachine {
-        T::HostStateMachine::get()
+        <T as Config>::HostStateMachine::get()
     }
 
     fn latest_commitment_height(&self, id: StateMachineId) -> Result<u64, Error> {
@@ -326,7 +316,7 @@ impl<T: Config> IsmpHost for Host<T> {
     }
 }
 
-impl<T: Config> ismp::messaging::Keccak256 for Host<T> {
+impl<T: Config> ismp::messaging::Keccak256 for Pallet<T> {
     fn keccak256(bytes: &[u8]) -> H256
     where
         Self: Sized,

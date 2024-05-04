@@ -18,6 +18,8 @@
 
 extern crate alloc;
 
+use core::marker::PhantomData;
+
 use alloc::{collections::BTreeMap, format, vec::Vec};
 use codec::Decode;
 use sp_runtime::traits::{BlakeTwo256, Keccak256, Zero};
@@ -34,10 +36,7 @@ use pallet_hyperbridge::{
     child_trie::{RequestPayments, ResponsePayments},
     VersionedHostParams,
 };
-use pallet_ismp::{
-    child_trie::{RequestCommitments, ResponseCommitments},
-    host::Host,
-};
+use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::HostParam;
 use substrate_state_machine::{HashAlgorithm, SubstrateStateMachine, SubstrateStateProof};
 
@@ -45,23 +44,26 @@ use substrate_state_machine::{HashAlgorithm, SubstrateStateMachine, SubstrateSta
 ///
 /// This performs extra checks to ensure that protocol fees have been paid for each request or
 /// response.
-pub struct HyperbridgeClientMachine<T> {
+pub struct HyperbridgeClientMachine<T, H> {
     /// The [`StateMachine`] for whom we are to verify proofs for
     state_machine: StateMachine,
     /// The inner substrate state machine
     client: SubstrateStateMachine<T>,
+    /// phantom type for pinning generics
+    _phantom: PhantomData<H>,
 }
 
-impl<T> From<StateMachine> for HyperbridgeClientMachine<T> {
+impl<T, H> From<StateMachine> for HyperbridgeClientMachine<T, H> {
     fn from(state_machine: StateMachine) -> Self {
-        Self { state_machine, client: Default::default() }
+        Self { state_machine, client: Default::default(), _phantom: Default::default() }
     }
 }
 
-impl<T> StateMachineClient for HyperbridgeClientMachine<T>
+impl<T, H> StateMachineClient for HyperbridgeClientMachine<T, H>
 where
     T: pallet_ismp_host_executive::Config,
     T::Balance: Into<u128>,
+    H: IsmpHost,
 {
     fn verify_membership(
         &self,
@@ -85,7 +87,7 @@ where
             RequestResponse::Request(requests) => requests
                 .into_iter()
                 .map(|request| {
-                    let commitment = hash_request::<Host<T>>(&request);
+                    let commitment = hash_request::<H>(&request);
                     (
                         RequestCommitments::<T>::storage_key(commitment),
                         RequestPayments::storage_key(commitment),
@@ -96,7 +98,7 @@ where
             RequestResponse::Response(responses) => responses
                 .into_iter()
                 .map(|response| {
-                    let commitment = hash_response::<Host<T>>(&response);
+                    let commitment = hash_response::<H>(&response);
                     (
                         ResponseCommitments::<T>::storage_key(commitment),
                         ResponsePayments::storage_key(commitment),

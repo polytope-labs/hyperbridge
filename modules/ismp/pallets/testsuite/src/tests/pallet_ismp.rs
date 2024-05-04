@@ -35,7 +35,6 @@ use ismp_testsuite::{
 };
 use pallet_ismp::{
     child_trie::{RequestCommitments, RequestReceipts},
-    host::Host,
     mmr::Leaf,
     FundMessageParams, MessageCommitment, RELAYER_FEE_ACCOUNT,
 };
@@ -54,7 +53,7 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
 
     ext.execute_with(|| {
         set_timestamp(Some(1));
-        let host = Host::<Test>::default();
+        let host = Ismp::default();
         let post = Post {
             source: StateMachine::Kusama(2000),
             dest: host.host_state_machine(),
@@ -65,7 +64,7 @@ fn dispatcher_should_write_receipts_for_outgoing_requests_and_responses() {
             data: vec![0u8; 64],
         };
 
-        let request_commitment = hash_request::<Host<Test>>(&Request::Post(post.clone()));
+        let request_commitment = hash_request::<Ismp>(&Request::Post(post.clone()));
         RequestReceipts::<Test>::insert(request_commitment, &vec![0u8; 32]);
         write_outgoing_commitments(&host).unwrap();
     })
@@ -77,7 +76,7 @@ fn should_reject_updates_within_challenge_period() {
 
     ext.execute_with(|| {
         set_timestamp(None);
-        let host = Host::<Test>::default();
+        let host = Ismp::default();
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
         check_challenge_period(&host).unwrap()
     })
@@ -89,7 +88,7 @@ fn should_reject_messages_for_frozen_state_machines() {
 
     ext.execute_with(|| {
         set_timestamp(None);
-        let host = Host::<Test>::default();
+        let host = Ismp::default();
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
         missing_state_commitment_check(&host).unwrap()
     })
@@ -101,7 +100,7 @@ fn should_reject_expired_check_clients() {
 
     ext.execute_with(|| {
         set_timestamp(None);
-        let host = Host::<Test>::default();
+        let host = Ismp::default();
         host.store_unbonding_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
         check_client_expiry(&host).unwrap()
@@ -114,7 +113,7 @@ fn should_handle_post_request_timeouts_correctly() {
 
     ext.execute_with(|| {
         set_timestamp(Some(0));
-        let host = Host::<Test>::default();
+        let host = Ismp::default();
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 0).unwrap();
         post_request_timeout_check(&host).unwrap()
     })
@@ -126,7 +125,7 @@ fn should_handle_post_response_timeouts_correctly() {
 
     ext.execute_with(|| {
         set_timestamp(None);
-        let host = Host::<Test>::default();
+        let host = Ismp::default();
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 1_000_000).unwrap();
         post_response_timeout_check(&host).unwrap()
     })
@@ -136,7 +135,7 @@ fn should_handle_post_response_timeouts_correctly() {
 fn should_handle_get_request_timeouts_correctly() {
     let mut ext = new_test_ext();
     ext.execute_with(|| {
-        let host = Host::<Test>::default();
+        let host = Ismp::default();
         setup_mock_client::<_, Test>(&host);
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 0).unwrap();
         let requests = (0..2)
@@ -174,7 +173,7 @@ fn should_handle_get_request_timeouts_correctly() {
         pallet_ismp::Pallet::<Test>::handle_messages(vec![Message::Timeout(timeout_msg)]).unwrap();
         for request in requests {
             // commitments should not be found in storage after timeout has been processed
-            let commitment = hash_request::<Host<Test>>(&request);
+            let commitment = hash_request::<Ismp>(&request);
             assert!(host.request_commitment(commitment).is_err())
         }
     })
@@ -184,7 +183,7 @@ fn should_handle_get_request_timeouts_correctly() {
 fn should_handle_get_request_responses_correctly() {
     let mut ext = new_test_ext();
     ext.execute_with(|| {
-        let host = Host::<Test>::default();
+        let host = Ismp::default();
         setup_mock_client::<_, Test>(&host);
         host.store_challenge_period(MOCK_CONSENSUS_STATE_ID, 0).unwrap();
         let requests = (0..2)
@@ -249,7 +248,7 @@ fn should_handle_get_request_responses_correctly() {
 fn test_dispatch_fees_and_refunds() {
     let mut ext = new_test_ext();
     let account: AccountId32 = H256::random().0.into();
-    let host = Host::<Test>::default();
+    let host = Ismp::default();
 
     ext.execute_with(|| {
         let msg = DispatchGet {
@@ -322,7 +321,7 @@ fn test_dispatch_fees_and_refunds() {
 fn test_fund_message() {
     let mut ext = new_test_ext();
     let account: AccountId32 = H256::random().0.into();
-    let host = Host::<Test>::default();
+    let host = Ismp::default();
 
     ext.execute_with(|| {
         let msg = DispatchGet {

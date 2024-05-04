@@ -31,7 +31,6 @@ pub mod pallet {
         events::StateCommitmentVetoed,
         host::IsmpHost,
     };
-    use pallet_ismp::host::Host;
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
@@ -42,6 +41,9 @@ pub mod pallet {
     pub trait Config: frame_system::Config + pallet_ismp::Config {
         /// The overarching event type.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+        /// The underlying [`IsmpHost`] implementation
+        type IsmpHost: IsmpHost + Default;
     }
 
     /// Set of whitelisted fishermen accounts
@@ -116,7 +118,7 @@ pub mod pallet {
             let account = ensure_signed(origin.clone())?;
             ensure!(Fishermen::<T>::contains_key(&account), Error::<T>::UnauthorizedAction);
 
-            let ismp_host = Host::<T>::default();
+            let ismp_host = <T as Config>::IsmpHost::default();
             let commitment =
                 ismp_host.state_machine_commitment(height).map_err(|_| Error::<T>::VetoFailed)?;
             ismp_host.delete_state_commitment(height).map_err(|_| Error::<T>::VetoFailed)?;

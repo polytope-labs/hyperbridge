@@ -29,7 +29,6 @@ use ismp::{
 use pallet_ismp::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
     dispatcher::FeeMetadata,
-    host::Host,
     ResponseReceipt,
 };
 use pallet_ismp_relayer::{
@@ -43,7 +42,7 @@ use substrate_state_machine::{HashAlgorithm, StateMachineProof, SubstrateStatePr
 use trie_db::{Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
 
 use crate::runtime::{
-    new_test_ext, set_timestamp, RuntimeCall, RuntimeOrigin, Test, MOCK_CONSENSUS_CLIENT_ID,
+    new_test_ext, set_timestamp, Ismp, RuntimeCall, RuntimeOrigin, Test, MOCK_CONSENSUS_CLIENT_ID,
     MOCK_CONSENSUS_STATE_ID,
 };
 use ismp::host::Ethereum;
@@ -68,7 +67,7 @@ fn test_withdrawal_proof() {
                     timeout_timestamp: 0,
                     data: vec![],
                 };
-                hash_request::<Host<Test>>(&Request::Post(post))
+                hash_request::<Ismp>(&Request::Post(post))
             })
             .collect::<Vec<_>>();
 
@@ -89,10 +88,7 @@ fn test_withdrawal_proof() {
                     response: vec![0; 32],
                     timeout_timestamp: nonce,
                 };
-                (
-                    hash_request::<Host<Test>>(&Request::Post(post)),
-                    hash_post_response::<Host<Test>>(&response),
-                )
+                (hash_request::<Ismp>(&Request::Post(post)), hash_post_response::<Ismp>(&response))
             })
             .collect::<Vec<_>>();
 
@@ -189,7 +185,7 @@ fn test_withdrawal_proof() {
             storage_proof: dest_keys_proof,
         });
 
-        let host = Host::<Test>::default();
+        let host = Ismp::default();
         host.store_state_machine_commitment(
             StateMachineHeight {
                 id: StateMachineId {
@@ -414,7 +410,7 @@ fn test_evm_accumulate_fees() {
 
         dbg!(claim_proof.encode().len());
 
-        let host = Host::<Test>::default();
+        let host = Ismp::default();
         host.store_state_machine_commitment(
             claim_proof.source_proof.height,
             StateCommitment { timestamp: 100, overlay_root: None, state_root: bsc_root },
@@ -587,7 +583,7 @@ fn setup_host_for_accumulate_fees() -> WithdrawalProof {
         }
     }
 
-    let host = Host::<Test>::default();
+    let host = Ismp::default();
     host.store_state_machine_commitment(
         claim_proof.source_proof.height,
         StateCommitment { timestamp: 100, overlay_root: None, state_root: bsc_root },

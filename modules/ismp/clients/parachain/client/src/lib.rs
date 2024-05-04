@@ -30,7 +30,6 @@ use cumulus_pallet_parachain_system::{
 use cumulus_primitives_core::relay_chain;
 use ismp::{handlers, messaging::CreateConsensusState};
 pub use pallet::*;
-use pallet_ismp::host::Host;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -53,6 +52,9 @@ pub mod pallet {
     {
         /// The overarching event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+        /// The underlying [`IsmpHost`] implementation
+        type Host: IsmpHost + Default;
     }
 
     /// Mapping of relay chain heights to it's state commitment. The state commitment of the parent
@@ -155,10 +157,9 @@ pub mod pallet {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
             // kill the storage, since this is the beginning of a new block.
             ConsensusUpdated::<T>::kill();
-
-            let host = Host::<T>::default();
+            let host = T::Host::default();
             if let Err(_) = host.consensus_state(PARACHAIN_CONSENSUS_ID) {
-                Pallet::<T>::initialize(host);
+                Pallet::<T>::initialize();
             }
 
             Weight::from_parts(0, 0)
@@ -200,8 +201,7 @@ pub mod pallet {
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
-            let host = Host::<T>::default();
-            Pallet::<T>::initialize(host);
+            Pallet::<T>::initialize();
 
             // insert the parachain ids
             for id in &self.parachains {
@@ -226,7 +226,8 @@ impl<T: Config> Pallet<T> {
     /// Initializes the parachain consensus state. Rather than requiring a seperate
     /// `create_consensus_state` call, simply including this pallet in your runtime will create the
     /// ismp parachain client consensus state, either through `genesis_build` or `on_initialize`.
-    pub fn initialize(host: Host<T>) {
+    pub fn initialize() {
+        let host = T::Host::default();
         let message = CreateConsensusState {
             // insert empty bytes
             consensus_state: vec![],

@@ -19,7 +19,6 @@ use crate::{
     child_trie::{RequestCommitments, ResponseCommitments},
     dispatcher::{FeeMetadata, RequestMetadata},
     events,
-    host::Host,
     mmr::{Leaf, LeafIndexAndPos, Proof, ProofKeys},
     weights::get_weight,
     Config, Error, Event, Pallet, Responded,
@@ -85,7 +84,7 @@ impl<T: Config> Pallet<T> {
     /// Provides a way to handle messages.
     pub fn handle_messages(messages: Vec<Message>) -> DispatchResultWithPostInfo {
         // Define a host
-        let host = Host::<T>::default();
+        let host = Pallet::<T>::default();
         let events = messages
             .iter()
             .map(|msg| handle_incoming_message(&host, msg.clone()))
@@ -127,7 +126,7 @@ impl<T: Config> Pallet<T> {
 
     /// Dispatch an outgoing request, returns the request commitment
     pub fn dispatch_request(request: Request, meta: FeeMetadata<T>) -> Result<H256, ismp::Error> {
-        let commitment = hash_request::<Host<T>>(&request);
+        let commitment = hash_request::<Pallet<T>>(&request);
 
         if RequestCommitments::<T>::contains_key(commitment) {
             Err(ismp::Error::Custom("Duplicate request".to_string()))?
@@ -164,13 +163,13 @@ impl<T: Config> Pallet<T> {
         response: Response,
         meta: FeeMetadata<T>,
     ) -> Result<H256, ismp::Error> {
-        let req_commitment = hash_request::<Host<T>>(&response.request());
+        let req_commitment = hash_request::<Pallet<T>>(&response.request());
 
         if Responded::<T>::contains_key(req_commitment) {
             Err(ismp::Error::Custom("Request has been responded to".to_string()))?
         }
 
-        let commitment = hash_response::<Host<T>>(&response);
+        let commitment = hash_response::<Pallet<T>>(&response);
 
         let (dest_chain, source_chain, nonce) =
             (response.dest_chain(), response.source_chain(), response.nonce());

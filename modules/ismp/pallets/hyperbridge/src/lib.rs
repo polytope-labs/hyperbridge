@@ -69,7 +69,7 @@ use ismp::{
     module::IsmpModule,
     router::{Post, PostResponse, Response, Timeout},
 };
-use pallet_ismp::{host::Host, RELAYER_FEE_ACCOUNT};
+use pallet_ismp::RELAYER_FEE_ACCOUNT;
 use primitive_types::H256;
 
 pub use pallet::*;
@@ -106,6 +106,9 @@ pub mod pallet {
     pub trait Config: frame_system::Config + pallet_ismp::Config {
         /// Because this pallet emits events, it depends on the runtime's definition of an event.
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+        /// The underlying [`IsmpHost`] implementation
+        type Host: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance> + Default;
     }
 
     #[pallet::pallet]
@@ -198,7 +201,7 @@ where
             DispatchRequest::Get(_) => Default::default(),
         };
 
-        let host = Host::<T>::default();
+        let host = <T as Config>::Host::default();
         let commitment = host.dispatch_request(request, fee)?;
 
         // commit the fee collected to child-trie
@@ -228,7 +231,7 @@ where
             })?;
         }
 
-        let host = Host::<T>::default();
+        let host = <T as Config>::Host::default();
         let commitment = host.dispatch_response(response, fee)?;
 
         // commit the collected to child-trie

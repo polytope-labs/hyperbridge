@@ -40,7 +40,7 @@ use sp_runtime::Percent;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::sepolia::Sepolia;
-use pallet_ismp::{dispatcher::FeeMetadata, host::Host, ModuleId};
+use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use sp_std::prelude::*;
 use staging_xcm::latest::MultiLocation;
 
@@ -57,6 +57,7 @@ impl Get<StateMachine> for HostStateMachine {
 
 impl ismp_sync_committee::pallet::Config for Runtime {
     type AdminOrigin = EnsureRoot<AccountId>;
+    type Host = Ismp;
 }
 
 pub struct Coprocessor;
@@ -76,12 +77,12 @@ impl pallet_ismp::Config for Runtime {
     type Currency = Balances;
     type Router = Router;
     type ConsensusClients = (
-        ismp_bsc::BscClient<Host<Runtime>>,
-        ismp_sync_committee::SyncCommitteeConsensusClient<Host<Runtime>, Sepolia>,
+        ismp_bsc::BscClient<Ismp>,
+        ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia>,
         ismp_parachain::ParachainConsensusClient<
             Runtime,
             IsmpParachain,
-            HyperbridgeClientMachine<Runtime>,
+            HyperbridgeClientMachine<Runtime, Ismp>,
         >,
     );
     type Mmr = Mmr;
@@ -92,16 +93,17 @@ impl pallet_ismp_demo::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Balance = Balance;
     type NativeCurrency = Balances;
-    type IsmpDispatcher = Host<Runtime>;
+    type IsmpDispatcher = Ismp;
 }
 
 impl pallet_ismp_relayer::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    type Host = Ismp;
 }
 
 impl pallet_ismp_host_executive::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type Dispatcher = Host<Runtime>;
+    type Host = Ismp;
 }
 
 impl pallet_call_decompressor::Config for Runtime {
@@ -110,6 +112,7 @@ impl pallet_call_decompressor::Config for Runtime {
 
 impl ismp_parachain::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    type Host = Ismp;
 }
 
 // todo: set corrrect parameters
@@ -125,7 +128,7 @@ impl pallet_asset_gateway::Config for Runtime {
     type ProtocolAccount = ProtocolAccount;
     type Params = TransferParams;
     type Assets = Assets;
-    type Dispatcher = Host<Runtime>;
+    type Host = Ismp;
 }
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -174,7 +177,7 @@ impl IsmpModule for ProxyModule {
         if request.dest != HostStateMachine::get() {
             let meta = FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() };
             Ismp::dispatch_request(Request::Post(request), meta)?;
-            return Ok(())
+            return Ok(());
         }
 
         let pallet_id =
@@ -195,7 +198,7 @@ impl IsmpModule for ProxyModule {
         if response.dest_chain() != HostStateMachine::get() {
             let meta = FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() };
             Ismp::dispatch_response(response, meta)?;
-            return Ok(())
+            return Ok(());
         }
 
         let request = &response.request();

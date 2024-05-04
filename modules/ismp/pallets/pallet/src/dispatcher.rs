@@ -17,7 +17,6 @@
 
 use crate::{
     child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments},
-    host::Host,
     mmr::LeafIndexAndPos,
     Config, Pallet, RELAYER_FEE_ACCOUNT,
 };
@@ -59,7 +58,7 @@ pub type FeeMetadata<T> =
 ///
 /// If the dispatched request times-out, then pallet-ismp's inner subsystems will refund the
 /// fees to the sponsor of the request.
-impl<T> IsmpDispatcher for Host<T>
+impl<T> IsmpDispatcher for Pallet<T>
 where
     T: Config,
 {
@@ -82,13 +81,12 @@ where
             .map_err(|err| IsmpError::Custom(format!("Error withdrawing request fees: {err:?}")))?;
         }
 
-        let host = Host::<T>::default();
         let request = match request {
             DispatchRequest::Get(dispatch_get) => {
                 let get = Get {
-                    source: host.host_state_machine(),
+                    source: self.host_state_machine(),
                     dest: dispatch_get.dest,
-                    nonce: host.next_nonce(),
+                    nonce: self.next_nonce(),
                     from: dispatch_get.from,
                     keys: dispatch_get.keys,
                     height: dispatch_get.height,
@@ -102,9 +100,9 @@ where
             },
             DispatchRequest::Post(dispatch_post) => {
                 let post = Post {
-                    source: host.host_state_machine(),
+                    source: self.host_state_machine(),
                     dest: dispatch_post.dest,
-                    nonce: host.next_nonce(),
+                    nonce: self.next_nonce(),
                     from: dispatch_post.from,
                     to: dispatch_post.to,
                     timeout_timestamp: if dispatch_post.timeout == 0 {
@@ -139,7 +137,7 @@ where
             .map_err(|err| IsmpError::Custom(format!("Error withdrawing request fees: {err:?}")))?;
         }
 
-        let req_commitment = hash_request::<Host<T>>(&response.request());
+        let req_commitment = hash_request::<Pallet<T>>(&response.request());
         if !RequestReceipts::<T>::contains_key(req_commitment) {
             Err(IsmpError::UnknownRequest {
                 meta: Meta {
@@ -213,11 +211,11 @@ impl<T: Config> IsmpModule for RefundingModule<T> {
         if result.is_ok() {
             let fee_metadata = match timeout {
                 Timeout::Request(request) => {
-                    let commitment = hash_request::<Host<T>>(&request);
+                    let commitment = hash_request::<Pallet<T>>(&request);
                     RequestCommitments::<T>::get(commitment).map(|meta| meta.fee)
                 },
                 Timeout::Response(response) => {
-                    let commitment = hash_post_response::<Host<T>>(&response);
+                    let commitment = hash_post_response::<Pallet<T>>(&response);
                     ResponseCommitments::<T>::get(commitment).map(|meta| meta.fee)
                 },
             };

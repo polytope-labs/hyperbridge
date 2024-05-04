@@ -14,11 +14,9 @@
 // limitations under the License.
 
 pub use pallet::*;
-use pallet_ismp::host::Host;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use super::*;
     use crate::types::{ConsensusState, L2Consensus};
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
@@ -34,6 +32,9 @@ pub mod pallet {
     pub trait Config: frame_system::Config + pallet_ismp::Config {
         /// Origin allowed to add or remove parachains in Consensus State
         type AdminOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
+
+        /// The underlying [`IsmpHost`] implementation
+        type Host: IsmpHost + Default;
     }
 
     #[pallet::error]
@@ -63,9 +64,9 @@ pub mod pallet {
         ) -> DispatchResult {
             <T as Config>::AdminOrigin::ensure_origin(origin)?;
 
-            let ismp_host = Host::<T>::default();
+            let host = <T as Config>::Host::default();
             let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
-            let encoded_consensus_state = ismp_host
+            let encoded_consensus_state = host
                 .consensus_state(consensus_state_id)
                 .map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
             let mut consensus_state: ConsensusState =
@@ -78,8 +79,7 @@ pub mod pallet {
             consensus_state.ismp_contract_addresses.insert(state_machine, contract_address);
 
             let encoded_consensus_state = consensus_state.encode();
-            ismp_host
-                .store_consensus_state(consensus_state_id, encoded_consensus_state)
+            host.store_consensus_state(consensus_state_id, encoded_consensus_state)
                 .map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
             Ok(())
         }
@@ -94,10 +94,10 @@ pub mod pallet {
         ) -> DispatchResult {
             <T as Config>::AdminOrigin::ensure_origin(origin)?;
 
-            let ismp_host = Host::<T>::default();
+            let host = <T as Config>::Host::default();
             let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
 
-            let encoded_consensus_state = ismp_host
+            let encoded_consensus_state = host
                 .consensus_state(consensus_state_id)
                 .map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
             let mut consensus_state: ConsensusState =
@@ -107,8 +107,7 @@ pub mod pallet {
             consensus_state.l2_consensus.insert(state_machine, l2_consensus);
 
             let encoded_consensus_state = consensus_state.encode();
-            ismp_host
-                .store_consensus_state(consensus_state_id, encoded_consensus_state)
+            host.store_consensus_state(consensus_state_id, encoded_consensus_state)
                 .map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
             Ok(())
         }

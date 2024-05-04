@@ -55,7 +55,7 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// The [`IsmpDispatcher`] implementation to use for dispatching requests
-        type Dispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
+        type Host: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
     }
 
     /// Host Manager Addresses on different chains
@@ -165,7 +165,7 @@ pub mod pallet {
                 _ => return Err(Error::<T>::MismatchedHostParams.into()),
             };
 
-            let dispatcher = T::Dispatcher::default();
+            let dispatcher = <T as Config>::Host::default();
             dispatcher
                 .dispatch_request(
                     DispatchRequest::Post(post),

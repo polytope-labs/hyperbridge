@@ -11,10 +11,7 @@ use geth_primitives::{CodecHeader, Header};
 use ismp::{
     consensus::ConsensusClient, host::StateMachine, module::IsmpModule, router::IsmpRouter,
 };
-use pallet_ismp::{
-    host::Host,
-    mocks::{mocks::MockModule, ExistentialDeposit},
-};
+use pallet_ismp::mocks::{mocks::MockModule, ExistentialDeposit};
 use sp_core::{Pair, H256};
 use sp_runtime::traits::{IdentityLookup, Keccak256};
 
@@ -182,7 +179,7 @@ fn verify_fraud_proof() {
     header_2.extra_data.extend_from_slice(&signature_2);
 
     let client = PolygonClient::<Test, Host<Test>>::default();
-    let host = Host::<Test>::default();
+    let host = Ismp::default();
 
     assert!(client
         .verify_fraud_proof(&host, consensus_state.encode(), header_1.encode(), header_2.encode())

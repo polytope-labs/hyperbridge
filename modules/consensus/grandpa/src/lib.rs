@@ -20,7 +20,6 @@ pub mod messages;
 
 use alloc::vec::Vec;
 pub use pallet::*;
-use pallet_ismp::host::Host;
 
 #[frame_support::pallet]
 pub mod pallet {

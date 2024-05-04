@@ -3,9 +3,9 @@
 use crate::{
     relay_chain,
     runtime::{
-        register_offchain_ext, Assets, Balance, Balances, MessageQueue, PalletXcm, ParachainInfo,
-        ParachainSystem, RuntimeCall, RuntimeEvent, RuntimeOrigin, System, Test, Timestamp,
-        XcmpQueue,
+        register_offchain_ext, Assets, Balance, Balances, Ismp, MessageQueue, PalletXcm,
+        ParachainInfo, ParachainSystem, RuntimeCall, RuntimeEvent, RuntimeOrigin, System, Test,
+        Timestamp, XcmpQueue,
     },
 };
 use codec::Decode;
@@ -59,7 +59,7 @@ impl EnsureOriginWithArg<RuntimeOrigin, MultiLocation> for ForeignCreators {
     ) -> sp_std::result::Result<Self::Success, RuntimeOrigin> {
         let origin_location = pallet_xcm::EnsureXcm::<Everything>::try_origin(o.clone())?;
         if !a.starts_with(&origin_location) {
-            return Err(o)
+            return Err(o);
         }
         SovereignAccountOf::convert_location(&origin_location).ok_or(o)
     }
@@ -259,7 +259,6 @@ impl cumulus_pallet_parachain_system::Config for Test {
 }
 
 use frame_support::traits::TransformOrigin;
-use pallet_ismp::host::Host;
 use parachains_common::message_queue::ParaIdToSibling;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
 
@@ -340,8 +339,8 @@ impl pallet_asset_gateway::Config for Test {
     type PalletId = AssetPalletId;
     type ProtocolAccount = ProtocolAccount;
     type Params = TransferParams;
-    type Dispatcher = Host<Test>;
     type Assets = Assets;
+    type Host = Ismp;
 }
 
 impl pallet_assets::Config for Test {

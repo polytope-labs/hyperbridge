@@ -46,7 +46,7 @@ pub use pallet::*;
 use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::{HostParam, HostParams};
-use sp_core::{ByteArray, U256};
+use sp_core::U256;
 use sp_runtime::{AccountId32, DispatchError};
 use sp_std::prelude::*;
 
@@ -309,7 +309,7 @@ where
                 params.abi_encode(),
             _ => Message::WithdrawRelayerFees(WithdrawalRequest {
                 amount: params.amount.low_u128(),
-                account: AccountId32::from_slice(&address)
+                account: AccountId32::try_from(&address[..])
                     .map_err(|_| Error::<T>::InvalidPublicKey)?,
             })
             .encode(),

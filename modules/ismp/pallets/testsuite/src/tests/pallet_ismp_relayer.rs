@@ -31,6 +31,7 @@ use pallet_ismp::{
     dispatcher::FeeMetadata,
     ResponseReceipt,
 };
+use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use pallet_ismp_relayer::{
     self as pallet_ismp_relayer, message,
     withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
@@ -295,18 +296,18 @@ fn test_withdrawal_proof() {
 fn test_withdrawal_fees() {
     let mut ext = new_test_ext();
     ext.execute_with(|| {
-        let pair = sp_core::ecdsa::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
-        let address = pair.public().to_eth_address().unwrap();
+        let pair = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+        let public_key = pair.public().0.to_vec();
         pallet_ismp_relayer::Fees::<Test>::insert(
             StateMachine::Kusama(2000),
-            address.to_vec(),
+            public_key.clone(),
             U256::from(5000u128),
         );
         let message = message(0, StateMachine::Kusama(2000), 2000u128.into());
-        let signature = pair.sign_prehashed(&message).0.to_vec();
+        let signature = pair.sign(&message).0.to_vec();
 
         let withdrawal_input = WithdrawalInputData {
-            signature: Signature::Ethereum { address: address.to_vec(), signature },
+            signature: Signature::Sr25519 { public_key: public_key.clone(), signature },
             dest_chain: StateMachine::Kusama(2000),
             amount: U256::from(2000u128),
         };
@@ -317,12 +318,66 @@ fn test_withdrawal_fees() {
         )
         .unwrap();
         assert_eq!(
-            pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Kusama(2000), address.to_vec()),
+            pallet_ismp_relayer::Fees::<Test>::get(StateMachine::Kusama(2000), public_key.clone()),
             3_000u128.into()
         );
 
         assert_eq!(
-            pallet_ismp_relayer::Nonce::<Test>::get(address.to_vec(), StateMachine::Kusama(2000)),
+            pallet_ismp_relayer::Nonce::<Test>::get(public_key, StateMachine::Kusama(2000)),
+            1
+        );
+
+        assert!(pallet_ismp_relayer::Pallet::<Test>::withdraw_fees(
+            RuntimeOrigin::none(),
+            withdrawal_input.clone()
+        )
+        .is_err());
+    })
+}
+
+#[test]
+fn test_withdrawal_fees_evm() {
+    let mut ext = new_test_ext();
+    ext.execute_with(|| {
+        let pair = sp_core::ecdsa::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+        let address = pair.public().to_eth_address().unwrap();
+        let evm_host_params = EvmHostParam::default();
+        pallet_ismp_host_executive::HostParams::<Test>::insert(
+            StateMachine::Ethereum(Ethereum::Base),
+            HostParam::EvmHostParam(evm_host_params),
+        );
+        pallet_ismp_relayer::Fees::<Test>::insert(
+            StateMachine::Ethereum(Ethereum::Base),
+            address.to_vec(),
+            U256::from(5000u128),
+        );
+        let message = message(0, StateMachine::Ethereum(Ethereum::Base), 2000u128.into());
+        let signature = pair.sign_prehashed(&message).0.to_vec();
+
+        let withdrawal_input = WithdrawalInputData {
+            signature: Signature::Ethereum { address: address.to_vec(), signature },
+            dest_chain: StateMachine::Ethereum(Ethereum::Base),
+            amount: U256::from(2000u128),
+        };
+
+        pallet_ismp_relayer::Pallet::<Test>::withdraw_fees(
+            RuntimeOrigin::none(),
+            withdrawal_input.clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            pallet_ismp_relayer::Fees::<Test>::get(
+                StateMachine::Ethereum(Ethereum::Base),
+                address.to_vec()
+            ),
+            3_000u128.into()
+        );
+
+        assert_eq!(
+            pallet_ismp_relayer::Nonce::<Test>::get(
+                address.to_vec(),
+                StateMachine::Ethereum(Ethereum::Base)
+            ),
             1
         );
 

@@ -43,11 +43,11 @@ use ismp::{
     messaging::Proof,
 };
 pub use pallet::*;
-use pallet_hyperbridge::PALLET_HYPERBRIDGE;
+use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::{HostParam, HostParams};
-use sp_core::U256;
-use sp_runtime::DispatchError;
+use sp_core::{ByteArray, U256};
+use sp_runtime::{AccountId32, DispatchError};
 use sp_std::prelude::*;
 
 pub const MODULE_ID: [u8; 32] = [1; 32];
@@ -307,7 +307,12 @@ where
         let data = match withdrawal_data.dest_chain {
             StateMachine::Ethereum(_) | StateMachine::Polygon | StateMachine::Bsc =>
                 params.abi_encode(),
-            _ => params.encode(),
+            _ => Message::WithdrawRelayerFees(WithdrawalRequest {
+                amount: params.amount.low_u128(),
+                account: AccountId32::from_slice(&address)
+                    .map_err(|_| Error::<T>::InvalidPublicKey)?,
+            })
+            .encode(),
         };
 
         let post = DispatchPost {

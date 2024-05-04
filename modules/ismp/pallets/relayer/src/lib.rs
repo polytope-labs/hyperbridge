@@ -50,7 +50,7 @@ use sp_core::{ByteArray, U256};
 use sp_runtime::{AccountId32, DispatchError};
 use sp_std::prelude::*;
 
-pub const MODULE_ID: [u8; 32] = [1; 32];
+pub const MODULE_ID: &'static [u8] = b"ISMP-RLYR";
 
 #[frame_support::pallet]
 pub mod pallet {

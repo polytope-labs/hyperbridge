@@ -6,11 +6,12 @@ pub mod api {
     mod root_mod {
         pub use super::*;
     }
-    pub static PALLETS: [&str; 26usize] = [
+    pub static PALLETS: [&str; 27usize] = [
         "System",
         "Timestamp",
         "ParachainSystem",
         "ParachainInfo",
+        "Utility",
         "Balances",
         "TransactionPayment",
         "Authorship",
@@ -1054,10 +1055,9 @@ pub mod api {
                         "query_call_info",
                         types::QueryCallInfo { call, len },
                         [
-                            136u8, 103u8, 72u8, 143u8, 196u8, 187u8, 118u8, 45u8, 60u8, 154u8,
-                            206u8, 45u8, 225u8, 74u8, 41u8, 10u8, 3u8, 85u8, 16u8, 58u8, 166u8,
-                            35u8, 113u8, 81u8, 221u8, 247u8, 203u8, 179u8, 64u8, 227u8, 92u8,
-                            239u8,
+                            195u8, 52u8, 130u8, 51u8, 203u8, 220u8, 70u8, 47u8, 10u8, 108u8, 10u8,
+                            58u8, 38u8, 196u8, 102u8, 103u8, 47u8, 45u8, 131u8, 209u8, 56u8, 251u8,
+                            183u8, 152u8, 9u8, 221u8, 10u8, 85u8, 210u8, 129u8, 211u8, 196u8,
                         ],
                     )
                 }
@@ -1077,10 +1077,10 @@ pub mod api {
                         "query_call_fee_details",
                         types::QueryCallFeeDetails { call, len },
                         [
-                            143u8, 249u8, 145u8, 204u8, 121u8, 204u8, 240u8, 148u8, 98u8, 37u8,
-                            52u8, 11u8, 152u8, 132u8, 140u8, 237u8, 170u8, 244u8, 77u8, 99u8,
-                            177u8, 128u8, 167u8, 117u8, 42u8, 92u8, 125u8, 228u8, 1u8, 74u8, 182u8,
-                            134u8,
+                            200u8, 183u8, 5u8, 216u8, 197u8, 114u8, 246u8, 77u8, 14u8, 222u8,
+                            160u8, 132u8, 230u8, 196u8, 250u8, 106u8, 73u8, 39u8, 194u8, 29u8,
+                            195u8, 206u8, 99u8, 70u8, 184u8, 198u8, 104u8, 15u8, 113u8, 131u8,
+                            142u8, 255u8,
                         ],
                     )
                 }
@@ -1939,10 +1939,9 @@ pub mod api {
                         "create_transaction",
                         types::CreateTransaction { account, call },
                         [
-                            218u8, 190u8, 35u8, 218u8, 105u8, 144u8, 44u8, 48u8, 31u8, 130u8,
-                            150u8, 245u8, 213u8, 61u8, 254u8, 98u8, 167u8, 121u8, 206u8, 37u8,
-                            176u8, 130u8, 7u8, 254u8, 125u8, 180u8, 85u8, 139u8, 15u8, 64u8, 159u8,
-                            132u8,
+                            143u8, 85u8, 207u8, 5u8, 76u8, 60u8, 84u8, 101u8, 204u8, 44u8, 112u8,
+                            146u8, 96u8, 16u8, 147u8, 44u8, 177u8, 233u8, 3u8, 235u8, 78u8, 95u8,
+                            136u8, 11u8, 129u8, 100u8, 1u8, 28u8, 247u8, 167u8, 92u8, 118u8,
                         ],
                     )
                 }
@@ -1976,6 +1975,9 @@ pub mod api {
         }
         pub fn timestamp(&self) -> timestamp::constants::ConstantsApi {
             timestamp::constants::ConstantsApi
+        }
+        pub fn utility(&self) -> utility::constants::ConstantsApi {
+            utility::constants::ConstantsApi
         }
         pub fn balances(&self) -> balances::constants::ConstantsApi {
             balances::constants::ConstantsApi
@@ -2079,6 +2081,9 @@ pub mod api {
         pub fn parachain_info(&self) -> parachain_info::calls::TransactionApi {
             parachain_info::calls::TransactionApi
         }
+        pub fn utility(&self) -> utility::calls::TransactionApi {
+            utility::calls::TransactionApi
+        }
         pub fn balances(&self) -> balances::calls::TransactionApi {
             balances::calls::TransactionApi
         }
@@ -2137,9 +2142,9 @@ pub mod api {
             .hash();
         runtime_metadata_hash ==
             [
-                109u8, 14u8, 185u8, 128u8, 178u8, 211u8, 219u8, 42u8, 18u8, 135u8, 75u8, 241u8,
-                22u8, 55u8, 222u8, 44u8, 228u8, 19u8, 169u8, 130u8, 138u8, 7u8, 205u8, 50u8, 70u8,
-                15u8, 51u8, 49u8, 217u8, 48u8, 107u8, 33u8,
+                237u8, 173u8, 54u8, 234u8, 83u8, 244u8, 67u8, 206u8, 75u8, 214u8, 226u8, 101u8,
+                10u8, 224u8, 235u8, 202u8, 170u8, 84u8, 248u8, 5u8, 186u8, 60u8, 190u8, 248u8,
+                34u8, 103u8, 143u8, 12u8, 82u8, 162u8, 166u8, 88u8,
             ]
     }
     pub mod system {
@@ -3021,9 +3026,9 @@ pub mod api {
                         "Events",
                         vec![],
                         [
-                            170u8, 232u8, 65u8, 0u8, 120u8, 251u8, 185u8, 203u8, 186u8, 115u8, 1u8,
-                            86u8, 12u8, 51u8, 13u8, 142u8, 131u8, 86u8, 144u8, 92u8, 141u8, 59u8,
-                            220u8, 126u8, 23u8, 43u8, 240u8, 246u8, 80u8, 133u8, 253u8, 6u8,
+                            0u8, 47u8, 206u8, 36u8, 246u8, 67u8, 189u8, 26u8, 233u8, 89u8, 172u8,
+                            201u8, 87u8, 109u8, 103u8, 38u8, 31u8, 219u8, 121u8, 174u8, 230u8,
+                            159u8, 131u8, 170u8, 100u8, 191u8, 76u8, 43u8, 96u8, 205u8, 104u8, 2u8,
                         ],
                     )
                 }
@@ -4346,6 +4351,400 @@ pub mod api {
                             245u8, 91u8, 113u8, 246u8, 218u8, 50u8, 254u8, 248u8, 35u8, 219u8,
                             83u8, 144u8, 228u8, 245u8, 122u8, 53u8, 194u8, 172u8, 222u8, 118u8,
                             202u8, 91u8,
+                        ],
+                    )
+                }
+            }
+        }
+    }
+    pub mod utility {
+        use super::{root_mod, runtime_types};
+        #[doc = "The `Error` enum of this pallet."]
+        pub type Error = runtime_types::pallet_utility::pallet::Error;
+        #[doc = "Contains a variant per dispatchable extrinsic that this pallet has."]
+        pub type Call = runtime_types::pallet_utility::pallet::Call;
+        pub mod calls {
+            use super::{root_mod, runtime_types};
+            type DispatchError = runtime_types::sp_runtime::DispatchError;
+            pub mod types {
+                use super::runtime_types;
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub struct Batch {
+                    pub calls: ::std::vec::Vec<runtime_types::gargantua_runtime::RuntimeCall>,
+                }
+                impl ::subxt::blocks::StaticExtrinsic for Batch {
+                    const PALLET: &'static str = "Utility";
+                    const CALL: &'static str = "batch";
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub struct AsDerivative {
+                    pub index: ::core::primitive::u16,
+                    pub call: ::std::boxed::Box<runtime_types::gargantua_runtime::RuntimeCall>,
+                }
+                impl ::subxt::blocks::StaticExtrinsic for AsDerivative {
+                    const PALLET: &'static str = "Utility";
+                    const CALL: &'static str = "as_derivative";
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub struct BatchAll {
+                    pub calls: ::std::vec::Vec<runtime_types::gargantua_runtime::RuntimeCall>,
+                }
+                impl ::subxt::blocks::StaticExtrinsic for BatchAll {
+                    const PALLET: &'static str = "Utility";
+                    const CALL: &'static str = "batch_all";
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub struct DispatchAs {
+                    pub as_origin:
+                        ::std::boxed::Box<runtime_types::gargantua_runtime::OriginCaller>,
+                    pub call: ::std::boxed::Box<runtime_types::gargantua_runtime::RuntimeCall>,
+                }
+                impl ::subxt::blocks::StaticExtrinsic for DispatchAs {
+                    const PALLET: &'static str = "Utility";
+                    const CALL: &'static str = "dispatch_as";
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub struct ForceBatch {
+                    pub calls: ::std::vec::Vec<runtime_types::gargantua_runtime::RuntimeCall>,
+                }
+                impl ::subxt::blocks::StaticExtrinsic for ForceBatch {
+                    const PALLET: &'static str = "Utility";
+                    const CALL: &'static str = "force_batch";
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub struct WithWeight {
+                    pub call: ::std::boxed::Box<runtime_types::gargantua_runtime::RuntimeCall>,
+                    pub weight: runtime_types::sp_weights::weight_v2::Weight,
+                }
+                impl ::subxt::blocks::StaticExtrinsic for WithWeight {
+                    const PALLET: &'static str = "Utility";
+                    const CALL: &'static str = "with_weight";
+                }
+            }
+            pub struct TransactionApi;
+            impl TransactionApi {
+                #[doc = "See [`Pallet::batch`]."]
+                pub fn batch(
+                    &self,
+                    calls: ::std::vec::Vec<runtime_types::gargantua_runtime::RuntimeCall>,
+                ) -> ::subxt::tx::Payload<types::Batch> {
+                    ::subxt::tx::Payload::new_static(
+                        "Utility",
+                        "batch",
+                        types::Batch { calls },
+                        [
+                            85u8, 58u8, 15u8, 81u8, 203u8, 150u8, 87u8, 141u8, 250u8, 228u8, 104u8,
+                            165u8, 81u8, 22u8, 88u8, 55u8, 209u8, 227u8, 44u8, 6u8, 18u8, 127u8,
+                            185u8, 123u8, 208u8, 162u8, 5u8, 160u8, 104u8, 45u8, 51u8, 64u8,
+                        ],
+                    )
+                }
+                #[doc = "See [`Pallet::as_derivative`]."]
+                pub fn as_derivative(
+                    &self,
+                    index: ::core::primitive::u16,
+                    call: runtime_types::gargantua_runtime::RuntimeCall,
+                ) -> ::subxt::tx::Payload<types::AsDerivative> {
+                    ::subxt::tx::Payload::new_static(
+                        "Utility",
+                        "as_derivative",
+                        types::AsDerivative { index, call: ::std::boxed::Box::new(call) },
+                        [
+                            46u8, 114u8, 182u8, 110u8, 45u8, 140u8, 97u8, 63u8, 251u8, 159u8,
+                            181u8, 128u8, 53u8, 53u8, 129u8, 139u8, 5u8, 241u8, 112u8, 253u8,
+                            128u8, 143u8, 8u8, 40u8, 56u8, 24u8, 180u8, 141u8, 176u8, 236u8, 217u8,
+                            106u8,
+                        ],
+                    )
+                }
+                #[doc = "See [`Pallet::batch_all`]."]
+                pub fn batch_all(
+                    &self,
+                    calls: ::std::vec::Vec<runtime_types::gargantua_runtime::RuntimeCall>,
+                ) -> ::subxt::tx::Payload<types::BatchAll> {
+                    ::subxt::tx::Payload::new_static(
+                        "Utility",
+                        "batch_all",
+                        types::BatchAll { calls },
+                        [
+                            72u8, 202u8, 101u8, 184u8, 240u8, 72u8, 68u8, 249u8, 62u8, 230u8,
+                            214u8, 11u8, 197u8, 49u8, 231u8, 253u8, 167u8, 198u8, 146u8, 117u8,
+                            33u8, 206u8, 117u8, 159u8, 170u8, 224u8, 13u8, 145u8, 130u8, 185u8,
+                            187u8, 218u8,
+                        ],
+                    )
+                }
+                #[doc = "See [`Pallet::dispatch_as`]."]
+                pub fn dispatch_as(
+                    &self,
+                    as_origin: runtime_types::gargantua_runtime::OriginCaller,
+                    call: runtime_types::gargantua_runtime::RuntimeCall,
+                ) -> ::subxt::tx::Payload<types::DispatchAs> {
+                    ::subxt::tx::Payload::new_static(
+                        "Utility",
+                        "dispatch_as",
+                        types::DispatchAs {
+                            as_origin: ::std::boxed::Box::new(as_origin),
+                            call: ::std::boxed::Box::new(call),
+                        },
+                        [
+                            216u8, 231u8, 255u8, 188u8, 155u8, 70u8, 142u8, 16u8, 53u8, 126u8,
+                            223u8, 207u8, 29u8, 187u8, 149u8, 37u8, 90u8, 73u8, 244u8, 195u8, 87u8,
+                            160u8, 252u8, 176u8, 48u8, 0u8, 159u8, 141u8, 28u8, 166u8, 156u8, 9u8,
+                        ],
+                    )
+                }
+                #[doc = "See [`Pallet::force_batch`]."]
+                pub fn force_batch(
+                    &self,
+                    calls: ::std::vec::Vec<runtime_types::gargantua_runtime::RuntimeCall>,
+                ) -> ::subxt::tx::Payload<types::ForceBatch> {
+                    ::subxt::tx::Payload::new_static(
+                        "Utility",
+                        "force_batch",
+                        types::ForceBatch { calls },
+                        [
+                            83u8, 188u8, 203u8, 68u8, 165u8, 137u8, 144u8, 194u8, 231u8, 110u8,
+                            232u8, 255u8, 135u8, 119u8, 25u8, 21u8, 113u8, 102u8, 187u8, 64u8,
+                            60u8, 151u8, 76u8, 162u8, 168u8, 142u8, 137u8, 134u8, 149u8, 103u8,
+                            89u8, 121u8,
+                        ],
+                    )
+                }
+                #[doc = "See [`Pallet::with_weight`]."]
+                pub fn with_weight(
+                    &self,
+                    call: runtime_types::gargantua_runtime::RuntimeCall,
+                    weight: runtime_types::sp_weights::weight_v2::Weight,
+                ) -> ::subxt::tx::Payload<types::WithWeight> {
+                    ::subxt::tx::Payload::new_static(
+                        "Utility",
+                        "with_weight",
+                        types::WithWeight { call: ::std::boxed::Box::new(call), weight },
+                        [
+                            56u8, 6u8, 49u8, 67u8, 213u8, 247u8, 25u8, 150u8, 144u8, 41u8, 32u8,
+                            40u8, 89u8, 52u8, 168u8, 124u8, 112u8, 194u8, 240u8, 165u8, 39u8,
+                            184u8, 187u8, 71u8, 121u8, 23u8, 2u8, 193u8, 190u8, 55u8, 248u8, 116u8,
+                        ],
+                    )
+                }
+            }
+        }
+        #[doc = "The `Event` enum of this pallet"]
+        pub type Event = runtime_types::pallet_utility::pallet::Event;
+        pub mod events {
+            use super::runtime_types;
+            #[derive(
+                :: subxt :: ext :: codec :: Decode,
+                :: subxt :: ext :: codec :: Encode,
+                :: subxt :: ext :: scale_decode :: DecodeAsType,
+                :: subxt :: ext :: scale_encode :: EncodeAsType,
+                Clone,
+                Debug,
+                Eq,
+                PartialEq,
+            )]
+            # [codec (crate = :: subxt :: ext :: codec)]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            #[doc = "Batch of dispatches did not complete fully. Index of first failing dispatch given, as"]
+            #[doc = "well as the error."]
+            pub struct BatchInterrupted {
+                pub index: ::core::primitive::u32,
+                pub error: runtime_types::sp_runtime::DispatchError,
+            }
+            impl ::subxt::events::StaticEvent for BatchInterrupted {
+                const PALLET: &'static str = "Utility";
+                const EVENT: &'static str = "BatchInterrupted";
+            }
+            #[derive(
+                :: subxt :: ext :: codec :: Decode,
+                :: subxt :: ext :: codec :: Encode,
+                :: subxt :: ext :: scale_decode :: DecodeAsType,
+                :: subxt :: ext :: scale_encode :: EncodeAsType,
+                Clone,
+                Debug,
+                Eq,
+                PartialEq,
+            )]
+            # [codec (crate = :: subxt :: ext :: codec)]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            #[doc = "Batch of dispatches completed fully with no error."]
+            pub struct BatchCompleted;
+            impl ::subxt::events::StaticEvent for BatchCompleted {
+                const PALLET: &'static str = "Utility";
+                const EVENT: &'static str = "BatchCompleted";
+            }
+            #[derive(
+                :: subxt :: ext :: codec :: Decode,
+                :: subxt :: ext :: codec :: Encode,
+                :: subxt :: ext :: scale_decode :: DecodeAsType,
+                :: subxt :: ext :: scale_encode :: EncodeAsType,
+                Clone,
+                Debug,
+                Eq,
+                PartialEq,
+            )]
+            # [codec (crate = :: subxt :: ext :: codec)]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            #[doc = "Batch of dispatches completed but has errors."]
+            pub struct BatchCompletedWithErrors;
+            impl ::subxt::events::StaticEvent for BatchCompletedWithErrors {
+                const PALLET: &'static str = "Utility";
+                const EVENT: &'static str = "BatchCompletedWithErrors";
+            }
+            #[derive(
+                :: subxt :: ext :: codec :: Decode,
+                :: subxt :: ext :: codec :: Encode,
+                :: subxt :: ext :: scale_decode :: DecodeAsType,
+                :: subxt :: ext :: scale_encode :: EncodeAsType,
+                Clone,
+                Debug,
+                Eq,
+                PartialEq,
+            )]
+            # [codec (crate = :: subxt :: ext :: codec)]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            #[doc = "A single item within a Batch of dispatches has completed with no error."]
+            pub struct ItemCompleted;
+            impl ::subxt::events::StaticEvent for ItemCompleted {
+                const PALLET: &'static str = "Utility";
+                const EVENT: &'static str = "ItemCompleted";
+            }
+            #[derive(
+                :: subxt :: ext :: codec :: Decode,
+                :: subxt :: ext :: codec :: Encode,
+                :: subxt :: ext :: scale_decode :: DecodeAsType,
+                :: subxt :: ext :: scale_encode :: EncodeAsType,
+                Clone,
+                Debug,
+                Eq,
+                PartialEq,
+            )]
+            # [codec (crate = :: subxt :: ext :: codec)]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            #[doc = "A single item within a Batch of dispatches has completed with error."]
+            pub struct ItemFailed {
+                pub error: runtime_types::sp_runtime::DispatchError,
+            }
+            impl ::subxt::events::StaticEvent for ItemFailed {
+                const PALLET: &'static str = "Utility";
+                const EVENT: &'static str = "ItemFailed";
+            }
+            #[derive(
+                :: subxt :: ext :: codec :: Decode,
+                :: subxt :: ext :: codec :: Encode,
+                :: subxt :: ext :: scale_decode :: DecodeAsType,
+                :: subxt :: ext :: scale_encode :: EncodeAsType,
+                Clone,
+                Debug,
+                Eq,
+                PartialEq,
+            )]
+            # [codec (crate = :: subxt :: ext :: codec)]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            #[doc = "A call was dispatched."]
+            pub struct DispatchedAs {
+                pub result: ::core::result::Result<(), runtime_types::sp_runtime::DispatchError>,
+            }
+            impl ::subxt::events::StaticEvent for DispatchedAs {
+                const PALLET: &'static str = "Utility";
+                const EVENT: &'static str = "DispatchedAs";
+            }
+        }
+        pub mod constants {
+            use super::runtime_types;
+            pub struct ConstantsApi;
+            impl ConstantsApi {
+                #[doc = " The limit on the number of batched calls."]
+                pub fn batched_calls_limit(
+                    &self,
+                ) -> ::subxt::constants::Address<::core::primitive::u32> {
+                    ::subxt::constants::Address::new_static(
+                        "Utility",
+                        "batched_calls_limit",
+                        [
+                            98u8, 252u8, 116u8, 72u8, 26u8, 180u8, 225u8, 83u8, 200u8, 157u8,
+                            125u8, 151u8, 53u8, 76u8, 168u8, 26u8, 10u8, 9u8, 98u8, 68u8, 9u8,
+                            178u8, 197u8, 113u8, 31u8, 79u8, 200u8, 90u8, 203u8, 100u8, 41u8,
+                            145u8,
                         ],
                     )
                 }
@@ -6975,10 +7374,10 @@ pub mod api {
                         "sudo",
                         types::Sudo { call: ::std::boxed::Box::new(call) },
                         [
-                            75u8, 161u8, 28u8, 106u8, 44u8, 253u8, 132u8, 172u8, 219u8, 229u8,
-                            189u8, 206u8, 4u8, 135u8, 249u8, 134u8, 147u8, 228u8, 143u8, 237u8,
-                            139u8, 24u8, 12u8, 104u8, 156u8, 21u8, 9u8, 80u8, 216u8, 89u8, 205u8,
-                            78u8,
+                            62u8, 141u8, 146u8, 103u8, 243u8, 64u8, 104u8, 72u8, 156u8, 179u8,
+                            55u8, 4u8, 97u8, 252u8, 80u8, 42u8, 106u8, 131u8, 131u8, 173u8, 220u8,
+                            182u8, 32u8, 176u8, 222u8, 23u8, 141u8, 145u8, 222u8, 127u8, 67u8,
+                            71u8,
                         ],
                     )
                 }
@@ -6993,9 +7392,10 @@ pub mod api {
                         "sudo_unchecked_weight",
                         types::SudoUncheckedWeight { call: ::std::boxed::Box::new(call), weight },
                         [
-                            64u8, 49u8, 33u8, 13u8, 156u8, 124u8, 245u8, 163u8, 239u8, 189u8, 70u8,
-                            125u8, 150u8, 4u8, 95u8, 67u8, 58u8, 178u8, 59u8, 122u8, 28u8, 132u8,
-                            236u8, 26u8, 179u8, 46u8, 135u8, 183u8, 216u8, 96u8, 220u8, 244u8,
+                            61u8, 246u8, 40u8, 34u8, 202u8, 99u8, 162u8, 128u8, 174u8, 31u8, 232u8,
+                            215u8, 229u8, 194u8, 105u8, 220u8, 13u8, 105u8, 245u8, 51u8, 234u8,
+                            158u8, 189u8, 231u8, 255u8, 57u8, 123u8, 245u8, 172u8, 144u8, 26u8,
+                            29u8,
                         ],
                     )
                 }
@@ -7026,9 +7426,10 @@ pub mod api {
                         "sudo_as",
                         types::SudoAs { who, call: ::std::boxed::Box::new(call) },
                         [
-                            81u8, 109u8, 187u8, 214u8, 52u8, 221u8, 21u8, 210u8, 227u8, 33u8, 61u8,
-                            7u8, 173u8, 251u8, 39u8, 200u8, 171u8, 77u8, 43u8, 89u8, 42u8, 16u8,
-                            5u8, 107u8, 175u8, 152u8, 126u8, 127u8, 71u8, 196u8, 41u8, 220u8,
+                            153u8, 79u8, 179u8, 194u8, 88u8, 218u8, 127u8, 146u8, 73u8, 89u8, 53u8,
+                            54u8, 166u8, 166u8, 142u8, 129u8, 101u8, 106u8, 102u8, 42u8, 188u8,
+                            76u8, 198u8, 211u8, 251u8, 45u8, 234u8, 180u8, 144u8, 185u8, 211u8,
+                            251u8,
                         ],
                     )
                 }
@@ -11761,7 +12162,9 @@ pub mod api {
                 pub struct SetHostParams {
                     pub params: ::subxt::utils::KeyedVec<
                         runtime_types::ismp::host::StateMachine,
-                        runtime_types::pallet_ismp_host_executive::params::HostParam,
+                        runtime_types::pallet_ismp_host_executive::params::HostParam<
+                            ::core::primitive::u128,
+                        >,
                     >,
                 }
                 impl ::subxt::blocks::StaticExtrinsic for SetHostParams {
@@ -11783,7 +12186,9 @@ pub mod api {
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
                 pub struct UpdateHostParams {
                     pub state_machine: runtime_types::ismp::host::StateMachine,
-                    pub update: runtime_types::pallet_ismp_host_executive::params::HostParamUpdate,
+                    pub update: runtime_types::pallet_ismp_host_executive::params::HostParamUpdate<
+                        ::core::primitive::u128,
+                    >,
                 }
                 impl ::subxt::blocks::StaticExtrinsic for UpdateHostParams {
                     const PALLET: &'static str = "HostExecutive";
@@ -11797,7 +12202,9 @@ pub mod api {
                     &self,
                     params: ::subxt::utils::KeyedVec<
                         runtime_types::ismp::host::StateMachine,
-                        runtime_types::pallet_ismp_host_executive::params::HostParam,
+                        runtime_types::pallet_ismp_host_executive::params::HostParam<
+                            ::core::primitive::u128,
+                        >,
                     >,
                 ) -> ::subxt::tx::Payload<types::SetHostParams> {
                     ::subxt::tx::Payload::new_static(
@@ -11805,9 +12212,9 @@ pub mod api {
                         "set_host_params",
                         types::SetHostParams { params },
                         [
-                            135u8, 167u8, 163u8, 92u8, 139u8, 43u8, 43u8, 217u8, 70u8, 49u8, 12u8,
-                            100u8, 186u8, 110u8, 34u8, 44u8, 7u8, 177u8, 36u8, 22u8, 97u8, 129u8,
-                            229u8, 4u8, 16u8, 199u8, 162u8, 214u8, 240u8, 62u8, 59u8, 139u8,
+                            253u8, 123u8, 76u8, 23u8, 39u8, 238u8, 3u8, 104u8, 184u8, 238u8, 242u8,
+                            164u8, 40u8, 97u8, 125u8, 106u8, 158u8, 168u8, 195u8, 161u8, 196u8,
+                            50u8, 151u8, 242u8, 49u8, 96u8, 87u8, 138u8, 12u8, 88u8, 80u8, 215u8,
                         ],
                     )
                 }
@@ -11815,19 +12222,54 @@ pub mod api {
                 pub fn update_host_params(
                     &self,
                     state_machine: runtime_types::ismp::host::StateMachine,
-                    update: runtime_types::pallet_ismp_host_executive::params::HostParamUpdate,
+                    update: runtime_types::pallet_ismp_host_executive::params::HostParamUpdate<
+                        ::core::primitive::u128,
+                    >,
                 ) -> ::subxt::tx::Payload<types::UpdateHostParams> {
                     ::subxt::tx::Payload::new_static(
                         "HostExecutive",
                         "update_host_params",
                         types::UpdateHostParams { state_machine, update },
                         [
-                            11u8, 217u8, 156u8, 198u8, 0u8, 127u8, 94u8, 70u8, 250u8, 168u8, 60u8,
-                            148u8, 33u8, 98u8, 85u8, 90u8, 93u8, 66u8, 165u8, 114u8, 179u8, 58u8,
-                            214u8, 183u8, 208u8, 174u8, 80u8, 229u8, 149u8, 84u8, 59u8, 75u8,
+                            158u8, 35u8, 186u8, 75u8, 169u8, 167u8, 78u8, 90u8, 127u8, 149u8, 75u8,
+                            216u8, 228u8, 4u8, 216u8, 161u8, 174u8, 29u8, 168u8, 101u8, 209u8,
+                            180u8, 137u8, 140u8, 237u8, 112u8, 87u8, 148u8, 18u8, 73u8, 17u8, 28u8,
                         ],
                     )
                 }
+            }
+        }
+        #[doc = "The `Event` enum of this pallet"]
+        pub type Event = runtime_types::pallet_ismp_host_executive::pallet::Event;
+        pub mod events {
+            use super::runtime_types;
+            #[derive(
+                :: subxt :: ext :: codec :: Decode,
+                :: subxt :: ext :: codec :: Encode,
+                :: subxt :: ext :: scale_decode :: DecodeAsType,
+                :: subxt :: ext :: scale_encode :: EncodeAsType,
+                Clone,
+                Debug,
+                Eq,
+                PartialEq,
+            )]
+            # [codec (crate = :: subxt :: ext :: codec)]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            #[doc = "Hyperbridge governance has initiated a host parameter update to the mentioned state"]
+            #[doc = "machine"]
+            pub struct HostParamsUpdated {
+                pub state_machine: runtime_types::ismp::host::StateMachine,
+                pub old: runtime_types::pallet_ismp_host_executive::params::HostParam<
+                    ::core::primitive::u128,
+                >,
+                pub new: runtime_types::pallet_ismp_host_executive::params::HostParam<
+                    ::core::primitive::u128,
+                >,
+            }
+            impl ::subxt::events::StaticEvent for HostParamsUpdated {
+                const PALLET: &'static str = "HostExecutive";
+                const EVENT: &'static str = "HostParamsUpdated";
             }
         }
         pub mod storage {
@@ -11840,7 +12282,9 @@ pub mod api {
                     _0: impl ::std::borrow::Borrow<runtime_types::ismp::host::StateMachine>,
                 ) -> ::subxt::storage::address::Address<
                     ::subxt::storage::address::StaticStorageMapKey,
-                    runtime_types::pallet_ismp_host_executive::params::HostParam,
+                    runtime_types::pallet_ismp_host_executive::params::HostParam<
+                        ::core::primitive::u128,
+                    >,
                     ::subxt::storage::address::Yes,
                     (),
                     ::subxt::storage::address::Yes,
@@ -11850,9 +12294,9 @@ pub mod api {
                         "HostParams",
                         vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
                         [
-                            200u8, 68u8, 48u8, 161u8, 211u8, 196u8, 236u8, 187u8, 248u8, 218u8,
-                            5u8, 57u8, 143u8, 251u8, 193u8, 69u8, 163u8, 149u8, 21u8, 28u8, 120u8,
-                            156u8, 28u8, 112u8, 162u8, 95u8, 34u8, 0u8, 100u8, 137u8, 152u8, 72u8,
+                            76u8, 36u8, 3u8, 17u8, 227u8, 8u8, 124u8, 214u8, 49u8, 212u8, 36u8,
+                            244u8, 110u8, 147u8, 81u8, 66u8, 70u8, 158u8, 69u8, 84u8, 235u8, 117u8,
+                            235u8, 10u8, 151u8, 220u8, 48u8, 61u8, 74u8, 125u8, 45u8, 224u8,
                         ],
                     )
                 }
@@ -11861,7 +12305,9 @@ pub mod api {
                     &self,
                 ) -> ::subxt::storage::address::Address<
                     ::subxt::storage::address::StaticStorageMapKey,
-                    runtime_types::pallet_ismp_host_executive::params::HostParam,
+                    runtime_types::pallet_ismp_host_executive::params::HostParam<
+                        ::core::primitive::u128,
+                    >,
                     (),
                     (),
                     ::subxt::storage::address::Yes,
@@ -11871,9 +12317,9 @@ pub mod api {
                         "HostParams",
                         Vec::new(),
                         [
-                            200u8, 68u8, 48u8, 161u8, 211u8, 196u8, 236u8, 187u8, 248u8, 218u8,
-                            5u8, 57u8, 143u8, 251u8, 193u8, 69u8, 163u8, 149u8, 21u8, 28u8, 120u8,
-                            156u8, 28u8, 112u8, 162u8, 95u8, 34u8, 0u8, 100u8, 137u8, 152u8, 72u8,
+                            76u8, 36u8, 3u8, 17u8, 227u8, 8u8, 124u8, 214u8, 49u8, 212u8, 36u8,
+                            244u8, 110u8, 147u8, 81u8, 66u8, 70u8, 158u8, 69u8, 84u8, 235u8, 117u8,
+                            235u8, 10u8, 151u8, 220u8, 48u8, 61u8, 74u8, 125u8, 45u8, 224u8,
                         ],
                     )
                 }
@@ -14644,6 +15090,25 @@ pub mod api {
                         runtime_types::xcm::v3::traits::Outcome,
                     ),
                 }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub enum Origin {
+                    #[codec(index = 0)]
+                    Relay,
+                    #[codec(index = 1)]
+                    SiblingParachain(runtime_types::polkadot_parachain_primitives::primitives::Id),
+                }
             }
         }
         pub mod cumulus_pallet_xcmp_queue {
@@ -14965,6 +15430,27 @@ pub mod api {
                     pub normal: _0,
                     pub operational: _0,
                     pub mandatory: _0,
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub enum RawOrigin<_0> {
+                    #[codec(index = 0)]
+                    Root,
+                    #[codec(index = 1)]
+                    Signed(_0),
+                    #[codec(index = 2)]
+                    None,
                 }
             }
             pub mod traits {
@@ -15484,6 +15970,31 @@ pub mod api {
             # [codec (crate = :: subxt :: ext :: codec)]
             #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
             #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            pub enum OriginCaller {
+                #[codec(index = 0)]
+                system(
+                    runtime_types::frame_support::dispatch::RawOrigin<::subxt::utils::AccountId32>,
+                ),
+                #[codec(index = 31)]
+                PolkadotXcm(runtime_types::pallet_xcm::pallet::Origin),
+                #[codec(index = 32)]
+                CumulusXcm(runtime_types::cumulus_pallet_xcm::pallet::Origin),
+                #[codec(index = 3)]
+                Void(runtime_types::sp_core::Void),
+            }
+            #[derive(
+                :: subxt :: ext :: codec :: Decode,
+                :: subxt :: ext :: codec :: Encode,
+                :: subxt :: ext :: scale_decode :: DecodeAsType,
+                :: subxt :: ext :: scale_encode :: EncodeAsType,
+                Clone,
+                Debug,
+                Eq,
+                PartialEq,
+            )]
+            # [codec (crate = :: subxt :: ext :: codec)]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
             pub struct Runtime;
             #[derive(
                 :: subxt :: ext :: codec :: Decode,
@@ -15507,6 +16018,8 @@ pub mod api {
                 ParachainSystem(runtime_types::cumulus_pallet_parachain_system::pallet::Call),
                 #[codec(index = 3)]
                 ParachainInfo(runtime_types::staging_parachain_info::pallet::Call),
+                #[codec(index = 4)]
+                Utility(runtime_types::pallet_utility::pallet::Call),
                 #[codec(index = 10)]
                 Balances(runtime_types::pallet_balances::pallet::Call),
                 #[codec(index = 21)]
@@ -15558,6 +16071,8 @@ pub mod api {
                 System(runtime_types::frame_system::pallet::Error),
                 #[codec(index = 2)]
                 ParachainSystem(runtime_types::cumulus_pallet_parachain_system::pallet::Error),
+                #[codec(index = 4)]
+                Utility(runtime_types::pallet_utility::pallet::Error),
                 #[codec(index = 10)]
                 Balances(runtime_types::pallet_balances::pallet::Error),
                 #[codec(index = 21)]
@@ -15607,6 +16122,8 @@ pub mod api {
                 System(runtime_types::frame_system::pallet::Event),
                 #[codec(index = 2)]
                 ParachainSystem(runtime_types::cumulus_pallet_parachain_system::pallet::Event),
+                #[codec(index = 4)]
+                Utility(runtime_types::pallet_utility::pallet::Event),
                 #[codec(index = 10)]
                 Balances(runtime_types::pallet_balances::pallet::Event),
                 #[codec(index = 11)]
@@ -15633,6 +16150,8 @@ pub mod api {
                 IsmpDemo(runtime_types::pallet_ismp_demo::pallet::Event),
                 #[codec(index = 53)]
                 Relayer(runtime_types::pallet_ismp_relayer::pallet::Event),
+                #[codec(index = 55)]
+                HostExecutive(runtime_types::pallet_ismp_host_executive::pallet::Event),
                 #[codec(index = 57)]
                 Gateway(runtime_types::pallet_asset_gateway::pallet::Event),
                 #[codec(index = 58)]
@@ -17646,6 +18165,26 @@ pub mod api {
                 }
             }
         }
+        pub mod pallet_hyperbridge {
+            use super::runtime_types;
+            #[derive(
+                :: subxt :: ext :: codec :: Decode,
+                :: subxt :: ext :: codec :: Encode,
+                :: subxt :: ext :: scale_decode :: DecodeAsType,
+                :: subxt :: ext :: scale_encode :: EncodeAsType,
+                Clone,
+                Debug,
+                Eq,
+                PartialEq,
+            )]
+            # [codec (crate = :: subxt :: ext :: codec)]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            pub enum VersionedHostParams<_0> {
+                #[codec(index = 0)]
+                V1(_0),
+            }
+        }
         pub mod pallet_ismp {
             use super::runtime_types;
             pub mod errors {
@@ -18272,14 +18811,18 @@ pub mod api {
                     set_host_params {
                         params: ::subxt::utils::KeyedVec<
                             runtime_types::ismp::host::StateMachine,
-                            runtime_types::pallet_ismp_host_executive::params::HostParam,
+                            runtime_types::pallet_ismp_host_executive::params::HostParam<
+                                ::core::primitive::u128,
+                            >,
                         >,
                     },
                     #[codec(index = 1)]
                     #[doc = "See [`Pallet::update_host_params`]."]
                     update_host_params {
                         state_machine: runtime_types::ismp::host::StateMachine,
-                        update: runtime_types::pallet_ismp_host_executive::params::HostParamUpdate,
+                        update: runtime_types::pallet_ismp_host_executive::params::HostParamUpdate<
+                            ::core::primitive::u128,
+                        >,
                     },
                 }
                 #[derive(
@@ -18303,6 +18846,37 @@ pub mod api {
                     #[codec(index = 1)]
                     #[doc = "The requested state machine was unrecognized"]
                     UnknownStateMachine,
+                    #[codec(index = 2)]
+                    #[doc = "Mismatched state machine and HostParams"]
+                    MismatchedHostParams,
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                #[doc = "The `Event` enum of this pallet"]
+                pub enum Event {
+                    #[codec(index = 0)]
+                    #[doc = "Hyperbridge governance has initiated a host parameter update to the mentioned state"]
+                    #[doc = "machine"]
+                    HostParamsUpdated {
+                        state_machine: runtime_types::ismp::host::StateMachine,
+                        old: runtime_types::pallet_ismp_host_executive::params::HostParam<
+                            ::core::primitive::u128,
+                        >,
+                        new: runtime_types::pallet_ismp_host_executive::params::HostParam<
+                            ::core::primitive::u128,
+                        >,
+                    },
                 }
             }
             pub mod params {
@@ -18320,7 +18894,7 @@ pub mod api {
                 # [codec (crate = :: subxt :: ext :: codec)]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct HostParam {
+                pub struct EvmHostParam {
                     pub default_timeout: ::core::primitive::u128,
                     pub per_byte_fee: ::core::primitive::u128,
                     pub fee_token: ::subxt::utils::H160,
@@ -18359,7 +18933,7 @@ pub mod api {
                 # [codec (crate = :: subxt :: ext :: codec)]
                 #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
                 #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-                pub struct HostParamUpdate {
+                pub struct EvmHostParamUpdate {
                     pub default_timeout: ::core::option::Option<::core::primitive::u128>,
                     pub per_byte_fee: ::core::option::Option<::core::primitive::u128>,
                     pub fee_token: ::core::option::Option<::subxt::utils::H160>,
@@ -18390,6 +18964,46 @@ pub mod api {
                             ::core::primitive::u8,
                         >,
                     >,
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub enum HostParam<_0> {
+                    #[codec(index = 0)]
+                    SubstrateHostParam(runtime_types::pallet_hyperbridge::VersionedHostParams<_0>),
+                    #[codec(index = 1)]
+                    EvmHostParam(runtime_types::pallet_ismp_host_executive::params::EvmHostParam),
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub enum HostParamUpdate<_0> {
+                    #[codec(index = 0)]
+                    SubstrateHostParam(runtime_types::pallet_hyperbridge::VersionedHostParams<_0>),
+                    #[codec(index = 1)]
+                    EvmHostParam(
+                        runtime_types::pallet_ismp_host_executive::params::EvmHostParamUpdate,
+                    ),
                 }
             }
         }
@@ -18456,15 +19070,18 @@ pub mod api {
                     #[doc = "Invalid Amount"]
                     InvalidAmount,
                     #[codec(index = 5)]
+                    #[doc = "Encountered a mis-match in the requested state machine"]
+                    MismatchedStateMachine,
+                    #[codec(index = 6)]
                     #[doc = "Relayer Manager Address on Dest chain not set"]
                     MissingMangerAddress,
-                    #[codec(index = 6)]
+                    #[codec(index = 7)]
                     #[doc = "Failed to dispatch request"]
                     DispatchFailed,
-                    #[codec(index = 7)]
+                    #[codec(index = 8)]
                     #[doc = "Error"]
                     ErrorCompletingCall,
-                    #[codec(index = 8)]
+                    #[codec(index = 9)]
                     #[doc = "Missing commitments"]
                     MissingCommitments,
                 }
@@ -19120,6 +19737,120 @@ pub mod api {
                 V2,
             }
         }
+        pub mod pallet_utility {
+            use super::runtime_types;
+            pub mod pallet {
+                use super::runtime_types;
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                #[doc = "Contains a variant per dispatchable extrinsic that this pallet has."]
+                pub enum Call {
+                    #[codec(index = 0)]
+                    #[doc = "See [`Pallet::batch`]."]
+                    batch { calls: ::std::vec::Vec<runtime_types::gargantua_runtime::RuntimeCall> },
+                    #[codec(index = 1)]
+                    #[doc = "See [`Pallet::as_derivative`]."]
+                    as_derivative {
+                        index: ::core::primitive::u16,
+                        call: ::std::boxed::Box<runtime_types::gargantua_runtime::RuntimeCall>,
+                    },
+                    #[codec(index = 2)]
+                    #[doc = "See [`Pallet::batch_all`]."]
+                    batch_all {
+                        calls: ::std::vec::Vec<runtime_types::gargantua_runtime::RuntimeCall>,
+                    },
+                    #[codec(index = 3)]
+                    #[doc = "See [`Pallet::dispatch_as`]."]
+                    dispatch_as {
+                        as_origin:
+                            ::std::boxed::Box<runtime_types::gargantua_runtime::OriginCaller>,
+                        call: ::std::boxed::Box<runtime_types::gargantua_runtime::RuntimeCall>,
+                    },
+                    #[codec(index = 4)]
+                    #[doc = "See [`Pallet::force_batch`]."]
+                    force_batch {
+                        calls: ::std::vec::Vec<runtime_types::gargantua_runtime::RuntimeCall>,
+                    },
+                    #[codec(index = 5)]
+                    #[doc = "See [`Pallet::with_weight`]."]
+                    with_weight {
+                        call: ::std::boxed::Box<runtime_types::gargantua_runtime::RuntimeCall>,
+                        weight: runtime_types::sp_weights::weight_v2::Weight,
+                    },
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                #[doc = "The `Error` enum of this pallet."]
+                pub enum Error {
+                    #[codec(index = 0)]
+                    #[doc = "Too many calls batched."]
+                    TooManyCalls,
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                #[doc = "The `Event` enum of this pallet"]
+                pub enum Event {
+                    #[codec(index = 0)]
+                    #[doc = "Batch of dispatches did not complete fully. Index of first failing dispatch given, as"]
+                    #[doc = "well as the error."]
+                    BatchInterrupted {
+                        index: ::core::primitive::u32,
+                        error: runtime_types::sp_runtime::DispatchError,
+                    },
+                    #[codec(index = 1)]
+                    #[doc = "Batch of dispatches completed fully with no error."]
+                    BatchCompleted,
+                    #[codec(index = 2)]
+                    #[doc = "Batch of dispatches completed but has errors."]
+                    BatchCompletedWithErrors,
+                    #[codec(index = 3)]
+                    #[doc = "A single item within a Batch of dispatches has completed with no error."]
+                    ItemCompleted,
+                    #[codec(index = 4)]
+                    #[doc = "A single item within a Batch of dispatches has completed with error."]
+                    ItemFailed { error: runtime_types::sp_runtime::DispatchError },
+                    #[codec(index = 5)]
+                    #[doc = "A call was dispatched."]
+                    DispatchedAs {
+                        result:
+                            ::core::result::Result<(), runtime_types::sp_runtime::DispatchError>,
+                    },
+                }
+            }
+        }
         pub mod pallet_xcm {
             use super::runtime_types;
             pub mod pallet {
@@ -19518,6 +20249,25 @@ pub mod api {
                         origin: runtime_types::staging_xcm::v3::multilocation::MultiLocation,
                         assets: runtime_types::xcm::VersionedMultiAssets,
                     },
+                }
+                #[derive(
+                    :: subxt :: ext :: codec :: Decode,
+                    :: subxt :: ext :: codec :: Encode,
+                    :: subxt :: ext :: scale_decode :: DecodeAsType,
+                    :: subxt :: ext :: scale_encode :: EncodeAsType,
+                    Clone,
+                    Debug,
+                    Eq,
+                    PartialEq,
+                )]
+                # [codec (crate = :: subxt :: ext :: codec)]
+                #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+                #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+                pub enum Origin {
+                    #[codec(index = 0)]
+                    Xcm(runtime_types::staging_xcm::v3::multilocation::MultiLocation),
+                    #[codec(index = 1)]
+                    Response(runtime_types::staging_xcm::v3::multilocation::MultiLocation),
                 }
                 #[derive(
                     :: subxt :: ext :: codec :: Decode,
@@ -20062,6 +20812,20 @@ pub mod api {
             #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
             #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
             pub struct OpaqueMetadata(pub ::std::vec::Vec<::core::primitive::u8>);
+            #[derive(
+                :: subxt :: ext :: codec :: Decode,
+                :: subxt :: ext :: codec :: Encode,
+                :: subxt :: ext :: scale_decode :: DecodeAsType,
+                :: subxt :: ext :: scale_encode :: EncodeAsType,
+                Clone,
+                Debug,
+                Eq,
+                PartialEq,
+            )]
+            # [codec (crate = :: subxt :: ext :: codec)]
+            #[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+            #[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+            pub enum Void {}
         }
         pub mod sp_inherents {
             use super::runtime_types;

@@ -417,6 +417,14 @@ impl Response {
         }
     }
 
+    /// Returns the encoded post response if it exists
+    pub fn response(&self) -> Option<Vec<u8>> {
+        match self {
+            Response::Get(_) => None,
+            Response::Post(res) => Some(res.response.clone()),
+        }
+    }
+
     /// Returns the encoded response
     pub fn encode(&self) -> Vec<u8> {
         match self {

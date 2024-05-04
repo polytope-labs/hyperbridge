@@ -9,11 +9,14 @@ pub mod client;
 pub mod gargantua;
 
 mod gargantua_conversion {
+    use crate::gargantua::api::runtime_types::pallet_hyperbridge::VersionedHostParams;
+
     use super::gargantua::api::runtime_types;
     use ismp::{
         consensus::{StateCommitment, StateMachineHeight, StateMachineId},
         host::{Ethereum, StateMachine},
     };
+    use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 
     impl From<runtime_types::ismp::consensus::StateCommitment> for StateCommitment {
         fn from(commitment: runtime_types::ismp::consensus::StateCommitment) -> Self {
@@ -126,6 +129,50 @@ mod gargantua_conversion {
                 to: post.to,
                 timeout_timestamp: post.timeout_timestamp,
                 data: post.data,
+            }
+        }
+    }
+
+    impl From<runtime_types::pallet_ismp_host_executive::params::HostParam<u128>> for HostParam<u128> {
+        fn from(value: runtime_types::pallet_ismp_host_executive::params::HostParam<u128>) -> Self {
+            match value {
+                runtime_types::pallet_ismp_host_executive::params::HostParam::EvmHostParam(params) => {
+                    let evm = EvmHostParam {
+                        default_timeout: params.default_timeout,
+                        per_byte_fee: params.per_byte_fee,
+                        fee_token: params.fee_token,
+                        admin: params.admin,
+                        handler: params.handler,
+                        host_manager: params.host_manager,
+                        un_staking_period: params.un_staking_period,
+                        challenge_period: params.challenge_period,
+                        consensus_client: params.consensus_client,
+                        consensus_state: params
+                            .consensus_state
+                            .0
+                            .try_into().expect("Runtime will always provide bounded vec"),
+                        consensus_update_timestamp: params.consensus_update_timestamp,
+                        state_machine_whitelist: params
+                            .state_machine_whitelist
+                            .0
+                            .try_into()
+                            .expect("Runtime will always provide bounded vec"),
+                        fishermen: params
+                            .fishermen
+                            .0
+                            .try_into()
+                            .expect("Runtime will always provide bounded vec"),
+                        hyperbridge: params
+                            .hyperbridge
+                            .0
+                            .try_into()
+                            .expect("Runtime will always provide bounded vec"),
+                    };
+                    HostParam::EvmHostParam(evm)
+                }
+                runtime_types::pallet_ismp_host_executive::params::HostParam::SubstrateHostParam(VersionedHostParams::V1(value)) => {
+                    HostParam::SubstrateHostParam(pallet_hyperbridge::VersionedHostParams::V1(value))
+                }
             }
         }
     }

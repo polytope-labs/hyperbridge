@@ -12,6 +12,8 @@ sp-core-hashing = { workspace = true }
 codec = { workspace = true }
 anyhow = "1.0.79"
 futures = "0.3.30"
+pallet-ismp-host-executive = { workspace = true }
+pallet-hyperbridge = { workspace = true }
 
 [dependencies.reconnecting-jsonrpsee-ws-client]
 git = "https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client"
@@ -21,4 +23,4 @@ default-features = false
 [features]
 default = ["std"]
 wasm = ["subxt/web", "subxt/jsonrpsee", "reconnecting-jsonrpsee-ws-client/web"]
-std = ["subxt/native", "subxt/jsonrpsee", "ismp/std", "sp-core-hashing/std", "codec/std", "reconnecting-jsonrpsee-ws-client/native"]
+std = ["subxt/native", "subxt/jsonrpsee", "ismp/std", "sp-core-hashing/std", "codec/std", "reconnecting-jsonrpsee-ws-client/native", "pallet-hyperbridge/std", "pallet-ismp-host-executive/std"]

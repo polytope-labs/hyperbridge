@@ -7,7 +7,7 @@ use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
 use core::time::Duration;
 use ethers::prelude::{H160, H256};
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{stream, StreamExt};
 use hashbrown::HashMap;
 use hex_literal::hex;
 use ismp::{
@@ -18,21 +18,12 @@ use ismp::{
 };
 use ismp_solidity_abi::evm_host::PostRequestHandledFilter;
 use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, ResponseReceipt};
-use reconnecting_jsonrpsee_ws_client::{Client as ReconnectClient, SubscriptionId};
 use serde::{Deserialize, Serialize};
 use sp_core::storage::ChildInfo;
-use std::{
-    ops::{Deref, RangeInclusive},
-    sync::Arc,
-};
+use std::ops::RangeInclusive;
 use substrate_state_machine::StateMachineProof;
 use subxt::{
-    config::Header,
-    error::RpcError,
-    rpc::{types::StorageData, RawValue, RpcClientT, RpcFuture, RpcSubscription},
-    rpc_params,
-    storage::StorageKey,
-    OnlineClient,
+    config::Header, rpc::types::StorageData, rpc_params, storage::StorageKey, OnlineClient,
 };
 
 #[derive(Debug, Clone)]
@@ -54,9 +45,7 @@ where
         hashing: HashAlgorithm,
         consensus_state_id: [u8; 4],
     ) -> Result<Self, Error> {
-        let rpc = ReconnectClient::builder().build(rpc_url.clone()).await?;
-
-        let client = OnlineClient::<C>::from_rpc_client(Arc::new(ClientWrapper(rpc))).await?;
+        let client = subxt_utils::client::ws_client(&rpc_url, 10 * 1024 * 1024).await?;
         let state_machine_address = runtime::api::storage().parachain_info().parachain_id();
         let state_id = client
             .storage()
@@ -425,56 +414,5 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
         let response: u64 = self.client.rpc().request("ismp_queryChallengePeriod", params).await?;
 
         Ok(Duration::from_secs(response))
-    }
-}
-
-/// Adapter client for suxt
-pub struct ClientWrapper(pub ReconnectClient);
-
-impl Deref for ClientWrapper {
-    type Target = ReconnectClient;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl RpcClientT for ClientWrapper {
-    fn request_raw<'a>(
-        &'a self,
-        method: &'a str,
-        params: Option<Box<RawValue>>,
-    ) -> RpcFuture<'a, Box<RawValue>> {
-        Box::pin(async move {
-            let res = self
-                .0
-                .request_raw(method.to_string(), params)
-                .await
-                .map_err(|e| RpcError::ClientError(Box::new(e)))?;
-            Ok(res)
-        })
-    }
-
-    fn subscribe_raw<'a>(
-        &'a self,
-        sub: &'a str,
-        params: Option<Box<RawValue>>,
-        unsub: &'a str,
-    ) -> RpcFuture<'a, RpcSubscription> {
-        Box::pin(async move {
-            let stream = self
-                .0
-                .subscribe_raw(sub.to_string(), params, unsub.to_string())
-                .await
-                .map_err(|e| RpcError::ClientError(Box::new(e)))?;
-
-            let id = match stream.id() {
-                SubscriptionId::Str(id) => Some(id.clone().into_owned()),
-                SubscriptionId::Num(id) => Some(id.to_string()),
-            };
-
-            let stream = stream.map_err(|e| RpcError::ClientError(Box::new(e))).boxed();
-            Ok(RpcSubscription { stream, id })
-        })
     }
 }

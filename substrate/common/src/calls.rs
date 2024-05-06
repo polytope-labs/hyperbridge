@@ -130,12 +130,12 @@ where
 		// If compression saving is less than 15% submit the uncompressed call
 		if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len) < 15usize
 		{
-			send_unsigned_extrinsic(&self.client, extrinsic).await?;
+			send_unsigned_extrinsic(&self.client, extrinsic, true).await?;
 		} else {
 			let compressed_call = buffer[0..compressed_call_len].to_vec();
 			let call = (compressed_call, uncompressed_len as u32).encode();
 			let extrinsic = Extrinsic::new("CallDecompressor", "decompress_call", call);
-			send_unsigned_extrinsic(&self.client, extrinsic).await?;
+			send_unsigned_extrinsic(&self.client, extrinsic, true).await?;
 		}
 
 		Ok(())
@@ -162,7 +162,9 @@ where
 		let input_data = WithdrawalInputData { signature, dest_chain: chain, amount };
 
 		let tx = Extrinsic::new("Relayer", "withdraw_fees", input_data.encode());
-		let hash = send_unsigned_extrinsic(&self.client, tx)
+		// Wait for finalization so we still get the correct block with the post request event even
+		// if a reorg happens
+		let hash = send_unsigned_extrinsic(&self.client, tx, true)
 			.await?
 			.ok_or_else(|| anyhow!("Transaction submission failed"))?;
 		let block_number = self

@@ -117,6 +117,7 @@ where
 pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: TxPayload>(
 	client: &OnlineClient<T>,
 	payload: Tx,
+	wait_for_finalization: bool,
 ) -> Result<Option<T::Hash>, anyhow::Error>
 where
 	<T::ExtrinsicParams as ExtrinsicParams<T::Hash>>::OtherParams:
@@ -134,13 +135,19 @@ where
 
 			p
 		},
-		Err(err) => Err(anyhow!(err.to_string())).context("Failed to submit unsigned extrinsic")?,
+		Err(err) => Err(refine_subxt_error(err)).context("Failed to submit unsigned extrinsic")?,
 	};
 	let ext_hash = progress.extrinsic_hash();
 
-	let extrinsic = match progress.wait_for_in_block().await {
+	let tx_in_block = if wait_for_finalization {
+		progress.wait_for_finalized().await
+	} else {
+		progress.wait_for_in_block().await
+	};
+
+	let extrinsic = match tx_in_block {
 		Ok(p) => p,
-		Err(err) => Err(anyhow!(err.to_string())).context(format!(
+		Err(err) => Err(refine_subxt_error(err)).context(format!(
 			"Error waiting for unsigned extrinsic in block with hash {ext_hash:?}"
 		))?,
 	};
@@ -150,7 +157,7 @@ where
 			log::info!("Successfully executed unsigned extrinsic {ext_hash:?}");
 			p.block_hash()
 		},
-		Err(err) => Err(anyhow!(err.to_string()))
+		Err(err) => Err(refine_subxt_error(err))
 			.context(format!("Error executing unsigned extrinsic {ext_hash:?}"))?,
 	};
 	Ok(Some(hash))
@@ -174,7 +181,7 @@ where
 
 	let extrinsic = match progress.wait_for_in_block().await {
 		Ok(p) => p,
-		Err(err) => Err(err).context(format!(
+		Err(err) => Err(refine_subxt_error(err)).context(format!(
 			"Error waiting for signed extrinsic in block with hash {ext_hash:?}"
 		))?,
 	};
@@ -199,4 +206,14 @@ where
 	let ext = client.tx().create_unsigned(&payload)?;
 	let result = ext.dry_run(None).await?;
 	Ok(result)
+}
+
+/// This prevents the runtime metadata from being displayed when module errors are encountered
+fn refine_subxt_error(err: subxt::Error) -> anyhow::Error {
+	match err {
+		subxt::Error::Runtime(subxt::error::DispatchError::Module(ref err)) => {
+			anyhow!(err.to_string())
+		},
+		_ => anyhow!(err),
+	}
 }

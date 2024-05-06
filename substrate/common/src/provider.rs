@@ -426,7 +426,7 @@ where
 			let extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
 			// We don't compress consensus messages
 			if is_consensus_message {
-				futs.push(send_unsigned_extrinsic(&self.client, extrinsic));
+				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false));
 				continue
 			}
 			let encoded_call = extrinsic.encode_call_data(&self.client.metadata())?;
@@ -440,13 +440,13 @@ where
 				15usize
 			{
 				log::trace!(target: "tesseract", "Submitting uncompressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
-				futs.push(send_unsigned_extrinsic(&self.client, extrinsic))
+				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
 			} else {
 				let compressed_call = buffer[0..compressed_call_len].to_vec();
 				let call = (compressed_call, uncompressed_len as u32).encode();
 				let extrinsic = Extrinsic::new("CallDecompressor", "decompress_call", call);
 				log::trace!(target: "tesseract", "Submitting compressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
-				futs.push(send_unsigned_extrinsic(&self.client, extrinsic))
+				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
 			}
 		}
 		futures::future::join_all(futs)

@@ -15,7 +15,7 @@
 
 //! Consensus message relay
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use futures::StreamExt;
@@ -23,11 +23,11 @@ use ismp::messaging::Message;
 use tesseract_primitives::{config::RelayerConfig, IsmpHost};
 
 /// Relays [`ConsensusMessage`] updates.
-pub async fn relay<A, B>(chain_a: A, chain_b: B, config: RelayerConfig) -> Result<(), anyhow::Error>
-where
-	A: IsmpHost + 'static,
-	B: IsmpHost + 'static,
-{
+pub async fn relay(
+	chain_a: Arc<dyn IsmpHost>,
+	chain_b: Arc<dyn IsmpHost>,
+	config: RelayerConfig,
+) -> Result<(), anyhow::Error> {
 	let task_a = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
@@ -60,15 +60,11 @@ where
 	Ok(())
 }
 
-async fn handle_notification<A, B>(
-	chain_a: A,
-	chain_b: B,
+async fn handle_notification(
+	chain_a: Arc<dyn IsmpHost>,
+	chain_b: Arc<dyn IsmpHost>,
 	config: RelayerConfig,
-) -> Result<(), anyhow::Error>
-where
-	A: IsmpHost + 'static,
-	B: IsmpHost + 'static,
-{
+) -> Result<(), anyhow::Error> {
 	let chain_a_provider = chain_a.provider();
 	let chain_b_provider = chain_b.provider();
 	let mut consensus_stream = chain_a

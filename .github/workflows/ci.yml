@@ -25,6 +25,7 @@ env:
   WASM_BINDGEN_TEST_TIMEOUT: 5400
   GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
   MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
+  TELEMETRY_SECRET_KEY: ${{ secrets.TELEMETRY_SECRET_KEY }}
 
 jobs:
   check-wasm:

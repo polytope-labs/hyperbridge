@@ -17,10 +17,10 @@
 
 use anyhow::anyhow;
 use ismp::host::StateMachine;
-use primitives::config::RelayerConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tesseract_config::AnyConfig;
+use tesseract_primitives::config::RelayerConfig;
 use tesseract_substrate::SubstrateConfig;
 use toml::Table;
 

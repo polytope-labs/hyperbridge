@@ -22,11 +22,11 @@ use codec::Encode;
 use ethers::prelude::H160;
 use futures::FutureExt;
 use ismp::host::StateMachine;
-use primitives::IsmpProvider;
 use rust_socketio::asynchronous::ClientBuilder;
 use sp_core::{ecdsa, ByteArray, Pair};
 use std::{collections::HashMap, sync::Arc};
 use telemetry_server::Message;
+use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use transaction_fees::TransactionPayment;
 
@@ -65,10 +65,11 @@ impl Cli {
 					.await
 					.map_err(|err| anyhow!("Error initializing database: {err:?}"))?,
 			);
-			let mut clients = create_client_map(config.clone()).await?;
 			// Add hyperbridge to the client map
 			let hyperbridge =
 				SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
+			let mut clients =
+				create_client_map(config.clone(), Arc::new(hyperbridge.clone())).await?;
 			clients.insert(hyperbridge.state_machine_id().state_id, Arc::new(hyperbridge.clone()));
 
 			if config.relayer.delivery_endpoints.is_empty() {
@@ -76,25 +77,6 @@ impl Cli {
 			}
 
 			// messaging tasks
-			for (state_machine, mut client) in &mut clients {
-				// If the delivery endpoint is not empty then we only spawn tasks for chains
-				// explicitly mentioned in the config
-				if !config.relayer.delivery_endpoints.is_empty() &&
-					!config.relayer.delivery_endpoints.contains(&state_machine)
-				{
-					continue;
-				}
-
-				let Some(ref mut inner) = Arc::get_mut(&mut client) else {
-					Err(anyhow!("Failed to get mutable reference for client {state_machine:?}"))?
-				};
-				inner.set_latest_finalized_height(Arc::new(hyperbridge.clone())).await?;
-				metadata.push((
-					state_machine.clone(),
-					H160::from_slice(&client.address().as_slice()[..20]),
-				));
-			}
-
 			for (state_machine, client) in &clients {
 				// If the delivery endpoint is not empty then we only spawn tasks for chains
 				// explicitly mentioned in the config
@@ -110,7 +92,7 @@ impl Cli {
 				new_hyperbridge.set_latest_finalized_height(client.clone()).await?;
 
 				let coprocessor = hyperbridge_config.state_machine;
-				processes.push(tokio::spawn(messaging::relay(
+				processes.push(tokio::spawn(tesseract_messaging::relay(
 					new_hyperbridge,
 					client.clone(),
 					relayer.clone(),
@@ -184,13 +166,14 @@ impl Cli {
 
 pub async fn create_client_map(
 	config: HyperbridgeConfig,
+	hyperbridge: Arc<dyn IsmpProvider>,
 ) -> anyhow::Result<HashMap<StateMachine, Arc<dyn IsmpProvider>>> {
 	let HyperbridgeConfig { chains, .. } = config.clone();
 	let mut clients = HashMap::new();
 
 	for (state_machine, config) in chains {
 		let client = config
-			.into_client()
+			.into_client(hyperbridge.clone())
 			.await
 			.context(format!("Failed to create client for {state_machine:?}"))?;
 		clients.insert(state_machine, client);

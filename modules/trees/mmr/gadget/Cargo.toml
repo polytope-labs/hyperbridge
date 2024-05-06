@@ -1,6 +1,6 @@
 [package]
 name = "mmr-gadget"
-version = "29.0.0"
+version = "29.0.1"
 license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
 description = "MMR Client gadget for substrate"
 homepage = "https://substrate.io"

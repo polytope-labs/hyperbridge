@@ -279,7 +279,7 @@ checksum = "7d5a26814d8dcb93b0e5a0ff3c6d80a8843bafb21b39e8e18a6f05471870e110"
 
 [[package]]
 name = "arbitrum-verifier"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "beefy-prover"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "beefy-verifier-primitives",
@@ -964,7 +964,7 @@ dependencies = [
 
 [[package]]
 name = "beefy-verifier-primitives"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "derive_more",
  "parity-scale-codec",
@@ -1264,7 +1264,7 @@ dependencies = [
 
 [[package]]
 name = "bsc-prover"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bsc-verifier",
@@ -1281,7 +1281,7 @@ dependencies = [
 
 [[package]]
 name = "bsc-verifier"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -3539,7 +3539,7 @@ dependencies = [
 
 [[package]]
 name = "ethereum-trie"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hash-db",
  "hash256-std-hasher",
@@ -3886,7 +3886,7 @@ dependencies = [
 
 [[package]]
 name = "evm-common"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -4925,7 +4925,7 @@ dependencies = [
 
 [[package]]
 name = "gargantua-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cumulus-pallet-aura-ext",
  "cumulus-pallet-dmp-queue",
@@ -4967,7 +4967,7 @@ dependencies = [
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
  "pallet-message-queue",
- "pallet-mmr 0.1.0",
+ "pallet-mmr 0.1.1",
  "pallet-mmr-runtime-api",
  "pallet-session",
  "pallet-sudo",
@@ -5026,7 +5026,7 @@ dependencies = [
 
 [[package]]
 name = "geth-primitives"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -5525,7 +5525,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -5549,7 +5549,7 @@ dependencies = [
  "jsonrpsee 0.16.3",
  "log",
  "messier-runtime",
- "mmr-gadget 29.0.0",
+ "mmr-gadget 29.0.1",
  "nexus-runtime",
  "pallet-ismp",
  "pallet-ismp-rpc",
@@ -5604,7 +5604,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge-client-machine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hash-db",
  "ismp",
@@ -5620,7 +5620,7 @@ dependencies = [
 
 [[package]]
 name = "hyperclient"
-version = "0.3.17"
+version = "0.3.18"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -5953,7 +5953,7 @@ dependencies = [
 
 [[package]]
 name = "ismp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "derive_more",
  "hex",
@@ -5966,7 +5966,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-bsc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bsc-verifier",
@@ -5982,11 +5982,11 @@ dependencies = [
 
 [[package]]
 name = "ismp-casper-ffg"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ismp-parachain"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "cumulus-primitives-core",
@@ -6010,7 +6010,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6030,7 +6030,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-runtime-api"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "sp-api",
@@ -6038,7 +6038,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-solidity-abi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "beefy-verifier-primitives",
@@ -6054,7 +6054,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-solidity-tests"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "beefy-prover",
@@ -6075,7 +6075,7 @@ dependencies = [
  "once_cell",
  "pallet-ismp",
  "pallet-ismp-relayer",
- "pallet-mmr 0.1.0",
+ "pallet-mmr 0.1.1",
  "parity-scale-codec",
  "primitive-types",
  "rs_merkle",
@@ -6093,7 +6093,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-sync-committee"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arbitrum-verifier",
  "ethabi",
@@ -6119,7 +6119,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-testsuite"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ismp",
  "once_cell",
@@ -7357,7 +7357,7 @@ dependencies = [
 
 [[package]]
 name = "messier-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cumulus-pallet-aura-ext",
  "cumulus-pallet-dmp-queue",
@@ -7398,7 +7398,7 @@ dependencies = [
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
  "pallet-message-queue",
- "pallet-mmr 0.1.0",
+ "pallet-mmr 0.1.1",
  "pallet-mmr-runtime-api",
  "pallet-session",
  "pallet-sudo",
@@ -7522,24 +7522,6 @@ dependencies = [
 [[package]]
 name = "mmr-gadget"
 version = "29.0.0"
-dependencies = [
- "futures",
- "log",
- "pallet-ismp",
- "pallet-mmr-runtime-api",
- "parity-scale-codec",
- "sc-client-api",
- "sc-offchain",
- "sp-api",
- "sp-blockchain",
- "sp-core 28.0.0",
- "sp-mmr-primitives",
- "sp-runtime 31.0.1",
-]
-
-[[package]]
-name = "mmr-gadget"
-version = "29.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9d0ba6676a84f182dabd7c3ec2c92f0e882fe4e4179ddf76f02ac132e6eb0ab"
 dependencies = [
@@ -7558,8 +7540,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "mmr-gadget"
+version = "29.0.1"
+dependencies = [
+ "futures",
+ "log",
+ "pallet-ismp",
+ "pallet-mmr-runtime-api",
+ "parity-scale-codec",
+ "sc-client-api",
+ "sc-offchain",
+ "sp-api",
+ "sp-blockchain",
+ "sp-core 28.0.0",
+ "sp-mmr-primitives",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
 name = "mmr-primitives"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "ckb-merkle-mountain-range",
  "frame-system",
@@ -7899,7 +7899,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexus-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cumulus-pallet-aura-ext",
  "cumulus-pallet-dmp-queue",
@@ -7940,7 +7940,7 @@ dependencies = [
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
  "pallet-message-queue",
- "pallet-mmr 0.1.0",
+ "pallet-mmr 0.1.1",
  "pallet-mmr-runtime-api",
  "pallet-session",
  "pallet-sudo",
@@ -8198,7 +8198,7 @@ checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
 name = "op-verifier"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -8411,7 +8411,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
 name = "pallet-asset-gateway"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -8683,7 +8683,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-call-decompressor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -8875,7 +8875,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-fishermen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -8915,7 +8915,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyperbridge"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -8986,7 +8986,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "env_logger 0.10.2",
  "fortuples",
@@ -9011,7 +9011,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-demo"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -9026,7 +9026,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-host-executive"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -9045,7 +9045,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-relayer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -9080,7 +9080,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-rpc"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "anyhow",
  "frame-system",
@@ -9108,7 +9108,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-runtime-api"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -9121,7 +9121,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-testsuite"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -9156,7 +9156,7 @@ dependencies = [
  "pallet-ismp-relayer",
  "pallet-ismp-rpc",
  "pallet-message-queue",
- "pallet-mmr 0.1.0",
+ "pallet-mmr 0.1.1",
  "pallet-timestamp",
  "pallet-xcm",
  "parachains-common",
@@ -9226,7 +9226,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-mmr"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "array-bytes 6.2.2",
  "ckb-merkle-mountain-range",
@@ -9268,7 +9268,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-mmr-runtime-api"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "parity-scale-codec",
  "serde",
@@ -11317,7 +11317,7 @@ dependencies = [
  "kvdb",
  "kvdb-rocksdb",
  "log",
- "mmr-gadget 29.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mmr-gadget 29.0.0",
  "pallet-babe",
  "pallet-im-online",
  "pallet-staking",
@@ -14850,7 +14850,7 @@ checksum = "620a1d43d70e142b1d46a929af51d44f383db9c7a2ec122de2cd992ccfcf3c18"
 
 [[package]]
 name = "simtests"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "ckb-merkle-mountain-range",
@@ -14863,7 +14863,7 @@ dependencies = [
  "pallet-hyperbridge",
  "pallet-ismp",
  "pallet-ismp-rpc",
- "pallet-mmr 0.1.0",
+ "pallet-mmr 0.1.1",
  "parity-scale-codec",
  "primitive-types",
  "sc-consensus-manual-seal",
@@ -16848,7 +16848,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "frame-support",
  "hash-db",
@@ -17026,7 +17026,7 @@ dependencies = [
 
 [[package]]
 name = "subxt-utils"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "futures",
@@ -17096,7 +17096,7 @@ dependencies = [
 
 [[package]]
 name = "sync-committee-primitives"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -17112,7 +17112,7 @@ dependencies = [
 
 [[package]]
 name = "sync-committee-prover"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -17144,7 +17144,7 @@ dependencies = [
 
 [[package]]
 name = "sync-committee-verifier"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "ark-bls12-381",

@@ -1,6 +1,6 @@
 [package]
 name = "ethereum-trie"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Ethereum EIP-1886 layout implementation for parity/trie"
 authors = ["Polytope Labs <hello@polytope.technology>"]

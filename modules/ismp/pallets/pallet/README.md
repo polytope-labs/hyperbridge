@@ -1,45 +1,41 @@
 # Pallet ISMP
 
-
 The interoperable state machine protocol implementation for substrate-based chains. This pallet provides the ability to
 
 1. Track the finalized state of a remote state machine (blockchain) through the use of consensus proofs which attest to a finalized "state commitment".
 2. Execute incoming ISMP-compliant messages from a connected chain, through the use of state proofs which are verified through a known, previously finalized state commitment.
 3. Dispatch ISMP requests and responses to a connected chain.
 
-
 ## Overview
 
 The ISMP Pallet provides calls which allow for:
 
-* Creating consensus clients with their respective unbonding, challenge periods and any initial state machine commitments.
-* Updating consensus clients metadata
-* Executing ISMP-compliant Messages
-* Funding in-flight messages (Request or Response)
+- Creating consensus clients with their respective unbonding, challenge periods and any initial state machine commitments.
+- Updating consensus clients metadata
+- Executing ISMP-compliant Messages
+- Funding in-flight messages (Request or Response)
 
 To use it in your runtime, you need to implement the ismp
 [`pallet_ismp::Config`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/trait.Config.html). The supported dispatchable functions are documented in the
 [`pallet_ismp::Call`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/enum.Call.html) enum.
 
-
 ### Terminology
 
-* **ISMP:** Interoperable State Machine Protocol, is a framework for secure, cross-chain interoperability. Providing both messaging and state reading capabilities.
-* **State Commitment:** This refers to a cryptographic commitment of an entire blockchain state, otherwise known as state root.
-* **State Machine:** This refers to the blockchain itself, we identify blockchains as state machines.
-* **Consensus State:** This is the minimum data required by consensus client to verify consensus proofs which attest to a newly finalized state.
-* **Consensus Client:** This is an algorithm that verifies consensus proofs of a particular consensus mechanism.
-* **Unbonding Period:** Refers to how long it takes for validators to unstake their funds from the connected chain.
-* **Challenge Period:** A configurable value for how long to wait for state commitments to be challenged, before they can be used to verify incoming requests/responses.
+- **ISMP:** Interoperable State Machine Protocol, is a framework for secure, cross-chain interoperability. Providing both messaging and state reading capabilities.
+- **State Commitment:** This refers to a cryptographic commitment of an entire blockchain state, otherwise known as state root.
+- **State Machine:** This refers to the blockchain itself, we identify blockchains as state machines.
+- **Consensus State:** This is the minimum data required by consensus client to verify consensus proofs which attest to a newly finalized state.
+- **Consensus Client:** This is an algorithm that verifies consensus proofs of a particular consensus mechanism.
+- **Unbonding Period:** Refers to how long it takes for validators to unstake their funds from the connected chain.
+- **Challenge Period:** A configurable value for how long to wait for state commitments to be challenged, before they can be used to verify incoming requests/responses.
 
 ### Dispatchable Functions
 
-* `handle` - Handles incoming ISMP messages.
-* `handle_unsigned` Unsigned variant for handling incoming messages, enabled by `feature = ["unsigned"]`
-* `create_consensus_client` - Handles creation of various properties for a particular consensus client. Can only be called by the `AdminOrigin`.
-* `update_consensus_state` - Updates consensus client properties in storage. Can only be called by the `AdminOrigin`.
-* `fund_message` - In cases where the initially provided relayer fees have now become insufficient, due to a transaction fee spike on the destination chain. Allows a user to add more funds to the request to be used for delivery and execution. Should never be called on a completed request.
-
+- `handle` - Handles incoming ISMP messages.
+- `handle_unsigned` Unsigned variant for handling incoming messages, enabled by `feature = ["unsigned"]`
+- `create_consensus_client` - Handles creation of various properties for a particular consensus client. Can only be called by the `AdminOrigin`.
+- `update_consensus_state` - Updates consensus client properties in storage. Can only be called by the `AdminOrigin`.
+- `fund_message` - In cases where the initially provided relayer fees have now become insufficient, due to a transaction fee spike on the destination chain. Allows a user to add more funds to the request to be used for delivery and execution. Should never be called on a completed request.
 
 Please refer to the [`Call`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/enum.Call.html) enum and its associated
 variants for documentation on each function.
@@ -75,6 +71,8 @@ impl pallet_ismp::Config for Runtime {
     type TimestampProvider = Timestamp;
     // The currency implementation that is offered to relayers
     type Currency = Balances;
+    // The balance type for the currency implementation
+    type Balance = Balance;
     // Router implementation for routing requests/responses to their respective modules
     type Router = Router;
     // Optional coprocessor for incoming requests/responses

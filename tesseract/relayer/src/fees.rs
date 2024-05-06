@@ -8,13 +8,13 @@ use ismp::{
 	messaging::{hash_request, Message, Proof, RequestMessage},
 	router::Request,
 };
-use primitives::{
+use sp_core::U256;
+use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
+use tesseract_primitives::{
 	config::RelayerConfig, observe_challenge_period, wait_for_challenge_period,
 	wait_for_state_machine_update, Cost, Hasher, HyperbridgeClaim, IsmpProvider, Query,
 	WithdrawFundsResult,
 };
-use sp_core::U256;
-use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 use tesseract_substrate::config::KeccakSubstrateChain;
 use tracing::instrument;
 use transaction_fees::TransactionPayment;
@@ -57,7 +57,7 @@ impl AccumulateFees {
 		)
 		.await?;
 
-		let clients = create_client_map(config).await?;
+		let clients = create_client_map(config, Arc::new(hyperbridge.clone())).await?;
 
 		// early return if withdrawing
 		if self.withdraw {
@@ -471,6 +471,7 @@ async fn deliver_post_request<D: IsmpProvider>(
 
 #[cfg(test)]
 mod tests {
+	use super::*;
 	use crate::{config::HyperbridgeConfig, create_client_map, logging};
 	use codec::Encode;
 	use divide_range::RangeDivisions;
@@ -483,9 +484,9 @@ mod tests {
 	use itertools::Itertools;
 	use pallet_ismp::mmr::LeafIndexQuery;
 	use pallet_ismp_host_executive::HostParam;
-	use primitives::{Hasher, IsmpProvider, Query};
 	use sp_core::H160;
 	use subxt::rpc_params;
+	use tesseract_primitives::{Hasher, IsmpProvider, Query};
 	use tesseract_substrate::{
 		config::KeccakSubstrateChain,
 		runtime::{
@@ -504,12 +505,12 @@ mod tests {
 		let path = format!("{home}/consensus.toml");
 		dbg!(&path);
 		let config = HyperbridgeConfig::parse_conf(&path).await?;
+		let hyperbridge =
+			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
 
 		tracing::info!("Creating clients");
-		let clients = create_client_map(config.clone()).await?;
+		let clients = create_client_map(config.clone(), Arc::new(hyperbridge.clone())).await?;
 		tracing::info!("Created clients");
-
-		let hyperbridge = SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge).await?;
 		tracing::info!("Hyperbridge connected");
 		let latest_height: u64 = hyperbridge
 			.client

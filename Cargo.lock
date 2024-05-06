@@ -20146,7 +20146,6 @@ dependencies = [
  "subxt",
  "telemetry-server",
  "tesseract-config",
- "tesseract-consensus",
  "tesseract-evm",
  "tesseract-messaging",
  "tesseract-primitives",

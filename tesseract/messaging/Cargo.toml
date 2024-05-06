@@ -1,0 +1,23 @@
+[package]
+name = "tesseract-messaging"
+version = "0.1.0"
+edition = "2021"
+description = "Chain agnostic ISMP request/response relay"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+anyhow = "1.0.75"
+tracing = "0.1.40"
+percentage = "0.1.0"
+futures = "0.3.28"
+tokio = { version = "1.32.0", features = ["full"] }
+sp-core = { version = "21.0.0", features = ["full_crypto"] }
+hex = "0.4.3"
+tokio-stream = "0.1.14"
+
+ismp = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true }
+
+transaction-fees = { workspace = true }
+tesseract-primitives = { workspace = true }
+ismp-solidity-abi = { workspace = true, default-features = true }

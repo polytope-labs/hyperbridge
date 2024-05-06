@@ -61,6 +61,18 @@ members = [
     "parachain/simtests",
     # subxt subxt-utils
     "modules/subxt/utils",
+
+    # tesseract
+    "tesseract/primitives",
+    "tesseract/consensus",
+    "tesseract/messaging",
+    "tesseract/substrate",
+    "tesseract/relayer",
+    "tesseract/evm",
+    "tesseract/fees",
+    "tesseract/fees/prisma-cli",
+    "tesseract/telemetry",
+    "tesseract/config",
 ]
 
 # Config for 'cargo dist'
@@ -267,6 +279,17 @@ gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features 
 messier-runtime = { path = "./parachain/runtimes/messier", default-features = false }
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }
 
+# tesseract
+tesseract-primitives = { path = "tesseract/primitives" }
+tesseract-consensus = { path = "tesseract/consensus" }
+tesseract-messaging = { path = "tesseract/messaging" }
+tesseract-substrate = { path = "tesseract/substrate" }
+tesseract-evm = { path = "tesseract/evm" }
+tesseract = { path = "tesseract/relayer" }
+transaction-fees = { path = "tesseract/fees" }
+telemetry-server = { path = "tesseract/telemetry" }
+tesseract-config = { path = "tesseract/config" }
+
 [workspace.dependencies.cumulus-pallet-parachain-system]
 version = "0.7.0"
 default-features = false
@@ -306,3 +329,8 @@ features = ["rlp"]
 version = "2.1.1"
 default-features = false
 features = ["derive"]
+
+[workspace.dependencies.reconnecting-jsonrpsee-ws-client]
+git = "https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client"
+rev = "7c0817478c2741cc0889e7c75c645aad9f3cbb55"
+default-features = false

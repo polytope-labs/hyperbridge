@@ -1,0 +1,35 @@
+[package]
+name = "tesseract-substrate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0.164", features = ["derive"] }
+anyhow = "1.0.75"
+futures = "0.3.28"
+async-trait = "0.1.71"
+parking_lot = "0.12.1"
+hex-literal = { version = "0.4.1" }
+subxt = { version = "0.30.1", features = ["substrate-compat"] }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+sp-core = { version = "21.0.0", features = ["full_crypto"] }
+log = "0.4.19"
+tokio = { version = "1.32.0" }
+tokio-stream = "0.1.14"
+zstd-safe = { version = "7.1.0" }
+
+debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
+
+tesseract-primitives = { workspace = true }
+pallet-ismp = { workspace = true, default-features = true }
+pallet-ismp-relayer = { workspace = true, default-features = true }
+pallet-ismp-demo = { workspace = true, default-features = true }
+pallet-ismp-rpc = { workspace = true, default-features = true }
+ismp = { workspace = true, default-features = true }
+subxt-utils = { workspace = true, default-features = true }
+pallet-ismp-host-executive = { workspace = true, default-features = true }
+substrate-state-machine = { workspace = true, default-features = true }
+pallet-hyperbridge = { workspace = true, default-features = true }
+
+[features]
+testing = []

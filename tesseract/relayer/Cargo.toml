@@ -1,0 +1,54 @@
+[package]
+name = "tesseract"
+version = "0.3.2"
+edition = "2021"
+description = "Chain agnostic relayer implementation for ISMP"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+tesseract-substrate = { workspace = true }
+consensus = { package = "tesseract-consensus", path = "../consensus" }
+primitives = { package = "tesseract-primitives", path = "../primitives" }
+messaging = { package = "tesseract-messaging", path = "../messaging" }
+tesseract-evm = { workspace = true }
+transaction-fees = { path = "../fees" }
+telemetry-server = { path = "../telemetry" }
+tesseract-config = { path = "../config" }
+
+# polytope labs
+ismp.workspace = true
+pallet-ismp.workspace = true
+ismp-sync-committee.workspace = true
+
+# crates.io
+log = "0.4.19"
+env_logger = "0.10.0"
+hex = "0.4.3"
+
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+anyhow = "1.0.71"
+futures = "0.3.28"
+serde = { version = "1.0.164", features = ["derive"] }
+json = { version = "1.0.112", package = "serde_json" }
+toml = "0.7.4"
+async-trait = "0.1.77"
+clap = { version = "4.3.5", features = ["derive"] }
+tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
+ethers = { workspace = true }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+rust_socketio = { version = "0.6.0", features = ["async"] }
+sp-core = { workspace = true, features = ["full_crypto"] }
+tracing-indicatif = "0.3.6"
+tracing = "0.1.40"
+console-subscriber = { version = "0.2.0", optional = true }
+
+[dev-dependencies]
+divide_range = "0.1.1"
+subxt = { version = "0.30.1", features = ["substrate-compat"] }
+pallet-ismp-rpc.workspace = true
+itertools = "0.12.1"
+pallet-ismp-host-executive.workspace = true
+pallet-hyperbridge.workspace = true
+
+[features]
+consensus = []

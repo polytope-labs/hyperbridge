@@ -95,22 +95,4 @@ dataSources:
             topics:
               - "Transfer(address indexed from, address indexed to, uint256 amount)"
 
-  # EthereumHost contract
-  # - kind: ethereum/Runtime
-  #   startBlock: 8906943
-  #   options:
-  #     abi: handlerV1
-  #     address: "0x8738b27E29Af7c92ba2AF72B2fcF01C8934e3Db0"
-  #   assets:
-  #     handlerV1:
-  #       file: ./abis/HandlerV1.abi.json
-  #   mapping:
-  #     file: ./dist/index.js
-  #     handlers:
-  #       - kind: ethereum/LogHandler
-  #         handler: handleStateMachineUpdatedEvent
-  #         filter:
-  #           topics:
-  #             - "StateMachineUpdated(uint256,uint256)"
-
 repository: "https://github.com/polytope-labs/hyperbridge"

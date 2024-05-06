@@ -16,7 +16,6 @@ network:
   endpoint:
     - "https://base-sepolia.blockpi.network/v1/rpc/public"
     - "https://base-sepolia-rpc.publicnode.com"
-    # - "wss://base-sepolia-rpc.publicnode.com"
 
 dataSources:
   # EthereumHost contract
@@ -96,23 +95,5 @@ dataSources:
           filter:
             topics:
               - "Transfer(address indexed from, address indexed to, uint256 amount)"
-
-  # EthereumHost contract
-  # - kind: ethereum/Runtime
-  #   startBlock: 6924063
-  #   options:
-  #     abi: handlerV1
-  #     address: "0x0B26ba93424A7d00153abEb6388C55F960529E89"
-  #   assets:
-  #     handlerV1:
-  #       file: ./abis/HandlerV1.abi.json
-  #   mapping:
-  #     file: ./dist/index.js
-  #     handlers:
-  #       - kind: ethereum/LogHandler
-  #         handler: handleStateMachineUpdatedEvent
-  #         filter:
-  #           topics:
-  #             - "StateMachineUpdated(uint256,uint256)"
 
 repository: "https://github.com/polytope-labs/hyperbridge"

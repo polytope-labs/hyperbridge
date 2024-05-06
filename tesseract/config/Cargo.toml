@@ -1,0 +1,17 @@
+[package]
+name = "tesseract-config"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+tesseract-substrate = { workspace = true }
+tesseract-primitives = { workspace = true }
+tesseract-evm = { workspace = true }
+
+ismp = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true }
+ismp-sync-committee = { workspace = true, default-features = true }
+anyhow = { workspace = true, default-features = true }
+serde = { workspace = true, default-features = true, features = ["derive"] }
+substrate-state-machine = { workspace = true, default-features = true }

@@ -1,0 +1,17 @@
+# Required
+[hyperbridge]
+chain = "Dev"
+hashing = "Keccak"
+rpc_ws = "ws://127.0.0.1:9933"
+signer = ""
+
+# Required
+[relayer]
+chain = "Dev"
+consensus = false
+messaging = true
+fisherman = false
+router = { Kusama = 4296 }
+module_filter = []
+minimum_profit_percentage = 0
+delivery_endpoints = []

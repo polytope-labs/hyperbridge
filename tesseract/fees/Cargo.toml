@@ -1,0 +1,32 @@
+[package]
+name = "transaction-fees"
+version = "0.1.0"
+edition = "2021"
+description = "Local tracking of relayer payments on all chains"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+anyhow = "1.0.75"
+async-trait = "0.1.53"
+futures = "0.3.28"
+tokio = { version = "1.32.0", features = ["full"] }
+primitive-types = "0.12.2"
+prisma-client-rust = { git = "https://github.com/Brendonovich/prisma-client-rust.git", tag = "0.6.11", features = ["sqlite", "migrations"] }
+serde = { version = "1.0.195", features = ["derive"] }
+itertools = "0.12.1"
+tracing = "0.1.40"
+sp-core = { workspace = true, default-features = true }
+hex = "0.4.3"
+subxt = { version = "0.30.1", features = ["substrate-compat"] }
+chrono = "0.4.31"
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+
+tesseract-primitives = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true }
+ismp = { workspace = true, default-features = true }
+pallet-ismp-relayer = { workspace = true, default-features = true }
+
+[dev-dependencies]
+tesseract-evm = { workspace = true }
+tesseract-substrate = { workspace = true }
+tesseract-primitives = { workspace = true, features = ["testing"] }

@@ -14,17 +14,17 @@ export class RelayerChainStatsService {
     if (!metrics) {
       metrics = RelayerStatsPerChain.create({
         id,
-        postRequestsHandled: BigInt(0),
+        numberOfMessagesSent: BigInt(0),
         relayerId: relayer_id,
         chain,
-        failedPostRequestsHandled: BigInt(0),
-        successfulPostRequestsHandled: BigInt(0),
-        gasUsedForFailedPostRequests: BigInt(0),
-        gasUsedForSuccessfulPostRequests: BigInt(0),
-        gasFeeForFailedPostRequests: BigInt(0),
-        gasFeeForSuccessfulPostRequests: BigInt(0),
-        usdGasFeeForFailedPostRequests: BigInt(0),
-        usdGasFeeForSuccessfulPostRequests: BigInt(0),
+        numberOfFailedMessagesSent: BigInt(0),
+        numberOfSuccessfulMessagesSent: BigInt(0),
+        gasUsedForFailedMessages: BigInt(0),
+        gasUsedForSuccessfulMessages: BigInt(0),
+        gasFeeForFailedMessages: BigInt(0),
+        gasFeeForSuccessfulMessages: BigInt(0),
+        usdGasFeeForFailedMessages: BigInt(0),
+        usdGasFeeForSuccessfulMessages: BigInt(0),
         feesEarned: BigInt(0),
       });
       await metrics.save();

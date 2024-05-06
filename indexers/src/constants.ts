@@ -52,3 +52,5 @@ export const HOST_ADDRESSES = [
 ];
 
 export const HYPERBRIDGE_STATS_ENTITY_ID = "1";
+export const UNISWAP_USDC_ETH_CONTRACT_ADDRESS =
+  "0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc";

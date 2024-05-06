@@ -1,37 +1,17 @@
-import fetch from "node-fetch";
-// import { URLSearchParams } from "url";
-
-interface EtherScanEthPriceApiResponse {
-  status: string;
-  message: string;
-  result: {
-    ethbtc: string;
-    ethbtc_timestamp: string;
-    ethusd: string;
-    ethusd_timestamp: string;
-  };
-}
+import { UniswapV2PairAbi__factory } from "../types/contracts";
+import { UNISWAP_USDC_ETH_CONTRACT_ADDRESS } from "../constants";
 
 /**
  * Get the current price of Ethereum in USD
  */
 export const getCurrentEthPriceInUsd = async (): Promise<number> => {
-  // try {
-  //   const response = await fetch(
-  //     "https://api.etherscan.io/api?" +
-  //       new URLSearchParams({
-  //         module: "stats",
-  //         action: "ethprice",
-  //         apikey: "KFQDJX6KXMP52YU3YCYJZ57SZ3PKUFMP32",
-  //       }),
-  //   );
+  const uniswapUsdcContract = UniswapV2PairAbi__factory.connect(
+    UNISWAP_USDC_ETH_CONTRACT_ADDRESS,
+    api,
+  );
 
-  //   const data: EtherScanEthPriceApiResponse =
-  //     (await response.json()) as EtherScanEthPriceApiResponse;
-  //   return Number(data.result.ethusd);
-  // } catch (e) {
-  //   throw new Error(`Failed to get current ETH price: ${e}`);
-  // }
-  // @todo Fix this
-  return 2500;
+  const reserves = await uniswapUsdcContract.getReserves();
+
+  // times 10^12 because usdc only has 6 decimals
+  return (Number(reserves._reserve0) / Number(reserves._reserve1)) * 1e12;
 };

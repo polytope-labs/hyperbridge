@@ -25,6 +25,8 @@ dataSources:
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
+      uniswapV2Pair:
+        file: ./abis/UniswapV2Pair.abi.json
     mapping:
       file: ./dist/index.js
       handlers:
@@ -93,21 +95,21 @@ dataSources:
               - "Transfer(address indexed from, address indexed to, uint256 amount)"
 
   # EthereumHost contract
-  - kind: ethereum/Runtime
-    startBlock: 38301928
-    options:
-      abi: handlerV1
-      address: "0x3aBA86C71C86353e5a96E98e1E08411063B5e2DB"
-    assets:
-      handlerV1:
-        file: ./abis/HandlerV1.abi.json
-    mapping:
-      file: ./dist/index.js
-      handlers:
-        - kind: ethereum/LogHandler
-          handler: handleStateMachineUpdatedEvent
-          filter:
-            topics:
-              - "StateMachineUpdated(uint256,uint256)"
+  # - kind: ethereum/Runtime
+  #   startBlock: 38301928
+  #   options:
+  #     abi: handlerV1
+  #     address: "0x3aBA86C71C86353e5a96E98e1E08411063B5e2DB"
+  #   assets:
+  #     handlerV1:
+  #       file: ./abis/HandlerV1.abi.json
+  #   mapping:
+  #     file: ./dist/index.js
+  #     handlers:
+  #       - kind: ethereum/LogHandler
+  #         handler: handleStateMachineUpdatedEvent
+  #         filter:
+  #           topics:
+  #             - "StateMachineUpdated(uint256,uint256)"
 
 repository: "https://github.com/polytope-labs/hyperbridge"

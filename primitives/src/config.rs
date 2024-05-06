@@ -44,34 +44,3 @@ pub struct RelayerConfig {
 	/// Delivery endpoints: chains you intend to deliver messages to
 	pub delivery_endpoints: Vec<StateMachine>,
 }
-
-/// Hyperbridge's parachain runtimes
-#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
-pub enum Chain {
-	/// Rococo parachain
-	Gargantua,
-	/// Kusama Parachain
-	Messier,
-	/// Local devnet
-	Dev,
-}
-
-impl Chain {
-	pub fn para_id(&self) -> u32 {
-		match self {
-			Chain::Gargantua => 4009,
-			Chain::Messier => 3340,
-			Chain::Dev => 2000,
-		}
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		StateMachine::Kusama(self.para_id())
-	}
-}
-
-impl Default for Chain {
-	fn default() -> Self {
-		Self::Dev
-	}
-}

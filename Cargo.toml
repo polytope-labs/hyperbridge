@@ -5,21 +5,22 @@ members = [
     "consensus",
     "messaging",
     "substrate/common",
-    "substrate/parachain",
 #    "substrate/grandpa",
     "substrate/beefy/naive",
     "substrate/beefy/zk",
 
     "relayer",
-    "integration-tests",
+    # "integration-tests",
     "evm/sync-committee",
     "evm/common",
     "evm/bsc-pos",
     "fees",
     "fees/prisma-cli",
-    "fisherman",
+    # "fisherman",
     "telemetry",
-    "client"
+    "config",
+    "evm/op-host",
+    "evm/arb-host"
 ]
 
 [profile.release]

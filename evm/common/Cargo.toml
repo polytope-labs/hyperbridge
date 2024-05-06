@@ -41,16 +41,12 @@ geth-primitives.workspace = true
 ismp-sync-committee.workspace = true
 ethereum-trie.workspace = true
 mmr-primitives.workspace = true
-arbitrum-verifier.workspace = true
-op-verifier.workspace = true
 evm-common.workspace = true
 sp-mmr-primitives.workspace = true
 
 tesseract-primitives = { path = "../../primitives" }
 debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
 
-trie-db = { version= "0.24.0", default-features = false }
-hash-db = { version = "0.15.2", default-features = false }
 
 merkle-mountain-range = { workspace = true }
 reconnecting-jsonrpsee-ws-client.workspace = true

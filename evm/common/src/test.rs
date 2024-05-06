@@ -1,4 +1,4 @@
-use crate::{mock::Host, optimism::client::OpHost, EvmClient, EvmConfig};
+use crate::{mock::Host, EvmClient, EvmConfig};
 use codec::Decode;
 use ethers::prelude::Middleware;
 use evm_common::{
@@ -49,7 +49,7 @@ async fn test_ismp_state_proof() {
 		..Default::default()
 	};
 
-	let client = EvmClient::<OpHost>::new(None, config).await.expect("Host creation failed");
+	let client = EvmClient::new(config).await.expect("Host creation failed");
 
 	let post = Post {
 		source: StateMachine::from_str(

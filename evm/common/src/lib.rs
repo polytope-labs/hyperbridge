@@ -22,15 +22,12 @@ use evm_common::presets::{
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::sync::Arc;
-use tesseract_primitives::{IsmpHost, IsmpProvider};
+use tesseract_primitives::IsmpProvider;
 
 pub mod abi;
-pub mod arbitrum;
 mod gas_oracle;
-mod host;
 #[cfg(any(feature = "testing", test))]
 pub mod mock;
-pub mod optimism;
 pub mod provider;
 
 #[cfg(test)]
@@ -64,6 +61,19 @@ pub struct EvmConfig {
 	pub gas_price_buffer: Option<u32>,
 }
 
+impl EvmConfig {
+	/// Convert the config into a client.
+	pub async fn into_client(self) -> anyhow::Result<EvmClient> {
+		let client = EvmClient::new(self).await?;
+
+		Ok(client)
+	}
+
+	pub fn state_machine(&self) -> StateMachine {
+		self.state_machine
+	}
+}
+
 impl Default for EvmConfig {
 	fn default() -> Self {
 		Self {
@@ -83,9 +93,7 @@ impl Default for EvmConfig {
 }
 
 /// Core EVM client.
-pub struct EvmClient<I> {
-	/// Ismp naive implementation
-	pub host: Option<I>,
+pub struct EvmClient {
 	/// Execution Rpc client
 	pub client: Arc<Provider<Http>>,
 	/// Transaction signer
@@ -104,11 +112,8 @@ pub struct EvmClient<I> {
 	pub chain_id: u64,
 }
 
-impl<I> EvmClient<I>
-where
-	I: IsmpHost + Send + Sync + 'static,
-{
-	pub async fn new(host: Option<I>, config: EvmConfig) -> Result<Self, anyhow::Error> {
+impl EvmClient {
+	pub async fn new(config: EvmConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
 		let bytes = match from_hex(config.signer.as_str()) {
 			Ok(bytes) => bytes,
@@ -138,7 +143,6 @@ where
 
 		let latest_height = client.get_block_number().await?.as_u64();
 		Ok(Self {
-			host,
 			client,
 			signer,
 			address,
@@ -192,9 +196,9 @@ where
 		Ok(())
 	}
 
-	pub async fn set_latest_finalized_height<P: IsmpProvider + 'static>(
+	pub async fn set_latest_finalized_height(
 		&mut self,
-		counterparty: &P,
+		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		self.initial_height =
 			counterparty.query_latest_height(self.state_machine_id()).await?.into();
@@ -245,4 +249,19 @@ pub fn derive_map_key(mut key: Vec<u8>, slot: u64) -> H256 {
 	U256::from(slot as u64).to_big_endian(&mut bytes);
 	key.extend_from_slice(&bytes);
 	keccak_256(&key).into()
+}
+
+impl Clone for EvmClient {
+	fn clone(&self) -> Self {
+		Self {
+			client: self.client.clone(),
+			signer: self.signer.clone(),
+			address: self.address.clone(),
+			consensus_state_id: self.consensus_state_id,
+			state_machine: self.state_machine,
+			initial_height: self.initial_height,
+			config: self.config.clone(),
+			chain_id: self.chain_id.clone(),
+		}
+	}
 }

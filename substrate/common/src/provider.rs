@@ -15,7 +15,7 @@
 
 //! [`IsmpProvider`] implementation
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
@@ -40,7 +40,7 @@ use pallet_ismp_relayer::withdrawal::Signature;
 use pallet_ismp_rpc::BlockNumberOrHash;
 use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
-	Pair, H256, U256,
+	Pair, H160, H256, U256,
 };
 use substrate_state_machine::{StateMachineProof, SubstrateStateProof};
 use subxt::{
@@ -55,7 +55,7 @@ use subxt::{
 use tokio::time;
 
 use primitives::{
-	BoxStream, EstimateGasReturnParams, IsmpHost, IsmpProvider, Query, StateMachineUpdated,
+	BoxStream, EstimateGasReturnParams, IsmpProvider, Query, StateMachineUpdated,
 	StateProofQueryType, TxReceipt,
 };
 
@@ -69,16 +69,14 @@ use crate::{
 };
 
 #[async_trait::async_trait]
-impl<T, C> IsmpProvider for SubstrateClient<T, C>
+impl<C> IsmpProvider for SubstrateClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
-	C::AccountId:
-		From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
+	C::AccountId: From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	T: IsmpHost + Send + Sync + 'static,
 {
 	async fn query_consensus_state(
 		&self,
@@ -329,6 +327,19 @@ where
 		Ok(leaf_meta.meta.fee.into())
 	}
 
+	async fn query_request_receipt(&self, _hash: H256) -> Result<H160, anyhow::Error> {
+		let key = self.req_receipts_key(_hash);
+		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
+		let storage_key = StorageKey(key);
+		let params = rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None];
+
+		let response: Option<StorageData> =
+			self.client.rpc().request("childstate_getStorage", params).await?;
+		let data = response.ok_or_else(|| anyhow!("Request fee metadata query returned None"))?;
+		let relayer = Vec::<u8>::decode(&mut &*data.0)?;
+		Ok(H160::from_slice(&relayer[..20]))
+	}
+
 	async fn query_response_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
 		let key = self.res_commitments_key(_hash);
 		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
@@ -348,8 +359,9 @@ where
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
 		use futures::StreamExt;
 		let interval = time::interval(Duration::from_secs(10));
+		let self_clone = self.clone();
 		let stream = stream::unfold(
-			(self.initial_height, interval, self.clone()),
+			(self_clone.initial_height, interval, self_clone),
 			move |(latest_height, mut interval, client)| async move {
 				interval.tick().await;
 				let header = match client.client.rpc().finalized_head().await {
@@ -505,9 +517,9 @@ where
 		Signature::Sr25519 { public_key: self.address.clone(), signature }
 	}
 
-	async fn set_latest_finalized_height<P: IsmpProvider + 'static>(
+	async fn set_latest_finalized_height(
 		&mut self,
-		counterparty: &P,
+		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		self.set_latest_finalized_height(counterparty).await
 	}

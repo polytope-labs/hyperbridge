@@ -14,6 +14,7 @@ use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::{Key, WithdrawalProof};
 use parity_scale_codec::Codec;
 use primitive_types::{H256, U256};
+use sp_core::H160;
 use std::{
 	sync::{Arc, Mutex},
 	time::Duration,
@@ -41,9 +42,9 @@ impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
 		Err(anyhow!("Unimplemented"))
 	}
 
-	async fn withdraw_funds<C: IsmpProvider>(
+	async fn withdraw_funds(
 		&self,
-		_client: &C,
+		_client: Arc<dyn IsmpProvider>,
 		_chain: StateMachine,
 	) -> anyhow::Result<WithdrawFundsResult> {
 		Err(anyhow!("Unimplemented"))
@@ -74,17 +75,18 @@ impl<C: Codec + Send + Sync> ByzantineHandler for MockHost<C> {
 
 #[async_trait::async_trait]
 impl<C: Codec + Send + Sync> IsmpHost for MockHost<C> {
-	async fn consensus_notification<I>(
+	async fn consensus_notification(
 		&self,
-		_counterparty: I,
-	) -> Result<BoxStream<ismp::messaging::ConsensusMessage>, Error>
-	where
-		I: IsmpHost + IsmpProvider + Clone + 'static,
-	{
+		_counterparty: Arc<dyn IsmpProvider>,
+	) -> Result<BoxStream<ismp::messaging::ConsensusMessage>, Error> {
 		Ok(Box::pin(stream::pending()))
 	}
 
 	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+		todo!()
+	}
+
+	fn provider(&self) -> Arc<dyn IsmpProvider> {
 		todo!()
 	}
 }
@@ -215,9 +217,9 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		todo!()
 	}
 
-	async fn set_latest_finalized_height<P: IsmpProvider + 'static>(
+	async fn set_latest_finalized_height(
 		&mut self,
-		_counterparty: &P,
+		_counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		todo!()
 	}
@@ -241,6 +243,10 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		&self,
 		_state_machine: StateMachine,
 	) -> Result<HostParam<u128>, anyhow::Error> {
+		todo!()
+	}
+
+	async fn query_request_receipt(&self, _hash: H256) -> Result<H160, anyhow::Error> {
 		todo!()
 	}
 }

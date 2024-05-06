@@ -22,7 +22,6 @@ use crate::{
 use codec::Encode;
 use futures::stream::StreamExt;
 use pallet_ismp_demo::{EvmParams, GetRequest, TransferParams};
-use primitives::IsmpHost;
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
@@ -32,9 +31,8 @@ use subxt::{
 	tx::TxPayload,
 };
 
-impl<T, C> SubstrateClient<T, C>
+impl<C> SubstrateClient<C>
 where
-	T: IsmpHost + Send + Sync + Clone + 'static,
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:

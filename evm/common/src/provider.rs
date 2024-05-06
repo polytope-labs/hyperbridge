@@ -43,16 +43,13 @@ use primitive_types::U256;
 use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
-	BoxStream, EstimateGasReturnParams, Hasher, IsmpHost, IsmpProvider, Query, Signature,
+	BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider, Query, Signature,
 	StateMachineUpdated, StateProofQueryType, TxReceipt,
 };
 use tokio::time;
 
 #[async_trait::async_trait]
-impl<I> IsmpProvider for EvmClient<I>
-where
-	I: IsmpHost + Send + Sync + 'static,
-{
+impl IsmpProvider for EvmClient {
 	async fn query_consensus_state(
 		&self,
 		at: Option<u64>,
@@ -315,7 +312,6 @@ where
 	async fn query_request_receipt(&self, hash: H256) -> Result<H160, anyhow::Error> {
 		let host_contract = EvmHost::new(self.config.ismp_host, self.signer.clone());
 		let address = host_contract.request_receipts(hash.into()).call().await?;
-		dbg!(address);
 		Ok(address)
 	}
 
@@ -654,9 +650,9 @@ where
 		Signature::Ethereum { address: self.address.clone(), signature }
 	}
 
-	async fn set_latest_finalized_height<P: IsmpProvider + 'static>(
+	async fn set_latest_finalized_height(
 		&mut self,
-		counterparty: &P,
+		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		self.set_latest_finalized_height(counterparty).await
 	}

@@ -10,12 +10,8 @@ use ismp::{
 	router::{Post, Request, RequestResponse, Response},
 };
 use sp_core::U256;
-use std::collections::HashMap;
-use tesseract_client::AnyClient;
-use tesseract_primitives::{
-	config::{Chain, RelayerConfig},
-	Cost, Hasher, IsmpHost, IsmpProvider, Query,
-};
+use std::{collections::HashMap, sync::Arc};
+use tesseract_primitives::{config::RelayerConfig, Cost, Hasher, IsmpProvider, Query};
 use tokio_stream::StreamExt;
 
 #[derive(Debug)]
@@ -77,19 +73,15 @@ impl From<IsmpEvent> for Event {
 /// the counterparty chain
 /// Returns a tuple where the first item are messages to be submitted to the sink
 /// and the second tuple are currently unprofitable messages
-pub async fn translate_events_to_messages<A, B>(
-	source: &A,
-	sink: &B,
+pub async fn translate_events_to_messages(
+	source: Arc<dyn IsmpProvider>,
+	sink: Arc<dyn IsmpProvider>,
 	events: Vec<IsmpEvent>,
 	state_machine_height: StateMachineHeight,
 	config: RelayerConfig,
-	coprocessor: Chain,
-	client_map: &HashMap<StateMachine, AnyClient>,
-) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error>
-where
-	A: IsmpHost + IsmpProvider + 'static,
-	B: IsmpHost + IsmpProvider + 'static,
-{
+	coprocessor: StateMachine,
+	client_map: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error> {
 	let mut post_request_queries = vec![];
 	let mut response_queries = vec![];
 
@@ -248,7 +240,7 @@ where
 		}
 
 		let post_request_queries_to_push_with_option = return_successful_queries(
-			sink,
+			sink.clone(),
 			request_messages,
 			post_request_queries,
 			config.minimum_profit_percentage,
@@ -280,7 +272,7 @@ where
 			.collect();
 
 		let post_response_successful_query = return_successful_queries(
-			sink,
+			sink.clone(),
 			response_messages,
 			response_queries,
 			config.minimum_profit_percentage,
@@ -402,19 +394,16 @@ pub struct ProfitabilityResult {
 	pub unprofitable_msgs: Vec<Message>,
 }
 
-pub async fn return_successful_queries<A>(
-	sink: &A,
+pub async fn return_successful_queries(
+	sink: Arc<dyn IsmpProvider>,
 	messages: Vec<Message>,
 	queries: Vec<Query>,
 	minimum_profit_percentage: u32,
-	coprocessor: Chain,
-	client_map: &HashMap<StateMachine, AnyClient>,
-) -> Result<ProfitabilityResult, anyhow::Error>
-where
-	A: IsmpProvider + Clone + 'static,
-{
+	coprocessor: StateMachine,
+	client_map: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+) -> Result<ProfitabilityResult, anyhow::Error> {
 	if messages.is_empty() {
-		return Ok(Default::default())
+		return Ok(Default::default());
 	}
 
 	let mut queries_to_be_relayed = Vec::new();
@@ -425,7 +414,7 @@ where
 	// from all clients(except the coprocessor) and use that as the max concurrency
 	let total_clients = client_map.len() - 1;
 	let batch_size = client_map.values().into_iter().fold(0, |acc, next| {
-		if next.state_machine_id().state_id != coprocessor.state_machine() {
+		if next.state_machine_id().state_id != coprocessor {
 			acc + next.max_concurrent_queries()
 		} else {
 			acc
@@ -449,7 +438,7 @@ where
 						return Ok((None, None))
 					}
 
-					let value = if coprocessor.state_machine() != sink.state_machine_id().state_id {
+					let value = if coprocessor != sink.state_machine_id().state_id {
 						let total_gas_to_be_expended_in_usd = est.execution_cost;
 						// what kind of message is this?
 						let Some(og_source)  = client_map.get(&query.source_chain) else {

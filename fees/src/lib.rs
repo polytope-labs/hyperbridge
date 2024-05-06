@@ -23,11 +23,9 @@ use prisma_client_rust::{query_core::RawQuery, BatchItem, Direction, PrismaValue
 use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
 use std::{collections::BTreeSet, sync::Arc};
-use tesseract_evm::EvmConfig;
 use tesseract_primitives::{
 	HyperbridgeClaim, IsmpProvider, StateProofQueryType, TxReceipt, WithdrawFundsResult,
 };
-use tesseract_substrate::SubstrateConfig;
 
 mod db;
 #[cfg(test)]
@@ -168,43 +166,14 @@ impl TransactionPayment {
 		}
 	}
 
-	/// Create payment claim proof for all deliveries of requests and responses from source to dest
-	/// a number of days The default is 30 days
-	pub async fn create_proof_from_receipts<A: IsmpProvider, B: IsmpProvider>(
+	pub async fn query_state_proofs(
 		&self,
+		source: Arc<dyn IsmpProvider>,
+		dest: Arc<dyn IsmpProvider>,
 		source_height: u64,
 		dest_height: u64,
-		source: &A,
-		dest: &B,
-		receipts: Vec<TxReceipt>,
-	) -> anyhow::Result<Vec<WithdrawalProof>> {
-		let keys = receipts
-			.iter()
-			.map(|data| {
-				match data {
-					TxReceipt::Request { query, height } => {
-						let source_key = source.request_commitment_full_key(query.commitment);
-						//Get request receipt keys on dest chain
-						let dest_key = dest.request_receipt_full_key(query.commitment);
-						(Key::Request(query.commitment), source_key, dest_key)
-					},
-					TxReceipt::Response { query, request_commitment, height } => {
-						let source_key = source.response_commitment_full_key(query.commitment);
-						//Get response receipt keys on dest chain
-						let dest_key = dest.response_receipt_full_key(*request_commitment);
-						(
-							Key::Response {
-								request_commitment: *request_commitment,
-								response_commitment: query.commitment,
-							},
-							source_key,
-							dest_key,
-						)
-					},
-				}
-			})
-			.collect::<Vec<_>>();
-
+		keys: Vec<(Key, Vec<Vec<u8>>, Vec<Vec<u8>>)>,
+	) -> Result<Vec<WithdrawalProof>, anyhow::Error> {
 		let mut proofs = vec![];
 		// Chunk keys by 50 each
 		for chunk in keys.chunks(50) {
@@ -255,6 +224,47 @@ impl TransactionPayment {
 		}
 
 		Ok(proofs)
+	}
+
+	// todo: Consolidate the state proof query into a single function
+	/// Create payment claim proof for all deliveries of requests and responses from source to dest
+	/// a number of days The default is 30 days
+	pub async fn create_proof_from_receipts(
+		&self,
+		source_height: u64,
+		dest_height: u64,
+		source: Arc<dyn IsmpProvider>,
+		dest: Arc<dyn IsmpProvider>,
+		receipts: Vec<TxReceipt>,
+	) -> anyhow::Result<Vec<WithdrawalProof>> {
+		let keys = receipts
+			.iter()
+			.map(|data| {
+				match data {
+					TxReceipt::Request { query, height } => {
+						let source_key = source.request_commitment_full_key(query.commitment);
+						//Get request receipt keys on dest chain
+						let dest_key = dest.request_receipt_full_key(query.commitment);
+						(Key::Request(query.commitment), source_key, dest_key)
+					},
+					TxReceipt::Response { query, request_commitment, height } => {
+						let source_key = source.response_commitment_full_key(query.commitment);
+						//Get response receipt keys on dest chain
+						let dest_key = dest.response_receipt_full_key(*request_commitment);
+						(
+							Key::Response {
+								request_commitment: *request_commitment,
+								response_commitment: query.commitment,
+							},
+							source_key,
+							dest_key,
+						)
+					},
+				}
+			})
+			.collect::<Vec<_>>();
+
+		self.query_state_proofs(source, dest, source_height, dest_height, keys).await
 	}
 
 	/// Fetch all pending withdrawals from the db, returns their id so they can be deleted.
@@ -395,12 +405,12 @@ impl TransactionPayment {
 
 	/// Create payment claim proof for all deliveries of requests and responses from source to dest
 	/// a number of days The default is 30 days
-	pub async fn create_claim_proof<A: IsmpProvider, B: IsmpProvider, H: HyperbridgeClaim>(
+	pub async fn create_claim_proof<H: HyperbridgeClaim>(
 		&self,
 		source_height: u64,
 		dest_height: u64,
-		source: &A,
-		dest: &B,
+		source: Arc<dyn IsmpProvider>,
+		dest: Arc<dyn IsmpProvider>,
 		hyperbridge: &H,
 	) -> anyhow::Result<Vec<WithdrawalProof>> {
 		let source_chain = source.state_machine_id().state_id;
@@ -473,56 +483,8 @@ impl TransactionPayment {
 			}
 		});
 
-		let mut proofs = vec![];
-		// We chunk keys by 50 each
-		for chunk in keys_to_prove.chunks(50) {
-			// Gather keys to be queried on the source chain
-			let mut source_chain_storage_keys = vec![];
-			let mut dest_chain_storage_keys = vec![];
-			let mut request_response_commitments = vec![];
-			for (key, source_key, dest_key) in chunk {
-				source_chain_storage_keys.push(source_key.clone());
-				dest_chain_storage_keys.push(dest_key.clone());
-				request_response_commitments.push(key.clone());
-			}
-
-			let source_proof = source
-				.query_state_proof(
-					source_height,
-					StateProofQueryType::Ismp(
-						source_chain_storage_keys.into_iter().flatten().collect(),
-					),
-				)
-				.await?;
-
-			let dest_proof = dest
-				.query_state_proof(
-					dest_height,
-					StateProofQueryType::Ismp(
-						dest_chain_storage_keys.into_iter().flatten().collect(),
-					),
-				)
-				.await?;
-
-			let proof = WithdrawalProof {
-				commitments: request_response_commitments,
-				source_proof: Proof {
-					height: StateMachineHeight {
-						id: source.state_machine_id(),
-						height: source_height,
-					},
-					proof: source_proof,
-				},
-				dest_proof: Proof {
-					height: StateMachineHeight { id: dest.state_machine_id(), height: dest_height },
-					proof: dest_proof,
-				},
-			};
-
-			proofs.push(proof)
-		}
-
-		Ok(proofs)
+		self.query_state_proofs(source, dest, source_height, dest_height, keys_to_prove)
+			.await
 	}
 
 	pub async fn delete_claimed_entries(&self, commitments: Vec<Key>) -> anyhow::Result<()> {
@@ -561,13 +523,5 @@ impl TryFrom<i32> for DeliveryType {
 			1 => Ok(Self::PostResponse),
 			_ => Err(anyhow!("Unknown delivery type")),
 		}
-	}
-}
-
-pub struct Hasher;
-
-impl Keccak256 for Hasher {
-	fn keccak256(bytes: &[u8]) -> H256 {
-		keccak_256(bytes).into()
 	}
 }

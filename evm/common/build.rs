@@ -5,13 +5,9 @@ fn main() -> anyhow::Result<()> {
 	let base_dir = env::current_dir()?.display().to_string();
 
 	let sources = vec![
-		("L2OutputOracle", format!("{base_dir}/abis/L2OutputOracle.json")),
-		("IRollup", format!("{base_dir}/abis/IRollupCore.json")),
 		("OVM_gasPriceOracle", format!("{base_dir}/abis/OVM_gasPriceOracle.json")),
 		("ArbGasInfo", format!("{base_dir}/abis/ArbGasInfo.json")),
 		("Erc20", format!("{base_dir}/abis/ERC20.json")),
-		("DisputeGameFactory", format!("{base_dir}/abis/DisputeGameFactory.json")),
-		("FaultDisputeGame", format!("{base_dir}/abis/FaultDisputeGame.json")),
 	];
 
 	MultiAbigen::new(sources)

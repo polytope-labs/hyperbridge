@@ -152,7 +152,7 @@ pub enum StateProofQueryType {
 }
 
 /// Stream alias
-pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>> + Send>>;
+pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>> + Send + 'static>>;
 
 pub struct Hasher;
 
@@ -254,9 +254,7 @@ pub trait IsmpProvider: Send + Sync {
 
 	/// Should return the relayer delivered this request
 	/// if it has been delivered
-	async fn query_request_receipt(&self, _hash: H256) -> Result<H160, anyhow::Error> {
-		Ok(Default::default())
-	}
+	async fn query_request_receipt(&self, _hash: H256) -> Result<H160, anyhow::Error>;
 
 	/// Should return fee relayer would be recieving to relay a responce mesage giving a hash
 	/// (message commiment)
@@ -300,9 +298,9 @@ pub trait IsmpProvider: Send + Sync {
 	fn sign(&self, msg: &[u8]) -> Signature;
 
 	/// Set the initial height with the finalized height on counterparty
-	async fn set_latest_finalized_height<P: IsmpProvider + 'static>(
+	async fn set_latest_finalized_height(
 		&mut self,
-		counterparty: &P,
+		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error>;
 
 	/// Set the initial consensus state for a given consensus state id on this chain
@@ -350,32 +348,33 @@ pub trait ByzantineHandler {
 pub trait IsmpHost: ByzantineHandler + Clone + Send + Sync {
 	/// Return a stream that yields [`ConsensusMessage`] when a new consensus update
 	/// can be sent to the counterparty
-	async fn consensus_notification<C>(
+	async fn consensus_notification(
 		&self,
-		counterparty: C,
-	) -> Result<BoxStream<ConsensusMessage>, anyhow::Error>
-	where
-		C: IsmpHost + IsmpProvider + Clone + 'static;
+		counterparty: Arc<dyn IsmpProvider>,
+	) -> Result<BoxStream<ConsensusMessage>, anyhow::Error>;
 
 	/// Query the trusted consensus state for this host
 	async fn query_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error>;
+
+	/// Return an instance of the [`IsmpProvider`] associated with this host
+	fn provider(&self) -> Arc<dyn IsmpProvider>;
 }
 
 #[async_trait::async_trait]
 pub trait HyperbridgeClaim {
-	async fn available_amount<C: IsmpProvider>(
+	async fn available_amount(
 		&self,
-		_client: &C,
+		_client: Arc<dyn IsmpProvider>,
 		_chain: &StateMachine,
 	) -> anyhow::Result<U256> {
 		Ok(U256::from(0))
 	}
 	async fn accumulate_fees(&self, proof: WithdrawalProof) -> anyhow::Result<()>;
-	async fn withdraw_funds<C: IsmpProvider>(
+	async fn withdraw_funds(
 		&self,
-		client: &C,
+		client: Arc<dyn IsmpProvider>,
 		chain: StateMachine,
 	) -> anyhow::Result<WithdrawFundsResult>;
 	/// Check if this key has been claimed
@@ -414,8 +413,8 @@ impl NonceProvider {
 	}
 }
 
-pub async fn wait_for_challenge_period<C: IsmpProvider>(
-	client: &C,
+pub async fn wait_for_challenge_period(
+	client: Arc<dyn IsmpProvider>,
 	last_consensus_update: Duration,
 	challenge_period: Duration,
 ) -> anyhow::Result<()> {
@@ -436,9 +435,9 @@ pub async fn wait_for_challenge_period<C: IsmpProvider>(
 }
 
 #[instrument(name = "Waiting for state machine update on hyperbridge", skip_all)]
-pub async fn wait_for_state_machine_update<C: IsmpProvider>(
+pub async fn wait_for_state_machine_update(
 	state_id: StateMachineId,
-	hyperbridge: &C,
+	hyperbridge: Arc<dyn IsmpProvider>,
 	height: u64,
 ) -> anyhow::Result<u64> {
 	let mut stream = hyperbridge.state_machine_update_notification(state_id).await?;
@@ -459,9 +458,9 @@ pub async fn wait_for_state_machine_update<C: IsmpProvider>(
 }
 
 #[instrument(name = "Waiting for challenge period to elapse on hyperbridge", skip_all)]
-pub async fn observe_challenge_period<C: IsmpProvider, D: IsmpProvider>(
-	chain: &C,
-	hyperbridge: &D,
+pub async fn observe_challenge_period(
+	chain: Arc<dyn IsmpProvider>,
+	hyperbridge: Arc<dyn IsmpProvider>,
 	height: u64,
 ) -> anyhow::Result<()> {
 	let challenge_period = hyperbridge

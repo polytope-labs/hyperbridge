@@ -21,4 +21,3 @@ pallet-ismp.workspace = true
 transaction-fees = { path = "../fees" }
 tesseract-primitives = { path = "../primitives" }
 ismp-solidity-abi.workspace = true
-tesseract-client = { path = "../client" }

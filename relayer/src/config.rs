@@ -20,15 +20,15 @@ use ismp::host::StateMachine;
 use primitives::config::RelayerConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tesseract_beefy::BeefyConfig;
-use tesseract_client::AnyConfig;
+use tesseract_config::AnyConfig;
+use tesseract_substrate::SubstrateConfig;
 use toml::Table;
 
 /// Defines the format of the tesseract config.toml file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HyperbridgeConfig {
 	/// Configuration options for hyperbridge.
-	pub hyperbridge: BeefyConfig,
+	pub hyperbridge: SubstrateConfig,
 	/// Other chains
 	pub chains: HashMap<StateMachine, AnyConfig>,
 	/// Relayer config
@@ -48,7 +48,7 @@ impl HyperbridgeConfig {
 			Err(anyhow!("Missing Hyperbridge or Relayer Config, Check your toml file"))?
 		}
 
-		let hyperbridge: BeefyConfig = table
+		let hyperbridge: SubstrateConfig = table
 			.get(HYPERRIDGE)
 			.cloned()
 			.expect("Hyperbridge Config is Present")

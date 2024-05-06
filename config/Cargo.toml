@@ -1,0 +1,22 @@
+[package]
+name = "tesseract-config"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tesseract-substrate = { path = "../substrate/common" }
+primitives = { package = "tesseract-primitives", path = "../primitives" }
+tesseract-evm = { path = "../evm/common" }
+
+# polytope labs
+ismp.workspace = true
+pallet-ismp.workspace = true
+ismp-sync-committee.workspace = true
+
+# crates.io
+
+anyhow = "1.0.71"
+serde = { version = "1.0.164", features = ["derive"] }
+substrate-state-machine.workspace = true

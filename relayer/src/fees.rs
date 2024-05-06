@@ -16,8 +16,7 @@ use primitives::{
 use sp_core::U256;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 use tesseract_bsc_pos::KeccakHasher;
-use tesseract_client::AnyClient;
-use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
+use tesseract_substrate::config::KeccakSubstrateChain;
 use tracing::instrument;
 use transaction_fees::TransactionPayment;
 
@@ -54,13 +53,10 @@ impl AccumulateFees {
 
 		let HyperbridgeConfig { hyperbridge: hyperbridge_config, .. } = config.clone();
 
-		let hyperbridge: tesseract_substrate::SubstrateClient<
-			tesseract_beefy::BeefyHost<Blake2SubstrateChain, KeccakSubstrateChain>,
-			KeccakSubstrateChain,
-		> = hyperbridge_config
-			.clone()
-			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
-			.await?;
+		let hyperbridge = tesseract_substrate::SubstrateClient::<KeccakSubstrateChain>::new(
+			hyperbridge_config.clone(),
+		)
+		.await?;
 
 		let clients = create_client_map(config).await?;
 
@@ -117,7 +113,7 @@ impl AccumulateFees {
 						let height = if height > dest_height.into() && self.wait {
 							let height = wait_for_state_machine_update(
 								dest.state_machine_id(),
-								&hyperbridge,
+								Arc::new(hyperbridge.clone()),
 								height,
 							)
 								.await?;
@@ -133,13 +129,13 @@ impl AccumulateFees {
 								// Create claim proof for deliveries from source to dest
 								log::info!("Creating withdrawal proof from db for deliveries from {source_chain:?}->{dest_chain:?}");
 								let proofs = tx_payment
-									.create_claim_proof(source_height.into(), height, &source, &dest, &hyperbridge)
+									.create_claim_proof(source_height.into(), height, source.clone(), dest.clone(), &hyperbridge)
 									.await?;
 
 								if proofs.is_empty() {
 									log::info!("All fees in the database for  {source_chain:?}->{dest_chain:?} have been successfully accumulated in a previous attempt")
 								} else {
-									observe_challenge_period(&dest, &hyperbridge, height).await?;
+									observe_challenge_period(dest.clone(), Arc::new(hyperbridge.clone()), height).await?;
 								}
 
 								log::info!(
@@ -168,7 +164,7 @@ impl AccumulateFees {
 						let height = if height > source_height.into() && self.wait {
 							let height = wait_for_state_machine_update(
 								source.state_machine_id(),
-								&hyperbridge,
+								Arc::new(hyperbridge.clone()),
 								height,
 							)
 								.await?;
@@ -184,14 +180,14 @@ impl AccumulateFees {
 								// Create claim proof for deliveries from dest to source
 								log::info!("Creating withdrawal proof from db for deliveries from {dest_chain:?}->{source_chain:?}");
 								let proofs = tx_payment
-									.create_claim_proof(dest_height.into(), height, &dest, &source, &hyperbridge)
+									.create_claim_proof(dest_height.into(), height, dest.clone(), source.clone(), &hyperbridge)
 									.await?;
 
 								if proofs.is_empty() {
 									log::info!("All fees in the database for  {dest_chain:?}->{source_chain:?} have been successfully accumulated in a previous attempt")
 								}
 								else {
-									observe_challenge_period(&source, &hyperbridge, height).await?;
+									observe_challenge_period(source.clone(), Arc::new(hyperbridge.clone()), height).await?;
 								}
 								log::info!(
 									"Submitting proofs for {dest_chain:?}->{source_chain:?} to hyperbridge"
@@ -231,7 +227,7 @@ impl AccumulateFees {
 		&self,
 		tx: TransactionPayment,
 		hyperbridge: &C,
-		clients: HashMap<StateMachine, AnyClient>,
+		clients: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	) -> anyhow::Result<()> {
 		let stream = futures::stream::iter(clients.keys().cloned().into_iter());
 
@@ -246,14 +242,14 @@ impl AccumulateFees {
 						// lets try to deliver any pending requests in the db
 						let (pending_withdrawals, ids): (Vec<_>, Vec<_>) = tx.pending_withdrawals(&chain).await?.into_iter().unzip();
 						for pending in pending_withdrawals {
-							deliver_post_request(&client, &hyperbridge, pending).await?;
+							deliver_post_request(client.clone(), &hyperbridge, pending).await?;
 						}
 						// can this fail?
 						if let Err(e) = tx.delete_pending_withdrawals(ids).await {
 							tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
 						}
 
-						let amount = hyperbridge.available_amount(&client, &chain).await?;
+						let amount = hyperbridge.available_amount(client.clone(), &chain).await?;
 
 						if amount == U256::zero() {
 							log::info!("Unclaimed balance on {chain} is 0, exiting");
@@ -265,7 +261,7 @@ impl AccumulateFees {
 							Cost(amount)
 						);
 						let result = hyperbridge
-							.withdraw_funds(&client, chain)
+							.withdraw_funds(client.clone(), chain)
 							.await?;
 						log::info!("Request submitted to hyperbridge successfully");
 						log::info!("Starting delivery of withdrawal message to {:?}", chain);
@@ -273,7 +269,7 @@ impl AccumulateFees {
 						// persist the withdrawal in-case delivery fails, so it's not lost forever
 						let ids = tx.store_pending_withdrawals(vec![result.clone()]).await?;
 
-						match deliver_post_request(&client, &hyperbridge, result.clone()).await {
+						match deliver_post_request(client.clone(), &hyperbridge, result.clone()).await {
 							Ok(_) => {
 								if let Err(e) = tx.delete_pending_withdrawals(ids).await {
 									tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
@@ -302,7 +298,7 @@ impl AccumulateFees {
 /// hyperbridge.
 pub async fn auto_withdraw<C>(
 	hyperbridge: C,
-	clients: HashMap<StateMachine, AnyClient>,
+	clients: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	config: RelayerConfig,
 	db: Arc<TransactionPayment>,
 ) -> anyhow::Result<()>
@@ -332,14 +328,14 @@ where
 						// lets try to deliver any pending requests in the db
 						let (pending_withdrawals, ids): (Vec<_>, Vec<_>) = moved_db.pending_withdrawals(&chain).await?.into_iter().unzip();
 						for pending in pending_withdrawals {
-							deliver_post_request(&client, &hyperbridge, pending).await?;
+							deliver_post_request(client.clone(), &hyperbridge, pending).await?;
 						}
 						// can this fail?
 						if let Err(e) = moved_db.delete_pending_withdrawals(ids).await {
 							tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
 						}
 
-						let amount = hyperbridge.available_amount(&client, &chain).await?;
+						let amount = hyperbridge.available_amount(client.clone(), &chain).await?;
 						if amount < min_amount {
 							tracing::info!("Unclaimed balance {amount} on {chain} is < minimum_withdrawal_amount: {min_amount}, exiting");
 							return Ok::<_, anyhow::Error>(());
@@ -350,7 +346,7 @@ where
 							Cost(amount)
 						);
 						let result = hyperbridge
-							.withdraw_funds(&client, chain)
+							.withdraw_funds(client.clone(), chain)
 							.await?;
 						tracing::info!("Request submitted to hyperbridge successfully");
 						tracing::info!("Starting delivery of withdrawal message to {:?}", chain);
@@ -358,7 +354,7 @@ where
 						// persist the withdrawal in-case delivery fails, so it's not lost forever
 						let ids = moved_db.store_pending_withdrawals(vec![result.clone()]).await?;
 
-						match deliver_post_request(&client, &hyperbridge, result.clone()).await {
+						match deliver_post_request(client.clone(), &hyperbridge, result.clone()).await {
 							Ok(_) => {
 								if let Err(e) = moved_db.delete_pending_withdrawals(ids).await {
 									tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
@@ -384,8 +380,8 @@ where
 }
 
 #[instrument(name = "Delivering post request to ", skip_all, fields(destination = dest_chain.state_machine_id().state_id.to_string()))]
-async fn deliver_post_request<C: IsmpProvider, D: IsmpProvider>(
-	dest_chain: &C,
+async fn deliver_post_request<D: IsmpProvider>(
+	dest_chain: Arc<dyn IsmpProvider>,
 	hyperbridge: &D,
 	result: WithdrawFundsResult,
 ) -> anyhow::Result<()> {
@@ -430,7 +426,7 @@ async fn deliver_post_request<C: IsmpProvider, D: IsmpProvider>(
 
 	log::info!("Waiting for challenge period to elapse");
 
-	wait_for_challenge_period(dest_chain, last_consensus_update, challenge_period).await?;
+	wait_for_challenge_period(dest_chain.clone(), last_consensus_update, challenge_period).await?;
 	let query = Query {
 		source_chain: result.post.source,
 		dest_chain: result.post.dest,
@@ -493,7 +489,7 @@ mod tests {
 	use subxt::rpc_params;
 	use tesseract_bsc_pos::KeccakHasher;
 	use tesseract_substrate::{
-		config::{Blake2SubstrateChain, KeccakSubstrateChain},
+		config::KeccakSubstrateChain,
 		runtime::{
 			api,
 			api::{runtime_types, runtime_types::gargantua_runtime::RuntimeEvent},
@@ -515,11 +511,7 @@ mod tests {
 		let clients = create_client_map(config.clone()).await?;
 		tracing::info!("Created clients");
 
-		let hyperbridge: SubstrateClient<_, _> = config
-			.hyperbridge
-			.clone()
-			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
-			.await?;
+		let hyperbridge = SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge).await?;
 		tracing::info!("Hyperbridge connected");
 		let latest_height: u64 = hyperbridge
 			.client

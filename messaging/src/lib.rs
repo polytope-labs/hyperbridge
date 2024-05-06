@@ -24,35 +24,32 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::{
 	events::{filter_events, translate_events_to_messages, Event},
-	retries::spawn_unprofitable_retries_task,
+	retries::retry_unprofitable_messages,
 };
 use futures::StreamExt;
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
-use tesseract_client::AnyClient;
 
 use tesseract_primitives::{
-	config::{Chain, RelayerConfig},
-	observe_challenge_period, wait_for_challenge_period, wait_for_state_machine_update,
-	HyperbridgeClaim, IsmpHost, IsmpProvider, StateMachineUpdated, TxReceipt,
+	config::RelayerConfig, observe_challenge_period, wait_for_challenge_period,
+	wait_for_state_machine_update, HyperbridgeClaim, IsmpProvider, StateMachineUpdated, TxReceipt,
 };
 use transaction_fees::TransactionPayment;
 
 type FeeAccSender = Sender<Vec<TxReceipt>>;
-pub async fn relay<A, B>(
+pub async fn relay<A>(
 	chain_a: A,
-	chain_b: B,
+	chain_b: Arc<dyn IsmpProvider>,
 	config: RelayerConfig,
-	coprocessor: Chain,
+	coprocessor: StateMachine,
 	tx_payment: Arc<TransactionPayment>,
-	client_map: HashMap<StateMachine, AnyClient>,
+	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 ) -> Result<(), anyhow::Error>
 where
-	A: IsmpHost + IsmpProvider + HyperbridgeClaim + 'static,
-	B: IsmpHost + IsmpProvider + 'static,
+	A: IsmpProvider + Clone + HyperbridgeClaim + 'static,
 {
 	let (sender, receiver) = tokio::sync::mpsc::channel::<Vec<TxReceipt>>(64);
 	let task_a = {
-		let chain_a = chain_a.clone();
+		let chain_a = Arc::new(chain_a.clone());
 		let chain_b = chain_b.clone();
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
@@ -74,7 +71,7 @@ where
 	};
 
 	let task_b = {
-		let chain_a = chain_a.clone();
+		let chain_a = Arc::new(chain_a.clone());
 		let chain_b = chain_b.clone();
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
@@ -109,21 +106,24 @@ where
 
 	// Spawn retries for unprofitable messages
 	{
-		let hyperbridge = chain_a.clone();
+		let hyperbridge = Arc::new(chain_a.clone());
 		let dest = chain_b.clone();
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
 		let sender = sender.clone();
-		spawn_unprofitable_retries_task(
-			dest,
-			hyperbridge,
-			client_map,
-			tx_payment,
-			config,
-			coprocessor,
-			sender,
-		)?;
+		tokio::spawn(async move {
+			retry_unprofitable_messages(
+				dest,
+				hyperbridge,
+				client_map,
+				tx_payment,
+				config,
+				coprocessor,
+				sender,
+			)
+			.await
+		});
 	}
 
 	// if one task completes, abort the other
@@ -139,19 +139,15 @@ where
 	Ok(())
 }
 
-async fn handle_notification<A, B>(
-	chain_a: A,
-	chain_b: B,
+async fn handle_notification(
+	chain_a: Arc<dyn IsmpProvider>,
+	chain_b: Arc<dyn IsmpProvider>,
 	tx_payment: Arc<TransactionPayment>,
 	config: RelayerConfig,
-	coprocessor: Chain,
-	client_map: HashMap<StateMachine, AnyClient>,
+	coprocessor: StateMachine,
+	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	fee_acc_sender: FeeAccSender,
-) -> Result<(), anyhow::Error>
-where
-	A: IsmpHost + IsmpProvider + 'static,
-	B: IsmpHost + IsmpProvider + 'static,
-{
+) -> Result<(), anyhow::Error> {
 	let mut state_machine_update_stream = chain_a
 		.state_machine_update_notification(chain_b.state_machine_id())
 		.await
@@ -166,9 +162,9 @@ where
 		match item {
 			Ok(state_machine_update) => {
 				if let Err(err) = handle_update(
-					&chain_a,
-					&chain_b,
-					&tx_payment,
+					chain_a.clone(),
+					chain_b.clone(),
+					tx_payment.clone(),
 					state_machine_update.clone(),
 					&mut previous_height,
 					config.clone(),
@@ -199,21 +195,17 @@ where
 	))?
 }
 
-async fn handle_update<A, B>(
-	chain_a: &A,
-	chain_b: &B,
-	tx_payment: &Arc<TransactionPayment>,
+async fn handle_update(
+	chain_a: Arc<dyn IsmpProvider>,
+	chain_b: Arc<dyn IsmpProvider>,
+	tx_payment: Arc<TransactionPayment>,
 	state_machine_update: StateMachineUpdated,
 	previous_height: &mut u64,
 	config: RelayerConfig,
-	coprocessor: Chain,
-	client_map: &HashMap<StateMachine, AnyClient>,
+	coprocessor: StateMachine,
+	client_map: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	fee_acc_sender: FeeAccSender,
-) -> Result<(), anyhow::Error>
-where
-	A: IsmpHost + IsmpProvider + 'static,
-	B: IsmpHost + IsmpProvider + 'static,
-{
+) -> Result<(), anyhow::Error> {
 	// Chain B's state machine has been updated to a new height on chain A
 	// We query all the events that have been emitted on chain B that can be submitted to
 	// chain A filter events list to contain only Request and Response events
@@ -223,12 +215,7 @@ where
 		Ok(events) => events
 			.into_iter()
 			.filter(|ev| {
-				filter_events(
-					&config,
-					coprocessor.state_machine(),
-					chain_a.state_machine_id().state_id,
-					ev,
-				)
+				filter_events(&config, coprocessor, chain_a.state_machine_id().state_id, ev)
 			})
 			.collect::<Vec<_>>(),
 		Err(err) => {
@@ -269,13 +256,14 @@ where
 	let challenge_period = chain_a
 		.query_challenge_period(chain_b.state_machine_id().consensus_state_id)
 		.await?;
+
 	// Wait for the challenge period for the consensus update to elapse before submitting
-	// messages. This is so that calls to debug_traceCall can succeed
-	wait_for_challenge_period(chain_a, last_consensus_update, challenge_period).await?;
+	// messages.So that calls to debug_traceCall can succeed
+	wait_for_challenge_period(chain_a.clone(), last_consensus_update, challenge_period).await?;
 
 	let (messages, unprofitable) = translate_events_to_messages(
-		chain_b,
-		chain_a,
+		chain_b.clone(),
+		chain_a.clone(),
 		events,
 		state_machine_height.clone(),
 		config.clone(),
@@ -295,7 +283,7 @@ where
 		match res {
 			Ok(receipts) => {
 				// We should not store messages when they are delivered to hyperbridge
-				if chain_a.state_machine_id().state_id != coprocessor.state_machine() {
+				if chain_a.state_machine_id().state_id != coprocessor {
 					if !receipts.is_empty() {
 						// Store receipts in database before auto accumulation
 						tracing::trace!(target: "tesseract", "Persisting {} deliveries from {}->{} to the db", receipts.len(), chain_b.name(), chain_a.name());
@@ -337,14 +325,11 @@ where
 	Ok(())
 }
 
-async fn fee_accumulation<
-	A: IsmpProvider + Clone + 'static,
-	B: IsmpProvider + Clone + HyperbridgeClaim + 'static,
->(
+async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + 'static>(
 	mut receiver: Receiver<Vec<TxReceipt>>,
-	dest: A,
-	hyperbridge: B,
-	client_map: HashMap<StateMachine, AnyClient>,
+	dest: Arc<dyn IsmpProvider>,
+	hyperbridge: A,
+	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	tx_payment: Arc<TransactionPayment>,
 ) -> Result<(), anyhow::Error> {
 	while let Some(receipts) = receiver.recv().await {
@@ -354,7 +339,7 @@ async fn fee_accumulation<
 		// Spawn a new task so fee accumulation can be done concurrently
 		tokio::spawn({
 			let dest = dest.clone();
-			let hyperbridge = hyperbridge.clone();
+			let hyperbridge = Arc::new(hyperbridge.clone());
 			let client_map = client_map.clone();
 			let tx_payment = tx_payment.clone();
 			async move {
@@ -390,7 +375,7 @@ async fn fee_accumulation<
 				);
 				let dest_height = match wait_for_state_machine_update(
 					dest.state_machine_id(),
-					&hyperbridge,
+					hyperbridge.clone(),
 					delivery_height,
 				)
 				.await
@@ -420,10 +405,9 @@ async fn fee_accumulation<
 							// Create claim proof for deliveries from source to dest
 							tracing::info!("Creating withdrawal proofs from db for deliveries from {:?}->{:?}", source, dest.state_machine_id().state_id);
 							let proofs = tx_payment
-							.create_proof_from_receipts(source_height.into(), dest_height, &source_chain, &dest, receipts.clone())
+							.create_proof_from_receipts(source_height.into(), dest_height, source_chain.clone(), dest.clone(), receipts.clone())
 							.await?;
-
-							observe_challenge_period(&dest, &hyperbridge, dest_height).await?;
+							observe_challenge_period(dest.clone(), hyperbridge.clone(), dest_height).await?;
 							let mut commitments =  vec![];
 							for proof in proofs {
 								commitments.extend_from_slice(&proof.commitments);

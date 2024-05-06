@@ -5,6 +5,7 @@ use ismp::{
 	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
 	router::{Post, PostResponse, Request, RequestResponse, Response},
 };
+use std::sync::Arc;
 use tesseract_primitives::{mocks::MockHost, Hasher, Query, TxReceipt};
 
 #[tokio::test]
@@ -72,8 +73,8 @@ async fn transaction_payments_flow() {
 		.create_claim_proof(
 			0,
 			0,
-			&MockHost::new((), 0, StateMachine::Bsc),
-			&MockHost::new((), 0, StateMachine::Polygon),
+			Arc::new(MockHost::new((), 0, StateMachine::Bsc)),
+			Arc::new(MockHost::new((), 0, StateMachine::Polygon)),
 			&MockHost::new((), 0, StateMachine::Kusama(2000)),
 		)
 		.await

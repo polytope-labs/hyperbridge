@@ -1,7 +1,5 @@
 //! Functions for updating configuration on pallets
 
-use std::collections::BTreeMap;
-
 use crate::{
 	extrinsic::{send_extrinsic, send_unsigned_extrinsic, Extrinsic, InMemorySigner},
 	runtime, SubstrateClient,
@@ -19,11 +17,12 @@ use pallet_ismp_relayer::{
 	message,
 	withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalProof},
 };
-use primitives::{HyperbridgeClaim, IsmpHost, IsmpProvider, WithdrawFundsResult};
+use primitives::{HyperbridgeClaim, IsmpProvider, WithdrawFundsResult};
 use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
 	Pair, U256,
 };
+use std::{collections::BTreeMap, sync::Arc};
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
@@ -45,9 +44,8 @@ pub struct RequestMetadata {
 	pub claimed: bool,
 }
 
-impl<T, C> SubstrateClient<T, C>
+impl<C> SubstrateClient<C>
 where
-	T: IsmpHost + Send + Sync + Clone + 'static,
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
@@ -94,9 +92,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<T, C> HyperbridgeClaim for SubstrateClient<T, C>
+impl<C> HyperbridgeClaim for SubstrateClient<C>
 where
-	T: IsmpHost + Send + Sync + Clone + 'static,
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
@@ -110,9 +107,9 @@ where
 		+ Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 {
-	async fn available_amount<P: IsmpProvider>(
+	async fn available_amount(
 		&self,
-		client: &P,
+		client: Arc<dyn IsmpProvider>,
 		chain: &StateMachine,
 	) -> anyhow::Result<U256> {
 		Ok(relayer_account_balance(&self.client, chain.clone(), client.address()).await?)
@@ -142,9 +139,9 @@ where
 	}
 
 	/// Withdraw funds from hyperbridge and return the emitted post request
-	async fn withdraw_funds<D: IsmpProvider>(
+	async fn withdraw_funds(
 		&self,
-		counterparty: &D,
+		counterparty: Arc<dyn IsmpProvider>,
 		chain: StateMachine,
 	) -> anyhow::Result<WithdrawFundsResult> {
 		let addr = runtime::api::storage()

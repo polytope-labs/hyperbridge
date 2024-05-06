@@ -32,7 +32,6 @@ use sp_mmr_primitives::utils::NodesUtils;
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 use crate::gas_oracle::get_current_gas_cost_in_usd;
-use tesseract_primitives::IsmpHost;
 
 /// Type alias
 type SolidityFunctionCall = FunctionCall<
@@ -42,8 +41,8 @@ type SolidityFunctionCall = FunctionCall<
 >;
 
 #[async_recursion::async_recursion]
-pub async fn submit_messages<I: IsmpHost>(
-	client: &EvmClient<I>,
+pub async fn submit_messages(
+	client: &EvmClient,
 	messages: Vec<Message>,
 ) -> anyhow::Result<BTreeSet<H256>> {
 	let calls = generate_contract_calls(client, messages.clone()).await?;
@@ -96,15 +95,14 @@ pub async fn submit_messages<I: IsmpHost>(
 }
 
 #[async_recursion::async_recursion]
-async fn wait_for_success<'a, I>(
-	client: &EvmClient<I>,
+async fn wait_for_success<'a>(
+	client: &EvmClient,
 	tx: PendingTransaction<'a, Http>,
 	gas_price: Option<U256>,
 	retry: Option<SolidityFunctionCall>,
 ) -> Result<BTreeSet<H256>, anyhow::Error>
 where
 	'a: 'async_recursion,
-	I: IsmpHost,
 {
 	let log_receipt = |receipt: TransactionReceipt, cancelled: bool| {
 		let prelude = if cancelled { "Cancellation Tx" } else { "Tx" };
@@ -210,8 +208,8 @@ where
 }
 
 /// Function generates FunctionCall(s) from a batchs of messages
-pub async fn generate_contract_calls<I: IsmpHost>(
-	client: &EvmClient<I>,
+pub async fn generate_contract_calls(
+	client: &EvmClient,
 	messages: Vec<Message>,
 ) -> anyhow::Result<Vec<SolidityFunctionCall>> {
 	let contract = IsmpHandler::new(client.config.handler, client.signer.clone());

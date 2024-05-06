@@ -14,13 +14,14 @@
 // limitations under the License.
 
 pub use crate::provider::system_events_key;
+use std::sync::Arc;
 
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use pallet_ismp::child_trie::{
 	request_commitment_storage_key, request_receipt_storage_key, response_commitment_storage_key,
 	response_receipt_storage_key,
 };
-use primitives::{config::Chain, IsmpHost, IsmpProvider};
+use primitives::IsmpProvider;
 
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, sr25519, Pair, H256};
@@ -37,7 +38,6 @@ use subxt::{
 pub mod calls;
 pub mod config;
 pub mod extrinsic;
-mod host;
 mod provider;
 pub use subxt_utils::gargantua as runtime;
 #[cfg(feature = "testing")]
@@ -46,7 +46,7 @@ mod testing;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubstrateConfig {
 	/// Hyperbridge network
-	pub chain: Chain,
+	pub state_machine: StateMachine,
 	/// The hashing algorithm that substrate chain uses.
 	pub hashing: Option<HashAlgorithm>,
 	/// Consensus state id
@@ -61,16 +61,8 @@ pub struct SubstrateConfig {
 	pub latest_height: Option<u64>,
 }
 
-impl SubstrateConfig {
-	pub fn state_machine(&self) -> StateMachine {
-		self.chain.state_machine()
-	}
-}
-
 /// Core substrate client.
-pub struct SubstrateClient<I, C: subxt::Config> {
-	/// Ismp naive implementation
-	pub host: Option<I>,
+pub struct SubstrateClient<C: subxt::Config> {
 	/// Subxt client for the substrate chain
 	pub client: OnlineClient<C>,
 	/// Consensus state Id
@@ -85,13 +77,10 @@ pub struct SubstrateClient<I, C: subxt::Config> {
 	pub address: Vec<u8>,
 	/// Latest state machine height.
 	initial_height: u64,
-	/// Config
-	config: SubstrateConfig,
 }
 
-impl<T, C> SubstrateClient<T, C>
+impl<C> SubstrateClient<C>
 where
-	T: IsmpHost + 'static,
 	C: subxt::Config + Send + Sync + Clone,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
@@ -99,8 +88,7 @@ where
 	C::AccountId:
 		From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 {
-	pub async fn new(host: Option<T>, config: SubstrateConfig) -> Result<Self, anyhow::Error> {
-		let config_clone = config.clone();
+	pub async fn new(config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(300u32 * 1024 * 1024);
 		let client =
 			subxt_utils::client::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
@@ -127,15 +115,13 @@ where
 			.copy_from_slice(config.consensus_state_id.unwrap_or("PARA".into()).as_bytes());
 		let address = signer.public().0.to_vec();
 		Ok(Self {
-			host,
 			client,
 			consensus_state_id,
-			state_machine: config.chain.state_machine(),
+			state_machine: config.state_machine,
 			hashing: config.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
 			signer,
 			address,
 			initial_height: latest_height,
-			config: config_clone,
 		})
 	}
 
@@ -147,9 +133,9 @@ where
 		MultiSigner::Sr25519(self.signer.public()).into_account().into()
 	}
 
-	pub async fn set_latest_finalized_height<P: IsmpProvider + 'static>(
+	pub async fn set_latest_finalized_height(
 		&mut self,
-		counterparty: &P,
+		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		let id = self.state_machine_id();
 		self.initial_height = counterparty.query_latest_height(id).await?.into();
@@ -171,5 +157,19 @@ where
 
 	pub fn res_receipt_key(&self, commitment: H256) -> Vec<u8> {
 		response_receipt_storage_key(commitment)
+	}
+}
+
+impl<C: subxt::Config> Clone for SubstrateClient<C> {
+	fn clone(&self) -> Self {
+		Self {
+			client: self.client.clone(),
+			consensus_state_id: self.consensus_state_id,
+			state_machine: self.state_machine,
+			hashing: self.hashing.clone(),
+			signer: self.signer.clone(),
+			address: self.address.clone(),
+			initial_height: self.initial_height,
+		}
 	}
 }

@@ -44,7 +44,7 @@ mmr-primitives.workspace = true
 evm-common.workspace = true
 sp-mmr-primitives.workspace = true
 
-tesseract-primitives = { path = "../../primitives" }
+tesseract-primitives = { path = "../primitives" }
 debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
 
 

@@ -10,12 +10,11 @@ use ismp::{
 };
 use primitives::{
 	config::RelayerConfig, observe_challenge_period, wait_for_challenge_period,
-	wait_for_state_machine_update, Cost, HyperbridgeClaim, IsmpProvider, Query,
+	wait_for_state_machine_update, Cost, Hasher, HyperbridgeClaim, IsmpProvider, Query,
 	WithdrawFundsResult,
 };
 use sp_core::U256;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
-use tesseract_bsc_pos::KeccakHasher;
 use tesseract_substrate::config::KeccakSubstrateChain;
 use tracing::instrument;
 use transaction_fees::TransactionPayment;
@@ -431,7 +430,7 @@ async fn deliver_post_request<D: IsmpProvider>(
 		source_chain: result.post.source,
 		dest_chain: result.post.dest,
 		nonce: result.post.nonce,
-		commitment: hash_request::<KeccakHasher>(&Request::Post(result.post.clone())),
+		commitment: hash_request::<Hasher>(&Request::Post(result.post.clone())),
 	};
 	log::info!("Querying request proof from hyperbridge at {}", latest_height);
 	let proof = hyperbridge.query_requests_proof(latest_height, vec![query]).await?;
@@ -481,13 +480,13 @@ mod tests {
 		messaging::{hash_request, Message, Proof, RequestMessage},
 		router::Request,
 	};
+	use primitives::Hasher;
 	use itertools::Itertools;
 	use pallet_ismp::mmr::LeafIndexQuery;
 	use pallet_ismp_host_executive::HostParam;
 	use primitives::{IsmpProvider, Query};
 	use sp_core::H160;
 	use subxt::rpc_params;
-	use tesseract_bsc_pos::KeccakHasher;
 	use tesseract_substrate::{
 		config::KeccakSubstrateChain,
 		runtime::{
@@ -663,7 +662,7 @@ mod tests {
 							source_chain: post.source,
 							dest_chain: post.dest,
 							nonce: post.nonce,
-							commitment: hash_request::<KeccakHasher>(&Request::Post(post.clone())),
+							commitment: hash_request::<Hasher>(&Request::Post(post.clone())),
 						};
 						log::info!("Querying request proof from hyperbridge at {}", latest_height);
 						let proof =

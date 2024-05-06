@@ -6,15 +6,11 @@ description = "Chain agnostic relayer implementation for ISMP"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
-tesseract-substrate = { path = "../substrate/common" }
+tesseract-substrate = { workspace = true }
 consensus = { package = "tesseract-consensus", path = "../consensus" }
 primitives = { package = "tesseract-primitives", path = "../primitives" }
 messaging = { package = "tesseract-messaging", path = "../messaging" }
-tesseract-evm = { path = "../evm/common" }
-#tesseract-polygon-pos = { path = "../ethereum/polygon-pos" }
-tesseract-bsc-pos = { path = "../evm/bsc-pos" }
-tesseract-sync-committee = { path = "../evm/sync-committee" }
-tesseract-beefy = { path = "../substrate/beefy/naive" }
+tesseract-evm = { workspace = true }
 transaction-fees = { path = "../fees" }
 telemetry-server = { path = "../telemetry" }
 tesseract-config = { path = "../config" }

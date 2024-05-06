@@ -25,10 +25,10 @@ use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::Event,
 	host::StateMachine,
-	messaging::{ConsensusMessage, CreateConsensusState, Message},
+	messaging::{ConsensusMessage, CreateConsensusState, Keccak256, Message},
 	router::Post,
-	util::Keccak256,
 };
+use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::Key;
 pub use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
 use parity_scale_codec::{Decode, Encode};
@@ -142,6 +142,15 @@ impl TxReceipt {
 	}
 }
 
+/// A type that represents the location where state proof queries should be directed
+#[derive(Debug, Clone)]
+pub enum StateProofQueryType {
+	/// Query the proof for these keys from the ismp module
+	Ismp(Vec<Vec<u8>>),
+	/// Query the proof for these keys from the global state
+	Arbitrary(Vec<Vec<u8>>),
+}
+
 /// Stream alias
 pub type BoxStream<I> = Pin<Box<dyn Stream<Item = Result<I, anyhow::Error>> + Send>>;
 
@@ -207,7 +216,7 @@ pub trait IsmpProvider: Send + Sync {
 	async fn query_state_proof(
 		&self,
 		at: u64,
-		keys: Vec<Vec<u8>>,
+		keys: StateProofQueryType,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
 	/// Query all ismp events on naive that can be processed for a [`StateMachineUpdated`]
@@ -303,10 +312,13 @@ pub trait IsmpProvider: Send + Sync {
 	) -> Result<(), anyhow::Error>;
 
 	/// Temporary: Submit a message to freeze the State Machine
-	async fn freeze_state_machine(&self, id: StateMachineId) -> Result<(), anyhow::Error>;
+	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), anyhow::Error>;
 
-	/// Fetch the host manager address for this chain
-	async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error>;
+	/// Fetch the host params for given state machine
+	async fn query_host_params(
+		&self,
+		state_machine: StateMachine,
+	) -> Result<HostParam<u128>, anyhow::Error>;
 
 	/// The max number of concurrent queries that can be made to the rpc node
 	fn max_concurrent_queries(&self) -> usize {
@@ -365,7 +377,6 @@ pub trait HyperbridgeClaim {
 		&self,
 		client: &C,
 		chain: StateMachine,
-		gas_limit: u64,
 	) -> anyhow::Result<WithdrawFundsResult>;
 	/// Check if this key has been claimed
 	async fn check_claimed(&self, key: Key) -> anyhow::Result<bool>;

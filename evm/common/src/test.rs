@@ -1,20 +1,17 @@
 use crate::{mock::Host, optimism::client::OpHost, EvmClient, EvmConfig};
 use codec::Decode;
 use ethers::prelude::Middleware;
+use evm_common::{
+	get_contract_storage_root, get_value_from_proof, types::EvmStateProof, verify_membership,
+};
 use hex_literal::hex;
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	host::{Ethereum, StateMachine},
-	messaging::Proof,
+	messaging::{hash_request, Proof},
 	router::{Post, RequestResponse},
-	util::hash_request,
 };
 use ismp_solidity_abi::evm_host::EvmHost;
-use ismp_sync_committee::{
-	types::EvmStateProof,
-	utils::{get_contract_storage_root, get_value_from_proof},
-	verify_membership,
-};
 use primitive_types::H160;
 use std::str::FromStr;
 use tesseract_primitives::{IsmpProvider, Query};
@@ -43,16 +40,13 @@ async fn test_ismp_state_proof() {
 	dotenv::dotenv().ok();
 	let geth_url = std::env::var("GETH_URL").expect("GETH_URL must be set.");
 	let config = EvmConfig {
-		rpc_url: geth_url.clone(),
+		rpc_urls: vec![geth_url.clone()],
 		state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 		consensus_state_id: "SYNC".to_string(),
 		ismp_host: ISMP_HOST,
 		handler: H160::from(hex!("139722d03a6f449048D732cdd05628F4D8cE536d")),
 		signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
-		etherscan_api_key: "".to_string(),
-		tracing_batch_size: None,
-		query_batch_size: None,
-		poll_interval: None,
+		..Default::default()
 	};
 
 	let client = EvmClient::<OpHost>::new(None, config).await.expect("Host creation failed");
@@ -69,7 +63,6 @@ async fn test_ismp_state_proof() {
 		to: hex::decode("66819E1BBB03760D227745C71FE76C5783A5F810").unwrap(),
 		timeout_timestamp: 1707167196,
 		data: hex::decode("68656C6C6F2066726F6D2045544845").unwrap(),
-		gas_limit: 0,
 	};
 
 	let req = ismp::router::Request::Post(post.clone());

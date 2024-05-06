@@ -2,11 +2,12 @@ use anyhow::anyhow;
 use futures::stream::FuturesOrdered;
 use ismp::{
 	consensus::StateMachineHeight,
-	events::{Event as IsmpEvent, PostRequestHandled, StateMachineUpdated},
+	events::{
+		Event as IsmpEvent, Meta, RequestResponseHandled, StateMachineUpdated, TimeoutHandled,
+	},
 	host::StateMachine,
-	messaging::{Message, Proof, RequestMessage, ResponseMessage},
+	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
 	router::{Post, Request, RequestResponse, Response},
-	util::{hash_request, hash_response},
 };
 use sp_core::U256;
 use std::collections::HashMap;
@@ -16,17 +17,6 @@ use tesseract_primitives::{
 	Cost, Hasher, IsmpHost, IsmpProvider, Query,
 };
 use tokio_stream::StreamExt;
-
-/// Short description of a request/response event
-#[derive(Debug)]
-pub struct Meta {
-	/// The source state machine of this request.
-	pub source: StateMachine,
-	/// The destination state machine of this request.
-	pub dest: StateMachine,
-	/// The nonce of this request on the source chain
-	pub nonce: u64,
-}
 
 #[derive(Debug)]
 pub enum Event {
@@ -40,7 +30,19 @@ pub enum Event {
 	/// An event that is emitted when a get request is dispatched
 	GetRequest(Meta),
 	/// Post request handled
-	PostRequestHandled(PostRequestHandled),
+	PostRequestHandled(RequestResponseHandled),
+	/// Emitted when a post response is handled
+	PostResponseHandled(RequestResponseHandled),
+	/// Emitted when a post request timeout is handled
+	PostRequestTimeoutHandled(TimeoutHandled),
+	/// Emitted when a post response timeout is handled
+	PostResponseTimeoutHandled(TimeoutHandled),
+	/// Emitted when a get request is handled
+	GetRequestHandled(RequestResponseHandled),
+	/// Emitted when a get request timeout is handled
+	GetRequestTimeoutHandled(TimeoutHandled),
+	/// State Commitment Vetoed
+	StateCommitmentVetoed,
 }
 
 impl From<IsmpEvent> for Event {
@@ -57,6 +59,15 @@ impl From<IsmpEvent> for Event {
 			IsmpEvent::GetRequest(e) =>
 				Event::GetRequest(Meta { nonce: e.nonce, dest: e.dest, source: e.source }),
 			IsmpEvent::PostRequestHandled(ev) => Event::PostRequestHandled(ev),
+			IsmpEvent::PostResponseHandled(handled) => Event::PostResponseHandled(handled),
+			IsmpEvent::PostRequestTimeoutHandled(handled) =>
+				Event::PostRequestTimeoutHandled(handled),
+			IsmpEvent::PostResponseTimeoutHandled(handled) =>
+				Event::PostResponseTimeoutHandled(handled),
+			IsmpEvent::GetRequestHandled(handled) => Event::GetRequestHandled(handled),
+			IsmpEvent::GetRequestTimeoutHandled(handled) =>
+				Event::GetRequestTimeoutHandled(handled),
+			IsmpEvent::StateCommitmentVetoed(_) => Event::StateCommitmentVetoed,
 		}
 	}
 }
@@ -115,7 +126,7 @@ where
 								return Ok::<_, anyhow::Error>(None);
 							}
 
-							if !is_allowed_module(config, &post.from) {
+							if !is_allowed_module(&config, &post.from) {
 								tracing::trace!(
 									"Request from module {}, filtered by module filter",
 									hex::encode(&post.from),
@@ -158,7 +169,7 @@ where
 								return Ok(None);
 							}
 
-							if !is_allowed_module(config, &post_response.source_module()) {
+							if !is_allowed_module(&config, &post_response.source_module()) {
 								tracing::trace!(
 									"Request from module {}, filtered by module filter",
 									hex::encode(&post_response.source_module()),
@@ -228,11 +239,14 @@ where
 	let mut unprofitable = vec![];
 
 	let (post_requests, post_request_queries, post_responses, response_queries) = {
-		tracing::trace!(
-			"Tracing transactions to {:?}, from: {:?}",
-			sink.state_machine_id().state_id,
-			source.state_machine_id().state_id
-		);
+		if !request_messages.is_empty() || !response_messages.is_empty() {
+			tracing::trace!(
+				"Tracing transactions to {:?}, from: {:?}",
+				sink.state_machine_id().state_id,
+				source.state_machine_id().state_id
+			);
+		}
+
 		let post_request_queries_to_push_with_option = return_successful_queries(
 			sink,
 			request_messages,
@@ -346,16 +360,31 @@ where
 }
 
 /// Return true for Request and Response events designated for the counterparty
-pub fn filter_events(router_id: StateMachine, counterparty: StateMachine, ev: &IsmpEvent) -> bool {
+pub fn filter_events(
+	config: &RelayerConfig,
+	router_id: StateMachine,
+	counterparty: StateMachine,
+	ev: &IsmpEvent,
+) -> bool {
 	// Is the counterparty the routing chain?
 	let is_router = router_id == counterparty;
 
+	let allow_module =
+		|module: &[u8]| config.module_filter.is_some() && is_allowed_module(config, module);
 	match ev {
-		// We filter out events whose origin is the coprocessor
+		// We filter out events whose origin is the coprocessor unless the source module is
+		// explicitly allowed in the module filter
 		IsmpEvent::PostRequest(post) =>
-			(post.dest == counterparty && post.source != router_id) || is_router,
+			(post.dest == counterparty &&
+				(post.source != router_id ||
+					(post.source == router_id && allow_module(&post.from)))) ||
+				is_router,
 		IsmpEvent::PostResponse(resp) =>
-			(resp.dest_chain() == counterparty && resp.source_chain() != router_id) || is_router,
+			(resp.dest_chain() == counterparty &&
+				(resp.source_chain() != router_id ||
+					(resp.source_chain() == router_id &&
+						allow_module(&resp.source_module())))) ||
+				is_router,
 		_ => false,
 	}
 }
@@ -367,6 +396,7 @@ pub fn chunk_size(state_machine: StateMachine) -> usize {
 	}
 }
 
+#[derive(Default)]
 pub struct ProfitabilityResult {
 	pub queries: Vec<Option<Query>>,
 	pub unprofitable_msgs: Vec<Message>,
@@ -383,17 +413,24 @@ pub async fn return_successful_queries<A>(
 where
 	A: IsmpProvider + Clone + 'static,
 {
+	if messages.is_empty() {
+		return Ok(Default::default())
+	}
+
 	let mut queries_to_be_relayed = Vec::new();
 	let mut unprofitable_msgs = Vec::new();
 	let gas_estimates = sink.estimate_gas(messages.clone()).await?;
 
 	// We'll be querying from possibly multiple chains, Let's take the average tracing batch size
-	// from all clients and use that as the max concurrency
-	let batch_size = client_map
-		.values()
-		.into_iter()
-		.fold(0, |acc, next| acc + next.max_concurrent_queries()) /
-		client_map.len();
+	// from all clients(except the coprocessor) and use that as the max concurrency
+	let total_clients = client_map.len() - 1;
+	let batch_size = client_map.values().into_iter().fold(0, |acc, next| {
+		if next.state_machine_id().state_id != coprocessor.state_machine() {
+			acc + next.max_concurrent_queries()
+		} else {
+			acc
+		}
+	}) / total_clients;
 	for chunk in gas_estimates
 		.into_iter()
 		.zip(messages.into_iter())
@@ -470,11 +507,11 @@ where
 	Ok(ProfitabilityResult { queries: queries_to_be_relayed, unprofitable_msgs })
 }
 
-fn is_allowed_module(config: RelayerConfig, module: &Vec<u8>) -> bool {
+fn is_allowed_module(config: &RelayerConfig, module: &[u8]) -> bool {
 	match config.module_filter {
 		Some(ref filters) =>
 			if !filters.is_empty() {
-				return filters.iter().find(|filter| **filter == *module).is_some();
+				return filters.iter().find(|filter| *filter == module).is_some();
 			},
 		// if no filter is provided, allow all modules
 		_ => {},

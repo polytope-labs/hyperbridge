@@ -36,11 +36,15 @@ ismp-solidity-abi.workspace = true
 beefy-verifier-primitives.workspace = true
 pallet-ismp.workspace = true
 ismp.workspace = true
-ismp-rpc.workspace = true
+pallet-ismp-rpc.workspace = true
 geth-primitives.workspace = true
 ismp-sync-committee.workspace = true
 ethereum-trie.workspace = true
-mmr-utils.workspace = true
+mmr-primitives.workspace = true
+arbitrum-verifier.workspace = true
+op-verifier.workspace = true
+evm-common.workspace = true
+sp-mmr-primitives.workspace = true
 
 tesseract-primitives = { path = "../../primitives" }
 debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
@@ -51,6 +55,7 @@ hash-db = { version = "0.15.2", default-features = false }
 merkle-mountain-range = { workspace = true }
 reconnecting-jsonrpsee-ws-client.workspace = true
 jsonrpsee = { version = "0.21", features = ["ws-client"]}
+pallet-ismp-host-executive.workspace = true
 
 [dev-dependencies]
 alloy-rlp = "0.3.2"

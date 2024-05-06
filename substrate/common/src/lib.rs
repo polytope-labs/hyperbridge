@@ -16,12 +16,16 @@
 pub use crate::provider::system_events_key;
 
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
-use pallet_ismp::primitives::HashAlgorithm;
+use pallet_ismp::child_trie::{
+	request_commitment_storage_key, request_receipt_storage_key, response_commitment_storage_key,
+	response_receipt_storage_key,
+};
 use primitives::{config::Chain, IsmpHost, IsmpProvider};
 
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, sr25519, Pair, H256};
 
+use substrate_state_machine::HashAlgorithm;
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
@@ -35,8 +39,7 @@ pub mod config;
 pub mod extrinsic;
 mod host;
 mod provider;
-pub mod rpc_wrapper;
-pub mod runtime;
+pub use subxt_utils::gargantua as runtime;
 #[cfg(feature = "testing")]
 mod testing;
 
@@ -98,8 +101,9 @@ where
 {
 	pub async fn new(host: Option<T>, config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
-		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(150 * 1024 * 1024);
-		let client = rpc_wrapper::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
+		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(300u32 * 1024 * 1024);
+		let client =
+			subxt_utils::client::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
 		// If latest height of the state machine on the counterparty is not provided in config
 		// Set it to the latest parachain height
 		let latest_height = if let Some(latest_height) = config.latest_height {
@@ -154,22 +158,18 @@ where
 	}
 
 	pub fn req_commitments_key(&self, commitment: H256) -> Vec<u8> {
-		let addr = runtime::api::storage().ismp().request_commitments(&commitment);
-		self.client.storage().address_bytes(&addr).expect("Infallible")
+		request_commitment_storage_key(commitment)
 	}
 
 	pub fn res_commitments_key(&self, commitment: H256) -> Vec<u8> {
-		let addr = runtime::api::storage().ismp().response_commitments(&commitment);
-		self.client.storage().address_bytes(&addr).expect("Infallible")
+		response_commitment_storage_key(commitment)
 	}
 
 	pub fn req_receipts_key(&self, commitment: H256) -> Vec<u8> {
-		let addr = runtime::api::storage().ismp().request_receipts(&commitment);
-		self.client.storage().address_bytes(&addr).expect("Infallible")
+		request_receipt_storage_key(commitment)
 	}
 
 	pub fn res_receipt_key(&self, commitment: H256) -> Vec<u8> {
-		let addr = runtime::api::storage().ismp().response_receipts(&commitment);
-		self.client.storage().address_bytes(&addr).expect("Infallible")
+		response_receipt_storage_key(commitment)
 	}
 }

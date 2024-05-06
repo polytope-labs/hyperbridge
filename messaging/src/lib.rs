@@ -223,7 +223,12 @@ where
 		Ok(events) => events
 			.into_iter()
 			.filter(|ev| {
-				filter_events(coprocessor.state_machine(), chain_a.state_machine_id().state_id, ev)
+				filter_events(
+					&config,
+					coprocessor.state_machine(),
+					chain_a.state_machine_id().state_id,
+					ev,
+				)
 			})
 			.collect::<Vec<_>>(),
 		Err(err) => {

@@ -13,9 +13,8 @@ use codec::{Decode, Encode};
 use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
-	messaging::{Message, Proof},
+	messaging::{hash_request, hash_response, Keccak256, Message, Proof},
 	router::{Post, Request, RequestResponse},
-	util::{hash_request, hash_response, Keccak256},
 };
 use itertools::Itertools;
 use pallet_ismp_relayer::withdrawal::{Key, WithdrawalProof};
@@ -25,7 +24,9 @@ use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
 use std::{collections::BTreeSet, sync::Arc};
 use tesseract_evm::EvmConfig;
-use tesseract_primitives::{HyperbridgeClaim, IsmpProvider, TxReceipt, WithdrawFundsResult};
+use tesseract_primitives::{
+	HyperbridgeClaim, IsmpProvider, StateProofQueryType, TxReceipt, WithdrawFundsResult,
+};
 use tesseract_substrate::SubstrateConfig;
 
 mod db;
@@ -205,8 +206,8 @@ impl TransactionPayment {
 			.collect::<Vec<_>>();
 
 		let mut proofs = vec![];
-		// Chunk keys by 20 each
-		for chunk in keys.chunks(20) {
+		// Chunk keys by 50 each
+		for chunk in keys.chunks(50) {
 			// Gather keys to be queried on the source chain
 			let mut source_chain_storage_keys = vec![];
 			let mut dest_chain_storage_keys = vec![];
@@ -220,14 +221,18 @@ impl TransactionPayment {
 			let source_proof = source
 				.query_state_proof(
 					source_height,
-					source_chain_storage_keys.into_iter().flatten().collect(),
+					StateProofQueryType::Ismp(
+						source_chain_storage_keys.into_iter().flatten().collect(),
+					),
 				)
 				.await?;
 
 			let dest_proof = dest
 				.query_state_proof(
 					dest_height,
-					dest_chain_storage_keys.into_iter().flatten().collect(),
+					StateProofQueryType::Ismp(
+						dest_chain_storage_keys.into_iter().flatten().collect(),
+					),
 				)
 				.await?;
 
@@ -469,8 +474,8 @@ impl TransactionPayment {
 		});
 
 		let mut proofs = vec![];
-		// We chunk keys by 20 each
-		for chunk in keys_to_prove.chunks(20) {
+		// We chunk keys by 50 each
+		for chunk in keys_to_prove.chunks(50) {
 			// Gather keys to be queried on the source chain
 			let mut source_chain_storage_keys = vec![];
 			let mut dest_chain_storage_keys = vec![];
@@ -484,14 +489,18 @@ impl TransactionPayment {
 			let source_proof = source
 				.query_state_proof(
 					source_height,
-					source_chain_storage_keys.into_iter().flatten().collect(),
+					StateProofQueryType::Ismp(
+						source_chain_storage_keys.into_iter().flatten().collect(),
+					),
 				)
 				.await?;
 
 			let dest_proof = dest
 				.query_state_proof(
 					dest_height,
-					dest_chain_storage_keys.into_iter().flatten().collect(),
+					StateProofQueryType::Ismp(
+						dest_chain_storage_keys.into_iter().flatten().collect(),
+					),
 				)
 				.await?;
 

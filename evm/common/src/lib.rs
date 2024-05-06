@@ -1,10 +1,4 @@
-use crate::{
-	abi::{EvmHost, PingModule},
-	consts::{
-		REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
-		RESPONSE_RECEIPTS_SLOT,
-	},
-};
+use crate::abi::{EvmHost, PingModule};
 
 use ethabi::ethereum_types::{H256, U256};
 use ethers::{
@@ -20,6 +14,11 @@ use ismp::{
 	host::{Ethereum, StateMachine},
 };
 
+use evm_common::presets::{
+	REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
+	RESPONSE_RECEIPTS_SLOT,
+};
+
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::sync::Arc;
@@ -27,7 +26,6 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 pub mod abi;
 pub mod arbitrum;
-pub mod consts;
 mod gas_oracle;
 mod host;
 #[cfg(any(feature = "testing", test))]
@@ -41,8 +39,8 @@ pub mod tx;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvmConfig {
-	/// RPC url for the execution client
-	pub rpc_url: String,
+	/// RPC urls for the execution client
+	pub rpc_urls: Vec<String>,
 	/// State machine Identifier for this client on it's counterparties.
 	pub state_machine: StateMachine,
 	/// Consensus state id for the consensus client on counterparty chain
@@ -61,12 +59,15 @@ pub struct EvmConfig {
 	pub query_batch_size: Option<u64>,
 	/// Polling frequency for state machine updates in seconds
 	pub poll_interval: Option<u64>,
+	/// An optional buffer to add to gas price as a percentage of the current gas price
+	/// to increase likelihood of the transactions going through e.g 1%, 2%
+	pub gas_price_buffer: Option<u32>,
 }
 
 impl Default for EvmConfig {
 	fn default() -> Self {
 		Self {
-			rpc_url: Default::default(),
+			rpc_urls: Default::default(),
 			state_machine: StateMachine::Ethereum(Ethereum::ExecutionLayer),
 			consensus_state_id: Default::default(),
 			ismp_host: Default::default(),
@@ -76,6 +77,7 @@ impl Default for EvmConfig {
 			tracing_batch_size: Default::default(),
 			query_batch_size: Default::default(),
 			poll_interval: Default::default(),
+			gas_price_buffer: Default::default(),
 		}
 	}
 }
@@ -119,7 +121,10 @@ where
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
 		let address = signer.public().to_eth_address().expect("Infallible").to_vec();
 
-		let provider = Provider::<Http>::try_from(config.rpc_url.clone())?;
+		let http_client = Http::new_client_with_chain_middleware(
+			config.rpc_urls.into_iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
+		);
+		let provider = Provider::new(http_client);
 		let client = Arc::new(provider.clone());
 		let chain_id = client.get_chainid().await?.low_u64();
 		let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)

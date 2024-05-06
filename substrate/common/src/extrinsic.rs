@@ -15,7 +15,7 @@
 
 //! Extrinsic utilities
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use codec::Encode;
 use sp_core::{sr25519, Pair};
 use subxt::{
@@ -134,13 +134,13 @@ where
 
 			p
 		},
-		Err(err) => Err(err).context("Failed to submit unsigned extrinsic")?,
+		Err(err) => Err(anyhow!(err.to_string())).context("Failed to submit unsigned extrinsic")?,
 	};
 	let ext_hash = progress.extrinsic_hash();
 
 	let extrinsic = match progress.wait_for_in_block().await {
 		Ok(p) => p,
-		Err(err) => Err(err).context(format!(
+		Err(err) => Err(anyhow!(err.to_string())).context(format!(
 			"Error waiting for unsigned extrinsic in block with hash {ext_hash:?}"
 		))?,
 	};
@@ -150,7 +150,8 @@ where
 			log::info!("Successfully executed unsigned extrinsic {ext_hash:?}");
 			p.block_hash()
 		},
-		Err(err) => Err(err).context(format!("Error executing unsigned extrinsic {ext_hash:?}"))?,
+		Err(err) => Err(anyhow!(err.to_string()))
+			.context(format!("Error executing unsigned extrinsic {ext_hash:?}"))?,
 	};
 	Ok(Some(hash))
 }

@@ -16,36 +16,13 @@
 //! Subxt [`Config`] implementations
 
 use codec::Encode;
-use sp_core::{blake2_256, keccak_256};
+use sp_core::blake2_256;
 use subxt::{
 	config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
 	utils::{AccountId32, MultiAddress, MultiSignature, H256},
 };
 
-/// Implements [`subxt::Config`] for substrate chains with keccak as their hashing algorithm
-#[derive(Clone)]
-pub struct KeccakSubstrateChain;
-
-/// A type that can hash values using the keccak_256 algorithm.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode)]
-pub struct KeccakHasher;
-
-impl Hasher for KeccakHasher {
-	type Output = H256;
-	fn hash(s: &[u8]) -> Self::Output {
-		keccak_256(s).into()
-	}
-}
-
-impl subxt::Config for KeccakSubstrateChain {
-	type Hash = H256;
-	type AccountId = AccountId32;
-	type Address = MultiAddress<Self::AccountId, u32>;
-	type Signature = MultiSignature;
-	type Hasher = KeccakHasher;
-	type Header = SubstrateHeader<u32, KeccakHasher>;
-	type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
-}
+pub use subxt_utils::Hyperbridge as KeccakSubstrateChain;
 
 /// Implements [`subxt::Config`] for substrate chains with blake2 as their hashing algorithm
 #[derive(Clone)]

@@ -1,6 +1,6 @@
 use crate::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, HyperbridgeClaim, IsmpHost, IsmpProvider,
-	Query, Signature, StateMachineUpdated, TxReceipt, WithdrawFundsResult,
+	Query, Signature, StateMachineUpdated, StateProofQueryType, TxReceipt, WithdrawFundsResult,
 };
 use anyhow::{anyhow, Error};
 use futures::stream;
@@ -10,6 +10,7 @@ use ismp::{
 	host::StateMachine,
 	messaging::{CreateConsensusState, Message},
 };
+use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::{Key, WithdrawalProof};
 use parity_scale_codec::Codec;
 use primitive_types::{H256, U256};
@@ -44,7 +45,6 @@ impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
 		&self,
 		_client: &C,
 		_chain: StateMachine,
-		_gas_limit: u64,
 	) -> anyhow::Result<WithdrawFundsResult> {
 		Err(anyhow!("Unimplemented"))
 	}
@@ -137,7 +137,11 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		Ok(Default::default())
 	}
 
-	async fn query_state_proof(&self, _at: u64, _keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
+	async fn query_state_proof(
+		&self,
+		_at: u64,
+		_keys: StateProofQueryType,
+	) -> Result<Vec<u8>, Error> {
 		Ok(Default::default())
 	}
 
@@ -229,11 +233,14 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		todo!()
 	}
 
-	async fn freeze_state_machine(&self, _id: StateMachineId) -> Result<(), Error> {
+	async fn veto_state_commitment(&self, _height: StateMachineHeight) -> Result<(), Error> {
 		todo!()
 	}
 
-	async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error> {
+	async fn query_host_params(
+		&self,
+		_state_machine: StateMachine,
+	) -> Result<HostParam<u128>, anyhow::Error> {
 		todo!()
 	}
 }

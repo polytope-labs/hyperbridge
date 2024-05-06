@@ -59,7 +59,7 @@ pub enum Chain {
 impl Chain {
 	pub fn para_id(&self) -> u32 {
 		match self {
-			Chain::Gargantua => 4374,
+			Chain::Gargantua => 4009,
 			Chain::Messier => 3340,
 			Chain::Dev => 2000,
 		}

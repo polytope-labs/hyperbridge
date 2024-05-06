@@ -21,7 +21,7 @@ use crate::{
 };
 use codec::Encode;
 use futures::stream::StreamExt;
-use ismp_demo::{EvmParams, GetRequest, TransferParams};
+use pallet_ismp_demo::{EvmParams, GetRequest, TransferParams};
 use primitives::IsmpHost;
 use subxt::{
 	config::{
@@ -83,7 +83,7 @@ where
 		Ok(())
 	}
 
-	pub async fn ismp_demo_events_stream(
+	pub async fn pallet_ismp_demo_events_stream(
 		&self,
 		count: usize,
 		pallet_name: &'static str,

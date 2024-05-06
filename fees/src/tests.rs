@@ -2,9 +2,8 @@ use crate::TransactionPayment;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::{Ethereum, StateMachine},
-	messaging::{Message, Proof, RequestMessage, ResponseMessage},
+	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
 	router::{Post, PostResponse, Request, RequestResponse, Response},
-	util::{hash_request, hash_response},
 };
 use tesseract_primitives::{mocks::MockHost, Hasher, Query, TxReceipt};
 
@@ -20,7 +19,6 @@ async fn transaction_payments_flow() {
 			to: vec![],
 			timeout_timestamp: 0,
 			data: vec![],
-			gas_limit: i,
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -45,11 +43,9 @@ async fn transaction_payments_flow() {
 				to: vec![],
 				timeout_timestamp: 0,
 				data: vec![],
-				gas_limit: i,
 			},
 			response: vec![0u8; 64],
 			timeout_timestamp: i,
-			gas_limit: i,
 		});
 
 		let commitment = hash_response::<Hasher>(&resp);
@@ -107,7 +103,6 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 			to: vec![],
 			timeout_timestamp: 0,
 			data: vec![],
-			gas_limit: i,
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -132,11 +127,9 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 				to: vec![],
 				timeout_timestamp: 0,
 				data: vec![],
-				gas_limit: i,
 			},
 			response: vec![0u8; 64],
 			timeout_timestamp: i,
-			gas_limit: i,
 		});
 
 		let commitment = hash_response::<Hasher>(&resp);
@@ -163,7 +156,6 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 			to: vec![],
 			timeout_timestamp: 0,
 			data: vec![],
-			gas_limit: i,
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -187,7 +179,6 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 			to: vec![],
 			timeout_timestamp: 0,
 			data: vec![],
-			gas_limit: i,
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -211,7 +202,6 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 			to: vec![],
 			timeout_timestamp: 0,
 			data: vec![],
-			gas_limit: i,
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -235,7 +225,6 @@ async fn test_unique_deliveries() -> anyhow::Result<()> {
 			to: vec![],
 			timeout_timestamp: 0,
 			data: vec![],
-			gas_limit: i,
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -283,7 +272,6 @@ async fn highest_delivery_height() {
 			to: vec![],
 			timeout_timestamp: 0,
 			data: vec![],
-			gas_limit: i,
 		};
 		let req = Request::Post(post);
 		let commitment = hash_request::<Hasher>(&req);
@@ -308,11 +296,9 @@ async fn highest_delivery_height() {
 				to: vec![],
 				timeout_timestamp: 0,
 				data: vec![],
-				gas_limit: i,
 			},
 			response: vec![0u8; 64],
 			timeout_timestamp: i,
-			gas_limit: i,
 		});
 
 		let commitment = hash_response::<Hasher>(&resp);

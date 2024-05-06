@@ -120,11 +120,11 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-	fn delete_request_receipt(&self, _req: &Request) -> Result<(), Error> {
+	fn delete_request_receipt(&self, _req: &Request) -> Result<Vec<u8>, Error> {
 		todo!()
 	}
 
-	fn delete_response_receipt(&self, _res: &PostResponse) -> Result<(), Error> {
+	fn delete_response_receipt(&self, _res: &Response) -> Result<Vec<u8>, Error> {
 		todo!()
 	}
 
@@ -144,14 +144,6 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-	fn freeze_state_machine(&self, _height: StateMachineId) -> Result<(), Error> {
-		todo!()
-	}
-
-	fn unfreeze_state_machine(&self, _state_machine: StateMachineId) -> Result<(), Error> {
-		todo!()
-	}
-
 	fn freeze_consensus_client(&self, _consensus_state_id: ConsensusStateId) -> Result<(), Error> {
 		todo!()
 	}
@@ -160,11 +152,11 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-	fn delete_request_commitment(&self, _req: &Request) -> Result<(), Error> {
+	fn delete_request_commitment(&self, _req: &Request) -> Result<Vec<u8>, Error> {
 		todo!()
 	}
 
-	fn delete_response_commitment(&self, _res: &PostResponse) -> Result<(), Error> {
+	fn delete_response_commitment(&self, _res: &PostResponse) -> Result<Vec<u8>, Error> {
 		todo!()
 	}
 
@@ -207,9 +199,25 @@ impl ismp::host::IsmpHost for Host {
 	fn consensus_clients(&self) -> Vec<Box<dyn ConsensusClient>> {
 		todo!()
 	}
+
+	fn delete_state_commitment(&self, _height: StateMachineHeight) -> Result<(), Error> {
+		todo!()
+	}
+
+	fn freeze_state_machine_client(&self, _state_machine: StateMachineId) -> Result<(), Error> {
+		todo!()
+	}
+
+	fn store_request_commitment(&self, _req: &Request, _meta: Vec<u8>) -> Result<(), Error> {
+		todo!()
+	}
+
+	fn store_response_commitment(&self, _res: &PostResponse, _meta: Vec<u8>) -> Result<(), Error> {
+		todo!()
+	}
 }
 
-impl ismp::util::Keccak256 for Host {
+impl ismp::messaging::Keccak256 for Host {
 	fn keccak256(bytes: &[u8]) -> H256
 	where
 		Self: Sized,
@@ -220,6 +228,8 @@ impl ismp::util::Keccak256 for Host {
 
 #[cfg(test)]
 mod tests {
+	use std::sync::Arc;
+
 	use crate::{
 		abi::{erc_20::Erc20, PingMessage, PingModule},
 		SecretKey,
@@ -235,7 +245,6 @@ mod tests {
 	use ismp_solidity_abi::evm_host::EvmHost;
 	use primitive_types::{H160, U256};
 	use sp_core::Pair;
-	use std::sync::Arc;
 
 	#[tokio::test]
 	#[ignore]
@@ -257,7 +266,7 @@ mod tests {
 			"https://clean-capable-dew.bsc-testnet.quiknode.pro/bed456956996abb801b7ab44fdb3f6f63cd1a4ec/".into(),
 		);
 
-		let ping_addr = H160(hex!("d4812d6A3b9fB46feA314260Cbb61D57EBc71D7F"));
+		let ping_addr = H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"));
 
 		let chains = vec![
 			(StateMachine::Ethereum(Ethereum::ExecutionLayer), geth_url),
@@ -274,7 +283,7 @@ mod tests {
 				let chains_clone = chains.clone();
 				async move {
 					let signer = sp_core::ecdsa::Pair::from_seed_slice(&hex!(
-						"6456101e79abe59d2308d63314503446857d4f1f949468bf5627e86e3d6adebd"
+						"700c4f6bac6c4c49f9beffc33b808ceb214d87d883018a6f1c28335d75163f75"
 					))?;
 					let provider = Arc::new(Provider::<Http>::try_connect(&url).await?);
 					let signer =
@@ -288,17 +297,17 @@ mod tests {
 
 					let host = EvmHost::new(host_addr, client.clone());
 					let erc_20 = Erc20::new(
-						host.dai().await.context(format!("Error in {chain:?}"))?,
+						host.fee_token().await.context(format!("Error in {chain:?}"))?,
 						client.clone(),
 					);
-					let call = erc_20.approve(host_addr, U256::max_value());
+					let call = erc_20.approve(ping_addr, U256::max_value());
 					let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
 					call.gas(gas)
 						.send()
 						.await
-						.context(format!("Failed to send approval for {host_addr} in {chain:?}"))?
+						.context(format!("Failed to send approval for {ping_addr} in {chain:?}"))?
 						.await
-						.context(format!("Failed to approve {host_addr} in {chain:?}"))?;
+						.context(format!("Failed to approve {ping_addr} in {chain:?}"))?;
 
 					for (chain, _) in chains_clone.iter().filter(|(c, _)| chain != *c) {
 						for _ in 0..10 {

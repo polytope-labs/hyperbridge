@@ -1,6 +1,6 @@
 [package]
 name = "tesseract"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "Chain agnostic relayer implementation for ISMP"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -42,7 +42,7 @@ clap = { version = "4.3.5", features = ["derive"] }
 tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
 ethers = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
-rust_socketio = { version = "0.4.4" }
+rust_socketio = { version = "0.6.0", features = ["async"] }
 sp-core = { workspace = true, features = ["full_crypto"] }
 tracing-indicatif = "0.3.6"
 tracing = "0.1.40"
@@ -51,8 +51,10 @@ console-subscriber = { version = "0.2.0", optional = true }
 [dev-dependencies]
 divide_range = "0.1.1"
 subxt = { version = "0.30.1", features = ["substrate-compat"] }
-ismp-rpc.workspace = true
+pallet-ismp-rpc.workspace = true
 itertools = "0.12.1"
+pallet-ismp-host-executive.workspace = true
+pallet-hyperbridge.workspace = true
 
 [features]
 consensus = []

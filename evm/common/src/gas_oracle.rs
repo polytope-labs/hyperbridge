@@ -11,10 +11,11 @@ use ismp::host::{Ethereum, StateMachine};
 use primitive_types::{H160, U256};
 use reqwest::{
 	header::{HeaderMap, USER_AGENT},
-	Client, Response,
+	Client,
 };
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
+use serde::de::DeserializeOwned;
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use tesseract_primitives::Cost;
 
@@ -74,6 +75,7 @@ pub async fn get_current_gas_cost_in_usd(
 	chain: StateMachine,
 	api_keys: &String,
 	client: Arc<Provider<Http>>,
+	gas_price_buffer: Option<u32>,
 ) -> Result<GasBreakdown, Error> {
 	let mut gas_price_cost = U256::zero();
 	let mut gas_price = U256::zero();
@@ -88,10 +90,8 @@ pub async fn get_current_gas_cost_in_usd(
 				Ethereum::Arbitrum => {
 					let node_gas_price = client.get_gas_price().await?;
 					let arb_gas_info_contract = ArbGasInfo::new(H160(ARB_GAS_INFO), client);
-					let oracle_gas_price = arb_gas_info_contract.get_minimum_gas_price().await?;
+					let (.., oracle_gas_price) = arb_gas_info_contract.get_prices_in_wei().await?;
 					gas_price = std::cmp::max(node_gas_price, oracle_gas_price); // minimum gas price is 0.1 Gwei
-															 // todo: This is a hack, we need a reliable gas api for L2 chains
-					gas_price = gas_price + 2_000_000;
 					let response_json = get_eth_to_usd_price(&eth_price_uri).await?;
 					let eth_usd = parse_to_27_decimals(&response_json.result.ethusd)?;
 					unit_wei = get_cost_of_one_wei(eth_usd);
@@ -121,12 +121,10 @@ pub async fn get_current_gas_cost_in_usd(
 						}
 
 						// sepolia
-						let data = make_request(
+						let data = make_request::<Response>(
 							"https://sepolia.beaconcha.in/api/v1/execution/gasnow",
 							Default::default(),
 						)
-						.await?
-						.json::<Response>()
 						.await?
 						.data
 						.standard;
@@ -175,14 +173,12 @@ pub async fn get_current_gas_cost_in_usd(
 				let mut header_map = HeaderMap::new();
 				// Polygon gas API returns forbidden if the user agent is not set
 				header_map.insert(USER_AGENT, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".parse().unwrap());
-				let response =
-					make_request(POLYGON_TESTNET, header_map).await?.json::<Response>().await?;
+				let response = make_request::<Response>(POLYGON_TESTNET, header_map).await?;
 				let node_gas_price: U256 = client.get_gas_price().await?;
 				let oracle_gas_price =
 					parse_units(response.standard.max_priority_fee.to_string(), "gwei")?.into();
 				gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
-				let response = make_request(&uri, Default::default()).await?;
-				let response_json: GasResponse = response.json().await?;
+				let response_json = make_request::<GasResponse>(&uri, Default::default()).await?;
 				let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
 				unit_wei = get_cost_of_one_wei(eth_usd);
 				gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
@@ -192,8 +188,7 @@ pub async fn get_current_gas_cost_in_usd(
 				let uri = format!(
                     "https://api.polygonscan.com/api?module=gastracker&action=gasoracle&apikey={api_keys}"
                 );
-				let response = make_request(&uri, Default::default()).await?;
-				let response_json: GasResponse = response.json().await?;
+				let response_json = make_request::<GasResponse>(&uri, Default::default()).await?;
 				let oracle_gas_price =
 					parse_units(response_json.result.safe_gas_price.to_string(), "gwei")?.into();
 				gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
@@ -209,16 +204,14 @@ pub async fn get_current_gas_cost_in_usd(
 
 			if TESTNET_CHAIN_IDS.contains(&chain_id) {
 				gas_price = client.get_gas_price().await?;
-				let response = make_request(&uri, Default::default()).await?;
-				let response_json: GasResponse = response.json().await?;
+				let response_json = make_request::<GasResponse>(&uri, Default::default()).await?;
 				let eth_usd = parse_to_27_decimals(&response_json.result.usd_price)?;
 				let unit_wei = get_cost_of_one_wei(eth_usd);
 				gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 			} else {
 				let node_gas_price: U256 = client.get_gas_price().await?;
 				// Mainnet
-				let response = make_request(&uri, Default::default()).await?;
-				let response_json: GasResponse = response.json().await?;
+				let response_json = make_request::<GasResponse>(&uri, Default::default()).await?;
 				let oracle_gas_price =
 					parse_units(response_json.result.safe_gas_price.to_string(), "gwei")?.into();
 				gas_price = std::cmp::max(node_gas_price, oracle_gas_price);
@@ -234,6 +227,11 @@ pub async fn get_current_gas_cost_in_usd(
 		"Returned gas price for {chain:?}: {} Gwei",
 		ethers::utils::format_units(gas_price, "gwei").unwrap()
 	);
+
+	let buffer = gas_price_buffer
+		.map(|buffer| (U256::from(buffer) * gas_price) / U256::from(100u32))
+		.unwrap_or_default();
+	gas_price = gas_price + buffer;
 
 	Ok(GasBreakdown { gas_price, gas_price_cost: gas_price_cost.into(), unit_wei_cost: unit_wei })
 }
@@ -270,25 +268,30 @@ pub async fn get_l2_data_cost(
 	Ok(convert_27_decimals_to_18_decimals(data_cost)?.into())
 }
 
-async fn make_request(url: &str, header_map: HeaderMap) -> anyhow::Result<Response> {
-	// Retry up to 3 times with increasing intervals between attempts.
-	let mut retry_policy = ExponentialBackoff::builder().build_with_max_retries(5);
-	retry_policy.max_retry_interval = Duration::from_secs(3 * 60);
-	let client = ClientBuilder::new(Client::new())
-		.with(RetryTransientMiddleware::new_with_policy(retry_policy))
-		.build();
+async fn make_request<T: DeserializeOwned>(url: &str, header_map: HeaderMap) -> anyhow::Result<T> {
+	// Retry a request twice in case the response does not deserialize correctly the first time
+	for _ in 0..2 {
+		// Retry up to 3 times with increasing intervals between attempts.
+		let mut retry_policy = ExponentialBackoff::builder().build_with_max_retries(5);
+		retry_policy.max_retry_interval = Duration::from_secs(3 * 60);
+		let client = ClientBuilder::new(Client::new())
+			.with(RetryTransientMiddleware::new_with_policy(retry_policy))
+			.build();
 
-	let res = client.get(url).headers(header_map).send().await?;
-	Ok(res)
+		let res = client.get(url).headers(header_map.clone()).send().await?;
+		if let Ok(response) = res.json().await {
+			return Ok(response)
+		}
+	}
+
+	Err(anyhow!("Failed to get response for request"))
 }
 
 pub async fn get_eth_gas_and_price(
 	uri: &String,
 	uri_eth_price: &String,
 ) -> Result<GasResult, Error> {
-	let response = make_request(uri, Default::default()).await?;
-
-	let response_json: GasResponseEthereum = response.json().await?;
+	let response_json = make_request::<GasResponseEthereum>(uri, Default::default()).await?;
 	let eth_to_usd_response = get_eth_to_usd_price(uri_eth_price).await?;
 
 	Ok(GasResult {
@@ -299,8 +302,8 @@ pub async fn get_eth_gas_and_price(
 }
 
 pub async fn get_eth_to_usd_price(uri_eth_price: &String) -> Result<EthPriceResponse, Error> {
-	let usd_response = make_request(uri_eth_price, Default::default()).await?;
-	Ok(usd_response.json::<EthPriceResponse>().await?)
+	let usd_response = make_request::<EthPriceResponse>(uri_eth_price, Default::default()).await?;
+	Ok(usd_response)
 }
 
 /// 27 decimals helps preserve significant digits for small values of currency e.g 0.56756, 0.0078
@@ -362,6 +365,7 @@ mod test {
 			StateMachine::Ethereum(Ethereum::ExecutionLayer),
 			&ethereum_etherscan_api_key,
 			client.clone(),
+			None,
 		)
 		.await
 		.unwrap();
@@ -385,6 +389,7 @@ mod test {
 			StateMachine::Ethereum(Ethereum::ExecutionLayer),
 			&ethereum_etherscan_api_key,
 			client.clone(),
+			None,
 		)
 		.await
 		.unwrap();
@@ -408,6 +413,7 @@ mod test {
 			StateMachine::Polygon,
 			&ethereum_etherscan_api_key,
 			client.clone(),
+			None,
 		)
 		.await
 		.unwrap();
@@ -431,6 +437,7 @@ mod test {
 			StateMachine::Polygon,
 			&ethereum_etherscan_api_key,
 			client.clone(),
+			None,
 		)
 		.await
 		.unwrap();
@@ -454,6 +461,7 @@ mod test {
 			StateMachine::Bsc,
 			&ethereum_etherscan_api_key,
 			client.clone(),
+			None,
 		)
 		.await
 		.unwrap();
@@ -476,6 +484,7 @@ mod test {
 			StateMachine::Ethereum(Ethereum::Arbitrum),
 			&ethereum_etherscan_api_key,
 			client.clone(),
+			None,
 		)
 		.await
 		.unwrap();
@@ -498,6 +507,7 @@ mod test {
 			StateMachine::Ethereum(Ethereum::Optimism),
 			&ethereum_etherscan_api_key,
 			client.clone(),
+			None,
 		)
 		.await
 		.unwrap();
@@ -519,6 +529,7 @@ mod test {
 			StateMachine::Ethereum(Ethereum::Optimism),
 			&ethereum_etherscan_api_key,
 			client.clone(),
+			None,
 		)
 		.await
 		.unwrap();

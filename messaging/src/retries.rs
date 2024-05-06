@@ -3,9 +3,8 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
-	messaging::{Message, Proof, RequestMessage, ResponseMessage},
+	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
 	router::{Request, RequestResponse, Response},
-	util::{hash_request, hash_response},
 };
 use tesseract_client::AnyClient;
 use tesseract_primitives::{

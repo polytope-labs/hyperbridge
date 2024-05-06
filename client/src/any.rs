@@ -191,7 +191,7 @@ macro_rules! chain {
             async fn query_state_proof(
                 &self,
                 at: u64,
-                keys: Vec<Vec<u8>>,
+                keys: primitives::StateProofQueryType,
             ) -> Result<Vec<u8>, anyhow::Error> {
                 match self {
 					$(
@@ -382,20 +382,20 @@ macro_rules! chain {
 				}
 			}
 
-			async fn freeze_state_machine(&self, id: ismp::consensus::StateMachineId) -> Result<(), anyhow::Error> {
+			async fn veto_state_commitment(&self, height: ismp::consensus::StateMachineHeight) -> Result<(), anyhow::Error> {
 				match self {
 					$(
 						$(#[$($meta)*])*
-						Self::$name(chain) => chain.freeze_state_machine(id).await,
+						Self::$name(chain) => chain.veto_state_commitment(height).await,
 					)*
 				}
 			}
 
-			async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error> {
+			async fn query_host_params(&self, state_machine: ismp::host::StateMachine) -> Result<pallet_ismp_host_executive::HostParam<u128>, anyhow::Error> {
 				match self {
 					$(
 						$(#[$($meta)*])*
-						Self::$name(chain) => chain.query_host_manager_address().await,
+						Self::$name(chain) => chain.query_host_params(state_machine).await,
 					)*
 				}
 			}

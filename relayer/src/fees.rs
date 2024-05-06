@@ -1,12 +1,12 @@
 use crate::{config::HyperbridgeConfig, create_client_map, logging};
+use anyhow::anyhow;
 use ethers::providers::interval;
 use futures::StreamExt;
 use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
-	messaging::{Message, Proof, RequestMessage},
+	messaging::{hash_request, Message, Proof, RequestMessage},
 	router::Request,
-	util::hash_request,
 };
 use primitives::{
 	config::RelayerConfig, observe_challenge_period, wait_for_challenge_period,
@@ -265,7 +265,7 @@ impl AccumulateFees {
 							Cost(amount)
 						);
 						let result = hyperbridge
-							.withdraw_funds(&client, chain, self.gas_limit.unwrap_or_default())
+							.withdraw_funds(&client, chain)
 							.await?;
 						log::info!("Request submitted to hyperbridge successfully");
 						log::info!("Starting delivery of withdrawal message to {:?}", chain);
@@ -350,7 +350,7 @@ where
 							Cost(amount)
 						);
 						let result = hyperbridge
-							.withdraw_funds(&client, chain, 0)
+							.withdraw_funds(&client, chain)
 							.await?;
 						tracing::info!("Request submitted to hyperbridge successfully");
 						tracing::info!("Starting delivery of withdrawal message to {:?}", chain);
@@ -402,24 +402,24 @@ async fn deliver_post_request<C: IsmpProvider, D: IsmpProvider>(
 			.state_machine_update_notification(hyperbridge.state_machine_id())
 			.await?;
 
-		while let Some(res) = stream.next().await {
-			match res {
-				Ok(event) =>
+		latest_height = loop {
+			match stream.next().await {
+				Some(Ok(event)) =>
 					if event.latest_height < result.block {
 						continue;
 					} else {
 						log::info!("Found a state machine update: {}", event.latest_height);
-						latest_height = event.latest_height;
-						break;
+						break event.latest_height;
 					},
-				Err(_) => {
+				Some(Err(_)) => {
 					log::error!(
 						"An error occured waiting for state machine update from {}, Retrying",
 						dest_chain.name()
 					);
 				},
+				None => Err(anyhow!("Error waiting for state machine update"))?,
 			}
-		}
+		};
 	}
 
 	let state_machine_id = hyperbridge.state_machine_id();
@@ -471,22 +471,23 @@ async fn deliver_post_request<C: IsmpProvider, D: IsmpProvider>(
 		}
 	}
 
-	Ok(())
+	Err(anyhow::anyhow!("Failed to deliver post request"))
 }
 
 #[cfg(test)]
 mod tests {
 	use crate::{config::HyperbridgeConfig, create_client_map, logging};
+	use codec::Encode;
 	use divide_range::RangeDivisions;
 	use futures::{stream, TryStreamExt};
 	use ismp::{
 		consensus::StateMachineHeight,
-		messaging::{Message, Proof, RequestMessage},
+		messaging::{hash_request, Message, Proof, RequestMessage},
 		router::Request,
-		util::hash_request,
 	};
 	use itertools::Itertools;
-	use pallet_ismp::primitives::LeafIndexQuery;
+	use pallet_ismp::mmr::LeafIndexQuery;
+	use pallet_ismp_host_executive::HostParam;
 	use primitives::{IsmpProvider, Query};
 	use sp_core::H160;
 	use subxt::rpc_params;
@@ -574,7 +575,10 @@ mod tests {
 									commitment,
 									..
 								},
-							) if withdraw_event.phase == event.phase => Some(commitment),
+								// Eq is not implented for Phase in no-std so it didn't make it to
+								// the subxt types since they are generated from onchain metadata
+								// hence use of encoding to test equality
+							) if withdraw_event.phase.encode() == event.phase.encode() => Some(commitment),
 							_ => None,
 						})
 						// it should exist
@@ -647,7 +651,14 @@ mod tests {
 
 				async move {
 					for post in posts {
-						let host_manager = dest_chain.query_host_manager_address().await?;
+						let host_manager = match dest_chain
+							.query_host_params(dest_chain.state_machine_id().state_id)
+							.await?
+						{
+							HostParam::EvmHostParam(params) => params.host_manager.0.to_vec(),
+							HostParam::SubstrateHostParam(_) =>
+								pallet_hyperbridge::PALLET_HYPERBRIDGE.0.to_vec(),
+						};
 						if post.to != host_manager {
 							tracing::info!("Skipping outdated withdrawal to {dest:?}");
 							continue;

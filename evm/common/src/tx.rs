@@ -1,5 +1,5 @@
 use crate::EvmClient;
-use anyhow::{anyhow, Error};
+use anyhow::anyhow;
 use codec::Decode;
 use ethers::{
 	contract::{parse_log, FunctionCall},
@@ -15,24 +15,20 @@ use ethers::{
 use ismp::{
 	host::{Ethereum, StateMachine},
 	messaging::{Message, ResponseMessage, TimeoutMessage},
-	router::{Request, RequestResponse, Response},
+	router::{RequestResponse, Response},
 };
-use ismp_rpc::MmrProof;
 use ismp_solidity_abi::{
-	beefy::{GetRequest, StateMachineHeight},
+	beefy::StateMachineHeight,
 	evm_host::{PostRequestHandledFilter, PostResponseHandledFilter},
 	handler::{
-		GetResponseMessage, GetTimeoutMessage, Handler as IsmpHandler, PostRequestLeaf,
-		PostRequestMessage, PostRequestTimeoutMessage, PostResponseLeaf, PostResponseMessage,
-		PostResponseTimeoutMessage, Proof,
+		Handler as IsmpHandler, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
+		PostResponseMessage, Proof,
 	},
 };
-use mmr_utils::mmr_position_to_k_index;
-use pallet_ismp::{
-	primitives::{LeafIndexAndPos, SubstrateStateProof},
-	NodesUtils,
-};
+use mmr_primitives::mmr_position_to_k_index;
+use pallet_ismp::mmr::{LeafIndexAndPos, Proof as MmrProof};
 use primitive_types::{H160, H256, U256};
+use sp_mmr_primitives::utils::NodesUtils;
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 use crate::gas_oracle::get_current_gas_cost_in_usd;
@@ -135,6 +131,7 @@ where
 				client.state_machine,
 				&client.config.etherscan_api_key.clone(),
 				client.client.clone(),
+				client.config.gas_price_buffer,
 			)
 			.await?
 			.gas_price * 2; // for good measure
@@ -225,6 +222,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 		client.state_machine,
 		&client.config.etherscan_api_key.clone(),
 		client.client.clone(),
+		client.config.gas_price_buffer,
 	)
 	.await?
 	.gas_price;
@@ -245,7 +243,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 				let membership_proof = MmrProof::<H256>::decode(&mut msg.proof.proof.as_slice())?;
 				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
 				let k_and_leaf_indices = membership_proof
-					.leaf_positions_and_indices
+					.leaf_indices_and_pos
 					.into_iter()
 					.map(|LeafIndexAndPos { pos, leaf_index }| {
 						let k_index = mmr_position_to_k_index(vec![pos], mmr_size)[0].1;
@@ -296,7 +294,7 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 				let membership_proof = MmrProof::<H256>::decode(&mut proof.proof.as_slice())?;
 				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
 				let k_and_leaf_indices = membership_proof
-					.leaf_positions_and_indices
+					.leaf_indices_and_pos
 					.into_iter()
 					.map(|LeafIndexAndPos { pos, leaf_index }| {
 						let k_index = mmr_position_to_k_index(vec![pos], mmr_size)[0].1;
@@ -351,182 +349,19 @@ pub async fn generate_contract_calls<I: IsmpHost>(
 							.gas_price(gas_price)
 							.gas(gas_limit)
 					},
-					RequestResponse::Request(requests) => {
-						let requests = match requests
-							.into_iter()
-							.map(|req| {
-								let get = req
-									.get_request()
-									.map_err(|_| anyhow!("Expected get request"))?;
-								Ok(GetRequest {
-									source: get.source.to_string().as_bytes().to_vec().into(),
-									dest: get.dest.to_string().as_bytes().to_vec().into(),
-									nonce: get.nonce,
-									from: get.from.into(),
-									keys: get.keys.into_iter().map(|key| key.into()).collect(),
-									timeout_timestamp: get.timeout_timestamp,
-									gaslimit: get.gas_limit.into(),
-									height: get.height.into(),
-								})
-							})
-							.collect::<Result<Vec<_>, Error>>()
-						{
-							Ok(reqs) => reqs,
-							Err(err) => {
-								log::error!("Failed to error {err:?}");
-								continue;
-							},
-						};
-
-						let gas_limit = get_chain_gas_limit(client.state_machine);
-
-						let state_proof: SubstrateStateProof =
-							match codec::Decode::decode(&mut proof.proof.as_slice()) {
-								Ok(proof) => proof,
-								_ => {
-									log::error!("Failed to decode membership proof");
-									continue;
-								},
-							};
-						let message = GetResponseMessage {
-							proof: state_proof
-								.storage_proof
-								.into_iter()
-								.map(|key| key.into())
-								.collect(),
-							height: StateMachineHeight {
-								state_machine_id: {
-									match proof.height.id.state_id {
-										StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
-											id.into(),
-										_ => {
-											log::error!(
-												"Expected polkadot or kusama state machines"
-											);
-											continue;
-										},
-									}
-								},
-								height: proof.height.height.into(),
-							},
-							requests,
-						};
-
-						contract
-							.handle_get_responses(ismp_host, message)
-							.gas_price(gas_price)
-							.gas(gas_limit)
-					},
+					RequestResponse::Request(..) =>
+						Err(anyhow!("Get requests are not supported by relayer"))?,
 				};
 
 				calls.push(call);
 			},
-			Message::Timeout(TimeoutMessage::Post { timeout_proof, requests }) => {
-				let post_requests = requests
-					.into_iter()
-					.filter_map(|req| match req {
-						Request::Post(post) => Some(post.into()),
-						Request::Get(_) => None,
-					})
-					.collect();
-
-				let state_proof: SubstrateStateProof =
-					match codec::Decode::decode(&mut timeout_proof.proof.as_slice()) {
-						Ok(proof) => proof,
-						_ => {
-							log::error!("Failed to decode membership proof");
-							continue;
-						},
-					};
-				let message = PostRequestTimeoutMessage {
-					timeouts: post_requests,
-					height: StateMachineHeight {
-						state_machine_id: {
-							match timeout_proof.height.id.state_id {
-								StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
-								_ => {
-									log::error!("Expected polkadot or kusama state machines");
-									continue;
-								},
-							}
-						},
-						height: timeout_proof.height.height.into(),
-					},
-					proof: state_proof.storage_proof.into_iter().map(|key| key.into()).collect(),
-				};
-				let gas_limit = get_chain_gas_limit(client.state_machine);
-				let call = contract
-					.handle_post_request_timeouts(ismp_host, message)
-					.gas_price(gas_price)
-					.gas(gas_limit);
-
-				calls.push(call);
-			},
-			Message::Timeout(TimeoutMessage::PostResponse { timeout_proof, responses }) => {
-				let post_responses = responses.into_iter().map(|res| res.into()).collect();
-
-				let state_proof: SubstrateStateProof =
-					match codec::Decode::decode(&mut timeout_proof.proof.as_slice()) {
-						Ok(proof) => proof,
-						_ => {
-							log::error!("Failed to decode membership proof");
-							continue;
-						},
-					};
-				let message = PostResponseTimeoutMessage {
-					timeouts: post_responses,
-					height: StateMachineHeight {
-						state_machine_id: {
-							match timeout_proof.height.id.state_id {
-								StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
-								_ => {
-									log::error!("Expected polkadot or kusama state machines");
-									continue;
-								},
-							}
-						},
-						height: timeout_proof.height.height.into(),
-					},
-					proof: state_proof.storage_proof.into_iter().map(|key| key.into()).collect(),
-				};
-				let gas_limit = get_chain_gas_limit(client.state_machine);
-				let call = contract
-					.handle_post_response_timeouts(ismp_host, message)
-					.gas_price(gas_price)
-					.gas(gas_limit);
-
-				calls.push(call);
-			},
-			Message::Timeout(TimeoutMessage::Get { requests }) => {
-				let get_requests = requests
-					.into_iter()
-					.filter_map(|req| match req {
-						Request::Get(get) => Some(GetRequest {
-							source: get.source.to_string().as_bytes().to_vec().into(),
-							dest: get.dest.to_string().as_bytes().to_vec().into(),
-							nonce: get.nonce,
-							from: get.from.into(),
-							keys: get.keys.into_iter().map(|key| key.into()).collect(),
-							timeout_timestamp: get.timeout_timestamp,
-							gaslimit: get.gas_limit.into(),
-							height: get.height.into(),
-						}),
-						_ => None,
-					})
-					.collect();
-
-				let message = GetTimeoutMessage { timeouts: get_requests };
-				let gas_limit = get_chain_gas_limit(client.state_machine);
-				let call = contract
-					.handle_get_request_timeouts(ismp_host, message)
-					.gas_price(gas_price)
-					.gas(gas_limit);
-
-				calls.push(call);
-			},
-			Message::FraudProof(_) => {
-				log::warn!(target: "tesseract", "Unexpected fraud proof message")
-			},
+			Message::Timeout(TimeoutMessage::Post { .. }) =>
+				Err(anyhow!("Timeout messages not supported by relayer"))?,
+			Message::Timeout(TimeoutMessage::PostResponse { .. }) =>
+				Err(anyhow!("Timeout messages not supported by relayer"))?,
+			Message::Timeout(TimeoutMessage::Get { .. }) =>
+				Err(anyhow!("Timeout messages not supported by relayer"))?,
+			Message::FraudProof(_) => Err(anyhow!("Unexpected fraud proof message"))?,
 		}
 	}
 

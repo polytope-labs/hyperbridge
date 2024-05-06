@@ -13,20 +13,37 @@ use ismp::{
 	host::StateMachine,
 	messaging::CreateConsensusState,
 };
+use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, mmr::LeafIndexAndPos};
+use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::{
 	message,
 	withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalProof},
 };
 use primitives::{HyperbridgeClaim, IsmpHost, IsmpProvider, WithdrawFundsResult};
-use sp_core::{Pair, U256};
+use sp_core::{
+	storage::{ChildInfo, StorageData, StorageKey},
+	Pair, U256,
+};
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
 	},
 	ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+	rpc_params,
 	tx::TxPayload,
+	utils::AccountId32,
 	OnlineClient,
 };
+
+#[derive(codec::Encode, codec::Decode)]
+pub struct RequestMetadata {
+	/// Information about where it's stored in the offchain db
+	pub mmr: LeafIndexAndPos,
+	/// Other metadata about the request
+	pub meta: ismp::dispatcher::FeeMetadata<AccountId32, u128>,
+	/// Relayer Fee claimed?
+	pub claimed: bool,
+}
 
 impl<T, C> SubstrateClient<T, C>
 where
@@ -62,13 +79,12 @@ where
 		Ok(())
 	}
 
-	pub async fn set_host_manager_addresses(
+	pub async fn set_host_params(
 		&self,
-		addresses: BTreeMap<StateMachine, Vec<u8>>,
+		params: BTreeMap<StateMachine, HostParam<u128>>,
 	) -> anyhow::Result<()> {
-		let encoded_call =
-			Extrinsic::new("StateMachineManager", "set_host_manger_addresses", addresses.encode())
-				.encode_call_data(&self.client.metadata())?;
+		let encoded_call = Extrinsic::new("HostExecutive", "set_host_params", params.encode())
+			.encode_call_data(&self.client.metadata())?;
 		let tx = Extrinsic::new("Sudo", "sudo", encoded_call);
 		let signer = InMemorySigner::new(self.signer());
 		send_extrinsic(&self.client, signer, tx).await?;
@@ -104,8 +120,23 @@ where
 
 	/// Accumulate accrued fees on hyperbridge by submitting a claim proof
 	async fn accumulate_fees(&self, proof: WithdrawalProof) -> anyhow::Result<()> {
-		let tx = Extrinsic::new("Relayer", "accumulate_fees", proof.encode());
-		send_unsigned_extrinsic(&self.client, tx).await?;
+		let extrinsic = Extrinsic::new("Relayer", "accumulate_fees", proof.encode());
+		let encoded_call = extrinsic.encode_call_data(&self.client.metadata())?;
+		let uncompressed_len = encoded_call.len();
+		let max_compressed_size = zstd_safe::compress_bound(uncompressed_len);
+		let mut buffer = vec![0u8; max_compressed_size];
+		let compressed_call_len = zstd_safe::compress(&mut buffer[..], &encoded_call, 3)
+			.map_err(|_| anyhow!("Call compression failed"))?;
+		// If compression saving is less than 15% submit the uncompressed call
+		if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len) < 15usize
+		{
+			send_unsigned_extrinsic(&self.client, extrinsic).await?;
+		} else {
+			let compressed_call = buffer[0..compressed_call_len].to_vec();
+			let call = (compressed_call, uncompressed_len as u32).encode();
+			let extrinsic = Extrinsic::new("CallDecompressor", "decompress_call", call);
+			send_unsigned_extrinsic(&self.client, extrinsic).await?;
+		}
 
 		Ok(())
 	}
@@ -115,7 +146,6 @@ where
 		&self,
 		counterparty: &D,
 		chain: StateMachine,
-		gas_limit: u64,
 	) -> anyhow::Result<WithdrawFundsResult> {
 		let addr = runtime::api::storage()
 			.relayer()
@@ -129,7 +159,7 @@ where
 			counterparty.sign(&message)
 		};
 
-		let input_data = WithdrawalInputData { signature, dest_chain: chain, amount, gas_limit };
+		let input_data = WithdrawalInputData { signature, dest_chain: chain, amount };
 
 		let tx = Extrinsic::new("Relayer", "withdraw_fees", input_data.encode());
 		let hash = send_unsigned_extrinsic(&self.client, tx)
@@ -184,18 +214,30 @@ where
 	}
 
 	async fn check_claimed(&self, key: Key) -> anyhow::Result<bool> {
-		let claimed = match key {
+		let params = match key {
 			Key::Request(req) => {
-				let addr = runtime::api::storage().relayer().claimed(&req);
-				self.client.storage().at_latest().await?.fetch(&addr).await?.unwrap_or_default()
+				let key = self.req_commitments_key(req);
+				let child_storage_key =
+					ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
+				let storage_key = StorageKey(key);
+
+				rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None]
 			},
 			Key::Response { response_commitment, .. } => {
-				let addr = runtime::api::storage().relayer().claimed(&response_commitment);
-				self.client.storage().at_latest().await?.fetch(&addr).await?.unwrap_or_default()
+				let key = self.res_commitments_key(response_commitment);
+				let child_storage_key =
+					ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
+				let storage_key = StorageKey(key);
+				rpc_params![child_storage_key, storage_key, Option::<C::Hash>::None]
 			},
 		};
 
-		Ok(claimed)
+		let response: Option<StorageData> =
+			self.client.rpc().request("childstate_getStorage", params).await?;
+		let data = response.ok_or_else(|| anyhow!("Request fee metadata query returned None"))?;
+		let leaf_meta = RequestMetadata::decode(&mut &*data.0)?;
+
+		Ok(leaf_meta.claimed)
 	}
 }
 

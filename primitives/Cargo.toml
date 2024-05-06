@@ -21,6 +21,7 @@ ismp-solidity-abi.workspace = true
 pallet-ismp-relayer.workspace = true
 ismp.workspace = true
 sp-core.workspace = true
+pallet-ismp-host-executive.workspace = true
 
 
 [features]

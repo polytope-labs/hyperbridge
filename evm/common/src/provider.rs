@@ -11,13 +11,14 @@ use ethers::{
 	providers::Middleware,
 	types::{CallFrame, GethDebugTracingCallOptions, GethTrace, GethTraceFrame},
 };
+use evm_common::types::EvmStateProof;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::Event,
-	messaging::Message,
+	messaging::{hash_request, hash_response, Message},
 };
 use ismp_solidity_abi::evm_host::{PostRequestHandledFilter, PostResponseHandledFilter};
-use ismp_sync_committee::types::EvmStateProof;
+use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 
 use crate::{
 	gas_oracle::{get_current_gas_cost_in_usd, get_l2_data_cost},
@@ -37,15 +38,13 @@ use ismp::{
 	host::{Ethereum, StateMachine},
 	messaging::{CreateConsensusState, ResponseMessage},
 	router::{Request, RequestResponse},
-	util::{hash_request, hash_response},
 };
-use ismp_solidity_abi::handler::Handler;
 use primitive_types::U256;
 use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
 	BoxStream, EstimateGasReturnParams, Hasher, IsmpHost, IsmpProvider, Query, Signature,
-	StateMachineUpdated, TxReceipt,
+	StateMachineUpdated, StateProofQueryType, TxReceipt,
 };
 use tokio::time;
 
@@ -74,9 +73,14 @@ where
 		Ok(consensus_state.encode())
 	}
 
-	async fn query_latest_height(&self, _id: StateMachineId) -> Result<u32, Error> {
+	async fn query_latest_height(&self, id: StateMachineId) -> Result<u32, Error> {
+		let id = match id.state_id {
+			StateMachine::Polkadot(para_id) => para_id,
+			StateMachine::Kusama(para_id) => para_id,
+			_ => Err(anyhow!("Unexpected state machine"))?,
+		};
 		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
-		let value = contract.latest_state_machine_height().call().await?;
+		let value = contract.latest_state_machine_height(id.into()).call().await?;
 		Ok(value.low_u64() as u32)
 	}
 
@@ -182,85 +186,96 @@ where
 		Ok(proof.encode())
 	}
 
-	async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
-		let ismp_proof = keys.iter().all(|key| key.len() == 32);
-		let state_proof = if ismp_proof {
-			let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
-			let locations = keys.iter().map(|key| H256::from_slice(key)).collect();
-			let proof =
-				self.client.get_proof(self.config.ismp_host, locations, Some(at.into())).await?;
-			let mut storage_proofs = vec![];
-			for proof in proof.storage_proof {
-				storage_proofs
-					.push(StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.0.into())));
-			}
-
-			let storage_proof = StorageProof::merge(storage_proofs);
-			map.insert(
-				self.config.ismp_host.0.to_vec(),
-				storage_proof.into_nodes().into_iter().collect(),
-			);
-
-			let state_proof = EvmStateProof {
-				contract_proof: proof
-					.account_proof
-					.into_iter()
-					.map(|bytes| bytes.0.into())
-					.collect(),
-				storage_proof: map,
-			};
-			state_proof.encode()
-		} else {
-			let mut contract_proofs: Vec<_> = vec![];
-			let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
-			let mut contract_address_to_proofs = BTreeMap::new();
-			for key in keys {
-				if key.len() != 52 {
-					continue;
-				}
-
-				let contract_address = H160::from_slice(&key[..20]);
-				let slot_hash = H256::from_slice(&key[20..]);
+	async fn query_state_proof(
+		&self,
+		at: u64,
+		keys: StateProofQueryType,
+	) -> Result<Vec<u8>, Error> {
+		let state_proof = match keys {
+			StateProofQueryType::Ismp(keys) => {
+				let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
+				let locations = keys.iter().map(|key| H256::from_slice(key)).collect();
 				let proof = self
 					.client
-					.get_proof(contract_address, vec![slot_hash], Some(at.into()))
+					.get_proof(self.config.ismp_host, locations, Some(at.into()))
 					.await?;
-				contract_proofs.push(StorageProof::new(
-					proof.account_proof.into_iter().map(|node| node.0.into()),
-				));
+				let mut storage_proofs = vec![];
+				for proof in proof.storage_proof {
+					storage_proofs.push(StorageProof::new(
+						proof.proof.into_iter().map(|bytes| bytes.0.into()),
+					));
+				}
 
-				let entry =
-					contract_address_to_proofs.entry(contract_address.0.to_vec()).or_insert(vec![]);
-				entry.push(StorageProof::new(
-					proof
-						.storage_proof
-						.get(0)
-						.cloned()
-						.ok_or_else(|| {
-							anyhow!("Invalid key supplied, storage proof could not be retrieved")
-						})?
-						.proof
-						.into_iter()
-						.map(|bytes| bytes.0.into()),
-				));
-			}
-
-			for (address, storage_proofs) in contract_address_to_proofs {
+				let storage_proof = StorageProof::merge(storage_proofs);
 				map.insert(
-					address,
-					StorageProof::merge(storage_proofs).into_nodes().into_iter().collect(),
+					self.config.ismp_host.0.to_vec(),
+					storage_proof.into_nodes().into_iter().collect(),
 				);
-			}
 
-			let contract_proof = StorageProof::merge(contract_proofs);
+				let state_proof = EvmStateProof {
+					contract_proof: proof
+						.account_proof
+						.into_iter()
+						.map(|bytes| bytes.0.into())
+						.collect(),
+					storage_proof: map,
+				};
+				state_proof.encode()
+			},
+			StateProofQueryType::Arbitrary(keys) => {
+				let mut contract_proofs: Vec<_> = vec![];
+				let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
+				let mut contract_address_to_proofs = BTreeMap::new();
+				for key in keys {
+					if key.len() != 52 {
+						Err(anyhow!("All arbitrary keys must have a length of 52 when querying state proofs, founf key with length {}", key.len()))?
+					}
 
-			let state_proof = EvmStateProof {
-				contract_proof: contract_proof.into_nodes().into_iter().collect(),
-				storage_proof: map,
-			};
-			state_proof.encode()
+					let contract_address = H160::from_slice(&key[..20]);
+					let slot_hash = H256::from_slice(&key[20..]);
+					let proof = self
+						.client
+						.get_proof(contract_address, vec![slot_hash], Some(at.into()))
+						.await?;
+					contract_proofs.push(StorageProof::new(
+						proof.account_proof.into_iter().map(|node| node.0.into()),
+					));
+
+					let entry = contract_address_to_proofs
+						.entry(contract_address.0.to_vec())
+						.or_insert(vec![]);
+					entry.push(StorageProof::new(
+						proof
+							.storage_proof
+							.get(0)
+							.cloned()
+							.ok_or_else(|| {
+								anyhow!(
+									"Invalid key supplied, storage proof could not be retrieved"
+								)
+							})?
+							.proof
+							.into_iter()
+							.map(|bytes| bytes.0.into()),
+					));
+				}
+
+				for (address, storage_proofs) in contract_address_to_proofs {
+					map.insert(
+						address,
+						StorageProof::merge(storage_proofs).into_nodes().into_iter().collect(),
+					);
+				}
+
+				let contract_proof = StorageProof::merge(contract_proofs);
+
+				let state_proof = EvmStateProof {
+					contract_proof: contract_proof.into_nodes().into_iter().collect(),
+					storage_proof: map,
+				};
+				state_proof.encode()
+			},
 		};
-
 		Ok(state_proof)
 	}
 
@@ -352,6 +367,7 @@ where
 			self.state_machine,
 			&self.config.etherscan_api_key.clone(),
 			self.client.clone(),
+			self.config.gas_price_buffer,
 		)
 		.await?;
 		let mut gas_estimates = vec![];
@@ -504,10 +520,10 @@ where
 					return Some((Ok(None), (latest_height, interval, client)))
 				}
 
-				let contract = Handler::new(client.config.handler, client.client.clone());
+				let contract = EvmHost::new(client.config.ismp_host, client.client.clone());
 				let results = match contract
 						.events()
-						.address(client.config.handler.into())
+						.address(client.config.ismp_host.into())
 						.from_block(latest_height)
 						.to_block(block_number)
 						.query()
@@ -525,7 +541,10 @@ where
 					};
 				let event = results
 					.into_iter()
-					.map(|ev| StateMachineUpdated::from(ev))
+					.filter_map(|ev| match Event::try_from(ev) {
+						Ok(Event::StateMachineUpdated(update)) => Some(update),
+						_ => None
+					})
 					.max_by(|a, b| a.latest_height.cmp(&b.latest_height));
 
 				if let Some(event) = event {
@@ -650,17 +669,67 @@ where
 		Ok(())
 	}
 
-	async fn freeze_state_machine(&self, _id: StateMachineId) -> Result<(), Error> {
+	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
 		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
-		if let Some(_) = contract.set_frozen_state(true).send().await?.await? {
+		if let Some(_) = contract
+			.veto_state_commitment(ismp_solidity_abi::beefy::StateMachineHeight {
+				state_machine_id: match height.id.state_id {
+					StateMachine::Kusama(id) | StateMachine::Polkadot(id) => id.into(),
+					_ => Err(anyhow!("Unexpected State machine"))?,
+				},
+				height: height.height.into(),
+			})
+			.send()
+			.await?
+			.await?
+		{
 			log::info!("Frozen consensus client on {:?}", self.state_machine);
 		}
 		Ok(())
 	}
 
-	async fn query_host_manager_address(&self) -> Result<Vec<u8>, anyhow::Error> {
-		let address = self.host_manager().await?;
-		Ok(address.0.to_vec())
+	async fn query_host_params(
+		&self,
+		_state_machine: StateMachine,
+	) -> Result<HostParam<u128>, anyhow::Error> {
+		let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		let params: ismp_solidity_abi::evm_host::HostParams = contract.host_params().call().await?;
+		let evm_params = EvmHostParam {
+			default_timeout: params.default_timeout.low_u128(),
+			per_byte_fee: params.per_byte_fee.low_u128(),
+			fee_token: params.fee_token,
+			admin: params.admin,
+			handler: params.handler,
+			host_manager: params.host_manager,
+			un_staking_period: params.un_staking_period.low_u128(),
+			challenge_period: params.challenge_period.low_u128(),
+			consensus_client: params.consensus_client,
+			consensus_state: params
+				.consensus_state
+				.0
+				.to_vec()
+				.try_into()
+				.map_err(|_| anyhow!("Failed to convert bounded vec"))?,
+			consensus_update_timestamp: params.consensus_update_timestamp.low_u128(),
+			state_machine_whitelist: params
+				.state_machine_whitelist
+				.into_iter()
+				.map(|id| id.low_u32())
+				.collect::<Vec<_>>()
+				.try_into()
+				.map_err(|_| anyhow!("Failed to convert bounded vec"))?,
+			fishermen: params
+				.fishermen
+				.try_into()
+				.map_err(|_| anyhow!("Failed to convert bounded vec"))?,
+			hyperbridge: params
+				.hyperbridge
+				.0
+				.to_vec()
+				.try_into()
+				.map_err(|_| anyhow!("Failed to convert bounded vec"))?,
+		};
+		Ok(HostParam::EvmHostParam(evm_params))
 	}
 
 	fn max_concurrent_queries(&self) -> usize {

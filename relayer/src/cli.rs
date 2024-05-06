@@ -20,14 +20,19 @@ use anyhow::{anyhow, Context};
 use clap::Parser;
 use codec::Encode;
 use ethers::prelude::H160;
+use futures::FutureExt;
 use ismp::host::{Ethereum, StateMachine};
+use parachain::ParachainHost;
 use primitives::IsmpProvider;
-use rust_socketio::ClientBuilder;
+use rust_socketio::asynchronous::ClientBuilder;
 use sp_core::{ecdsa, ByteArray, Pair};
 use std::{collections::HashMap, sync::Arc};
 use telemetry_server::{Message, SECRET_KEY};
 use tesseract_client::AnyClient;
-use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
+use tesseract_substrate::{
+	config::{Blake2SubstrateChain, KeccakSubstrateChain},
+	SubstrateClient,
+};
 use tesseract_sync_committee::L2Host;
 use transaction_fees::TransactionPayment;
 
@@ -46,11 +51,11 @@ pub struct Cli {
 	pub db: String,
 
 	/// Should we initialize the relevant consensus states on Eth chains?
-	#[arg(short, long)]
+	#[arg(long)]
 	setup_eth: bool,
 
 	/// Should we initialize the relevant Consensus state on hyperbridge?
-	#[arg(short, long)]
+	#[arg(long)]
 	setup_para: bool,
 }
 
@@ -134,7 +139,17 @@ impl Cli {
 					.await
 					.map_err(|err| anyhow!("Error initializing database: {err:?}"))?,
 			);
-			let clients = create_client_map(config.clone()).await?;
+			let mut clients = create_client_map(config.clone()).await?;
+			// Add hyperbridge to the client map
+			let hyperbridge = SubstrateClient::<ParachainHost, KeccakSubstrateChain>::new(
+				None,
+				hyperbridge_config.substrate.clone(),
+			)
+			.await?;
+			clients.insert(
+				hyperbridge.state_machine_id().state_id,
+				AnyClient::KeccakParachain(hyperbridge),
+			);
 			if config.relayer.delivery_endpoints.is_empty() {
 				log::warn!("Delivery endpoints not specified in relayer config, will deliver to all chains.");
 			}
@@ -182,23 +197,27 @@ impl Cli {
 			log::info!("💬 Initialized messaging tasks");
 		}
 
-		let socket = tokio::task::spawn_blocking(|| {
+		let socket = {
 			let pair = ecdsa::Pair::from_seed(&SECRET_KEY);
 			let mut message = Message { signature: vec![], metadata };
 			message.signature = pair.sign(message.metadata.encode().as_slice()).to_raw_vec();
-			ClientBuilder::new(" https://hyperbridge-telemetry.blockops.network/")
+			// todo: use compile-time env for telemetry url
+			ClientBuilder::new("https://hyperbridge-telemetry.blockops.network/")
 				.namespace("/")
 				.auth(json::to_value(message.clone())?)
 				.reconnect(true)
 				.reconnect_on_disconnect(true)
 				.max_reconnect_attempts(255)
-				.on("open", |_, _| log::info!("Connected to telemetry"))
+				.on("open", |_, _| async move { log::info!("Connected to telemetry") }.boxed())
 				.on("error", |_err, _| {
-					log::error!("Disconnected from telemetry with: {:#?}, reconnecting.", _err)
+					async move {
+						log::error!("Disconnected from telemetry with: {:#?}, reconnecting.", _err)
+					}
+					.boxed()
 				})
 				.connect()
-		})
-		.await?;
+				.await?
+		};
 
 		let (_result, _index, tasks) = futures::future::select_all(processes).await;
 
@@ -206,9 +225,7 @@ impl Cli {
 			task.abort();
 		}
 
-		if let Ok(socket) = socket {
-			socket.disconnect()?;
-		}
+		socket.disconnect().await?;
 
 		Ok(())
 	}
@@ -244,18 +261,18 @@ async fn initialize_consensus_clients(
 	}
 
 	if setup_para {
-		let mut addresses = BTreeMap::new();
+		let mut params = BTreeMap::new();
 		for (state_machine, client) in chains {
 			log::info!("setting consensus state for {state_machine:?} on hyperbridge");
-			let host_manager = client.query_host_manager_address().await?;
-			addresses.insert(*state_machine, host_manager);
+			let host_param = client.query_host_params(*state_machine).await?;
+			params.insert(*state_machine, host_param);
 			if let Some(mut consensus_state) = client.query_initial_consensus_state().await? {
 				consensus_state.challenge_period = relayer.challenge_period.unwrap_or_default();
 				hyperbridge.set_initial_consensus_state(consensus_state).await?;
 			}
 		}
-		log::info!("setting host manager addresses on on hyperbridge");
-		hyperbridge.set_host_manager_addresses(addresses).await?;
+		log::info!("setting host params on on hyperbridge");
+		hyperbridge.set_host_params(params).await?;
 	}
 
 	Ok(())
@@ -265,8 +282,8 @@ pub async fn create_client_map(
 	config: HyperbridgeConfig,
 ) -> anyhow::Result<HashMap<StateMachine, AnyClient>> {
 	let HyperbridgeConfig { chains, .. } = config.clone();
-
 	let mut clients = HashMap::new();
+
 	let mut l2_hosts = vec![];
 
 	for (state_machine, config) in chains {

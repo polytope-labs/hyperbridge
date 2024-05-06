@@ -35,5 +35,7 @@ ethers = { workspace = true }
 tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 sp-core = { workspace = true, features = ["full_crypto"] }
+pallet-ismp-host-executive.workspace = true
+substrate-state-machine.workspace = true
 
 

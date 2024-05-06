@@ -1,5 +1,5 @@
-use pallet_ismp::primitives::HashAlgorithm;
 use serde::{Deserialize, Serialize};
+use substrate_state_machine::HashAlgorithm;
 // use grandpa::{GrandpaConfig, GrandpaHost};
 use ismp_sync_committee::constants::{mainnet::Mainnet, sepolia::Sepolia};
 use parachain::ParachainHost;

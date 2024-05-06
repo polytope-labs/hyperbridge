@@ -1,0 +1,32 @@
+[package]
+name = "tesseract-grandpa"
+version = "0.1.0"
+edition = "2021"
+description = "Grandpa client implementation for the tesseract relayer"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0.164", features = ["derive"] }
+anyhow = "1.0.75"
+subxt = { version = "0.30.1", features = ["substrate-compat"] }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+futures = "0.3.28"
+async-trait = "0.1.53"
+tokio = { version = "1.32.0", features = ["full"] }
+finality-grandpa = "0.16.2"
+hex-literal = "0.4.1"
+
+pallet-ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp-grandpa-prover = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp-grandpa-primitives = { git = "https://github.com/polytope-labs/hyperbridge", branch = "main" }
+ismp-grandpa = {git = "https://github.com/polytope-labs/hyperbridge", branch = "main"}
+polkadot-core-primitives = { workspace = true }
+
+tesseract-substrate = { path = "../common" }
+tesseract-primitives = { path = "../../primitives" }
+
+sp-core = { version = "21.0.0", features = ["full_crypto"] }

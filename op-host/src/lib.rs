@@ -1,0 +1,349 @@
+use abi::{
+	dispute_game_factory::{DisputeGameCreatedFilter, DisputeGameFactory},
+	fault_dispute_game::FaultDisputeGame,
+};
+use anyhow::anyhow;
+use ethabi::ethereum_types::{H256, U256};
+use ethers::{
+	prelude::Provider,
+	providers::{Http, Middleware},
+	types::H160,
+};
+use geth_primitives::Header;
+use ismp::{consensus::ConsensusStateId, host::StateMachine};
+use op_verifier::{
+	calculate_output_root, get_game_uuid, OptimismDisputeGameProof, OptimismPayloadProof, CANNON,
+	DISPUTE_GAMES_SLOT, L2_OUTPUTS_SLOT,
+};
+use serde::{Deserialize, Serialize};
+use sp_core::keccak_256;
+use std::sync::Arc;
+use tesseract_evm::{derive_map_key, EvmClient, EvmConfig};
+use tesseract_primitives::{Hasher, IsmpProvider};
+
+use abi::l2_output_oracle::*;
+mod abi;
+
+#[cfg(test)]
+mod tests;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpConfig {
+	/// Host config
+	pub host: HostConfig,
+	/// General Evm client config
+	#[serde[flatten]]
+	pub evm_config: EvmConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostConfig {
+	/// WS url for the beacon execution client
+	pub beacon_rpc_url: Vec<String>,
+	/// L2Oracle contract address on L1
+	pub l2_oracle: Option<H160>,
+	/// DisputeGameFactory contract address on L1
+	pub dispute_game_factory: Option<H160>,
+	/// Withdrawals Message Passer contract address on L2
+	pub message_parser: H160,
+}
+
+impl OpConfig {
+	/// Convert the config into a client.
+	pub async fn into_client(self) -> anyhow::Result<OpHost> {
+		let client = OpHost::new(&self.host, &self.evm_config).await?;
+
+		Ok(client)
+	}
+
+	pub fn state_machine(&self) -> StateMachine {
+		self.evm_config.state_machine
+	}
+}
+
+#[derive(Clone)]
+pub struct OpHost {
+	/// Optimism stack execution client
+	pub op_execution_client: Arc<Provider<Http>>,
+	/// Beacon execution client
+	pub(crate) beacon_execution_client: Arc<Provider<Http>>,
+	/// L2Oracle contract address on L1
+	pub(crate) l2_oracle: Option<H160>,
+	/// Dispute Game factory address
+	pub(crate) dispute_game_factory: Option<H160>,
+	/// Withdrawals Message Passer contract address on L2
+	pub(crate) message_parser: H160,
+	/// Host config
+	pub host: HostConfig,
+	/// Evm Config
+	pub evm: EvmConfig,
+	/// Consensus state id
+	pub consensus_state_id: ConsensusStateId,
+	/// Ismp provider
+	pub provider: Arc<dyn IsmpProvider>,
+}
+
+pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
+	let mut bytes = [0u8; 32];
+	U256::from(L2_OUTPUTS_SLOT as u64).to_big_endian(&mut bytes);
+
+	let hash_result = keccak_256(&bytes);
+
+	let array_pos = U256::from_big_endian(&hash_result);
+	let item_pos = array_pos + U256::from(index_in_array * 2) + U256::from(offset);
+
+	let mut pos = [0u8; 32];
+	item_pos.to_big_endian(&mut pos);
+
+	pos.into()
+}
+
+impl OpHost {
+	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
+		let el = Provider::new(Http::new_client_with_chain_middleware(
+			evm.rpc_urls.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
+		));
+		let beacon_client = Provider::new(Http::new_client_with_chain_middleware(
+			host.beacon_rpc_url.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
+		));
+
+		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
+
+		Ok(Self {
+			op_execution_client: Arc::new(el),
+			beacon_execution_client: Arc::new(beacon_client),
+			l2_oracle: host.l2_oracle,
+			dispute_game_factory: host.dispute_game_factory,
+			message_parser: host.message_parser,
+			evm: evm.clone(),
+			host: host.clone(),
+			consensus_state_id: {
+				let mut consensus_state_id: ConsensusStateId = Default::default();
+				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
+				consensus_state_id
+			},
+			provider,
+		})
+	}
+
+	pub async fn latest_event(
+		&self,
+		from: u64,
+		to: u64,
+	) -> Result<Option<OutputProposedFilter>, anyhow::Error> {
+		if from > to {
+			return Ok(None);
+		}
+		let l2_oracle = self.l2_oracle.ok_or_else(|| {
+			anyhow!("L2 Oracle address is missing for {}", self.evm.state_machine)
+		})?;
+		let contract = L2OutputOracle::new(l2_oracle, self.beacon_execution_client.clone());
+		let mut events = contract
+			.event::<OutputProposedFilter>()
+			.address(l2_oracle.into())
+			.from_block(from)
+			.to_block(to)
+			.query()
+			.await?
+			.into_iter()
+			.collect::<Vec<_>>();
+
+		events.sort_unstable_by(|a, b| a.l_2_output_index.cmp(&b.l_2_output_index));
+
+		Ok(events.last().cloned())
+	}
+
+	pub async fn latest_dispute_games(
+		&self,
+		from: u64,
+		to: u64,
+	) -> Result<Vec<DisputeGameCreatedFilter>, anyhow::Error> {
+		if from > to {
+			return Ok(Default::default());
+		}
+		let dispute_game_factory = self.dispute_game_factory.ok_or_else(|| {
+			anyhow!("Dispute Factory address is missing for {}", self.evm.state_machine)
+		})?;
+
+		let contract =
+			DisputeGameFactory::new(dispute_game_factory, self.beacon_execution_client.clone());
+		let events = contract
+			.event::<DisputeGameCreatedFilter>()
+			.address(dispute_game_factory.into())
+			.from_block(from)
+			.to_block(to)
+			.query()
+			.await?
+			.into_iter()
+			.collect::<Vec<_>>();
+
+		let events = events.into_iter().filter(|a| a.game_type == CANNON).collect::<Vec<_>>();
+
+		Ok(events)
+	}
+	pub async fn fetch_dispute_game_payload(
+		&self,
+		at: u64,
+		events: Vec<DisputeGameCreatedFilter>,
+	) -> Result<Option<OptimismDisputeGameProof>, anyhow::Error> {
+		let mut payloads = vec![];
+		let dispute_game_factory = self.dispute_game_factory.ok_or_else(|| {
+			anyhow!("Dispute Factory address is missing for {}", self.evm.state_machine)
+		})?;
+
+		for event in events {
+			let contract =
+				FaultDisputeGame::new(event.dispute_proxy, self.beacon_execution_client.clone());
+			let extra_data = contract.extra_data().call().await?;
+			let timestamp = contract.created_at().call().await?;
+			let l2_block_number = contract.l_2_block_number().call().await?;
+			// Since anyone can create dispute games including bots we need to be sure the block
+			// number exists
+			if l2_block_number.low_u64() >
+				self.op_execution_client.get_block_number().await?.low_u64()
+			{
+				log::trace!(target: "tesseract", "Found a dispute game event with a block number that does not exist {l2_block_number:?}");
+				continue;
+			}
+			let game_uuid = get_game_uuid::<Hasher>(
+				event.game_type,
+				event.root_claim.into(),
+				extra_data.0.clone().into(),
+			);
+			let dispute_game_key = derive_map_key(game_uuid.0.to_vec(), DISPUTE_GAMES_SLOT);
+
+			let proof = self
+				.beacon_execution_client
+				.get_proof(dispute_game_factory, vec![dispute_game_key], Some(at.into()))
+				.await?;
+			let dispute_game_proof = proof
+				.storage_proof
+				.get(0)
+				.cloned()
+				.ok_or_else(|| anyhow!("Storage proof not found for dispute game"))?
+				.proof
+				.into_iter()
+				.map(|node| node.0.into())
+				.collect();
+			let block =
+				self.op_execution_client.get_block(l2_block_number.as_u64()).await?.ok_or_else(
+					|| {
+						anyhow!(
+							"{:?} Header not found for {:?}",
+							self.evm.state_machine,
+							l2_block_number
+						)
+					},
+				)?;
+			let header = block.into();
+			let l2_block_hash = Header::from(&header).hash::<Hasher>();
+			let message_parser_proof = self
+				.op_execution_client
+				.get_proof(self.message_parser, vec![], Some(l2_block_number.low_u64().into()))
+				.await?;
+
+			let payload = OptimismDisputeGameProof {
+				withdrawal_storage_root: message_parser_proof.storage_hash,
+				// Version bytes is still the default value
+				version: H256::zero(),
+				dispute_factory_proof: proof
+					.account_proof
+					.into_iter()
+					.map(|node| node.0.into())
+					.collect(),
+				dispute_game_proof,
+				timestamp,
+				header,
+				proxy: event.dispute_proxy,
+				extra_data: extra_data.0.into(),
+				game_type: event.game_type,
+			};
+
+			// Check if rootClaim matches derived output root.
+			let output_root = calculate_output_root::<Hasher>(
+				payload.version,
+				payload.header.state_root,
+				payload.withdrawal_storage_root,
+				l2_block_hash,
+			);
+
+			if output_root.0 != event.root_claim {
+				log::trace!(target: "tesseract", "Found a dispute game event with an invalid output root, Expected: {output_root:?}, Found: {:?}", event.root_claim);
+				continue;
+			}
+
+			payloads.push(payload)
+		}
+
+		payloads.sort_unstable_by(|a, b| a.header.number.cmp(&b.header.number));
+
+		Ok(payloads.last().cloned())
+	}
+
+	pub async fn fetch_op_payload(
+		&self,
+		at: u64,
+		event: OutputProposedFilter,
+	) -> Result<OptimismPayloadProof, anyhow::Error> {
+		let output_roots_key = derive_array_item_key(event.l_2_output_index.low_u64(), 0);
+		let timestamp_and_block_proof = derive_array_item_key(event.l_2_output_index.low_u64(), 1);
+		let l2_oracle = self.l2_oracle.ok_or_else(|| {
+			anyhow!("L2 Oracle address is missing for {}", self.evm.state_machine)
+		})?;
+
+		let proof = self
+			.beacon_execution_client
+			.get_proof(
+				l2_oracle,
+				vec![output_roots_key, timestamp_and_block_proof],
+				Some(at.into()),
+			)
+			.await?;
+		let output_root_proof = proof
+			.storage_proof
+			.get(0)
+			.cloned()
+			.ok_or_else(|| anyhow!("Storage proof not found for optimism output root"))?
+			.proof
+			.into_iter()
+			.map(|node| node.0.into())
+			.collect();
+
+		let multi_proof = proof
+			.storage_proof
+			.get(1)
+			.cloned()
+			.ok_or_else(|| {
+				anyhow!("Storage proof not found for optimism timestamp and block number")
+			})?
+			.proof
+			.into_iter()
+			.map(|node| node.0.into())
+			.collect();
+		let block = self
+			.op_execution_client
+			.get_block(event.l_2_block_number.as_u64())
+			.await?
+			.ok_or_else(|| anyhow!("Header not found for {:?}", event.l_2_block_number))?;
+		let message_parser_proof = self
+			.op_execution_client
+			.get_proof(self.message_parser, vec![], Some(event.l_2_block_number.low_u64().into()))
+			.await?;
+
+		let payload = OptimismPayloadProof {
+			state_root: block.state_root,
+			withdrawal_storage_root: message_parser_proof.storage_hash,
+			l2_block_hash: block.hash.ok_or_else(|| anyhow!("Missing optimism block hash"))?,
+			// Version bytes is still the default value
+			version: H256::zero(),
+			l2_oracle_proof: proof.account_proof.into_iter().map(|node| node.0.into()).collect(),
+			output_root_proof,
+			multi_proof,
+			output_root_index: event.l_2_output_index.low_u64(),
+			block_number: event.l_2_block_number.low_u64(),
+			timestamp: block.timestamp.low_u64(),
+		};
+
+		Ok(payload)
+	}
+}

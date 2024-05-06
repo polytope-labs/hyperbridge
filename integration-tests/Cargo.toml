@@ -1,0 +1,53 @@
+[package]
+name = "tesseract-integration-tests"
+version = "0.1.0"
+edition = "2021"
+description = "Integration tests for the tesseract relayer"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+anyhow = "1.0.75"
+tokio = { version = "1.27.0", features = ["rt-multi-thread", "macros"] }
+subxt = { version = "0.30.1", features = ["substrate-compat"] }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+env_logger = "0.10.0"
+log = "0.4.17"
+hex = "0.4.3"
+hex-literal = "0.4.1"
+primitive-types = "0.12.1"
+futures = "0.3.28"
+ethers = { workspace = true, features = ["ws", "optimism"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+
+merkle-mountain-range.workspace = true
+ismp-solidity-abi.workspace = true
+pallet-ismp-demo.workspace = true
+ismp.workspace = true
+sp-core.workspace = true
+pallet-ismp.workspace = true
+
+sp-io = "22.0.0"
+sp-keyring = "24.0.0"
+
+#tesseract-grandpa = { path = "../substrate/grandpa" }
+tesseract-beefy = { path = "../substrate/beefy/naive" }
+tesseract-substrate = { path = "../substrate/common", features = ["testing"] }
+tesseract-messaging = { path = "../messaging" }
+tesseract-consensus = { path = "../consensus" }
+tesseract-primitives = { path = "../primitives" }
+tesseract-evm = { path = "../evm/common" }
+tesseract-sync-committee = { path = "../evm/sync-committee", features = ["testing"] }
+#tesseract-polygon-pos = { path = "../ethereum/polygon-pos" }
+tesseract-bsc-pos = { path = "../evm/bsc-pos" }
+dotenv = "0.15.0"
+sync-committee-primitives.workspace = true
+transaction-fees = {path = "../fees" }
+tesseract-config = {path = "../config"}
+subxt-utils.workspace = true
+mmr-primitives.workspace = true
+sp-mmr-primitives = { workspace = true }
+sp-runtime = { workspace = true  }
+pallet-mmr = { workspace = true  }
+pallet-ismp-rpc = { workspace = true  }
+divide_range = "0.1.1"
+substrate-state-machine.workspace = true

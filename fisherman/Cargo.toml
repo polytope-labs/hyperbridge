@@ -1,0 +1,18 @@
+[package]
+name = "tesseract-fisherman"
+version = "0.1.0"
+edition = "2021"
+description = "A process that checks for malicious consensus updates"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+anyhow = "1.0.75"
+log = "0.4.17"
+futures = "0.3.28"
+tokio = { version = "1.32.0", features = ["full"] }
+sp-core = { version = "21.0.0", features = ["full_crypto"] }
+
+ismp.workspace = true
+pallet-ismp.workspace = true
+
+tesseract-primitives = { path = "../primitives" }

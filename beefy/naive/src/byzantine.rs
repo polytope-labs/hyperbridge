@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use crate::BeefyHost;
 use anyhow::anyhow;
 use codec::Encode;
@@ -23,7 +25,7 @@ use ismp::{
 };
 use sp_core::H256;
 use subxt::{config::substrate::SubstrateHeader, Config};
-use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider};
+use tesseract_primitives::{ByzantineHandler, IsmpHost};
 
 #[async_trait::async_trait]
 impl<R, P> ByzantineHandler for BeefyHost<R, P>
@@ -59,9 +61,9 @@ where
         })
     }
 
-    async fn check_for_byzantine_attack<C: IsmpHost + IsmpProvider>(
+    async fn check_for_byzantine_attack(
         &self,
-        counterparty: &C,
+        counterparty: Arc<dyn IsmpHost>,
         consensus_message: ConsensusMessage,
     ) -> Result<(), anyhow::Error> {
         let header = <SubstrateHeader<u32, <P as Config>::Hasher> as codec::Decode>::decode(
@@ -74,17 +76,18 @@ where
             },
             height: header.number.into(),
         };
-
-        let finalized_state_commitment =
-            counterparty.query_state_machine_commitment(height).await?;
+        let counterparty_provider = counterparty.provider();
+        let finalized_state_commitment = counterparty_provider
+            .query_state_machine_commitment(height)
+            .await?;
 
         if finalized_state_commitment.state_root != header.state_root.into() {
             log::info!(
                 "Vetoing state commitment for {:?} on {:?}",
                 self.provider.state_machine_id().state_id,
-                counterparty.state_machine_id().state_id
+                counterparty_provider.state_machine_id().state_id
             );
-            counterparty.veto_state_commitment(height).await?;
+            counterparty_provider.veto_state_commitment(height).await?;
         }
 
         Ok(())

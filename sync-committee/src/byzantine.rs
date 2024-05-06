@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use crate::SyncCommitteeHost;
 use anyhow::anyhow;
 use codec::{Decode, Encode};
@@ -24,7 +26,7 @@ use ismp::{
     messaging::ConsensusMessage,
 };
 use sync_committee_primitives::constants::Config;
-use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider};
+use tesseract_primitives::{ByzantineHandler, IsmpHost};
 
 #[async_trait::async_trait]
 impl<T: Config + Send + Sync + 'static> ByzantineHandler for SyncCommitteeHost<T> {
@@ -45,9 +47,9 @@ impl<T: Config + Send + Sync + 'static> ByzantineHandler for SyncCommitteeHost<T
         })
     }
 
-    async fn check_for_byzantine_attack<C: IsmpHost + IsmpProvider>(
+    async fn check_for_byzantine_attack(
         &self,
-        counterparty: &C,
+        counterparty: Arc<dyn IsmpHost>,
         consensus_message: ConsensusMessage,
     ) -> Result<(), anyhow::Error> {
         let header = CodecHeader::decode(&mut &*consensus_message.consensus_proof)?;
@@ -58,15 +60,18 @@ impl<T: Config + Send + Sync + 'static> ByzantineHandler for SyncCommitteeHost<T
             },
             height: header.number.low_u64(),
         };
-        let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
+        let counterparty_provider = counterparty.provider();
+        let state_machine_commitment = counterparty_provider
+            .query_state_machine_commitment(height)
+            .await?;
         if state_machine_commitment.state_root != header.state_root {
             // Submit Freeze message
             log::info!(
                 "Freezing {:?} on {:?}",
                 self.state_machine,
-                counterparty.state_machine_id().state_id
+                counterparty_provider.state_machine_id().state_id
             );
-            counterparty.veto_state_commitment(height).await?;
+            counterparty_provider.veto_state_commitment(height).await?;
         }
         Ok(())
     }

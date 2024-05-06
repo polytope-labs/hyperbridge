@@ -1,11 +1,11 @@
 #![cfg(test)]
 
-// mod ethereum;
+mod ethereum;
 // // mod grandpa;
-// mod bsc;
+mod bsc;
 // // mod polygon;
-// mod substrate;
-// mod util;
+mod substrate;
+mod util;
 
 use std::{
     sync::Arc,
@@ -62,9 +62,9 @@ pub async fn setup_clients(
     Ok((chain_a, chain_b))
 }
 
-async fn transfer_assets<I: IsmpHost + 'static>(
-    chain_a: &SubstrateClient<I, Hyperbridge>,
-    chain_b: &SubstrateClient<I, Hyperbridge>,
+async fn transfer_assets(
+    chain_a: &SubstrateClient<Hyperbridge>,
+    chain_b: &SubstrateClient<Hyperbridge>,
     timeout: u64,
 ) -> Result<(), anyhow::Error> {
     let amt = 345876451382054092;
@@ -116,9 +116,9 @@ async fn test_parachain_parachain_messaging_relay() -> Result<(), anyhow::Error>
         async move {
             tesseract_messaging::relay(
                 chain_a.clone(),
-                chain_b.clone(),
+                Arc::new(chain_b.clone()),
                 Default::default(),
-                Default::default(),
+                StateMachine::Kusama(4009),
                 tx_payment,
                 Default::default(),
             )

@@ -28,6 +28,15 @@ enum EventType {
 }
 
 """
+The status of a request
+"""
+enum RequestStatus {
+    SOURCE
+    MESSAGE_RELAYED
+    DEST
+}
+
+"""
 Important Hyperbridge Metrics
 """
 type HyperBridgeStats @entity {
@@ -295,4 +304,94 @@ type StateMachineUpdateEvent @entity {
     transactionHash: String!
     transactionIndex: BigInt!
     createdAt: Date!
+}
+
+"""
+Request status metadata
+"""
+type RequestStatusMetadata @entity {
+    """
+    Unique identifier of the Request (This is the request commitment)
+    """
+    id: ID!
+
+    """
+    Block number where the request was dispatched
+    """
+    sourceBlockNumber: BigInt!
+
+    """
+    Transaction hash where the request was dispatched
+    """
+    sourceBlockTransaction: String!
+
+    """
+    Transaction hash where message was relayed to hyperbridge
+    """
+    messageRelayedTransactionHash: String!
+
+    """
+    Transaction hash where the destination finalize the relationational block of the request on hyperbridge
+    """
+    destFinalizedTransactionHash: String!
+
+    """
+    Transaction hash where relayer dispatch message to the dest state machine
+    """
+    deliveryTransactionHash: String!
+}
+
+"""
+A Hyperbridge Request
+"""
+type Request @entity {
+    """
+    Unique identifier of the Request (This is the request commitment)
+    """
+    id: ID!
+
+    """
+    This is the statemachine id where this request originated from
+    """
+    source: String!
+
+    """
+    This is the statemachine where this request is been dispatched to
+    """
+    dest: String!
+
+    """
+    This is the timestamp when the request would timeout
+    """
+    timeoutTimestamp: BigInt!
+
+    """
+    The address that dispatched this request
+    """
+    from: String! @index
+
+    """
+    The address receiving this request
+    """
+    to: String! @index
+
+    """
+    Nonce of the request
+    """
+    nonce: BigInt! @index
+
+    """
+    Data of the request
+    """
+    data: String! @index
+
+    """
+    This is the fee set for this request
+    """
+    fee: BigInt! @index
+
+    """
+    Status of the request
+    """
+    status: RequestStatus!
 }

@@ -1,6 +1,6 @@
 # tesseract
 
-<img src="assets/tesseract.jpg" />
+<img src="assets/relayer.webp" />
 
 Tesseract is a multi-~~dimensional~~chain relayer implementation for Hyperbridge. Currently this supports relaying between:
 
@@ -39,6 +39,7 @@ This software is licensed under the Apache 2.0 License, Copyright (c) 2023 Polyt
 
 We trace transactions in concurrently so it's necessary to increase the file open limit for the user session the process is running within.
 Your rpc provider must support processing requests well above 100 requests/second
+
 ```markdown
 Edit /etc/security/limits.conf and add the following using the appropriate username
 
@@ -49,4 +50,5 @@ Edit /etc/pam.d/common-session and add the following
 
 session required pam_limits.so
 ```
+
 Reboot the machine after making these changes.

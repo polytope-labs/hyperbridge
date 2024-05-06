@@ -43,20 +43,30 @@ impl AnyConfig {
 
 impl AnyConfig {
 	/// Convert the [`AnyConfig`] into an implementation of an [`IsmpProvider`]
-	pub async fn into_client(self) -> Result<Arc<dyn IsmpProvider>, anyhow::Error> {
+	pub async fn into_client(
+		self,
+		hyperbridge: Arc<dyn IsmpProvider>,
+	) -> Result<Arc<dyn IsmpProvider>, anyhow::Error> {
 		let client = match self {
 			AnyConfig::Substrate(config) => {
 				match config.hashing.clone().unwrap_or(HashAlgorithm::Keccak) {
-					HashAlgorithm::Keccak =>
-						Arc::new(SubstrateClient::<KeccakSubstrateChain>::new(config).await?)
-							as Arc<dyn IsmpProvider>,
-					HashAlgorithm::Blake2 =>
-						Arc::new(SubstrateClient::<Blake2SubstrateChain>::new(config).await?)
-							as Arc<dyn IsmpProvider>,
+					HashAlgorithm::Keccak => {
+						let mut client =
+							SubstrateClient::<KeccakSubstrateChain>::new(config).await?;
+						client.set_latest_finalized_height(hyperbridge).await?;
+						Arc::new(client) as Arc<dyn IsmpProvider>
+					},
+					HashAlgorithm::Blake2 => {
+						let mut client =
+							SubstrateClient::<Blake2SubstrateChain>::new(config).await?;
+						client.set_latest_finalized_height(hyperbridge).await?;
+						Arc::new(client) as Arc<dyn IsmpProvider>
+					},
 				}
 			},
 			AnyConfig::Ethereum(config) => {
-				let client = EvmClient::new(config).await?;
+				let mut client = EvmClient::new(config).await?;
+				client.set_latest_finalized_height(hyperbridge).await?;
 				Arc::new(client) as Arc<dyn IsmpProvider>
 			},
 		};

@@ -212,7 +212,7 @@ simnode-runtime-api = { version = "1.6.0", default-features = false }
 subxt = { version = "0.30.1", default-features = false }
 
 # local crates
-ismp = { version = "0.1.0", path = "./modules/ismp/core", default-features = false }
+ismp = { version = "0.1.1", path = "./modules/ismp/core", default-features = false }
 ismp-testsuite = { path = "./modules/ismp/testsuite" }
 ismp-solidity-abi = { path = "./evm/abi", default-features = false }
 simnode-tests = { path = "parachain/simtests" }
@@ -231,22 +231,22 @@ sync-committee-verifier = { path = "./modules/consensus/sync-committee/verifier"
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
-ismp-parachain = { version = "1.6.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
-ismp-parachain-inherent = { version = "1.6.0", path = "./modules/ismp/clients/parachain/inherent" }
-ismp-parachain-runtime-api = { version = "1.6.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
+ismp-parachain = { version = "1.6.1", path = "./modules/ismp/clients/parachain/client", default-features = false }
+ismp-parachain-inherent = { version = "1.6.1", path = "./modules/ismp/clients/parachain/inherent" }
+ismp-parachain-runtime-api = { version = "1.6.1", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
 evm-common = { path = "./modules/ismp/clients/sync-committee/evm-common", default-features = false }
 arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features = false }
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
 
 # state machine clients
-substrate-state-machine = { version = "1.6.0", path = "modules/ismp/state-machines/substrate", default-features = false }
+substrate-state-machine = { version = "1.6.1", path = "modules/ismp/state-machines/substrate", default-features = false }
 hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
 # pallets
-pallet-ismp = { version = "1.6.0", path = "modules/ismp/pallets/pallet", default-features = false }
-pallet-ismp-rpc = { version = "1.6.0", path = "modules/ismp/pallets/rpc" }
-pallet-ismp-runtime-api = { version = "1.6.0", path = "modules/ismp/pallets/runtime-api", default-features = false }
+pallet-ismp = { version = "1.6.1", path = "modules/ismp/pallets/pallet", default-features = false }
+pallet-ismp-rpc = { version = "1.6.1", path = "modules/ismp/pallets/rpc" }
+pallet-ismp-runtime-api = { version = "1.6.1", path = "modules/ismp/pallets/runtime-api", default-features = false }
 pallet-hyperbridge = { path = "modules/ismp/pallets/hyperbridge", default-features = false }
 pallet-fishermen = { path = "modules/ismp/pallets/fishermen", default-features = false }
 pallet-ismp-demo = { path = "modules/ismp/pallets/demo", default-features = false }
@@ -260,7 +260,7 @@ pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
 pallet-mmr-runtime-api = { path = "modules/trees/mmr/pallet/runtime-api", default-features = false }
 mmr-gadget = { path = "modules/trees/mmr/gadget" }
 ethereum-trie = { path = "./modules/trees/ethereum", default-features = false }
-mmr-primitives = { version = "1.6.0", path = "modules/trees/mmr/primitives", default-features = false }
+mmr-primitives = { version = "1.6.1", path = "modules/trees/mmr/primitives", default-features = false }
 
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }

@@ -1,6 +1,6 @@
 [package]
 name = "beefy-verifier-primitives"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "Primitive types for the BEEFY consensus client"

@@ -151,47 +151,47 @@ type RelayerStatsPerChain @entity {
     """
     Total number of post requests handled by the Relayer
     """
-    postRequestsHandled: BigInt!
+    numberOfMessagesSent: BigInt!
 
     """
     Total number of successful post requests handled by the Relayer
     """
-    successfulPostRequestsHandled: BigInt!
+    numberOfSuccessfulMessagesSent: BigInt!
 
     """
     Total number of failed post requests handled by the Relayer
     """
-    failedPostRequestsHandled: BigInt!
+    numberOfFailedMessagesSent: BigInt!
 
     """
     Amount of gas spent on successful post requests (Gas Cost)
     """
-    gasUsedForSuccessfulPostRequests: BigInt!
+    gasUsedForSuccessfulMessages: BigInt!
 
     """
     Amount of gas spent on failed post requests (Gas Cost)
     """
-    gasUsedForFailedPostRequests: BigInt!
+    gasUsedForFailedMessages: BigInt!
 
     """
     Gas fee spent on successful post requests (Gas Cost * Gas Price)
     """
-    gasFeeForSuccessfulPostRequests: BigInt!
+    gasFeeForSuccessfulMessages: BigInt!
 
     """
     Gas fee spent on failed post requests (Gas Cost * Gas Price)
     """
-    gasFeeForFailedPostRequests: BigInt!
+    gasFeeForFailedMessages: BigInt!
 
     """
     The USD value of the gas fee spent on successful post requests (Gas Fee * USD Value of Eth at the time of the transaction)
     """
-    usdGasFeeForSuccessfulPostRequests: BigInt!
+    usdGasFeeForSuccessfulMessages: BigInt!
 
     """
     The USD value of the gas fee spent on failed post requests (Gas Fee * USD Value of Eth at the time of the transaction)
     """
-    usdGasFeeForFailedPostRequests: BigInt!
+    usdGasFeeForFailedMessages: BigInt!
 
     """
     Total fees earned by the relayer
@@ -219,9 +219,9 @@ type Relayer @entity {
     perChainStats: [RelayerStatsPerChain]! @derivedFrom(field: "relayer")
 
     """
-    Total number of post requests handled by the Relayer
+    Total number of messages sent by the Relayer
     """
-    postRequestsHandled: BigInt!
+    totalNumberOfMessagesSent: BigInt!
 
     """
     Total fees earned by the relayer

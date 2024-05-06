@@ -1,6 +1,5 @@
 import { Event, StateMachineUpdateEvent } from "../types/models";
 import { EventType, SupportedChain } from "../types";
-import { sha256 } from "ethers/lib/utils";
 
 interface IEvmHostEventArgs {
   blockHash: string;
@@ -75,7 +74,7 @@ export class EvmHostEventsService {
     } = args;
 
     const event = StateMachineUpdateEvent.create({
-      id: sha256(`${stateMachineId}.${height}`),
+      id: `${stateMachineId}_${height}`,
       stateMachineId,
       height,
       chain,

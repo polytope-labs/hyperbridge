@@ -49,7 +49,7 @@ export async function handlePostRequestHandledEvent(
       chain,
       status,
     ),
-    await RelayerService.handlePostRequestHandledTransaction(
+    await RelayerService.handlePostRequestOrPostResponseHandledEvent(
       relayer_id,
       transaction,
       chain,

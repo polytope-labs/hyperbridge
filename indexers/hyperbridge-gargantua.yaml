@@ -12,9 +12,9 @@ runner:
 schema:
   file: ./schema.graphql
 network:
-  chainId: "0x19c5b43935ee2a7e4a090e2bde16ea106bcb1b3668a9abcd37bbceb8c9df16d4"
+  chainId: "0x5771ac6b0088b64c21c14620372f2aafee7cfe2ef589879dbd501b356b41752a"
   endpoint:
-    - "wss://hyperbridge-gargantua-rpc.blockops.network"
+    - "wss://hyperbridge-paseo-rpc.blockops.network"
 dataSources:
   - kind: substrate/Runtime
     startBlock: 1

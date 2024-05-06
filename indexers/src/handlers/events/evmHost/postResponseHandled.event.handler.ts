@@ -49,8 +49,9 @@ export async function handlePostResponseHandledEvent(
       chain,
       status,
     ),
-    await RelayerService.incrementNumberOfPostRequestsHandled(
+    await RelayerService.handlePostRequestOrPostResponseHandledEvent(
       relayer_id,
+      transaction,
       chain,
     ),
   ]);

@@ -24,7 +24,7 @@ export class RelayerService {
         chains: convertArrayToEnumListString([
           chain,
         ]) as unknown as SupportedChain[],
-        postRequestsHandled: BigInt(0),
+        totalNumberOfMessagesSent: BigInt(0),
         totalFeesEarned: BigInt(0),
       });
 
@@ -32,20 +32,6 @@ export class RelayerService {
     }
 
     return relayer;
-  }
-  /**
-   * Increment the number of post requests handled by a relayer
-   */
-  static async incrementNumberOfPostRequestsHandled(
-    relayer_id: string,
-    chain: SupportedChain,
-  ): Promise<void> {
-    let relayer = await RelayerService.findOrCreate(relayer_id, chain);
-
-    relayer.postRequestsHandled += BigInt(1);
-    relayer = RelayerService.updateRelayerNetworksList(relayer, chain);
-
-    await relayer.save();
   }
 
   /**
@@ -55,13 +41,20 @@ export class RelayerService {
   static async updateFeesEarned(transfer: Transfer): Promise<void> {
     let relayer = await Relayer.get(transfer.to);
     if (relayer) {
-      relayer.totalFeesEarned += transfer.amount;
       relayer = RelayerService.updateRelayerNetworksList(
         relayer,
         transfer.chain,
       );
 
-      await relayer.save();
+      let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
+        relayer.id,
+        transfer.chain,
+      );
+
+      relayer.totalFeesEarned += transfer.amount;
+      relayer_chain_stats.feesEarned += transfer.amount;
+
+      Promise.all([relayer.save(), relayer_chain_stats.save()]);
     }
   }
 
@@ -90,9 +83,9 @@ export class RelayerService {
   }
 
   /**
-   * Computes relayer specific stats from the PostRequestHandled event's transaction
+   * Computes relayer specific stats from the PostRequestHandled/PostResponseHandle event's transaction
    */
-  static async handlePostRequestHandledTransaction(
+  static async handlePostRequestOrPostResponseHandledEvent(
     relayer_id: string,
     transaction: EthereumTransaction<EthereumResult>,
     chain: SupportedChain,
@@ -109,22 +102,23 @@ export class RelayerService {
       chain,
     );
 
-    relayer_chain_stats.postRequestsHandled += BigInt(1);
+    relayer.totalNumberOfMessagesSent += BigInt(1);
+    relayer_chain_stats.numberOfMessagesSent += BigInt(1);
 
     if (status) {
       // Handle successful requests
-      relayer_chain_stats.successfulPostRequestsHandled += BigInt(1);
-      relayer_chain_stats.gasUsedForSuccessfulPostRequests += BigInt(gasUsed);
-      relayer_chain_stats.gasFeeForSuccessfulPostRequests += BigInt(gasFee);
-      relayer_chain_stats.usdGasFeeForSuccessfulPostRequests += BigInt(usdFee);
+      relayer_chain_stats.numberOfSuccessfulMessagesSent += BigInt(1);
+      relayer_chain_stats.gasUsedForSuccessfulMessages += BigInt(gasUsed);
+      relayer_chain_stats.gasFeeForSuccessfulMessages += BigInt(gasFee);
+      relayer_chain_stats.usdGasFeeForSuccessfulMessages += BigInt(usdFee);
     } else {
       // Handle failed requests
-      relayer_chain_stats.failedPostRequestsHandled += BigInt(1);
-      relayer_chain_stats.gasUsedForFailedPostRequests += BigInt(gasUsed);
-      relayer_chain_stats.gasFeeForFailedPostRequests += BigInt(gasFee);
-      relayer_chain_stats.usdGasFeeForSuccessfulPostRequests += BigInt(usdFee);
+      relayer_chain_stats.numberOfFailedMessagesSent += BigInt(1);
+      relayer_chain_stats.gasUsedForFailedMessages += BigInt(gasUsed);
+      relayer_chain_stats.gasFeeForFailedMessages += BigInt(gasFee);
+      relayer_chain_stats.usdGasFeeForFailedMessages += BigInt(usdFee);
     }
 
-    await relayer_chain_stats.save();
+    Promise.all([await relayer_chain_stats.save(), await relayer.save()]);
   }
 }

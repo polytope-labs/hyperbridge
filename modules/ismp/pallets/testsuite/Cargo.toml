@@ -1,6 +1,6 @@
 [package]
 name = "pallet-ismp-testsuite"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Testsuite for the ismp pallet crates"
 authors = ["Polytope Labs <hello@polytope.technology>"]

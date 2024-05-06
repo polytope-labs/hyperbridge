@@ -1,6 +1,6 @@
 [package]
 name = "messier-runtime"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "Parachain runtime implementation of the hyperbridge protocol (Kusama)"
 edition = "2021"

@@ -107,6 +107,8 @@
 //!     type TimestampProvider = Timestamp;
 //!     // The currency implementation that is offered to relayers
 //!     type Currency = Balances;
+//!     // The balance type for the currency implementation
+//!     type Balance = Balance;
 //!     // Router implementation for routing requests/responses to their respective modules
 //!     type Router = Router;
 //!     // Optional coprocessor for incoming requests/responses

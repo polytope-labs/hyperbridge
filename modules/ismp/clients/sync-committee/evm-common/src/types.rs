@@ -26,29 +26,29 @@ use ismp::host::IsmpHost;
 pub struct KeccakHasher<H: IsmpHost>(core::marker::PhantomData<H>);
 
 impl<H: IsmpHost + Send + Sync> Hasher for KeccakHasher<H> {
-    type Out = H256;
-    type StdHasher = Hash256StdHasher;
-    const LENGTH: usize = 32;
+	type Out = H256;
+	type StdHasher = Hash256StdHasher;
+	const LENGTH: usize = 32;
 
-    fn hash(x: &[u8]) -> Self::Out {
-        H::keccak256(x)
-    }
+	fn hash(x: &[u8]) -> Self::Out {
+		H::keccak256(x)
+	}
 }
 
 #[derive(Encode, Decode, Clone)]
 pub struct EvmStateProof {
-    /// Contract account proof
-    pub contract_proof: Vec<Vec<u8>>,
-    /// A map of contract address to the associated account trie proof for all keys requested from
-    /// the contract
-    pub storage_proof: BTreeMap<Vec<u8>, Vec<Vec<u8>>>,
+	/// Contract account proof
+	pub contract_proof: Vec<Vec<u8>>,
+	/// A map of contract address to the associated account trie proof for all keys requested from
+	/// the contract
+	pub storage_proof: BTreeMap<Vec<u8>, Vec<Vec<u8>>>,
 }
 
 /// The ethereum account stored in the global state trie.
 #[derive(RlpDecodable, RlpEncodable)]
 pub struct Account {
-    pub nonce: u64,
-    pub balance: alloy_primitives::U256,
-    pub storage_root: alloy_primitives::B256,
-    pub code_hash: alloy_primitives::B256,
+	pub nonce: u64,
+	pub balance: alloy_primitives::U256,
+	pub storage_root: alloy_primitives::B256,
+	pub code_hash: alloy_primitives::B256,
 }

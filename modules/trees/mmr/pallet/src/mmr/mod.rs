@@ -33,12 +33,12 @@ pub type Node<H, L> = DataOrHash<H, L>;
 pub struct Hasher<H, L>(core::marker::PhantomData<(H, L)>);
 
 impl<H: traits::Hash, L: FullLeaf> merkle_mountain_range::Merge for Hasher<H, L> {
-    type Item = Node<H, L>;
+	type Item = Node<H, L>;
 
-    fn merge(left: &Self::Item, right: &Self::Item) -> merkle_mountain_range::Result<Self::Item> {
-        let mut concat = left.hash().as_ref().to_vec();
-        concat.extend_from_slice(right.hash().as_ref());
+	fn merge(left: &Self::Item, right: &Self::Item) -> merkle_mountain_range::Result<Self::Item> {
+		let mut concat = left.hash().as_ref().to_vec();
+		concat.extend_from_slice(right.hash().as_ref());
 
-        Ok(Node::Hash(<H as traits::Hash>::hash(&concat)))
-    }
+		Ok(Node::Hash(<H as traits::Hash>::hash(&concat)))
+	}
 }

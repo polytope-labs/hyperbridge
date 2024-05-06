@@ -21,7 +21,7 @@
 extern crate alloc;
 
 pub mod prelude {
-    pub use alloc::{boxed::Box, vec, vec::Vec};
+	pub use alloc::{boxed::Box, vec, vec::Vec};
 }
 
 pub mod beacon_client;

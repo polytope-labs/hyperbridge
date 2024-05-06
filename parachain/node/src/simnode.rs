@@ -18,32 +18,32 @@
 pub struct GargantuaRuntimeInfo;
 
 impl sc_simnode::ChainInfo for GargantuaRuntimeInfo {
-    // make sure you pass the opaque::Block here
-    type Block = gargantua_runtime::opaque::Block;
-    // the runtime type
-    type Runtime = gargantua_runtime::Runtime;
-    // the runtime api
-    type RuntimeApi = gargantua_runtime::RuntimeApi;
-    // [`SignedExtra`] for your runtime
-    type SignedExtras = gargantua_runtime::SignedExtra;
+	// make sure you pass the opaque::Block here
+	type Block = gargantua_runtime::opaque::Block;
+	// the runtime type
+	type Runtime = gargantua_runtime::Runtime;
+	// the runtime api
+	type RuntimeApi = gargantua_runtime::RuntimeApi;
+	// [`SignedExtra`] for your runtime
+	type SignedExtras = gargantua_runtime::SignedExtra;
 
-    // initialize the [`SignedExtra`] for your runtime, you'll notice I'm calling a pallet method in
-    // order to read from storage. This is possible becase this method is called in an externalities
-    // provided environment. So feel free to reasd your runtime storage.
-    fn signed_extras(
-        from: <Self::Runtime as frame_system::pallet::Config>::AccountId,
-    ) -> Self::SignedExtras {
-        use sp_runtime::generic::Era;
-        let nonce = frame_system::Pallet::<Self::Runtime>::account_nonce(from);
-        (
-            frame_system::CheckNonZeroSender::<Self::Runtime>::new(),
-            frame_system::CheckSpecVersion::<Self::Runtime>::new(),
-            frame_system::CheckTxVersion::<Self::Runtime>::new(),
-            frame_system::CheckGenesis::<Self::Runtime>::new(),
-            frame_system::CheckEra::<Self::Runtime>::from(Era::Immortal),
-            frame_system::CheckNonce::<Self::Runtime>::from(nonce),
-            frame_system::CheckWeight::<Self::Runtime>::new(),
-            pallet_transaction_payment::ChargeTransactionPayment::<Self::Runtime>::from(0),
-        )
-    }
+	// initialize the [`SignedExtra`] for your runtime, you'll notice I'm calling a pallet method in
+	// order to read from storage. This is possible becase this method is called in an externalities
+	// provided environment. So feel free to reasd your runtime storage.
+	fn signed_extras(
+		from: <Self::Runtime as frame_system::pallet::Config>::AccountId,
+	) -> Self::SignedExtras {
+		use sp_runtime::generic::Era;
+		let nonce = frame_system::Pallet::<Self::Runtime>::account_nonce(from);
+		(
+			frame_system::CheckNonZeroSender::<Self::Runtime>::new(),
+			frame_system::CheckSpecVersion::<Self::Runtime>::new(),
+			frame_system::CheckTxVersion::<Self::Runtime>::new(),
+			frame_system::CheckGenesis::<Self::Runtime>::new(),
+			frame_system::CheckEra::<Self::Runtime>::from(Era::Immortal),
+			frame_system::CheckNonce::<Self::Runtime>::from(nonce),
+			frame_system::CheckWeight::<Self::Runtime>::new(),
+			pallet_transaction_payment::ChargeTransactionPayment::<Self::Runtime>::from(0),
+		)
+	}
 }

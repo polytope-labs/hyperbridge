@@ -17,7 +17,6 @@ use pallet_ismp_relayer::{
 	message,
 	withdrawal::{Key, WithdrawalInputData, WithdrawalParams, WithdrawalProof},
 };
-use tesseract_primitives::{HyperbridgeClaim, IsmpProvider, WithdrawFundsResult};
 use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
 	Pair, U256,
@@ -33,6 +32,7 @@ use subxt::{
 	utils::AccountId32,
 	OnlineClient,
 };
+use tesseract_primitives::{HyperbridgeClaim, IsmpProvider, WithdrawFundsResult};
 
 #[derive(codec::Encode, codec::Decode)]
 pub struct RequestMetadata {

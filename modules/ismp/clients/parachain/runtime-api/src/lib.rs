@@ -25,12 +25,12 @@ use alloc::vec::Vec;
 use cumulus_pallet_parachain_system::RelayChainState;
 
 sp_api::decl_runtime_apis! {
-    /// Ismp Parachain consensus client runtime APIs
-    pub trait IsmpParachainApi {
-        /// Return all the para_ids this runtime is interested in. Used by the inherent provider
-        fn para_ids() -> Vec<u32>;
+	/// Ismp Parachain consensus client runtime APIs
+	pub trait IsmpParachainApi {
+		/// Return all the para_ids this runtime is interested in. Used by the inherent provider
+		fn para_ids() -> Vec<u32>;
 
-        /// Return the current relay chain state.
-        fn current_relay_chain_state() -> RelayChainState;
-    }
+		/// Return the current relay chain state.
+		fn current_relay_chain_state() -> RelayChainState;
+	}
 }

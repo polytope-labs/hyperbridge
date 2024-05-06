@@ -29,5 +29,5 @@ mod runtime_api;
 mod simnode;
 
 fn main() -> sc_cli::Result<()> {
-    command::run()
+	command::run()
 }

@@ -3,8 +3,9 @@
 pub static DATAMODEL_STR: &'static str = include_str!("../prisma/schema.prisma");
 static DATABASE_STR: &'static str = "sqlite";
 use ::prisma_client_rust::migrations::include_dir;
-pub static MIGRATIONS_DIR: &::prisma_client_rust::migrations::include_dir::Dir =
-	&::prisma_client_rust::migrations::include_dir::include_dir!("./tesseract/fees/prisma/migrations");
+pub static MIGRATIONS_DIR: &::prisma_client_rust::migrations::include_dir::Dir = &::prisma_client_rust::migrations::include_dir::include_dir!(
+	"./tesseract/fees/prisma/migrations"
+);
 pub async fn new_client() -> Result<PrismaClient, ::prisma_client_rust::NewClientError> {
 	PrismaClient::_builder().build().await
 }

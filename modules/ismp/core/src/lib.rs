@@ -49,6 +49,6 @@ pub mod router;
 
 pub use error::Error;
 pub mod prelude {
-    //! Some useful imports in the crate prelude.
-    pub use alloc::{format, str::FromStr, string::String, vec, vec::Vec};
+	//! Some useful imports in the crate prelude.
+	pub use alloc::{format, str::FromStr, string::String, vec, vec::Vec};
 }

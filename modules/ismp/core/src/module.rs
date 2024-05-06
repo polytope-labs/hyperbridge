@@ -16,9 +16,9 @@
 //! ISMPModule definition
 
 use crate::{
-    error::Error,
-    events::Event,
-    router::{Post as PostRequest, Response, Timeout},
+	error::Error,
+	events::Event,
+	router::{Post as PostRequest, Response, Timeout},
 };
 
 /// A type alias for dispatch results
@@ -27,15 +27,15 @@ pub type DispatchResult = Result<Event, Error>;
 /// Individual modules which live on a state machine must conform to this interface in order to send
 /// and receive ISMP requests and responses
 pub trait IsmpModule {
-    /// Called by the message handler on a module, to notify module of a new POST request
-    /// the module may choose to respond immediately, or in a later block
-    fn on_accept(&self, request: PostRequest) -> Result<(), Error>;
+	/// Called by the message handler on a module, to notify module of a new POST request
+	/// the module may choose to respond immediately, or in a later block
+	fn on_accept(&self, request: PostRequest) -> Result<(), Error>;
 
-    /// Called by the message handler on a module, to notify module of a response to a previously
-    /// sent out request
-    fn on_response(&self, response: Response) -> Result<(), Error>;
+	/// Called by the message handler on a module, to notify module of a response to a previously
+	/// sent out request
+	fn on_response(&self, response: Response) -> Result<(), Error>;
 
-    /// Called by the message handler on a module, to notify module of requests that were previously
-    /// sent but have now timed-out
-    fn on_timeout(&self, request: Timeout) -> Result<(), Error>;
+	/// Called by the message handler on a module, to notify module of requests that were previously
+	/// sent but have now timed-out
+	fn on_timeout(&self, request: Timeout) -> Result<(), Error>;
 }

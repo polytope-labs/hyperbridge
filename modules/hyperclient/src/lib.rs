@@ -14,9 +14,9 @@ use crate::types::ClientConfig;
 use anyhow::anyhow;
 
 use crate::{
-    interfaces::{JsClientConfig, JsPost, JsPostResponse},
-    providers::{evm::EvmClient, substrate::SubstrateClient},
-    types::{ChainConfig, MessageStatusWithMetadata, TimeoutStatus},
+	interfaces::{JsClientConfig, JsPost, JsPostResponse},
+	providers::{evm::EvmClient, substrate::SubstrateClient},
+	types::{ChainConfig, MessageStatusWithMetadata, TimeoutStatus},
 };
 use ethers::{types::H256, utils::keccak256};
 use futures::StreamExt;
@@ -231,14 +231,14 @@ interface ErrorWithMetadata {
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(typescript_type = "IConfig")]
-    pub type IConfig;
+	#[wasm_bindgen(typescript_type = "IConfig")]
+	pub type IConfig;
 
-    #[wasm_bindgen(typescript_type = "IPostRequest")]
-    pub type IPostRequest;
+	#[wasm_bindgen(typescript_type = "IPostRequest")]
+	pub type IPostRequest;
 
-    #[wasm_bindgen(typescript_type = "IPostResponse")]
-    pub type IPostResponse;
+	#[wasm_bindgen(typescript_type = "IPostResponse")]
+	pub type IPostResponse;
 }
 
 /// The hyperclient, allows the clients of hyperbridge to manage their in-flight ISMP requests
@@ -246,164 +246,164 @@ extern "C" {
 #[wasm_bindgen]
 #[derive(Clone)]
 pub struct HyperClient {
-    #[wasm_bindgen(skip)]
-    pub source: EvmClient,
-    #[wasm_bindgen(skip)]
-    pub dest: EvmClient,
-    #[wasm_bindgen(skip)]
-    pub hyperbridge: SubstrateClient<Hyperbridge>,
+	#[wasm_bindgen(skip)]
+	pub source: EvmClient,
+	#[wasm_bindgen(skip)]
+	pub dest: EvmClient,
+	#[wasm_bindgen(skip)]
+	pub hyperbridge: SubstrateClient<Hyperbridge>,
 }
 
 impl HyperClient {
-    /// Initialize the Hyperclient
-    pub async fn new(config: ClientConfig) -> Result<Self, anyhow::Error> {
-        // todo: we'll need an AnyClient to make this generic
-        let ChainConfig::Evm(ref source_config) = config.source else {
-            Err(anyhow!("Expected EvmConfig"))?
-        };
-        let ChainConfig::Evm(ref dest_config) = config.dest else {
-            Err(anyhow!("Expected EvmConfig"))?
-        };
-        let hyperbridge = config.hyperbridge_client().await?;
+	/// Initialize the Hyperclient
+	pub async fn new(config: ClientConfig) -> Result<Self, anyhow::Error> {
+		// todo: we'll need an AnyClient to make this generic
+		let ChainConfig::Evm(ref source_config) = config.source else {
+			Err(anyhow!("Expected EvmConfig"))?
+		};
+		let ChainConfig::Evm(ref dest_config) = config.dest else {
+			Err(anyhow!("Expected EvmConfig"))?
+		};
+		let hyperbridge = config.hyperbridge_client().await?;
 
-        Ok(Self {
-            source: source_config.into_client().await?,
-            dest: dest_config.into_client().await?,
-            hyperbridge,
-        })
-    }
+		Ok(Self {
+			source: source_config.into_client().await?,
+			dest: dest_config.into_client().await?,
+			hyperbridge,
+		})
+	}
 }
 
 #[wasm_bindgen]
 impl HyperClient {
-    /// Initialize the hyperclient
-    pub async fn init(config: IConfig) -> Result<HyperClient, JsError> {
-        let lambda = || async move {
-            let config = serde_wasm_bindgen::from_value::<JsClientConfig>(config.into()).unwrap();
-            let config: ClientConfig = config.try_into()?;
+	/// Initialize the hyperclient
+	pub async fn init(config: IConfig) -> Result<HyperClient, JsError> {
+		let lambda = || async move {
+			let config = serde_wasm_bindgen::from_value::<JsClientConfig>(config.into()).unwrap();
+			let config: ClientConfig = config.try_into()?;
 
-            HyperClient::new(config).await
-        };
+			HyperClient::new(config).await
+		};
 
-        lambda().await.map_err(|err: anyhow::Error| {
-            JsError::new(&format!("Could not create hyperclient {err:?}"))
-        })
-    }
+		lambda().await.map_err(|err: anyhow::Error| {
+			JsError::new(&format!("Could not create hyperclient {err:?}"))
+		})
+	}
 
-    /// Queries the status of a request and returns `MessageStatus`
-    pub async fn query_request_status(&self, request: IPostRequest) -> Result<JsValue, JsError> {
-        let lambda = || async move {
-            let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
-            let post: Post = post.try_into()?;
-            let status = internals::query_request_status_internal(&self, post).await?;
-            Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
-        };
+	/// Queries the status of a request and returns `MessageStatus`
+	pub async fn query_request_status(&self, request: IPostRequest) -> Result<JsValue, JsError> {
+		let lambda = || async move {
+			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
+			let post: Post = post.try_into()?;
+			let status = internals::query_request_status_internal(&self, post).await?;
+			Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
+		};
 
-        lambda().await.map_err(|err: anyhow::Error| {
-            JsError::new(&format!(
-                "Failed to query request status for {:?}->{:?}: {err:?}",
-                self.source.state_machine, self.dest.state_machine,
-            ))
-        })
-    }
+		lambda().await.map_err(|err: anyhow::Error| {
+			JsError::new(&format!(
+				"Failed to query request status for {:?}->{:?}: {err:?}",
+				self.source.state_machine, self.dest.state_machine,
+			))
+		})
+	}
 
-    /// Accepts a post response and returns a `MessageStatus`
-    pub async fn query_response_status(&self, response: IPostResponse) -> Result<JsValue, JsError> {
-        let lambda = || async move {
-            let post = serde_wasm_bindgen::from_value::<JsPostResponse>(response.into()).unwrap();
-            let response: PostResponse = post.try_into()?;
-            let status = internals::query_response_status_internal(&self, response).await?;
-            Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
-        };
+	/// Accepts a post response and returns a `MessageStatus`
+	pub async fn query_response_status(&self, response: IPostResponse) -> Result<JsValue, JsError> {
+		let lambda = || async move {
+			let post = serde_wasm_bindgen::from_value::<JsPostResponse>(response.into()).unwrap();
+			let response: PostResponse = post.try_into()?;
+			let status = internals::query_response_status_internal(&self, response).await?;
+			Ok(serde_wasm_bindgen::to_value(&status).expect("Infallible"))
+		};
 
-        lambda().await.map_err(|err: anyhow::Error| {
-            JsError::new(&format!(
-                "Failed to query response status for {:?}->{:?}: {err:?}",
-                self.source.state_machine, self.dest.state_machine,
-            ))
-        })
-    }
+		lambda().await.map_err(|err: anyhow::Error| {
+			JsError::new(&format!(
+				"Failed to query response status for {:?}->{:?}: {err:?}",
+				self.source.state_machine, self.dest.state_machine,
+			))
+		})
+	}
 
-    /// Return the status of a post request as a `ReadableStream` that yields
-    /// `MessageStatusWithMeta`
-    pub async fn request_status_stream(
-        &self,
-        request: IPostRequest,
-    ) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
-        let lambda = || async move {
-            let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
-            let height = post.height;
-            let post: Post = post.try_into()?;
+	/// Return the status of a post request as a `ReadableStream` that yields
+	/// `MessageStatusWithMeta`
+	pub async fn request_status_stream(
+		&self,
+		request: IPostRequest,
+	) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
+		let lambda = || async move {
+			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
+			let height = post.height;
+			let post: Post = post.try_into()?;
 
-            // Obtaining the request stream and the timeout stream
-            let timed_out =
-                internals::request_timeout_stream(post.timeout_timestamp, self.source.clone())
-                    .await;
+			// Obtaining the request stream and the timeout stream
+			let timed_out =
+				internals::request_timeout_stream(post.timeout_timestamp, self.source.clone())
+					.await;
 
-            let request_status = internals::request_status_stream(&self, post, height).await;
+			let request_status = internals::request_status_stream(&self, post, height).await;
 
-            let stream = futures::stream::select(request_status, timed_out).map(|res| {
-                res.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
-                    .map_err(|e| {
-                        serde_wasm_bindgen::to_value(&MessageStatusWithMetadata::Error {
-                            description: alloc::format!("{e:?}"),
-                        })
-                        .expect("Infallible")
-                    })
-            });
+			let stream = futures::stream::select(request_status, timed_out).map(|res| {
+				res.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
+					.map_err(|e| {
+						serde_wasm_bindgen::to_value(&MessageStatusWithMetadata::Error {
+							description: alloc::format!("{e:?}"),
+						})
+						.expect("Infallible")
+					})
+			});
 
-            // Wrapping the main stream in a readable stream
-            let js_stream = ReadableStream::from_stream(stream);
+			// Wrapping the main stream in a readable stream
+			let js_stream = ReadableStream::from_stream(stream);
 
-            Ok(js_stream.into_raw())
-        };
+			Ok(js_stream.into_raw())
+		};
 
-        lambda().await.map_err(|err: anyhow::Error| {
-            JsError::new(&format!("Failed to create request status stream: {err:?}"))
-        })
-    }
+		lambda().await.map_err(|err: anyhow::Error| {
+			JsError::new(&format!("Failed to create request status stream: {err:?}"))
+		})
+	}
 
-    /// Given a post request that has timed out returns a `ReadableStream` that yields a
-    /// `TimeoutStatus` This function will not check if the request has timed out, only call it
-    /// when you receive a `MesssageStatus::TimeOut` from `query_request_status` or
-    /// `request_status_stream`. The stream ends when once it yields a `TimeoutMessage`
-    pub async fn timeout_post_request(
-        &self,
-        request: IPostRequest,
-    ) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
-        let lambda = || async move {
-            let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
-            let post: Post = post.try_into()?;
+	/// Given a post request that has timed out returns a `ReadableStream` that yields a
+	/// `TimeoutStatus` This function will not check if the request has timed out, only call it
+	/// when you receive a `MesssageStatus::TimeOut` from `query_request_status` or
+	/// `request_status_stream`. The stream ends when once it yields a `TimeoutMessage`
+	pub async fn timeout_post_request(
+		&self,
+		request: IPostRequest,
+	) -> Result<wasm_streams::readable::sys::ReadableStream, JsError> {
+		let lambda = || async move {
+			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
+			let post: Post = post.try_into()?;
 
-            let stream = internals::timeout_request_stream(&self, post).await?.map(|value| {
-                value
-                    .map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
-                    .map_err(|e| {
-                        serde_wasm_bindgen::to_value(&TimeoutStatus::Error {
-                            description: alloc::format!("{e:?}"),
-                        })
-                        .expect("Infallible")
-                    })
-            });
+			let stream = internals::timeout_request_stream(&self, post).await?.map(|value| {
+				value
+					.map(|status| serde_wasm_bindgen::to_value(&status).expect("Infallible"))
+					.map_err(|e| {
+						serde_wasm_bindgen::to_value(&TimeoutStatus::Error {
+							description: alloc::format!("{e:?}"),
+						})
+						.expect("Infallible")
+					})
+			});
 
-            let js_stream = ReadableStream::from_stream(stream);
-            Ok(js_stream.into_raw())
-        };
+			let js_stream = ReadableStream::from_stream(stream);
+			Ok(js_stream.into_raw())
+		};
 
-        lambda().await.map_err(|err: anyhow::Error| {
-            JsError::new(&format!("Failed to create post request timeout stream: {err:?}"))
-        })
-    }
+		lambda().await.map_err(|err: anyhow::Error| {
+			JsError::new(&format!("Failed to create post request timeout stream: {err:?}"))
+		})
+	}
 }
 
 #[derive(Clone, Default)]
 pub struct Keccak256;
 
 impl ismp::messaging::Keccak256 for Keccak256 {
-    fn keccak256(bytes: &[u8]) -> H256
-    where
-        Self: Sized,
-    {
-        keccak256(bytes).into()
-    }
+	fn keccak256(bytes: &[u8]) -> H256
+	where
+		Self: Sized,
+	{
+		keccak256(bytes).into()
+	}
 }

@@ -65,139 +65,139 @@ pub type HashFor<B> = <<B as Block>::Header as Header>::Hash;
 /// A convenience MMR client trait that defines all the type bounds a MMR client
 /// has to satisfy and defines some helper methods.
 pub trait MmrClient<B, BE>:
-    BlockchainEvents<B> + HeaderBackend<B> + HeaderMetadata<B> + ProvideRuntimeApi<B>
+	BlockchainEvents<B> + HeaderBackend<B> + HeaderMetadata<B> + ProvideRuntimeApi<B>
 where
-    B: Block,
-    BE: Backend<B>,
-    Self::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
+	B: Block,
+	BE: Backend<B>,
+	Self::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
 {
-    /// Get the block number where the mmr pallet was added to the runtime.
-    fn first_mmr_block_num(&self, notification: &FinalityNotification<B>) -> Option<NumberFor<B>> {
-        let best_block_hash = notification.header.hash();
-        match self.runtime_api().pallet_genesis(best_block_hash) {
-            Ok(Ok(number)) => number,
-            _ => {
-                trace!(
-                    target: LOG_TARGET,
-                    "Failed to fetch pallet-mmr genesis",
-                );
-                None
-            },
-        }
-    }
+	/// Get the block number where the mmr pallet was added to the runtime.
+	fn first_mmr_block_num(&self, notification: &FinalityNotification<B>) -> Option<NumberFor<B>> {
+		let best_block_hash = notification.header.hash();
+		match self.runtime_api().pallet_genesis(best_block_hash) {
+			Ok(Ok(number)) => number,
+			_ => {
+				trace!(
+					target: LOG_TARGET,
+					"Failed to fetch pallet-mmr genesis",
+				);
+				None
+			},
+		}
+	}
 }
 
 impl<B, BE, T> MmrClient<B, BE> for T
 where
-    B: Block,
-    BE: Backend<B>,
-    T: BlockchainEvents<B> + HeaderBackend<B> + HeaderMetadata<B> + ProvideRuntimeApi<B>,
-    T::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
+	B: Block,
+	BE: Backend<B>,
+	T: BlockchainEvents<B> + HeaderBackend<B> + HeaderMetadata<B> + ProvideRuntimeApi<B>,
+	T::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
 {
-    // empty
+	// empty
 }
 
 struct OffchainMmrBuilder<B: Block, BE: Backend<B>, C> {
-    backend: Arc<BE>,
-    client: Arc<C>,
-    offchain_db: OffchainDb<BE::OffchainStorage>,
-    indexing_prefix: Vec<u8>,
-    _phantom: PhantomData<B>,
+	backend: Arc<BE>,
+	client: Arc<C>,
+	offchain_db: OffchainDb<BE::OffchainStorage>,
+	indexing_prefix: Vec<u8>,
+	_phantom: PhantomData<B>,
 }
 
 impl<B, BE, C> OffchainMmrBuilder<B, BE, C>
 where
-    B: Block,
-    BE: Backend<B>,
-    C: MmrClient<B, BE>,
-    C::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
+	B: Block,
+	BE: Backend<B>,
+	C: MmrClient<B, BE>,
+	C::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
 {
-    async fn try_build(
-        self,
-        finality_notifications: &mut FinalityNotifications<B>,
-    ) -> Option<OffchainMmr<B, BE, C>> {
-        while let Some(notification) = finality_notifications.next().await {
-            if let Some(first_mmr_block_num) = self.client.first_mmr_block_num(&notification) {
-                let mut offchain_mmr = OffchainMmr::new(
-                    self.backend,
-                    self.client,
-                    self.offchain_db,
-                    self.indexing_prefix,
-                    first_mmr_block_num,
-                )?;
+	async fn try_build(
+		self,
+		finality_notifications: &mut FinalityNotifications<B>,
+	) -> Option<OffchainMmr<B, BE, C>> {
+		while let Some(notification) = finality_notifications.next().await {
+			if let Some(first_mmr_block_num) = self.client.first_mmr_block_num(&notification) {
+				let mut offchain_mmr = OffchainMmr::new(
+					self.backend,
+					self.client,
+					self.offchain_db,
+					self.indexing_prefix,
+					first_mmr_block_num,
+				)?;
 
-                // We need to make sure all blocks leading up to current notification
-                // have also been canonicalized.
-                let first = notification.tree_route.first().unwrap_or(&notification.hash);
-                offchain_mmr.canonicalize_catch_up(*first);
-                // We have to canonicalize and prune the blocks in the finality
-                // notification that lead to building the offchain-mmr as well.
-                offchain_mmr.canonicalize_and_prune(notification);
-                return Some(offchain_mmr)
-            }
-        }
+				// We need to make sure all blocks leading up to current notification
+				// have also been canonicalized.
+				let first = notification.tree_route.first().unwrap_or(&notification.hash);
+				offchain_mmr.canonicalize_catch_up(*first);
+				// We have to canonicalize and prune the blocks in the finality
+				// notification that lead to building the offchain-mmr as well.
+				offchain_mmr.canonicalize_and_prune(notification);
+				return Some(offchain_mmr)
+			}
+		}
 
-        error!(
-            target: LOG_TARGET,
-            "Finality notifications stream closed unexpectedly. \
-            Couldn't build the canonicalization engine",
-        );
-        None
-    }
+		error!(
+			target: LOG_TARGET,
+			"Finality notifications stream closed unexpectedly. \
+			Couldn't build the canonicalization engine",
+		);
+		None
+	}
 }
 
 /// A MMR Gadget.
 pub struct MmrGadget<B: Block, BE: Backend<B>, C> {
-    finality_notifications: FinalityNotifications<B>,
+	finality_notifications: FinalityNotifications<B>,
 
-    _phantom: PhantomData<(B, BE, C)>,
+	_phantom: PhantomData<(B, BE, C)>,
 }
 
 impl<B, BE, C> MmrGadget<B, BE, C>
 where
-    B: Block,
-    <B::Header as Header>::Number: Into<LeafIndex>,
-    BE: Backend<B>,
-    C: MmrClient<B, BE>,
-    C::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
+	B: Block,
+	<B::Header as Header>::Number: Into<LeafIndex>,
+	BE: Backend<B>,
+	C: MmrClient<B, BE>,
+	C::Api: MmrRuntimeApi<B, HashFor<B>, NumberFor<B>, Leaf>,
 {
-    async fn run(mut self, builder: OffchainMmrBuilder<B, BE, C>) {
-        let mut offchain_mmr = match builder.try_build(&mut self.finality_notifications).await {
-            Some(offchain_mmr) => offchain_mmr,
-            None => return,
-        };
+	async fn run(mut self, builder: OffchainMmrBuilder<B, BE, C>) {
+		let mut offchain_mmr = match builder.try_build(&mut self.finality_notifications).await {
+			Some(offchain_mmr) => offchain_mmr,
+			None => return,
+		};
 
-        while let Some(notification) = self.finality_notifications.next().await {
-            offchain_mmr.canonicalize_and_prune(notification);
-        }
-    }
+		while let Some(notification) = self.finality_notifications.next().await {
+			offchain_mmr.canonicalize_and_prune(notification);
+		}
+	}
 
-    /// Create and run the MMR gadget.
-    pub async fn start(client: Arc<C>, backend: Arc<BE>, indexing_prefix: Vec<u8>) {
-        let offchain_db = match backend.offchain_storage() {
-            Some(offchain_storage) => OffchainDb::new(offchain_storage),
-            None => {
-                warn!(
-                    target: LOG_TARGET,
-                    "Can't spawn a MmrGadget for a node without offchain storage."
-                );
-                return
-            },
-        };
+	/// Create and run the MMR gadget.
+	pub async fn start(client: Arc<C>, backend: Arc<BE>, indexing_prefix: Vec<u8>) {
+		let offchain_db = match backend.offchain_storage() {
+			Some(offchain_storage) => OffchainDb::new(offchain_storage),
+			None => {
+				warn!(
+					target: LOG_TARGET,
+					"Can't spawn a MmrGadget for a node without offchain storage."
+				);
+				return
+			},
+		};
 
-        let mmr_gadget = MmrGadget::<B, BE, C> {
-            finality_notifications: client.finality_notification_stream(),
+		let mmr_gadget = MmrGadget::<B, BE, C> {
+			finality_notifications: client.finality_notification_stream(),
 
-            _phantom: Default::default(),
-        };
-        mmr_gadget
-            .run(OffchainMmrBuilder {
-                backend,
-                client,
-                offchain_db,
-                indexing_prefix,
-                _phantom: Default::default(),
-            })
-            .await
-    }
+			_phantom: Default::default(),
+		};
+		mmr_gadget
+			.run(OffchainMmrBuilder {
+				backend,
+				client,
+				offchain_db,
+				indexing_prefix,
+				_phantom: Default::default(),
+			})
+			.await
+	}
 }

@@ -13,10 +13,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use tesseract_primitives::IsmpProvider;
 use std::sync::Arc;
 use substrate_state_machine::HashAlgorithm;
 use tesseract_evm::{EvmClient, EvmConfig};
+use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
 	SubstrateClient, SubstrateConfig,

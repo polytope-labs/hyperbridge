@@ -1,88 +1,88 @@
 use super::write_bytes_to_lower_hex;
 use alloc::{vec, vec::Vec};
 use core::{
-    fmt,
-    hash::{Hash, Hasher},
-    ops::{Deref, DerefMut},
+	fmt,
+	hash::{Hash, Hasher},
+	ops::{Deref, DerefMut},
 };
 use ssz_rs::prelude::*;
 
 #[derive(Default, Clone, Eq, SimpleSerialize, codec::Encode, codec::Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ByteList<const N: usize>(
-    #[cfg_attr(feature = "serde", serde(with = "crate::serde::as_hex"))] List<u8, N>,
+	#[cfg_attr(feature = "serde", serde(with = "crate::serde::as_hex"))] List<u8, N>,
 );
 
 impl<const N: usize> TryFrom<&[u8]> for ByteList<N> {
-    type Error = ssz_rs::DeserializeError;
+	type Error = ssz_rs::DeserializeError;
 
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        ByteList::<N>::deserialize(bytes)
-    }
+	fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+		ByteList::<N>::deserialize(bytes)
+	}
 }
 
 // impl here to satisfy clippy
 impl<const N: usize> PartialEq for ByteList<N> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
+	fn eq(&self, other: &Self) -> bool {
+		self.0 == other.0
+	}
 }
 
 impl<const N: usize> Hash for ByteList<N> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.as_ref().hash(state);
-    }
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		self.as_ref().hash(state);
+	}
 }
 
 impl<const N: usize> fmt::LowerHex for ByteList<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write_bytes_to_lower_hex(f, self)
-    }
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write_bytes_to_lower_hex(f, self)
+	}
 }
 
 impl<const N: usize> fmt::Debug for ByteList<N> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ByteList<{N}>(len={})({:#x})", self.len(), self)
-    }
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "ByteList<{N}>(len={})({:#x})", self.len(), self)
+	}
 }
 
 impl<const N: usize> fmt::Display for ByteList<N> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self:#x}")
-    }
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{self:#x}")
+	}
 }
 
 impl<const N: usize> AsRef<[u8]> for ByteList<N> {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
+	fn as_ref(&self) -> &[u8] {
+		&self.0
+	}
 }
 
 impl<const N: usize> Deref for ByteList<N> {
-    type Target = List<u8, N>;
+	type Target = List<u8, N>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
 }
 
 impl<const N: usize> DerefMut for ByteList<N> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		&mut self.0
+	}
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+	use super::*;
 
-    #[test]
-    fn test_byte_list_serde() {
-        let list = ByteList::<32>::try_from([255u8, 255u8].as_ref()).unwrap();
-        let encoding = ssz_rs::serialize(&list).unwrap();
-        assert_eq!(encoding, [255, 255]);
+	#[test]
+	fn test_byte_list_serde() {
+		let list = ByteList::<32>::try_from([255u8, 255u8].as_ref()).unwrap();
+		let encoding = ssz_rs::serialize(&list).unwrap();
+		assert_eq!(encoding, [255, 255]);
 
-        let recovered_list = ByteList::<32>::deserialize(&encoding).unwrap();
-        assert_eq!(list, recovered_list);
-    }
+		let recovered_list = ByteList::<32>::deserialize(&encoding).unwrap();
+		assert_eq!(list, recovered_list);
+	}
 }

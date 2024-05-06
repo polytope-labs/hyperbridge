@@ -38,48 +38,48 @@ pub type RpcExtension = jsonrpsee::RpcModule<()>;
 
 /// Full client dependencies
 pub struct FullDeps<C, P, B> {
-    /// The client instance to use.
-    pub client: Arc<C>,
-    /// Transaction pool instance.
-    pub pool: Arc<P>,
-    /// Whether to deny unsafe calls
-    pub deny_unsafe: DenyUnsafe,
-    /// Backend used by the node.
-    pub backend: Arc<B>,
+	/// The client instance to use.
+	pub client: Arc<C>,
+	/// Transaction pool instance.
+	pub pool: Arc<P>,
+	/// Whether to deny unsafe calls
+	pub deny_unsafe: DenyUnsafe,
+	/// Backend used by the node.
+	pub backend: Arc<B>,
 }
 
 /// Instantiate all RPC extensions.
 pub fn create_full<C, P, B>(
-    deps: FullDeps<C, P, B>,
+	deps: FullDeps<C, P, B>,
 ) -> Result<RpcExtension, Box<dyn std::error::Error + Send + Sync>>
 where
-    C: ProvideRuntimeApi<Block>
-        + HeaderBackend<Block>
-        + AuxStore
-        + BlockBackend<Block>
-        + ProofProvider<Block>
-        + HeaderMetadata<Block, Error = BlockChainError>
-        + Send
-        + Sync
-        + 'static,
-    C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
-    C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
-    C::Api: BlockBuilder<Block>,
-    C::Api: pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>,
-    P: TransactionPool + Sync + Send + 'static,
-    B: sc_client_api::Backend<Block> + Send + Sync + 'static,
-    B::State: sc_client_api::StateBackend<sp_runtime::traits::HashingFor<Block>>,
+	C: ProvideRuntimeApi<Block>
+		+ HeaderBackend<Block>
+		+ AuxStore
+		+ BlockBackend<Block>
+		+ ProofProvider<Block>
+		+ HeaderMetadata<Block, Error = BlockChainError>
+		+ Send
+		+ Sync
+		+ 'static,
+	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
+	C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
+	C::Api: BlockBuilder<Block>,
+	C::Api: pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>,
+	P: TransactionPool + Sync + Send + 'static,
+	B: sc_client_api::Backend<Block> + Send + Sync + 'static,
+	B::State: sc_client_api::StateBackend<sp_runtime::traits::HashingFor<Block>>,
 {
-    use pallet_ismp_rpc::{IsmpApiServer, IsmpRpcHandler};
-    use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
-    use substrate_frame_rpc_system::{System, SystemApiServer};
+	use pallet_ismp_rpc::{IsmpApiServer, IsmpRpcHandler};
+	use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
+	use substrate_frame_rpc_system::{System, SystemApiServer};
 
-    let mut module = RpcExtension::new(());
-    let FullDeps { client, pool, deny_unsafe, backend } = deps;
+	let mut module = RpcExtension::new(());
+	let FullDeps { client, pool, deny_unsafe, backend } = deps;
 
-    module.merge(System::new(client.clone(), pool, deny_unsafe).into_rpc())?;
-    module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
-    module.merge(IsmpRpcHandler::new(client, backend.clone())?.into_rpc())?;
+	module.merge(System::new(client.clone(), pool, deny_unsafe).into_rpc())?;
+	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
+	module.merge(IsmpRpcHandler::new(client, backend.clone())?.into_rpc())?;
 
-    Ok(module)
+	Ok(module)
 }

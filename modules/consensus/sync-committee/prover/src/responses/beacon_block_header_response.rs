@@ -2,18 +2,18 @@ use sync_committee_primitives::consensus_types::BeaconBlockHeader;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Response {
-    pub(crate) data: ResponseData,
-    execution_optimistic: bool,
+	pub(crate) data: ResponseData,
+	execution_optimistic: bool,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ResponseData {
-    root: String,
-    canonical: bool,
-    pub(crate) header: ResponseDataBeaconBlockHeaderMessage,
+	root: String,
+	canonical: bool,
+	pub(crate) header: ResponseDataBeaconBlockHeaderMessage,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ResponseDataBeaconBlockHeaderMessage {
-    pub message: BeaconBlockHeader,
+	pub message: BeaconBlockHeader,
 }

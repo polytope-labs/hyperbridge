@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tesseract-substrate = { path = "../substrate/common" }
+tesseract-substrate = { path = "../substrate" }
 primitives = { package = "tesseract-primitives", path = "../primitives" }
-tesseract-evm = { path = "../evm/common" }
+tesseract-evm = { path = "../evm" }
 
 # polytope labs
 ismp.workspace = true

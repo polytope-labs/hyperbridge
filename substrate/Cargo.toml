@@ -20,7 +20,7 @@ zstd-safe = { version = "7.1.0" }
 
 debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
 
-primitives = { package = "tesseract-primitives", path = "../../primitives" }
+primitives = { package = "tesseract-primitives", path = "../primitives" }
 pallet-ismp.workspace = true
 pallet-ismp-relayer.workspace = true
 pallet-ismp-demo.workspace = true

@@ -480,11 +480,10 @@ mod tests {
 		messaging::{hash_request, Message, Proof, RequestMessage},
 		router::Request,
 	};
-	use primitives::Hasher;
 	use itertools::Itertools;
 	use pallet_ismp::mmr::LeafIndexQuery;
 	use pallet_ismp_host_executive::HostParam;
-	use primitives::{IsmpProvider, Query};
+	use primitives::{Hasher, IsmpProvider, Query};
 	use sp_core::H160;
 	use subxt::rpc_params;
 	use tesseract_substrate::{

@@ -17,99 +17,99 @@ pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::types::{ConsensusState, L2Consensus};
-    use frame_support::pallet_prelude::*;
-    use frame_system::pallet_prelude::*;
-    use ismp::{consensus::StateMachineId, host::IsmpHost};
+	use crate::types::{ConsensusState, L2Consensus};
+	use frame_support::pallet_prelude::*;
+	use frame_system::pallet_prelude::*;
+	use ismp::{consensus::StateMachineId, host::IsmpHost};
 
-    use sp_core::{H160, H256};
+	use sp_core::{H160, H256};
 
-    #[pallet::pallet]
-    pub struct Pallet<T>(_);
+	#[pallet::pallet]
+	pub struct Pallet<T>(_);
 
-    /// The config trait
-    #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_ismp::Config {
-        /// Origin allowed to add or remove parachains in Consensus State
-        type AdminOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
+	/// The config trait
+	#[pallet::config]
+	pub trait Config: frame_system::Config + pallet_ismp::Config {
+		/// Origin allowed to add or remove parachains in Consensus State
+		type AdminOrigin: EnsureOrigin<<Self as frame_system::Config>::RuntimeOrigin>;
 
-        /// The underlying [`IsmpHost`] implementation
-        type IsmpHost: IsmpHost + Default;
-    }
+		/// The underlying [`IsmpHost`] implementation
+		type IsmpHost: IsmpHost + Default;
+	}
 
-    #[pallet::error]
-    pub enum Error<T> {
-        /// Contract Address Already Exists
-        ContractAddressAlreadyExists,
-        /// Error fetching consensus state
-        ErrorFetchingConsensusState,
-        /// Error decoding consensus state
-        ErrorDecodingConsensusState,
-        /// Error storing consensus state
-        ErrorStoringConsensusState,
-    }
+	#[pallet::error]
+	pub enum Error<T> {
+		/// Contract Address Already Exists
+		ContractAddressAlreadyExists,
+		/// Error fetching consensus state
+		ErrorFetchingConsensusState,
+		/// Error decoding consensus state
+		ErrorDecodingConsensusState,
+		/// Error storing consensus state
+		ErrorStoringConsensusState,
+	}
 
-    #[pallet::call]
-    impl<T: Config> Pallet<T>
-    where
-        <T as frame_system::Config>::Hash: From<H256>,
-    {
-        /// Add an ismp host contract address for a new chain
-        #[pallet::call_index(0)]
-        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-        pub fn add_ismp_address(
-            origin: OriginFor<T>,
-            contract_address: H160,
-            state_machine_id: StateMachineId,
-        ) -> DispatchResult {
-            <T as Config>::AdminOrigin::ensure_origin(origin)?;
+	#[pallet::call]
+	impl<T: Config> Pallet<T>
+	where
+		<T as frame_system::Config>::Hash: From<H256>,
+	{
+		/// Add an ismp host contract address for a new chain
+		#[pallet::call_index(0)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
+		pub fn add_ismp_address(
+			origin: OriginFor<T>,
+			contract_address: H160,
+			state_machine_id: StateMachineId,
+		) -> DispatchResult {
+			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 
-            let host = <T as Config>::IsmpHost::default();
-            let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
-            let encoded_consensus_state = host
-                .consensus_state(consensus_state_id)
-                .map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
-            let mut consensus_state: ConsensusState =
-                codec::Decode::decode(&mut &encoded_consensus_state[..])
-                    .map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
-            ensure!(
-                !consensus_state.ismp_contract_addresses.contains_key(&state_machine),
-                Error::<T>::ContractAddressAlreadyExists
-            );
-            consensus_state.ismp_contract_addresses.insert(state_machine, contract_address);
+			let host = <T as Config>::IsmpHost::default();
+			let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
+			let encoded_consensus_state = host
+				.consensus_state(consensus_state_id)
+				.map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
+			let mut consensus_state: ConsensusState =
+				codec::Decode::decode(&mut &encoded_consensus_state[..])
+					.map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
+			ensure!(
+				!consensus_state.ismp_contract_addresses.contains_key(&state_machine),
+				Error::<T>::ContractAddressAlreadyExists
+			);
+			consensus_state.ismp_contract_addresses.insert(state_machine, contract_address);
 
-            let encoded_consensus_state = consensus_state.encode();
-            host.store_consensus_state(consensus_state_id, encoded_consensus_state)
-                .map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
-            Ok(())
-        }
+			let encoded_consensus_state = consensus_state.encode();
+			host.store_consensus_state(consensus_state_id, encoded_consensus_state)
+				.map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
+			Ok(())
+		}
 
-        /// Add a new l2 consensus to the sync committee consensus state
-        #[pallet::call_index(1)]
-        #[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-        pub fn add_l2_consensus(
-            origin: OriginFor<T>,
-            state_machine_id: StateMachineId,
-            l2_consensus: L2Consensus,
-        ) -> DispatchResult {
-            <T as Config>::AdminOrigin::ensure_origin(origin)?;
+		/// Add a new l2 consensus to the sync committee consensus state
+		#[pallet::call_index(1)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
+		pub fn add_l2_consensus(
+			origin: OriginFor<T>,
+			state_machine_id: StateMachineId,
+			l2_consensus: L2Consensus,
+		) -> DispatchResult {
+			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 
-            let host = <T as Config>::IsmpHost::default();
-            let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
+			let host = <T as Config>::IsmpHost::default();
+			let StateMachineId { consensus_state_id, state_id: state_machine } = state_machine_id;
 
-            let encoded_consensus_state = host
-                .consensus_state(consensus_state_id)
-                .map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
-            let mut consensus_state: ConsensusState =
-                codec::Decode::decode(&mut &encoded_consensus_state[..])
-                    .map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
+			let encoded_consensus_state = host
+				.consensus_state(consensus_state_id)
+				.map_err(|_| Error::<T>::ErrorFetchingConsensusState)?;
+			let mut consensus_state: ConsensusState =
+				codec::Decode::decode(&mut &encoded_consensus_state[..])
+					.map_err(|_| Error::<T>::ErrorDecodingConsensusState)?;
 
-            consensus_state.l2_consensus.insert(state_machine, l2_consensus);
+			consensus_state.l2_consensus.insert(state_machine, l2_consensus);
 
-            let encoded_consensus_state = consensus_state.encode();
-            host.store_consensus_state(consensus_state_id, encoded_consensus_state)
-                .map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
-            Ok(())
-        }
-    }
+			let encoded_consensus_state = consensus_state.encode();
+			host.store_consensus_state(consensus_state_id, encoded_consensus_state)
+				.map_err(|_| Error::<T>::ErrorStoringConsensusState)?;
+			Ok(())
+		}
+	}
 }

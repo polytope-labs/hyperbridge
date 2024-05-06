@@ -30,94 +30,94 @@ use substrate_frame_rpc_system::AccountNonceApi;
 /// of data like extrinsics, allowing for them to continue syncing the network through upgrades
 /// to even the core data structures.
 pub mod opaque {
-    use sp_runtime::{
-        generic,
-        traits::{Hash as HashT, Keccak256},
-        MultiAddress, MultiSignature,
-    };
+	use sp_runtime::{
+		generic,
+		traits::{Hash as HashT, Keccak256},
+		MultiAddress, MultiSignature,
+	};
 
-    use sp_runtime::traits::{IdentifyAccount, Verify};
-    pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
+	use sp_runtime::traits::{IdentifyAccount, Verify};
+	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
 
-    /// Opaque block header type.
-    pub type Header = generic::Header<BlockNumber, Keccak256>;
-    /// Opaque block type.
-    pub type Block = generic::Block<Header, UncheckedExtrinsic>;
-    /// Opaque block identifier type.
-    pub type BlockId = generic::BlockId<Block>;
-    /// Opaque block hash type.
-    pub type Hash = <Keccak256 as HashT>::Output;
+	/// Opaque block header type.
+	pub type Header = generic::Header<BlockNumber, Keccak256>;
+	/// Opaque block type.
+	pub type Block = generic::Block<Header, UncheckedExtrinsic>;
+	/// Opaque block identifier type.
+	pub type BlockId = generic::BlockId<Block>;
+	/// Opaque block hash type.
+	pub type Hash = <Keccak256 as HashT>::Output;
 
-    /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
-    pub type Signature = MultiSignature;
+	/// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
+	pub type Signature = MultiSignature;
 
-    /// Some way of identifying an account on the chain. We intentionally make it equivalent
-    /// to the public key of our transaction signing scheme.
-    pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
+	/// Some way of identifying an account on the chain. We intentionally make it equivalent
+	/// to the public key of our transaction signing scheme.
+	pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
 
-    /// Balance of an account.
-    pub type Balance = u128;
+	/// Balance of an account.
+	pub type Balance = u128;
 
-    /// Index of a transaction in the chain.
-    pub type Index = u32;
+	/// Index of a transaction in the chain.
+	pub type Index = u32;
 
-    /// An index to a block.
-    pub type BlockNumber = u32;
+	/// An index to a block.
+	pub type BlockNumber = u32;
 
-    /// The address format for describing accounts.
-    pub type Address = MultiAddress<AccountId, ()>;
+	/// The address format for describing accounts.
+	pub type Address = MultiAddress<AccountId, ()>;
 }
 
 pub trait BaseHostRuntimeApis:
-    TaggedTransactionQueue<opaque::Block>
-    + ApiExt<opaque::Block>
-    + BlockBuilder<opaque::Block>
-    + AccountNonceApi<opaque::Block, opaque::AccountId, opaque::Index>
-    + Metadata<opaque::Block>
-    + AuraApi<opaque::Block, sr25519::AuthorityId>
-    + OffchainWorkerApi<opaque::Block>
-    + SessionKeys<opaque::Block>
-    + CollectCollationInfo<opaque::Block>
-    + TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
-    + ismp_parachain_runtime_api::IsmpParachainApi<opaque::Block>
-    + pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
-    + cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
-    + pallet_mmr_runtime_api::MmrRuntimeApi<
-        opaque::Block,
-        H256,
-        opaque::BlockNumber,
-        pallet_ismp::mmr::Leaf,
-    > + simnode_runtime_api::CreateTransactionApi<
-        opaque::Block,
-        gargantua_runtime::RuntimeCall,
-        opaque::AccountId,
-    >
+	TaggedTransactionQueue<opaque::Block>
+	+ ApiExt<opaque::Block>
+	+ BlockBuilder<opaque::Block>
+	+ AccountNonceApi<opaque::Block, opaque::AccountId, opaque::Index>
+	+ Metadata<opaque::Block>
+	+ AuraApi<opaque::Block, sr25519::AuthorityId>
+	+ OffchainWorkerApi<opaque::Block>
+	+ SessionKeys<opaque::Block>
+	+ CollectCollationInfo<opaque::Block>
+	+ TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
+	+ ismp_parachain_runtime_api::IsmpParachainApi<opaque::Block>
+	+ pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
+	+ cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
+	+ pallet_mmr_runtime_api::MmrRuntimeApi<
+		opaque::Block,
+		H256,
+		opaque::BlockNumber,
+		pallet_ismp::mmr::Leaf,
+	> + simnode_runtime_api::CreateTransactionApi<
+		opaque::Block,
+		gargantua_runtime::RuntimeCall,
+		opaque::AccountId,
+	>
 {
 }
 
 impl<Api> BaseHostRuntimeApis for Api where
-    Api: TaggedTransactionQueue<opaque::Block>
-        + ApiExt<opaque::Block>
-        + BlockBuilder<opaque::Block>
-        + AccountNonceApi<opaque::Block, opaque::AccountId, opaque::Index>
-        + Metadata<opaque::Block>
-        + AuraApi<opaque::Block, sr25519::AuthorityId>
-        + OffchainWorkerApi<opaque::Block>
-        + SessionKeys<opaque::Block>
-        + CollectCollationInfo<opaque::Block>
-        + TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
-        + ismp_parachain_runtime_api::IsmpParachainApi<opaque::Block>
-        + pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
-        + cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
-        + pallet_mmr_runtime_api::MmrRuntimeApi<
-            opaque::Block,
-            H256,
-            opaque::BlockNumber,
-            pallet_ismp::mmr::Leaf,
-        > + simnode_runtime_api::CreateTransactionApi<
-            opaque::Block,
-            gargantua_runtime::RuntimeCall,
-            opaque::AccountId,
-        >
+	Api: TaggedTransactionQueue<opaque::Block>
+		+ ApiExt<opaque::Block>
+		+ BlockBuilder<opaque::Block>
+		+ AccountNonceApi<opaque::Block, opaque::AccountId, opaque::Index>
+		+ Metadata<opaque::Block>
+		+ AuraApi<opaque::Block, sr25519::AuthorityId>
+		+ OffchainWorkerApi<opaque::Block>
+		+ SessionKeys<opaque::Block>
+		+ CollectCollationInfo<opaque::Block>
+		+ TransactionPaymentRuntimeApi<opaque::Block, opaque::Balance>
+		+ ismp_parachain_runtime_api::IsmpParachainApi<opaque::Block>
+		+ pallet_ismp_runtime_api::IsmpRuntimeApi<opaque::Block, H256>
+		+ cumulus_primitives_aura::AuraUnincludedSegmentApi<opaque::Block>
+		+ pallet_mmr_runtime_api::MmrRuntimeApi<
+			opaque::Block,
+			H256,
+			opaque::BlockNumber,
+			pallet_ismp::mmr::Leaf,
+		> + simnode_runtime_api::CreateTransactionApi<
+			opaque::Block,
+			gargantua_runtime::RuntimeCall,
+			opaque::AccountId,
+		>
 {
 }

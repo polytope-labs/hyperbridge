@@ -23,41 +23,41 @@ pub use storage_proof::{MemoryDB, StorageProof};
 pub struct EIP1186Layout<H>(PhantomData<H>);
 
 impl<H: Hasher<Out = H256>> TrieLayout for EIP1186Layout<H> {
-    const USE_EXTENSION: bool = true;
-    const ALLOW_EMPTY: bool = false;
-    const MAX_INLINE_VALUE: Option<u32> = None;
-    type Hash = H;
-    type Codec = node_codec::RlpNodeCodec<H>;
+	const USE_EXTENSION: bool = true;
+	const ALLOW_EMPTY: bool = false;
+	const MAX_INLINE_VALUE: Option<u32> = None;
+	type Hash = H;
+	type Codec = node_codec::RlpNodeCodec<H>;
 }
 
 /// Keccak hasher implementation, but only for std uses. You'd probably want to delegate
 /// hashing to wasm host functions in `no_std`.
 #[cfg(feature = "std")]
 pub mod keccak {
-    use super::*;
-    use hash256_std_hasher::Hash256StdHasher;
-    use tiny_keccak::{Hasher, Keccak};
+	use super::*;
+	use hash256_std_hasher::Hash256StdHasher;
+	use tiny_keccak::{Hasher, Keccak};
 
-    /// Concrete implementation of Hasher using Keccak 256-bit hashes
-    #[derive(Debug)]
-    pub struct KeccakHasher;
+	/// Concrete implementation of Hasher using Keccak 256-bit hashes
+	#[derive(Debug)]
+	pub struct KeccakHasher;
 
-    impl hash_db::Hasher for KeccakHasher {
-        type Out = H256;
-        type StdHasher = Hash256StdHasher;
-        const LENGTH: usize = 32;
+	impl hash_db::Hasher for KeccakHasher {
+		type Out = H256;
+		type StdHasher = Hash256StdHasher;
+		const LENGTH: usize = 32;
 
-        fn hash(x: &[u8]) -> Self::Out {
-            keccak_256(x).into()
-        }
-    }
+		fn hash(x: &[u8]) -> Self::Out {
+			keccak_256(x).into()
+		}
+	}
 
-    /// Performs a Keccak-256 hash on the given input.
-    pub fn keccak_256(input: &[u8]) -> [u8; 32] {
-        let mut out = [0u8; 32];
-        let mut k = Keccak::v256();
-        k.update(input);
-        k.finalize(&mut out);
-        out
-    }
+	/// Performs a Keccak-256 hash on the given input.
+	pub fn keccak_256(input: &[u8]) -> [u8; 32] {
+		let mut out = [0u8; 32];
+		let mut k = Keccak::v256();
+		k.update(input);
+		k.finalize(&mut out);
+		out
+	}
 }

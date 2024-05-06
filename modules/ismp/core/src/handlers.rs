@@ -15,11 +15,11 @@
 
 //! ISMP handler definitions
 use crate::{
-    consensus::{ConsensusClientId, StateMachineClient, StateMachineHeight},
-    error::Error,
-    events::Event,
-    host::IsmpHost,
-    messaging::Message,
+	consensus::{ConsensusClientId, StateMachineClient, StateMachineHeight},
+	error::Error,
+	events::Event,
+	host::IsmpHost,
+	messaging::Message,
 };
 
 use crate::{consensus::ConsensusStateId, module::DispatchResult};
@@ -33,55 +33,55 @@ mod timeout;
 
 /// The result of successfully processing a `CreateConsensusClient` message
 pub struct ConsensusClientCreatedResult {
-    /// Consensus client Id
-    pub consensus_client_id: ConsensusClientId,
-    /// Consensus state Id
-    pub consensus_state_id: ConsensusStateId,
+	/// Consensus client Id
+	pub consensus_client_id: ConsensusClientId,
+	/// Consensus state Id
+	pub consensus_state_id: ConsensusStateId,
 }
 
 /// Result returned when ismp messages are handled successfully
 #[derive(Debug)]
 pub enum MessageResult {
-    /// The `ConsensusMessage` result
-    ConsensusMessage(Vec<Event>),
-    /// Result of freezing a consensus state.
-    FrozenClient(ConsensusStateId),
-    /// The [`DispatchResult`] for requests
-    Request(Vec<DispatchResult>),
-    /// The [`DispatchResult`] for responses
-    Response(Vec<DispatchResult>),
-    /// The [`DispatchResult`] for timeouts
-    Timeout(Vec<DispatchResult>),
+	/// The `ConsensusMessage` result
+	ConsensusMessage(Vec<Event>),
+	/// Result of freezing a consensus state.
+	FrozenClient(ConsensusStateId),
+	/// The [`DispatchResult`] for requests
+	Request(Vec<DispatchResult>),
+	/// The [`DispatchResult`] for responses
+	Response(Vec<DispatchResult>),
+	/// The [`DispatchResult`] for timeouts
+	Timeout(Vec<DispatchResult>),
 }
 
 /// This function serves as an entry point to handle the message types provided by the ISMP protocol
 pub fn handle_incoming_message<H>(host: &H, message: Message) -> Result<MessageResult, Error>
 where
-    H: IsmpHost,
+	H: IsmpHost,
 {
-    match message {
-        Message::Consensus(consensus_message) => consensus::update_client(host, consensus_message),
-        Message::FraudProof(fraud_proof) => consensus::freeze_client(host, fraud_proof),
-        Message::Request(req) => request::handle(host, req),
-        Message::Response(resp) => response::handle(host, resp),
-        Message::Timeout(timeout) => timeout::handle(host, timeout),
-    }
+	match message {
+		Message::Consensus(consensus_message) => consensus::update_client(host, consensus_message),
+		Message::FraudProof(fraud_proof) => consensus::freeze_client(host, fraud_proof),
+		Message::Request(req) => request::handle(host, req),
+		Message::Response(resp) => response::handle(host, resp),
+		Message::Timeout(timeout) => timeout::handle(host, timeout),
+	}
 }
 
 /// This function checks to see that the delay period configured on the host chain
 /// for the state machine has elasped.
 pub fn verify_delay_passed<H>(host: &H, proof_height: &StateMachineHeight) -> Result<bool, Error>
 where
-    H: IsmpHost,
+	H: IsmpHost,
 {
-    let update_time = host.state_machine_update_time(*proof_height)?;
-    let delay_period = host.challenge_period(proof_height.id.consensus_state_id).ok_or(
-        Error::ChallengePeriodNotConfigured {
-            consensus_state_id: proof_height.id.consensus_state_id,
-        },
-    )?;
-    let current_timestamp = host.timestamp();
-    Ok(delay_period.as_secs() == 0 || current_timestamp.saturating_sub(update_time) > delay_period)
+	let update_time = host.state_machine_update_time(*proof_height)?;
+	let delay_period = host.challenge_period(proof_height.id.consensus_state_id).ok_or(
+		Error::ChallengePeriodNotConfigured {
+			consensus_state_id: proof_height.id.consensus_state_id,
+		},
+	)?;
+	let current_timestamp = host.timestamp();
+	Ok(delay_period.as_secs() == 0 || current_timestamp.saturating_sub(update_time) > delay_period)
 }
 
 /// This function does the preliminary checks for a request or response message
@@ -89,33 +89,33 @@ where
 /// - It ensures the state machine is not frozen
 /// - Checks that the delay period configured for the state machine has elaspsed.
 pub fn validate_state_machine<H>(
-    host: &H,
-    proof_height: StateMachineHeight,
+	host: &H,
+	proof_height: StateMachineHeight,
 ) -> Result<Box<dyn StateMachineClient>, Error>
 where
-    H: IsmpHost,
+	H: IsmpHost,
 {
-    // Ensure consensus client is not frozen
-    let consensus_client_id = host.consensus_client_id(proof_height.id.consensus_state_id).ok_or(
-        Error::ConsensusStateIdNotRecognized {
-            consensus_state_id: proof_height.id.consensus_state_id,
-        },
-    )?;
-    let consensus_client = host.consensus_client(consensus_client_id)?;
-    // Ensure client is not frozen
-    host.is_consensus_client_frozen(proof_height.id.consensus_state_id)?;
+	// Ensure consensus client is not frozen
+	let consensus_client_id = host.consensus_client_id(proof_height.id.consensus_state_id).ok_or(
+		Error::ConsensusStateIdNotRecognized {
+			consensus_state_id: proof_height.id.consensus_state_id,
+		},
+	)?;
+	let consensus_client = host.consensus_client(consensus_client_id)?;
+	// Ensure client is not frozen
+	host.is_consensus_client_frozen(proof_height.id.consensus_state_id)?;
 
-    // Ensure state machine is not frozen
-    host.is_state_machine_frozen(proof_height.id)?;
+	// Ensure state machine is not frozen
+	host.is_state_machine_frozen(proof_height.id)?;
 
-    // Ensure delay period has elapsed
-    if !verify_delay_passed(host, &proof_height)? {
-        return Err(Error::ChallengePeriodNotElapsed {
-            consensus_state_id: proof_height.id.consensus_state_id,
-            current_time: host.timestamp(),
-            update_time: host.state_machine_update_time(proof_height)?,
-        });
-    }
+	// Ensure delay period has elapsed
+	if !verify_delay_passed(host, &proof_height)? {
+		return Err(Error::ChallengePeriodNotElapsed {
+			consensus_state_id: proof_height.id.consensus_state_id,
+			current_time: host.timestamp(),
+			update_time: host.state_machine_update_time(proof_height)?,
+		});
+	}
 
-    consensus_client.state_machine(proof_height.id.state_id)
+	consensus_client.state_machine(proof_height.id.state_id)
 }

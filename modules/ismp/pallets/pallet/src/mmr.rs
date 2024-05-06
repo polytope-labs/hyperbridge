@@ -28,67 +28,67 @@ use sp_std::prelude::*;
 #[derive(codec::Encode, codec::Decode, scale_info::TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct LeafIndexQuery {
-    /// Request or response commitment
-    pub commitment: H256,
+	/// Request or response commitment
+	pub commitment: H256,
 }
 
 /// Leaf index and position
 #[derive(
-    codec::Encode,
-    codec::Decode,
-    scale_info::TypeInfo,
-    Ord,
-    PartialOrd,
-    Eq,
-    PartialEq,
-    Clone,
-    Copy,
-    RuntimeDebug,
+	codec::Encode,
+	codec::Decode,
+	scale_info::TypeInfo,
+	Ord,
+	PartialOrd,
+	Eq,
+	PartialEq,
+	Clone,
+	Copy,
+	RuntimeDebug,
 )]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct LeafIndexAndPos {
-    /// Leaf index
-    pub leaf_index: u64,
-    /// Leaf position
-    pub pos: u64,
+	/// Leaf index
+	pub leaf_index: u64,
+	/// Leaf position
+	pub pos: u64,
 }
 
 /// A concrete Leaf for the MMR
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, scale_info::TypeInfo)]
 pub enum Leaf {
-    /// A request variant
-    Request(Request),
-    /// A response variant
-    Response(Response),
+	/// A request variant
+	Request(Request),
+	/// A response variant
+	Response(Response),
 }
 
 impl FullLeaf for Leaf {
-    fn preimage(&self) -> Vec<u8> {
-        match self {
-            Leaf::Request(req) => req.encode(),
-            Leaf::Response(res) => res.encode(),
-        }
-    }
+	fn preimage(&self) -> Vec<u8> {
+		match self {
+			Leaf::Request(req) => req.encode(),
+			Leaf::Response(res) => res.encode(),
+		}
+	}
 }
 
 /// Distinguish between requests and responses
 #[derive(TypeInfo, Encode, Decode)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub enum ProofKeys {
-    /// Request commitments
-    Requests(Vec<H256>),
-    /// Response commitments
-    Responses(Vec<H256>),
+	/// Request commitments
+	Requests(Vec<H256>),
+	/// Response commitments
+	Responses(Vec<H256>),
 }
 
 /// An MMR proof data for a group of leaves.
 #[derive(codec::Encode, codec::Decode, RuntimeDebug, Clone, PartialEq, Eq, TypeInfo)]
 #[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
 pub struct Proof<Hash> {
-    /// The indices and positions of the leaves in the proof.
-    pub leaf_indices_and_pos: Vec<LeafIndexAndPos>,
-    /// Number of leaves in MMR, when the proof was generated.
-    pub leaf_count: NodeIndex,
-    /// Proof elements (hashes of siblings of inner nodes on the path to the leaf).
-    pub items: Vec<Hash>,
+	/// The indices and positions of the leaves in the proof.
+	pub leaf_indices_and_pos: Vec<LeafIndexAndPos>,
+	/// Number of leaves in MMR, when the proof was generated.
+	pub leaf_count: NodeIndex,
+	/// Proof elements (hashes of siblings of inner nodes on the path to the leaf).
+	pub items: Vec<Hash>,
 }

@@ -11,6 +11,3 @@ export { handleGetRequestTimeoutHandledEvent } from "../handlers/events/evmHost/
 
 export { handleStateMachineUpdatedEvent } from "../handlers/events/evmHost/stateMachineUpdated.event.handler";
 export { handleTransferEvent } from "../handlers/events/erc6160ext20/transfer.event.handlers";
-
-// Hyperbridge Handlers
-export { handleIsmpStateMachineUpdatedEvent } from "../handlers/events/hyperbridgeGargantua/stateMachineUpdated.event.handler";

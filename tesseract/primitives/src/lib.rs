@@ -336,16 +336,16 @@ pub trait ByzantineHandler {
 	) -> Result<ConsensusMessage, anyhow::Error>;
 
 	/// Check the client message for byzantine behaviour and submit it to the chain if any.
-	async fn check_for_byzantine_attack<C: IsmpHost>(
+	async fn check_for_byzantine_attack(
 		&self,
-		counterparty: &C,
+		counterparty: Arc<dyn IsmpHost>,
 		consensus_message: ConsensusMessage,
 	) -> Result<(), anyhow::Error>;
 }
 
 /// Provides an interface for the chain to the relayer core for submitting Ismp messages as well as
 #[async_trait::async_trait]
-pub trait IsmpHost: ByzantineHandler + Clone + Send + Sync {
+pub trait IsmpHost: ByzantineHandler + Send + Sync {
 	/// Return a stream that yields [`ConsensusMessage`] when a new consensus update
 	/// can be sent to the counterparty
 	async fn consensus_notification(

@@ -1,16 +1,16 @@
 [package]
-name = "tesseract-bsc-pos"
+name = "tesseract-bsc"
 version = "0.1.0"
 edition = "2021"
 description = "Bsc consensus host for tesseract"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
-bsc-prover.workspace = true
-bsc-verifier.workspace = true
-ismp-bsc.workspace = true
-geth-primitives.workspace = true
-ismp.workspace = true
+bsc-prover = { workspace = true }
+bsc-verifier = { workspace = true }
+ismp-bsc = { workspace = true }
+geth-primitives = { workspace = true }
+ismp = { workspace = true }
 
 serde = { version = "1.0.164", features = ["derive"] }
 serde_json = "1.0.105"
@@ -29,13 +29,12 @@ ethers = { workspace = true, features = ["rustls"] }
 sp-core = "22.0.0"
 
 
-tesseract-primitives = { path = "../../primitives" }
-tesseract-evm = { path = "../common" }
+tesseract-primitives = { workspace = true  }
+tesseract-evm = { workspace = true  }
 jsonrpsee = { version = "0.21", features = ["ws-client"]}
-debounced = { git = "https://github.com/polytope-labs/debounced", branch = "main"}
 
 [dev-dependencies]
-tesseract-evm = { path = "../common", features = ["testing"] }
+tesseract-evm = { workspace = true, features = ["testing"] }
 sp-core = "22.0.0"
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 dotenv = "0.15.0"

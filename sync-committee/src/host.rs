@@ -19,9 +19,9 @@ use ethers::prelude::Middleware;
 use anyhow::{anyhow, Error};
 use futures::{StreamExt, TryFutureExt};
 use ismp::{
-	consensus::{StateCommitment, StateMachineId},
-	host::{Ethereum, StateMachine},
-	messaging::{ConsensusMessage, CreateConsensusState, StateCommitmentHeight},
+    consensus::{StateCommitment, StateMachineId},
+    host::{Ethereum, StateMachine},
+    messaging::{ConsensusMessage, CreateConsensusState, StateCommitmentHeight},
 };
 use ismp_sync_committee::{types::ConsensusState, BEACON_CONSENSUS_ID};
 use primitive_types::H160;
@@ -33,268 +33,286 @@ use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
 impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
-	async fn consensus_notification(
-		&self,
-		counterparty: Arc<dyn IsmpProvider>,
-	) -> Result<BoxStream<ConsensusMessage>, Error> {
-		let client = SyncCommitteeHost::clone(&self);
+    async fn consensus_notification(
+        &self,
+        counterparty: Arc<dyn IsmpProvider>,
+    ) -> Result<BoxStream<ConsensusMessage>, Error> {
+        let client = SyncCommitteeHost::clone(&self);
 
-		let interval = tokio::time::interval(self.consensus_update_frequency);
+        let interval = tokio::time::interval(self.consensus_update_frequency);
 
-		let interval_stream = futures::stream::unfold(interval, move |mut interval| {
-			let client = client.clone();
-			let counterparty = counterparty.clone();
+        let interval_stream = futures::stream::unfold(interval, move |mut interval| {
+            let client = client.clone();
+            let counterparty = counterparty.clone();
 
-			async move {
-				let sync = || async {
-					let checkpoint =
-						client.prover.fetch_finalized_checkpoint(Some("head")).await?.finalized;
-					let consensus_state =
-						counterparty.query_consensus_state(None, client.consensus_state_id).await?;
-					let consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
-					let light_client_state = consensus_state.light_client_state;
-					// Signature period for this finalized epoch will be two epochs ahead
-					let signature_period = compute_sync_committee_period::<T>(checkpoint.epoch + 2);
-					// Do a sync check before returning any updates
-					let state_period = light_client_state.state_period;
-					if !(state_period..=(state_period + 1)).contains(&signature_period) {
-						let next_period = state_period + 1;
-						log::trace!(
-							"Fetching sync update for sync committee period: {next_period}"
-						);
-						let update = client.prover.latest_update_for_period(next_period).await?;
-						let state_machine_id = StateMachineId {
-							state_id: client.state_machine,
-							consensus_state_id: client.consensus_state_id,
-						};
-						let execution_layer_height =
-							counterparty.query_latest_height(state_machine_id).await? as u64;
-						let message = get_beacon_update(
-							&client,
-							consensus_state.l2_consensus,
-							update,
-							execution_layer_height,
-						)
-						.await?;
-						return Ok::<_, Error>(Some(message));
-					}
-					Ok(None)
-				};
+            async move {
+                let sync = || async {
+                    let checkpoint = client
+                        .prover
+                        .fetch_finalized_checkpoint(Some("head"))
+                        .await?
+                        .finalized;
+                    let consensus_state = counterparty
+                        .query_consensus_state(None, client.consensus_state_id)
+                        .await?;
+                    let consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
+                    let light_client_state = consensus_state.light_client_state;
+                    // Signature period for this finalized epoch will be two epochs ahead
+                    let signature_period = compute_sync_committee_period::<T>(checkpoint.epoch + 2);
+                    // Do a sync check before returning any updates
+                    let state_period = light_client_state.state_period;
+                    if !(state_period..=(state_period + 1)).contains(&signature_period) {
+                        let next_period = state_period + 1;
+                        log::trace!(
+                            "Fetching sync update for sync committee period: {next_period}"
+                        );
+                        let update = client.prover.latest_update_for_period(next_period).await?;
+                        let state_machine_id = StateMachineId {
+                            state_id: client.state_machine,
+                            consensus_state_id: client.consensus_state_id,
+                        };
+                        let execution_layer_height =
+                            counterparty.query_latest_height(state_machine_id).await? as u64;
+                        let message = get_beacon_update(
+                            &client,
+                            consensus_state.l2_consensus,
+                            update,
+                            execution_layer_height,
+                        )
+                        .await?;
+                        return Ok::<_, Error>(Some(message));
+                    }
+                    Ok(None)
+                };
 
-				match client
-					.retry
-					.retry(|| {
-						sync().map_err(|err| {
-							log::error!(
-								"Error trying to fetch sync message for {:?}: {err:?}",
-								client.state_machine
-							);
-							err
-						})
-					})
-					.await
-				{
-					Ok(Some(beacon_message)) => {
-						let update = ConsensusMessage {
-							consensus_proof: beacon_message.encode(),
-							consensus_state_id: client.consensus_state_id,
-							signer: H160::random().0.to_vec(),
-						};
-						return Some((Ok::<_, Error>(Some(update)), interval));
-					},
-					Ok(None) => {},
-					Err(err) =>
-						return Some((
-							Err::<_, Error>(err.context(format!(
-								"Error trying to fetch sync message for {:?}",
-								client.state_machine
-							))),
-							interval,
-						)),
-				};
+                match client
+                    .retry
+                    .retry(|| {
+                        sync().map_err(|err| {
+                            log::error!(
+                                "Error trying to fetch sync message for {:?}: {err:?}",
+                                client.state_machine
+                            );
+                            err
+                        })
+                    })
+                    .await
+                {
+                    Ok(Some(beacon_message)) => {
+                        let update = ConsensusMessage {
+                            consensus_proof: beacon_message.encode(),
+                            consensus_state_id: client.consensus_state_id,
+                            signer: H160::random().0.to_vec(),
+                        };
+                        return Some((Ok::<_, Error>(Some(update)), interval));
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        return Some((
+                            Err::<_, Error>(err.context(format!(
+                                "Error trying to fetch sync message for {:?}",
+                                client.state_machine
+                            ))),
+                            interval,
+                        ))
+                    }
+                };
 
-				// tick the interval
-				interval.tick().await;
+                // tick the interval
+                interval.tick().await;
 
-				let checkpoint = match client
-					.retry
-					.retry(|| {
-						client.prover.fetch_finalized_checkpoint(Some("head")).map_err(|err| {
-							log::error!(
-								"Failed to fetch latest finalized header for {:?}: {err:?}",
-								client.state_machine
-							);
-							err
-						})
-					})
-					.await
-				{
-					Ok(head) => head.finalized,
-					Err(err) => {
-						log::error!(
-							"Failed to fetch latest finalized header for {:?}: {err:?}",
-							client.state_machine
-						);
-						return Some((Ok::<_, Error>(None), interval));
-					},
-				};
+                let checkpoint = match client
+                    .retry
+                    .retry(|| {
+                        client
+                            .prover
+                            .fetch_finalized_checkpoint(Some("head"))
+                            .map_err(|err| {
+                                log::error!(
+                                    "Failed to fetch latest finalized header for {:?}: {err:?}",
+                                    client.state_machine
+                                );
+                                err
+                            })
+                    })
+                    .await
+                {
+                    Ok(head) => head.finalized,
+                    Err(err) => {
+                        log::error!(
+                            "Failed to fetch latest finalized header for {:?}: {err:?}",
+                            client.state_machine
+                        );
+                        return Some((Ok::<_, Error>(None), interval));
+                    }
+                };
 
-				match client
-					.retry
-					.retry(|| {
-						consensus_notification(&client, counterparty.clone(), checkpoint.clone())
-							.map_err(|err| {
-								log::error!(
-									"Failed to fetch consensus proof for {:?}: {err:?}",
-									client.state_machine
-								);
-								err
-							})
-					})
-					.await
-				{
-					Ok(Some(beacon_message)) => {
-						let update = ConsensusMessage {
-							consensus_proof: beacon_message.encode(),
-							consensus_state_id: client.consensus_state_id,
-							signer: H160::random().0.to_vec(),
-						};
-						return Some((Ok::<_, Error>(Some(update)), interval));
-					},
-					Ok(None) => return Some((Ok::<_, Error>(None), interval)),
-					Err(err) =>
-						return Some((
-							Err::<_, Error>(err.context(format!(
-								"Failed to fetch consensus proof for {:?}",
-								client.state_machine
-							))),
-							interval,
-						)),
-				}
-			}
-		})
-		.filter_map(|res| async move {
-			match res {
-				Ok(Some(update)) => Some(Ok(update)),
-				Ok(None) => None,
-				Err(err) => Some(Err(err)),
-			}
-		});
+                match client
+                    .retry
+                    .retry(|| {
+                        consensus_notification(&client, counterparty.clone(), checkpoint.clone())
+                            .map_err(|err| {
+                                log::error!(
+                                    "Failed to fetch consensus proof for {:?}: {err:?}",
+                                    client.state_machine
+                                );
+                                err
+                            })
+                    })
+                    .await
+                {
+                    Ok(Some(beacon_message)) => {
+                        let update = ConsensusMessage {
+                            consensus_proof: beacon_message.encode(),
+                            consensus_state_id: client.consensus_state_id,
+                            signer: H160::random().0.to_vec(),
+                        };
+                        return Some((Ok::<_, Error>(Some(update)), interval));
+                    }
+                    Ok(None) => return Some((Ok::<_, Error>(None), interval)),
+                    Err(err) => {
+                        return Some((
+                            Err::<_, Error>(err.context(format!(
+                                "Failed to fetch consensus proof for {:?}",
+                                client.state_machine
+                            ))),
+                            interval,
+                        ))
+                    }
+                }
+            }
+        })
+        .filter_map(|res| async move {
+            match res {
+                Ok(Some(update)) => Some(Ok(update)),
+                Ok(None) => None,
+                Err(err) => Some(Err(err)),
+            }
+        });
 
-		Ok(Box::pin(interval_stream))
-	}
+        Ok(Box::pin(interval_stream))
+    }
 
-	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
-		let mut ismp_contract_addresses = BTreeMap::new();
-		let mut l2_oracle = BTreeMap::new();
-		let mut dispute_factory_address = BTreeMap::new();
-		let mut rollup_core_address = BTreeMap::new();
-		let mut state_machine_commitments = vec![];
+    async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+        let mut ismp_contract_addresses = BTreeMap::new();
+        let mut l2_oracle = BTreeMap::new();
+        let mut dispute_factory_address = BTreeMap::new();
+        let mut rollup_core_address = BTreeMap::new();
+        let mut state_machine_commitments = vec![];
 
-		for (state_machine, l2_host) in self.l2_clients.clone() {
-			match l2_host {
-				L2Host::ArbitrumOrbit(host) => {
-					ismp_contract_addresses.insert(host.evm.state_machine, host.evm.ismp_host);
-					rollup_core_address.insert(host.evm.state_machine, host.host.rollup_core);
-					let number = host.arb_execution_client.get_block_number().await?;
-					let block =
-						host.arb_execution_client.get_block(number).await?.ok_or_else(|| {
-							anyhow!(
-								"Didn't find block with number {number} on {:?}",
-								host.evm.state_machine
-							)
-						})?;
-					state_machine_commitments.push((
-						StateMachineId {
-							state_id: state_machine,
-							consensus_state_id: self.consensus_state_id.clone(),
-						},
-						StateCommitmentHeight {
-							commitment: StateCommitment {
-								timestamp: block.timestamp.as_u64(),
-								overlay_root: None,
-								state_root: block.state_root,
-							},
-							height: number.as_u64(),
-						},
-					));
-				},
-				L2Host::OpStack(host) => {
-					ismp_contract_addresses.insert(host.evm.state_machine, host.evm.ismp_host);
-					if let Some(dispute_factory) = host.host.dispute_game_factory {
-						dispute_factory_address.insert(host.evm.state_machine, dispute_factory);
-					}
+        for (state_machine, l2_host) in self.l2_clients.clone() {
+            match l2_host {
+                L2Host::ArbitrumOrbit(host) => {
+                    ismp_contract_addresses.insert(host.evm.state_machine, host.evm.ismp_host);
+                    rollup_core_address.insert(host.evm.state_machine, host.host.rollup_core);
+                    let number = host.arb_execution_client.get_block_number().await?;
+                    let block = host
+                        .arb_execution_client
+                        .get_block(number)
+                        .await?
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "Didn't find block with number {number} on {:?}",
+                                host.evm.state_machine
+                            )
+                        })?;
+                    state_machine_commitments.push((
+                        StateMachineId {
+                            state_id: state_machine,
+                            consensus_state_id: self.consensus_state_id.clone(),
+                        },
+                        StateCommitmentHeight {
+                            commitment: StateCommitment {
+                                timestamp: block.timestamp.as_u64(),
+                                overlay_root: None,
+                                state_root: block.state_root,
+                            },
+                            height: number.as_u64(),
+                        },
+                    ));
+                }
+                L2Host::OpStack(host) => {
+                    ismp_contract_addresses.insert(host.evm.state_machine, host.evm.ismp_host);
+                    if let Some(dispute_factory) = host.host.dispute_game_factory {
+                        dispute_factory_address.insert(host.evm.state_machine, dispute_factory);
+                    }
 
-					if let Some(l2_oracle_address) = host.host.l2_oracle {
-						l2_oracle.insert(host.evm.state_machine, l2_oracle_address);
-					}
+                    if let Some(l2_oracle_address) = host.host.l2_oracle {
+                        l2_oracle.insert(host.evm.state_machine, l2_oracle_address);
+                    }
 
-					let number = host.op_execution_client.get_block_number().await?;
-					let block =
-						host.op_execution_client.get_block(number).await?.ok_or_else(|| {
-							anyhow!(
-								"Didn't find block with number {number} on {:?}",
-								host.evm.state_machine
-							)
-						})?;
-					state_machine_commitments.push((
-						StateMachineId {
-							state_id: state_machine,
-							consensus_state_id: self.consensus_state_id.clone(),
-						},
-						StateCommitmentHeight {
-							commitment: StateCommitment {
-								timestamp: block.timestamp.as_u64(),
-								overlay_root: None,
-								state_root: block.state_root,
-							},
-							height: number.as_u64(),
-						},
-					));
-				},
-			}
-		}
+                    let number = host.op_execution_client.get_block_number().await?;
+                    let block = host
+                        .op_execution_client
+                        .get_block(number)
+                        .await?
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "Didn't find block with number {number} on {:?}",
+                                host.evm.state_machine
+                            )
+                        })?;
+                    state_machine_commitments.push((
+                        StateMachineId {
+                            state_id: state_machine,
+                            consensus_state_id: self.consensus_state_id.clone(),
+                        },
+                        StateCommitmentHeight {
+                            commitment: StateCommitment {
+                                timestamp: block.timestamp.as_u64(),
+                                overlay_root: None,
+                                state_root: block.state_root,
+                            },
+                            height: number.as_u64(),
+                        },
+                    ));
+                }
+            }
+        }
 
-		ismp_contract_addresses.insert(self.state_machine, self.evm.ismp_host);
-		let params = GetConsensusStateParams {
-			ismp_contract_addresses,
-			l2_oracle_address: l2_oracle,
-			rollup_core_address,
-			dispute_factory_address,
-		};
+        ismp_contract_addresses.insert(self.state_machine, self.evm.ismp_host);
+        let params = GetConsensusStateParams {
+            ismp_contract_addresses,
+            l2_oracle_address: l2_oracle,
+            rollup_core_address,
+            dispute_factory_address,
+        };
 
-		let initial_consensus_state = self.get_consensus_state(params, None).await?;
+        let initial_consensus_state = self.get_consensus_state(params, None).await?;
 
-		let number = self.el.get_block_number().await?;
-		let block = self.el.get_block(number).await?.ok_or_else(|| {
-			anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
-		})?;
-		state_machine_commitments.push((
-			StateMachineId {
-				state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
-				consensus_state_id: self.consensus_state_id.clone(),
-			},
-			StateCommitmentHeight {
-				commitment: StateCommitment {
-					timestamp: block.timestamp.as_u64(),
-					overlay_root: None,
-					state_root: block.state_root,
-				},
-				height: number.as_u64(),
-			},
-		));
+        let number = self.el.get_block_number().await?;
+        let block = self.el.get_block(number).await?.ok_or_else(|| {
+            anyhow!(
+                "Didn't find block with number {number} on {:?}",
+                self.evm.state_machine
+            )
+        })?;
+        state_machine_commitments.push((
+            StateMachineId {
+                state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+                consensus_state_id: self.consensus_state_id.clone(),
+            },
+            StateCommitmentHeight {
+                commitment: StateCommitment {
+                    timestamp: block.timestamp.as_u64(),
+                    overlay_root: None,
+                    state_root: block.state_root,
+                },
+                height: number.as_u64(),
+            },
+        ));
 
-		Ok(Some(CreateConsensusState {
-			consensus_state: initial_consensus_state.encode(),
-			consensus_client_id: BEACON_CONSENSUS_ID,
-			consensus_state_id: self.consensus_state_id,
-			unbonding_period: 60 * 60 * 60 * 27,
-			challenge_period: 5 * 60,
-			state_machine_commitments,
-		}))
-	}
+        Ok(Some(CreateConsensusState {
+            consensus_state: initial_consensus_state.encode(),
+            consensus_client_id: BEACON_CONSENSUS_ID,
+            consensus_state_id: self.consensus_state_id,
+            unbonding_period: 60 * 60 * 60 * 27,
+            challenge_period: 5 * 60,
+            state_machine_commitments,
+        }))
+    }
 
-	fn provider(&self) -> Arc<dyn IsmpProvider> {
-		self.provider.clone()
-	}
+    fn provider(&self) -> Arc<dyn IsmpProvider> {
+        self.provider.clone()
+    }
 }

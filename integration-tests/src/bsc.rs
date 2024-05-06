@@ -1,7 +1,7 @@
 use codec::{Decode, Encode};
 use ismp::{host::StateMachine, messaging::CreateConsensusState};
 use substrate_state_machine::HashAlgorithm;
-use tesseract_bsc_pos::{BscPosConfig, BscPosHost, ConsensusState, HostConfig, KeccakHasher};
+use tesseract_bsc::{BscPosConfig, BscPosHost, ConsensusState, HostConfig, KeccakHasher};
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};

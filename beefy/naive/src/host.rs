@@ -32,81 +32,90 @@ use tokio::sync::broadcast;
 #[async_trait::async_trait]
 impl<R, P> IsmpHost for BeefyHost<R, P>
 where
-	R: subxt::Config + Send + Sync + Clone,
-	P: subxt::Config + Send + Sync + Clone,
+    R: subxt::Config + Send + Sync + Clone,
+    P: subxt::Config + Send + Sync + Clone,
 
-	<R::Header as Header>::Number: Ord + Zero,
-	u32: From<<R::Header as Header>::Number>,
-	sp_core::H256: From<R::Hash>,
-	R::Header: codec::Decode,
+    <R::Header as Header>::Number: Ord + Zero,
+    u32: From<<R::Header as Header>::Number>,
+    sp_core::H256: From<R::Hash>,
+    R::Header: codec::Decode,
 
-	<P::Header as Header>::Number: Ord + Zero,
-	u32: From<<P::Header as Header>::Number>,
-	sp_core::H256: From<P::Hash>,
-	P::Header: codec::Decode,
+    <P::Header as Header>::Number: Ord + Zero,
+    u32: From<<P::Header as Header>::Number>,
+    sp_core::H256: From<P::Hash>,
+    P::Header: codec::Decode,
 {
-	async fn consensus_notification(
-		&self,
-		counterparty: Arc<dyn IsmpProvider>,
-	) -> Result<BoxStream<ConsensusMessage>, anyhow::Error> {
-		let receiver = self.sender.subscribe();
-		let consensus_state_id = self.consensus_state_id;
-		let stream = stream::unfold(receiver, move |mut receiver| {
-			let counterparty = counterparty.clone();
-			async move {
-				let (message, latest_beefy_height, set_id) = match receiver.recv().await {
-					Ok(m) => m,
-					Err(err) =>
-						return match err {
-							broadcast::error::RecvError::Closed => None,
-							broadcast::error::RecvError::Lagged(_) =>
-								Some((Ok::<_, anyhow::Error>(None), receiver)),
-						},
-				};
+    async fn consensus_notification(
+        &self,
+        counterparty: Arc<dyn IsmpProvider>,
+    ) -> Result<BoxStream<ConsensusMessage>, anyhow::Error> {
+        let receiver = self.sender.subscribe();
+        let consensus_state_id = self.consensus_state_id;
+        let stream = stream::unfold(receiver, move |mut receiver| {
+            let counterparty = counterparty.clone();
+            async move {
+                let (message, latest_beefy_height, set_id) = match receiver.recv().await {
+                    Ok(m) => m,
+                    Err(err) => {
+                        return match err {
+                            broadcast::error::RecvError::Closed => None,
+                            broadcast::error::RecvError::Lagged(_) => {
+                                Some((Ok::<_, anyhow::Error>(None), receiver))
+                            }
+                        }
+                    }
+                };
 
-				match counterparty.query_consensus_state(None, consensus_state_id).await {
-					Ok(consensus_state) => {
-						let consensus_state = ConsensusState::decode(&mut &consensus_state[..])
-							.expect("Infallible, consensus state was encoded correctly");
+                match counterparty
+                    .query_consensus_state(None, consensus_state_id)
+                    .await
+                {
+                    Ok(consensus_state) => {
+                        let consensus_state = ConsensusState::decode(&mut &consensus_state[..])
+                            .expect("Infallible, consensus state was encoded correctly");
 
-						if latest_beefy_height > consensus_state.latest_beefy_height &&
-							(set_id == consensus_state.current_authorities.id ||
-								set_id == consensus_state.next_authorities.id)
-						{
-							return Some((Ok(Some(message)), receiver));
-						}
+                        if latest_beefy_height > consensus_state.latest_beefy_height
+                            && (set_id == consensus_state.current_authorities.id
+                                || set_id == consensus_state.next_authorities.id)
+                        {
+                            return Some((Ok(Some(message)), receiver));
+                        }
 
-						Some((Ok(None), receiver))
-					},
-					Err(err) => Some((Err(err), receiver)),
-				}
-			}
-		})
-		.filter_map(|res| async move {
-			match res {
-				Ok(Some(update)) => Some(Ok(update)),
-				Ok(None) => None,
-				Err(err) => Some(Err(err)),
-			}
-		});
+                        Some((Ok(None), receiver))
+                    }
+                    Err(err) => Some((Err(err), receiver)),
+                }
+            }
+        })
+        .filter_map(|res| async move {
+            match res {
+                Ok(Some(update)) => Some(Ok(update)),
+                Ok(None) => None,
+                Err(err) => Some(Err(err)),
+            }
+        });
 
-		Ok(Box::pin(stream))
-	}
+        Ok(Box::pin(stream))
+    }
 
-	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
-		let consensus_state: BeefyConsensusState =
-			self.prover.inner().get_initial_consensus_state().await?.into();
-		Ok(Some(CreateConsensusState {
-			consensus_state: consensus_state.encode(),
-			consensus_client_id: *b"BEEF",
-			consensus_state_id: self.consensus_state_id,
-			unbonding_period: 60 * 60 * 60 * 27,
-			challenge_period: 5 * 60,
-			state_machine_commitments: vec![],
-		}))
-	}
+    async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+        let consensus_state: BeefyConsensusState = self
+            .prover
+            .inner()
+            .get_initial_consensus_state()
+            .await?
+            .into();
+        Ok(Some(CreateConsensusState {
+            consensus_state: consensus_state.encode(),
+            consensus_client_id: *b"BEEF",
+            consensus_state_id: self.consensus_state_id,
+            unbonding_period: 60 * 60 * 60 * 27,
+            challenge_period: 5 * 60,
+            state_machine_commitments: vec![],
+        }))
+    }
 
-	fn provider(&self) -> Arc<dyn IsmpProvider> {
-		self.provider.clone()
-	}
+    fn provider(&self) -> Arc<dyn IsmpProvider> {
+        self.provider.clone()
+    }
 }

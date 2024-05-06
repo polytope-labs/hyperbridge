@@ -8,16 +8,16 @@
 // mod util;
 
 use std::{
-	sync::Arc,
-	time::{SystemTime, UNIX_EPOCH},
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::util::{setup_logging, timeout_future, Hyperbridge};
 use futures::StreamExt;
 use hex_literal::hex;
 use ismp::{
-	consensus::StateMachineId,
-	host::{Ethereum, StateMachine},
+    consensus::StateMachineId,
+    host::{Ethereum, StateMachine},
 };
 use pallet_ismp_demo::GetRequest;
 use primitive_types::H160;
@@ -32,252 +32,268 @@ type ParachainClient<T> = SubstrateClient<T>;
 
 pub async fn setup_clients(
 ) -> Result<(ParachainClient<Hyperbridge>, ParachainClient<Hyperbridge>), anyhow::Error> {
-	let config_a = SubstrateConfig {
-		state_machine: StateMachine::Kusama(2000),
-		max_rpc_payload_size: None,
-		hashing: Some(HashAlgorithm::Blake2),
-		consensus_state_id: Some("PARA".to_string()),
-		rpc_ws: "ws://localhost:9988".to_string(),
-		signer: Some(
-			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
-		),
+    let config_a = SubstrateConfig {
+        state_machine: StateMachine::Kusama(2000),
+        max_rpc_payload_size: None,
+        hashing: Some(HashAlgorithm::Blake2),
+        consensus_state_id: Some("PARA".to_string()),
+        rpc_ws: "ws://localhost:9988".to_string(),
+        signer: Some(
+            "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
+        ),
 
-		latest_height: None,
-	};
-	let chain_a = SubstrateClient::new(config_a).await?;
+        latest_height: None,
+    };
+    let chain_a = SubstrateClient::new(config_a).await?;
 
-	let config_b = SubstrateConfig {
-		state_machine: StateMachine::Kusama(2000),
-		max_rpc_payload_size: None,
-		hashing: Some(HashAlgorithm::Blake2),
-		consensus_state_id: Some("PARA".to_string()),
-		rpc_ws: "ws://localhost:9188".to_string(),
-		signer: Some(
-			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
-		),
+    let config_b = SubstrateConfig {
+        state_machine: StateMachine::Kusama(2000),
+        max_rpc_payload_size: None,
+        hashing: Some(HashAlgorithm::Blake2),
+        consensus_state_id: Some("PARA".to_string()),
+        rpc_ws: "ws://localhost:9188".to_string(),
+        signer: Some(
+            "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
+        ),
 
-		latest_height: None,
-	};
-	let chain_b = SubstrateClient::new(config_b).await?;
-	Ok((chain_a, chain_b))
+        latest_height: None,
+    };
+    let chain_b = SubstrateClient::new(config_b).await?;
+    Ok((chain_a, chain_b))
 }
 
 async fn transfer_assets<I: IsmpHost + 'static>(
-	chain_a: &SubstrateClient<I, Hyperbridge>,
-	chain_b: &SubstrateClient<I, Hyperbridge>,
-	timeout: u64,
+    chain_a: &SubstrateClient<I, Hyperbridge>,
+    chain_b: &SubstrateClient<I, Hyperbridge>,
+    timeout: u64,
 ) -> Result<(), anyhow::Error> {
-	let amt = 345876451382054092;
+    let amt = 345876451382054092;
 
-	let params = pallet_ismp_demo::TransferParams {
-		to: chain_b.account(),
-		amount: amt,
-		timeout: 0,
-		para_id: 2001,
-	};
-	dbg!(amt);
-	chain_a.transfer(params).await?;
+    let params = pallet_ismp_demo::TransferParams {
+        to: chain_b.account(),
+        amount: amt,
+        timeout: 0,
+        para_id: 2001,
+    };
+    dbg!(amt);
+    chain_a.transfer(params).await?;
 
-	timeout_future(
-		chain_b.pallet_ismp_demo_events_stream(1, "IsmpDemo", "BalanceReceived"),
-		timeout,
-		"Did not see BalanceReceived Event".to_string(),
-	)
-	.await?;
+    timeout_future(
+        chain_b.pallet_ismp_demo_events_stream(1, "IsmpDemo", "BalanceReceived"),
+        timeout,
+        "Did not see BalanceReceived Event".to_string(),
+    )
+    .await?;
 
-	dbg!(amt);
-	let params_b = pallet_ismp_demo::TransferParams {
-		to: chain_a.account(),
-		amount: amt,
-		timeout: 0,
-		para_id: 2000,
-	};
+    dbg!(amt);
+    let params_b = pallet_ismp_demo::TransferParams {
+        to: chain_a.account(),
+        amount: amt,
+        timeout: 0,
+        para_id: 2000,
+    };
 
-	chain_b.transfer(params_b).await?;
+    chain_b.transfer(params_b).await?;
 
-	timeout_future(
-		chain_a.pallet_ismp_demo_events_stream(1, "IsmpDemo", "BalanceReceived"),
-		timeout,
-		"Did not see BalanceReceived Event".to_string(),
-	)
-	.await?;
-	Ok(())
+    timeout_future(
+        chain_a.pallet_ismp_demo_events_stream(1, "IsmpDemo", "BalanceReceived"),
+        timeout,
+        "Did not see BalanceReceived Event".to_string(),
+    )
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
 async fn test_parachain_parachain_messaging_relay() -> Result<(), anyhow::Error> {
-	setup_logging();
+    setup_logging();
 
-	let (chain_a, chain_b) = setup_clients().await?;
-	let tx_payment = Arc::new(TransactionPayment::initialize("./dev.db").await?);
-	let _message_handle = tokio::spawn({
-		let chain_a = chain_a.clone();
-		let chain_b = chain_b.clone();
-		async move {
-			tesseract_messaging::relay(
-				chain_a.clone(),
-				chain_b.clone(),
-				Default::default(),
-				Default::default(),
-				tx_payment,
-				Default::default(),
-			)
-			.await
-			.unwrap()
-		}
-	});
+    let (chain_a, chain_b) = setup_clients().await?;
+    let tx_payment = Arc::new(TransactionPayment::initialize("./dev.db").await?);
+    let _message_handle = tokio::spawn({
+        let chain_a = chain_a.clone();
+        let chain_b = chain_b.clone();
+        async move {
+            tesseract_messaging::relay(
+                chain_a.clone(),
+                chain_b.clone(),
+                Default::default(),
+                Default::default(),
+                tx_payment,
+                Default::default(),
+            )
+            .await
+            .unwrap()
+        }
+    });
 
-	// Make transfers each from both chains
-	transfer_assets(&chain_a, &chain_b, 60 * 5).await?;
+    // Make transfers each from both chains
+    transfer_assets(&chain_a, &chain_b, 60 * 5).await?;
 
-	// Send a Get request next
-	chain_a
-		.get_request(GetRequest {
-			para_id: 2001,
-			height: chain_b.latest_height() as u32,
-			timeout: 0,
-			keys: vec![hex::decode(
-				"c2261276cc9d1f8598ea4b6a74b15c2f57c875e4cff74148e4628f264b974c80".to_string(),
-			)
-			.unwrap()],
-		})
-		.await?;
+    // Send a Get request next
+    chain_a
+        .get_request(GetRequest {
+            para_id: 2001,
+            height: chain_b.latest_height() as u32,
+            timeout: 0,
+            keys: vec![hex::decode(
+                "c2261276cc9d1f8598ea4b6a74b15c2f57c875e4cff74148e4628f264b974c80".to_string(),
+            )
+            .unwrap()],
+        })
+        .await?;
 
-	timeout_future(
-		chain_a.pallet_ismp_demo_events_stream(1, "IsmpDemo", "GetResponse"),
-		60 * 4,
-		"Did not see Get Response Event".to_string(),
-	)
-	.await?;
+    timeout_future(
+        chain_a.pallet_ismp_demo_events_stream(1, "IsmpDemo", "GetResponse"),
+        60 * 4,
+        "Did not see Get Response Event".to_string(),
+    )
+    .await?;
 
-	Ok(())
+    Ok(())
 }
 
 #[tokio::test]
 async fn sudo_upgrade_runtime() -> Result<(), anyhow::Error> {
-	dotenv::dotenv().ok();
-	let config_a = SubstrateConfig {
-		state_machine: StateMachine::Kusama(2000),
-		max_rpc_payload_size: None,
-		hashing: Some(HashAlgorithm::Keccak),
-		consensus_state_id: Some("PARA".to_string()),
-		rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
-		// rpc_ws: "ws://127.0.0.1:9901".to_string(),
-		signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
-		latest_height: None,
-	};
+    dotenv::dotenv().ok();
+    let config_a = SubstrateConfig {
+        state_machine: StateMachine::Kusama(2000),
+        max_rpc_payload_size: None,
+        hashing: Some(HashAlgorithm::Keccak),
+        consensus_state_id: Some("PARA".to_string()),
+        rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
+        // rpc_ws: "ws://127.0.0.1:9901".to_string(),
+        signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
+        latest_height: None,
+    };
 
-	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
-	let code_blob = tokio::fs::read("../../hyperbridge/target/release/wbuild/gargantua-runtime/gargantua_runtime.compact.compressed.wasm").await?;
-	chain_a.runtime_upgrade(code_blob).await?;
-	Ok(())
+    let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
+    let code_blob = tokio::fs::read("../../hyperbridge/target/release/wbuild/gargantua-runtime/gargantua_runtime.compact.compressed.wasm").await?;
+    chain_a.runtime_upgrade(code_blob).await?;
+    Ok(())
 }
 
 #[tokio::test]
 async fn set_host_manager() -> Result<(), anyhow::Error> {
-	dotenv::dotenv().ok();
-	let _config_a = SubstrateConfig {
-		state_machine: StateMachine::Kusama(2000),
-		max_rpc_payload_size: None,
-		hashing: Some(HashAlgorithm::Keccak),
-		consensus_state_id: Some("PARA".to_string()),
-		rpc_ws: "ws://192.168.1.197:9990".to_string(),
-		signer: std::env::var("SIGNING_KEY").ok(),
-		latest_height: None,
-	};
+    dotenv::dotenv().ok();
+    let _config_a = SubstrateConfig {
+        state_machine: StateMachine::Kusama(2000),
+        max_rpc_payload_size: None,
+        hashing: Some(HashAlgorithm::Keccak),
+        consensus_state_id: Some("PARA".to_string()),
+        rpc_ws: "ws://192.168.1.197:9990".to_string(),
+        signer: std::env::var("SIGNING_KEY").ok(),
+        latest_height: None,
+    };
 
-	Ok(())
+    Ok(())
 }
 
 #[tokio::test]
 async fn test_state_machine_notifs() -> Result<(), anyhow::Error> {
-	let config_a = SubstrateConfig {
-		state_machine: StateMachine::Kusama(2000),
-		max_rpc_payload_size: None,
-		hashing: Some(HashAlgorithm::Keccak),
-		consensus_state_id: Some("PARA".to_string()),
-		rpc_ws: "wss://hyperbridge-rpc.blockops.network:443".to_string(),
-		signer: Some(
-			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
-		),
+    let config_a = SubstrateConfig {
+        state_machine: StateMachine::Kusama(2000),
+        max_rpc_payload_size: None,
+        hashing: Some(HashAlgorithm::Keccak),
+        consensus_state_id: Some("PARA".to_string()),
+        rpc_ws: "wss://hyperbridge-rpc.blockops.network:443".to_string(),
+        signer: Some(
+            "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
+        ),
 
-		latest_height: None,
-	};
+        latest_height: None,
+    };
 
-	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
-	let state_machine_id = StateMachineId {
-		state_id: StateMachine::Ethereum(ismp::host::Ethereum::ExecutionLayer),
-		consensus_state_id: *b"ETH1",
-	};
-	let mut stream = chain_a.state_machine_update_notification(state_machine_id).await?;
-	while let Some(update) = stream.next().await {
-		println!("Yielded Event {:?}", update);
-	}
-	Ok(())
+    let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
+    let state_machine_id = StateMachineId {
+        state_id: StateMachine::Ethereum(ismp::host::Ethereum::ExecutionLayer),
+        consensus_state_id: *b"ETH1",
+    };
+    let mut stream = chain_a
+        .state_machine_update_notification(state_machine_id)
+        .await?;
+    while let Some(update) = stream.next().await {
+        println!("Yielded Event {:?}", update);
+    }
+    Ok(())
 }
 
 #[tokio::test]
 #[ignore]
 async fn set_invulnerables() -> Result<(), anyhow::Error> {
-	let config_a = SubstrateConfig {
-		state_machine: StateMachine::Kusama(2000),
-		max_rpc_payload_size: None,
-		hashing: Some(HashAlgorithm::Keccak),
-		consensus_state_id: Some("PARA".to_string()),
-		rpc_ws: "wss://hyperbridge-rpc.blockops.network:443".to_string(),
-		signer: Some(
-			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
-		),
+    let config_a = SubstrateConfig {
+        state_machine: StateMachine::Kusama(2000),
+        max_rpc_payload_size: None,
+        hashing: Some(HashAlgorithm::Keccak),
+        consensus_state_id: Some("PARA".to_string()),
+        rpc_ws: "wss://hyperbridge-rpc.blockops.network:443".to_string(),
+        signer: Some(
+            "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
+        ),
 
-		latest_height: None,
-	};
+        latest_height: None,
+    };
 
-	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
+    let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
 
-	let accounts =
-		vec![AccountId32(hex!("70f4edfe03752ef15576b1bd42dcdcfd112a768b1dcdd94d1bb5f8fa82d6a06c"))];
+    let accounts = vec![AccountId32(hex!(
+        "70f4edfe03752ef15576b1bd42dcdcfd112a768b1dcdd94d1bb5f8fa82d6a06c"
+    ))];
 
-	chain_a.set_invulnerables(accounts).await?;
+    chain_a.set_invulnerables(accounts).await?;
 
-	Ok(())
+    Ok(())
 }
 
 #[tokio::test]
 async fn dispatch_to_evm() -> Result<(), anyhow::Error> {
-	dotenv::dotenv().ok();
-	let config_a = SubstrateConfig {
-		state_machine: StateMachine::Kusama(4009),
-		max_rpc_payload_size: None,
-		hashing: Some(HashAlgorithm::Keccak),
-		consensus_state_id: Some("PARA".to_string()),
-		rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
-		signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
-		latest_height: None,
-	};
+    dotenv::dotenv().ok();
+    let config_a = SubstrateConfig {
+        state_machine: StateMachine::Kusama(4009),
+        max_rpc_payload_size: None,
+        hashing: Some(HashAlgorithm::Keccak),
+        consensus_state_id: Some("PARA".to_string()),
+        rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
+        signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
+        latest_height: None,
+    };
 
-	let chains = vec![
-		(Ethereum::ExecutionLayer, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
-		(Ethereum::Arbitrum, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
-		(Ethereum::Optimism, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
-		(Ethereum::Base, H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"))),
-	];
+    let chains = vec![
+        (
+            Ethereum::ExecutionLayer,
+            H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88")),
+        ),
+        (
+            Ethereum::Arbitrum,
+            H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88")),
+        ),
+        (
+            Ethereum::Optimism,
+            H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88")),
+        ),
+        (
+            Ethereum::Base,
+            H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88")),
+        ),
+    ];
 
-	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
+    let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
 
-	let since_the_epoch =
-		SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards");
+    let since_the_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
 
-	for (dest, contract) in chains {
-		println!("sending");
-		chain_a
-			.dispatch_to_evm(pallet_ismp_demo::EvmParams {
-				module: contract,
-				destination: dest,
-				timeout: since_the_epoch.as_secs() * 60 * 60,
-				count: 1,
-			})
-			.await?;
-	}
+    for (dest, contract) in chains {
+        println!("sending");
+        chain_a
+            .dispatch_to_evm(pallet_ismp_demo::EvmParams {
+                module: contract,
+                destination: dest,
+                timeout: since_the_epoch.as_secs() * 60 * 60,
+                count: 1,
+            })
+            .await?;
+    }
 
-	Ok(())
+    Ok(())
 }

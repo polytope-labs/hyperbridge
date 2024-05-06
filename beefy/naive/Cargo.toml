@@ -21,23 +21,22 @@ sp-core = { version = "21.0.0", features = ["full_crypto"] }
 ethers = { workspace = true, features = ["ws", "optimism"] }
 ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
 derive_more = { version = "1.0.0-beta.6", features = ["display"] }
-sp-runtime.workspace = true
+sp-runtime = { workspace = true }
 
 # polytope-labs
-pallet-ismp.workspace = true
-ismp.workspace = true
-debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
+pallet-ismp = { workspace = true }
+ismp = { workspace = true }
 
-ismp-solidity-abi.workspace = true
-beefy-verifier-primitives.workspace = true
-beefy-prover.workspace = true
-subxt-utils.workspace = true
+ismp-solidity-abi = { workspace = true }
+beefy-verifier-primitives = { workspace = true }
+beefy-prover = { workspace = true }
+subxt-utils = { workspace = true }
 
 # substrate
-beefy-primitives.workspace = true
-polkadot-core-primitives.workspace = true
+beefy-primitives = { workspace = true }
+polkadot-core-primitives = { workspace = true }
 
 # tesseract
-tesseract-substrate = { path = "../../common" }
-tesseract-primitives = { path = "../../../primitives" }
+tesseract-substrate = { workspace = true  }
+tesseract-primitives = { workspace = true  }
 zk-beefy = { path = "../zk" }

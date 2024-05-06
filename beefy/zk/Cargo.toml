@@ -27,10 +27,10 @@ noirc_abi = { git = "https://github.com/noir-lang/noir.git", rev = "45f6400bf9e9
 bn254_blackbox_solver = { git = "https://github.com/noir-lang/noir.git", rev = "45f6400bf9e9b72f8d6b9cd598c5019504816070" }
 
 ethers = { workspace = true, features = ["rustls"] }
-beefy-verifier-primitives.workspace = true
-ismp-solidity-abi.workspace = true
-beefy-prover.workspace = true
-beefy-primitives.workspace = true
+beefy-verifier-primitives = { workspace = true }
+ismp-solidity-abi = { workspace = true }
+beefy-prover = { workspace = true }
+beefy-primitives = { workspace = true }
 subxt = { version = "0.30.1", features = ["substrate-compat"] }
 
 [dev-dependencies]

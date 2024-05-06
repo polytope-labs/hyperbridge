@@ -336,7 +336,7 @@ pub trait ByzantineHandler {
 	) -> Result<ConsensusMessage, anyhow::Error>;
 
 	/// Check the client message for byzantine behaviour and submit it to the chain if any.
-	async fn check_for_byzantine_attack<C: IsmpHost + IsmpProvider>(
+	async fn check_for_byzantine_attack<C: IsmpHost>(
 		&self,
 		counterparty: &C,
 		consensus_message: ConsensusMessage,

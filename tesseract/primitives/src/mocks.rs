@@ -64,7 +64,7 @@ impl<C: Codec + Send + Sync> ByzantineHandler for MockHost<C> {
 		Err(anyhow!("No consensus messages"))
 	}
 
-	async fn check_for_byzantine_attack<T: IsmpHost + IsmpProvider>(
+	async fn check_for_byzantine_attack<T: IsmpHost>(
 		&self,
 		_counterparty: &T,
 		_consensus_message: ismp::messaging::ConsensusMessage,

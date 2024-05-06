@@ -1,5 +1,5 @@
 use crate::util::{setup_logging, Hyperbridge};
-use anyhow::anyhow;
+
 use arb_host::{ArbHost, HostConfig as ArbHostConfig};
 use codec::{Decode, Encode};
 use ethers::abi::AbiEncode;
@@ -10,7 +10,7 @@ use ismp::{
     host::{Ethereum, StateMachine},
     messaging::CreateConsensusState,
 };
-use op_host::{OpConfig, OpHost};
+use op_host::OpConfig;
 use pallet_ismp_demo::EvmParams;
 use primitive_types::H160;
 use std::{
@@ -123,7 +123,14 @@ async fn beefy_consensus_updates() -> anyhow::Result<()> {
         .into();
     let chain_b_provider = chain_b.provider();
     let _ = chain_b_provider
-        .set_consensus_state(initial_state.encode())
+        .set_initial_consensus_state(CreateConsensusState {
+            consensus_state: initial_state.encode(),
+            consensus_client_id: *b"PARA",
+            consensus_state_id: *b"PARA",
+            unbonding_period: 0,
+            challenge_period: 0,
+            state_machine_commitments: Default::default(),
+        })
         .await;
 
     let task = tokio::spawn({
@@ -219,7 +226,6 @@ async fn beefy_consenus_and_messaging_updates() -> anyhow::Result<()> {
         Arc::new(arb_client)
     };
 
-    let chain_a_provider = chain_a.provider();
     let chain_b_provider = chain_b.provider();
 
     let initial_state: BeefyConsensusState = chain_a
@@ -229,7 +235,14 @@ async fn beefy_consenus_and_messaging_updates() -> anyhow::Result<()> {
         .await?
         .into();
     let _ = chain_b_provider
-        .set_consensus_state(initial_state.encode())
+        .set_initial_consensus_state(CreateConsensusState {
+            consensus_state: initial_state.encode(),
+            consensus_client_id: *b"PARA",
+            consensus_state_id: *b"PARA",
+            unbonding_period: 0,
+            challenge_period: 0,
+            state_machine_commitments: Default::default(),
+        })
         .await;
 
     let consensus = tokio::spawn({
@@ -244,11 +257,10 @@ async fn beefy_consenus_and_messaging_updates() -> anyhow::Result<()> {
 
     let tx_payment = Arc::new(TransactionPayment::initialize("./dev.db").await?);
     let _messaging = tokio::spawn({
-        let chain_a = chain_a.clone();
-        let chain_b = chain_b.clone();
+        let hyperbridge = hyperbridge.clone();
         async move {
             tesseract_messaging::relay(
-                hyperbridge.clone(),
+                hyperbridge,
                 chain_b_provider.clone(),
                 Default::default(),
                 StateMachine::Kusama(4009),
@@ -307,7 +319,7 @@ async fn sync_committee_consensus_updates() -> anyhow::Result<()> {
         consensus_update_frequency: 45,
         zk_beefy: Some(Network::Rococo),
     };
-    let substrate_provider = SubstrateClient::<Hyperbridge>::new(config_a).await?;
+    let substrate_provider = SubstrateClient::<Hyperbridge>::new(config_a.clone()).await?;
 
     let beefy_host = BeefyHost::<Blake2SubstrateChain, Hyperbridge>::new(
         &host,
@@ -428,7 +440,7 @@ async fn evm_messaging_relay() -> anyhow::Result<()> {
         consensus_update_frequency: 45,
         zk_beefy: Some(Network::Rococo),
     };
-    let hyperbridge = SubstrateClient::<Hyperbridge>::new(config_a).await?;
+    let hyperbridge = SubstrateClient::<Hyperbridge>::new(config_a.clone()).await?;
 
     let beefy_host = BeefyHost::<Blake2SubstrateChain, Hyperbridge>::new(
         &host,
@@ -522,8 +534,8 @@ async fn evm_messaging_relay() -> anyhow::Result<()> {
     });
 
     let _ = tokio::spawn({
-        let chain_a = chain_a.clone();
         let chain_b = chain_b.clone();
+        let hyperbridge = hyperbridge.clone();
         async move {
             tesseract_messaging::relay(
                 hyperbridge,
@@ -578,16 +590,6 @@ async fn l2_state_machine_notification() -> anyhow::Result<()> {
     let arb_url = std::env::var("ARB_URL").expect("OP_URL must be set.");
     let geth_url = std::env::var("GETH_URL").expect("OP_URL must be set.");
     let para_id = 4296;
-
-    let config = EvmConfig {
-        rpc_urls: vec![base_url.clone()],
-        state_machine: StateMachine::Ethereum(Ethereum::Base),
-        consensus_state_id: "ETH1".to_string(),
-        ismp_host: Default::default(),
-        handler: hex!("183cA8bc2335D4d330CF86040Dc23ccf99954d14").into(),
-        signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
-        ..Default::default()
-    };
 
     let base = {
         let config = EvmConfig {
@@ -714,7 +716,7 @@ async fn sync_client_from_slot() -> Result<(), anyhow::Error> {
         consensus_update_frequency: 45,
         zk_beefy: Some(Network::Rococo),
     };
-    let hyperbridge = SubstrateClient::<Hyperbridge>::new(config_a).await?;
+    let hyperbridge = SubstrateClient::<Hyperbridge>::new(config_a.clone()).await?;
 
     let beefy_host = BeefyHost::<Blake2SubstrateChain, Hyperbridge>::new(
         &host,

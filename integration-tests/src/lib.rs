@@ -25,7 +25,7 @@ use substrate_state_machine::HashAlgorithm;
 use subxt::utils::AccountId32;
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 
-use tesseract_primitives::{IsmpHost, IsmpProvider};
+use tesseract_primitives::IsmpProvider;
 use transaction_fees::TransactionPayment;
 
 type ParachainClient<T> = SubstrateClient<T>;

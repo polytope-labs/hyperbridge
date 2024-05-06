@@ -14,6 +14,7 @@ use std::sync::Arc;
 use tesseract_evm::{derive_map_key, EvmClient, EvmConfig};
 use tesseract_primitives::IsmpProvider;
 mod abi;
+mod host;
 
 #[cfg(test)]
 mod tests;

@@ -20,7 +20,7 @@ tesseract-primitives = { workspace = true }
 ismp = { workspace = true }
 log = "0.4.19"
 sp-core = { workspace = true,  features = ["full_crypto"] }
-
+async-trait = "0.1.53"
 
 
 

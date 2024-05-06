@@ -23,6 +23,7 @@ use tesseract_primitives::{Hasher, IsmpProvider};
 
 use abi::l2_output_oracle::*;
 mod abi;
+mod host;
 
 #[cfg(test)]
 mod tests;

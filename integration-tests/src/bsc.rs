@@ -5,7 +5,7 @@ use ismp::{host::StateMachine, messaging::CreateConsensusState};
 use substrate_state_machine::HashAlgorithm;
 use tesseract_beefy::{BeefyHost, Network};
 use tesseract_bsc::{BscPosConfig, BscPosHost, ConsensusState, HostConfig, KeccakHasher};
-use tesseract_evm::{EvmClient, EvmConfig};
+use tesseract_evm::EvmConfig;
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{config::Blake2SubstrateChain, SubstrateClient, SubstrateConfig};
 
@@ -54,7 +54,7 @@ async fn bsc_consensus_updates() -> anyhow::Result<()> {
         consensus_update_frequency: 45,
         zk_beefy: Some(Network::Rococo),
     };
-    let hyperbridge = SubstrateClient::<Hyperbridge>::new(config_a).await?;
+    let hyperbridge = SubstrateClient::<Hyperbridge>::new(config_a.clone()).await?;
 
     let beefy_host = BeefyHost::<Blake2SubstrateChain, Hyperbridge>::new(
         &host,

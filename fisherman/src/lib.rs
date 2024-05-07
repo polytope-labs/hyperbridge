@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use futures::{future::Either, StreamExt, TryFutureExt};
+use futures::{future::Either, StreamExt};
 use tesseract_primitives::IsmpHost;
 
 pub async fn fish(
@@ -63,17 +63,10 @@ async fn handle_notification(
     while let Some(item) = state_machine_update_stream.next().await {
         match item {
             Ok(state_machine_update) => {
-                let chain_b_clone = chain_b.clone();
-                let chain_a_clone = chain_a.clone();
-                let fut = chain_b
-                    .query_consensus_message(state_machine_update)
-                    .and_then(|message| async move {
-                        chain_b_clone
-                            .check_for_byzantine_attack(chain_a_clone.clone(), message)
-                            .await
-                    });
-
-                if let Err(err) = fut.await {
+                let res = chain_b
+                    .check_for_byzantine_attack(chain_a.clone(), state_machine_update)
+                    .await;
+                if let Err(err) = res {
                     log::error!("Failed to check for byzantine behavior: {err:?}")
                 }
             }

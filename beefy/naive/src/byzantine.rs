@@ -17,11 +17,10 @@ use std::sync::Arc;
 
 use crate::BeefyHost;
 use anyhow::anyhow;
-use codec::Encode;
+use codec::{Decode, Encode};
 use ismp::{
     consensus::{StateMachineHeight, StateMachineId},
-    events::StateMachineUpdated,
-    messaging::ConsensusMessage,
+    events::StateMachineUpdated
 };
 use sp_core::H256;
 use subxt::{config::substrate::SubstrateHeader, Config};
@@ -34,48 +33,32 @@ where
     P: subxt::Config + Send + Sync + Clone,
     H256: From<<P as Config>::Hash>,
 {
-    async fn query_consensus_message(
-        &self,
-        event: StateMachineUpdated,
-    ) -> Result<ConsensusMessage, anyhow::Error> {
-        let hash = self
-            .prover
-            .inner()
-            .para
-            .rpc()
-            .block_hash(Some(event.latest_height.into()))
-            .await?
-            .ok_or_else(|| anyhow!("Block Hash should exist"))?;
-        let header = self
-            .prover
-            .inner()
-            .para
-            .rpc()
-            .header(Some(hash))
-            .await?
-            .ok_or_else(|| anyhow!("Block Header should exist"))?;
-        Ok(ConsensusMessage {
-            consensus_proof: header.encode(),
-            consensus_state_id: self.consensus_state_id,
-            signer: vec![],
-        })
-    }
-
     async fn check_for_byzantine_attack(
         &self,
         counterparty: Arc<dyn IsmpHost>,
-        consensus_message: ConsensusMessage,
+        event: StateMachineUpdated,
     ) -> Result<(), anyhow::Error> {
-        let header = <SubstrateHeader<u32, <P as Config>::Hasher> as codec::Decode>::decode(
-            &mut &*consensus_message.consensus_proof,
-        )?;
         let height = StateMachineHeight {
             id: StateMachineId {
                 state_id: self.provider.state_machine_id().state_id,
                 consensus_state_id: self.consensus_state_id,
             },
-            height: header.number.into(),
+            height: event.latest_height,
         };
+
+        let header = match &self.prover {
+            crate::prover::Prover::Naive(prover) =>  {
+                let block_hash = prover.para.rpc().block_hash(Some(event.latest_height.into())).await?.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?;
+                prover.para.rpc().header(Some(block_hash)).await?.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?
+            },
+            crate::prover::Prover::ZK(prover) => {
+                let block_hash = prover.inner.para.rpc().block_hash(Some(event.latest_height.into())).await?.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?;
+                prover.inner.para.rpc().header(Some(block_hash)).await?.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?
+            },
+        };
+
+        let header = SubstrateHeader::<u32, P::Hasher>::decode(&mut &*header.encode())?;
+
         let counterparty_provider = counterparty.provider();
         let finalized_state_commitment = counterparty_provider
             .query_state_machine_commitment(height)

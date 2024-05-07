@@ -15,12 +15,10 @@
 
 use std::sync::Arc;
 
-use codec::{Decode, Encode};
-use geth_primitives::CodecHeader;
+use anyhow::anyhow;
 use ismp::{
     consensus::{StateMachineHeight, StateMachineId},
     events::StateMachineUpdated,
-    messaging::ConsensusMessage,
 };
 use tesseract_primitives::{ByzantineHandler, IsmpHost};
 
@@ -28,48 +26,31 @@ use crate::BscPosHost;
 
 #[async_trait::async_trait]
 impl ByzantineHandler for BscPosHost {
-    async fn query_consensus_message(
+    async fn check_for_byzantine_attack(
         &self,
+        counterparty: Arc<dyn IsmpHost>,
         event: StateMachineUpdated,
-    ) -> Result<ConsensusMessage, anyhow::Error> {
+    ) -> Result<(), anyhow::Error> {
         let header = self
             .prover
             .fetch_header(event.latest_height)
             .await?
-            .ok_or_else(|| {
-                anyhow::anyhow!("Header not found: Could not query consensus message")
-            })?;
-        let message = ConsensusMessage {
-            consensus_proof: header.encode(),
-            consensus_state_id: self.consensus_state_id,
-            signer: vec![],
-        };
-
-        Ok(message)
-    }
-
-    async fn check_for_byzantine_attack(
-        &self,
-        counterparty: Arc<dyn IsmpHost>,
-        consensus_message: ConsensusMessage,
-    ) -> Result<(), anyhow::Error> {
-        let source_header = CodecHeader::decode(&mut &*consensus_message.consensus_proof)?;
-        let finalized_state_root = source_header.state_root;
+            .ok_or_else(|| anyhow!("Failed to fetch header in byzantine handler"))?;
+        let counterparty_provider = counterparty.provider();
         let height = StateMachineHeight {
             id: StateMachineId {
                 state_id: self.state_machine,
                 consensus_state_id: self.consensus_state_id,
             },
-            height: source_header.number.low_u64(),
+            height: event.latest_height,
         };
-        let counterparty_provider = counterparty.provider();
         let state_machine_commitment = counterparty_provider
             .query_state_machine_commitment(height)
             .await?;
-        if finalized_state_root != state_machine_commitment.state_root {
+        if header.state_root != state_machine_commitment.state_root {
             // Submit message
             log::info!(
-                "Freezing {:?} on {:?}",
+                "Vetoing State Machine Update for {:?} on {:?}",
                 self.state_machine,
                 counterparty_provider.state_machine_id().state_id
             );

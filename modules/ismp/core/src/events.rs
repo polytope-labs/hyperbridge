@@ -63,6 +63,10 @@ pub struct TimeoutHandled {
 	/// The commitment to the request or response
 	pub commitment: H256,
 }
+pub struct TimeoutMetadata {
+    /// The duration (in milliseconds, for example) of the timeout
+    pub timeout_duration: u64,
+}
 
 /// This represents events that should be emitted by ismp-rs wrappers
 #[derive(Clone, Debug, TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize)]
@@ -91,6 +95,12 @@ pub enum Event {
 	GetRequestHandled(RequestResponseHandled),
 	/// Emitted when a get request timeout is handled
 	GetRequestTimeoutHandled(TimeoutHandled),
+	PostRequestTimeoutHandled {
+        /// The commitment to the request or response
+        commitment: H256,
+        /// Additional metadata specific to the timeout event
+        metadata: TimeoutMetadata,
+    },
 }
 
 /// Minimal version of requests and responses

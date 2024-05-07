@@ -116,6 +116,6 @@ where
     }
 
     fn provider(&self) -> Arc<dyn IsmpProvider> {
-        self.provider.clone()
+        Arc::new(self.provider.clone())
     }
 }

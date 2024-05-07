@@ -1,0 +1,41 @@
+[package]
+name = "tesseract"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "tesseract"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tesseract"
+path = "src/main.rs"
+
+
+[dependencies]
+log = "0.4.19"
+env_logger = "0.10.0"
+hex = "0.4.3"
+
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+anyhow = "1.0.71"
+futures = "0.3.28"
+serde = { version = "1.0.164", features = ["derive"] }
+json = { version = "1.0.112", package = "serde_json" }
+toml = "0.7.4"
+clap = { version = "4.3.5", features = ["derive"] }
+tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
+as-any = "=0.3.1"
+
+tesseract-beefy = { workspace = true }
+tesseract-bsc = { workspace = true }
+tesseract-sync-committee = { workspace = true }
+arb-host = { workspace = true }
+op-host = { workspace = true }
+ismp = { workspace = true  }
+tesseract-substrate = { workspace = true }
+tesseract-primitives = { workspace = true }
+tesseract-consensus = { workspace = true }
+tesseract-fisherman = { workspace = true }

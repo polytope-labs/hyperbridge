@@ -25,9 +25,14 @@ use serde::{Deserialize, Serialize};
 use sp_core::H160;
 use sp_runtime::traits::Keccak256;
 use std::{sync::Arc, time::Duration};
-use subxt::{config::Header, ext::sp_runtime::traits::Zero};
-use tesseract_primitives::IsmpProvider;
-use tesseract_substrate::SubstrateConfig;
+use subxt::{
+    config::{
+        extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
+    },
+    ext::sp_runtime::{traits::Zero, MultiSignature},
+};
+use tesseract_primitives::{IsmpHost, IsmpProvider};
+use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 use tokio::{sync::broadcast, time};
 pub use zk_beefy::Network;
 
@@ -46,6 +51,43 @@ pub struct HostConfig {
     pub consensus_update_frequency: u64,
     /// The intended network for zk beefy
     pub zk_beefy: Option<Network>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BeefyConfig {
+    pub host: HostConfig,
+    /// General substrate config
+    #[serde[flatten]]
+    pub substrate: SubstrateConfig,
+}
+
+impl BeefyConfig {
+    pub async fn into_client<R, P>(&self) -> Result<Arc<dyn IsmpHost>, anyhow::Error>
+    where
+        R: subxt::Config + Send + Sync + Clone,
+        P: subxt::Config + Send + Sync + Clone,
+
+        <R::Header as Header>::Number: Ord + Zero,
+        u32: From<<R::Header as Header>::Number>,
+        sp_core::H256: From<R::Hash>,
+        R::Header: codec::Decode,
+
+        <P::Header as Header>::Number: Ord + Zero,
+        u32: From<<P::Header as Header>::Number>,
+        sp_core::H256: From<P::Hash>,
+        P::Header: codec::Decode,
+        P: subxt::Config + Send + Sync + Clone,
+        <P::ExtrinsicParams as ExtrinsicParams<P::Hash>>::OtherParams:
+            Default + Send + Sync + From<BaseExtrinsicParamsBuilder<P, PlainTip>>,
+        P::Signature: From<MultiSignature> + Send + Sync,
+        P::AccountId:
+            From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+    {
+        let substrate_client = SubstrateClient::<P>::new(self.substrate.clone()).await?;
+        let provider = Arc::new(substrate_client);
+        let beefy_host = BeefyHost::<R, P>::new(&self.host, &self.substrate, provider).await?;
+        Ok(Arc::new(beefy_host))
+    }
 }
 
 #[derive(Clone)]

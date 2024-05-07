@@ -9,7 +9,8 @@ members = [
     "fisherman",
     "integration-tests",
     "sync-committee",
-   "cli"
+    "relayer", 
+    "relayer-fisherman"
 ]
 
 [profile.release]
@@ -78,6 +79,7 @@ op-host = { path = "./op-host" }
 tesseract-bsc = { path = "./bsc" }
 tesseract-fisherman = { path = "./fisherman" }
 tesseract-integration-tests = { path = "./integration-tests" }
+tesseract = { path = "./relayer" }
 
 
 

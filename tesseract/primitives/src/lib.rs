@@ -328,18 +328,11 @@ pub trait IsmpProvider: Send + Sync {
 /// eclipse attacks, as well as invalid state transitions.
 #[async_trait::async_trait]
 pub trait ByzantineHandler {
-	/// Returns the [`ConsensusMessage`] that caused the emission of  [`StateMachineUpdated`]
-	/// event
-	async fn query_consensus_message(
-		&self,
-		challenge_event: StateMachineUpdated,
-	) -> Result<ConsensusMessage, anyhow::Error>;
-
 	/// Check the client message for byzantine behaviour and submit it to the chain if any.
 	async fn check_for_byzantine_attack(
 		&self,
 		counterparty: Arc<dyn IsmpHost>,
-		consensus_message: ConsensusMessage,
+		challenge_event: StateMachineUpdated,
 	) -> Result<(), anyhow::Error>;
 }
 

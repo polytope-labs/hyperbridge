@@ -25,15 +25,17 @@ sp-runtime = { workspace = true }
 
 # polytope-labs
 pallet-ismp = { workspace = true }
+pallet-ismp-rpc = { workspace = true }
 ismp = { workspace = true }
 
 ismp-solidity-abi = { workspace = true }
+substrate-state-machine = { workspace = true }
 beefy-verifier-primitives = { workspace = true }
 beefy-prover = { workspace = true }
 subxt-utils = { workspace = true }
 
 # substrate
-beefy-primitives = { workspace = true }
+sp-consensus-beefy = { workspace = true }
 polkadot-core-primitives = { workspace = true }
 
 # tesseract

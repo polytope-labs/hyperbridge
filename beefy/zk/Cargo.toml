@@ -30,7 +30,7 @@ ethers = { workspace = true, features = ["rustls"] }
 beefy-verifier-primitives = { workspace = true }
 ismp-solidity-abi = { workspace = true }
 beefy-prover = { workspace = true }
-beefy-primitives = { workspace = true }
+sp-consensus-beefy = { workspace = true }
 subxt = { version = "0.30.1", features = ["substrate-compat"] }
 
 [dev-dependencies]

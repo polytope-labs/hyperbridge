@@ -47,6 +47,8 @@ impl<T: Config + Send + Sync + 'static> ByzantineHandler for SyncCommitteeHost<T
         })
     }
 
+    // todo: pass the StateMachineUpdated here, the host should fetch the state commitment from the counterparty
+    // and compare it with it's own state commitment
     async fn check_for_byzantine_attack(
         &self,
         counterparty: Arc<dyn IsmpHost>,

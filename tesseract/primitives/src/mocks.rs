@@ -57,17 +57,10 @@ impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
 
 #[async_trait::async_trait]
 impl<C: Codec + Send + Sync> ByzantineHandler for MockHost<C> {
-	async fn query_consensus_message(
-		&self,
-		_challenge_event: StateMachineUpdated,
-	) -> Result<ismp::messaging::ConsensusMessage, Error> {
-		Err(anyhow!("No consensus messages"))
-	}
-
 	async fn check_for_byzantine_attack(
 		&self,
 		_counterparty: Arc<dyn IsmpHost>,
-		_consensus_message: ismp::messaging::ConsensusMessage,
+		_challenge_event: StateMachineUpdated,
 	) -> Result<(), Error> {
 		Err(anyhow!("No byzantine faults"))
 	}

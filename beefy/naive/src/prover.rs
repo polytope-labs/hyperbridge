@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::HostConfig;
 use anyhow::anyhow;
 use beefy_primitives::{
@@ -10,8 +12,19 @@ use ethabi::ethereum_types::H256;
 use ethers::abi::AbiEncode;
 use ismp_solidity_abi::beefy::BeefyConsensusProof;
 
+use futures::stream;
+use serde::{Deserialize, Serialize};
 use subxt::config::Header;
 use tesseract_substrate::SubstrateConfig;
+use zk_beefy::Network;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BeefyProverConfig {
+    /// RPC ws url for a relay chain
+    pub relay_rpc_ws: String,
+    /// The intended network for zk beefy
+    pub zk_beefy: Option<Network>,
+}
 
 /// Beefy prover, can either produce zk proofs or naive proofs
 #[derive(Clone)]
@@ -22,7 +35,12 @@ pub enum Prover<R: subxt::Config, P: subxt::Config> {
     ZK(zk_beefy::Prover<R, P>),
 }
 
-impl<R, P> Prover<R, P>
+struct BeefyProver<R: subxt::Config, P: subxt::Config> {
+    consensus_state: ConsensusState,
+    prover: Prover<R, P>,
+}
+
+impl<R, P> BeefyProver<R, P>
 where
     R: subxt::Config,
     P: subxt::Config,
@@ -63,13 +81,19 @@ where
             Prover::Naive(prover)
         };
 
-        Ok(prover)
+        // todo: hydrate consensus state from redis
+        let consensus_state = Default::default();
+
+        Ok(BeefyProver {
+            consensus_state,
+            prover,
+        })
     }
 
     pub fn inner(&self) -> &beefy_prover::Prover<R, P> {
-        match self {
-            Prover::ZK(p) => &p.inner,
-            Prover::Naive(p) => &p,
+        match self.prover {
+            Prover::ZK(ref p) => p.inner,
+            Prover::Naive(ref p) => p,
         }
     }
 
@@ -136,13 +160,13 @@ where
         signed_commitment: beefy_primitives::SignedCommitment<u32, Signature>,
         consensus_state: ConsensusState,
     ) -> Result<Vec<u8>, anyhow::Error> {
-        let encoded = match self {
-            Prover::Naive(naive) => {
+        let encoded = match self.prover {
+            Prover::Naive(ref naive) => {
                 let message: BeefyConsensusProof =
                     naive.consensus_proof(signed_commitment).await?.into();
                 message.encode()
             }
-            Prover::ZK(zk) => {
+            Prover::ZK(ref zk) => {
                 let message = zk
                     .consensus_proof(signed_commitment, consensus_state)
                     .await?;
@@ -151,5 +175,87 @@ where
         };
 
         Ok(encoded)
+    }
+
+    /// Return a stream of latest ISMP events
+    pub fn ismp_events_stream(&self) ->  {
+        let initial_height = self.consensus_state.latest_beefy_height;
+        let interval = Duration::from_secs(12);
+        let stream = stream::unfold(
+            (initial_height, interval, self_clone),
+            move |(latest_height, mut interval, client)| async move {
+                interval.tick().await;
+                let header = match client.client.rpc().finalized_head().await {
+                    Ok(hash) => match client.client.rpc().header(Some(hash)).await {
+                        Ok(Some(header)) => header,
+                        _ => {
+                            return Some((
+                                Err(anyhow!("Error encountered while fething finalized head")),
+                                (latest_height, interval, client),
+                            ))
+                        }
+                    },
+                    Err(err) => {
+                        return Some((
+                            Err(anyhow!(
+                                "Error encountered while fetching finalized head: {err:?}"
+                            )),
+                            (latest_height, interval, client),
+                        ))
+                    }
+                };
+
+                if header.number().into() <= latest_height {
+                    return Some((Ok(None), (latest_height, interval, client)));
+                }
+
+                let event = StateMachineUpdated {
+                    state_machine_id: client.state_machine_id(),
+                    latest_height: header.number().into(),
+                };
+
+                let events = match client.query_ismp_events(latest_height, event).await {
+                    Ok(e) => e,
+                    Err(err) => {
+                        return Some((
+                            Err(anyhow!(
+                                "Error encountered while querying ismp events {err:?}"
+                            )),
+                            (latest_height, interval, client),
+                        ))
+                    }
+                };
+
+                let event = events
+                    .into_iter()
+                    .filter_map(|event| match event {
+                        Event::StateMachineUpdated(e)
+                            if e.state_machine_id == counterparty_state_id =>
+                        {
+                            Some(e)
+                        }
+                        _ => None,
+                    })
+                    .max_by(|x, y| x.latest_height.cmp(&y.latest_height));
+
+                let value = match event {
+                    Some(event) => {
+                        Some((Ok(Some(event)), (header.number().into(), interval, client)))
+                    }
+                    None => Some((Ok(None), (header.number().into(), interval, client))),
+                };
+
+                return value;
+            },
+        )
+        .filter_map(|res| async move {
+            match res {
+                Ok(Some(update)) => Some(Ok(update)),
+                Ok(None) => None,
+                Err(err) => Some(Err(err)),
+            }
+        });
+
+        Ok(Box::pin(stream))
     }
 }

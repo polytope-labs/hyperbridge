@@ -1,13 +1,12 @@
 # Required
 [hyperbridge]
-chain = "Dev"
+state_machine = { Kusama = 4009 }
 hashing = "Keccak"
 rpc_ws = "ws://127.0.0.1:9933"
 signer = ""
 
 # Required
 [relayer]
-chain = "Dev"
 consensus = false
 messaging = true
 fisherman = false

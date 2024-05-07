@@ -328,7 +328,7 @@ pub trait IsmpProvider: Send + Sync {
 /// eclipse attacks, as well as invalid state transitions.
 #[async_trait::async_trait]
 pub trait ByzantineHandler {
-	/// Check the client message for byzantine behaviour and submit it to the chain if any.
+	/// Check the state machine update event for byzantine behaviour and challenge it.
 	async fn check_for_byzantine_attack(
 		&self,
 		counterparty: Arc<dyn IsmpHost>,

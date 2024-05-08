@@ -11,6 +11,10 @@ import {
   PostRequestEventLog,
   PostResponseEventLog,
 } from "../types/abi-interfaces/EthereumHostAbi";
+import {
+  HandlePostRequestsTransaction,
+  HandlePostResponsesTransaction,
+} from "../types/abi-interfaces/HandlerV1Abi";
 
 export class RelayerService {
   /**
@@ -118,13 +122,12 @@ export class RelayerService {
   }
 
   /**
-   * Computes relayer specific stats from the PostRequest/PostResponse event's transaction when the transaction fails
+   * Computes relayer specific stats from the handlePostRequest/handlePostResponse transactions on the handlerV1 contract
    */
-  static async handlePostRequestOrResponseEvent(
+  static async handlePostRequestOrResponseTransaction(
     chain: SupportedChain,
-    event: PostRequestEventLog | PostResponseEventLog,
+    transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
   ): Promise<void> {
-    const { transaction } = event;
     const { from: relayer_id } = transaction;
     const { status } = await transaction.receipt();
 

@@ -11,36 +11,36 @@ use tesseract_primitives::IsmpProvider;
 use crate::{BscPosHost, KeccakHasher};
 
 pub async fn consensus_notification(
-    client: &BscPosHost,
-    counterparty: Arc<dyn IsmpProvider>,
-    _block: Block<H256>,
+	client: &BscPosHost,
+	counterparty: Arc<dyn IsmpProvider>,
+	_block: Block<H256>,
 ) -> Result<(Option<BscClientUpdate>, Option<ConsensusState>), anyhow::Error> {
-    let counterparty_finalized = counterparty.query_finalized_height().await?;
-    let consensus_state = counterparty
-        .query_consensus_state(Some(counterparty_finalized), client.consensus_state_id)
-        .await?;
-    let consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
-    let current_epoch = consensus_state.current_epoch;
-    let attested_header = client.prover.latest_header().await?;
+	let counterparty_finalized = counterparty.query_finalized_height().await?;
+	let consensus_state = counterparty
+		.query_consensus_state(Some(counterparty_finalized), client.consensus_state_id)
+		.await?;
+	let consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
+	let current_epoch = consensus_state.current_epoch;
+	let attested_header = client.prover.latest_header().await?;
 
-    let attested_epoch = compute_epoch(attested_header.number.low_u64());
-    if attested_epoch < current_epoch
-        || attested_epoch > current_epoch
-        || consensus_state.finalized_height >= attested_header.number.low_u64()
-    {
-        return Ok((None, None));
-    }
+	let attested_epoch = compute_epoch(attested_header.number.low_u64());
+	if attested_epoch < current_epoch ||
+		attested_epoch > current_epoch ||
+		consensus_state.finalized_height >= attested_header.number.low_u64()
+	{
+		return Ok((None, None));
+	}
 
-    let bsc_client_update = client
-        .prover
-        .fetch_bsc_update::<KeccakHasher>(
-            attested_header,
-            consensus_state.current_validators.len() as u64,
-            current_epoch,
-            false,
-        )
-        .await?;
-    // If the update is a None value, we want to try again in the next tick
-    let cs_state = bsc_client_update.as_ref().map(|_| consensus_state);
-    return Ok((bsc_client_update, cs_state));
+	let bsc_client_update = client
+		.prover
+		.fetch_bsc_update::<KeccakHasher>(
+			attested_header,
+			consensus_state.current_validators.len() as u64,
+			current_epoch,
+			false,
+		)
+		.await?;
+	// If the update is a None value, we want to try again in the next tick
+	let cs_state = bsc_client_update.as_ref().map(|_| consensus_state);
+	return Ok((bsc_client_update, cs_state));
 }

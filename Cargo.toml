@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "arb-host",
     "op-host",
-    "beefy/prover",
+    "beefy",
     "beefy/zk",
     "bsc",
     "fisherman",
@@ -18,6 +18,9 @@ panic = "unwind"
 opt-level = 3
 
 [workspace.dependencies]
+tracing = "0.1.40"
+
+
 frame-support = { version = "28.0.0" }
 sp-io = { version = "30.0.0" }
 sp-core = { version = "28.0.0" }
@@ -72,7 +75,7 @@ transaction-fees = { git = "https://github.com/polytope-labs/hyperbridge", rev =
 tesseract-config = { git = "https://github.com/polytope-labs/hyperbridge", rev = "080cbc8c74f126ab3b6a13825e7a1dbeb08e1df7" }
 tesseract-substrate = { git = "https://github.com/polytope-labs/hyperbridge", rev = "080cbc8c74f126ab3b6a13825e7a1dbeb08e1df7" }
 tesseract-evm = { git = "https://github.com/polytope-labs/hyperbridge", rev = "080cbc8c74f126ab3b6a13825e7a1dbeb08e1df7" }
-tesseract-beefy = { path = "beefy/prover" }
+tesseract-beefy = { path = "beefy" }
 tesseract-sync-committee = { path = "./sync-committee" }
 arb-host = { path = "./arb-host"}
 op-host = { path = "./op-host" }

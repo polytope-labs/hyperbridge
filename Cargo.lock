@@ -15163,6 +15163,7 @@ dependencies = [
  "tesseract-primitives",
  "tesseract-substrate",
  "tokio",
+ "tracing",
  "zk-beefy",
 ]
 

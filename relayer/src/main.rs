@@ -18,6 +18,6 @@ use tesseract::cli::Cli;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let cli = Cli::parse();
-    cli.start_consensus().await
+	let cli = Cli::parse();
+	cli.start_consensus().await
 }

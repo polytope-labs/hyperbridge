@@ -1,10 +1,11 @@
 import assert from "assert";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { RelayerService } from "../../../services/relayer.service";
-import { EventType, SupportedChain } from "../../../types";
+import { EventType, RequestStatus, SupportedChain } from "../../../types";
 import { PostResponseHandledLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
+import { RequestService } from "../../../services/request.service";
 
 /**
  * Handles the PostResponseHandled event from Hyperbridge
@@ -26,7 +27,6 @@ export async function handlePostResponseHandledEvent(
     data,
   } = event;
   const { relayer: relayer_id, commitment } = args;
-  const { status } = await transaction.receipt();
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 
@@ -47,12 +47,17 @@ export async function handlePostResponseHandledEvent(
     await HyperBridgeService.handlePostRequestOrResponseHandledEvent(
       relayer_id,
       chain,
-      status,
     ),
     await RelayerService.handlePostRequestOrPostResponseHandledEvent(
       relayer_id,
       transaction,
       chain,
+    ),
+    await RequestService.updateRequestStatus(
+      commitment,
+      RequestStatus.DEST,
+      BigInt(blockNumber),
+      transactionHash,
     ),
   ]);
 }

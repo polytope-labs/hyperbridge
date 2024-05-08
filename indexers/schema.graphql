@@ -57,6 +57,11 @@ type HyperBridgeStats @entity {
     numberOfSuccessfulMessagesSent: BigInt!
 
     """
+    Total number of successful messages sent by Hyperbridge
+    """
+    numberOfFailedMessagesSent: BigInt!
+
+    """
     Total number of timed out messages
     """
     numberOfTimedOutMessages: BigInt!
@@ -106,6 +111,11 @@ type HyperBridgeChainStats @entity {
     Total number of successful messages sent by Hyperbridge on the chain
     """
     numberOfSuccessfulMessagesSent: BigInt!
+
+    """
+    Total number of successful messages sent by Hyperbridge on the chain
+    """
+    numberOfFailedMessagesSent: BigInt!
 
     """
     Total number of timed out messages sent by Hyperbridge on the chain
@@ -173,12 +183,12 @@ type RelayerStatsPerChain @entity {
     numberOfFailedMessagesSent: BigInt!
 
     """
-    Amount of gas spent on successful post requests (Gas Cost)
+    Amount of gas spent on successful messages (Gas Cost)
     """
     gasUsedForSuccessfulMessages: BigInt!
 
     """
-    Amount of gas spent on failed post requests (Gas Cost)
+    Amount of gas spent on failed messages (Gas Cost)
     """
     gasUsedForFailedMessages: BigInt!
 

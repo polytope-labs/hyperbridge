@@ -4,6 +4,7 @@ import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { PostRequestEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { RequestService } from "../../../services/request.service";
+import { RelayerService } from "../../../services/relayer.service";
 
 /**
  * Handles the PostRequest event from Evm Hosts
@@ -13,13 +14,16 @@ export async function handlePostRequestEvent(
 ): Promise<void> {
   assert(event.args, "No handlePostRequestEvent args");
   logger.info("Handling PostRequest event");
-  const { transaction, blockNumber, transactionHash, args } = event;
 
+  const { transaction, blockNumber, transactionHash, args } = event;
   let { data, dest, fee, from, nonce, source, timeoutTimestamp, to } = args;
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 
-  await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event);
+  Promise.all([
+    await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event),
+    await RelayerService.handlePostRequestOrResponseEvent(chain, event),
+  ]);
 
   // Compute the request commitment
   let request_commitment = RequestService.computeRequestCommitment(
@@ -46,7 +50,6 @@ export async function handlePostRequestEvent(
     to,
   );
 
-  // Create request meta data entity
   await RequestService.updateRequestStatus(
     request_commitment,
     RequestStatus.SOURCE,

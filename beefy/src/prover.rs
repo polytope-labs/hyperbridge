@@ -524,12 +524,13 @@ pub async fn query_parachain_header<R: subxt::Config>(
 
 #[cfg(test)]
 mod tests {
+	use super::*;
 	use hex_literal::hex;
 	use ismp::host::StateMachine;
+	use redis_async::client::pubsub_connect;
+	use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
 	use substrate_state_machine::HashAlgorithm;
 	use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
-
-	use super::*;
 
 	#[tokio::test]
 	async fn test_can_produce_proofs() -> Result<(), anyhow::Error> {
@@ -586,6 +587,40 @@ mod tests {
 
 		prover.run().await;
 
+		Ok(())
+	}
+
+	#[tokio::test]
+	async fn test_redis_queues() -> Result<(), anyhow::Error> {
+		let mut options = RsmqOptions::default();
+		options.realtime = true;
+		let mut rsmq = Rsmq::new(options).await.expect("connection failed");
+
+		let queue = "myqueue";
+		if let Err(RsmqError::QueueExists) = rsmq.create_queue(queue, None, None, Some(-1)).await {
+			println!("Queue already exists")
+		}
+
+		let pub_sub = pubsub_connect("localhost", 6379).await?;
+
+		let mut stream = pub_sub.subscribe(&format!("rsmq:rt:{queue}")).await?;
+
+		rsmq.send_message("myqueue", "testmessage", None)
+			.await
+			.expect("failed to send message");
+
+		if let Some(value) = stream.next().await {
+			println!("Got item from stream {value:?}");
+		}
+
+		let message = rsmq
+			.receive_message::<String>("myqueue", None)
+			.await
+			.expect("cannot receive message");
+
+		if let Some(message) = message {
+			rsmq.delete_message("myqueue", &message.id).await?;
+		}
 		Ok(())
 	}
 }

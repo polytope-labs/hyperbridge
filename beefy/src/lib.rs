@@ -32,7 +32,7 @@ use tokio::{sync::broadcast, time};
 pub use zk_beefy::Network;
 
 // mod byzantine;
-// mod host;
+mod host;
 mod prover;
 
 const VALIDATOR_SET_ID_KEY: [u8; 32] =

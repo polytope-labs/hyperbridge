@@ -43,3 +43,5 @@ polkadot-core-primitives = { workspace = true }
 tesseract-substrate = { workspace = true  }
 tesseract-primitives = { workspace = true  }
 zk-beefy = { path = "zk" }
+rsmq_async = "9.0.0"
+redis-async = "0.17.1"

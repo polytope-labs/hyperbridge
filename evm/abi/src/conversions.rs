@@ -314,18 +314,33 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 					},
 					latest_height: filter.height.low_u64(),
 				})),
-			EvmHostEvents::PostRequestTimeoutHandledFilter(handled) =>
+			EvmHostEvents::PostRequestTimeoutHandledFilter(handled) => {
+				let dest = StateMachine::from_str(&String::from_utf8(handled.dest.to_vec())?)
+					.map_err(|e| anyhow!("{}", e))?;
 				Ok(ismp::events::Event::PostRequestTimeoutHandled(TimeoutHandled {
 					commitment: handled.commitment.into(),
-				})),
-			EvmHostEvents::PostResponseTimeoutHandledFilter(handled) =>
+					dest: dest.clone(),
+					source: dest.clone(),
+				}))
+			},
+			EvmHostEvents::PostResponseTimeoutHandledFilter(handled) => {
+				let dest = StateMachine::from_str(&String::from_utf8(handled.dest.to_vec())?)
+					.map_err(|e| anyhow!("{}", e))?;
 				Ok(ismp::events::Event::PostResponseTimeoutHandled(TimeoutHandled {
 					commitment: handled.commitment.into(),
-				})),
-			EvmHostEvents::GetRequestTimeoutHandledFilter(handled) =>
+					dest: dest.clone(),
+					source: dest.clone(),
+				}))
+			},
+			EvmHostEvents::GetRequestTimeoutHandledFilter(handled) => {
+				let dest = StateMachine::from_str(&String::from_utf8(handled.dest.to_vec())?)
+					.map_err(|e| anyhow!("{}", e))?;
 				Ok(ismp::events::Event::GetRequestTimeoutHandled(TimeoutHandled {
 					commitment: handled.commitment.into(),
-				})),
+					dest: dest.clone(),
+					source: dest.clone(),
+				}))
+			},
 			EvmHostEvents::StateCommitmentVetoedFilter(vetoed) =>
 				Ok(ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
 					height: ismp::consensus::StateMachineHeight {

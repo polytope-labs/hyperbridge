@@ -90,7 +90,11 @@ where
 					}
 					let res = cb.on_timeout(request.clone().into()).map(|_| {
 						let commitment = hash_request::<H>(&request);
-						Event::PostRequestTimeoutHandled(TimeoutHandled { commitment })
+						Event::PostRequestTimeoutHandled(TimeoutHandled {
+							commitment,
+							source: request.source_chain(),
+							dest: request.dest_chain(),
+						})
 					});
 					// If module callback failed restore commitment so it can be retried
 					if res.is_err() {
@@ -156,7 +160,11 @@ where
 					}
 					let res = cb.on_timeout(response.clone().into()).map(|_| {
 						let commitment = hash_post_response::<H>(&response);
-						Event::PostResponseTimeoutHandled(TimeoutHandled { commitment })
+						Event::PostResponseTimeoutHandled(TimeoutHandled {
+							commitment,
+							source: response.source_chain(),
+							dest: response.dest_chain(),
+						})
 					});
 					// If module callback failed restore commitment so it can be retried
 					if res.is_err() {
@@ -200,7 +208,11 @@ where
 					let meta = host.delete_request_commitment(&request)?;
 					let res = cb.on_timeout(request.clone().into()).map(|_| {
 						let commitment = hash_request::<H>(&request);
-						Event::GetRequestTimeoutHandled(TimeoutHandled { commitment })
+						Event::GetRequestTimeoutHandled(TimeoutHandled {
+							commitment,
+							source: request.source_chain(),
+							dest: request.dest_chain(),
+						})
 					});
 					// If module callback failed, restore commitment so it can be retried
 					if res.is_err() {

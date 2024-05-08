@@ -42,10 +42,10 @@ sp_api::decl_runtime_apis! {
 		) -> Result<(Vec<Leaf>, Proof<Hash>), Error>;
 
 		/// Fetch all ISMP events
-		fn block_events() -> Vec<pallet_ismp::events::Event>;
+		fn block_events() -> Vec<ismp::events::Event>;
 
 		/// Fetch all ISMP events and their extrinsic metadata
-		fn block_events_with_metadata() -> Vec<(pallet_ismp::events::Event, u32)>;
+		fn block_events_with_metadata() -> Vec<(ismp::events::Event, u32)>;
 
 		/// Return the scale encoded consensus state
 		fn consensus_state(id: ConsensusClientId) -> Option<Vec<u8>>;

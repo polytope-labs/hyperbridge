@@ -18,7 +18,6 @@
 use crate::{
 	child_trie::{RequestCommitments, ResponseCommitments},
 	dispatcher::{FeeMetadata, RequestMetadata},
-	events,
 	mmr::{Leaf, LeafIndexAndPos, Proof, ProofKeys},
 	weights::get_weight,
 	Config, Error, Event, Pallet, Responded,
@@ -212,7 +211,7 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Fetch all ISMP handler events in the block, should only be called from runtime-api.
-	pub fn block_events() -> Vec<events::Event>
+	pub fn block_events() -> Vec<ismp::events::Event>
 	where
 		<T as frame_system::Config>::RuntimeEvent: TryInto<Event<T>>,
 	{
@@ -220,14 +219,15 @@ impl<T: Config> Pallet<T> {
 			.filter_map(|e| {
 				let frame_system::EventRecord { event, .. } = *e;
 
-				events::to_handler_events::<T>(event.try_into().ok()?)
+				let pallet_event: Event<T> = event.try_into().ok()?;
+				pallet_event.try_into().ok()
 			})
 			.collect()
 	}
 
 	/// Fetch all ISMP handler events and their extrinsic metadata, should only be called from
 	/// runtime-api.
-	pub fn block_events_with_metadata() -> Vec<(events::Event, u32)>
+	pub fn block_events_with_metadata() -> Vec<(ismp::events::Event, u32)>
 	where
 		<T as frame_system::Config>::RuntimeEvent: TryInto<Event<T>>,
 	{
@@ -235,7 +235,8 @@ impl<T: Config> Pallet<T> {
 			.filter_map(|e| {
 				let frame_system::EventRecord { event, phase, .. } = *e;
 				let Phase::ApplyExtrinsic(index) = phase else { None? };
-				let event = events::to_handler_events::<T>(event.try_into().ok()?)?;
+				let pallet_event: Event<T> = event.try_into().ok()?;
+				let event = pallet_event.try_into().ok()?;
 
 				Some((event, index))
 			})

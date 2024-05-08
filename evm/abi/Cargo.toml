@@ -13,19 +13,25 @@ ethers-contract-abigen = { workspace = true }
 forge-testsuite = { workspace = true }
 
 [dependencies]
-primitive-types = { workspace = true, default-features = true }
-anyhow.workspace = true
+primitive-types = { workspace = true }
+anyhow = { workspace = true }
 
 ethers = { workspace = true }
 ismp = { workspace =  true }
 
-mmr-primitives = { workspace =  true, optional = true }
-sp-consensus-beefy = { workspace =  true, features = ["default"], optional = true }
-merkle-mountain-range = { workspace = true, features = ["default"], optional = true }
-beefy-verifier-primitives = { workspace =  true, optional = true }
+mmr-primitives = { workspace = true, default-features = true, optional = true }
+sp-consensus-beefy = { workspace =  true, default-features = true, optional = true }
+merkle-mountain-range = { workspace = true, default-features = true, optional = true }
+beefy-verifier-primitives = { workspace =  true, default-features = true, optional = true }
 
 
 [features]
-default = ["beefy"]
+default = ["beefy", "std"]
+std = [
+    "primitive-types/std",
+    "anyhow/std",
+    "ethers/default",
+    "ismp/std",
+]
 build-abi = []
 beefy = ["merkle-mountain-range", "sp-consensus-beefy", "beefy-verifier-primitives", "mmr-primitives"]

@@ -6,7 +6,6 @@ This exports the runtime API definitions required by client subsystems like the 
 
 The required methods are already implemented in [`pallet_ismp::Pallet<T>`](https://docs.rs/pallet-ismp/latest/pallet_ismp/pallet/struct.Pallet.html)
 
-
 ```rust,ignore
 
 sp_api::impl_runtime_apis! {
@@ -27,12 +26,12 @@ sp_api::impl_runtime_apis! {
         }
 
         /// Fetch all ISMP events and their extrinsic metadata, should only be called from runtime-api.
-        fn block_events() -> Vec<pallet_ismp::events::Event> {
+        fn block_events() -> Vec<ismp::events::Event> {
             pallet_ismp::Pallet::<Runtime>::block_events()
         }
 
         /// Fetch all ISMP events and their extrinsic metadata
-        fn block_events_with_metadata() -> Vec<(pallet_ismp::events::Event, u32)> {
+        fn block_events_with_metadata() -> Vec<(ismp::events::Event, u32)> {
             pallet_ismp::Pallet::<Runtime>::block_events_with_metadata()
         }
 
@@ -65,7 +64,6 @@ sp_api::impl_runtime_apis! {
 }
 
 ```
-
 
 ## License
 

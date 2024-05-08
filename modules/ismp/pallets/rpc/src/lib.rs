@@ -73,7 +73,7 @@ use anyhow::anyhow;
 use codec::Encode;
 use ismp::{
 	consensus::{ConsensusClientId, StateMachineId},
-	events::{Event, StateMachineUpdated},
+	events::Event,
 	router::{Request, Response},
 };
 use pallet_ismp::{
@@ -427,65 +427,9 @@ where
 			api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
 			let at = header.hash();
 
-			let mut request_commitments = vec![];
-			let mut response_commitments = vec![];
-			let mut temp: Vec<Event> = api
-				.block_events(at)
-				.map_err(|e| {
-					runtime_error_into_rpc_error(format!("failed to read block events {:?}", e))
-				})?
-				.into_iter()
-				.filter_map(|event| match event {
-					pallet_ismp::events::Event::Request { commitment, .. } => {
-						request_commitments.push(commitment);
-						None
-					},
-					pallet_ismp::events::Event::Response { commitment, .. } => {
-						response_commitments.push(commitment);
-						None
-					},
-					pallet_ismp::events::Event::StateMachineUpdated {
-						state_machine_id,
-						latest_height,
-					} => Some(Event::StateMachineUpdated(StateMachineUpdated {
-						state_machine_id,
-						latest_height,
-					})),
-					pallet_ismp::events::Event::PostRequestHandled(handled) =>
-						Some(Event::PostRequestHandled(handled)),
-					pallet_ismp::events::Event::PostResponseHandled(handled) =>
-						Some(Event::PostResponseHandled(handled)),
-					pallet_ismp::events::Event::GetRequestHandled(handled) =>
-						Some(Event::GetRequestHandled(handled)),
-					pallet_ismp::events::Event::PostRequestTimeoutHandled(handled) =>
-						Some(Event::PostRequestTimeoutHandled(handled)),
-					pallet_ismp::events::Event::PostResponseTimeoutHandled(handled) =>
-						Some(Event::PostResponseTimeoutHandled(handled)),
-					pallet_ismp::events::Event::GetRequestTimeoutHandled(handled) =>
-						Some(Event::GetRequestTimeoutHandled(handled)),
-				})
-				.collect();
-
-			let request_events = api
-				.requests(at, request_commitments)
-				.map_err(|_| runtime_error_into_rpc_error("Error fetching requests"))?
-				.into_iter()
-				.map(|req| match req {
-					Request::Post(post) => Event::PostRequest(post),
-					Request::Get(get) => Event::GetRequest(get),
-				});
-
-			let response_events = api
-				.responses(at, response_commitments)
-				.map_err(|_| runtime_error_into_rpc_error("Error fetching response"))?
-				.into_iter()
-				.filter_map(|res| match res {
-					Response::Post(post) => Some(Event::PostResponse(post)),
-					_ => None,
-				});
-
-			temp.extend(request_events);
-			temp.extend(response_events);
+			let temp: Vec<Event> = api.block_events(at).map_err(|e| {
+				runtime_error_into_rpc_error(format!("failed to read block events {:?}", e))
+			})?;
 
 			events.insert(header.hash().to_string(), temp);
 			header = self
@@ -547,87 +491,40 @@ where
 			let mut temp = vec![];
 
 			for (event, index) in block_events {
-				let event = match event {
-					pallet_ismp::events::Event::Request { commitment, .. } => api
-						.requests(at, vec![commitment])
-						.map_err(|_| runtime_error_into_rpc_error("Error fetching requests"))?
-						.into_iter()
-						.map(|req| match req {
-							Request::Post(post) => Event::PostRequest(post),
-							Request::Get(get) => Event::GetRequest(get),
-						})
-						.next(),
-					pallet_ismp::events::Event::Response { commitment, .. } => api
-						.responses(at, vec![commitment])
-						.map_err(|_| runtime_error_into_rpc_error("Error fetching response"))?
-						.into_iter()
-						.filter_map(|res| match res {
-							Response::Post(post) => Some(Event::PostResponse(post)),
-							_ => None,
-						})
-						.next(),
-					pallet_ismp::events::Event::StateMachineUpdated {
-						state_machine_id,
-						latest_height,
-					} => Some(Event::StateMachineUpdated(StateMachineUpdated {
-						state_machine_id,
-						latest_height,
-					})),
-					pallet_ismp::events::Event::PostRequestHandled(handled) =>
-						Some(Event::PostRequestHandled(handled)),
-					pallet_ismp::events::Event::PostResponseHandled(handled) =>
-						Some(Event::PostResponseHandled(handled)),
-					pallet_ismp::events::Event::GetRequestHandled(handled) =>
-						Some(Event::GetRequestHandled(handled)),
-					pallet_ismp::events::Event::PostRequestTimeoutHandled(handled) =>
-						Some(Event::PostRequestTimeoutHandled(handled)),
-					pallet_ismp::events::Event::PostResponseTimeoutHandled(handled) =>
-						Some(Event::PostResponseTimeoutHandled(handled)),
-					pallet_ismp::events::Event::GetRequestTimeoutHandled(handled) =>
-						Some(Event::GetRequestTimeoutHandled(handled)),
-				};
-
-				if let Some(event) = event {
-					// get the block extrinsics
-					let extrinsic = self
-						.client
-						.block_body(at)
-						.map_err(|err| {
-							runtime_error_into_rpc_error(format!(
-								"Error fetching extrinsic for block {at:?}: {err:?}"
-							))
-						})?
-						.ok_or_else(|| {
-							runtime_error_into_rpc_error(format!(
-								"No extrinsics found for block {at:?}"
-							))
-						})?
-						// using swap remove should be fine unless the node is in an inconsistent
-						// state
-						.swap_remove(index as usize);
-					let ext_bytes = serde_json::to_string(&extrinsic).map_err(|err| {
+				// get the block extrinsics
+				let extrinsic = self
+					.client
+					.block_body(at)
+					.map_err(|err| {
 						runtime_error_into_rpc_error(format!(
-							"Failed to serialize extrinsic: {err:?}"
+							"Error fetching extrinsic for block {at:?}: {err:?}"
 						))
+					})?
+					.ok_or_else(|| {
+						runtime_error_into_rpc_error(format!(
+							"No extrinsics found for block {at:?}"
+						))
+					})?
+					// using swap remove should be fine unless the node is in an inconsistent
+					// state
+					.swap_remove(index as usize);
+				let ext_bytes = serde_json::to_string(&extrinsic).map_err(|err| {
+					runtime_error_into_rpc_error(format!("Failed to serialize extrinsic: {err:?}"))
+				})?;
+				let len = ext_bytes.as_bytes().len() - 1;
+				let extrinsic =
+					hex::decode(ext_bytes.as_bytes()[3..len].to_vec()).map_err(|err| {
+						runtime_error_into_rpc_error(format!("Failed to decode extrinsic: {err:?}"))
 					})?;
-					let len = ext_bytes.as_bytes().len() - 1;
-					let extrinsic =
-						hex::decode(ext_bytes.as_bytes()[3..len].to_vec()).map_err(|err| {
-							runtime_error_into_rpc_error(format!(
-								"Failed to decode extrinsic: {err:?}"
-							))
-						})?;
-					let extrinsic_hash =
-						<Block::Header as Header>::Hashing::hash(extrinsic.as_slice());
-					temp.push(EventWithMetadata {
-						meta: EventMetadata {
-							block_hash: at.into(),
-							transaction_hash: extrinsic_hash.into(),
-							block_number: u64::from(*header.number()),
-						},
-						event,
-					});
-				}
+				let extrinsic_hash = <Block::Header as Header>::Hashing::hash(extrinsic.as_slice());
+				temp.push(EventWithMetadata {
+					meta: EventMetadata {
+						block_hash: at.into(),
+						transaction_hash: extrinsic_hash.into(),
+						block_number: u64::from(*header.number()),
+					},
+					event,
+				});
 			}
 
 			events.insert(header.hash().to_string(), temp);

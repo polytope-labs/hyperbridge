@@ -799,12 +799,12 @@ impl_runtime_apis! {
 		}
 
 		/// Fetch all ISMP events in the block, should only be called from runtime-api.
-		fn block_events() -> Vec<pallet_ismp::events::Event> {
+		fn block_events() -> Vec<::ismp::events::Event> {
 			Ismp::block_events()
 		}
 
 		/// Fetch all ISMP events and their extrinsic metadata, should only be called from runtime-api.
-		fn block_events_with_metadata() -> Vec<(pallet_ismp::events::Event, u32)> {
+		fn block_events_with_metadata() -> Vec<(::ismp::events::Event, u32)> {
 			Ismp::block_events_with_metadata()
 		}
 

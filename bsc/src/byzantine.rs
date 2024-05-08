@@ -57,6 +57,6 @@ impl ByzantineHandler for BscPosHost {
             counterparty_provider.veto_state_commitment(height).await?;
         }
 
-        Ok(())
-    }
+		Ok(())
+	}
 }

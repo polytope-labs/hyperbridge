@@ -22,43 +22,43 @@ use futures::{future::Either, StreamExt};
 use tesseract_primitives::IsmpHost;
 
 pub async fn fish(
-    chain_a: Arc<dyn IsmpHost>,
-    chain_b: Arc<dyn IsmpHost>,
+	chain_a: Arc<dyn IsmpHost>,
+	chain_b: Arc<dyn IsmpHost>,
 ) -> Result<(), anyhow::Error> {
-    let task_a = {
-        let chain_a = chain_a.clone();
-        let chain_b = chain_b.clone();
-        Box::pin(handle_notification(chain_a, chain_b))
-    };
+	let task_a = {
+		let chain_a = chain_a.clone();
+		let chain_b = chain_b.clone();
+		Box::pin(handle_notification(chain_a, chain_b))
+	};
 
-    let task_b = {
-        let chain_a = chain_a.clone();
-        let chain_b = chain_b.clone();
-        Box::pin(handle_notification(chain_b, chain_a))
-    };
+	let task_b = {
+		let chain_a = chain_a.clone();
+		let chain_b = chain_b.clone();
+		Box::pin(handle_notification(chain_b, chain_a))
+	};
 
-    // if one task completes, abort the other
-    let err = match futures::future::select(task_a, task_b).await {
-        Either::Left((res, _task)) => res,
-        Either::Right((res, _task)) => res,
-    };
+	// if one task completes, abort the other
+	let err = match futures::future::select(task_a, task_b).await {
+		Either::Left((res, _task)) => res,
+		Either::Right((res, _task)) => res,
+	};
 
-    log::error!("{:?}", err);
+	log::error!("{:?}", err);
 
-    Ok(())
+	Ok(())
 }
 
 async fn handle_notification(
-    chain_a: Arc<dyn IsmpHost>,
-    chain_b: Arc<dyn IsmpHost>,
+	chain_a: Arc<dyn IsmpHost>,
+	chain_b: Arc<dyn IsmpHost>,
 ) -> Result<(), anyhow::Error> {
-    let mut state_machine_update_stream = chain_a
-        .provider()
-        .state_machine_update_notification(chain_b.provider().state_machine_id())
-        .await
-        .map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
-    let chain_a_provider = chain_a.provider();
-    let chain_b_provider = chain_b.provider();
+	let mut state_machine_update_stream = chain_a
+		.provider()
+		.state_machine_update_notification(chain_b.provider().state_machine_id())
+		.await
+		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
+	let chain_a_provider = chain_a.provider();
+	let chain_b_provider = chain_b.provider();
 
     while let Some(item) = state_machine_update_stream.next().await {
         match item {
@@ -76,9 +76,9 @@ async fn handle_notification(
         }
     }
 
-    Err(anyhow!(
-        "{}-{} fisherman task has failed, Please restart relayer",
-        chain_a_provider.name(),
-        chain_a_provider.name()
-    ))?
+	Err(anyhow!(
+		"{}-{} fisherman task has failed, Please restart relayer",
+		chain_a_provider.name(),
+		chain_a_provider.name()
+	))?
 }

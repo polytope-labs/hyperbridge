@@ -15,8 +15,8 @@
 
 use bsc_prover::BscPosProver;
 pub use bsc_verifier::{
-    primitives::{compute_epoch, BscClientUpdate},
-    verify_bsc_header,
+	primitives::{compute_epoch, BscClientUpdate},
+	verify_bsc_header,
 };
 use ethers::providers::{Http, Provider};
 pub use geth_primitives::Header;
@@ -35,107 +35,102 @@ mod notification;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BscPosConfig {
-    /// Host configuration options
-    pub host: HostConfig,
-    /// General ethereum config
-    #[serde[flatten]]
-    pub evm_config: EvmConfig,
+	/// Host configuration options
+	pub host: HostConfig,
+	/// General ethereum config
+	#[serde[flatten]]
+	pub evm_config: EvmConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostConfig {
-    pub consensus_update_frequency: Option<u64>,
+	pub consensus_update_frequency: Option<u64>,
 }
 
 impl BscPosConfig {
-    /// Convert the config into a client.
-    pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-        Ok(Arc::new(
-            BscPosHost::new(&self.host, &self.evm_config).await?,
-        ))
-    }
+	/// Convert the config into a client.
+	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		Ok(Arc::new(BscPosHost::new(&self.host, &self.evm_config).await?))
+	}
 
-    pub fn state_machine(&self) -> StateMachine {
-        self.evm_config.state_machine
-    }
+	pub fn state_machine(&self) -> StateMachine {
+		self.evm_config.state_machine
+	}
 }
 
 #[derive(Clone)]
 pub struct BscPosHost {
-    /// Consensus state id on counterparty chain
-    pub consensus_state_id: ConsensusStateId,
-    /// State machine Identifier for this chain.
-    pub state_machine: StateMachine,
-    /// Consensus prover
-    pub prover: BscPosProver,
-    /// Host config options
-    pub host: HostConfig,
-    /// Evm config options
-    pub evm: EvmConfig,
-    /// Ismp provider
-    pub provider: Arc<dyn IsmpProvider>,
+	/// Consensus state id on counterparty chain
+	pub consensus_state_id: ConsensusStateId,
+	/// State machine Identifier for this chain.
+	pub state_machine: StateMachine,
+	/// Consensus prover
+	pub prover: BscPosProver,
+	/// Host config options
+	pub host: HostConfig,
+	/// Evm config options
+	pub evm: EvmConfig,
+	/// Ismp provider
+	pub provider: Arc<dyn IsmpProvider>,
 }
 
 impl BscPosHost {
-    pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
-        let provider = Provider::new(Http::new_client_with_chain_middleware(
-            evm.rpc_urls
-                .iter()
-                .map(|url| url.parse())
-                .collect::<Result<_, _>>()?,
-        ));
-        let prover = BscPosProver::new(provider);
-        let ismp_provider = EvmClient::new(evm.clone()).await?;
+	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
+		let provider = Provider::new(Http::new_client_with_chain_middleware(
+			evm.rpc_urls.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
+		));
+		let prover = BscPosProver::new(provider);
+		let ismp_provider = EvmClient::new(evm.clone()).await?;
 
-        Ok(Self {
-            consensus_state_id: {
-                let mut consensus_state_id: ConsensusStateId = Default::default();
-                consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
-                consensus_state_id
-            },
-            state_machine: evm.state_machine,
-            prover,
-            host: host.clone(),
-            evm: evm.clone(),
-            provider: Arc::new(ismp_provider),
-        })
-    }
+		Ok(Self {
+			consensus_state_id: {
+				let mut consensus_state_id: ConsensusStateId = Default::default();
+				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
+				consensus_state_id
+			},
+			state_machine: evm.state_machine,
+			prover,
+			host: host.clone(),
+			evm: evm.clone(),
+			provider: Arc::new(ismp_provider),
+		})
+	}
 
-    pub async fn get_consensus_state<I: Keccak256>(
-        &self,
-        ismp_contract_address: H160,
-    ) -> Result<ConsensusState, anyhow::Error> {
-        let (header, current_validators) =
-            self.prover.fetch_finalized_state::<KeccakHasher>().await?;
-        let latest_header = self.prover.latest_header().await?;
-        if latest_header.number.low_u64() - header.number.low_u64() < 12 {
-            // We want to ensure the current validators are signing before creating the consensus
-            // state
-            tokio::time::sleep(Duration::from_secs(
-                (latest_header.number.low_u64() - header.number.low_u64()) * 12,
-            ))
-            .await;
-        }
-        let consensus_state = ConsensusState {
-            current_validators,
-            next_validators: None,
-            finalized_hash: Header::from(&header).hash::<KeccakHasher>(),
-            finalized_height: header.number.as_u64(),
-            ismp_contract_address,
-            current_epoch: compute_epoch(header.number.low_u64()),
-        };
+	pub async fn get_consensus_state<I: Keccak256>(
+		&self,
+		ismp_contract_address: H160,
+	) -> Result<ConsensusState, anyhow::Error> {
+		let (header, current_validators) =
+			self.prover.fetch_finalized_state::<KeccakHasher>().await?;
+		let latest_header = self.prover.latest_header().await?;
+		if latest_header.number.low_u64() - header.number.low_u64() < 12 {
+			// We want to ensure the current validators are signing before creating the consensus
+			// state
+			tokio::time::sleep(Duration::from_secs(
+				(latest_header.number.low_u64() - header.number.low_u64()) * 12,
+			))
+			.await;
+		}
+		let consensus_state = ConsensusState {
+			current_validators,
+			next_validators: None,
+			finalized_hash: Header::from(&header).hash::<KeccakHasher>(),
+			finalized_height: header.number.as_u64(),
+			ismp_contract_address,
+			current_epoch: compute_epoch(header.number.low_u64()),
+		};
 
-        Ok(consensus_state)
-    }
+		Ok(consensus_state)
+	}
 }
 
 pub struct KeccakHasher;
 
 impl Keccak256 for KeccakHasher {
-    fn keccak256(bytes: &[u8]) -> primitive_types::H256
-    where
-        Self: Sized,
-    {
-        sp_core::keccak_256(bytes).into()
-    }
+	fn keccak256(bytes: &[u8]) -> primitive_types::H256
+	where
+		Self: Sized,
+	{
+		sp_core::keccak_256(bytes).into()
+	}
 }

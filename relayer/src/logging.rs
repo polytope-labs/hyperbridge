@@ -16,12 +16,9 @@
 use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};
 
 pub fn setup() -> Result<(), anyhow::Error> {
-    let filter =
-        tracing_subscriber::EnvFilter::from_default_env().add_directive(LevelFilter::INFO.into());
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .finish()
-        .try_init()?;
+	let filter =
+		tracing_subscriber::EnvFilter::from_default_env().add_directive(LevelFilter::INFO.into());
+	tracing_subscriber::fmt().with_env_filter(filter).finish().try_init()?;
 
-    Ok(())
+	Ok(())
 }

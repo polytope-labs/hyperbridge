@@ -106,13 +106,13 @@ dataSources:
     mapping:
       file: ./dist/index.js
       handlers:
-        - kind: ethereum/TransactionHandler
-          handler: handlePostRequestTransactionHandler
+        - handler: handlePostRequestTransactionHandler
+          kind: ethereum/TransactionHandler
           filter:
-            function: handlePostRequests(address host,tuple request)
-        - kind: ethereum/TransactionHandler
-          handler: handlePostResponseTransactionHandler
+            function: "0x9d38eb35"
+        - handler: handlePostResponseTransactionHandler
+          kind: ethereum/TransactionHandler
           filter:
-            function: handlePostResponse(address host,tuple response)
+            function: "0x72becccd"
 
 repository: "https://github.com/polytope-labs/hyperbridge"

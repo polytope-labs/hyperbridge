@@ -11,3 +11,7 @@ export { handleGetRequestTimeoutHandledEvent } from "../handlers/events/evmHost/
 
 export { handleStateMachineUpdatedEvent } from "../handlers/events/evmHost/stateMachineUpdated.event.handler";
 export { handleTransferEvent } from "../handlers/events/erc6160ext20/transfer.event.handlers";
+
+// HandlerV1 Handlers
+export { handlePostRequestTransactionHandler } from "../handlers/transactions/handlerV1/handlePostRequestTransactionHandler.handler";
+export { handlePostResponseTransactionHandler } from "../handlers/transactions/handlerV1/handlePostResponseTransactionHandler.handler";

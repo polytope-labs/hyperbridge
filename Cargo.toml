@@ -64,7 +64,6 @@ members = [
 
     # tesseract
     "tesseract/primitives",
-    "tesseract/consensus",
     "tesseract/messaging",
     "tesseract/substrate",
     "tesseract/relayer",

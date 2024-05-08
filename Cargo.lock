@@ -20174,18 +20174,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tesseract-consensus"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "futures",
- "ismp",
- "log",
- "tesseract-primitives",
- "tokio",
-]
-
-[[package]]
 name = "tesseract-evm"
 version = "0.1.0"
 dependencies = [

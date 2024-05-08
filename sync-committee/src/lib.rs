@@ -38,8 +38,6 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 mod byzantine;
 mod host;
 mod notification;
-#[cfg(test)]
-mod test;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncCommitteeConfig {

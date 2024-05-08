@@ -19,7 +19,7 @@ use bsc_verifier::{
 };
 use codec::{Decode, Encode};
 use futures::{stream, StreamExt};
-use ismp::messaging::{ConsensusMessage, CreateConsensusState};
+use ismp::messaging::{ConsensusMessage, CreateConsensusState, Message};
 
 use ethers::providers::Middleware;
 use ismp_bsc::ConsensusState;
@@ -28,19 +28,21 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{notification::consensus_notification, BscPosHost, KeccakHasher};
 use bsc_prover::get_rotation_block;
-use tesseract_primitives::{BoxStream, IsmpHost, IsmpProvider};
+use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
 impl IsmpHost for BscPosHost {
-	async fn consensus_notification(
+	async fn start_consensus(
 		&self,
 		counterparty: Arc<dyn IsmpProvider>,
-	) -> Result<BoxStream<ConsensusMessage>, anyhow::Error> {
+	) -> Result<(), anyhow::Error> {
 		let client = BscPosHost::clone(&self);
 
 		let interval = tokio::time::interval(Duration::from_secs(
 			self.host.consensus_update_frequency.unwrap_or(300),
 		));
+
+		let counterparty_clone = counterparty.clone();
 
 		// We query consensus state at the finalized heights of the counterparty chain and we only
 		// We only try to yield new consensus updates when the queried consensus state is different
@@ -55,7 +57,7 @@ impl IsmpHost for BscPosHost {
 		let stream =
 			stream::unfold((interval, None), move |(mut interval, prev_consensus_state)| {
 				let client = client.clone();
-				let counterparty = counterparty.clone();
+				let counterparty = counterparty_clone.clone();
 				async move {
 					let counterparty_finalized = match counterparty.query_finalized_height().await {
 						Ok(height) => height,
@@ -349,7 +351,36 @@ impl IsmpHost for BscPosHost {
 				}
 			});
 
-		Ok(Box::pin(stream))
+		let mut stream = Box::pin(stream);
+		let provider = self.provider();
+		while let Some(item) = stream.next().await {
+			match item {
+				Ok(consensus_message) => {
+					log::info!(
+						target: "tesseract",
+						"🛰️ Transmitting consensus message from {} to {}",
+						provider.name(), counterparty.name()
+					);
+					let res =
+						counterparty.submit(vec![Message::Consensus(consensus_message)]).await;
+					if let Err(err) = res {
+						log::error!(
+							"Failed to submit transaction to {}: {err:?}",
+							counterparty.name()
+						)
+					}
+				},
+				Err(e) => {
+					log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+				},
+			}
+		}
+
+		Err(anyhow!(
+			"{}-{} consensus task has failed, Please restart relayer",
+			provider.name(),
+			counterparty.name()
+		))
 	}
 
 	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {

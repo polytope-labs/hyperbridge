@@ -16,8 +16,7 @@
 use std::sync::Arc;
 
 use anyhow::Error;
-use ismp::events::StateMachineUpdated;
-use ismp::messaging::CreateConsensusState;
+use ismp::{events::StateMachineUpdated, messaging::CreateConsensusState};
 use redis_async::client::{ConnectionBuilder, PubsubConnection};
 use rsmq_async::{Rsmq, RsmqOptions};
 use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider};
@@ -49,7 +48,7 @@ pub struct BeefyHost {
 }
 
 impl BeefyHost {
-    /// Construct an implementation of the [`BeefyHost`]
+	/// Construct an implementation of the [`BeefyHost`]
 	pub async fn new(config: BeefyHostConfig) -> Result<Self, anyhow::Error> {
 		let mut builder = ConnectionBuilder::new(&config.redis.url, config.redis.port)?;
 		if let Some(ref username) = config.redis.username {
@@ -90,10 +89,12 @@ impl IsmpHost for BeefyHost {
 	}
 }
 
-
-
 impl ByzantineHandler for BeefyHost {
-	async fn check_for_byzantine_attack(&self, counterparty: Arc<dyn IsmpProvider>, challenge_event: StateMachineUpdated) -> Result<(), Error> {
+	async fn check_for_byzantine_attack(
+		&self,
+		counterparty: Arc<dyn IsmpProvider>,
+		challenge_event: StateMachineUpdated,
+	) -> Result<(), Error> {
 		todo!()
 	}
 }

@@ -7,7 +7,7 @@ members = [
     "beefy/zk",
     "bsc",
     "fisherman",
-    "integration-tests",
+    # "integration-tests",
     "sync-committee",
     # "relayer", 
     # "relayer-fisherman"

@@ -3,9 +3,10 @@ import { SupportedChain } from "../../../types";
 import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { PostResponseEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
+import { RelayerService } from "../../../services/relayer.service";
 
 /**
- * Handles the PostRequest event from Evm Hosts
+ * Handles the PostResponse event from Evm Hosts
  */
 export async function handlePostResponseEvent(
   event: PostResponseEventLog,
@@ -17,5 +18,8 @@ export async function handlePostResponseEvent(
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 
-  await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event);
+  Promise.all([
+    await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event),
+    await RelayerService.handlePostRequestOrResponseEvent(chain, event),
+  ]);
 }

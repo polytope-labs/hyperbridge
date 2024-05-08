@@ -6,7 +6,11 @@ import {
   convertEnumListStringToArray,
 } from "../utils/enum.helpers";
 import { RelayerChainStatsService } from "./relayerChainStats.service";
-import { getCurrentEthPriceInUsd } from "../utils/price.helpers";
+import { getNativeCurrencyPrice } from "../utils/price.helpers";
+import {
+  PostRequestEventLog,
+  PostResponseEventLog,
+} from "../types/abi-interfaces/EthereumHostAbi";
 
 export class RelayerService {
   /**
@@ -90,8 +94,8 @@ export class RelayerService {
     transaction: EthereumTransaction<EthereumResult>,
     chain: SupportedChain,
   ): Promise<void> {
-    const { status, gasUsed, effectiveGasPrice } = await transaction.receipt();
-    const ethPriceInUsd = await getCurrentEthPriceInUsd();
+    const { gasUsed, effectiveGasPrice } = await transaction.receipt();
+    const ethPriceInUsd = await getNativeCurrencyPrice();
 
     const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
     const usdFee = gasFee * BigInt(ethPriceInUsd);
@@ -105,20 +109,47 @@ export class RelayerService {
     relayer.totalNumberOfMessagesSent += BigInt(1);
     relayer_chain_stats.numberOfMessagesSent += BigInt(1);
 
-    if (status) {
-      // Handle successful requests
-      relayer_chain_stats.numberOfSuccessfulMessagesSent += BigInt(1);
-      relayer_chain_stats.gasUsedForSuccessfulMessages += BigInt(gasUsed);
-      relayer_chain_stats.gasFeeForSuccessfulMessages += BigInt(gasFee);
-      relayer_chain_stats.usdGasFeeForSuccessfulMessages += BigInt(usdFee);
-    } else {
-      // Handle failed requests
+    relayer_chain_stats.numberOfSuccessfulMessagesSent += BigInt(1);
+    relayer_chain_stats.gasUsedForSuccessfulMessages += BigInt(gasUsed);
+    relayer_chain_stats.gasFeeForSuccessfulMessages += BigInt(gasFee);
+    relayer_chain_stats.usdGasFeeForSuccessfulMessages += BigInt(usdFee);
+
+    Promise.all([await relayer_chain_stats.save(), await relayer.save()]);
+  }
+
+  /**
+   * Computes relayer specific stats from the PostRequest/PostResponse event's transaction when the transaction fails
+   */
+  static async handlePostRequestOrResponseEvent(
+    chain: SupportedChain,
+    event: PostRequestEventLog | PostResponseEventLog,
+  ): Promise<void> {
+    const { transaction } = event;
+    const { from: relayer_id } = transaction;
+    const { status } = await transaction.receipt();
+
+    if (status === false) {
+      const { gasUsed, effectiveGasPrice } = await transaction.receipt();
+      const ethPriceInUsd = await getNativeCurrencyPrice();
+
+      const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
+      const usdFee = gasFee * BigInt(ethPriceInUsd);
+
+      const relayer = await RelayerService.findOrCreate(relayer_id, chain);
+      let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
+        relayer_id,
+        chain,
+      );
+
+      relayer.totalNumberOfMessagesSent += BigInt(1);
+      relayer_chain_stats.numberOfMessagesSent += BigInt(1);
+
       relayer_chain_stats.numberOfFailedMessagesSent += BigInt(1);
       relayer_chain_stats.gasUsedForFailedMessages += BigInt(gasUsed);
       relayer_chain_stats.gasFeeForFailedMessages += BigInt(gasFee);
       relayer_chain_stats.usdGasFeeForFailedMessages += BigInt(usdFee);
-    }
 
-    Promise.all([await relayer_chain_stats.save(), await relayer.save()]);
+      Promise.all([await relayer_chain_stats.save(), await relayer.save()]);
+    }
   }
 }

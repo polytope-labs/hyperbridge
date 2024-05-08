@@ -25,7 +25,6 @@ export async function handlePostRequestTimeoutHandledEvent(
     data,
   } = event;
   const { commitment } = args;
-  const { from: relayer_id } = transaction;
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 

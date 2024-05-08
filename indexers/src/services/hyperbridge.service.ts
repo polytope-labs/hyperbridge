@@ -1,4 +1,3 @@
-import { BigNumber } from "ethers";
 import { HYPERBRIDGE_STATS_ENTITY_ID } from "../constants";
 import { SupportedChain } from "../types";
 import {
@@ -7,7 +6,6 @@ import {
 } from "../types/abi-interfaces/EthereumHostAbi";
 import { HyperBridgeStats, Relayer, Transfer } from "../types/models";
 import { HyperBridgeChainStatsService } from "./hyperbridgeChainStats.service";
-import { RelayerService } from "./relayer.service";
 import assert from "assert";
 import { isHexString } from "ethers/lib/utils";
 import { EthereumHostAbi__factory } from "../types/contracts";
@@ -24,6 +22,7 @@ export class HyperBridgeService {
         id: HYPERBRIDGE_STATS_ENTITY_ID,
         numberOfMessagesSent: BigInt(0),
         numberOfSuccessfulMessagesSent: BigInt(0),
+        numberOfFailedMessagesSent: BigInt(0),
         numberOfTimedOutMessages: BigInt(0),
         numberOfUniqueRelayers: BigInt(0),
         feesPayedOutToRelayers: BigInt(0),
@@ -49,12 +48,20 @@ export class HyperBridgeService {
       "No handlePostRequestEvent/handlePostResponseEvent args",
     );
 
-    const { args, address } = event;
+    const { args, address, transaction } = event;
+    const { status } = await transaction.receipt();
     let { data } = args;
 
     const protocolFee = await this.computeProtocolFeeFromHexData(address, data);
 
-    await this.incrementProtocolFeesEarned(protocolFee, chain);
+    Promise.all([await this.incrementProtocolFeesEarned(protocolFee, chain)]);
+
+    if (status === false) {
+      Promise.all([
+        await this.incrementNumberOfFailedMessagesSent(chain),
+        await this.incrementTotalNumberOfMessagesSent(chain),
+      ]);
+    }
   }
 
   /**
@@ -63,14 +70,12 @@ export class HyperBridgeService {
   static async handlePostRequestOrResponseHandledEvent(
     relayer_id: string,
     chain: SupportedChain,
-    transaction_status: boolean,
   ): Promise<void> {
-    await this.incrementTotalNumberOfMessagesSent(chain);
-    await this.updateNumberOfUniqueRelayers(relayer_id);
-
-    if (transaction_status) {
-      await this.incrementNumberOfSuccessfulMessagesSent(chain);
-    }
+    Promise.all([
+      await this.incrementTotalNumberOfMessagesSent(chain),
+      await this.updateNumberOfUniqueRelayers(relayer_id),
+      await this.incrementNumberOfSuccessfulMessagesSent(chain),
+    ]);
   }
 
   /**
@@ -103,6 +108,23 @@ export class HyperBridgeService {
     let chainStats =
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.numberOfSuccessfulMessagesSent += BigInt(1);
+
+    Promise.all([await chainStats.save(), await stats.save()]);
+  }
+
+  /**
+   * Increment the number of failed messages handled by hyperbridge
+   */
+  static async incrementNumberOfFailedMessagesSent(
+    chain: SupportedChain,
+  ): Promise<void> {
+    let stats = await this.getStats();
+    stats.numberOfFailedMessagesSent += BigInt(1);
+
+    // Update the specific chain stats
+    let chainStats =
+      await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
+    chainStats.numberOfFailedMessagesSent += BigInt(1);
 
     Promise.all([await chainStats.save(), await stats.save()]);
   }

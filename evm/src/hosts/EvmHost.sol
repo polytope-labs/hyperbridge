@@ -140,20 +140,23 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     // Emitted when an incoming POST request is handled
     event PostRequestHandled(bytes32 commitment, address relayer);
 
-    // Emitted when an outgoing POST request timeout is handled
-    event PostRequestTimeoutHandled(bytes32 commitment);
+    // Emitted when an outgoing POST request timeout is handled, `dest` refers
+    // to the destination for the request
+    event PostRequestTimeoutHandled(bytes32 commitment, bytes dest);
 
     // Emitted when an incoming POST response is handled
     event PostResponseHandled(bytes32 commitment, address relayer);
 
-    // Emitted when an outgoing POST timeout response is handled
-    event PostResponseTimeoutHandled(bytes32 commitment);
+    // Emitted when an outgoing POST response timeout is handled, `dest` refers
+    // to the destination for the response
+    event PostResponseTimeoutHandled(bytes32 commitment, bytes dest);
 
     // Emitted when an outgoing GET request is handled
     event GetRequestHandled(bytes32 commitment, address relayer);
 
-    // Emitted when an outgoing GET request timeout is handled
-    event GetRequestTimeoutHandled(bytes32 commitment);
+    // Emitted when an outgoing GET request timeout is handled, `dest` refers
+    // to the destination for the request
+    event GetRequestTimeoutHandled(bytes32 commitment, bytes dest);
 
     // Emitted when new heights are finalized
     event StateMachineUpdated(bytes stateMachineId, uint256 height);
@@ -624,7 +627,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             // refund relayer fee
             IERC20(feeToken()).transfer(meta.sender, meta.fee);
         }
-        emit GetRequestTimeoutHandled({commitment: commitment});
+        emit GetRequestTimeoutHandled({commitment: commitment, dest: request.dest});
     }
 
     /**
@@ -652,7 +655,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             // refund relayer fee
             IERC20(feeToken()).transfer(meta.sender, meta.fee);
         }
-        emit PostRequestTimeoutHandled({commitment: commitment});
+        emit PostRequestTimeoutHandled({commitment: commitment, dest: request.dest});
     }
 
     /**
@@ -683,7 +686,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             // refund relayer fee
             IERC20(feeToken()).transfer(meta.sender, meta.fee);
         }
-        emit PostResponseTimeoutHandled({commitment: commitment});
+        emit PostResponseTimeoutHandled({commitment: commitment, dest: response.request.source});
     }
 
     /**

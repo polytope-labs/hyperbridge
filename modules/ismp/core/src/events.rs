@@ -62,6 +62,10 @@ pub struct RequestResponseHandled {
 pub struct TimeoutHandled {
 	/// The commitment to the request or response
 	pub commitment: H256,
+	/// The source chain of the message
+	pub source: StateMachine,
+	/// The destination chain of the message
+	pub dest: StateMachine,
 }
 
 /// This represents events that should be emitted by ismp-rs wrappers

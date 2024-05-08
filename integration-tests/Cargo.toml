@@ -33,7 +33,6 @@ sp-keyring = "24.0.0"
 tesseract-beefy = { workspace = true  }
 tesseract-substrate = { workspace = true , features = ["testing"] }
 tesseract-messaging = { workspace = true  }
-tesseract-consensus = { workspace = true  }
 tesseract-primitives = { workspace = true  }
 tesseract-evm = { workspace = true  }
 tesseract-sync-committee = { workspace = true, features = ["testing"] }

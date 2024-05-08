@@ -13,8 +13,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
+use anyhow::Error;
+use ismp::events::StateMachineUpdated;
+use ismp::messaging::CreateConsensusState;
 use redis_async::client::{ConnectionBuilder, PubsubConnection};
 use rsmq_async::{Rsmq, RsmqOptions};
+use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider};
 
 pub struct BeefyHostConfig {
 	pub redis: RedisConfig,
@@ -36,7 +42,9 @@ pub struct RedisConfig {
 }
 
 pub struct BeefyHost {
+	/// PubSub connection for receiving notifications when there are new proofs in the queueu
 	pubsub: PubsubConnection,
+	/// Rsmq for interacting with the queue
 	rsmq: Rsmq,
 }
 
@@ -62,10 +70,31 @@ impl BeefyHost {
 			// we will not be publishing messages here
 			realtime: false,
 		};
-		options.realtime = true;
 		let rsmq = Rsmq::new(options).await?;
 
 		Ok(BeefyHost { pubsub, rsmq })
+	}
+}
+
+impl IsmpHost for BeefyHost {
+	async fn start_consensus(&self, counterparty: Arc<dyn IsmpProvider>) -> Result<(), Error> {
+		Ok(())
+	}
+
+	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
+		todo!()
+	}
+
+	fn provider(&self) -> Arc<dyn IsmpProvider> {
+		todo!()
+	}
+}
+
+
+
+impl ByzantineHandler for BeefyHost {
+	async fn check_for_byzantine_attack(&self, counterparty: Arc<dyn IsmpProvider>, challenge_event: StateMachineUpdated) -> Result<(), Error> {
+		todo!()
 	}
 }
 

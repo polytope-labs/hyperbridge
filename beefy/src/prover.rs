@@ -234,6 +234,7 @@ where
 					// todo: write consensus state to redis
 				}
 
+				#[allow(unreachable_code)]
 				Ok::<_, anyhow::Error>(())
 			};
 

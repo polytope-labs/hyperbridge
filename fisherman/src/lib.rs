@@ -60,21 +60,20 @@ async fn handle_notification(
 	let chain_a_provider = chain_a.provider();
 	let chain_b_provider = chain_b.provider();
 
-    while let Some(item) = state_machine_update_stream.next().await {
-        match item {
-            Ok(state_machine_update) => {
-                let res = chain_b
-                    .check_for_byzantine_attack(chain_a.clone(), state_machine_update)
-                    .await;
-                if let Err(err) = res {
-                    log::error!("Failed to check for byzantine behavior: {err:?}")
-                }
-            }
-            Err(e) => {
-                log::error!(target: "tesseract","Fisherman task {}-{} encountered an error: {e:?}", chain_a_provider.name(), chain_b_provider.name())
-            }
-        }
-    }
+	while let Some(item) = state_machine_update_stream.next().await {
+		match item {
+			Ok(state_machine_update) => {
+				let res =
+					chain_b.check_for_byzantine_attack(chain_a.clone(), state_machine_update).await;
+				if let Err(err) = res {
+					log::error!("Failed to check for byzantine behavior: {err:?}")
+				}
+			},
+			Err(e) => {
+				log::error!(target: "tesseract","Fisherman task {}-{} encountered an error: {e:?}", chain_a_provider.name(), chain_b_provider.name())
+			},
+		}
+	}
 
 	Err(anyhow!(
 		"{}-{} fisherman task has failed, Please restart relayer",

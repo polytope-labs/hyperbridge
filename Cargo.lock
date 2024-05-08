@@ -4183,16 +4183,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fcfdc7a0362c9f4444381a9e697c79d435fe65b52a37466fc2c1184cee9edc6"
 
 [[package]]
-name = "fisherman"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "tesseract",
- "tokio",
-]
-
-[[package]]
 name = "fixed-hash"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15106,34 +15096,6 @@ name = "termtree"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3369f5ac52d5eb6ab48c6b4ffdc8efbcad6b89c765749064ba298f2c68a16a76"
-
-[[package]]
-name = "tesseract"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arb-host",
- "as-any",
- "clap",
- "env_logger",
- "futures",
- "hex",
- "ismp",
- "log",
- "op-host",
- "serde",
- "serde_json",
- "tesseract-beefy",
- "tesseract-bsc",
- "tesseract-consensus",
- "tesseract-fisherman",
- "tesseract-primitives",
- "tesseract-substrate",
- "tesseract-sync-committee",
- "tokio",
- "toml 0.7.8",
- "tracing-subscriber 0.3.18",
-]
 
 [[package]]
 name = "tesseract-beefy"

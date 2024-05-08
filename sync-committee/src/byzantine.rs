@@ -19,48 +19,40 @@ use crate::SyncCommitteeHost;
 use anyhow::anyhow;
 use ethers::prelude::Middleware;
 use ismp::{
-    consensus::{StateMachineHeight, StateMachineId},
-    events::StateMachineUpdated,
+	consensus::{StateMachineHeight, StateMachineId},
+	events::StateMachineUpdated,
 };
 use sync_committee_primitives::constants::Config;
 use tesseract_primitives::{ByzantineHandler, IsmpHost};
 
 #[async_trait::async_trait]
 impl<T: Config + Send + Sync + 'static> ByzantineHandler for SyncCommitteeHost<T> {
-    async fn check_for_byzantine_attack(
-        &self,
-        counterparty: Arc<dyn IsmpHost>,
-        event: StateMachineUpdated,
-    ) -> Result<(), anyhow::Error> {
-        let header = self
-            .el
-            .get_block(event.latest_height)
-            .await?
-            .ok_or_else(|| {
-                anyhow!(
-                    "Failed to fetch header in {:?} byzantine handler",
-                    self.state_machine
-                )
-            })?;
-        let height = StateMachineHeight {
-            id: StateMachineId {
-                state_id: self.state_machine,
-                consensus_state_id: self.consensus_state_id,
-            },
-            height: event.latest_height,
-        };
-        let counterparty_provider = counterparty.provider();
-        let state_machine_commitment = counterparty_provider
-            .query_state_machine_commitment(height)
-            .await?;
-        if state_machine_commitment.state_root != header.state_root {
-            log::info!(
-                "Vetoing State Machine Update for {:?} on {:?}",
-                self.state_machine,
-                counterparty_provider.state_machine_id().state_id
-            );
-            counterparty_provider.veto_state_commitment(height).await?;
-        }
-        Ok(())
-    }
+	async fn check_for_byzantine_attack(
+		&self,
+		counterparty: Arc<dyn IsmpHost>,
+		event: StateMachineUpdated,
+	) -> Result<(), anyhow::Error> {
+		let header = self.el.get_block(event.latest_height).await?.ok_or_else(|| {
+			anyhow!("Failed to fetch header in {:?} byzantine handler", self.state_machine)
+		})?;
+		let height = StateMachineHeight {
+			id: StateMachineId {
+				state_id: self.state_machine,
+				consensus_state_id: self.consensus_state_id,
+			},
+			height: event.latest_height,
+		};
+		let counterparty_provider = counterparty.provider();
+		let state_machine_commitment =
+			counterparty_provider.query_state_machine_commitment(height).await?;
+		if state_machine_commitment.state_root != header.state_root {
+			log::info!(
+				"Vetoing State Machine Update for {:?} on {:?}",
+				self.state_machine,
+				counterparty_provider.state_machine_id().state_id
+			);
+			counterparty_provider.veto_state_commitment(height).await?;
+		}
+		Ok(())
+	}
 }

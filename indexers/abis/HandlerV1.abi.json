@@ -1,594 +1,442 @@
 [
   {
-    "type": "function",
+    "inputs": [
+      {
+        "internalType": "contract IIsmpHost",
+        "name": "host",
+        "type": "address"
+      },
+      { "internalType": "bytes", "name": "proof", "type": "bytes" }
+    ],
     "name": "handleConsensus",
-    "inputs": [
-      {
-        "name": "host",
-        "type": "address",
-        "internalType": "contract IIsmpHost"
-      },
-      {
-        "name": "proof",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "type": "function",
-    "name": "handleGetRequestTimeouts",
     "inputs": [
       {
+        "internalType": "contract IIsmpHost",
         "name": "host",
-        "type": "address",
-        "internalType": "contract IIsmpHost"
+        "type": "address"
       },
       {
-        "name": "message",
-        "type": "tuple",
+        "components": [
+          {
+            "components": [
+              { "internalType": "bytes", "name": "source", "type": "bytes" },
+              { "internalType": "bytes", "name": "dest", "type": "bytes" },
+              { "internalType": "uint64", "name": "nonce", "type": "uint64" },
+              { "internalType": "bytes", "name": "from", "type": "bytes" },
+              {
+                "internalType": "uint64",
+                "name": "timeoutTimestamp",
+                "type": "uint64"
+              },
+              { "internalType": "bytes[]", "name": "keys", "type": "bytes[]" },
+              { "internalType": "uint64", "name": "height", "type": "uint64" }
+            ],
+            "internalType": "struct GetRequest[]",
+            "name": "timeouts",
+            "type": "tuple[]"
+          }
+        ],
         "internalType": "struct GetTimeoutMessage",
-        "components": [
-          {
-            "name": "timeouts",
-            "type": "tuple[]",
-            "internalType": "struct GetRequest[]",
-            "components": [
-              {
-                "name": "source",
-                "type": "bytes",
-                "internalType": "bytes"
-              },
-              {
-                "name": "dest",
-                "type": "bytes",
-                "internalType": "bytes"
-              },
-              {
-                "name": "nonce",
-                "type": "uint64",
-                "internalType": "uint64"
-              },
-              {
-                "name": "from",
-                "type": "bytes",
-                "internalType": "bytes"
-              },
-              {
-                "name": "timeoutTimestamp",
-                "type": "uint64",
-                "internalType": "uint64"
-              },
-              {
-                "name": "keys",
-                "type": "bytes[]",
-                "internalType": "bytes[]"
-              },
-              {
-                "name": "height",
-                "type": "uint64",
-                "internalType": "uint64"
-              }
-            ]
-          }
-        ]
+        "name": "message",
+        "type": "tuple"
       }
     ],
+    "name": "handleGetRequestTimeouts",
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "type": "function",
-    "name": "handleGetResponses",
     "inputs": [
       {
+        "internalType": "contract IIsmpHost",
         "name": "host",
-        "type": "address",
-        "internalType": "contract IIsmpHost"
+        "type": "address"
       },
       {
-        "name": "message",
-        "type": "tuple",
+        "components": [
+          { "internalType": "bytes[]", "name": "proof", "type": "bytes[]" },
+          {
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "stateMachineId",
+                "type": "uint256"
+              },
+              { "internalType": "uint256", "name": "height", "type": "uint256" }
+            ],
+            "internalType": "struct StateMachineHeight",
+            "name": "height",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              { "internalType": "bytes", "name": "source", "type": "bytes" },
+              { "internalType": "bytes", "name": "dest", "type": "bytes" },
+              { "internalType": "uint64", "name": "nonce", "type": "uint64" },
+              { "internalType": "bytes", "name": "from", "type": "bytes" },
+              {
+                "internalType": "uint64",
+                "name": "timeoutTimestamp",
+                "type": "uint64"
+              },
+              { "internalType": "bytes[]", "name": "keys", "type": "bytes[]" },
+              { "internalType": "uint64", "name": "height", "type": "uint64" }
+            ],
+            "internalType": "struct GetRequest[]",
+            "name": "requests",
+            "type": "tuple[]"
+          }
+        ],
         "internalType": "struct GetResponseMessage",
-        "components": [
-          {
-            "name": "proof",
-            "type": "bytes[]",
-            "internalType": "bytes[]"
-          },
-          {
-            "name": "height",
-            "type": "tuple",
-            "internalType": "struct StateMachineHeight",
-            "components": [
-              {
-                "name": "stateMachineId",
-                "type": "uint256",
-                "internalType": "uint256"
-              },
-              {
-                "name": "height",
-                "type": "uint256",
-                "internalType": "uint256"
-              }
-            ]
-          },
-          {
-            "name": "requests",
-            "type": "tuple[]",
-            "internalType": "struct GetRequest[]",
-            "components": [
-              {
-                "name": "source",
-                "type": "bytes",
-                "internalType": "bytes"
-              },
-              {
-                "name": "dest",
-                "type": "bytes",
-                "internalType": "bytes"
-              },
-              {
-                "name": "nonce",
-                "type": "uint64",
-                "internalType": "uint64"
-              },
-              {
-                "name": "from",
-                "type": "bytes",
-                "internalType": "bytes"
-              },
-              {
-                "name": "timeoutTimestamp",
-                "type": "uint64",
-                "internalType": "uint64"
-              },
-              {
-                "name": "keys",
-                "type": "bytes[]",
-                "internalType": "bytes[]"
-              },
-              {
-                "name": "height",
-                "type": "uint64",
-                "internalType": "uint64"
-              }
-            ]
-          }
-        ]
+        "name": "message",
+        "type": "tuple"
       }
     ],
+    "name": "handleGetResponses",
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "type": "function",
-    "name": "handlePostRequestTimeouts",
     "inputs": [
       {
+        "internalType": "contract IIsmpHost",
         "name": "host",
-        "type": "address",
-        "internalType": "contract IIsmpHost"
+        "type": "address"
       },
       {
-        "name": "message",
-        "type": "tuple",
-        "internalType": "struct PostRequestTimeoutMessage",
         "components": [
           {
-            "name": "timeouts",
-            "type": "tuple[]",
+            "components": [
+              { "internalType": "bytes", "name": "source", "type": "bytes" },
+              { "internalType": "bytes", "name": "dest", "type": "bytes" },
+              { "internalType": "uint64", "name": "nonce", "type": "uint64" },
+              { "internalType": "bytes", "name": "from", "type": "bytes" },
+              { "internalType": "bytes", "name": "to", "type": "bytes" },
+              {
+                "internalType": "uint64",
+                "name": "timeoutTimestamp",
+                "type": "uint64"
+              },
+              { "internalType": "bytes", "name": "body", "type": "bytes" }
+            ],
             "internalType": "struct PostRequest[]",
-            "components": [
-              {
-                "name": "source",
-                "type": "bytes",
-                "internalType": "bytes"
-              },
-              {
-                "name": "dest",
-                "type": "bytes",
-                "internalType": "bytes"
-              },
-              {
-                "name": "nonce",
-                "type": "uint64",
-                "internalType": "uint64"
-              },
-              {
-                "name": "from",
-                "type": "bytes",
-                "internalType": "bytes"
-              },
-              {
-                "name": "to",
-                "type": "bytes",
-                "internalType": "bytes"
-              },
-              {
-                "name": "timeoutTimestamp",
-                "type": "uint64",
-                "internalType": "uint64"
-              },
-              {
-                "name": "body",
-                "type": "bytes",
-                "internalType": "bytes"
-              }
-            ]
-          },
-          {
-            "name": "height",
-            "type": "tuple",
-            "internalType": "struct StateMachineHeight",
-            "components": [
-              {
-                "name": "stateMachineId",
-                "type": "uint256",
-                "internalType": "uint256"
-              },
-              {
-                "name": "height",
-                "type": "uint256",
-                "internalType": "uint256"
-              }
-            ]
-          },
-          {
-            "name": "proof",
-            "type": "bytes[]",
-            "internalType": "bytes[]"
-          }
-        ]
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "handlePostRequests",
-    "inputs": [
-      {
-        "name": "host",
-        "type": "address",
-        "internalType": "contract IIsmpHost"
-      },
-      {
-        "name": "request",
-        "type": "tuple",
-        "internalType": "struct PostRequestMessage",
-        "components": [
-          {
-            "name": "proof",
-            "type": "tuple",
-            "internalType": "struct Proof",
-            "components": [
-              {
-                "name": "height",
-                "type": "tuple",
-                "internalType": "struct StateMachineHeight",
-                "components": [
-                  {
-                    "name": "stateMachineId",
-                    "type": "uint256",
-                    "internalType": "uint256"
-                  },
-                  {
-                    "name": "height",
-                    "type": "uint256",
-                    "internalType": "uint256"
-                  }
-                ]
-              },
-              {
-                "name": "multiproof",
-                "type": "bytes32[]",
-                "internalType": "bytes32[]"
-              },
-              {
-                "name": "leafCount",
-                "type": "uint256",
-                "internalType": "uint256"
-              }
-            ]
-          },
-          {
-            "name": "requests",
-            "type": "tuple[]",
-            "internalType": "struct PostRequestLeaf[]",
-            "components": [
-              {
-                "name": "request",
-                "type": "tuple",
-                "internalType": "struct PostRequest",
-                "components": [
-                  {
-                    "name": "source",
-                    "type": "bytes",
-                    "internalType": "bytes"
-                  },
-                  {
-                    "name": "dest",
-                    "type": "bytes",
-                    "internalType": "bytes"
-                  },
-                  {
-                    "name": "nonce",
-                    "type": "uint64",
-                    "internalType": "uint64"
-                  },
-                  {
-                    "name": "from",
-                    "type": "bytes",
-                    "internalType": "bytes"
-                  },
-                  {
-                    "name": "to",
-                    "type": "bytes",
-                    "internalType": "bytes"
-                  },
-                  {
-                    "name": "timeoutTimestamp",
-                    "type": "uint64",
-                    "internalType": "uint64"
-                  },
-                  {
-                    "name": "body",
-                    "type": "bytes",
-                    "internalType": "bytes"
-                  }
-                ]
-              },
-              {
-                "name": "index",
-                "type": "uint256",
-                "internalType": "uint256"
-              },
-              {
-                "name": "kIndex",
-                "type": "uint256",
-                "internalType": "uint256"
-              }
-            ]
-          }
-        ]
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "handlePostResponseTimeouts",
-    "inputs": [
-      {
-        "name": "host",
-        "type": "address",
-        "internalType": "contract IIsmpHost"
-      },
-      {
-        "name": "message",
-        "type": "tuple",
-        "internalType": "struct PostResponseTimeoutMessage",
-        "components": [
-          {
             "name": "timeouts",
-            "type": "tuple[]",
-            "internalType": "struct PostResponse[]",
-            "components": [
-              {
-                "name": "request",
-                "type": "tuple",
-                "internalType": "struct PostRequest",
-                "components": [
-                  {
-                    "name": "source",
-                    "type": "bytes",
-                    "internalType": "bytes"
-                  },
-                  {
-                    "name": "dest",
-                    "type": "bytes",
-                    "internalType": "bytes"
-                  },
-                  {
-                    "name": "nonce",
-                    "type": "uint64",
-                    "internalType": "uint64"
-                  },
-                  {
-                    "name": "from",
-                    "type": "bytes",
-                    "internalType": "bytes"
-                  },
-                  {
-                    "name": "to",
-                    "type": "bytes",
-                    "internalType": "bytes"
-                  },
-                  {
-                    "name": "timeoutTimestamp",
-                    "type": "uint64",
-                    "internalType": "uint64"
-                  },
-                  {
-                    "name": "body",
-                    "type": "bytes",
-                    "internalType": "bytes"
-                  }
-                ]
-              },
-              {
-                "name": "response",
-                "type": "bytes",
-                "internalType": "bytes"
-              },
-              {
-                "name": "timeoutTimestamp",
-                "type": "uint64",
-                "internalType": "uint64"
-              }
-            ]
+            "type": "tuple[]"
           },
           {
-            "name": "height",
-            "type": "tuple",
-            "internalType": "struct StateMachineHeight",
             "components": [
               {
+                "internalType": "uint256",
                 "name": "stateMachineId",
-                "type": "uint256",
-                "internalType": "uint256"
+                "type": "uint256"
               },
-              {
-                "name": "height",
-                "type": "uint256",
-                "internalType": "uint256"
-              }
-            ]
+              { "internalType": "uint256", "name": "height", "type": "uint256" }
+            ],
+            "internalType": "struct StateMachineHeight",
+            "name": "height",
+            "type": "tuple"
           },
-          {
-            "name": "proof",
-            "type": "bytes[]",
-            "internalType": "bytes[]"
-          }
-        ]
+          { "internalType": "bytes[]", "name": "proof", "type": "bytes[]" }
+        ],
+        "internalType": "struct PostRequestTimeoutMessage",
+        "name": "message",
+        "type": "tuple"
       }
     ],
+    "name": "handlePostRequestTimeouts",
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "type": "function",
-    "name": "handlePostResponses",
     "inputs": [
       {
+        "internalType": "contract IIsmpHost",
         "name": "host",
-        "type": "address",
-        "internalType": "contract IIsmpHost"
+        "type": "address"
       },
       {
-        "name": "response",
-        "type": "tuple",
-        "internalType": "struct PostResponseMessage",
         "components": [
           {
-            "name": "proof",
-            "type": "tuple",
-            "internalType": "struct Proof",
             "components": [
               {
-                "name": "height",
-                "type": "tuple",
-                "internalType": "struct StateMachineHeight",
                 "components": [
                   {
+                    "internalType": "uint256",
                     "name": "stateMachineId",
-                    "type": "uint256",
-                    "internalType": "uint256"
+                    "type": "uint256"
                   },
                   {
+                    "internalType": "uint256",
                     "name": "height",
-                    "type": "uint256",
-                    "internalType": "uint256"
+                    "type": "uint256"
                   }
-                ]
+                ],
+                "internalType": "struct StateMachineHeight",
+                "name": "height",
+                "type": "tuple"
               },
               {
+                "internalType": "bytes32[]",
                 "name": "multiproof",
-                "type": "bytes32[]",
-                "internalType": "bytes32[]"
+                "type": "bytes32[]"
               },
               {
+                "internalType": "uint256",
                 "name": "leafCount",
-                "type": "uint256",
-                "internalType": "uint256"
+                "type": "uint256"
               }
-            ]
+            ],
+            "internalType": "struct Proof",
+            "name": "proof",
+            "type": "tuple"
           },
           {
-            "name": "responses",
-            "type": "tuple[]",
-            "internalType": "struct PostResponseLeaf[]",
             "components": [
               {
-                "name": "response",
-                "type": "tuple",
-                "internalType": "struct PostResponse",
                 "components": [
                   {
-                    "name": "request",
-                    "type": "tuple",
-                    "internalType": "struct PostRequest",
+                    "internalType": "bytes",
+                    "name": "source",
+                    "type": "bytes"
+                  },
+                  { "internalType": "bytes", "name": "dest", "type": "bytes" },
+                  {
+                    "internalType": "uint64",
+                    "name": "nonce",
+                    "type": "uint64"
+                  },
+                  { "internalType": "bytes", "name": "from", "type": "bytes" },
+                  { "internalType": "bytes", "name": "to", "type": "bytes" },
+                  {
+                    "internalType": "uint64",
+                    "name": "timeoutTimestamp",
+                    "type": "uint64"
+                  },
+                  { "internalType": "bytes", "name": "body", "type": "bytes" }
+                ],
+                "internalType": "struct PostRequest",
+                "name": "request",
+                "type": "tuple"
+              },
+              { "internalType": "uint256", "name": "index", "type": "uint256" },
+              { "internalType": "uint256", "name": "kIndex", "type": "uint256" }
+            ],
+            "internalType": "struct PostRequestLeaf[]",
+            "name": "requests",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct PostRequestMessage",
+        "name": "request",
+        "type": "tuple"
+      }
+    ],
+    "name": "handlePostRequests",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "contract IIsmpHost",
+        "name": "host",
+        "type": "address"
+      },
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "components": [
+                  {
+                    "internalType": "bytes",
+                    "name": "source",
+                    "type": "bytes"
+                  },
+                  { "internalType": "bytes", "name": "dest", "type": "bytes" },
+                  {
+                    "internalType": "uint64",
+                    "name": "nonce",
+                    "type": "uint64"
+                  },
+                  { "internalType": "bytes", "name": "from", "type": "bytes" },
+                  { "internalType": "bytes", "name": "to", "type": "bytes" },
+                  {
+                    "internalType": "uint64",
+                    "name": "timeoutTimestamp",
+                    "type": "uint64"
+                  },
+                  { "internalType": "bytes", "name": "body", "type": "bytes" }
+                ],
+                "internalType": "struct PostRequest",
+                "name": "request",
+                "type": "tuple"
+              },
+              { "internalType": "bytes", "name": "response", "type": "bytes" },
+              {
+                "internalType": "uint64",
+                "name": "timeoutTimestamp",
+                "type": "uint64"
+              }
+            ],
+            "internalType": "struct PostResponse[]",
+            "name": "timeouts",
+            "type": "tuple[]"
+          },
+          {
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "stateMachineId",
+                "type": "uint256"
+              },
+              { "internalType": "uint256", "name": "height", "type": "uint256" }
+            ],
+            "internalType": "struct StateMachineHeight",
+            "name": "height",
+            "type": "tuple"
+          },
+          { "internalType": "bytes[]", "name": "proof", "type": "bytes[]" }
+        ],
+        "internalType": "struct PostResponseTimeoutMessage",
+        "name": "message",
+        "type": "tuple"
+      }
+    ],
+    "name": "handlePostResponseTimeouts",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "contract IIsmpHost",
+        "name": "host",
+        "type": "address"
+      },
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "components": [
+                  {
+                    "internalType": "uint256",
+                    "name": "stateMachineId",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "height",
+                    "type": "uint256"
+                  }
+                ],
+                "internalType": "struct StateMachineHeight",
+                "name": "height",
+                "type": "tuple"
+              },
+              {
+                "internalType": "bytes32[]",
+                "name": "multiproof",
+                "type": "bytes32[]"
+              },
+              {
+                "internalType": "uint256",
+                "name": "leafCount",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct Proof",
+            "name": "proof",
+            "type": "tuple"
+          },
+          {
+            "components": [
+              {
+                "components": [
+                  {
                     "components": [
                       {
+                        "internalType": "bytes",
                         "name": "source",
-                        "type": "bytes",
-                        "internalType": "bytes"
+                        "type": "bytes"
                       },
                       {
+                        "internalType": "bytes",
                         "name": "dest",
-                        "type": "bytes",
-                        "internalType": "bytes"
+                        "type": "bytes"
                       },
                       {
+                        "internalType": "uint64",
                         "name": "nonce",
-                        "type": "uint64",
-                        "internalType": "uint64"
+                        "type": "uint64"
                       },
                       {
+                        "internalType": "bytes",
                         "name": "from",
-                        "type": "bytes",
-                        "internalType": "bytes"
+                        "type": "bytes"
                       },
                       {
+                        "internalType": "bytes",
                         "name": "to",
-                        "type": "bytes",
-                        "internalType": "bytes"
+                        "type": "bytes"
                       },
                       {
+                        "internalType": "uint64",
                         "name": "timeoutTimestamp",
-                        "type": "uint64",
-                        "internalType": "uint64"
+                        "type": "uint64"
                       },
                       {
+                        "internalType": "bytes",
                         "name": "body",
-                        "type": "bytes",
-                        "internalType": "bytes"
+                        "type": "bytes"
                       }
-                    ]
+                    ],
+                    "internalType": "struct PostRequest",
+                    "name": "request",
+                    "type": "tuple"
                   },
                   {
+                    "internalType": "bytes",
                     "name": "response",
-                    "type": "bytes",
-                    "internalType": "bytes"
+                    "type": "bytes"
                   },
                   {
+                    "internalType": "uint64",
                     "name": "timeoutTimestamp",
-                    "type": "uint64",
-                    "internalType": "uint64"
+                    "type": "uint64"
                   }
-                ]
+                ],
+                "internalType": "struct PostResponse",
+                "name": "response",
+                "type": "tuple"
               },
-              {
-                "name": "index",
-                "type": "uint256",
-                "internalType": "uint256"
-              },
-              {
-                "name": "kIndex",
-                "type": "uint256",
-                "internalType": "uint256"
-              }
-            ]
+              { "internalType": "uint256", "name": "index", "type": "uint256" },
+              { "internalType": "uint256", "name": "kIndex", "type": "uint256" }
+            ],
+            "internalType": "struct PostResponseLeaf[]",
+            "name": "responses",
+            "type": "tuple[]"
           }
-        ]
+        ],
+        "internalType": "struct PostResponseMessage",
+        "name": "response",
+        "type": "tuple"
       }
     ],
+    "name": "handlePostResponses",
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "nonpayable",
+    "type": "function"
   }
 ]

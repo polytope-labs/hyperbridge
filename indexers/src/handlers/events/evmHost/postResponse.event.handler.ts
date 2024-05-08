@@ -18,8 +18,5 @@ export async function handlePostResponseEvent(
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 
-  Promise.all([
-    await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event),
-    await RelayerService.handlePostRequestOrResponseEvent(chain, event),
-  ]);
+  await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event);
 }

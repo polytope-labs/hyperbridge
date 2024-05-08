@@ -92,4 +92,25 @@ dataSources:
             topics:
               - "Transfer(address indexed from, address indexed to, uint256 amount)"
 
+  # Handler Contract
+  - kind: ethereum/Runtime
+    startBlock: 20034995
+    options:
+      abi: handlerV1
+      address: "0x7037150EA7011E44488c282609870ef41ae7903d"
+    assets:
+      handlerV1:
+        file: ./abis/HandlerV1.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/TransactionHandler
+          handler: handlePostRequestTransactionHandler
+          filter:
+            function: handlePostRequests(address host,tuple request)
+        - kind: ethereum/TransactionHandler
+          handler: handlePostResponseTransactionHandler
+          filter:
+            function: handlePostResponse(address host,tuple response)
+
 repository: "https://github.com/polytope-labs/hyperbridge"

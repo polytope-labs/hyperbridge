@@ -25,7 +25,7 @@ use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::Event,
 	host::StateMachine,
-	messaging::{ConsensusMessage, CreateConsensusState, Keccak256, Message},
+	messaging::{CreateConsensusState, Keccak256, Message},
 	router::Post,
 };
 use pallet_ismp_host_executive::HostParam;
@@ -309,7 +309,7 @@ pub trait IsmpProvider: Send + Sync {
 		message: CreateConsensusState,
 	) -> Result<(), anyhow::Error>;
 
-	/// Temporary: Submit a message to freeze the State Machine
+	/// Temporary: Veto a misrepresentative state commiment at the provided height
 	async fn veto_state_commitment(&self, height: StateMachineHeight) -> Result<(), anyhow::Error>;
 
 	/// Fetch the host params for given state machine
@@ -331,7 +331,7 @@ pub trait ByzantineHandler {
 	/// Check the state machine update event for byzantine behaviour and challenge it.
 	async fn check_for_byzantine_attack(
 		&self,
-		counterparty: Arc<dyn IsmpHost>,
+		counterparty: Arc<dyn IsmpProvider>,
 		challenge_event: StateMachineUpdated,
 	) -> Result<(), anyhow::Error>;
 }
@@ -339,19 +339,21 @@ pub trait ByzantineHandler {
 /// Provides an interface for the chain to the relayer core for submitting Ismp messages as well as
 #[async_trait::async_trait]
 pub trait IsmpHost: ByzantineHandler + Send + Sync {
-	/// Return a stream that yields [`ConsensusMessage`] when a new consensus update
-	/// can be sent to the counterparty
-	async fn consensus_notification(
+	/// Begin the task of submitting [`ConsensusMessage`](ismp::messaging::ConsensusMessage) to the
+	/// counterparty chain. Implementations are free to submit these messages however frequently
+	/// they like. This method should never return unless it encounters an unrecoverable error, in
+	/// which case the consensus relayer will be shut down.
+	async fn start_consensus(
 		&self,
 		counterparty: Arc<dyn IsmpProvider>,
-	) -> Result<BoxStream<ConsensusMessage>, anyhow::Error>;
+	) -> Result<(), anyhow::Error>;
 
-	/// Query the trusted consensus state for this host
+	/// Query the trusted, intitial consensus state for this host
 	async fn query_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error>;
 
-	/// Return an instance of the [`IsmpProvider`] associated with this host
+	/// Return the instance of the [`IsmpProvider`] associated with this host
 	fn provider(&self) -> Arc<dyn IsmpProvider>;
 }
 

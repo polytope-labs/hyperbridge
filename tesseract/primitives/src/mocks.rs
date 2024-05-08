@@ -3,7 +3,6 @@ use crate::{
 	Query, Signature, StateMachineUpdated, StateProofQueryType, TxReceipt, WithdrawFundsResult,
 };
 use anyhow::{anyhow, Error};
-use futures::stream;
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::Event,
@@ -59,7 +58,7 @@ impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
 impl<C: Codec + Send + Sync> ByzantineHandler for MockHost<C> {
 	async fn check_for_byzantine_attack(
 		&self,
-		_counterparty: Arc<dyn IsmpHost>,
+		_counterparty: Arc<dyn IsmpProvider>,
 		_challenge_event: StateMachineUpdated,
 	) -> Result<(), Error> {
 		Err(anyhow!("No byzantine faults"))
@@ -68,11 +67,8 @@ impl<C: Codec + Send + Sync> ByzantineHandler for MockHost<C> {
 
 #[async_trait::async_trait]
 impl<C: Codec + Send + Sync> IsmpHost for MockHost<C> {
-	async fn consensus_notification(
-		&self,
-		_counterparty: Arc<dyn IsmpProvider>,
-	) -> Result<BoxStream<ismp::messaging::ConsensusMessage>, Error> {
-		Ok(Box::pin(stream::pending()))
+	async fn start_consensus(&self, _counterparty: Arc<dyn IsmpProvider>) -> Result<(), Error> {
+		Ok(())
 	}
 
 	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {

@@ -95,7 +95,7 @@ export class RelayerService {
     chain: SupportedChain,
   ): Promise<void> {
     const { gasUsed, effectiveGasPrice } = await transaction.receipt();
-    const ethPriceInUsd = await getNativeCurrencyPrice();
+    const ethPriceInUsd = await getNativeCurrencyPrice(chain);
 
     const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
     const usdFee = gasFee * BigInt(ethPriceInUsd);
@@ -130,7 +130,7 @@ export class RelayerService {
 
     if (status === false) {
       const { gasUsed, effectiveGasPrice } = await transaction.receipt();
-      const ethPriceInUsd = await getNativeCurrencyPrice();
+      const ethPriceInUsd = await getNativeCurrencyPrice(chain);
 
       const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
       const usdFee = gasFee * BigInt(ethPriceInUsd);

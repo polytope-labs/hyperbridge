@@ -26,8 +26,6 @@ dataSources:
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
-      uniswapV2Pair:
-        file: ./abis/UniswapV2Pair.abi.json
     mapping:
       file: ./dist/index.js
       handlers:

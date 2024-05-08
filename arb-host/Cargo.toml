@@ -19,6 +19,8 @@ serde = { version = "1.0.164", features = ["derive"] }
 tesseract-primitives = { workspace = true }
 ismp = { workspace = true }
 async-trait = "0.1.53"
+log = "0.4.20"
+futures = "0.3.28"
 
 [dev-dependencies]
 alloy-rlp = "0.3.2"

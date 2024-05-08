@@ -17,63 +17,50 @@ use std::sync::Arc;
 
 use crate::SyncCommitteeHost;
 use anyhow::anyhow;
-use codec::{Decode, Encode};
 use ethers::prelude::Middleware;
-use geth_primitives::CodecHeader;
 use ismp::{
-	consensus::{StateMachineHeight, StateMachineId},
-	events::StateMachineUpdated,
-	messaging::ConsensusMessage,
+    consensus::{StateMachineHeight, StateMachineId},
+    events::StateMachineUpdated,
 };
 use sync_committee_primitives::constants::Config;
 use tesseract_primitives::{ByzantineHandler, IsmpHost};
 
 #[async_trait::async_trait]
 impl<T: Config + Send + Sync + 'static> ByzantineHandler for SyncCommitteeHost<T> {
-	async fn query_consensus_message(
-		&self,
-		event: StateMachineUpdated,
-	) -> Result<ConsensusMessage, anyhow::Error> {
-		let header: CodecHeader = self
-			.el
-			.get_block(event.latest_height)
-			.await?
-			.ok_or_else(|| anyhow!("Header should be available"))?
-			.into();
-		Ok(ConsensusMessage {
-			consensus_proof: header.encode(),
-			consensus_state_id: self.consensus_state_id,
-			signer: vec![],
-		})
-	}
-
-	// todo: pass the StateMachineUpdated here, the host should fetch the state commitment from the
-	// counterparty and compare it with it's own state commitment
-	async fn check_for_byzantine_attack(
-		&self,
-		counterparty: Arc<dyn IsmpHost>,
-		consensus_message: ConsensusMessage,
-	) -> Result<(), anyhow::Error> {
-		let header = CodecHeader::decode(&mut &*consensus_message.consensus_proof)?;
-		let height = StateMachineHeight {
-			id: StateMachineId {
-				state_id: self.state_machine,
-				consensus_state_id: self.consensus_state_id,
-			},
-			height: header.number.low_u64(),
-		};
-		let counterparty_provider = counterparty.provider();
-		let state_machine_commitment =
-			counterparty_provider.query_state_machine_commitment(height).await?;
-		if state_machine_commitment.state_root != header.state_root {
-			// Submit Freeze message
-			log::info!(
-				"Freezing {:?} on {:?}",
-				self.state_machine,
-				counterparty_provider.state_machine_id().state_id
-			);
-			counterparty_provider.veto_state_commitment(height).await?;
-		}
-		Ok(())
-	}
+    async fn check_for_byzantine_attack(
+        &self,
+        counterparty: Arc<dyn IsmpHost>,
+        event: StateMachineUpdated,
+    ) -> Result<(), anyhow::Error> {
+        let header = self
+            .el
+            .get_block(event.latest_height)
+            .await?
+            .ok_or_else(|| {
+                anyhow!(
+                    "Failed to fetch header in {:?} byzantine handler",
+                    self.state_machine
+                )
+            })?;
+        let height = StateMachineHeight {
+            id: StateMachineId {
+                state_id: self.state_machine,
+                consensus_state_id: self.consensus_state_id,
+            },
+            height: event.latest_height,
+        };
+        let counterparty_provider = counterparty.provider();
+        let state_machine_commitment = counterparty_provider
+            .query_state_machine_commitment(height)
+            .await?;
+        if state_machine_commitment.state_root != header.state_root {
+            log::info!(
+                "Vetoing State Machine Update for {:?} on {:?}",
+                self.state_machine,
+                counterparty_provider.state_machine_id().state_id
+            );
+            counterparty_provider.veto_state_commitment(height).await?;
+        }
+        Ok(())
+    }
 }

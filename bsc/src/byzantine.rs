@@ -35,7 +35,12 @@ impl ByzantineHandler for BscPosHost {
             .prover
             .fetch_header(event.latest_height)
             .await?
-            .ok_or_else(|| anyhow!("Failed to fetch header in byzantine handler"))?;
+            .ok_or_else(|| {
+                anyhow!(
+                    "Failed to fetch header in {:?} byzantine handler",
+                    self.state_machine
+                )
+            })?;
         let counterparty_provider = counterparty.provider();
         let height = StateMachineHeight {
             id: StateMachineId {
@@ -48,7 +53,6 @@ impl ByzantineHandler for BscPosHost {
             .query_state_machine_commitment(height)
             .await?;
         if header.state_root != state_machine_commitment.state_root {
-            // Submit message
             log::info!(
                 "Vetoing State Machine Update for {:?} on {:?}",
                 self.state_machine,

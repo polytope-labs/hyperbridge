@@ -75,7 +75,7 @@ transaction-fees = { git = "https://github.com/polytope-labs/hyperbridge", rev =
 tesseract-config = { git = "https://github.com/polytope-labs/hyperbridge", rev = "29ef64263bde89e01d2b1d68535f686dd1e46427" }
 tesseract-substrate = { git = "https://github.com/polytope-labs/hyperbridge", rev = "29ef64263bde89e01d2b1d68535f686dd1e46427" }
 tesseract-evm = { git = "https://github.com/polytope-labs/hyperbridge", rev = "29ef64263bde89e01d2b1d68535f686dd1e46427" }
-tesseract-beefy = { path = "./beefy/naive" }
+tesseract-beefy = { path = "./beefy/prover" }
 tesseract-sync-committee = { path = "./sync-committee" }
 arb-host = { path = "./arb-host"}
 op-host = { path = "./op-host" }

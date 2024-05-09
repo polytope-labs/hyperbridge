@@ -50,10 +50,8 @@ where
 	pubsub: PubsubConnection,
 	/// Rsmq for interacting with the queue
 	rsmq: Rsmq,
-	/// Config options for redis
-	redis: RedisConfig,
-	/// Consensus state id for the host on the counterparty
-	consensus_state_id: ConsensusStateId,
+	/// Host configuration options
+	config: BeefyHostConfig,
 	/// Consensus prover
 	prover: Prover<R, P>,
 	/// The underlying substrate client
@@ -81,14 +79,7 @@ where
 		let pubsub = builder.pubsub_connect().await?;
 
 		config.redis.realtime = false;
-		Ok(BeefyHost {
-			pubsub,
-			rsmq: rsmq::client(&config.redis).await?,
-			redis: config.redis,
-			prover,
-			client,
-			consensus_state_id: config.consensus_state_id,
-		})
+		Ok(BeefyHost { pubsub, rsmq: rsmq::client(&config.redis).await?, prover, client, config })
 	}
 
 	/// Construct notifications for the queue for the given counterparty state machine.
@@ -99,18 +90,18 @@ where
 		Pin<Box<dyn Stream<Item = Result<StreamMessage, redis_async::error::Error>> + Send>>,
 		anyhow::Error,
 	> {
-		let mandatory_queue = self.redis.mandatory_queue(&counterparty_state_machine);
-		let messages_queue = self.redis.messages_queue(&counterparty_state_machine);
+		let mandatory_queue = self.config.redis.mandatory_queue(&counterparty_state_machine);
+		let messages_queue = self.config.redis.messages_queue(&counterparty_state_machine);
 
 		let mandatory_stream = {
 			self.pubsub
-				.subscribe(&format!("{}:rt:{mandatory_queue}", self.redis.ns))
+				.subscribe(&format!("{}:rt:{mandatory_queue}", self.config.redis.ns))
 				.await? // fatal error
 				.map_ok(|_item| StreamMessage::EpochChanged)
 		};
 		let messages_stream = {
 			self.pubsub
-				.subscribe(&format!("{}:rt:{messages_queue}", self.redis.ns))
+				.subscribe(&format!("{}:rt:{messages_queue}", self.config.redis.ns))
 				.await? // fatal error
 				.map_ok(|_item| StreamMessage::NewMessages)
 		};
@@ -175,8 +166,8 @@ where
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		let counterparty_state_machine = counterparty.state_machine_id().state_id;
-		let mandatory_queue = self.redis.mandatory_queue(&counterparty_state_machine);
-		let messages_queue = self.redis.messages_queue(&counterparty_state_machine);
+		let mandatory_queue = self.config.redis.mandatory_queue(&counterparty_state_machine);
+		let messages_queue = self.config.redis.messages_queue(&counterparty_state_machine);
 		let mut notifications = self.queue_notifications(counterparty_state_machine).await?;
 
 		// this will yield whenever the prover writes to either the mandatory or messages queue
@@ -212,8 +203,9 @@ where
 							},
 						};
 
-					let encoded =
-						counterparty.query_consensus_state(None, self.consensus_state_id).await?; // somewhat fatal
+					let encoded = counterparty
+						.query_consensus_state(None, self.config.consensus_state_id)
+						.await?; // somewhat fatal
 					let consensus_state = ConsensusState::decode(&mut &encoded[..])
 						.expect("Infallible, consensus state was encoded correctly");
 
@@ -257,8 +249,9 @@ where
 					},
 				};
 
-				let encoded =
-					counterparty.query_consensus_state(None, self.consensus_state_id).await?; // somewhat fatal
+				let encoded = counterparty
+					.query_consensus_state(None, self.config.consensus_state_id)
+					.await?; // somewhat fatal
 				let consensus_state = ConsensusState::decode(&mut &encoded[..])
 					.expect("Infallible, consensus state was encoded correctly");
 
@@ -324,7 +317,7 @@ where
 		Ok(Some(CreateConsensusState {
 			consensus_state: consensus_state.encode(),
 			consensus_client_id: *b"BEEF",
-			consensus_state_id: self.consensus_state_id,
+			consensus_state_id: self.config.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,
 			challenge_period: 5 * 60,
 			state_machine_commitments: vec![],

@@ -48,20 +48,14 @@ export class HyperBridgeService {
       "No handlePostRequestEvent/handlePostResponseEvent args",
     );
 
-    const { args, address, transaction } = event;
-    const { status } = await transaction.receipt();
+    const { args, address } = event;
     let { data } = args;
 
     const protocolFee = await this.computeProtocolFeeFromHexData(address, data);
 
     Promise.all([await this.incrementProtocolFeesEarned(protocolFee, chain)]);
 
-    if (status === false) {
-      Promise.all([
-        await this.incrementNumberOfFailedMessagesSent(chain),
-        await this.incrementTotalNumberOfMessagesSent(chain),
-      ]);
-    }
+    await this.incrementTotalNumberOfMessagesSent(chain);
   }
 
   /**
@@ -72,7 +66,6 @@ export class HyperBridgeService {
     chain: SupportedChain,
   ): Promise<void> {
     Promise.all([
-      await this.incrementTotalNumberOfMessagesSent(chain),
       await this.updateNumberOfUniqueRelayers(relayer_id),
       await this.incrementNumberOfSuccessfulMessagesSent(chain),
     ]);

@@ -27,6 +27,8 @@ dataSources:
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
+      chainLinkAggregatorV3:
+        file: ./abis/ChainLinkAggregatorV3.abi.json
     mapping:
       file: ./dist/index.js
       handlers:

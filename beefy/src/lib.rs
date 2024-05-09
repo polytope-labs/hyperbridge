@@ -21,6 +21,7 @@ pub use zk_beefy::Network;
 // mod byzantine;
 pub mod host;
 pub mod prover;
+mod rsmq;
 
 const VALIDATOR_SET_ID_KEY: [u8; 32] =
 	hex_literal::hex!("08c41974a97dbf15cfbec28365bea2da8f05bccc2f70ec66a32999c5761156be");

@@ -1,15 +1,18 @@
 use std::{collections::HashMap, time::Duration};
 
+use crate::{extract_para_id, host::ConsensusProof, rsmq, rsmq::RedisConfig, VALIDATOR_SET_ID_KEY};
 use anyhow::anyhow;
 use beefy_prover::{relay::fetch_latest_beefy_justification, runtime};
 use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
 use ethabi::ethereum_types::H256;
 use ethers::abi::AbiEncode;
-use futures::StreamExt;
-use ismp::events::Event;
+use ismp::{
+	consensus::ConsensusStateId, events::Event, host::StateMachine, messaging::ConsensusMessage,
+};
 use ismp_solidity_abi::beefy::BeefyConsensusProof;
 use pallet_ismp_rpc::{BlockNumberOrHash, EventWithMetadata};
+use rsmq_async::{Rsmq, RsmqConnection};
 use serde::{Deserialize, Serialize};
 use sp_consensus_beefy::{
 	ecdsa_crypto::Signature, known_payloads::MMR_ROOT_ID, mmr::BeefyNextAuthoritySet,
@@ -25,164 +28,40 @@ use subxt::{
 };
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::SubstrateClient;
-
 use zk_beefy::Network;
-
-use crate::{extract_para_id, VALIDATOR_SET_ID_KEY};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyProverConfig {
+	/// Redis configuration for message queues
+	pub redis: RedisConfig,
+	/// Consensus state id for the host on the counterparty
+	pub consensus_state_id: ConsensusStateId,
 	/// Minimum height that must be enacted before we prove finality for new messages
 	pub minimum_finalization_height: u64,
-}
-
-/// Beefy prover, can either produce zk proofs or naive proofs
-#[derive(Clone)]
-pub enum Prover<R: subxt::Config, P: subxt::Config> {
-	// The naive prover
-	Naive(beefy_prover::Prover<R, P>),
-	// zk prover
-	ZK(zk_beefy::Prover<R, P>),
-}
-
-pub struct ProverConfig {
-	/// RPC ws url for a relay chain
-	pub relay_rpc_ws: String,
-	/// RPC ws url for the parachain
-	pub para_rpc_ws: String,
-	/// para Id for the parachain
-	pub para_ids: Vec<u32>,
-	/// The intended network for zk beefy
-	pub zk_beefy: Option<Network>,
-	/// Maximum size in bytes for the rpc payloads, both requests & responses.
-	pub max_rpc_payload_size: Option<u32>,
-}
-
-impl<R, P> Prover<R, P>
-where
-	R: subxt::Config,
-	P: subxt::Config,
-{
-	pub async fn new(config: ProverConfig) -> Result<Self, anyhow::Error> {
-		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(15 * 1024 * 1024);
-		let relay_chain =
-			subxt_utils::client::ws_client::<R>(&config.relay_rpc_ws, max_rpc_payload_size).await?;
-		let parachain =
-			subxt_utils::client::ws_client::<P>(&config.para_rpc_ws, max_rpc_payload_size).await?;
-		let header = relay_chain
-			.rpc()
-			.header(None)
-			.await?
-			.ok_or_else(|| anyhow!("No blocks on the relay chain?"))?;
-		let key = runtime::storage().mmr().number_of_leaves();
-		let leaves = relay_chain
-			.storage()
-			.at(header.hash())
-			.fetch(&key)
-			.await?
-			.ok_or_else(|| anyhow!("Number of mmr leaves is empty"))?;
-
-		let prover = beefy_prover::Prover {
-			beefy_activation_block: (header.number().into() - leaves) as u32,
-			relay: relay_chain,
-			para: parachain,
-			para_ids: config.para_ids,
-		};
-
-		let prover = if let Some(network) = &config.zk_beefy {
-			Prover::ZK(zk_beefy::Prover::new(prover, network.clone())?)
-		} else {
-			Prover::Naive(prover)
-		};
-
-		Ok(prover)
-	}
-
-	/// Return the inner prover
-	pub fn inner(&self) -> &beefy_prover::Prover<R, P> {
-		match self {
-			Prover::ZK(ref p) => &p.inner,
-			Prover::Naive(ref p) => p,
-		}
-	}
-
-	/// Construct a beefy client state to be submitted to the counterparty chain
-	pub async fn query_initial_consensus_state(
-		&self,
-		hash: Option<R::Hash>,
-	) -> Result<ConsensusState, anyhow::Error> {
-		let inner = self.inner();
-		let latest_finalized_head = match hash {
-			Some(hash) => hash,
-			None => inner.relay.rpc().request("beefy_getFinalizedHead", rpc_params!()).await?,
-		};
-		let (signed_commitment, latest_beefy_finalized) =
-			fetch_latest_beefy_justification(&inner.relay, latest_finalized_head).await?;
-
-		// Encoding and decoding to fix dependency version conflicts
-		let next_authority_set = {
-			let key = runtime::storage().beefy_mmr_leaf().beefy_next_authorities();
-			let next_authority_set = inner
-				.relay
-				.storage()
-				.at(latest_beefy_finalized)
-				.fetch(&key)
-				.await?
-				.expect("Should retrieve next authority set")
-				.encode();
-			BeefyNextAuthoritySet::decode(&mut &*next_authority_set)
-				.expect("Should decode next authority set correctly")
-		};
-
-		let current_authority_set = {
-			let key = runtime::storage().beefy_mmr_leaf().beefy_authorities();
-			let authority_set = inner
-				.relay
-				.storage()
-				.at(latest_beefy_finalized)
-				.fetch(&key)
-				.await?
-				.expect("Should retrieve next authority set")
-				.encode();
-			BeefyNextAuthoritySet::decode(&mut &*authority_set)
-				.expect("Should decode next authority set correctly")
-		};
-
-		let mmr_root_hash = signed_commitment
-			.commitment
-			.payload
-			.get_decoded::<H256>(&MMR_ROOT_ID)
-			.expect("Mmr root hash should decode correctly");
-
-		let consensus_state = ConsensusState {
-			mmr_root_hash,
-			beefy_activation_block: inner.beefy_activation_block,
-			latest_beefy_height: signed_commitment.commitment.block_number,
-			current_authorities: current_authority_set.clone(),
-			next_authorities: next_authority_set.clone(),
-		};
-
-		Ok(consensus_state)
-	}
-}
-
-#[derive(Debug, Clone)]
-pub struct ProverConsensusState {
-	/// Inner consensus state tracked by the onchain light clients
-	pub inner: ConsensusState,
-
-	/// latest parachain height that has been finalized by BEEFY
-	pub finalized_parachain_height: u64,
+	/// State machines we are proving for
+	pub state_machines: Vec<StateMachine>,
 }
 
 /// The BEEFY prover produces BEEFY consensus proofs using either the naive or zk variety. Consensus
 /// proofs are produced when new messages are observed on the hyperbridge chain or when the
 /// authority set changes.
 pub struct BeefyProver<R: subxt::Config, P: subxt::Config> {
+	/// The prover's consensus state, this is persisted to redis
 	consensus_state: ProverConsensusState,
+	/// The hyperbridge substrate client
 	client: SubstrateClient<P>,
+	/// The beefy prover instance
 	prover: Prover<R, P>,
+	/// Rsmq for interacting with the queue
+	rsmq: Rsmq,
+	/// Config options for redis
+	redis: RedisConfig,
+	/// Minimum height to wait before finalization
 	minimum_finalization_height: u64,
+	/// Consensus state id for the host on the counterparty
+	consensus_state_id: ConsensusStateId,
+	/// State machines we are proving for
+	state_machines: Vec<StateMachine>,
 }
 
 impl<R, P> BeefyProver<R, P>
@@ -196,15 +75,21 @@ where
 	P::Signature: From<MultiSignature> + Send + Sync,
 {
 	pub async fn new(
-		config: &BeefyProverConfig,
+		mut config: BeefyProverConfig,
 		client: SubstrateClient<P>,
 		consensus_state: ProverConsensusState,
 		prover: Prover<R, P>,
 	) -> Result<Self, anyhow::Error> {
+		config.redis.realtime = true;
+
 		Ok(BeefyProver {
 			consensus_state,
+			rsmq: rsmq::client(&config.redis).await?,
+			redis: config.redis.clone(),
 			prover,
 			client,
+			state_machines: config.state_machines.clone(),
+			consensus_state_id: config.consensus_state_id.clone(),
 			minimum_finalization_height: config.minimum_finalization_height,
 		})
 	}
@@ -221,8 +106,7 @@ where
 					// tick the interval
 					tokio::time::sleep(Duration::from_secs(10)).await;
 
-					let (update, latest_height) = self.query_next_finalized_epoch().await?;
-					self.consensus_state.inner.latest_beefy_height = latest_height as u32;
+					let (update, mut latest_height) = self.query_next_finalized_epoch().await?;
 
 					if let Some((hash, set_id)) = update {
 						// update should always be for the next set
@@ -244,19 +128,40 @@ where
 								"Fetched justification: {:?} for next authority set {set_id}",
 								commitment.commitment
 							);
-							let _proof = self
+							let consensus_proof = self
 								.consensus_proof(
 									commitment.clone(),
 									self.consensus_state.inner.clone(),
 								)
 								.await?;
 
-							// todo: put proof into mandatory queue on redis
+							let message = ConsensusProof {
+								finalized_height: commitment.commitment.block_number,
+								set_id,
+								message: ConsensusMessage {
+									consensus_proof,
+									consensus_state_id: self.consensus_state_id,
+									signer: H256::random().encode(),
+								},
+							};
+
+							for state_machine in self.state_machines.iter() {
+								let mandatory_queue = self.redis.mandatory_queue(&state_machine);
+								self.rsmq
+									.send_message(
+										mandatory_queue.as_str(),
+										message.clone(),
+										Some(Duration::ZERO),
+									)
+									.await?;
+							}
+
 							self.consensus_state.inner.latest_beefy_height =
 								commitment.commitment.block_number;
 							self.rotate_authorities(hash).await?;
 							tracing::info!("New state {:#?}", self.consensus_state);
 							// todo: serialize & push consensus state to redis
+							self.consensus_state.inner.latest_beefy_height = latest_height as u32;
 						}
 					}
 
@@ -281,7 +186,7 @@ where
 							minimum_height - latest_parachain_height
 						);
 
-						loop {
+						latest_height = loop {
 							tokio::time::sleep(Duration::from_secs(10)).await;
 							let finalized_hash = self
 								.prover
@@ -298,9 +203,9 @@ where
 							.await?;
 
 							if header.number as u64 >= minimum_height {
-								break;
+								break header.number as u64;
 							}
-						}
+						};
 					}
 
 					tracing::info!("Proving finality for messages in the range: {lowest_message_height}..{minimum_height}");
@@ -309,17 +214,67 @@ where
 						.inner()
 						.relay
 						.rpc()
-						.request::<R::Hash>("beefy_getFinalizedHead", rpc_params![])
-						.await?;
+						.block_hash(Some(latest_height.into()))
+						.await?
+						.ok_or_else(|| {
+							anyhow!("Failed to fetch relay block hash for {latest_height}")
+						})?;
+
 					let (commitment, _) = fetch_latest_beefy_justification(
 						&self.prover.inner().relay,
 						finalized_hash,
 					)
 					.await?;
-					let _proof = self
-						.consensus_proof(commitment, self.consensus_state.inner.clone())
+					let consensus_proof = self
+						.consensus_proof(commitment.clone(), self.consensus_state.inner.clone())
 						.await?;
-					// todo: put proof into mandatory queue
+
+					let state_machines = messages.iter().filter_map(|e| {
+						let event = match &e.event {
+							Event::PostRequest(req) => req.dest,
+							Event::PostResponse(res) => res.dest_chain(),
+							Event::PostRequestTimeoutHandled(req) => req.dest,
+							Event::PostResponseTimeoutHandled(res) => res.dest,
+							_ => None?,
+						};
+						Some(event)
+					});
+
+					let set_id = {
+						let key = runtime::storage().beefy().validator_set_id();
+						self.prover
+							.inner()
+							.relay
+							.storage()
+							.at(finalized_hash)
+							.fetch(&key)
+							.await?
+							.expect("Authority set id exists")
+					};
+
+					let message = ConsensusProof {
+						finalized_height: commitment.commitment.block_number,
+						set_id,
+						message: ConsensusMessage {
+							consensus_proof,
+							consensus_state_id: self.consensus_state_id,
+							signer: H256::random().encode(),
+						},
+					};
+
+					// notify all relevant state machines
+					for state_machine in state_machines {
+						let messages_queue = self.redis.messages_queue(&state_machine);
+						self.rsmq
+							.send_message(
+								messages_queue.as_str(),
+								message.clone(),
+								Some(Duration::ZERO),
+							)
+							.await?;
+					}
+
+					self.consensus_state.inner.latest_beefy_height = latest_height as u32;
 					self.consensus_state.finalized_parachain_height = latest_parachain_height;
 					// todo: write consensus state to redis
 				}
@@ -525,6 +480,145 @@ where
 	}
 }
 
+/// Beefy prover, can either produce zk proofs or naive proofs
+#[derive(Clone)]
+pub enum Prover<R: subxt::Config, P: subxt::Config> {
+	// The naive prover
+	Naive(beefy_prover::Prover<R, P>),
+	// zk prover
+	ZK(zk_beefy::Prover<R, P>),
+}
+
+pub struct ProverConfig {
+	/// RPC ws url for a relay chain
+	pub relay_rpc_ws: String,
+	/// RPC ws url for the parachain
+	pub para_rpc_ws: String,
+	/// para Id for the parachain
+	pub para_ids: Vec<u32>,
+	/// The intended network for zk beefy
+	pub zk_beefy: Option<Network>,
+	/// Maximum size in bytes for the rpc payloads, both requests & responses.
+	pub max_rpc_payload_size: Option<u32>,
+}
+
+impl<R, P> Prover<R, P>
+where
+	R: subxt::Config,
+	P: subxt::Config,
+{
+	pub async fn new(config: ProverConfig) -> Result<Self, anyhow::Error> {
+		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(15 * 1024 * 1024);
+		let relay_chain =
+			subxt_utils::client::ws_client::<R>(&config.relay_rpc_ws, max_rpc_payload_size).await?;
+		let parachain =
+			subxt_utils::client::ws_client::<P>(&config.para_rpc_ws, max_rpc_payload_size).await?;
+		let header = relay_chain
+			.rpc()
+			.header(None)
+			.await?
+			.ok_or_else(|| anyhow!("No blocks on the relay chain?"))?;
+		let key = runtime::storage().mmr().number_of_leaves();
+		let leaves = relay_chain
+			.storage()
+			.at(header.hash())
+			.fetch(&key)
+			.await?
+			.ok_or_else(|| anyhow!("Number of mmr leaves is empty"))?;
+
+		let prover = beefy_prover::Prover {
+			beefy_activation_block: (header.number().into() - leaves) as u32,
+			relay: relay_chain,
+			para: parachain,
+			para_ids: config.para_ids,
+		};
+
+		let prover = if let Some(network) = &config.zk_beefy {
+			Prover::ZK(zk_beefy::Prover::new(prover, network.clone())?)
+		} else {
+			Prover::Naive(prover)
+		};
+
+		Ok(prover)
+	}
+
+	/// Return the inner prover
+	pub fn inner(&self) -> &beefy_prover::Prover<R, P> {
+		match self {
+			Prover::ZK(ref p) => &p.inner,
+			Prover::Naive(ref p) => p,
+		}
+	}
+
+	/// Construct a beefy client state to be submitted to the counterparty chain
+	pub async fn query_initial_consensus_state(
+		&self,
+		hash: Option<R::Hash>,
+	) -> Result<ConsensusState, anyhow::Error> {
+		let inner = self.inner();
+		let latest_finalized_head = match hash {
+			Some(hash) => hash,
+			None => inner.relay.rpc().request("beefy_getFinalizedHead", rpc_params!()).await?,
+		};
+		let (signed_commitment, latest_beefy_finalized) =
+			fetch_latest_beefy_justification(&inner.relay, latest_finalized_head).await?;
+
+		// Encoding and decoding to fix dependency version conflicts
+		let next_authority_set = {
+			let key = runtime::storage().beefy_mmr_leaf().beefy_next_authorities();
+			let next_authority_set = inner
+				.relay
+				.storage()
+				.at(latest_beefy_finalized)
+				.fetch(&key)
+				.await?
+				.expect("Should retrieve next authority set")
+				.encode();
+			BeefyNextAuthoritySet::decode(&mut &*next_authority_set)
+				.expect("Should decode next authority set correctly")
+		};
+
+		let current_authority_set = {
+			let key = runtime::storage().beefy_mmr_leaf().beefy_authorities();
+			let authority_set = inner
+				.relay
+				.storage()
+				.at(latest_beefy_finalized)
+				.fetch(&key)
+				.await?
+				.expect("Should retrieve next authority set")
+				.encode();
+			BeefyNextAuthoritySet::decode(&mut &*authority_set)
+				.expect("Should decode next authority set correctly")
+		};
+
+		let mmr_root_hash = signed_commitment
+			.commitment
+			.payload
+			.get_decoded::<H256>(&MMR_ROOT_ID)
+			.expect("Mmr root hash should decode correctly");
+
+		let consensus_state = ConsensusState {
+			mmr_root_hash,
+			beefy_activation_block: inner.beefy_activation_block,
+			latest_beefy_height: signed_commitment.commitment.block_number,
+			current_authorities: current_authority_set.clone(),
+			next_authorities: next_authority_set.clone(),
+		};
+
+		Ok(consensus_state)
+	}
+}
+
+#[derive(Debug, Clone)]
+pub struct ProverConsensusState {
+	/// Inner consensus state tracked by the onchain light clients
+	pub inner: ConsensusState,
+
+	/// latest parachain height that has been finalized by BEEFY
+	pub finalized_parachain_height: u64,
+}
+
 /// Query the parachain header that is finalized at the given relay chain block hash
 pub async fn query_parachain_header<R: subxt::Config>(
 	client: &OnlineClient<R>,
@@ -562,6 +656,7 @@ mod tests {
 		config::{Blake2SubstrateChain, KeccakSubstrateChain},
 		SubstrateConfig,
 	};
+	use futures::StreamExt;
 
 	#[tokio::test]
 	async fn test_can_produce_proofs() -> Result<(), anyhow::Error> {
@@ -581,7 +676,12 @@ mod tests {
 			u32::MAX,
 		)
 		.await?;
-		let beefy_config = BeefyProverConfig { minimum_finalization_height: 25 };
+		let beefy_config = BeefyProverConfig {
+			minimum_finalization_height: 25,
+			redis: Default::default(),
+			consensus_state_id: [0u8; 4],
+			state_machines: vec![],
+		};
 		let prover_consensus_state = ProverConsensusState {
 			inner: ConsensusState {
 				latest_beefy_height: 0,
@@ -611,7 +711,7 @@ mod tests {
 		let consensus_state = prover.query_initial_consensus_state(None).await?;
 
 		let mut prover = BeefyProver::<Blake2SubstrateChain, _>::new(
-			&beefy_config,
+			beefy_config,
 			substrate_client,
 			prover_consensus_state,
 			prover,
@@ -680,8 +780,6 @@ mod tests {
 
 		println!("Ok done");
 
-		// if let Some(message) = message {
-		// }
 		Ok(())
 	}
 }

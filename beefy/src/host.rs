@@ -15,17 +15,18 @@
 
 use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 
-use crate::prover::Prover;
-use futures::{stream::TryStreamExt, StreamExt};
+use crate::{prover::Prover, rsmq, rsmq::RedisConfig};
+use futures::{stream::TryStreamExt, Stream, StreamExt};
 use ismp::{
 	consensus::ConsensusStateId,
 	events::StateMachineUpdated,
+	host::StateMachine,
 	messaging::{ConsensusMessage, CreateConsensusState, Message},
 };
 use redis_async::client::{ConnectionBuilder, PubsubConnection};
-use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqMessage, RsmqOptions};
+use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqMessage};
 use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider};
 
 pub struct BeefyHostConfig {
@@ -33,25 +34,6 @@ pub struct BeefyHostConfig {
 	pub redis: RedisConfig,
 	/// Consensus state id for the host on the counterparty
 	pub consensus_state_id: ConsensusStateId,
-}
-
-pub struct RedisConfig {
-	/// Redis host
-	pub url: String,
-	/// Redis port
-	pub port: u16,
-	/// Redis username
-	pub username: Option<String>,
-	/// Redis password
-	pub password: Option<String>,
-	/// Redis db
-	pub db: u8,
-	/// RSMQ namespace (you can have several. "rsmq" by default)
-	pub ns: String,
-	/// Queue name for mandatory consensus proofs
-	pub mandatory_queue: String,
-	/// Queue name for messages consensus proofs
-	pub messages_queue: String,
 }
 
 pub struct BeefyHost<R, P>
@@ -77,7 +59,7 @@ where
 	P: subxt::Config,
 {
 	/// Construct an implementation of the [`BeefyHost`]
-	pub async fn new(config: BeefyHostConfig, prover: Prover<R, P>) -> Result<Self, anyhow::Error> {
+	pub async fn new(mut config: BeefyHostConfig, prover: Prover<R, P>) -> Result<Self, anyhow::Error> {
 		let mut builder = ConnectionBuilder::new(&config.redis.url, config.redis.port)?;
 		if let Some(ref username) = config.redis.username {
 			builder.username(username.as_str());
@@ -87,31 +69,49 @@ where
 		}
 		let pubsub = builder.pubsub_connect().await?;
 
-		let options = RsmqOptions {
-			host: config.redis.url.clone(),
-			port: config.redis.port.clone(),
-			username: config.redis.username.clone(),
-			password: config.redis.password.clone(),
-			db: config.redis.db.clone(),
-			ns: config.redis.ns.clone(),
-			// we will not be publishing messages here
-			realtime: false,
-		};
-		let rsmq = Rsmq::new(options).await?;
-
+		config.redis.realtime = false;
 		Ok(BeefyHost {
 			pubsub,
-			rsmq,
+			rsmq: rsmq::client(&config.redis).await?,
 			redis: config.redis,
 			prover,
 			consensus_state_id: config.consensus_state_id,
 		})
 	}
+
+	/// Construct notifications for the queue for the given counterparty state machine.
+	pub async fn queue_notifications(
+		&self,
+		counterparty_state_machine: StateMachine,
+	) -> Result<
+		Pin<Box<dyn Stream<Item = Result<StreamMessage, redis_async::error::Error>> + Send>>,
+		anyhow::Error,
+	> {
+		let mandatory_queue = self.redis.mandatory_queue(&counterparty_state_machine);
+		let messages_queue = self.redis.messages_queue(&counterparty_state_machine);
+
+		let mandatory_stream = {
+			self.pubsub
+				.subscribe(&format!("{}:rt:{mandatory_queue}", self.redis.ns))
+				.await? // fatal error
+				.map_ok(|_item| StreamMessage::EpochChanged)
+		};
+		let messages_stream = {
+			self.pubsub
+				.subscribe(&format!("{}:rt:{messages_queue}", self.redis.ns))
+				.await? // fatal error
+				.map_ok(|_item| StreamMessage::NewMessages)
+		};
+
+		let combined = futures::stream::select(mandatory_stream, messages_stream);
+
+		Ok(Box::pin(combined))
+	}
 }
 
 /// Convenience enum for the queue message kinds
 #[derive(Debug, Eq, PartialEq)]
-enum StreamMessage {
+pub enum StreamMessage {
 	/// The current authority set has handed over to the next. This is neccessary so that light
 	/// clients can follow the chain
 	EpochChanged,
@@ -119,7 +119,7 @@ enum StreamMessage {
 	NewMessages,
 }
 
-#[derive(Encode, Decode)]
+#[derive(Clone, Debug, Encode, Decode)]
 pub struct ConsensusProof {
 	/// The height that is now finalized by this consensus message
 	pub finalized_height: u32,
@@ -141,6 +141,12 @@ impl TryFrom<RedisBytes> for ConsensusProof {
 	}
 }
 
+impl Into<RedisBytes> for ConsensusProof {
+	fn into(self) -> RedisBytes {
+		self.encode().into()
+	}
+}
+
 #[async_trait::async_trait]
 impl<R, P> IsmpHost for BeefyHost<R, P>
 where
@@ -151,28 +157,23 @@ where
 		&mut self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
-		let counterpaty_state_machine = counterparty.state_machine_id().state_id.to_string();
-		let mandatory_queue = format!("{}-{counterpaty_state_machine}", self.redis.mandatory_queue);
-		let messages_queue = format!("{}-{counterpaty_state_machine}", self.redis.messages_queue);
-
-		let mandatory_stream = {
-			self.pubsub
-				.subscribe(&format!("{}:rt:{mandatory_queue}", self.redis.ns))
-				.await? // fatal error
-				.map_ok(|_item| StreamMessage::EpochChanged)
-		};
-		let messages_stream = {
-			self.pubsub
-				.subscribe(&format!("{}:rt:{messages_queue}", self.redis.ns))
-				.await? // fatal error
-				.map_ok(|_item| StreamMessage::NewMessages)
-		};
-		let mut combined = futures::stream::select(mandatory_stream, messages_stream);
+		let counterparty_state_machine = counterparty.state_machine_id().state_id;
+		let mandatory_queue =
+			format!("{}-{}", self.redis.mandatory_queue, counterparty_state_machine.to_string());
+		let messages_queue =
+			format!("{}-{}", self.redis.messages_queue, counterparty_state_machine.to_string());
+		let mut notifications = self.queue_notifications(counterparty_state_machine).await?;
 
 		// this will yield whenever the prover writes to either the mandatory or messages queue
-		while let Some(item) = combined.next().await {
+		while let Some(item) = notifications.next().await {
 			let Ok(ref message) = item else {
-				tracing::error!("Error in redis pubsub stream: {:?}", item.unwrap_err()); // non-fatal error
+				let error = item.unwrap_err();
+				tracing::error!("Error in redis pubsub stream: {:?}", error); // non-fatal error
+				if matches!(error, redis_async::error::Error::Connection(_)) {
+					// if connection error, resubscribe
+					notifications =
+						self.queue_notifications(counterparty.state_machine_id().state_id).await?;
+				}
 				continue
 			};
 
@@ -204,7 +205,7 @@ where
 					// just some sanity checks
 					if set_id != consensus_state.next_authorities.id {
 						tracing::error!(
-							"Invariant violated, consensus proof with set_id: {set_id} does not match next_set_id:{}",
+							"Consensus proof with set_id: {set_id} does not match next_set_id:{}",
 							consensus_state.next_authorities.id
 						);
 						continue
@@ -227,11 +228,6 @@ where
 			loop {
 				let item = self.rsmq.receive_message::<ConsensusProof>(&messages_queue, None).await;
 
-				let encoded =
-					counterparty.query_consensus_state(None, self.consensus_state_id).await?; // somewhat fatal
-				let consensus_state = ConsensusState::decode(&mut &encoded[..])
-					.expect("Infallible, consensus state was encoded correctly");
-
 				let RsmqMessage {
 					id,
 					message: ConsensusProof { message, finalized_height, set_id },
@@ -245,6 +241,11 @@ where
 						continue
 					},
 				};
+
+				let encoded =
+					counterparty.query_consensus_state(None, self.consensus_state_id).await?; // somewhat fatal
+				let consensus_state = ConsensusState::decode(&mut &encoded[..])
+					.expect("Infallible, consensus state was encoded correctly");
 
 				// check if the update is relevant to us.
 				if consensus_state.latest_beefy_height >= finalized_height {

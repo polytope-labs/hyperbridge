@@ -255,7 +255,7 @@ substrate-state-machine = { version = "1.6.1", path = "modules/ismp/state-machin
 hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
 # pallets
-pallet-ismp = { version = "1.6.1", path = "modules/ismp/pallets/pallet", default-features = false }
+pallet-ismp = { version = "1.6.2", path = "modules/ismp/pallets/pallet", default-features = false }
 pallet-ismp-rpc = { version = "1.6.1", path = "modules/ismp/pallets/rpc" }
 pallet-ismp-runtime-api = { version = "1.6.1", path = "modules/ismp/pallets/runtime-api", default-features = false }
 pallet-hyperbridge = { path = "modules/ismp/pallets/hyperbridge", default-features = false }
@@ -271,7 +271,7 @@ pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
 pallet-mmr-runtime-api = { path = "modules/trees/mmr/pallet/runtime-api", default-features = false }
 mmr-gadget = { path = "modules/trees/mmr/gadget" }
 ethereum-trie = { path = "./modules/trees/ethereum", default-features = false }
-mmr-primitives = { version = "1.6.1", path = "modules/trees/mmr/primitives", default-features = false }
+mmr-primitives = { version = "1.6.2", path = "modules/trees/mmr/primitives", default-features = false }
 
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }

@@ -20,9 +20,10 @@ use crate::{
 	dispatcher::{FeeMetadata, RequestMetadata},
 	mmr::{Leaf, LeafIndexAndPos, Proof, ProofKeys},
 	weights::get_weight,
-	Config, Error, Event, Pallet, Responded,
+	Config, Error, Event, NoOpMmrTree, Pallet, Responded,
 };
 use alloc::{string::ToString, vec, vec::Vec};
+use codec::Decode;
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo};
 use frame_system::Phase;
 use ismp::{
@@ -32,7 +33,7 @@ use ismp::{
 };
 use log::debug;
 use mmr_primitives::{ForkIdentifier, MerkleMountainRangeTree};
-use sp_core::H256;
+use sp_core::{offchain::StorageKind, H256};
 
 impl<T: Config> Pallet<T> {
 	/// Deposit a pallet [`Event<T>`]
@@ -199,15 +200,43 @@ impl<T: Config> Pallet<T> {
 	/// Gets the request from the offchain storage
 	pub fn request(commitment: H256) -> Option<Request> {
 		let pos = RequestCommitments::<T>::get(commitment)?.mmr.pos;
-		let Ok(Some(Leaf::Request(req))) = T::Mmr::get_leaf(pos) else { None? };
-		Some(req)
+		match T::Mmr::get_leaf(pos) {
+			Ok(Some(Leaf::Request(req))) => Some(req),
+			_ => {
+				// Try getting the request from the offchain db using `NoOpMmrTree`
+				let offchain_key = NoOpMmrTree::<T>::offchain_key(commitment);
+				let Some(elem) =
+					sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &offchain_key)
+				else {
+					None?
+				};
+				match Leaf::decode(&mut &*elem).ok() {
+					Some(Leaf::Request(req)) => Some(req),
+					_ => None,
+				}
+			},
+		}
 	}
 
 	/// Gets the response from the offchain storage
 	pub fn response(commitment: H256) -> Option<Response> {
 		let pos = ResponseCommitments::<T>::get(commitment)?.mmr.pos;
-		let Ok(Some(Leaf::Response(res))) = T::Mmr::get_leaf(pos) else { None? };
-		Some(res)
+		match T::Mmr::get_leaf(pos) {
+			Ok(Some(Leaf::Response(res))) => Some(res),
+			_ => {
+				// Try getting the response from the offchain db using the `NoOpMmrTree`
+				let offchain_key = NoOpMmrTree::<T>::offchain_key(commitment);
+				let Some(elem) =
+					sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &offchain_key)
+				else {
+					None?
+				};
+				match Leaf::decode(&mut &*elem).ok() {
+					Some(Leaf::Response(res)) => Some(res),
+					_ => None,
+				}
+			},
+		}
 	}
 
 	/// Fetch all ISMP handler events in the block, should only be called from runtime-api.

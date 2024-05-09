@@ -2,6 +2,7 @@
 
 extern crate alloc;
 use alloc::{vec, vec::Vec};
+use codec::Encode;
 use core::marker::PhantomData;
 use merkle_mountain_range::helper::{get_peaks, parent_offset, pos_height_in_tree, sibling_offset};
 use sp_core::H256;
@@ -65,9 +66,18 @@ pub trait MerkleMountainRangeTree {
 }
 
 /// NoOp tree can be used as a drop in replacement for when the underlying mmr tree is unneeded.
-pub struct NoOpTree<T>(PhantomData<T>);
+/// This will store leaves directly in the offchain db using the leaf commitment as the key
+pub struct NoOpTree<T, H>(PhantomData<(T, H)>);
 
-impl<T> MerkleMountainRangeTree for NoOpTree<T> {
+impl<T, H> NoOpTree<T, H> {
+	/// Offchain key for storing requests using the commitment as identifiers
+	pub fn offchain_key(commitment: H256) -> Vec<u8> {
+		let prefix = b"no_op";
+		(prefix, commitment).encode()
+	}
+}
+
+impl<T: FullLeaf, H: ismp::messaging::Keccak256> MerkleMountainRangeTree for NoOpTree<T, H> {
 	type Leaf = T;
 
 	fn leaf_count() -> u64 {
@@ -80,7 +90,11 @@ impl<T> MerkleMountainRangeTree for NoOpTree<T> {
 		Err(primitives::Error::GenerateProof)?
 	}
 
-	fn push(_leaf: T) -> LeafMetadata {
+	fn push(leaf: T) -> LeafMetadata {
+		let encoded = leaf.preimage();
+		let commitment = H::keccak256(&encoded);
+		let offchain_key = Self::offchain_key(commitment);
+		sp_io::offchain_index::set(&offchain_key, &leaf.encode());
 		Default::default()
 	}
 

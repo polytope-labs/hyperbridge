@@ -3,7 +3,10 @@ import { RequestStatus, SupportedChain } from "../../../types";
 import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { PostRequestEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
-import { RequestService } from "../../../services/request.service";
+import {
+  ICreateRequestArgs,
+  RequestService,
+} from "../../../services/request.service";
 
 /**
  * Handles the PostRequest event from Evm Hosts
@@ -33,18 +36,19 @@ export async function handlePostRequestEvent(
   );
 
   // Create the request entity
-  await RequestService.findOrCreate(
-    request_commitment,
+  await RequestService.findOrCreate({
+    chain,
+    commitment: request_commitment,
     data,
     dest,
-    BigInt(fee.toString()),
+    fee: BigInt(fee.toString()),
     from,
-    BigInt(nonce.toString()),
+    nonce: BigInt(nonce.toString()),
     source,
-    RequestStatus.SOURCE,
-    BigInt(timeoutTimestamp.toString()),
+    status: RequestStatus.SOURCE,
+    timeoutTimestamp: BigInt(timeoutTimestamp.toString()),
     to,
-  );
+  });
 
   await RequestService.updateRequestStatus(
     request_commitment,

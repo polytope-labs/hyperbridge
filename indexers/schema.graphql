@@ -34,6 +34,17 @@ enum RequestStatus {
     SOURCE
     MESSAGE_RELAYED
     DEST
+    TIMED_OUT
+}
+
+"""
+The status of a response
+"""
+enum ResponseStatus {
+    SOURCE
+    MESSAGE_RELAYED
+    DEST
+    TIMED_OUT
 }
 
 """
@@ -361,6 +372,11 @@ type Request @entity {
     id: ID!
 
     """
+    The chain on which the request was made
+    """
+    chain: SupportedChain!
+
+    """
     This is the statemachine id where this request originated from
     """
     source: String!
@@ -404,4 +420,74 @@ type Request @entity {
     Status of the request
     """
     status: RequestStatus!
+}
+
+"""
+Response status metadata
+"""
+type ResponseStatusMetadata @entity {
+    """
+    Unique identifier of the Response (This is the response commitment)
+    """
+    id: ID!
+
+    """
+    Block number where the response was dispatched
+    """
+    sourceBlockNumber: BigInt!
+
+    """
+    Transaction hash where the response was dispatched
+    """
+    sourceBlockTransaction: String!
+
+    """
+    Transaction hash where message was relayed to hyperbridge
+    """
+    messageRelayedTransactionHash: String!
+
+    """
+    Transaction hash where the destination finalize the relationational block of the response on hyperbridge
+    """
+    destFinalizedTransactionHash: String!
+
+    """
+    Transaction hash where relayer dispatch message to the dest state machine
+    """
+    deliveryTransactionHash: String!
+}
+
+"""
+A Hyperbridge Response
+"""
+type Response @entity {
+    """
+    Unique identifier of the Response (This is the response commitment)
+    """
+    id: ID!
+
+    """
+    The chain on which the response was made
+    """
+    chain: SupportedChain!
+
+    """
+    The response message
+    """
+    response_message: String!
+
+    """
+    The Timestamp at which this response expires in seconds
+    """
+    responseTimeoutTimestamp: BigInt!
+
+    """
+    Status of the response
+    """
+    status: ResponseStatus!
+
+    """
+    The request that triggered this response
+    """
+    request: Request!
 }

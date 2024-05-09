@@ -1,9 +1,10 @@
 import assert from "assert";
-import { EventType, SupportedChain } from "../../../types";
+import { EventType, ResponseStatus, SupportedChain } from "../../../types";
 import { PostResponseTimeoutHandledLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
+import { ResponseService } from "../../../services/response.service";
 
 /**
  * Handles the PostResponseTimeoutHandled event
@@ -43,5 +44,11 @@ export async function handlePostResponseTimeoutHandledEvent(
       chain,
     ),
     await HyperBridgeService.incrementNumberOfTimedOutMessagesSent(chain),
+    await ResponseService.updateResponseStatus(
+      commitment,
+      ResponseStatus.TIMED_OUT,
+      BigInt(blockNumber),
+      transactionHash,
+    ),
   ]);
 }

@@ -1,50 +1,54 @@
-import { RequestStatus } from "../types/enums";
+import { RequestStatus, SupportedChain } from "../types/enums";
 import { solidityKeccak256 } from "ethers/lib/utils";
 import { Request, RequestStatusMetadata } from "../types/models";
+
+export interface ICreateRequestArgs {
+  chain: SupportedChain;
+  commitment: string;
+  data: string;
+  dest: string;
+  fee: bigint;
+  from: string;
+  nonce: bigint;
+  source: string;
+  status: RequestStatus;
+  timeoutTimestamp: bigint;
+  to: string;
+}
 
 export class RequestService {
   /**
    * Finds a request enitity and creates a new one if it doesn't exist
    */
-  static async findOrCreate(
-    request_commitment: string,
-    data?: string,
-    dest?: string,
-    fee?: bigint,
-    from?: string,
-    nonce?: bigint,
-    source?: string,
-    status?: RequestStatus,
-    timeoutTimestamp?: bigint,
-    to?: string,
-  ): Promise<Request> {
-    let request = await Request.get(request_commitment);
+  static async findOrCreate(args: ICreateRequestArgs): Promise<Request> {
+    const {
+      chain,
+      commitment,
+      data,
+      dest,
+      fee,
+      from,
+      nonce,
+      source,
+      status,
+      timeoutTimestamp,
+      to,
+    } = args;
+    let request = await Request.get(commitment);
 
     if (typeof request === "undefined") {
-      if (
-        typeof status === "undefined" ||
-        typeof source === "undefined" ||
-        typeof to === "undefined" ||
-        typeof from === "undefined" ||
-        typeof dest === "undefined" ||
-        typeof fee === "undefined" ||
-        typeof nonce === "undefined" ||
-        typeof timeoutTimestamp === "undefined" ||
-        typeof data === "undefined"
-      ) {
-        throw new Error("Request creation requires all data");
-      }
       request = Request.create({
-        id: request_commitment,
-        data: data ? data : "",
-        dest: dest ? dest : "",
-        fee: fee ? fee : BigInt(0),
-        from: from ? from : "",
-        nonce: nonce ? nonce : BigInt(0),
-        source: source ? source : "",
-        status: status ? status : RequestStatus.SOURCE,
-        timeoutTimestamp: timeoutTimestamp ? timeoutTimestamp : BigInt(0),
-        to: to ? to : "",
+        id: commitment,
+        chain,
+        data,
+        dest,
+        fee,
+        from,
+        nonce,
+        source,
+        status,
+        timeoutTimestamp,
+        to,
       });
 
       await request.save();
@@ -128,6 +132,10 @@ export class RequestService {
 
       await request.save();
       await requestMetadata.save();
+    } else {
+      logger.info(
+        `Attempted to update status of non-existent request with commitment: ${request_commitment} in transaction: ${sourceBlockTransaction}`,
+      );
     }
   }
 

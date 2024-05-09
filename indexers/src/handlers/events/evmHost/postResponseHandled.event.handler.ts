@@ -1,11 +1,11 @@
 import assert from "assert";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { RelayerService } from "../../../services/relayer.service";
-import { EventType, RequestStatus, SupportedChain } from "../../../types";
+import { EventType, ResponseStatus, SupportedChain } from "../../../types";
 import { PostResponseHandledLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
-import { RequestService } from "../../../services/request.service";
+import { ResponseService } from "../../../services/response.service";
 
 /**
  * Handles the PostResponseHandled event from Hyperbridge
@@ -53,9 +53,9 @@ export async function handlePostResponseHandledEvent(
       transaction,
       chain,
     ),
-    await RequestService.updateRequestStatus(
+    await ResponseService.updateResponseStatus(
       commitment,
-      RequestStatus.DEST,
+      ResponseStatus.DEST,
       BigInt(blockNumber),
       transactionHash,
     ),

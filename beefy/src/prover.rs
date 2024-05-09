@@ -176,7 +176,7 @@ where
 					}
 
 					let (mut latest_parachain_height, messages) =
-						self.latest_ismp_message_events().await?;
+						self.latest_ismp_message_events(latest_beefy_header.hash()).await?;
 
 					if messages.is_empty() {
 						continue;
@@ -227,11 +227,9 @@ where
 
 					tracing::info!("Proving finality for messages in the range: {lowest_message_height}..{minimum_height}");
 
-					let (commitment, _) = fetch_latest_beefy_justification(
-						&relay_client,
-						latest_beefy_header.hash(),
-					)
-					.await?;
+					let (commitment, _) =
+						fetch_latest_beefy_justification(&relay_client, latest_beefy_header.hash())
+							.await?;
 					let consensus_proof = self
 						.consensus_proof(commitment.clone(), self.consensus_state.inner.clone())
 						.await?;
@@ -351,26 +349,17 @@ where
 	/// parachain block that was queried.
 	pub async fn latest_ismp_message_events(
 		&self,
+		finalized: R::Hash,
 	) -> Result<(u64, Vec<EventWithMetadata>), anyhow::Error> {
 		let latest_height = self.consensus_state.finalized_parachain_height;
 		let para_id = extract_para_id(self.client.state_machine_id().state_id)?;
-		let finalized_hash = self
-			.prover
-			.inner()
-			.relay
-			.rpc()
-			.request::<R::Hash>("beefy_getFinalizedHead", rpc_params![])
-			.await?;
-
-		let header =
-			query_parachain_header(&self.prover.inner().relay, finalized_hash, para_id).await?;
+		let header = query_parachain_header(&self.prover.inner().relay, finalized, para_id).await?;
 		let finalized_height = header.number.into();
 		if finalized_height <= latest_height {
 			return Ok((latest_height, vec![]));
 		}
 
 		let events = self.query_ismp_events_with_metadata(latest_height, finalized_height).await?;
-
 		let events = events
 			.into_iter()
 			.filter_map(|event| {

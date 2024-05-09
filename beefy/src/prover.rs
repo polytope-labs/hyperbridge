@@ -4,6 +4,7 @@ use crate::{extract_para_id, host::ConsensusProof, rsmq, rsmq::RedisConfig, VALI
 use anyhow::anyhow;
 use beefy_prover::{relay::fetch_latest_beefy_justification, runtime};
 use beefy_verifier_primitives::ConsensusState;
+use bytes::Buf;
 use codec::{Decode, Encode};
 use ethabi::ethereum_types::H256;
 use ethers::abi::AbiEncode;
@@ -12,6 +13,7 @@ use ismp::{
 };
 use ismp_solidity_abi::beefy::BeefyConsensusProof;
 use pallet_ismp_rpc::{BlockNumberOrHash, EventWithMetadata};
+use redis::AsyncCommands;
 use rsmq_async::{Rsmq, RsmqConnection};
 use serde::{Deserialize, Serialize};
 use sp_consensus_beefy::{
@@ -54,15 +56,15 @@ pub struct BeefyProver<R: subxt::Config, P: subxt::Config> {
 	prover: Prover<R, P>,
 	/// Rsmq for interacting with the queue
 	rsmq: Rsmq,
-	/// Config options for redis
-	redis: RedisConfig,
-	/// Minimum height to wait before finalization
-	minimum_finalization_height: u64,
-	/// Consensus state id for the host on the counterparty
-	consensus_state_id: ConsensusStateId,
-	/// State machines we are proving for
-	state_machines: Vec<StateMachine>,
+	/// Prover configuration options
+	config: BeefyProverConfig,
+	/// redis connection for reading and writing consensus state
+	connection: redis::aio::ConnectionManager,
 }
+
+/// Global key in redis for the prover consensus state. The prover will write it's consensus state
+/// to redis as frequently as they change. Ensuring that it can always be rehydrated.
+pub const REDIS_CONSENSUS_STATE_KEY: &'static str = "consensus_state";
 
 impl<R, P> BeefyProver<R, P>
 where
@@ -74,24 +76,32 @@ where
 	P::AccountId: From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + Send + Sync,
 	P::Signature: From<MultiSignature> + Send + Sync,
 {
+	/// Constructs an instance of the [`BeefyProver`]
 	pub async fn new(
 		mut config: BeefyProverConfig,
 		client: SubstrateClient<P>,
-		consensus_state: ProverConsensusState,
 		prover: Prover<R, P>,
 	) -> Result<Self, anyhow::Error> {
-		config.redis.realtime = true;
+		let mut connection = redis::Client::open(redis::ConnectionInfo {
+			addr: redis::ConnectionAddr::Tcp(config.redis.url.clone(), config.redis.port),
+			redis: redis::RedisConnectionInfo {
+				db: config.redis.db as i64,
+				username: config.redis.username.clone(),
+				password: config.redis.password.clone(),
+			},
+		})?
+		.get_connection_manager()
+		.await?;
+		let consensus_state = {
+			let encoded = connection.get::<_, bytes::Bytes>(REDIS_CONSENSUS_STATE_KEY).await?;
+			ProverConsensusState::decode(&mut encoded.chunk())?
+		};
 
-		Ok(BeefyProver {
-			consensus_state,
-			rsmq: rsmq::client(&config.redis).await?,
-			redis: config.redis.clone(),
-			prover,
-			client,
-			state_machines: config.state_machines.clone(),
-			consensus_state_id: config.consensus_state_id.clone(),
-			minimum_finalization_height: config.minimum_finalization_height,
-		})
+		// we want to publish queue notifications from the prover
+		config.redis.realtime = true;
+		let rsmq = rsmq::client(&config.redis).await?;
+
+		Ok(BeefyProver { consensus_state, rsmq, prover, client, config, connection })
 	}
 
 	/// Runs the proving task. Will internally notify the appropriate channels of new epoch
@@ -99,6 +109,7 @@ where
 	pub async fn run(&mut self) {
 		let para_id = extract_para_id(self.client.state_machine_id().state_id)
 			.expect("StateMachine should be either one of Polkadot or Kusama");
+		let relay_client = self.prover.inner().relay.clone();
 
 		loop {
 			let future = async {
@@ -106,17 +117,15 @@ where
 					// tick the interval
 					tokio::time::sleep(Duration::from_secs(10)).await;
 
-					let (update, mut latest_height) = self.query_next_finalized_epoch().await?;
+					let (update, mut latest_beefy_header) =
+						self.query_next_finalized_epoch().await?;
 
 					if let Some((hash, set_id)) = update {
-						// update should always be for the next set
+						// invariant, update should always be for the next set
 						assert_eq!(set_id, self.consensus_state.inner.next_authorities.id);
 						tracing::info!("Got update for next authority set: {set_id}");
 
-						let header = self
-							.prover
-							.inner()
-							.relay
+						let header = relay_client
 							.rpc()
 							.header(Some(hash))
 							.await?
@@ -140,13 +149,14 @@ where
 								set_id,
 								message: ConsensusMessage {
 									consensus_proof,
-									consensus_state_id: self.consensus_state_id,
+									consensus_state_id: self.config.consensus_state_id,
 									signer: H256::random().encode(),
 								},
 							};
 
-							for state_machine in self.state_machines.iter() {
-								let mandatory_queue = self.redis.mandatory_queue(&state_machine);
+							for state_machine in self.config.state_machines.iter() {
+								let mandatory_queue =
+									self.config.redis.mandatory_queue(&state_machine);
 								self.rsmq
 									.send_message(
 										mandatory_queue.as_str(),
@@ -159,13 +169,13 @@ where
 							self.consensus_state.inner.latest_beefy_height =
 								commitment.commitment.block_number;
 							self.rotate_authorities(hash).await?;
-							tracing::info!("New state {:#?}", self.consensus_state);
-							// todo: serialize & push consensus state to redis
-							self.consensus_state.inner.latest_beefy_height = latest_height as u32;
+							self.connection
+								.set(REDIS_CONSENSUS_STATE_KEY, self.consensus_state.encode())
+								.await?;
 						}
 					}
 
-					let (latest_parachain_height, messages) =
+					let (mut latest_parachain_height, messages) =
 						self.latest_ismp_message_events().await?;
 
 					if messages.is_empty() {
@@ -179,50 +189,47 @@ where
 						.meta
 						.block_number;
 
-					let minimum_height = lowest_message_height + self.minimum_finalization_height;
+					let minimum_height =
+						lowest_message_height + self.config.minimum_finalization_height;
 					if minimum_height > latest_parachain_height {
 						tracing::info!(
 							"Waiting for {} blocks before proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}",
 							minimum_height - latest_parachain_height
 						);
 
-						latest_height = loop {
+						loop {
 							tokio::time::sleep(Duration::from_secs(10)).await;
-							let finalized_hash = self
-								.prover
-								.inner()
-								.relay
-								.rpc()
-								.request::<R::Hash>("beefy_getFinalizedHead", rpc_params![])
-								.await?;
-							let header = query_parachain_header(
+							let header = {
+								let hash = relay_client
+									.rpc()
+									.request::<R::Hash>("beefy_getFinalizedHead", rpc_params![])
+									.await?;
+								relay_client
+									.rpc()
+									.header(Some(hash))
+									.await?
+									.ok_or_else(|| anyhow!("Block hash should exist"))?
+							};
+							let para_header = query_parachain_header(
 								&self.prover.inner().relay,
-								finalized_hash,
+								header.hash(),
 								para_id,
 							)
 							.await?;
 
-							if header.number as u64 >= minimum_height {
-								break header.number as u64;
+							if para_header.number as u64 >= minimum_height {
+								latest_beefy_header = header;
+								latest_parachain_height = para_header.number.into();
+								break
 							}
-						};
+						}
 					}
 
 					tracing::info!("Proving finality for messages in the range: {lowest_message_height}..{minimum_height}");
-					let finalized_hash = self
-						.prover
-						.inner()
-						.relay
-						.rpc()
-						.block_hash(Some(latest_height.into()))
-						.await?
-						.ok_or_else(|| {
-							anyhow!("Failed to fetch relay block hash for {latest_height}")
-						})?;
 
 					let (commitment, _) = fetch_latest_beefy_justification(
-						&self.prover.inner().relay,
-						finalized_hash,
+						&relay_client,
+						latest_beefy_header.hash(),
 					)
 					.await?;
 					let consensus_proof = self
@@ -242,11 +249,9 @@ where
 
 					let set_id = {
 						let key = runtime::storage().beefy().validator_set_id();
-						self.prover
-							.inner()
-							.relay
+						relay_client
 							.storage()
-							.at(finalized_hash)
+							.at(latest_beefy_header.hash())
 							.fetch(&key)
 							.await?
 							.expect("Authority set id exists")
@@ -257,14 +262,14 @@ where
 						set_id,
 						message: ConsensusMessage {
 							consensus_proof,
-							consensus_state_id: self.consensus_state_id,
+							consensus_state_id: self.config.consensus_state_id,
 							signer: H256::random().encode(),
 						},
 					};
 
 					// notify all relevant state machines
 					for state_machine in state_machines {
-						let messages_queue = self.redis.messages_queue(&state_machine);
+						let messages_queue = self.config.redis.messages_queue(&state_machine);
 						self.rsmq
 							.send_message(
 								messages_queue.as_str(),
@@ -274,9 +279,12 @@ where
 							.await?;
 					}
 
-					self.consensus_state.inner.latest_beefy_height = latest_height as u32;
+					self.consensus_state.inner.latest_beefy_height =
+						latest_beefy_header.number().into() as u32;
 					self.consensus_state.finalized_parachain_height = latest_parachain_height;
-					// todo: write consensus state to redis
+					self.connection
+						.set(REDIS_CONSENSUS_STATE_KEY, self.consensus_state.encode())
+						.await?;
 				}
 
 				#[allow(unreachable_code)]
@@ -308,6 +316,12 @@ where
 			BeefyNextAuthoritySet::decode(&mut &*next_authority_set)
 				.expect("Should decode next authority set correctly")
 		};
+
+		tracing::info!(
+			"Rotated authority set. Current {}, Next: {}",
+			self.consensus_state.inner.current_authorities.id,
+			self.consensus_state.inner.next_authorities.id,
+		);
 
 		Ok(())
 	}
@@ -401,7 +415,7 @@ where
 	/// by beefy and the last known finalized block.
 	pub async fn query_next_finalized_epoch(
 		&self,
-	) -> Result<(Option<(R::Hash, u64)>, u64), anyhow::Error> {
+	) -> Result<(Option<(R::Hash, u64)>, R::Header), anyhow::Error> {
 		let initial_height = self.consensus_state.inner.latest_beefy_height;
 		let relay_client = self.prover.inner().relay.clone();
 		let from = relay_client
@@ -410,21 +424,24 @@ where
 			.await?
 			.ok_or_else(|| anyhow!("Block hash should exist"))?;
 
-		let finalized = self
-			.prover
-			.inner()
-			.relay
-			.rpc()
-			.request::<R::Hash>("beefy_getFinalizedHead", rpc_params![])
-			.await?;
-		let to = relay_client
-			.rpc()
-			.header(Some(finalized))
-			.await?
-			.ok_or_else(|| anyhow!("Block hash should exist"))?;
+		let header = {
+			let hash = self
+				.prover
+				.inner()
+				.relay
+				.rpc()
+				.request::<R::Hash>("beefy_getFinalizedHead", rpc_params![])
+				.await?;
+			relay_client
+				.rpc()
+				.header(Some(hash))
+				.await?
+				.ok_or_else(|| anyhow!("Block hash should exist"))?
+		};
+
 		let changes = relay_client
 			.rpc()
-			.query_storage(vec![&VALIDATOR_SET_ID_KEY[..]], from, Some(finalized))
+			.query_storage(vec![&VALIDATOR_SET_ID_KEY[..]], from, Some(header.hash()))
 			.await?;
 
 		let mut block_hash_and_set_id = changes
@@ -438,7 +455,7 @@ where
 			})
 			.filter(|(_, set_id)| *set_id >= self.consensus_state.inner.next_authorities.id);
 
-		Ok((block_hash_and_set_id.next(), to.number().into()))
+		Ok((block_hash_and_set_id.next(), header))
 	}
 
 	/// Performs a linear search for the BEEFY justification which finalizes the given epoch
@@ -610,7 +627,7 @@ where
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Decode, Encode)]
 pub struct ProverConsensusState {
 	/// Inner consensus state tracked by the onchain light clients
 	pub inner: ConsensusState,
@@ -647,6 +664,7 @@ pub async fn query_parachain_header<R: subxt::Config>(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use futures::StreamExt;
 	use hex_literal::hex;
 	use ismp::host::StateMachine;
 	use redis_async::client::pubsub_connect;
@@ -656,7 +674,6 @@ mod tests {
 		config::{Blake2SubstrateChain, KeccakSubstrateChain},
 		SubstrateConfig,
 	};
-	use futures::StreamExt;
 
 	#[tokio::test]
 	async fn test_can_produce_proofs() -> Result<(), anyhow::Error> {
@@ -682,7 +699,7 @@ mod tests {
 			consensus_state_id: [0u8; 4],
 			state_machines: vec![],
 		};
-		let prover_consensus_state = ProverConsensusState {
+		let _prover_consensus_state = ProverConsensusState {
 			inner: ConsensusState {
 				latest_beefy_height: 0,
 				beefy_activation_block: 0,
@@ -708,19 +725,18 @@ mod tests {
 			.await?;
 		let _ancient_hash =
 			H256::from(hex!("6b33f31d9a5e46d0d735926a29e2293934db4acb785432af3184ede3107aa7b0"));
-		let consensus_state = prover.query_initial_consensus_state(None).await?;
 
-		let mut prover = BeefyProver::<Blake2SubstrateChain, _>::new(
-			beefy_config,
-			substrate_client,
-			prover_consensus_state,
-			prover,
-		)
-		.await?;
+		// put consensus state into redis here.
+
+		let consensus_state = prover.query_initial_consensus_state(None).await?;
+		let mut prover =
+			BeefyProver::<Blake2SubstrateChain, _>::new(beefy_config, substrate_client, prover)
+				.await?;
 		prover.consensus_state.inner = consensus_state;
 		prover.consensus_state.finalized_parachain_height =
 			query_parachain_header(&relay_chain, finalized_hash, 4009).await?.number as u64;
 
+		// todo: set consensus state on redis
 		prover.run().await;
 
 		Ok(())

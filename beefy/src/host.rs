@@ -16,6 +16,11 @@
 use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
 use std::{pin::Pin, sync::Arc};
+use subxt::{
+	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
+	ext::sp_runtime::MultiSignature,
+};
+use tesseract_substrate::SubstrateClient;
 
 use crate::{prover::Prover, rsmq, rsmq::RedisConfig};
 use futures::{stream::TryStreamExt, Stream, StreamExt};
@@ -51,6 +56,8 @@ where
 	consensus_state_id: ConsensusStateId,
 	/// Consensus prover
 	prover: Prover<R, P>,
+	/// The underlying substrate client
+	client: SubstrateClient<P>,
 }
 
 impl<R, P> BeefyHost<R, P>
@@ -59,7 +66,11 @@ where
 	P: subxt::Config,
 {
 	/// Construct an implementation of the [`BeefyHost`]
-	pub async fn new(mut config: BeefyHostConfig, prover: Prover<R, P>) -> Result<Self, anyhow::Error> {
+	pub async fn new(
+		mut config: BeefyHostConfig,
+		prover: Prover<R, P>,
+		client: SubstrateClient<P>,
+	) -> Result<Self, anyhow::Error> {
 		let mut builder = ConnectionBuilder::new(&config.redis.url, config.redis.port)?;
 		if let Some(ref username) = config.redis.username {
 			builder.username(username.as_str());
@@ -75,6 +86,7 @@ where
 			rsmq: rsmq::client(&config.redis).await?,
 			redis: config.redis,
 			prover,
+			client,
 			consensus_state_id: config.consensus_state_id,
 		})
 	}
@@ -150,18 +162,21 @@ impl Into<RedisBytes> for ConsensusProof {
 #[async_trait::async_trait]
 impl<R, P> IsmpHost for BeefyHost<R, P>
 where
-	R: subxt::Config + Send,
-	P: subxt::Config + Send,
+	R: subxt::Config + Send + Sync + Clone,
+	P: subxt::Config + Send + Sync + Clone,
+	<P::ExtrinsicParams as ExtrinsicParams<P::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<P, PlainTip>>,
+	P::Signature: From<MultiSignature> + Send + Sync,
+	P::AccountId:
+		From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
 {
 	async fn start_consensus(
 		&mut self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		let counterparty_state_machine = counterparty.state_machine_id().state_id;
-		let mandatory_queue =
-			format!("{}-{}", self.redis.mandatory_queue, counterparty_state_machine.to_string());
-		let messages_queue =
-			format!("{}-{}", self.redis.messages_queue, counterparty_state_machine.to_string());
+		let mandatory_queue = self.redis.mandatory_queue(&counterparty_state_machine);
+		let messages_queue = self.redis.messages_queue(&counterparty_state_machine);
 		let mut notifications = self.queue_notifications(counterparty_state_machine).await?;
 
 		// this will yield whenever the prover writes to either the mandatory or messages queue
@@ -317,7 +332,7 @@ where
 	}
 
 	fn provider(&self) -> Arc<dyn IsmpProvider> {
-		todo!()
+		Arc::new(self.client.clone())
 	}
 }
 

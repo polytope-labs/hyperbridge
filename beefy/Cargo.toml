@@ -23,6 +23,8 @@ ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-feature
 derive_more = { version = "1.0.0-beta.6", features = ["display"] }
 sp-runtime = { workspace = true }
 tracing = { workspace = true }
+redis = { version = "0.25.3", features = ["connection-manager", "tokio-comp", "bytes"]}
+bytes = "1.6.0"
 
 # polytope-labs
 pallet-ismp = { workspace = true }

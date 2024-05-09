@@ -23,13 +23,13 @@ use ismp::{
 	events::StateMachineUpdated,
 };
 use sync_committee_primitives::constants::Config;
-use tesseract_primitives::{ByzantineHandler, IsmpHost};
+use tesseract_primitives::{ByzantineHandler, IsmpProvider};
 
 #[async_trait::async_trait]
 impl<T: Config + Send + Sync + 'static> ByzantineHandler for SyncCommitteeHost<T> {
 	async fn check_for_byzantine_attack(
 		&self,
-		counterparty: Arc<dyn IsmpHost>,
+		counterparty: Arc<dyn IsmpProvider>,
 		event: StateMachineUpdated,
 	) -> Result<(), anyhow::Error> {
 		let header = self.el.get_block(event.latest_height).await?.ok_or_else(|| {
@@ -42,16 +42,14 @@ impl<T: Config + Send + Sync + 'static> ByzantineHandler for SyncCommitteeHost<T
 			},
 			height: event.latest_height,
 		};
-		let counterparty_provider = counterparty.provider();
-		let state_machine_commitment =
-			counterparty_provider.query_state_machine_commitment(height).await?;
+		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
 		if state_machine_commitment.state_root != header.state_root {
 			log::info!(
 				"Vetoing State Machine Update for {:?} on {:?}",
 				self.state_machine,
-				counterparty_provider.state_machine_id().state_id
+				counterparty.state_machine_id().state_id
 			);
-			counterparty_provider.veto_state_commitment(height).await?;
+			counterparty.veto_state_commitment(height).await?;
 		}
 		Ok(())
 	}

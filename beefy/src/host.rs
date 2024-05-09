@@ -328,7 +328,6 @@ where
 {
 	async fn check_for_byzantine_attack(
 		&self,
-
 		_counterparty: Arc<dyn IsmpProvider>,
 		_challenge_event: StateMachineUpdated,
 	) -> Result<(), anyhow::Error> {

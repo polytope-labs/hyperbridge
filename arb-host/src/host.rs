@@ -3,21 +3,26 @@ use std::sync::Arc;
 use crate::ArbHost;
 use anyhow::anyhow;
 use ethers::providers::Middleware;
+use futures::StreamExt;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
-	messaging::{ConsensusMessage, CreateConsensusState},
+	messaging::CreateConsensusState,
 };
-use tesseract_primitives::{
-	BoxStream, ByzantineHandler, IsmpHost, IsmpProvider, StateMachineUpdated,
-};
+use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider, StateMachineUpdated};
 
 #[async_trait::async_trait]
 impl IsmpHost for ArbHost {
-	async fn consensus_notification(
+	async fn start_consensus(
 		&self,
-		_counterparty: Arc<dyn IsmpProvider>,
-	) -> Result<BoxStream<ConsensusMessage>, anyhow::Error> {
-		Ok(Box::pin(futures::stream::pending()))
+		counterparty: Arc<dyn IsmpProvider>,
+	) -> Result<(), anyhow::Error> {
+		let mut stream = Box::pin(futures::stream::pending::<()>());
+		while let Some(_) = stream.next().await {}
+		Err(anyhow!(
+			"{}-{} consensus task has failed, Please restart relayer",
+			self.provider().name(),
+			counterparty.name()
+		))
 	}
 
 	async fn query_initial_consensus_state(
@@ -35,7 +40,7 @@ impl IsmpHost for ArbHost {
 impl ByzantineHandler for ArbHost {
 	async fn check_for_byzantine_attack(
 		&self,
-		counterparty: Arc<dyn IsmpHost>,
+		counterparty: Arc<dyn IsmpProvider>,
 		event: StateMachineUpdated,
 	) -> Result<(), anyhow::Error> {
 		let header =
@@ -49,16 +54,14 @@ impl ByzantineHandler for ArbHost {
 			},
 			height: event.latest_height,
 		};
-		let counterparty_provider = counterparty.provider();
-		let state_machine_commitment =
-			counterparty_provider.query_state_machine_commitment(height).await?;
+		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
 		if state_machine_commitment.state_root != header.state_root {
 			log::info!(
 				"Vetoing State Machine Update for {:?} on {:?}",
 				self.evm.state_machine,
-				counterparty_provider.name()
+				counterparty.name()
 			);
-			counterparty_provider.veto_state_commitment(height).await?;
+			counterparty.veto_state_commitment(height).await?;
 		}
 		Ok(())
 	}

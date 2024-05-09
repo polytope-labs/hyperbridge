@@ -63,8 +63,9 @@ async fn handle_notification(
 	while let Some(item) = state_machine_update_stream.next().await {
 		match item {
 			Ok(state_machine_update) => {
-				let res =
-					chain_b.check_for_byzantine_attack(chain_a.clone(), state_machine_update).await;
+				let res = chain_b
+					.check_for_byzantine_attack(chain_a.provider(), state_machine_update)
+					.await;
 				if let Err(err) = res {
 					log::error!("Failed to check for byzantine behavior: {err:?}")
 				}

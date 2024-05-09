@@ -120,7 +120,7 @@
 //!     );
 //!     // Optional merkle mountain range overlay tree, for cheaper outgoing request proofs.
 //!     // You most likely don't need it, just use the `NoOpMmrTree`
-//!     type Mmr = NoOpMmrTree;
+//!     type Mmr = NoOpMmrTree<Runtime>;
 //!     // Weight provider for local modules
 //!     type WeightProvider = ();
 //! }
@@ -194,8 +194,10 @@ pub use pallet::*;
 /// implementation does not panic for any runtime called methods, eg `push` or `finalize`
 /// It will always return the default values for those methods.
 ///
+/// Additionally this implementation stores the requests and responses directly inside the offchain
+/// db using the commitment as the offchain key
 /// *NOTE* it will return an error if you try to generate proofs.
-pub type NoOpMmrTree = NoOpTree<Leaf>;
+pub type NoOpMmrTree<T> = NoOpTree<Leaf, Pallet<T>>;
 
 // Definition of the pallet logic, to be aggregated at runtime definition through
 // `construct_runtime`.

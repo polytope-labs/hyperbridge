@@ -19,7 +19,7 @@ network:
 dataSources:
   # EthereumHost contract
   - kind: ethereum/Runtime
-    startBlock: 8906802
+    startBlock: 11389808
     options:
       abi: ethereumHost
       address: "0x27D689e361ab92aCab04Ea21c1B3F507A94a9DAd"
@@ -97,7 +97,7 @@ dataSources:
 
   # Handler Contract
   - kind: ethereum/Runtime
-    startBlock: 8906802
+    startBlock: 11389808
     options:
       abi: handlerV1
       address: "0x7037150EA7011E44488c282609870ef41ae7903d"

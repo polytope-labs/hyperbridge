@@ -20,7 +20,7 @@ network:
 dataSources:
   # EthereumHost contract
   - kind: ethereum/Runtime
-    startBlock: 5780907
+    startBlock: 5816177
     options:
       abi: ethereumHost
       address: "0x92F217a5e965EAa2aD356678D537A0A9ccC0AF41"

@@ -77,9 +77,11 @@ where
 			builder.password(password.as_str());
 		}
 		let pubsub = builder.pubsub_connect().await?;
-
+		// we will not be pushing messages to the queue in the host
 		config.redis.realtime = false;
-		Ok(BeefyHost { pubsub, rsmq: rsmq::client(&config.redis).await?, prover, client, config })
+		let rsmq = rsmq::client(&config.redis).await?;
+
+		Ok(BeefyHost { pubsub, rsmq, prover, client, config })
 	}
 
 	/// Construct notifications for the queue for the given counterparty state machine.

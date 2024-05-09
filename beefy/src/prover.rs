@@ -24,7 +24,7 @@ use subxt::{
 	rpc_params, OnlineClient,
 };
 use tesseract_primitives::IsmpProvider;
-use tesseract_substrate::{SubstrateClient, SubstrateConfig};
+use tesseract_substrate::SubstrateClient;
 
 use zk_beefy::Network;
 
@@ -558,7 +558,10 @@ mod tests {
 	use redis_async::client::pubsub_connect;
 	use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
 	use substrate_state_machine::HashAlgorithm;
-	use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
+	use tesseract_substrate::{
+		config::{Blake2SubstrateChain, KeccakSubstrateChain},
+		SubstrateConfig,
+	};
 
 	#[tokio::test]
 	async fn test_can_produce_proofs() -> Result<(), anyhow::Error> {
@@ -578,9 +581,7 @@ mod tests {
 			u32::MAX,
 		)
 		.await?;
-		let beefy_config = BeefyProverConfig {
-			minimum_finalization_height: 25,
-		};
+		let beefy_config = BeefyProverConfig { minimum_finalization_height: 25 };
 		let prover_consensus_state = ProverConsensusState {
 			inner: ConsensusState {
 				latest_beefy_height: 0,

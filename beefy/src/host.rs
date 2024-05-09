@@ -18,7 +18,7 @@ use codec::{Decode, Encode};
 use std::sync::Arc;
 
 use crate::prover::Prover;
-use futures::{stream::TryStreamExt, StreamExt, TryFutureExt};
+use futures::{stream::TryStreamExt, StreamExt};
 use ismp::{
 	consensus::ConsensusStateId,
 	events::StateMachineUpdated,

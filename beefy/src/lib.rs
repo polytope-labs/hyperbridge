@@ -13,27 +13,14 @@
 // limitations under the License.
 
 use anyhow::anyhow;
-use beefy_prover::{
-	relay::{fetch_latest_beefy_justification, fetch_next_beefy_justification},
-	runtime::{self},
-};
-use beefy_verifier_primitives::ConsensusState;
-use codec::Decode;
-use ismp::{consensus::ConsensusStateId, host::StateMachine, messaging::ConsensusMessage};
-use prover::Prover;
+use ismp::host::StateMachine;
 use serde::{Deserialize, Serialize};
-use sp_core::H160;
-use sp_runtime::traits::Keccak256;
-use std::{sync::Arc, time::Duration};
-use subxt::{config::Header, ext::sp_runtime::traits::Zero};
-use tesseract_primitives::IsmpProvider;
-use tesseract_substrate::{SubstrateClient, SubstrateConfig};
-use tokio::{sync::broadcast, time};
+
 pub use zk_beefy::Network;
 
 // mod byzantine;
-mod host;
-mod prover;
+pub mod host;
+pub mod prover;
 
 const VALIDATOR_SET_ID_KEY: [u8; 32] =
 	hex_literal::hex!("08c41974a97dbf15cfbec28365bea2da8f05bccc2f70ec66a32999c5761156be");
@@ -55,35 +42,4 @@ pub(crate) fn extract_para_id(state_machine: StateMachine) -> Result<u32, anyhow
 	};
 
 	Ok(para_id)
-}
-
-async fn highest_consensus_state(
-	clients: &[Arc<dyn IsmpProvider>],
-) -> Result<ConsensusState, anyhow::Error> {
-	let mut consensus_states = vec![];
-	for client in clients {
-		match client
-			.query_consensus_state(None, client.state_machine_id().consensus_state_id.clone())
-			.await
-		{
-			Ok(cs_state) => {
-				let consensus_state = ConsensusState::decode(&mut &cs_state[..])
-					.expect("Consensus state should always decode correctly");
-				consensus_states.push(consensus_state);
-			},
-
-			Err(_) => {
-				log::error!(
-					"Failed to fetch consensus state for {:?} in beefy prover",
-					client.state_machine_id().state_id
-				)
-			},
-		}
-	}
-
-	let max = consensus_states
-		.into_iter()
-		.max_by(|a, b| a.latest_beefy_height.cmp(&b.latest_beefy_height))
-		.ok_or_else(|| anyhow!("No consensus state found for all clients"))?;
-	Ok(max)
 }

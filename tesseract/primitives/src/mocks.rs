@@ -67,7 +67,7 @@ impl<C: Codec + Send + Sync> ByzantineHandler for MockHost<C> {
 
 #[async_trait::async_trait]
 impl<C: Codec + Send + Sync> IsmpHost for MockHost<C> {
-	async fn start_consensus(&mut self, _counterparty: Arc<dyn IsmpProvider>) -> Result<(), Error> {
+	async fn start_consensus(&self, _counterparty: Arc<dyn IsmpProvider>) -> Result<(), Error> {
 		Ok(())
 	}
 

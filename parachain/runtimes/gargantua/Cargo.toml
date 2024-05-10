@@ -216,7 +216,3 @@ try-runtime = [
 	"parachain-info/try-runtime",
 	"pallet-assets/runtime-benchmarks"
 ]
-async-backing = [
-	"pallet-aura/experimental"
-]
-

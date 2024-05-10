@@ -6960,7 +6960,7 @@ dependencies = [
 
 [[package]]
 name = "ismp"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "derive_more",
  "hex",
@@ -6993,7 +6993,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-parachain"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "cumulus-primitives-core",
@@ -7017,7 +7017,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7037,7 +7037,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-runtime-api"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "sp-api",
@@ -10642,7 +10642,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyperbridge"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -10807,7 +10807,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-rpc"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "frame-system",
@@ -10835,7 +10835,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-runtime-api"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "ismp",
  "pallet-ismp",
@@ -13771,7 +13771,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19de2de2a00075bf566bee3bd4db014b11587e84184d3f7a791bc17f1a8e9e48"
 dependencies = [
  "anyhow",
- "itertools 0.11.0",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.60",
@@ -16457,9 +16457,9 @@ dependencies = [
 
 [[package]]
 name = "sc-simnode"
-version = "1.6.2"
+version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55d290526deddb819a41c068a4086e8195fcb8b717bf541404c414c79fea57a9"
+checksum = "3319fa8d3c56c89a4b123eeadc7b3b0910b6809f8d7d8aeca8402b3e676e7915"
 dependencies = [
  "async-trait",
  "clap",
@@ -19649,7 +19649,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "frame-support",
  "hash-db",

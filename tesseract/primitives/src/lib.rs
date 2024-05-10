@@ -344,7 +344,7 @@ pub trait IsmpHost: ByzantineHandler + Send + Sync {
 	/// they like. This method should never return unless it encounters an unrecoverable error, in
 	/// which case the consensus relayer will be shut down.
 	async fn start_consensus(
-		&mut self,
+		&self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error>;
 

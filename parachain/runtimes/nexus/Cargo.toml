@@ -169,7 +169,7 @@ std = [
 	"orml-xcm-support/std",
 	"orml-traits/std",
 	"pallet-mmr-runtime-api/std",
-	"sp-mmr-primitives/std", 
+	"sp-mmr-primitives/std",
 	"simnode-runtime-api/std"
 ]
 
@@ -216,7 +216,4 @@ try-runtime = [
 	"pallet-transaction-payment/try-runtime",
 	"pallet-xcm/try-runtime",
 	"parachain-info/try-runtime",
-]
-async-backing = [
-	"pallet-aura/experimental"
 ]

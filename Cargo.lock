@@ -10642,7 +10642,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-hyperbridge"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -19649,7 +19649,7 @@ dependencies = [
 
 [[package]]
 name = "substrate-state-machine"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "frame-support",
  "hash-db",

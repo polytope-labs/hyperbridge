@@ -10,4 +10,5 @@ cargo release \
 -p substrate-state-machine \
 -p ismp-parachain \
 -p ismp-parachain-runtime-api \
--p ismp-parachain-inherent --execute
+-p ismp-parachain-inherent \
+--execute

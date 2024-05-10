@@ -6,6 +6,9 @@ description = "Chain agnostic relayer implementation for Hyperbridge"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
+[package.metadata.dist]
+dist = true
+
 [dependencies]
 tesseract-substrate = { workspace = true }
 tesseract-primitives = { workspace = true }

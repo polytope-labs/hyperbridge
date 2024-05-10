@@ -1,3 +1,17 @@
+// Copyright (C) 2023 Polytope Labs.
+// SPDX-License-Identifier: Apache-2.0
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::{collections::HashMap, time::Duration};
 
 use crate::{extract_para_id, host::ConsensusProof, rsmq, rsmq::RedisConfig, VALIDATOR_SET_ID_KEY};
@@ -125,7 +139,7 @@ where
 					if let Some((epoch_change_block_hash, next_set_id)) = update {
 						// invariant, update should always be for the next set
 						assert_eq!(next_set_id, self.consensus_state.inner.next_authorities.id);
-						tracing::info!("Got update for next authority set: {next_set_id}");
+						tracing::info!("Next authority set: {next_set_id}");
 
 						let epoch_change_header = relay_client
 							.rpc()
@@ -137,7 +151,7 @@ where
 							.await?
 						{
 							tracing::info!(
-								"Fetched justification: {:?} for next authority set {next_set_id}",
+								"Fetched next authority set justification: {:?}",
 								commitment.commitment
 							);
 							let consensus_proof = self
@@ -697,20 +711,18 @@ mod tests {
 		// set up tracing
 		setup_logging()?;
 
-		tracing::info!("Creating substrate client");
 		let substrate_config = SubstrateConfig {
 			state_machine: StateMachine::Kusama(4009),
 			hashing: Some(HashAlgorithm::Keccak),
 			consensus_state_id: None,
 			// rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
-			rpc_ws: "ws://localhost:9901".to_string(),
+			rpc_ws: "ws://localhost:9902".to_string(),
 			max_rpc_payload_size: None,
 			signer: None,
 			latest_height: None,
 		};
 		let substrate_client =
 			SubstrateClient::<KeccakSubstrateChain>::new(substrate_config.clone()).await?;
-		tracing::info!("Created substrate client");
 
 		let prover_config = ProverConfig {
 			relay_rpc_ws: "wss://hyperbridge-paseo-relay.blockops.network:443".to_string(),
@@ -720,7 +732,6 @@ mod tests {
 			max_rpc_payload_size: None,
 		};
 		let prover = Prover::new(prover_config).await?;
-		tracing::info!("Created prover");
 
 		let redis = RedisConfig {
 			db: 0,
@@ -751,7 +762,6 @@ mod tests {
 		};
 		let beefy_host =
 			BeefyHost::new(beefy_host_config, prover.clone(), substrate_client.clone()).await?;
-		tracing::info!("Created BeefyHost");
 
 		// create all the queues
 		for state_machine in beefy_config.state_machines.iter() {
@@ -818,7 +828,7 @@ mod tests {
 			let _ancient_hash = H256::from(hex!(
 				"6b33f31d9a5e46d0d735926a29e2293934db4acb785432af3184ede3107aa7b0"
 			));
-			let prover_consensus_state =
+			let mut prover_consensus_state =
 				prover.query_initial_consensus_state(Some(_ancient_hash)).await?;
 			let mut connection = redis::Client::open(redis::ConnectionInfo {
 				addr: redis::ConnectionAddr::Tcp(redis.url.clone(), redis.port),
@@ -830,6 +840,8 @@ mod tests {
 			})?
 			.get_connection_manager()
 			.await?;
+			prover_consensus_state.finalized_parachain_height =
+				prover.inner().para.rpc().header(None).await?.unwrap().number.into();
 			connection
 				.set(REDIS_CONSENSUS_STATE_KEY, prover_consensus_state.encode())
 				.await?;
@@ -842,7 +854,6 @@ mod tests {
 			prover.clone(),
 		)
 		.await?;
-		tracing::info!("Created BeefyProver");
 
 		// spawn prover
 		tokio::spawn(async move { beefy_prover.run().await });

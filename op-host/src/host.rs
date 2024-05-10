@@ -14,7 +14,7 @@ use crate::OpHost;
 #[async_trait::async_trait]
 impl IsmpHost for OpHost {
 	async fn start_consensus(
-		&self,
+		&mut self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		let mut stream = Box::pin(futures::stream::pending::<()>());

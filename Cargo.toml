@@ -7,9 +7,9 @@ members = [
     "beefy/zk",
     "bsc",
     "fisherman",
-    # "integration-tests",
+    "integration-tests",
     "sync-committee",
-    # "relayer", 
+    # "relayer",
     # "relayer-fisherman"
 ]
 
@@ -82,6 +82,3 @@ tesseract-bsc = { path = "./bsc" }
 tesseract-fisherman = { path = "./fisherman" }
 tesseract-integration-tests = { path = "./integration-tests" }
 tesseract = { path = "./relayer" }
-
-
-

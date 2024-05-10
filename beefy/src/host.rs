@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider};
 use tokio::sync::Mutex;
 
+/// Configuration parameters for the [`BeefyHost`]
 #[derive(Serialize, Deserialize)]
 pub struct BeefyHostConfig {
 	/// Redis configuration for message queues
@@ -44,6 +45,8 @@ pub struct BeefyHostConfig {
 	pub consensus_state_id: ConsensusStateId,
 }
 
+/// The beefy host is responsible for receiving BEEFY proofs from the redis queue and submitting
+/// them to the counterparty.
 pub struct BeefyHost<R, P>
 where
 	R: subxt::Config,

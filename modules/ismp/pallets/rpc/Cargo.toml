@@ -1,6 +1,6 @@
 [package]
 name = "pallet-ismp-rpc"
-version = "1.6.1"
+version = "1.6.2"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"

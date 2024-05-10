@@ -6960,7 +6960,7 @@ dependencies = [
 
 [[package]]
 name = "ismp"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "derive_more",
  "hex",
@@ -6993,7 +6993,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-parachain"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "cumulus-primitives-core",
@@ -7017,7 +7017,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7037,7 +7037,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-runtime-api"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "cumulus-pallet-parachain-system",
  "sp-api",
@@ -10807,7 +10807,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-rpc"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "frame-system",
@@ -10835,7 +10835,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp-runtime-api"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "ismp",
  "pallet-ismp",

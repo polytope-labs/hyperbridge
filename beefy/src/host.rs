@@ -32,8 +32,11 @@ use ismp::{
 };
 use redis_async::client::{ConnectionBuilder, PubsubConnection};
 use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqMessage};
+use serde::{Deserialize, Serialize};
 use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider};
+use tokio::sync::Mutex;
 
+#[derive(Serialize, Deserialize)]
 pub struct BeefyHostConfig {
 	/// Redis configuration for message queues
 	pub redis: RedisConfig,
@@ -49,7 +52,7 @@ where
 	/// PubSub connection for receiving notifications when there are new proofs in the queueu
 	pubsub: PubsubConnection,
 	/// Rsmq for interacting with the queue
-	rsmq: Rsmq,
+	pub(crate) rsmq: Arc<Mutex<Rsmq>>,
 	/// Host configuration options
 	config: BeefyHostConfig,
 	/// Consensus prover
@@ -79,7 +82,7 @@ where
 		let pubsub = builder.pubsub_connect().await?;
 		// we will not be pushing messages to the queue in the host
 		config.redis.realtime = false;
-		let rsmq = rsmq::client(&config.redis).await?;
+		let rsmq = Arc::new(Mutex::new(rsmq::client(&config.redis).await?));
 
 		Ok(BeefyHost { pubsub, rsmq, prover, client, config })
 	}
@@ -182,14 +185,18 @@ where
 					notifications =
 						self.queue_notifications(counterparty.state_machine_id().state_id).await?;
 				}
-				continue
+				continue;
 			};
 
 			if *message == StreamMessage::EpochChanged {
 				// try to consume all mandatory updates
 				loop {
-					let item =
-						self.rsmq.receive_message::<ConsensusProof>(&mandatory_queue, None).await;
+					let item = self
+						.rsmq
+						.lock()
+						.await
+						.receive_message::<ConsensusProof>(&mandatory_queue, None)
+						.await;
 
 					let RsmqMessage { id, message: ConsensusProof { message, set_id, .. }, .. } =
 						match item {
@@ -201,7 +208,7 @@ where
 									"Error pulling from queue {mandatory_queue}: {err:?}"
 								);
 								// non-fatal error, keep trying
-								continue
+								continue;
 							},
 						};
 
@@ -217,7 +224,7 @@ where
 							"Consensus proof with set_id: {set_id} does not match next_set_id:{}",
 							consensus_state.next_authorities.id
 						);
-						continue
+						continue;
 					}
 
 					if let Err(err) = counterparty.submit(vec![Message::Consensus(message)]).await {
@@ -226,16 +233,21 @@ where
 							counterparty.name()
 						);
 						// non-fatal error, keep trying. This will pull it from the queue once more
-						continue
+						continue;
 					};
 
-					self.rsmq.delete_message(&mandatory_queue, &id).await?; // this would be a fatal error
+					self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal error
 				}
 			}
 
 			// must be for a new message, try to consume all updates.
 			loop {
-				let item = self.rsmq.receive_message::<ConsensusProof>(&messages_queue, None).await;
+				let item = self
+					.rsmq
+					.lock()
+					.await
+					.receive_message::<ConsensusProof>(&messages_queue, None)
+					.await;
 
 				let RsmqMessage {
 					id,
@@ -247,7 +259,7 @@ where
 					Err(err) => {
 						tracing::error!("Error pulling from queue {mandatory_queue}: {err:?}");
 						// non-fatal error, keep trying
-						continue
+						continue;
 					},
 				};
 
@@ -264,8 +276,8 @@ where
 						consensus_state.latest_beefy_height
 					);
 					// delete the message and pull another one
-					self.rsmq.delete_message(&messages_queue, &id).await?; // this would be a fatal error
-					continue
+					self.rsmq.lock().await.delete_message(&messages_queue, &id).await?; // this would be a fatal error
+					continue;
 				}
 
 				if set_id != consensus_state.current_authorities.id &&
@@ -283,15 +295,14 @@ where
 							consensus_state.next_authorities.id,
 						);
 						// break so that we can process a mandatory update
-						break
+						break;
 					} else if set_id < consensus_state.current_authorities.id {
 						tracing::info!(
 							"Proof was for older set: {set_id}, current: {}",
 							consensus_state.current_authorities.id,
 						);
-						self.rsmq.delete_message(&mandatory_queue, &id).await?; // this would be a fatal error
-														// move on to the next proof
-						continue
+						self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal error
+						continue; // move on to the next proof
 					}
 				}
 
@@ -301,20 +312,21 @@ where
 						counterparty.name()
 					);
 					// non-fatal error, keep trying. This will pull it from the queue once more
-					continue
+					continue;
 				};
 
-				self.rsmq.delete_message(&mandatory_queue, &id).await?; // this would be a fatal error
+				self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal error
 			}
 		}
 
 		Ok(())
 	}
 
+	/// Queries the consensus state at the latest height
 	async fn query_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error> {
-		let consensus_state = self.prover.query_initial_consensus_state(None).await?;
+		let consensus_state = self.prover.query_initial_consensus_state(None).await?.inner;
 
 		Ok(Some(CreateConsensusState {
 			consensus_state: consensus_state.encode(),

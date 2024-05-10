@@ -43,7 +43,6 @@ pub async fn client(config: &RedisConfig) -> Result<Rsmq, anyhow::Error> {
 		password: config.password.clone(),
 		db: config.db.clone(),
 		ns: config.ns.clone(),
-		// we will not be publishing messages here
 		realtime: config.realtime,
 	};
 	let rsmq = Rsmq::new(options).await?;

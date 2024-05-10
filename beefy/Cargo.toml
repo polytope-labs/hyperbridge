@@ -23,6 +23,7 @@ ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-feature
 derive_more = { version = "1.0.0-beta.6", features = ["display"] }
 sp-runtime = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 redis = { version = "0.25.3", features = ["connection-manager", "tokio-comp", "bytes"]}
 bytes = "1.6.0"
 
@@ -47,3 +48,7 @@ tesseract-primitives = { workspace = true  }
 zk-beefy = { path = "zk" }
 rsmq_async = "9.0.0"
 redis-async = "0.17.1"
+
+[features]
+# a feature that tells the tests to write a new consensus state
+new-consensus-state = []

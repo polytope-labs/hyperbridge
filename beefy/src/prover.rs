@@ -828,9 +828,8 @@ mod tests {
 			let _ancient_hash = H256::from(hex!(
 				"6b33f31d9a5e46d0d735926a29e2293934db4acb785432af3184ede3107aa7b0"
 			));
-			let mut prover_consensus_state =
-				prover.query_initial_consensus_state(Some(_ancient_hash)).await?;
-			let mut connection = redis::Client::open(redis::ConnectionInfo {
+			let mut prover_consensus_state = prover.query_initial_consensus_state(None).await?;
+			let connection = redis::Client::open(redis::ConnectionInfo {
 				addr: redis::ConnectionAddr::Tcp(redis.url.clone(), redis.port),
 				redis: redis::RedisConnectionInfo {
 					db: redis.db as i64,
@@ -840,8 +839,6 @@ mod tests {
 			})?
 			.get_connection_manager()
 			.await?;
-			prover_consensus_state.finalized_parachain_height =
-				prover.inner().para.rpc().header(None).await?.unwrap().number.into();
 			connection
 				.set(REDIS_CONSENSUS_STATE_KEY, prover_consensus_state.encode())
 				.await?;

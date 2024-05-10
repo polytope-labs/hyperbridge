@@ -63,7 +63,7 @@ impl Cli {
 			log::info!("Initialized consensus states");
 		}
 
-		for (_, client) in _client_map {
+		for (_, client) in _client_map.clone() {
 			let hyperbridge = hyperbridge_config
 				.clone()
 				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
@@ -82,7 +82,6 @@ impl Cli {
 		}
 
 		if relayer.fisherman.unwrap_or(true) {
-			let _client_map = create_client_map(config.clone()).await?;
 			for (_, client) in _client_map.iter() {
 				let hyperbridge = hyperbridge_config
 					.clone()

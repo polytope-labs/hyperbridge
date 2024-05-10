@@ -8,7 +8,7 @@ import { ChainLinkAggregatorV3Abi__factory } from "../types/contracts";
  */
 export const getNativeCurrencyPrice = async (
   chain: SupportedChain,
-): Promise<number> => {
+): Promise<bigint> => {
   let priceFeedAddress = "";
   switch (chain) {
     case SupportedChain.ETHEREUM_SEPOLIA:
@@ -29,7 +29,7 @@ export const getNativeCurrencyPrice = async (
 
   const roundData = await priceFeedContract.latestRoundData();
   const decimals = await priceFeedContract.decimals();
-  const price = roundData.answer.toNumber() / Math.pow(10, Number(decimals));
+  const price = roundData.answer.toBigInt() / BigInt(10 ** decimals);
 
   return price;
 };

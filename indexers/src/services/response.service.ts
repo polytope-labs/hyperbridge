@@ -1,11 +1,5 @@
 import { solidityKeccak256 } from "ethers/lib/utils";
-import {
-  Request,
-  ResponseStatus,
-  Response,
-  ResponseStatusMetadata,
-  SupportedChain,
-} from "../types";
+import { Request, ResponseStatus, Response, SupportedChain } from "../types";
 
 export interface ICreateResponseArgs {
   chain: SupportedChain;
@@ -14,6 +8,18 @@ export interface ICreateResponseArgs {
   status: ResponseStatus;
   responseTimeoutTimestamp: bigint;
   request: Request;
+  blockNumber: string;
+  transactionHash: string;
+  blockTimestamp: bigint;
+}
+
+export interface IUpdateResponseStatusArgs {
+  commitment: string;
+  status: ResponseStatus;
+  blockNumber: string;
+  transactionHash: string;
+  blockTimestamp: bigint;
+  chain: SupportedChain;
 }
 
 export class ResponseService {
@@ -28,6 +34,9 @@ export class ResponseService {
       response_message,
       responseTimeoutTimestamp,
       status,
+      blockNumber,
+      blockTimestamp,
+      transactionHash,
     } = args;
     let response = await Response.get(commitment);
 
@@ -39,6 +48,15 @@ export class ResponseService {
         requestId: request.id,
         status,
         responseTimeoutTimestamp,
+        statusMetadata: [
+          {
+            status,
+            chain: chain,
+            timestamp: blockTimestamp,
+            blockNumber,
+            transactionHash,
+          },
+        ],
       });
 
       await response.save();
@@ -48,84 +66,33 @@ export class ResponseService {
   }
 
   /**
-   * Finds a response metadata enitity and creates a new one if it doesn't exist
+   * Update the status of a response
+   * Also adds a new entry to the response status metadata
    */
-  static async findOrCreateMetadata(
-    response_commitment: string,
-    sourceBlockNumber?: bigint,
-    sourceBlockTransaction?: string,
-    messageRelayedTransactionHash?: string,
-    destFinalizedTransactionHash?: string,
-    deliveryTransactionHash?: string,
-  ): Promise<ResponseStatusMetadata> {
-    let responseMetadata =
-      await ResponseStatusMetadata.get(response_commitment);
+  static async updateStatus(args: IUpdateResponseStatusArgs): Promise<void> {
+    const {
+      commitment,
+      blockNumber,
+      blockTimestamp,
+      status,
+      transactionHash,
+      chain,
+    } = args;
 
-    if (typeof responseMetadata === "undefined") {
-      responseMetadata = ResponseStatusMetadata.create({
-        id: response_commitment,
-        sourceBlockNumber: sourceBlockNumber ? sourceBlockNumber : BigInt(0),
-        sourceBlockTransaction: sourceBlockTransaction
-          ? sourceBlockTransaction
-          : "",
-        messageRelayedTransactionHash: messageRelayedTransactionHash
-          ? messageRelayedTransactionHash
-          : "",
-        destFinalizedTransactionHash: destFinalizedTransactionHash
-          ? destFinalizedTransactionHash
-          : "",
-        deliveryTransactionHash: deliveryTransactionHash
-          ? deliveryTransactionHash
-          : "",
-      });
-
-      await responseMetadata.save();
-    }
-
-    return responseMetadata;
-  }
-
-  /**
-   * Update the status of a response and response metadata
-   */
-  static async updateResponseStatus(
-    response_commitment: string,
-    status: ResponseStatus,
-    sourceBlockNumber?: bigint,
-    sourceBlockTransaction?: string,
-    messageRelayedTransactionHash?: string,
-    destFinalizedTransactionHash?: string,
-    deliveryTransactionHash?: string,
-  ): Promise<void> {
-    let response = await Response.get(response_commitment);
-    let responseMetadata =
-      await ResponseService.findOrCreateMetadata(response_commitment);
+    let response = await Response.get(commitment);
 
     if (response) {
       response.status = status;
-      sourceBlockNumber
-        ? (responseMetadata.sourceBlockNumber = sourceBlockNumber)
-        : "";
-      sourceBlockTransaction
-        ? (responseMetadata.sourceBlockTransaction = sourceBlockTransaction)
-        : "";
-      messageRelayedTransactionHash
-        ? (responseMetadata.messageRelayedTransactionHash =
-            messageRelayedTransactionHash)
-        : "";
-      destFinalizedTransactionHash
-        ? (responseMetadata.destFinalizedTransactionHash =
-            destFinalizedTransactionHash)
-        : "";
-      deliveryTransactionHash
-        ? (responseMetadata.deliveryTransactionHash = deliveryTransactionHash)
-        : "";
-
-      await response.save();
-      await responseMetadata.save();
+      response.statusMetadata.push({
+        blockNumber,
+        chain,
+        status,
+        timestamp: blockTimestamp,
+        transactionHash,
+      });
     } else {
-      logger.info(
-        `Attempted to update status of non-existent response with commitment: ${response_commitment} in transaction: ${sourceBlockTransaction}`,
+      logger.error(
+        `Attempted to update status of non-existent response with commitment: ${commitment} in transaction: ${transactionHash}`,
       );
     }
   }

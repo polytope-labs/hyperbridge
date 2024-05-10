@@ -10,7 +10,7 @@ export async function handlePostRequestTransactionHandler(
   transaction: HandlePostRequestsTransaction,
 ): Promise<void> {
   logger.info(
-    `New handlePostRequest trnasaction at block ${transaction.blockNumber}`,
+    `New handlePostRequest transaction at block ${transaction.blockNumber}`,
   );
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);

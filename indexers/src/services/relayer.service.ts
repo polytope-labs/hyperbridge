@@ -1,16 +1,8 @@
 import { EthereumResult, EthereumTransaction } from "@subql/types-ethereum";
 import { SupportedChain } from "../types/enums";
 import { Relayer, Transfer } from "../types/models";
-import {
-  convertArrayToEnumListString,
-  convertEnumListStringToArray,
-} from "../utils/enum.helpers";
 import { RelayerChainStatsService } from "./relayerChainStats.service";
 import { getNativeCurrencyPrice } from "../utils/price.helpers";
-import {
-  PostRequestEventLog,
-  PostResponseEventLog,
-} from "../types/abi-interfaces/EthereumHostAbi";
 import {
   HandlePostRequestsTransaction,
   HandlePostResponsesTransaction,
@@ -29,9 +21,7 @@ export class RelayerService {
     if (typeof relayer === "undefined") {
       relayer = Relayer.create({
         id: relayer_id,
-        chains: convertArrayToEnumListString([
-          chain,
-        ]) as unknown as SupportedChain[],
+        chains: [chain],
         totalNumberOfMessagesSent: BigInt(0),
         totalFeesEarned: BigInt(0),
       });
@@ -70,22 +60,18 @@ export class RelayerService {
    * Update the list of networks supported by a relayer.
    * This fn does not save the relayer to the store. It is the responsibility of the caller to save the relayer after calling this fn.
    *
-   * @note All of the weird data type casting for relayer.networks is due to a limitation in SubQuery's datastore handling of arrays of enums
-   *       See https://stackoverflow.com/questions/18234946/postgresql-insert-into-an-array-of-enums
    */
   static updateRelayerNetworksList(
     relayer: Relayer,
     chain: SupportedChain,
   ): Relayer {
-    let chains_list = convertEnumListStringToArray(`${relayer.chains}`);
+    let chains_list = relayer.chains;
 
     if (!chains_list.includes(chain)) {
       chains_list.push(chain);
     }
 
-    relayer.chains = convertArrayToEnumListString(
-      chains_list,
-    ) as unknown as SupportedChain[];
+    relayer.chains = chains_list;
 
     return relayer;
   }
@@ -99,10 +85,11 @@ export class RelayerService {
     chain: SupportedChain,
   ): Promise<void> {
     const { gasUsed, effectiveGasPrice } = await transaction.receipt();
-    const ethPriceInUsd = await getNativeCurrencyPrice(chain);
+    const nativeCurrencyPrice = await getNativeCurrencyPrice(chain);
 
     const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
-    const usdFee = gasFee * BigInt(ethPriceInUsd);
+    const gasFeeInEth = Number(gasFee) / Number(BigInt(10 ** 18));
+    const usdFee = gasFeeInEth * Number(nativeCurrencyPrice);
 
     const relayer = await RelayerService.findOrCreate(relayer_id, chain);
     let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
@@ -116,7 +103,7 @@ export class RelayerService {
     relayer_chain_stats.numberOfSuccessfulMessagesSent += BigInt(1);
     relayer_chain_stats.gasUsedForSuccessfulMessages += BigInt(gasUsed);
     relayer_chain_stats.gasFeeForSuccessfulMessages += BigInt(gasFee);
-    relayer_chain_stats.usdGasFeeForSuccessfulMessages += BigInt(usdFee);
+    relayer_chain_stats.usdGasFeeForSuccessfulMessages += usdFee;
 
     Promise.all([await relayer_chain_stats.save(), await relayer.save()]);
   }
@@ -133,10 +120,11 @@ export class RelayerService {
 
     if (status === false) {
       const { gasUsed, effectiveGasPrice } = await transaction.receipt();
-      const ethPriceInUsd = await getNativeCurrencyPrice(chain);
+      const nativeCurrencyPrice = await getNativeCurrencyPrice(chain);
 
       const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
-      const usdFee = gasFee * BigInt(ethPriceInUsd);
+      const gasFeeInEth = Number(gasFee) / Number(BigInt(10 ** 18));
+      const usdFee = gasFeeInEth * Number(nativeCurrencyPrice);
 
       const relayer = await RelayerService.findOrCreate(relayer_id, chain);
       let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
@@ -150,7 +138,7 @@ export class RelayerService {
       relayer_chain_stats.numberOfFailedMessagesSent += BigInt(1);
       relayer_chain_stats.gasUsedForFailedMessages += BigInt(gasUsed);
       relayer_chain_stats.gasFeeForFailedMessages += BigInt(gasFee);
-      relayer_chain_stats.usdGasFeeForFailedMessages += BigInt(usdFee);
+      relayer_chain_stats.usdGasFeeForFailedMessages += usdFee;
 
       Promise.all([await relayer_chain_stats.save(), await relayer.save()]);
     }

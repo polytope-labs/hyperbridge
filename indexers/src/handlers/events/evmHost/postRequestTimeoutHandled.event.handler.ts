@@ -44,11 +44,13 @@ export async function handlePostRequestTimeoutHandledEvent(
       chain,
     ),
     await HyperBridgeService.incrementNumberOfTimedOutMessagesSent(chain),
-    await RequestService.updateRequestStatus(
+    await RequestService.updateStatus({
       commitment,
-      RequestStatus.TIMED_OUT,
-      BigInt(blockNumber),
+      chain,
+      blockNumber: blockNumber.toString(),
+      blockTimestamp: block.timestamp,
+      status: RequestStatus.TIMED_OUT,
       transactionHash,
-    ),
+    }),
   ]);
 }

@@ -216,12 +216,12 @@ type RelayerStatsPerChain @entity {
     """
     The USD value of the gas fee spent on successful post requests (Gas Fee * USD Value of Eth at the time of the transaction)
     """
-    usdGasFeeForSuccessfulMessages: BigInt!
+    usdGasFeeForSuccessfulMessages: Float!
 
     """
     The USD value of the gas fee spent on failed post requests (Gas Fee * USD Value of Eth at the time of the transaction)
     """
-    usdGasFeeForFailedMessages: BigInt!
+    usdGasFeeForFailedMessages: Float!
 
     """
     Total fees earned by the relayer
@@ -241,7 +241,7 @@ type Relayer @entity {
     """
     The chains the relayer is active on
     """
-    chains: [SupportedChain!]!
+    chains: [String!]!
 
     """
     A list of important stats for the Relayer on every network that they support
@@ -328,41 +328,6 @@ type StateMachineUpdateEvent @entity {
 }
 
 """
-Request status metadata
-"""
-type RequestStatusMetadata @entity {
-    """
-    Unique identifier of the Request (This is the request commitment)
-    """
-    id: ID!
-
-    """
-    Block number where the request was dispatched
-    """
-    sourceBlockNumber: BigInt!
-
-    """
-    Transaction hash where the request was dispatched
-    """
-    sourceBlockTransaction: String!
-
-    """
-    Transaction hash where message was relayed to hyperbridge
-    """
-    messageRelayedTransactionHash: String!
-
-    """
-    Transaction hash where the destination finalize the relationational block of the request on hyperbridge
-    """
-    destFinalizedTransactionHash: String!
-
-    """
-    Transaction hash where relayer dispatch message to the dest state machine
-    """
-    deliveryTransactionHash: String!
-}
-
-"""
 A Hyperbridge Request
 """
 type Request @entity {
@@ -420,41 +385,22 @@ type Request @entity {
     Status of the request
     """
     status: RequestStatus!
+
+    """
+    Metatdata about the request's progression through different statuses
+    """
+    statusMetadata: [RequestStatusMetadata!]!
 }
 
 """
-Response status metadata
+Metadata about the status of a Request
 """
-type ResponseStatusMetadata @entity {
-    """
-    Unique identifier of the Response (This is the response commitment)
-    """
-    id: ID!
-
-    """
-    Block number where the response was dispatched
-    """
-    sourceBlockNumber: BigInt!
-
-    """
-    Transaction hash where the response was dispatched
-    """
-    sourceBlockTransaction: String!
-
-    """
-    Transaction hash where message was relayed to hyperbridge
-    """
-    messageRelayedTransactionHash: String!
-
-    """
-    Transaction hash where the destination finalize the relationational block of the response on hyperbridge
-    """
-    destFinalizedTransactionHash: String!
-
-    """
-    Transaction hash where relayer dispatch message to the dest state machine
-    """
-    deliveryTransactionHash: String!
+type RequestStatusMetadata @jsonField {
+    status: String!
+    chain: String!
+    timestamp: BigInt!
+    blockNumber: String!
+    transactionHash: String!
 }
 
 """
@@ -490,4 +436,20 @@ type Response @entity {
     The request that triggered this response
     """
     request: Request!
+
+    """
+    Metatdata about the response's progression through different statuses
+    """
+    statusMetadata: [ResponseStatusMetadata!]!
+}
+
+"""
+Metadata about the status of a Response
+"""
+type ResponseStatusMetadata @jsonField {
+    status: String!
+    chain: String!
+    timestamp: BigInt!
+    blockNumber: String!
+    transactionHash: String!
 }

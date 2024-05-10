@@ -20,7 +20,7 @@ export async function handlePostResponseEvent(
   assert(event.args, "No handlePostResponseEvent args");
   logger.info("Handling PostResponse event");
 
-  const { transaction, blockNumber, transactionHash, args } = event;
+  const { transaction, blockNumber, transactionHash, args, block } = event;
   let {
     data,
     dest,
@@ -63,20 +63,12 @@ export async function handlePostResponseEvent(
   );
 
   let request = await Request.get(request_commitment);
+
   if (typeof request === "undefined") {
-    request = await RequestService.findOrCreate({
-      chain,
-      commitment: request_commitment,
-      data,
-      dest,
-      fee: BigInt(fee.toString()),
-      from,
-      nonce: BigInt(nonce.toString()),
-      source,
-      status: RequestStatus.SOURCE,
-      timeoutTimestamp: BigInt(timeoutTimestamp.toString()),
-      to,
-    });
+    logger.error(
+      `Error handling PostResponseEvent because request with commitment: ${request_commitment} was not found`,
+    );
+    return;
   }
 
   // Create the response entity
@@ -87,12 +79,8 @@ export async function handlePostResponseEvent(
     response_message: response,
     status: ResponseStatus.SOURCE,
     request,
-  });
-
-  await ResponseService.updateResponseStatus(
-    response_commitment,
-    ResponseStatus.SOURCE,
-    BigInt(blockNumber),
+    blockNumber: blockNumber.toString(),
     transactionHash,
-  );
+    blockTimestamp: block.timestamp,
+  });
 }

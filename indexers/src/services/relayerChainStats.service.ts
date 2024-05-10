@@ -23,8 +23,8 @@ export class RelayerChainStatsService {
         gasUsedForSuccessfulMessages: BigInt(0),
         gasFeeForFailedMessages: BigInt(0),
         gasFeeForSuccessfulMessages: BigInt(0),
-        usdGasFeeForFailedMessages: BigInt(0),
-        usdGasFeeForSuccessfulMessages: BigInt(0),
+        usdGasFeeForFailedMessages: 0,
+        usdGasFeeForSuccessfulMessages: 0,
         feesEarned: BigInt(0),
       });
       await metrics.save();

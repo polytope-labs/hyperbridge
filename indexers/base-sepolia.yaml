@@ -80,7 +80,7 @@ dataSources:
 
   # Protocol Fee Token
   - kind: ethereum/Runtime
-    startBlock: 5659633
+    startBlock: 9407152
     options:
       abi: erc6160ext20
       address: "0x6df8dE86458D15a3Be3A6B907e6aE6B7af352452"

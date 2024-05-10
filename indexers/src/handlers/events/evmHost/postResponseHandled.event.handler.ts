@@ -53,11 +53,13 @@ export async function handlePostResponseHandledEvent(
       transaction,
       chain,
     ),
-    await ResponseService.updateResponseStatus(
+    await ResponseService.updateStatus({
       commitment,
-      ResponseStatus.DEST,
-      BigInt(blockNumber),
+      chain,
+      blockNumber: blockNumber.toString(),
+      blockTimestamp: block.timestamp,
+      status: ResponseStatus.DEST,
       transactionHash,
-    ),
+    }),
   ]);
 }

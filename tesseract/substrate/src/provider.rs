@@ -584,7 +584,7 @@ where
 	}
 
 	fn max_concurrent_queries(&self) -> usize {
-		50
+		self.max_concurent_queries.unwrap_or(10) as usize
 	}
 }
 

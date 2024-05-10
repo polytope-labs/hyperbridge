@@ -3,6 +3,7 @@ export { handlePostRequestEvent } from "../handlers/events/evmHost/postRequest.e
 export { handlePostRequestHandledEvent } from "../handlers/events/evmHost/postRequestHandled.event.handler";
 export { handlePostRequestTimeoutHandledEvent } from "../handlers/events/evmHost/postRequestTimeoutHandled.event.handler";
 
+export { handlePostResponseEvent } from "../handlers/events/evmHost/postResponse.event.handler";
 export { handlePostResponseHandledEvent } from "../handlers/events/evmHost/postResponseHandled.event.handler";
 export { handlePostResponseTimeoutHandledEvent } from "../handlers/events/evmHost/postResponseTimeoutHandled.event.handler";
 

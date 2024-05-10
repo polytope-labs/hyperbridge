@@ -84,13 +84,6 @@ export class RelayerService {
     transaction: EthereumTransaction<EthereumResult>,
     chain: SupportedChain,
   ): Promise<void> {
-    const { gasUsed, effectiveGasPrice } = await transaction.receipt();
-    const nativeCurrencyPrice = await getNativeCurrencyPrice(chain);
-
-    const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
-    const gasFeeInEth = Number(gasFee) / Number(BigInt(10 ** 18));
-    const usdFee = gasFeeInEth * Number(nativeCurrencyPrice);
-
     const relayer = await RelayerService.findOrCreate(relayer_id, chain);
     let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
       relayer_id,
@@ -98,12 +91,9 @@ export class RelayerService {
     );
 
     relayer.totalNumberOfMessagesSent += BigInt(1);
-    relayer_chain_stats.numberOfMessagesSent += BigInt(1);
 
+    relayer_chain_stats.numberOfMessagesSent += BigInt(1);
     relayer_chain_stats.numberOfSuccessfulMessagesSent += BigInt(1);
-    relayer_chain_stats.gasUsedForSuccessfulMessages += BigInt(gasUsed);
-    relayer_chain_stats.gasFeeForSuccessfulMessages += BigInt(gasFee);
-    relayer_chain_stats.usdGasFeeForSuccessfulMessages += usdFee;
 
     Promise.all([await relayer_chain_stats.save(), await relayer.save()]);
   }
@@ -118,29 +108,33 @@ export class RelayerService {
     const { from: relayer_id } = transaction;
     const { status } = await transaction.receipt();
 
-    if (status === false) {
-      const { gasUsed, effectiveGasPrice } = await transaction.receipt();
-      const nativeCurrencyPrice = await getNativeCurrencyPrice(chain);
+    const { gasUsed, effectiveGasPrice } = await transaction.receipt();
+    const nativeCurrencyPrice = await getNativeCurrencyPrice(chain);
 
-      const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
-      const gasFeeInEth = Number(gasFee) / Number(BigInt(10 ** 18));
-      const usdFee = gasFeeInEth * Number(nativeCurrencyPrice);
+    const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
+    const gasFeeInEth = Number(gasFee) / Number(BigInt(10 ** 18));
+    const usdFee = gasFeeInEth * Number(nativeCurrencyPrice);
 
-      const relayer = await RelayerService.findOrCreate(relayer_id, chain);
-      let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
-        relayer_id,
-        chain,
-      );
+    const relayer = await RelayerService.findOrCreate(relayer_id, chain);
+    let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
+      relayer_id,
+      chain,
+    );
 
+    if (status === true) {
+      relayer_chain_stats.gasUsedForSuccessfulMessages += BigInt(gasUsed);
+      relayer_chain_stats.gasFeeForSuccessfulMessages += BigInt(gasFee);
+      relayer_chain_stats.usdGasFeeForSuccessfulMessages += usdFee;
+    } else {
       relayer.totalNumberOfMessagesSent += BigInt(1);
       relayer_chain_stats.numberOfMessagesSent += BigInt(1);
-
       relayer_chain_stats.numberOfFailedMessagesSent += BigInt(1);
+
       relayer_chain_stats.gasUsedForFailedMessages += BigInt(gasUsed);
       relayer_chain_stats.gasFeeForFailedMessages += BigInt(gasFee);
       relayer_chain_stats.usdGasFeeForFailedMessages += usdFee;
-
-      Promise.all([await relayer_chain_stats.save(), await relayer.save()]);
     }
+
+    Promise.all([await relayer_chain_stats.save(), await relayer.save()]);
   }
 }

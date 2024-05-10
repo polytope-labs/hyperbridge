@@ -179,12 +179,12 @@ type RelayerStatsPerChain @entity {
     chain: SupportedChain!
 
     """
-    Total number of post requests handled by the Relayer
+    Total number of post requests or post responses handled by the Relayer
     """
     numberOfMessagesSent: BigInt!
 
     """
-    Total number of successful post requests handled by the Relayer
+    Total number of successful post requests or post responses handled by the Relayer
     """
     numberOfSuccessfulMessagesSent: BigInt!
 

@@ -49,6 +49,7 @@ impl Cli {
 			.clone()
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
+		let relayer = relayer.unwrap_or_default();
 		// set up initial consensus states
 		if self.setup_eth || self.setup_para {
 			initialize_consensus_clients(

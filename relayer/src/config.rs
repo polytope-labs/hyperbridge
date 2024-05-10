@@ -7,7 +7,7 @@ use tesseract_beefy::BeefyConfig;
 
 use toml::Table;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RelayerConfig {
 	/// Run fisherman task
 	pub fisherman: Option<bool>,
@@ -22,8 +22,8 @@ pub struct HyperbridgeConfig {
 	pub hyperbridge: BeefyConfig,
 	/// Chains
 	pub chains: HashMap<StateMachine, AnyConfig>,
-	/// Relayer config
-	pub relayer: RelayerConfig,
+	/// Additional Relayer configuration
+	pub relayer: Option<RelayerConfig>,
 }
 
 const HYPERRIDGE: &'static str = "hyperbridge";
@@ -36,8 +36,8 @@ impl HyperbridgeConfig {
 			.map_err(|err| anyhow!("Error occured while reading config file: {err:?}"))?;
 		let table = toml.parse::<Table>()?;
 		let mut chains: HashMap<StateMachine, AnyConfig> = HashMap::new();
-		if !table.contains_key(HYPERRIDGE) || !table.contains_key(RELAYER) {
-			Err(anyhow!("Missing Hyperbridge or Relayer in config, Check your toml file"))?
+		if !table.contains_key(HYPERRIDGE) {
+			Err(anyhow!("Missing Hyperbridge Config, Check your toml file"))?
 		}
 
 		let hyperbridge: BeefyConfig = table
@@ -47,12 +47,13 @@ impl HyperbridgeConfig {
 			.try_into()
 			.expect("Failed to parse hyperbridge config");
 
-		let relayer: RelayerConfig = table
-			.get(RELAYER)
-			.cloned()
-			.expect("Hyperbridge Config is Present")
-			.try_into()
-			.expect("Failed to parse hyperbridge config");
+		let relayer: Option<RelayerConfig> = if let Some(value) = table.get(RELAYER).cloned() {
+			let val = value.try_into().expect("Failed to parse relayer config");
+			Some(val)
+		} else {
+			None
+		};
+
 		for (key, val) in table {
 			if &key != HYPERRIDGE && &key != RELAYER {
 				let any_conf: AnyConfig = val.try_into().unwrap();

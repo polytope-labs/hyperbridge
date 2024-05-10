@@ -27,7 +27,7 @@ frame-system = { workspace = true }
 frame-system-benchmarking = { workspace = true, optional = true }
 frame-system-rpc-runtime-api = { workspace = true }
 frame-try-runtime = { workspace = true, optional = true }
-pallet-aura = { workspace = true }
+pallet-aura = { workspace = true, features = ["experimental"] }
 pallet-authorship = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-assets = { workspace = true }
@@ -216,7 +216,3 @@ try-runtime = [
 	"parachain-info/try-runtime",
 	"pallet-assets/runtime-benchmarks"
 ]
-async-backing = [
-	"pallet-aura/experimental"
-]
-

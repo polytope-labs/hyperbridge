@@ -58,6 +58,20 @@ pub struct BeefyProverConfig {
 	pub state_machines: Vec<StateMachine>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProverConfig {
+	/// RPC ws url for a relay chain
+	pub relay_rpc_ws: String,
+	/// RPC ws url for the parachain
+	pub para_rpc_ws: String,
+	/// para Id for the parachain
+	pub para_ids: Vec<u32>,
+	/// The intended network for zk beefy
+	pub zk_beefy: Option<Network>,
+	/// Maximum size in bytes for the rpc payloads, both requests & responses.
+	pub max_rpc_payload_size: Option<u32>,
+}
+
 /// The BEEFY prover produces BEEFY consensus proofs using either the naive or zk variety. Consensus
 /// proofs are produced when new messages are observed on the hyperbridge chain or when the
 /// authority set changes.
@@ -521,20 +535,6 @@ pub enum Prover<R: subxt::Config, P: subxt::Config> {
 	ZK(zk_beefy::Prover<R, P>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProverConfig {
-	/// RPC ws url for a relay chain
-	pub relay_rpc_ws: String,
-	/// RPC ws url for the parachain
-	pub para_rpc_ws: String,
-	/// para Id for the parachain
-	pub para_ids: Vec<u32>,
-	/// The intended network for zk beefy
-	pub zk_beefy: Option<Network>,
-	/// Maximum size in bytes for the rpc payloads, both requests & responses.
-	pub max_rpc_payload_size: Option<u32>,
-}
-
 impl<R, P> Prover<R, P>
 where
 	R: subxt::Config,
@@ -769,7 +769,7 @@ mod tests {
 		for state_machine in beefy_config.state_machines.iter() {
 			// don't really care about errors
 			let result = beefy_host
-				.rsmq
+				.rsmq()
 				.lock()
 				.await
 				.create_queue(
@@ -783,7 +783,7 @@ mod tests {
 			tracing::error!("mandatory queue create result: {result:?}");
 
 			let result = beefy_host
-				.rsmq
+				.rsmq()
 				.lock()
 				.await
 				.create_queue(

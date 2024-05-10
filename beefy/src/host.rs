@@ -54,13 +54,13 @@ where
 	/// PubSub connection for receiving notifications when there are new proofs in the queueu
 	pubsub: PubsubConnection,
 	/// Rsmq for interacting with the queue
-	pub(crate) rsmq: Arc<Mutex<Rsmq>>,
+	rsmq: Arc<Mutex<Rsmq>>,
 	/// Host configuration options
 	config: BeefyHostConfig,
 	/// Consensus prover
 	prover: Prover<R, P>,
 	/// The underlying substrate client
-	pub client: SubstrateClient<P>,
+	client: SubstrateClient<P>,
 }
 
 impl<R, P> BeefyHost<R, P>
@@ -116,6 +116,11 @@ where
 		let combined = futures::stream::select(mandatory_stream, messages_stream);
 
 		Ok(Box::pin(combined))
+	}
+
+	/// Retuns a reference to underlying [`Rsmq`] instance
+	pub fn rsmq(&self) -> Arc<Mutex<Rsmq>> {
+		self.rsmq.clone()
 	}
 }
 

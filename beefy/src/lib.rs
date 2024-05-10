@@ -35,17 +35,16 @@ const VALIDATOR_SET_ID_KEY: [u8; 32] =
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyConfig {
-	/// Beefy Host config
-	pub host: BeefyHostConfig,
-	/// Pub prover config
-	#[serde(flatten)]
+	// Configuration options for the BEEFY prover
 	pub prover: ProverConfig,
+	/// Configuration options for the beefy prover and host
+	pub host: BeefyHostConfig,
 	/// substrate config
-	#[serde(flatten)]
 	pub substrate: SubstrateConfig,
 }
 
 impl BeefyConfig {
+	/// Constructs an instance of the [`IsmpHost`] from the provided configs
 	pub async fn into_client<R, P>(self) -> Result<BeefyHost<R, P>, anyhow::Error>
 	where
 		R: subxt::Config + Send + Sync + Clone,
@@ -57,9 +56,7 @@ impl BeefyConfig {
 			From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
 	{
 		let client = SubstrateClient::<P>::new(self.substrate).await?;
-
-		let prover = Prover::<R, P>::new(self.prover).await?;
-
+		let prover = Prover::<R, P>::new(self.prover.clone()).await?;
 		let host = BeefyHost::<R, P>::new(self.host, prover, client).await?;
 
 		Ok(host)

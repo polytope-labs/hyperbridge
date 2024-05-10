@@ -439,11 +439,10 @@ pub async fn wait_for_state_machine_update(
 
 	while let Some(res) = stream.next().await {
 		match res {
-			Ok(event) => {
+			Ok(event) =>
 				if event.latest_height >= height {
 					return Ok(event.latest_height);
-				}
-			},
+				},
 			Err(err) => {
 				log::error!("State machine update stream returned an error {err:?}")
 			},

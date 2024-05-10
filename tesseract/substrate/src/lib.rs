@@ -59,6 +59,8 @@ pub struct SubstrateConfig {
 	pub signer: Option<String>,
 	/// Latest state machine height
 	pub latest_height: Option<u64>,
+	/// Max concurrent rpc requests allowed
+	pub max_concurent_queries: Option<u64>,
 }
 
 /// Core substrate client.
@@ -77,6 +79,8 @@ pub struct SubstrateClient<C: subxt::Config> {
 	pub address: Vec<u8>,
 	/// Latest state machine height.
 	initial_height: u64,
+	/// Max concurrent rpc requests allowed
+	max_concurent_queries: Option<u64>,
 }
 
 impl<C> SubstrateClient<C>
@@ -122,6 +126,7 @@ where
 			signer,
 			address,
 			initial_height: latest_height,
+			max_concurent_queries: config.max_concurent_queries,
 		})
 	}
 
@@ -170,6 +175,7 @@ impl<C: subxt::Config> Clone for SubstrateClient<C> {
 			signer: self.signer.clone(),
 			address: self.address.clone(),
 			initial_height: self.initial_height,
+			max_concurent_queries: self.max_concurent_queries,
 		}
 	}
 }

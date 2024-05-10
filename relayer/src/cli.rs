@@ -3,17 +3,19 @@ use std::{
 	collections::{BTreeMap, HashMap},
 	sync::Arc,
 };
+use tesseract_beefy::host::BeefyHost;
 
 use clap::{arg, Parser};
 use ismp::host::StateMachine;
-use tesseract_primitives::{config::RelayerConfig, IsmpHost};
-use tesseract_substrate::{
-	config::{Blake2SubstrateChain, KeccakSubstrateChain},
-	SubstrateClient,
-};
+use tesseract_primitives::IsmpHost;
+use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use tesseract_sync_committee::L2Config;
 
-use crate::{any::AnyConfig, config::HyperbridgeConfig, logging};
+use crate::{
+	any::AnyConfig,
+	config::{HyperbridgeConfig, RelayerConfig},
+	logging,
+};
 
 /// CLI interface for tesseract relayer.
 #[derive(Parser, Debug)]
@@ -50,7 +52,7 @@ impl Cli {
 		// set up initial consensus states
 		if self.setup_eth || self.setup_para {
 			initialize_consensus_clients(
-				hyperbridge.clone(),
+				&hyperbridge,
 				&_client_map,
 				&relayer,
 				self.setup_eth,
@@ -60,26 +62,33 @@ impl Cli {
 			log::info!("Initialized consensus states");
 		}
 
-		for (_, client) in _client_map.iter() {
+		for (_, client) in _client_map {
 			let hyperbridge = hyperbridge_config
 				.clone()
 				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 				.await?;
-			processes.push(tokio::spawn(tesseract_consensus::relay(
-				hyperbridge.clone(),
-				client.clone(),
-				relayer.clone(),
-			)));
+			processes.push(tokio::spawn({
+				let client = client.clone();
+				async move { hyperbridge.start_consensus(client.provider()).await }
+			}));
+			processes.push(tokio::spawn({
+				let hyperbridge = hyperbridge_config
+					.clone()
+					.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
+					.await?;
+				async move { client.start_consensus(Arc::new(hyperbridge.client.clone())).await }
+			}));
 		}
 
-		if relayer.fisherman.unwrap_or_default() {
+		if relayer.fisherman.unwrap_or(true) {
+			let _client_map = create_client_map(config.clone()).await?;
 			for (_, client) in _client_map.iter() {
 				let hyperbridge = hyperbridge_config
 					.clone()
 					.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 					.await?;
 				processes.push(tokio::spawn(tesseract_fisherman::fish(
-					hyperbridge.clone(),
+					Arc::new(hyperbridge),
 					client.clone(),
 				)));
 			}
@@ -113,8 +122,10 @@ impl Cli {
 				.clone()
 				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 				.await?;
-			processes
-				.push(tokio::spawn(tesseract_fisherman::fish(hyperbridge.clone(), client.clone())));
+			processes.push(tokio::spawn(tesseract_fisherman::fish(
+				Arc::new(hyperbridge),
+				client.clone(),
+			)));
 		}
 
 		log::info!("Initialized fisherman tasks");
@@ -130,14 +141,12 @@ impl Cli {
 
 /// Initializes the consensus state across all connected chains.
 async fn initialize_consensus_clients(
-	hyperbridge: Arc<dyn IsmpHost>,
+	hyperbridge: &BeefyHost<Blake2SubstrateChain, KeccakSubstrateChain>,
 	chains: &HashMap<StateMachine, Arc<dyn IsmpHost>>,
 	relayer: &RelayerConfig,
 	setup_eth: bool,
 	setup_para: bool,
 ) -> anyhow::Result<()> {
-	use as_any::AsAny;
-
 	if setup_eth {
 		let initial_state = hyperbridge
 			.query_initial_consensus_state()
@@ -153,7 +162,6 @@ async fn initialize_consensus_clients(
 	}
 
 	if setup_para {
-		let hyperbridge_provider = hyperbridge.provider();
 		let mut params = BTreeMap::new();
 		for (state_machine, client) in chains {
 			let provider = client.provider();
@@ -162,19 +170,12 @@ async fn initialize_consensus_clients(
 			params.insert(*state_machine, host_param);
 			if let Some(mut consensus_state) = client.query_initial_consensus_state().await? {
 				consensus_state.challenge_period = relayer.challenge_period.unwrap_or_default();
-				hyperbridge_provider.set_initial_consensus_state(consensus_state).await?;
+				hyperbridge.client.create_consensus_state(consensus_state).await?;
 			}
 		}
 
-		let substrate_client = match hyperbridge_provider
-			.as_any()
-			.downcast_ref::<SubstrateClient<KeccakSubstrateChain>>()
-		{
-			Some(b) => b,
-			None => panic!("Expected a substrate client behind hyperbridge provider reference"),
-		};
 		log::info!("setting host params on on hyperbridge");
-		substrate_client.set_host_params(params).await?;
+		hyperbridge.client.set_host_params(params).await?;
 	}
 
 	Ok(())

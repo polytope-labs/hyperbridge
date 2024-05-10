@@ -33,7 +33,7 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 #[async_trait::async_trait]
 impl IsmpHost for BscPosHost {
 	async fn start_consensus(
-		&mut self,
+		&self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		let client = BscPosHost::clone(&self);

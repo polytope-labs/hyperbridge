@@ -47,6 +47,7 @@ async fn extract_mmr_leaves() {
 			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
 		),
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 
 	let prefix = sp_mmr_primitives::INDEXING_PREFIX;

@@ -43,6 +43,7 @@ pub async fn setup_clients(
 		),
 
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 	let chain_a = SubstrateClient::new(config_a).await?;
 
@@ -57,6 +58,7 @@ pub async fn setup_clients(
 		),
 
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 	let chain_b = SubstrateClient::new(config_b).await?;
 	Ok((chain_a, chain_b))
@@ -165,6 +167,7 @@ async fn sudo_upgrade_runtime() -> Result<(), anyhow::Error> {
 		// rpc_ws: "ws://127.0.0.1:9901".to_string(),
 		signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 
 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
@@ -184,6 +187,7 @@ async fn set_host_manager() -> Result<(), anyhow::Error> {
 		rpc_ws: "ws://192.168.1.197:9990".to_string(),
 		signer: std::env::var("SIGNING_KEY").ok(),
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 
 	Ok(())
@@ -202,6 +206,7 @@ async fn test_state_machine_notifs() -> Result<(), anyhow::Error> {
 		),
 
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 
 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
@@ -230,6 +235,7 @@ async fn set_invulnerables() -> Result<(), anyhow::Error> {
 		),
 
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 
 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
@@ -253,6 +259,7 @@ async fn dispatch_to_evm() -> Result<(), anyhow::Error> {
 		rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
 		signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 
 	let chains = vec![

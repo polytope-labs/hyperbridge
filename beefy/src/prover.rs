@@ -521,6 +521,7 @@ pub enum Prover<R: subxt::Config, P: subxt::Config> {
 	ZK(zk_beefy::Prover<R, P>),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProverConfig {
 	/// RPC ws url for a relay chain
 	pub relay_rpc_ws: String,
@@ -720,6 +721,7 @@ mod tests {
 			max_rpc_payload_size: None,
 			signer: None,
 			latest_height: None,
+			max_concurent_queries: None,
 		};
 		let substrate_client =
 			SubstrateClient::<KeccakSubstrateChain>::new(substrate_config.clone()).await?;

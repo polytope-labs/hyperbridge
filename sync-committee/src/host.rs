@@ -33,7 +33,7 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
 impl<T: Config + Send + Sync + 'static> IsmpHost for SyncCommitteeHost<T> {
-	async fn start_consensus(&mut self, counterparty: Arc<dyn IsmpProvider>) -> Result<(), Error> {
+	async fn start_consensus(&self, counterparty: Arc<dyn IsmpProvider>) -> Result<(), Error> {
 		let client = SyncCommitteeHost::clone(&self);
 
 		let interval = tokio::time::interval(self.consensus_update_frequency);

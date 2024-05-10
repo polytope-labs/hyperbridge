@@ -4,9 +4,16 @@ use ismp::host::StateMachine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tesseract_beefy::BeefyConfig;
-use tesseract_primitives::config::RelayerConfig;
 
 use toml::Table;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayerConfig {
+	/// Run fisherman task
+	pub fisherman: Option<bool>,
+	/// Challenge period to be used when creating consensus states
+	pub challenge_period: Option<u64>,
+}
 
 /// Defines the format of the tesseract config.toml file.
 #[derive(Debug, Clone, Serialize, Deserialize)]

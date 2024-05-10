@@ -15,6 +15,7 @@
 
 use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use std::{pin::Pin, sync::Arc};
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
@@ -32,12 +33,10 @@ use ismp::{
 };
 use redis_async::client::{ConnectionBuilder, PubsubConnection};
 use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqMessage};
-use serde::{Deserialize, Serialize};
 use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider};
 use tokio::sync::Mutex;
 
-/// Configuration parameters for the [`BeefyHost`]
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyHostConfig {
 	/// Redis configuration for message queues
 	pub redis: RedisConfig,
@@ -61,7 +60,7 @@ where
 	/// Consensus prover
 	prover: Prover<R, P>,
 	/// The underlying substrate client
-	client: SubstrateClient<P>,
+	pub client: SubstrateClient<P>,
 }
 
 impl<R, P> BeefyHost<R, P>
@@ -170,7 +169,7 @@ where
 		From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
 {
 	async fn start_consensus(
-		&mut self,
+		&self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		let counterparty_state_machine = counterparty.state_machine_id().state_id;

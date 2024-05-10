@@ -13,7 +13,7 @@ use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider, StateMachin
 #[async_trait::async_trait]
 impl IsmpHost for ArbHost {
 	async fn start_consensus(
-		&mut self,
+		&self,
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		let mut stream = Box::pin(futures::stream::pending::<()>());

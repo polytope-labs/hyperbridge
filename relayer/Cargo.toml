@@ -27,7 +27,6 @@ json = { version = "1.0.112", package = "serde_json" }
 toml = "0.7.4"
 clap = { version = "4.3.5", features = ["derive"] }
 tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
-as-any = "=0.3.1"
 
 tesseract-beefy = { workspace = true }
 tesseract-bsc = { workspace = true }
@@ -37,5 +36,4 @@ op-host = { workspace = true }
 ismp = { workspace = true  }
 tesseract-substrate = { workspace = true }
 tesseract-primitives = { workspace = true }
-tesseract-consensus = { workspace = true }
 tesseract-fisherman = { workspace = true }

@@ -9,6 +9,10 @@
     [
       "wss://telemetry.polkadot.io/submit/",
       0
+    ],
+    [
+      "wss://telemetry.blockops.network/submit/",
+      0
     ]
   ],
   "protocolId": "nexus",

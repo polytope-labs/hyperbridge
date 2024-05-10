@@ -21,7 +21,7 @@ log = { version = "0.4.17", default-features = false }
 scale-info = { version = "2.3.1", default-features = false, features = ["derive"] }
 smallvec = "1.10.0"
 orml-xcm-support = { workspace = true  }
-orml-traits = { workspace = true  } 
+orml-traits = { workspace = true  }
 # Substrate
 frame-benchmarking = { workspace = true, optional = true }
 frame-system-benchmarking = { workspace = true, optional = true }
@@ -167,7 +167,7 @@ std = [
 	"orml-xcm-support/std",
 	"orml-traits/std",
 	"pallet-mmr-runtime-api/std",
-	"sp-mmr-primitives/std", 
+	"sp-mmr-primitives/std",
 	"simnode-runtime-api/std"
 ]
 
@@ -214,7 +214,4 @@ try-runtime = [
 	"pallet-transaction-payment/try-runtime",
 	"pallet-xcm/try-runtime",
 	"parachain-info/try-runtime",
-]
-async-backing = [
-	"pallet-aura/experimental"
 ]

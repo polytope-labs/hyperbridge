@@ -111,6 +111,3 @@ try-runtime = [
 	"gargantua-runtime/try-runtime",
 	"messier-runtime/try-runtime"
 ]
-async-backing = [
-	"messier-runtime/async-backing"
-]

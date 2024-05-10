@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Tesseract socket.io telemetry server"
 authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
 
 [dependencies]
 socketioxide = { version = "0.10.2", features = ["state", "tracing"] }

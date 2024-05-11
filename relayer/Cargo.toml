@@ -17,6 +17,10 @@ path = "bins/relayer.rs"
 name = "beefy-prover"
 path = "bins/prover.rs"
 
+[[bin]]
+name = "tesseract-fisherman"
+path = "bins/fisherman.rs"
+
 [dependencies]
 log = "0.4.19"
 env_logger = "0.10.0"

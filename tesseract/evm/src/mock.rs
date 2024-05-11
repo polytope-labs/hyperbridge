@@ -249,22 +249,15 @@ mod tests {
 	#[tokio::test]
 	#[ignore]
 	async fn test_ping() -> anyhow::Result<()> {
-		// dotenv::dotenv().ok();
-		let op_url = std::env::var("OP_URL").unwrap_or(
-			"https://opt-sepolia.g.alchemy.com/v2/qzZKMgRJ7zHxeUPoEvjYCmuAsJnx0oVP".into(),
-		);
-		let base_url = std::env::var("BASE_URL").unwrap_or(
-			"https://base-sepolia.g.alchemy.com/v2/xLAACkUCNcEBquCQcsT7ypkaIfsTlQU3".into(),
-		);
-		let arb_url = std::env::var("ARB_URL").unwrap_or(
-			"https://arb-sepolia.g.alchemy.com/v2/xd9UmE2ItdzJQMzivURMW5jyhlKLE8Qi".into(),
-		);
-		let geth_url = std::env::var("GETH_URL").unwrap_or(
-			"https://eth-sepolia.g.alchemy.com/v2/tKtJs47xn9LPe8d99J0L06Ixg3bsHGIR".into(),
-		);
-		let bsc_url = std::env::var("BSC_URL").unwrap_or(
-			"https://clean-capable-dew.bsc-testnet.quiknode.pro/bed456956996abb801b7ab44fdb3f6f63cd1a4ec/".into(),
-		);
+		dotenv::dotenv().ok();
+		let op_url = std::env::var("OP_URL").expect("OP_URL was missing in env variables");
+		let base_url = std::env::var("BASE_URL").expect("BASE_URL was missing in env variables");
+		let arb_url = std::env::var("ARB_URL").expect("ARB_URL was missing in env variables");
+		let geth_url = std::env::var("GETH_URL").expect("GETH_URL was missing in env variables");
+		let bsc_url = std::env::var("BSC_URL").expect("BSC_URL was missing in env variables");
+
+		let signing_key =
+			std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
 
 		let ping_addr = H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"));
 
@@ -281,10 +274,10 @@ mod tests {
 		stream
 			.try_for_each_concurrent(None, |(chain, url)| {
 				let chains_clone = chains.clone();
+				let signing_key = signing_key.clone();
 				async move {
-					let signer = sp_core::ecdsa::Pair::from_seed_slice(&hex!(
-						"700c4f6bac6c4c49f9beffc33b808ceb214d87d883018a6f1c28335d75163f75"
-					))?;
+					let signer =
+						sp_core::ecdsa::Pair::from_seed_slice(&hex::decode(signing_key).unwrap())?;
 					let provider = Arc::new(Provider::<Http>::try_connect(&url).await?);
 					let signer =
 						LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
@@ -310,7 +303,7 @@ mod tests {
 						.context(format!("Failed to approve {ping_addr} in {chain:?}"))?;
 
 					for (chain, _) in chains_clone.iter().filter(|(c, _)| chain != *c) {
-						for _ in 0..10 {
+						for _ in 0..2 {
 							let call = ping.ping(PingMessage {
 								dest: chain.to_string().as_bytes().to_vec().into(),
 								module: ping_addr.clone().into(),

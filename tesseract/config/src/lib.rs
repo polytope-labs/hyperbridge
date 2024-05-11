@@ -28,7 +28,7 @@ use tesseract_substrate::{
 pub enum AnyConfig {
 	/// Configuration for substrate-based chains
 	Substrate(SubstrateConfig),
-	/// Configuration for evn-based chains
+	/// Configuration for evm-based chains
 	Ethereum(EvmConfig),
 }
 

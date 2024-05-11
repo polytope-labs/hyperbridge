@@ -19,60 +19,74 @@ use crate::BeefyHost;
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use ismp::{
-    consensus::{StateMachineHeight, StateMachineId},
-    events::StateMachineUpdated
+	consensus::{StateMachineHeight, StateMachineId},
+	events::StateMachineUpdated,
 };
 use sp_core::H256;
-use subxt::{config::substrate::SubstrateHeader, Config};
-use tesseract_primitives::{ByzantineHandler, IsmpHost};
+use subxt::{
+	config::{
+		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip,
+		substrate::SubstrateHeader, ExtrinsicParams,
+	},
+	ext::sp_runtime::MultiSignature,
+	Config,
+};
+use tesseract_primitives::{ByzantineHandler, IsmpProvider};
 
 #[async_trait::async_trait]
 impl<R, P> ByzantineHandler for BeefyHost<R, P>
 where
-    R: subxt::Config + Send + Sync + Clone,
-    P: subxt::Config + Send + Sync + Clone,
-    H256: From<<P as Config>::Hash>,
+	R: subxt::Config + Send + Sync + Clone,
+	P: subxt::Config + Send + Sync + Clone,
+	<P::ExtrinsicParams as ExtrinsicParams<P::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<P, PlainTip>>,
+	P::Signature: From<MultiSignature> + Send + Sync,
+	P::AccountId:
+		From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+	H256: From<<P as Config>::Hash>,
 {
-    async fn check_for_byzantine_attack(
-        &self,
-        counterparty: Arc<dyn IsmpHost>,
-        event: StateMachineUpdated,
-    ) -> Result<(), anyhow::Error> {
-        let height = StateMachineHeight {
-            id: StateMachineId {
-                state_id: self.provider.state_machine_id().state_id,
-                consensus_state_id: self.consensus_state_id,
-            },
-            height: event.latest_height,
-        };
+	async fn check_for_byzantine_attack(
+		&self,
+		counterparty: Arc<dyn IsmpProvider>,
+		event: StateMachineUpdated,
+	) -> Result<(), anyhow::Error> {
+		let height = StateMachineHeight {
+			id: StateMachineId {
+				state_id: self.client.state_machine_id().state_id,
+				consensus_state_id: self.client.state_machine_id().consensus_state_id,
+			},
+			height: event.latest_height,
+		};
 
-        let header = match &self.prover {
-            crate::prover::Prover::Naive(prover) =>  {
-                let block_hash = prover.para.rpc().block_hash(Some(event.latest_height.into())).await?.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?;
-                prover.para.rpc().header(Some(block_hash)).await?.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?
-            },
-            crate::prover::Prover::ZK(prover) => {
-                let block_hash = prover.inner.para.rpc().block_hash(Some(event.latest_height.into())).await?.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?;
-                prover.inner.para.rpc().header(Some(block_hash)).await?.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?
-            },
-        };
+		let block_hash = self
+			.client
+			.client
+			.rpc()
+			.block_hash(Some(event.latest_height.into()))
+			.await?
+			.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?;
+		let header = self
+			.client
+			.client
+			.rpc()
+			.header(Some(block_hash))
+			.await?
+			.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?;
 
-        let header = SubstrateHeader::<u32, P::Hasher>::decode(&mut &*header.encode())?;
+		let header = SubstrateHeader::<u32, P::Hasher>::decode(&mut &*header.encode())?;
 
-        let counterparty_provider = counterparty.provider();
-        let finalized_state_commitment = counterparty_provider
-            .query_state_machine_commitment(height)
-            .await?;
+		let finalized_state_commitment =
+			counterparty.query_state_machine_commitment(height).await?;
 
-        if finalized_state_commitment.state_root != header.state_root.into() {
-            log::info!(
-                "Vetoing state commitment for {:?} on {:?}",
-                self.provider.state_machine_id().state_id,
-                counterparty_provider.state_machine_id().state_id
-            );
-            counterparty_provider.veto_state_commitment(height).await?;
-        }
+		if finalized_state_commitment.state_root != header.state_root.into() {
+			log::info!(
+				"Vetoing state commitment for {:?} on {:?}",
+				self.client.state_machine_id().state_id,
+				counterparty.state_machine_id().state_id
+			);
+			counterparty.veto_state_commitment(height).await?;
+		}
 
-        Ok(())
-    }
+		Ok(())
+	}
 }

@@ -10,7 +10,7 @@ members = [
     "integration-tests",
     "sync-committee",
     "relayer",
-    # "relayer-fisherman"
+    "relayer-fisherman"
 ]
 
 [profile.release]

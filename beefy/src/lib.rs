@@ -25,7 +25,7 @@ use subxt::{
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 pub use zk_beefy::Network;
 
-// mod byzantine;
+mod byzantine;
 pub mod host;
 pub mod prover;
 mod rsmq;

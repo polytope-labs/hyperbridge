@@ -16,6 +16,7 @@
 use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
+use sp_core::H256;
 use std::{pin::Pin, sync::Arc};
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
@@ -27,13 +28,12 @@ use crate::{prover::Prover, rsmq, rsmq::RedisConfig};
 use futures::{stream::TryStreamExt, Stream, StreamExt};
 use ismp::{
 	consensus::ConsensusStateId,
-	events::StateMachineUpdated,
 	host::StateMachine,
 	messaging::{ConsensusMessage, CreateConsensusState, Message},
 };
 use redis_async::client::{ConnectionBuilder, PubsubConnection};
 use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqMessage};
-use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider};
+use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,7 +60,7 @@ where
 	/// Consensus prover
 	prover: Prover<R, P>,
 	/// The underlying substrate client
-	client: SubstrateClient<P>,
+	pub(crate) client: SubstrateClient<P>,
 }
 
 impl<R, P> BeefyHost<R, P>
@@ -172,6 +172,7 @@ where
 	P::Signature: From<MultiSignature> + Send + Sync,
 	P::AccountId:
 		From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+	H256: From<<P as subxt::Config>::Hash>,
 {
 	async fn start_consensus(
 		&self,
@@ -347,20 +348,5 @@ where
 
 	fn provider(&self) -> Arc<dyn IsmpProvider> {
 		Arc::new(self.client.clone())
-	}
-}
-
-#[async_trait::async_trait]
-impl<R, P> ByzantineHandler for BeefyHost<R, P>
-where
-	R: subxt::Config,
-	P: subxt::Config,
-{
-	async fn check_for_byzantine_attack(
-		&self,
-		_counterparty: Arc<dyn IsmpProvider>,
-		_challenge_event: StateMachineUpdated,
-	) -> Result<(), anyhow::Error> {
-		todo!()
 	}
 }

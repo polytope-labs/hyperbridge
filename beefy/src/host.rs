@@ -232,11 +232,22 @@ where
 						.expect("Infallible, consensus state was encoded correctly");
 
 					// just some sanity checks
+					if set_id < consensus_state.next_authorities.id {
+						tracing::error!(
+							"Got proof with set_id: {set_id} < next_set_id:{}",
+							consensus_state.next_authorities.id
+						);
+						self.rsmq.lock().await.delete_message(&mandatory_queue, &id).await?; // this would be a fatal error
+						continue;
+					}
+
+					// just some sanity checks
 					if set_id != consensus_state.next_authorities.id {
 						tracing::error!(
 							"Consensus proof with set_id: {set_id} does not match next_set_id:{}",
 							consensus_state.next_authorities.id
 						);
+						// try to pull something else
 						continue;
 					}
 
@@ -293,8 +304,8 @@ where
 					continue;
 				}
 
-				if set_id != consensus_state.current_authorities.id &&
-					set_id != consensus_state.next_authorities.id
+				if set_id != consensus_state.current_authorities.id
+					&& set_id != consensus_state.next_authorities.id
 				{
 					tracing::info!(
 						"Saw proof for unknown set_id {set_id}, current: {}, next: {}",

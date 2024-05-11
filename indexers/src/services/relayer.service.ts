@@ -115,7 +115,7 @@ export class RelayerService {
 
     const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
     const _gasFeeInEth = Number(gasFee) / Number(BigInt(10 ** 18));
-    const usdFee = gasFee * nativeCurrencyPrice;
+    const usdFee = (gasFee * nativeCurrencyPrice) / BigInt(10 ** 18);
 
     const relayer = await RelayerService.findOrCreate(relayer_id, chain);
     let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(

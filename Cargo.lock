@@ -4257,16 +4257,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fcfdc7a0362c9f4444381a9e697c79d435fe65b52a37466fc2c1184cee9edc6"
 
 [[package]]
-name = "fisherman"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "tesseract",
- "tokio",
-]
-
-[[package]]
 name = "fixed-hash"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15270,7 +15260,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arb-host",
- "as-any",
  "clap",
  "env_logger",
  "futures",

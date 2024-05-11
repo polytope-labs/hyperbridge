@@ -21,7 +21,6 @@ path = "bins/prover.rs"
 log = "0.4.19"
 env_logger = "0.10.0"
 hex = "0.4.3"
-as-any = "0.3.1"
 
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 anyhow = "1.0.71"

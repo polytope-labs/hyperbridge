@@ -11,8 +11,11 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "tesseract"
-path = "src/main.rs"
+path = "bins/relayer.rs"
 
+[[bin]]
+name = "beefy-prover"
+path = "bins/prover.rs"
 
 [dependencies]
 log = "0.4.19"

@@ -134,6 +134,34 @@ where
 		Ok(BeefyProver { consensus_state, rsmq, prover, client, config, connection })
 	}
 
+	/// Initialize all the relevant queues for the configured state machines.
+	pub async fn init_queues(&mut self) {
+		for state_machine in self.config.state_machines.iter() {
+			// don't really care about errors
+			let result = self
+				.rsmq
+				.create_queue(
+					self.config.redis.mandatory_queue(state_machine).as_str(),
+					Some(Duration::ZERO),
+					Some(Duration::ZERO),
+					Some(-1),
+				)
+				.await;
+			tracing::info!("mandatory queue create result for {state_machine:?}: {result:?}");
+
+			let result = self
+				.rsmq
+				.create_queue(
+					self.config.redis.messages_queue(state_machine).as_str(),
+					Some(Duration::ZERO),
+					Some(Duration::ZERO),
+					Some(-1),
+				)
+				.await;
+			tracing::info!("messages queue create result: {result:?}");
+		}
+	}
+
 	/// Runs the proving task. Will internally notify the appropriate channels of new epoch
 	/// justifications as well as new proofs for ISMP messages.
 	pub async fn run(&mut self) {
@@ -652,7 +680,6 @@ where
 pub struct ProverConsensusState {
 	/// Inner consensus state tracked by the onchain light clients
 	pub inner: ConsensusState,
-
 	/// latest parachain height that has been finalized by BEEFY
 	pub finalized_parachain_height: u64,
 }
@@ -780,7 +807,7 @@ mod tests {
 				)
 				.await;
 
-			tracing::error!("mandatory queue create result: {result:?}");
+			tracing::error!("mandatory queue create result for {state_machine:?}: {result:?}");
 
 			let result = beefy_host
 				.rsmq()

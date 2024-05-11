@@ -1,0 +1,34 @@
+[substrate]
+state_machine = { Kusama = 4009 }
+hashing = "Keccak"
+rpc_ws = "ws://localhost:9902"
+# consensus_state_id = [50, 41, 52, 41]
+
+[prover]
+relay_rpc_ws = "wss://hyperbridge-paseo-relay.blockops.network:443"
+para_rpc_ws = "ws://localhost:9902"
+para_ids = [4009]
+# zk_beefy = "Polkadot"
+# max_rpc_payload_size = 300000000,
+
+[beefy]
+consensus_state_id = [50, 41, 52, 41]
+minimum_finalization_height = 25
+state_machines = [
+    { Ethereum = "ExecutionLayer" },
+    { Ethereum = "Arbitrum" },
+    { Ethereum = "Optimism" },
+    { Ethereum = "Base" },
+    "Bsc"
+]
+
+[beefy.redis]
+url = "localhost"
+port = 6379
+db = 0
+ns = "rsmq"
+realtime = false
+mandatory_queue = "mandatory"
+messages_queue = "messages"
+# username = ""
+# password = ""

@@ -8,10 +8,7 @@ use tesseract_beefy::host::BeefyHost;
 use clap::{arg, Parser};
 use ismp::host::StateMachine;
 use tesseract_primitives::IsmpHost;
-use tesseract_substrate::{
-	config::{Blake2SubstrateChain, KeccakSubstrateChain},
-	SubstrateClient,
-};
+use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use tesseract_sync_committee::L2Config;
 
 use crate::{
@@ -43,21 +40,20 @@ impl Cli {
 		log::info!("🧊 Initializing tesseract consensus");
 
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
-
 		let HyperbridgeConfig { hyperbridge: hyperbridge_config, relayer, .. } = config.clone();
 
-		let _client_map = create_client_map(config.clone()).await?;
+		let clients = create_client_map(config.clone()).await?;
 		let mut processes = vec![];
 		let hyperbridge = hyperbridge_config
 			.clone()
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
-		let relayer = relayer.unwrap_or_default();
+		let relayer = relayer.ok_or_else(|| anyhow!("Relayer config was not supplied"))?;
 		// set up initial consensus states
 		if self.setup_eth || self.setup_para {
 			initialize_consensus_clients(
 				&hyperbridge,
-				&_client_map,
+				&clients,
 				&relayer,
 				self.setup_eth,
 				self.setup_para,
@@ -66,7 +62,7 @@ impl Cli {
 			log::info!("Initialized consensus states");
 		}
 
-		for (_, client) in _client_map.clone() {
+		for (_, client) in clients {
 			let hyperbridge = hyperbridge_config
 				.clone()
 				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
@@ -82,19 +78,6 @@ impl Cli {
 					.await?;
 				async move { client.start_consensus(hyperbridge.provider()).await }
 			}));
-		}
-
-		if relayer.fisherman.unwrap_or(true) {
-			for (_, client) in _client_map.iter() {
-				let hyperbridge = hyperbridge_config
-					.clone()
-					.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
-					.await?;
-				processes.push(tokio::spawn(tesseract_fisherman::fish(
-					Arc::new(hyperbridge),
-					client.clone(),
-				)));
-			}
 		}
 
 		log::info!("Initialized consensus tasks");
@@ -138,6 +121,7 @@ impl Cli {
 		for task in tasks {
 			task.abort();
 		}
+
 		Ok(())
 	}
 }
@@ -150,7 +134,6 @@ async fn initialize_consensus_clients(
 	setup_eth: bool,
 	setup_para: bool,
 ) -> anyhow::Result<()> {
-	use as_any::AsAny;
 	if setup_eth {
 		let initial_state = hyperbridge
 			.query_initial_consensus_state()
@@ -174,20 +157,12 @@ async fn initialize_consensus_clients(
 			params.insert(*state_machine, host_param);
 			if let Some(mut consensus_state) = client.query_initial_consensus_state().await? {
 				consensus_state.challenge_period = relayer.challenge_period.unwrap_or_default();
-				hyperbridge.provider().set_initial_consensus_state(consensus_state).await?;
+				hyperbridge.client().create_consensus_state(consensus_state).await?;
 			}
 		}
 
-		let hyperbridge_provider = hyperbridge.provider();
-		let substrate_client = match hyperbridge_provider
-			.as_any()
-			.downcast_ref::<SubstrateClient<KeccakSubstrateChain>>()
-		{
-			Some(client) => client,
-			_ => panic!("Expected substrate keccak client behind hyperbridge provider reference"),
-		};
 		log::info!("setting host params on on hyperbridge");
-		substrate_client.set_host_params(params).await?;
+		hyperbridge.client().set_host_params(params).await?;
 	}
 
 	Ok(())

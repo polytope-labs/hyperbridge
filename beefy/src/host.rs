@@ -51,7 +51,7 @@ where
 	R: subxt::Config,
 	P: subxt::Config,
 {
-	/// PubSub connection for receiving notifications when there are new proofs in the queueu
+	/// PubSub connection for receiving notifications when there are new proofs in the queue
 	pubsub: PubsubConnection,
 	/// Rsmq for interacting with the queue
 	rsmq: Arc<Mutex<Rsmq>>,
@@ -121,6 +121,11 @@ where
 	/// Retuns a reference to underlying [`Rsmq`] instance
 	pub fn rsmq(&self) -> Arc<Mutex<Rsmq>> {
 		self.rsmq.clone()
+	}
+
+	/// Retuns a reference to underlying [`SubstrateClient`] instance
+	pub fn client(&self) -> &SubstrateClient<P> {
+		&self.client
 	}
 }
 

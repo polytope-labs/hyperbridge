@@ -36,10 +36,12 @@ const VALIDATOR_SET_ID_KEY: [u8; 32] =
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyConfig {
 	// Configuration options for the BEEFY prover
+	#[serde(flatten)]
 	pub prover: ProverConfig,
 	/// Configuration options for the beefy prover and host
 	pub host: BeefyHostConfig,
 	/// substrate config
+	#[serde(flatten)]
 	pub substrate: SubstrateConfig,
 }
 

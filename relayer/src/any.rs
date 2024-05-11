@@ -6,6 +6,7 @@ use tesseract_bsc::BscPosConfig;
 use tesseract_sync_committee::SyncCommitteeConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 /// Various chain configurations supported by consensus task
 pub enum AnyConfig {
 	/// Ethereum Sepolia sync committee config

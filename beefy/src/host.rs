@@ -304,8 +304,8 @@ where
 					continue;
 				}
 
-				if set_id != consensus_state.current_authorities.id
-					&& set_id != consensus_state.next_authorities.id
+				if set_id != consensus_state.current_authorities.id &&
+					set_id != consensus_state.next_authorities.id
 				{
 					tracing::info!(
 						"Saw proof for unknown set_id {set_id}, current: {}, next: {}",

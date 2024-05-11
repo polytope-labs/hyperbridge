@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, time::Duration};
+use std::{
+	collections::{HashMap, HashSet},
+	time::Duration,
+};
 
 use crate::{extract_para_id, host::ConsensusProof, rsmq, rsmq::RedisConfig, VALIDATOR_SET_ID_KEY};
 use anyhow::anyhow;
@@ -302,16 +305,19 @@ where
 						.consensus_proof(commitment.clone(), self.consensus_state.inner.clone())
 						.await?;
 
-					let state_machines = messages.iter().filter_map(|e| {
-						let event = match &e.event {
-							Event::PostRequest(req) => req.dest,
-							Event::PostResponse(res) => res.dest_chain(),
-							Event::PostRequestTimeoutHandled(req) => req.dest,
-							Event::PostResponseTimeoutHandled(res) => res.dest,
-							_ => None?,
-						};
-						Some(event)
-					});
+					let state_machines = messages
+						.iter()
+						.filter_map(|e| {
+							let event = match &e.event {
+								Event::PostRequest(req) => req.dest,
+								Event::PostResponse(res) => res.dest_chain(),
+								Event::PostRequestTimeoutHandled(req) => req.dest,
+								Event::PostResponseTimeoutHandled(res) => res.dest,
+								_ => None?,
+							};
+							Some(event)
+						})
+						.collect::<HashSet<_>>();
 
 					let set_id = {
 						let key = runtime::storage().beefy().validator_set_id();
@@ -335,10 +341,10 @@ where
 
 					// notify all relevant state machines
 					for state_machine in state_machines {
-						let messages_queue = self.config.redis.messages_queue(&state_machine);
+						tracing::info!("Sending consensus proof for {latest_parachain_height} to {state_machine:?}");
 						self.rsmq
 							.send_message(
-								messages_queue.as_str(),
+								self.config.redis.messages_queue(&state_machine).as_str(),
 								message.clone(),
 								Some(Duration::ZERO),
 							)

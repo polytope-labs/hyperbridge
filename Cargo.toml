@@ -332,6 +332,5 @@ default-features = false
 features = ["derive"]
 
 [workspace.dependencies.reconnecting-jsonrpsee-ws-client]
-git = "https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client"
-rev = "7c0817478c2741cc0889e7c75c645aad9f3cbb55"
+version = "0.4.2"
 default-features = false

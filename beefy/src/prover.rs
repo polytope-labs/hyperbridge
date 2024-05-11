@@ -12,13 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-	collections::{HashMap, HashSet},
-	time::Duration,
-};
-
 use crate::{extract_para_id, host::ConsensusProof, rsmq, rsmq::RedisConfig, VALIDATOR_SET_ID_KEY};
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use beefy_prover::{relay::fetch_latest_beefy_justification, runtime};
 use beefy_verifier_primitives::ConsensusState;
 use bytes::Buf;
@@ -31,13 +26,17 @@ use ismp::{
 use ismp_solidity_abi::beefy::BeefyConsensusProof;
 use pallet_ismp_rpc::{BlockNumberOrHash, EventWithMetadata};
 use redis::AsyncCommands;
-use rsmq_async::{Rsmq, RsmqConnection};
+use rsmq_async::{Rsmq, RsmqConnection, RsmqError};
 use serde::{Deserialize, Serialize};
 use sp_consensus_beefy::{
 	ecdsa_crypto::Signature, known_payloads::MMR_ROOT_ID, mmr::BeefyNextAuthoritySet,
 	SignedCommitment, VersionedFinalityProof,
 };
 use sp_runtime::traits::Keccak256;
+use std::{
+	collections::{HashMap, HashSet},
+	time::Duration,
+};
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
@@ -138,7 +137,7 @@ where
 	}
 
 	/// Initialize all the relevant queues for the configured state machines.
-	pub async fn init_queues(&mut self) {
+	pub async fn init_queues(&mut self) -> Result<(), anyhow::Error> {
 		for state_machine in self.config.state_machines.iter() {
 			// don't really care about errors
 			let result = self
@@ -150,7 +149,10 @@ where
 					Some(-1),
 				)
 				.await;
-			tracing::info!("mandatory queue create result for {state_machine:?}: {result:?}");
+
+			if !(matches!(result, Ok(_) | Err(RsmqError::QueueExists))) {
+				result.context(format!("failed to create mandatory queue for {state_machine:?}"))?
+			}
 
 			let result = self
 				.rsmq
@@ -161,8 +163,13 @@ where
 					Some(-1),
 				)
 				.await;
-			tracing::info!("messages queue create result: {result:?}");
+
+			if !(matches!(result, Ok(_) | Err(RsmqError::QueueExists))) {
+				result.context(format!("failed to create mandatory queue for {state_machine:?}"))?
+			}
 		}
+
+		Ok(())
 	}
 
 	/// Runs the proving task. Will internally notify the appropriate channels of new epoch
@@ -217,6 +224,10 @@ where
 							};
 
 							for state_machine in self.config.state_machines.iter() {
+								tracing::info!(
+									"Sending mandatory consensus proof to {state_machine:?}"
+								);
+
 								let mandatory_queue =
 									self.config.redis.mandatory_queue(&state_machine);
 								self.rsmq
@@ -249,7 +260,7 @@ where
 						}
 					}
 
-					let (mut latest_parachain_height, messages) =
+					let (latest_parachain_height, messages) =
 						self.latest_ismp_message_events(latest_beefy_header.hash()).await?;
 
 					if messages.is_empty() {
@@ -290,13 +301,15 @@ where
 
 							if para_header.number as u64 >= minimum_height {
 								latest_beefy_header = header;
-								latest_parachain_height = para_header.number.into();
 								break;
 							}
 						}
 					}
 
-					tracing::info!("Proving finality for messages in the range: {lowest_message_height}..{minimum_height}");
+					let (latest_parachain_height, messages) =
+						self.latest_ismp_message_events(latest_beefy_header.hash()).await?;
+
+					tracing::info!("Proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}");
 
 					let (commitment, _) =
 						fetch_latest_beefy_justification(&relay_client, latest_beefy_header.hash())
@@ -341,14 +354,14 @@ where
 
 					// notify all relevant state machines
 					for state_machine in state_machines {
-						tracing::info!("Sending consensus proof for {latest_parachain_height} to {state_machine:?}");
+						tracing::info!("Sending consensus proof for new messages in range {lowest_message_height}..{latest_parachain_height} to {state_machine:?}");
 						self.rsmq
 							.send_message(
 								self.config.redis.messages_queue(&state_machine).as_str(),
 								message.clone(),
 								Some(Duration::ZERO),
 							)
-							.await?;
+							.await?; // fatal
 					}
 
 					self.consensus_state.inner.latest_beefy_height =

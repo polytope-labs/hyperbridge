@@ -64,7 +64,7 @@ async fn main() -> Result<(), anyhow::Error> {
 		.await?
 	};
 
-	beefy_prover.init_queues().await;
+	beefy_prover.init_queues().await?;
 	// run the prover
 	beefy_prover.run().await;
 

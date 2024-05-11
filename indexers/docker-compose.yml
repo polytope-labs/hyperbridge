@@ -74,7 +74,7 @@ services:
       - --batch-size=3
       - --disable-historical
       - --multi-chain
-      - --log-level=error
+      - --log-level=info
     healthcheck:
       test:
         [
@@ -109,7 +109,7 @@ services:
       - --batch-size=3
       - --disable-historical
       - --multi-chain
-      - --log-level=error
+      - --log-level=info
     healthcheck:
       test:
         ["CMD", "curl", "-f", "http://subquery-node-base-sepolia:3000/ready"]
@@ -139,7 +139,7 @@ services:
       - --batch-size=3
       - --disable-historical
       - --multi-chain
-      - --log-level=error
+      - --log-level=info
     healthcheck:
       test:
         [
@@ -174,7 +174,7 @@ services:
       - --batch-size=3
       - --disable-historical
       - --multi-chain
-      - --log-level=error
+      - --log-level=info
     healthcheck:
       test:
         [
@@ -209,7 +209,7 @@ services:
       - --batch-size=3
       - --disable-historical
       - --multi-chain
-      - --log-level=error
+      - --log-level=info
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://subquery-node-bsc-chapel:3000/ready"]

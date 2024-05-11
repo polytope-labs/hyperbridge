@@ -53,22 +53,20 @@ export class HyperBridgeService {
 
     const protocolFee = await this.computeProtocolFeeFromHexData(address, data);
 
-    Promise.all([await this.incrementProtocolFeesEarned(protocolFee, chain)]);
-
-    await this.incrementTotalNumberOfMessagesSent(chain);
+    Promise.all([
+      await this.incrementProtocolFeesEarned(protocolFee, chain),
+      await this.incrementTotalNumberOfMessagesSent(chain),
+    ]);
   }
 
   /**
    * Perform the necessary actions related to Hyperbridge stats when a PostRequestHandled/PostResponseHandled event is indexed
    */
   static async handlePostRequestOrResponseHandledEvent(
-    relayer_id: string,
+    _relayer_id: string,
     chain: SupportedChain,
   ): Promise<void> {
-    Promise.all([
-      await this.updateNumberOfUniqueRelayers(relayer_id),
-      await this.incrementNumberOfSuccessfulMessagesSent(chain),
-    ]);
+    await this.incrementNumberOfSuccessfulMessagesSent(chain);
   }
 
   /**
@@ -123,16 +121,19 @@ export class HyperBridgeService {
   }
 
   /**
-   * Increment the number of unique relayers on Hyperbridge (if the relayer doesn't exist)
+   * Increment the number of unique relayers on Hyperbridge
    */
-  static async updateNumberOfUniqueRelayers(relayer_id: string): Promise<void> {
-    let relayer = await Relayer.get(relayer_id);
+  static async incrementNumberOfUniqueRelayers(
+    chain: SupportedChain,
+  ): Promise<void> {
+    let stats = await this.getStats();
+    let chainStats =
+      await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
 
-    if (typeof relayer === "undefined") {
-      let stats = await this.getStats();
-      stats.numberOfUniqueRelayers += BigInt(1);
-      await stats.save();
-    }
+    stats.numberOfUniqueRelayers += BigInt(1);
+    chainStats.numberOfUniqueRelayers += BigInt(1);
+
+    Promise.all([await chainStats.save(), await stats.save()]);
   }
 
   /**

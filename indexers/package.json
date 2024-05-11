@@ -9,15 +9,11 @@
     "start:docker": "docker-compose pull && docker-compose up --remove-orphans",
     "dev": "subql codegen && subql build && docker-compose pull && docker-compose up --remove-orphans",
     "prepack": "rm -rf dist && npm run build",
-    "test": "subql build && subql-node-ethereum test"
+    "test": "subql build && subql-node-ethereum -f=ethereum-sepolia.yaml test"
   },
   "homepage": "https://hyperbridge.network/",
   "repository": "https://github.com/polytope-labs/hyperbridge",
-  "files": [
-    "dist",
-    "schema.graphql",
-    "subquery-multichain.yaml"
-  ],
+  "files": ["dist", "schema.graphql", "subquery-multichain.yaml"],
   "author": "Polytope Labs",
   "license": "MIT",
   "dependencies": {

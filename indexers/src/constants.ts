@@ -26,19 +26,19 @@ export const START_BLOCKS = {
 // Contract addresses
 export const CONTRACT_ADDRESSES = {
   [SupportedChain.ETHEREUM_SEPOLIA]: {
-    EthereumHost: "0xcD90465E75479a15f85faCB17B0342e609ef3f5f",
+    EthereumHost: "0x92F217a5e965EAa2aD356678D537A0A9ccC0AF41",
   },
   [SupportedChain.BASE_SEPOLIA]: {
-    EthereumHost: "0x6f069107877D7b19f593C861fEa485568D466581",
+    EthereumHost: "0xB72759815CF029EFDb957A676C3593Ec762CFD4e",
   },
   [SupportedChain.OPTIMISM_SEPOLIA]: {
-    EthereumHost: "0x72f7B1310D7dF9fb859f1a216133598f486b8994",
+    EthereumHost: "0x27D689e361ab92aCab04Ea21c1B3F507A94a9DAd",
   },
   [SupportedChain.ARBITRUM_SEPOLIA]: {
-    EthereumHost: "0xC4B58437d9A1Aa0eba4f128114110a1054cceB0F",
+    EthereumHost: "0x15Ba7e42BC2c3e8FeDEb30D13CEE611D97315E7F",
   },
   [SupportedChain.BSC_CHAPEL]: {
-    EthereumHost: "0x338B01874A01D7593F85e2e3c1681A46f2f5Df4a",
+    EthereumHost: "0x0cac3dF856aD8939955086AADd243a28f35988BE",
   },
 };
 

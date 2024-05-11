@@ -1,4 +1,3 @@
-import { ethers } from "ethers";
 import { CHAINLINK_PRICE_FEED_CONTRACT_ADDRESSES } from "../constants";
 import { SupportedChain } from "../types";
 import { ChainLinkAggregatorV3Abi__factory } from "../types/contracts";
@@ -28,8 +27,6 @@ export const getNativeCurrencyPrice = async (
   );
 
   const roundData = await priceFeedContract.latestRoundData();
-  const decimals = await priceFeedContract.decimals();
-  const price = roundData.answer.toBigInt() / BigInt(10 ** decimals);
 
-  return price;
+  return roundData.answer.toBigInt();
 };

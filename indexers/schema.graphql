@@ -216,12 +216,12 @@ type RelayerStatsPerChain @entity {
     """
     The USD value of the gas fee spent on successful post requests (Gas Fee * USD Value of Eth at the time of the transaction)
     """
-    usdGasFeeForSuccessfulMessages: Float!
+    usdGasFeeForSuccessfulMessages: BigInt!
 
     """
     The USD value of the gas fee spent on failed post requests (Gas Fee * USD Value of Eth at the time of the transaction)
     """
-    usdGasFeeForFailedMessages: Float!
+    usdGasFeeForFailedMessages: BigInt!
 
     """
     Total fees earned by the relayer

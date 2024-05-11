@@ -7,6 +7,7 @@ import {
   HandlePostRequestsTransaction,
   HandlePostResponsesTransaction,
 } from "../types/abi-interfaces/HandlerV1Abi";
+import { HyperBridgeService } from "./hyperbridge.service";
 
 export class RelayerService {
   /**
@@ -27,6 +28,7 @@ export class RelayerService {
       });
 
       await relayer.save();
+      await HyperBridgeService.incrementNumberOfUniqueRelayers(chain);
     }
 
     return relayer;
@@ -81,7 +83,7 @@ export class RelayerService {
    */
   static async handlePostRequestOrPostResponseHandledEvent(
     relayer_id: string,
-    transaction: EthereumTransaction<EthereumResult>,
+    _transaction: EthereumTransaction<EthereumResult>,
     chain: SupportedChain,
   ): Promise<void> {
     const relayer = await RelayerService.findOrCreate(relayer_id, chain);
@@ -112,8 +114,8 @@ export class RelayerService {
     const nativeCurrencyPrice = await getNativeCurrencyPrice(chain);
 
     const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
-    const gasFeeInEth = Number(gasFee) / Number(BigInt(10 ** 18));
-    const usdFee = gasFeeInEth * Number(nativeCurrencyPrice);
+    const _gasFeeInEth = Number(gasFee) / Number(BigInt(10 ** 18));
+    const usdFee = gasFee * nativeCurrencyPrice;
 
     const relayer = await RelayerService.findOrCreate(relayer_id, chain);
     let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(

@@ -1,9 +1,9 @@
 use anyhow::Context;
 use futures::{StreamExt, TryStreamExt};
+pub use reconnecting_jsonrpsee_ws_client::Error as RpcError;
 use reconnecting_jsonrpsee_ws_client::{Client, FixedInterval, SubscriptionId};
 use std::{ops::Deref, sync::Arc, time::Duration};
 use subxt::{
-	error::RpcError,
 	rpc::{RawValue, RpcClientT, RpcFuture, RpcSubscription},
 	OnlineClient,
 };
@@ -76,7 +76,7 @@ impl RpcClientT for ClientWrapper {
 				.0
 				.request_raw(method.to_string(), params)
 				.await
-				.map_err(|e| RpcError::ClientError(Box::new(e)))?;
+				.map_err(|e| subxt::error::RpcError::ClientError(Box::new(e)))?;
 			Ok(res)
 		})
 	}
@@ -92,14 +92,15 @@ impl RpcClientT for ClientWrapper {
 				.0
 				.subscribe_raw(sub.to_string(), params, unsub.to_string())
 				.await
-				.map_err(|e| RpcError::ClientError(Box::new(e)))?;
+				.map_err(|e| subxt::error::RpcError::ClientError(Box::new(e)))?;
 
 			let id = match stream.id() {
 				SubscriptionId::Str(id) => Some(id.clone().into_owned()),
 				SubscriptionId::Num(id) => Some(id.to_string()),
 			};
 
-			let stream = stream.map_err(|e| RpcError::ClientError(Box::new(e))).boxed();
+			let stream =
+				stream.map_err(|e| subxt::error::RpcError::ClientError(Box::new(e))).boxed();
 			Ok(RpcSubscription { stream, id })
 		})
 	}

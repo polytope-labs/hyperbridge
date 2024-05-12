@@ -24,11 +24,11 @@ use tesseract_substrate::{
 
 /// The AnyConfig wraps the configuration options for all supported chains
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-#[serde(tag = "untagged", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum AnyConfig {
 	/// Configuration for substrate-based chains
 	Substrate(SubstrateConfig),
-	/// Configuration for evn-based chains
+	/// Configuration for evm-based chains
 	Ethereum(EvmConfig),
 }
 

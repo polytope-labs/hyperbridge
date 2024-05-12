@@ -139,7 +139,6 @@ where
 	/// Initialize all the relevant queues for the configured state machines.
 	pub async fn init_queues(&mut self) -> Result<(), anyhow::Error> {
 		for state_machine in self.config.state_machines.iter() {
-			// don't really care about errors
 			let result = self
 				.rsmq
 				.create_queue(
@@ -151,7 +150,7 @@ where
 				.await;
 
 			if !(matches!(result, Ok(_) | Err(RsmqError::QueueExists))) {
-				result.context(format!("failed to create mandatory queue for {state_machine:?}"))?
+				result.context(format!("Failed to create mandatory queue for {state_machine:?}"))?
 			}
 
 			let result = self
@@ -165,7 +164,7 @@ where
 				.await;
 
 			if !(matches!(result, Ok(_) | Err(RsmqError::QueueExists))) {
-				result.context(format!("failed to create mandatory queue for {state_machine:?}"))?
+				result.context(format!("Failed to create messages queue for {state_machine:?}"))?
 			}
 		}
 

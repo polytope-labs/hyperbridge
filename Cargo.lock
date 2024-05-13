@@ -7022,7 +7022,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "1.6.2"
+version = "1.6.3"
 dependencies = [
  "anyhow",
  "async-trait",

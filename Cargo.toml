@@ -272,7 +272,7 @@ pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
 # merkle trees
 pallet-mmr-runtime-api = { path = "modules/trees/mmr/pallet/runtime-api", default-features = false }
 mmr-gadget = { path = "modules/trees/mmr/gadget" }
-ethereum-trie = { path = "./modules/trees/ethereum", default-features = false }
+ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }
 mmr-primitives = { version = "1.6.2", path = "modules/trees/mmr/primitives", default-features = false }
 
 # runtimes

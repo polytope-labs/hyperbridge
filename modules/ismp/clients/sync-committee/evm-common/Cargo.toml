@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 # polytope labs
 ismp = { workspace = true  }
-ethereum-trie = { workspace = true  }
+ethereum-triedb = { workspace = true  }
 geth-primitives = { workspace = true  }
 
 # crates.io
@@ -31,7 +31,7 @@ default = ["std"]
 std = [
     "codec/std",
     "ismp/std",
-    "ethereum-trie/std",
+    "ethereum-triedb/std",
     "trie-db/std",
     "hash-db/std",
     "alloy-rlp/std",
@@ -41,5 +41,3 @@ std = [
     "hex/std",
     "geth-primitives/std"
 ]
-
-

@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 # polytope labs
 ismp = { workspace = true  }
-ethereum-trie = { workspace = true  }
+ethereum-triedb = { workspace = true  }
 geth-primitives = { workspace = true  }
 evm-common = { workspace = true }
 
@@ -29,7 +29,7 @@ default = ["std"]
 std = [
     "codec/std",
     "ismp/std",
-    "ethereum-trie/std",
+    "ethereum-triedb/std",
     "alloy-rlp/std",
     "alloy-primitives/std",
     "ethabi/std",

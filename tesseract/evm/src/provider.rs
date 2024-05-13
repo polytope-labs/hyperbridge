@@ -24,7 +24,7 @@ use crate::{
 	gas_oracle::{get_current_gas_cost_in_usd, get_l2_data_cost},
 	tx::{generate_contract_calls, get_chain_gas_limit},
 };
-use ethereum_trie::StorageProof;
+use ethereum_triedb::StorageProof;
 use ethers::{
 	contract::parse_log,
 	types::{

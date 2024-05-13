@@ -42,7 +42,7 @@ evm-common = { workspace = true }
 sp-core = { workspace = true }
 substrate-state-machine = { workspace = true }
 ismp-solidity-abi = { workspace = true }
-ethereum-trie = { workspace = true }
+ethereum-triedb = { workspace = true }
 subxt-utils = { workspace = true }
 hex = "0.4.3"
 

@@ -70,7 +70,7 @@ contract HostManager is BaseIsmpModule {
 
     function onAccept(IncomingPostRequest calldata incoming) external override onlyIsmpHost {
         PostRequest calldata request = incoming.request;
-        // Only Hyperbridge governor parachain can send requests to this module.
+        // Only the Hyperbridge parachain can send requests to this module.
         require(request.source.equals(IIsmpHost(_params.host).hyperbridge()), "Unauthorized request");
 
         OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));

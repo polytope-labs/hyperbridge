@@ -432,7 +432,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev withdraws host revenue to the given address,  can only be called by cross-chain governance
+     * @dev withdraws host revenue to the given address, can only be called by cross-chain governance
      * @param params, the parameters for withdrawal
      */
     function withdraw(WithdrawParams memory params) external onlyManager {
@@ -469,13 +469,27 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
+     * @dev A fisherman has determined that some [`StateCommitment`]
+     *  (which is ideally still in it's challenge period)
+     *  is infact fraudulent and misrepresentative of the state
+     *  changes at the provided height. This allows them to veto the state commitment.
+     *  At the moment, they aren't required to provide any proofs for this.
+     */
+    function vetoStateCommitment(StateMachineHeight memory height) public onlyFishermen {
+        deleteStateMachineCommitmentInternal(height, _msgSender());
+    }
+
+    /**
      * @dev Delete the state commitment at given state height.
      */
     function deleteStateMachineCommitmentInternal(StateMachineHeight memory height, address fisherman) private {
         StateCommitment memory stateCommitment = _stateCommitments[height.stateMachineId][height.height];
         delete _stateCommitments[height.stateMachineId][height.height];
         delete _stateCommitmentsUpdateTime[height.stateMachineId][height.height];
-        delete _latestStateMachineHeight[height.stateMachineId];
+        // technically any state commitment can be vetoed, safety check that it's the latest before resetting it.
+        if (_latestStateMachineHeight[height.stateMachineId] == height.height) {
+            _latestStateMachineHeight[height.stateMachineId] = 1;
+        }
 
         // track the fisherman responsible for rewards on hyperbridge through state proofs
         _vetoes[height.stateMachineId][height.height] = fisherman;
@@ -838,17 +852,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         metadata.fee += amount;
         _responseCommitments[commitment] = metadata;
-    }
-
-    /**
-     * @dev A fisherman has determined that some [`StateCommitment`]
-     *  (which is ideally still in it's challenge period)
-     *  is infact fraudulent and misrepresentative of the state
-     *  changes at the provided height. This allows them to veto the state commitment.
-     *  They aren't required to provide any proofs for this.
-     */
-    function vetoStateCommitment(StateMachineHeight memory height) public onlyFishermen {
-        deleteStateMachineCommitmentInternal(height, _msgSender());
     }
 
     /**

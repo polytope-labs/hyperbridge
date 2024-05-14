@@ -57,6 +57,7 @@ export async function handlePostRequestHandledEvent(
       commitment,
       chain,
       blockNumber: blockNumber.toString(),
+      blockHash: block.hash,
       blockTimestamp: block.timestamp,
       status: RequestStatus.DEST,
       transactionHash,

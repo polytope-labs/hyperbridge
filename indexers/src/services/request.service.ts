@@ -5,16 +5,17 @@ import { Request, RequestStatusMetadata } from "../types/models";
 export interface ICreateRequestArgs {
   chain: SupportedChain;
   commitment: string;
-  data: string;
-  dest: string;
-  fee: bigint;
-  from: string;
-  nonce: bigint;
-  source: string;
+  data?: string | undefined;
+  dest?: string | undefined;
+  fee?: bigint | undefined;
+  from?: string | undefined;
+  nonce?: bigint | undefined;
+  source?: string | undefined;
+  timeoutTimestamp?: bigint | undefined;
+  to?: string | undefined;
   status: RequestStatus;
-  timeoutTimestamp: bigint;
-  to: string;
   blockNumber: string;
+  blockHash: string;
   transactionHash: string;
   blockTimestamp: bigint;
 }
@@ -23,6 +24,7 @@ export interface IUpdateRequestStatusArgs {
   commitment: string;
   status: RequestStatus;
   blockNumber: string;
+  blockHash: string;
   transactionHash: string;
   blockTimestamp: bigint;
   chain: SupportedChain;
@@ -53,6 +55,7 @@ export class RequestService {
       timeoutTimestamp,
       to,
       blockNumber,
+      blockHash,
       transactionHash,
       blockTimestamp,
     } = args;
@@ -82,6 +85,7 @@ export class RequestService {
         chain,
         timestamp: blockTimestamp,
         blockNumber,
+        blockHash,
         transactionHash,
       });
 
@@ -99,6 +103,7 @@ export class RequestService {
     const {
       commitment,
       blockNumber,
+      blockHash,
       blockTimestamp,
       status,
       transactionHash,
@@ -111,6 +116,10 @@ export class RequestService {
       if (
         REQUEST_STATUS_WEIGHTS[status] > REQUEST_STATUS_WEIGHTS[request.status]
       ) {
+        logger.info(
+          `Updating Request Status: ${JSON.stringify({ new_status: status, old_status: request.status, is_true: REQUEST_STATUS_WEIGHTS[status] > REQUEST_STATUS_WEIGHTS[request.status] })}`,
+        );
+
         request.status = status;
         await request.save();
       }
@@ -122,16 +131,34 @@ export class RequestService {
         chain,
         timestamp: blockTimestamp,
         blockNumber,
+        blockHash,
         transactionHash,
       });
 
       await requestStatusMetadata.save();
     } else {
-      logger.error(
-        `Attempted to update status of non-existent request with commitment: ${commitment} in transaction: ${transactionHash}`,
-      );
-
       // Create new request and request status metadata
+      await this.findOrCreate({
+        commitment,
+        chain,
+        data: undefined,
+        dest: undefined,
+        fee: undefined,
+        from: undefined,
+        nonce: undefined,
+        source: undefined,
+        timeoutTimestamp: undefined,
+        to: undefined,
+        blockNumber,
+        blockHash,
+        blockTimestamp,
+        status,
+        transactionHash,
+      });
+
+      logger.info(
+        `Created new request while attempting request update with details ${JSON.stringify({ commitment, transactionHash, status })}`,
+      );
     }
   }
 

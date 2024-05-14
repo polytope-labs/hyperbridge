@@ -354,42 +354,42 @@ type Request @entity {
     """
     This is the statemachine id where this request originated from
     """
-    source: String!
+    source: String
 
     """
     This is the statemachine where this request is been dispatched to
     """
-    dest: String!
+    dest: String
 
     """
     This is the timestamp when the request would timeout
     """
-    timeoutTimestamp: BigInt!
+    timeoutTimestamp: BigInt
 
     """
     The address that dispatched this request
     """
-    from: String! @index
+    from: String @index
 
     """
     The address receiving this request
     """
-    to: String! @index
+    to: String @index
 
     """
     Nonce of the request
     """
-    nonce: BigInt! @index
+    nonce: BigInt @index
 
     """
     Data of the request
     """
-    data: String! @index
+    data: String @index
 
     """
     This is the fee set for this request
     """
-    fee: BigInt! @index
+    fee: BigInt @index
 
     """
     Status of the request
@@ -411,6 +411,7 @@ type RequestStatusMetadata @entity {
     chain: SupportedChain!
     timestamp: BigInt!
     blockNumber: String!
+    blockHash: String!
     transactionHash: String!
     request: Request!
 }
@@ -432,12 +433,12 @@ type Response @entity {
     """
     The response message
     """
-    response_message: String!
+    response_message: String
 
     """
     The Timestamp at which this response expires in seconds
     """
-    responseTimeoutTimestamp: BigInt!
+    responseTimeoutTimestamp: BigInt
 
     """
     Status of the response
@@ -447,7 +448,7 @@ type Response @entity {
     """
     The request that triggered this response
     """
-    request: Request!
+    request: Request
 
     """
     Metatdata about the response's progression through different statuses
@@ -464,6 +465,7 @@ type ResponseStatusMetadata @entity {
     chain: SupportedChain!
     timestamp: BigInt!
     blockNumber: String!
+    blockHash: String!
     transactionHash: String!
     response: Response!
 }

@@ -46,6 +46,7 @@ export async function handlePostRequestEvent(
     timeoutTimestamp: BigInt(timeoutTimestamp.toString()),
     to,
     blockNumber: blockNumber.toString(),
+    blockHash: block.hash,
     transactionHash,
     blockTimestamp: block.timestamp,
   });

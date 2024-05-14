@@ -58,6 +58,7 @@ export async function handlePostResponseHandledEvent(
       chain,
       blockNumber: blockNumber.toString(),
       blockTimestamp: block.timestamp,
+      blockHash: block.hash,
       status: ResponseStatus.DEST,
       transactionHash,
     }),

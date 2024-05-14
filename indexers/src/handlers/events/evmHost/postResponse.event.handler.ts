@@ -80,6 +80,7 @@ export async function handlePostResponseEvent(
     status: ResponseStatus.SOURCE,
     request,
     blockNumber: blockNumber.toString(),
+    blockHash: block.hash,
     transactionHash,
     blockTimestamp: block.timestamp,
   });

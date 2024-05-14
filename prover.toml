@@ -13,7 +13,7 @@ para_ids = [4009]
 
 [beefy]
 consensus_state_id = [50, 41, 52, 41]
-minimum_finalization_height = 25
+minimum_finalization_height = 10
 state_machines = [
     { Ethereum = "ExecutionLayer" },
     { Ethereum = "Arbitrum" },

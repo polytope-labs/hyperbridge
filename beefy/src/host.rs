@@ -15,6 +15,7 @@
 
 use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
+use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
 use std::{pin::Pin, sync::Arc};
@@ -24,7 +25,10 @@ use subxt::{
 };
 use tesseract_substrate::SubstrateClient;
 
-use crate::{prover::Prover, rsmq, rsmq::RedisConfig};
+use crate::{
+	prover::{Prover, REDIS_CONSENSUS_STATE_KEY},
+	rsmq::{self, RedisConfig},
+};
 use futures::{stream::TryStreamExt, Stream, StreamExt};
 use ismp::{
 	consensus::ConsensusStateId,
@@ -116,6 +120,33 @@ where
 		let combined = futures::stream::select(mandatory_stream, messages_stream);
 
 		Ok(Box::pin(combined))
+	}
+
+	/// Initialize the consensus state for the prover where it expects in redis, then returns it.
+	pub async fn hydrate_initial_consensus_state(
+		&self,
+	) -> Result<CreateConsensusState, anyhow::Error> {
+		let consensus_state = self.prover.query_initial_consensus_state(None).await?;
+		let mut connection = redis::Client::open(redis::ConnectionInfo {
+			addr: redis::ConnectionAddr::Tcp(self.config.redis.url.clone(), self.config.redis.port),
+			redis: redis::RedisConnectionInfo {
+				db: self.config.redis.db as i64,
+				username: self.config.redis.username.clone(),
+				password: self.config.redis.password.clone(),
+			},
+		})?
+		.get_connection_manager()
+		.await?;
+		connection.set(REDIS_CONSENSUS_STATE_KEY, consensus_state.encode()).await?;
+
+		Ok(CreateConsensusState {
+			consensus_state: consensus_state.inner.encode(),
+			consensus_client_id: *b"BEEF",
+			consensus_state_id: self.config.consensus_state_id,
+			unbonding_period: 60 * 60 * 60 * 27,
+			challenge_period: 5 * 60,
+			state_machine_commitments: vec![],
+		})
 	}
 
 	/// Retuns a reference to underlying [`Rsmq`] instance

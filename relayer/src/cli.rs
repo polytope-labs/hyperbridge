@@ -135,10 +135,9 @@ async fn initialize_consensus_clients(
 	setup_para: bool,
 ) -> anyhow::Result<()> {
 	if setup_eth {
-		let initial_state = hyperbridge
-			.query_initial_consensus_state()
-			.await?
-			.ok_or_else(|| anyhow!("Failed to fetch beef consensus state"))?;
+		let initial_state = hyperbridge.hydrate_initial_consensus_state().await?;
+
+		// write this consensus state to redis
 		for (state_machine, chain) in chains {
 			let provider = chain.provider();
 			log::info!("setting consensus state on {state_machine:?}");

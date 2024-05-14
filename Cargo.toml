@@ -93,7 +93,7 @@ pr-run-mode = "upload"
 # Skip checking whether the specified configuration files are up to date
 allow-dirty = ["ci"]
 # Whether to install an updater program
-install-updater = true
+install-updater = false
 
 # The profile that 'cargo dist' will build with
 [profile.dist]

@@ -1,4 +1,4 @@
-name: Docker Tesseract
+name: Tesseract Docker Publish
 
 on:
   push:

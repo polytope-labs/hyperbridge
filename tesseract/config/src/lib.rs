@@ -29,14 +29,14 @@ pub enum AnyConfig {
 	/// Configuration for substrate-based chains
 	Substrate(SubstrateConfig),
 	/// Configuration for evm-based chains
-	Ethereum(EvmConfig),
+	Evm(EvmConfig),
 }
 
 impl AnyConfig {
 	pub fn state_machine(&self) -> ismp::host::StateMachine {
 		match self {
 			Self::Substrate(config) => config.state_machine,
-			Self::Ethereum(config) => config.state_machine,
+			Self::Evm(config) => config.state_machine,
 		}
 	}
 }
@@ -64,7 +64,7 @@ impl AnyConfig {
 					},
 				}
 			},
-			AnyConfig::Ethereum(config) => {
+			AnyConfig::Evm(config) => {
 				let mut client = EvmClient::new(config).await?;
 				client.set_latest_finalized_height(hyperbridge).await?;
 				Arc::new(client) as Arc<dyn IsmpProvider>

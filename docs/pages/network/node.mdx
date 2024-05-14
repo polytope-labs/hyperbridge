@@ -24,7 +24,7 @@ docker run polytopelabs/hyperbridge:latest --chain={messier|gargantua|nexus}
 You can install a prebuilt binary for the hyperbridge node with the following bash script
 
 ```bash
-wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.4.1/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
+wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.4.6/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
 tar -xvzf hyperbridge-x86_64-unknown-linux-gnu.tar.gz
 # copy to $PATH
 cp hyperbridge-x86_64-unknown-linux-gnu/hyperbridge $HOME/.local/bin/
@@ -91,7 +91,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Download a local copy of the repo and checkout the latest release tag
 
 ```bash
-export LATEST_TAG=v0.4.1
+export LATEST_TAG=v0.4.6
 git clone https://github.com/polytope-labs/hyperbridge.git
 cd ./hyperbridge
 git checkout ${LATEST_TAG}
@@ -185,7 +185,7 @@ hyperbridge \
 
 ## Running the node (Kusama)
 
-Hyperbridge is live on Kusama with a chainId of `messier` and ParaId of `3340`
+Hyperbridge is live on Kusama with a chainId of `messier` and ParaId of `3340`. We don't reccomend joining the kusama network at this time.
 
 ```bash
 export PUBLIC_IP_ADDRESS=<your-node-public-ip-address>
@@ -207,7 +207,7 @@ hyperbridge \
 
 ## Running the node (Polkadot)
 
-Hyperbridge is also live on Polkadot with a chainId of `nexus` and ParaId of `3367`
+Hyperbridge is also live on Polkadot with a chainId of `nexus` and ParaId of `3367`.
 
 ```bash
 export PUBLIC_IP_ADDRESS=<your-node-public-ip-address>

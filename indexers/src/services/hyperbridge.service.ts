@@ -9,6 +9,10 @@ import { HyperBridgeChainStatsService } from "./hyperbridgeChainStats.service";
 import assert from "assert";
 import { isHexString } from "ethers/lib/utils";
 import { EthereumHostAbi__factory } from "../types/contracts";
+import {
+  HandlePostRequestsTransaction,
+  HandlePostResponsesTransaction,
+} from "../types/abi-interfaces/HandlerV1Abi";
 
 export class HyperBridgeService {
   /**
@@ -21,8 +25,8 @@ export class HyperBridgeService {
       stats = HyperBridgeStats.create({
         id: HYPERBRIDGE_STATS_ENTITY_ID,
         numberOfMessagesSent: BigInt(0),
-        numberOfSuccessfulMessagesSent: BigInt(0),
-        numberOfFailedMessagesSent: BigInt(0),
+        numberOfDeliveredMessages: BigInt(0),
+        numberOfFailedDeliveries: BigInt(0),
         numberOfTimedOutMessages: BigInt(0),
         numberOfUniqueRelayers: BigInt(0),
         feesPayedOutToRelayers: BigInt(0),
@@ -55,7 +59,7 @@ export class HyperBridgeService {
 
     Promise.all([
       await this.incrementProtocolFeesEarned(protocolFee, chain),
-      await this.incrementTotalNumberOfMessagesSent(chain),
+      await this.incrementNumberOfSentMessages(chain),
     ]);
   }
 
@@ -66,13 +70,27 @@ export class HyperBridgeService {
     _relayer_id: string,
     chain: SupportedChain,
   ): Promise<void> {
-    await this.incrementNumberOfSuccessfulMessagesSent(chain);
+    await this.incrementNumberOfDeliveredMessages(chain);
   }
 
   /**
-   * Increment the total number of messages sent by hyperbridge
+   * Handle PostRequest or PostResponse transactions
    */
-  static async incrementTotalNumberOfMessagesSent(
+  static async handlePostRequestOrResponseTransaction(
+    chain: SupportedChain,
+    transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
+  ): Promise<void> {
+    const { status } = await transaction.receipt();
+
+    if (status === false) {
+      await this.incrementNumberOfFailedDeliveries(chain);
+    }
+  }
+
+  /**
+   * Increment the total number of messages sent on hyperbridge
+   */
+  static async incrementNumberOfSentMessages(
     chain: SupportedChain,
   ): Promise<void> {
     let stats = await this.getStats();
@@ -89,33 +107,33 @@ export class HyperBridgeService {
   /**
    * Increment the number of successful messages handled by hyperbridge
    */
-  static async incrementNumberOfSuccessfulMessagesSent(
+  static async incrementNumberOfDeliveredMessages(
     chain: SupportedChain,
   ): Promise<void> {
     let stats = await this.getStats();
-    stats.numberOfSuccessfulMessagesSent += BigInt(1);
+    stats.numberOfDeliveredMessages += BigInt(1);
 
     // Update the specific chain stats
     let chainStats =
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
-    chainStats.numberOfSuccessfulMessagesSent += BigInt(1);
+    chainStats.numberOfDeliveredMessages += BigInt(1);
 
     Promise.all([await chainStats.save(), await stats.save()]);
   }
 
   /**
-   * Increment the number of failed messages handled by hyperbridge
+   * Increment the number of failed deliveries by hyperbridge
    */
-  static async incrementNumberOfFailedMessagesSent(
+  static async incrementNumberOfFailedDeliveries(
     chain: SupportedChain,
   ): Promise<void> {
     let stats = await this.getStats();
-    stats.numberOfFailedMessagesSent += BigInt(1);
+    stats.numberOfFailedDeliveries += BigInt(1);
 
     // Update the specific chain stats
     let chainStats =
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
-    chainStats.numberOfFailedMessagesSent += BigInt(1);
+    chainStats.numberOfFailedDeliveries += BigInt(1);
 
     Promise.all([await chainStats.save(), await stats.save()]);
   }

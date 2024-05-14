@@ -1,5 +1,11 @@
 import { solidityKeccak256 } from "ethers/lib/utils";
-import { Request, ResponseStatus, Response, SupportedChain } from "../types";
+import {
+  Request,
+  ResponseStatus,
+  Response,
+  SupportedChain,
+  ResponseStatusMetadata,
+} from "../types";
 
 export interface ICreateResponseArgs {
   chain: SupportedChain;
@@ -21,6 +27,13 @@ export interface IUpdateResponseStatusArgs {
   blockTimestamp: bigint;
   chain: SupportedChain;
 }
+
+const RESPONSE_STATUS_WEIGHTS = {
+  [ResponseStatus.SOURCE]: 1,
+  [ResponseStatus.MESSAGE_RELAYED]: 2,
+  [ResponseStatus.DEST]: 3,
+  [ResponseStatus.TIMED_OUT]: 4,
+};
 
 export class ResponseService {
   /**
@@ -48,18 +61,21 @@ export class ResponseService {
         requestId: request.id,
         status,
         responseTimeoutTimestamp,
-        statusMetadata: [
-          {
-            status,
-            chain: chain,
-            timestamp: blockTimestamp,
-            blockNumber,
-            transactionHash,
-          },
-        ],
       });
 
       await response.save();
+
+      let responseStatusMetadata = ResponseStatusMetadata.create({
+        id: `${commitment}.${status}`,
+        responseId: commitment,
+        status,
+        chain,
+        timestamp: blockTimestamp,
+        blockNumber,
+        transactionHash,
+      });
+
+      await responseStatusMetadata.save();
     }
 
     return response;
@@ -82,14 +98,25 @@ export class ResponseService {
     let response = await Response.get(commitment);
 
     if (response) {
-      response.status = status;
-      response.statusMetadata.push({
-        blockNumber,
-        chain,
+      if (
+        RESPONSE_STATUS_WEIGHTS[status] >
+        RESPONSE_STATUS_WEIGHTS[response.status]
+      ) {
+        response.status = status;
+        await response.save();
+      }
+
+      let responseStatusMetadata = ResponseStatusMetadata.create({
+        id: `${commitment}.${status}`,
+        responseId: commitment,
         status,
+        chain,
         timestamp: blockTimestamp,
+        blockNumber,
         transactionHash,
       });
+
+      await responseStatusMetadata.save();
     } else {
       logger.error(
         `Attempted to update status of non-existent response with commitment: ${commitment} in transaction: ${transactionHash}`,

@@ -23,12 +23,21 @@ export class RelayerService {
       relayer = Relayer.create({
         id: relayer_id,
         chains: [chain],
-        totalNumberOfMessagesSent: BigInt(0),
+        totalNumberOfMessagesDelivered: BigInt(0),
+        totalNumberOfFailedMessagesDelivered: BigInt(0),
+        totalNumberOfSuccessfulMessagesDelivered: BigInt(0),
         totalFeesEarned: BigInt(0),
       });
 
       await relayer.save();
       await HyperBridgeService.incrementNumberOfUniqueRelayers(chain);
+    } else {
+      if (!relayer.chains.includes(chain)) {
+        relayer = this.updateRelayerNetworksList(relayer, chain);
+        await HyperBridgeService.incrementNumberOfUniqueRelayers(chain);
+
+        await relayer.save();
+      }
     }
 
     return relayer;
@@ -92,10 +101,11 @@ export class RelayerService {
       chain,
     );
 
-    relayer.totalNumberOfMessagesSent += BigInt(1);
+    relayer.totalNumberOfMessagesDelivered += BigInt(1);
+    relayer.totalNumberOfSuccessfulMessagesDelivered += BigInt(1);
 
-    relayer_chain_stats.numberOfMessagesSent += BigInt(1);
-    relayer_chain_stats.numberOfSuccessfulMessagesSent += BigInt(1);
+    relayer_chain_stats.numberOfMessagesDelivered += BigInt(1);
+    relayer_chain_stats.numberOfSuccessfulMessagesDelivered += BigInt(1);
 
     Promise.all([await relayer_chain_stats.save(), await relayer.save()]);
   }
@@ -128,9 +138,10 @@ export class RelayerService {
       relayer_chain_stats.gasFeeForSuccessfulMessages += BigInt(gasFee);
       relayer_chain_stats.usdGasFeeForSuccessfulMessages += usdFee;
     } else {
-      relayer.totalNumberOfMessagesSent += BigInt(1);
-      relayer_chain_stats.numberOfMessagesSent += BigInt(1);
-      relayer_chain_stats.numberOfFailedMessagesSent += BigInt(1);
+      relayer.totalNumberOfMessagesDelivered += BigInt(1);
+      relayer.totalNumberOfFailedMessagesDelivered += BigInt(1);
+      relayer_chain_stats.numberOfMessagesDelivered += BigInt(1);
+      relayer_chain_stats.numberOfFailedMessagesDelivered += BigInt(1);
 
       relayer_chain_stats.gasUsedForFailedMessages += BigInt(gasUsed);
       relayer_chain_stats.gasFeeForFailedMessages += BigInt(gasFee);

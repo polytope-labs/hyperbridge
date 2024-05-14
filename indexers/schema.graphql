@@ -58,19 +58,19 @@ type HyperBridgeStats @entity {
     id: ID!
 
     """
-    Total number of messages sent by Hyperbridge
+    Total number of messages sent on Hyperbridge
     """
     numberOfMessagesSent: BigInt!
 
     """
-    Total number of successful messages sent by Hyperbridge
+    Total number of messages delivered by Hyperbridge
     """
-    numberOfSuccessfulMessagesSent: BigInt!
+    numberOfDeliveredMessages: BigInt!
 
     """
-    Total number of successful messages sent by Hyperbridge
+    Total number of failed messages sent by Hyperbridge
     """
-    numberOfFailedMessagesSent: BigInt!
+    numberOfFailedDeliveries: BigInt!
 
     """
     Total number of timed out messages
@@ -114,22 +114,22 @@ type HyperBridgeChainStats @entity {
     id: ID!
 
     """
-    Total number of messages sent by Hyperbridge on the chain
+    Total number of messages sent on Hyperbridge on this chain
     """
     numberOfMessagesSent: BigInt!
 
     """
-    Total number of successful messages sent by Hyperbridge on the chain
+    Total number of messages delivered by Hyperbridge on this chain
     """
-    numberOfSuccessfulMessagesSent: BigInt!
+    numberOfDeliveredMessages: BigInt!
 
     """
-    Total number of successful messages sent by Hyperbridge on the chain
+    Total number of failed messages sent by Hyperbridge on this chain
     """
-    numberOfFailedMessagesSent: BigInt!
+    numberOfFailedDeliveries: BigInt!
 
     """
-    Total number of timed out messages sent by Hyperbridge on the chain
+    Total number of timed out messages on this chain
     """
     numberOfTimedOutMessages: BigInt!
 
@@ -181,17 +181,17 @@ type RelayerStatsPerChain @entity {
     """
     Total number of post requests or post responses handled by the Relayer
     """
-    numberOfMessagesSent: BigInt!
+    numberOfMessagesDelivered: BigInt!
 
     """
     Total number of successful post requests or post responses handled by the Relayer
     """
-    numberOfSuccessfulMessagesSent: BigInt!
+    numberOfSuccessfulMessagesDelivered: BigInt!
 
     """
     Total number of failed post requests handled by the Relayer
     """
-    numberOfFailedMessagesSent: BigInt!
+    numberOfFailedMessagesDelivered: BigInt!
 
     """
     Amount of gas spent on successful messages (Gas Cost)
@@ -249,9 +249,19 @@ type Relayer @entity {
     perChainStats: [RelayerStatsPerChain]! @derivedFrom(field: "relayer")
 
     """
-    Total number of messages sent by the Relayer
+    Total number of messages delivered by the Relayer
     """
-    totalNumberOfMessagesSent: BigInt!
+    totalNumberOfMessagesDelivered: BigInt!
+
+    """
+    Total number of successful messages delivered by the Relayer
+    """
+    totalNumberOfSuccessfulMessagesDelivered: BigInt!
+
+    """
+    Total number of failed messages delivered by the Relayer
+    """
+    totalNumberOfFailedMessagesDelivered: BigInt!
 
     """
     Total fees earned by the relayer
@@ -389,18 +399,20 @@ type Request @entity {
     """
     Metatdata about the request's progression through different statuses
     """
-    statusMetadata: [RequestStatusMetadata!]!
+    statusMetadata: [RequestStatusMetadata]! @derivedFrom(field: "request")
 }
 
 """
 Metadata about the status of a Request
 """
-type RequestStatusMetadata @jsonField {
-    status: String!
-    chain: String!
+type RequestStatusMetadata @entity {
+    id: ID!
+    status: RequestStatus!
+    chain: SupportedChain!
     timestamp: BigInt!
     blockNumber: String!
     transactionHash: String!
+    request: Request!
 }
 
 """
@@ -440,16 +452,18 @@ type Response @entity {
     """
     Metatdata about the response's progression through different statuses
     """
-    statusMetadata: [ResponseStatusMetadata!]!
+    statusMetadata: [ResponseStatusMetadata]! @derivedFrom(field: "response")
 }
 
 """
 Metadata about the status of a Response
 """
-type ResponseStatusMetadata @jsonField {
-    status: String!
-    chain: String!
+type ResponseStatusMetadata @entity {
+    id: ID!
+    status: ResponseStatus!
+    chain: SupportedChain!
     timestamp: BigInt!
     blockNumber: String!
     transactionHash: String!
+    response: Response!
 }

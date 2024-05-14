@@ -18,9 +18,9 @@ export class HyperBridgeChainStatsService {
         protocolFeesEarned: BigInt(0),
         feesPayedOutToRelayers: BigInt(0),
         numberOfMessagesSent: BigInt(0),
-        numberOfFailedMessagesSent: BigInt(0),
+        numberOfDeliveredMessages: BigInt(0),
+        numberOfFailedDeliveries: BigInt(0),
         numberOfTimedOutMessages: BigInt(0),
-        numberOfSuccessfulMessagesSent: BigInt(0),
         numberOfUniqueRelayers: BigInt(0),
       });
       await chainStats.save();

@@ -6022,6 +6022,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gql_client"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e57f4862d3e5cd4ffe8df03fa2137e620e33578bbc1895e6f8f569630e17b1db"
+dependencies = [
+ "log",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "graphql-introspection-query"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6673,6 +6685,7 @@ dependencies = [
  "fluvio-wasm-timer",
  "futures",
  "getrandom 0.2.14",
+ "gql_client",
  "graphql_client",
  "graphql_client_codegen",
  "hashbrown 0.14.3",

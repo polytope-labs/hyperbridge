@@ -4,7 +4,6 @@ scalar Date
 type SupportedChainFilter {
   equalTo: SupportedChain!
 }
-
 type BigFloatFilter {
   greaterThanOrEqualTo: BigInt
 }
@@ -28,9 +27,41 @@ type StateMachineUpdateEventConnection {
   nodes: [StateMachineUpdateEvent]
 }
 
+type RequestMetadataConnection {
+  nodes: [RequestStatusMetadata]
+}
+
+type ResponseMetadataConnection {
+  nodes: [ResponseStatusMetadata]
+}
+
+type MyRequest {
+    id: ID!
+    chain: SupportedChain!
+    source: String
+    dest: String
+    timeoutTimestamp: BigInt
+    from: String 
+    to: String 
+    nonce: BigInt 
+    data: String 
+    fee: BigInt 
+    status: RequestStatus!
+    statusMetadata: RequestMetadataConnection!
+}
+
+type MyResponse {
+    id: ID!
+    chain: SupportedChain!
+    response_message: String
+    responseTimeoutTimestamp: BigInt
+    status: ResponseStatus!
+    request: Request
+    statusMetadata: ResponseMetadataConnection!
+}
 type Query {
-    request(id: String!): Request
-    response(id: String!): Response
+    request(id: String!): MyRequest
+    response(id: String!): MyResponse
     stateMachineUpdateEvents(filter: StateMachineUpdateEventFilter ): StateMachineUpdateEventConnection
 }
 

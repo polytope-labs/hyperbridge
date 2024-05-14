@@ -10,6 +10,7 @@ query RequestQuery($id: String!) {
     source
     status
     statusMetadata {
+      nodes {
             id
             status
             chain
@@ -17,6 +18,7 @@ query RequestQuery($id: String!) {
             blockNumber
             transactionHash
             blockHash
+      }
     }
     timeoutTimestamp
     to
@@ -31,6 +33,7 @@ query ResponseQuery($id: String!) {
     responseTimeoutTimestamp
     status
     statusMetadata {
+      nodes {
             id
             status
             chain
@@ -38,6 +41,7 @@ query ResponseQuery($id: String!) {
             blockNumber
             transactionHash
             blockHash
+      }
     }
   }
 }

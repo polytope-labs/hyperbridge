@@ -9,6 +9,9 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  TELEMETRY_SECRET_KEY: ${{ secrets.TELEMETRY_SECRET_KEY }}
+
 jobs:
   build_and_publish:
     runs-on: release-runner

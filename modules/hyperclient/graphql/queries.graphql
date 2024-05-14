@@ -39,3 +39,19 @@ query ResponseQuery($id: String!) {
     }
   }
 }
+
+# query StateMachineUpdatesQuery($chain: SupportedChain!, $height: BigInt!) {
+#   stateMachineUpdateEvents(
+#     filter: {and: {chain: {equalTo: $chain}, height: {greaterThanOrEqualTo: $height}}}
+#   ) {
+#     nodes {
+#       blockHash
+#       blockNumber
+#       chain
+#       height
+#       id
+#       stateMachineId
+#       transactionHash
+#     }
+#   }
+# }

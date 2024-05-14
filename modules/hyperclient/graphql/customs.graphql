@@ -5,6 +5,7 @@ scalar Date
 type Query {
     request(id: String!): Request
     response(id: String!): Response
+    # stateMachineUpdateEvents()
 }
 
 schema {

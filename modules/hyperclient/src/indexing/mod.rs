@@ -1,7 +1,8 @@
-use crate::MessageStatusWithMetadata;
+use crate::{types::EventMetadata, MessageStatusWithMetadata};
 use anyhow::anyhow;
 use graphql_client::{GraphQLQuery, Response};
 use ismp::{messaging::hash_request, router::Request};
+use sp_core::{bytes::from_hex, H256};
 
 use crate::Keccak256;
 
@@ -34,10 +35,33 @@ pub async fn query_request_status(
 		.ok_or_else(|| anyhow!("Request does not exist in database"))?
 		.status_metadata;
 
-	if let Some(latest_status) = metadata.last().cloned() {
+	if let Some(latest_status) = metadata.last().cloned().flatten() {
 		// transform to message status with metadata
-		// let request_query::RequestQueryRequestStatusMetadata {status, chain, transaction_hash, ..
-		// } = latest_status;
+		let request_query::RequestQueryRequestStatusMetadata {
+			status,
+			chain,
+			transaction_hash,
+			block_number,
+			..
+		} = latest_status;
+		let status = match status {
+			request_query::RequestStatus::SOURCE => MessageStatusWithMetadata::SourceFinalized {
+				finalized_height: block_number.parse()?,
+				meta: Default::default(),
+			},
+			request_query::RequestStatus::MESSAGE_RELAYED =>
+				MessageStatusWithMetadata::HyperbridgeDelivered { meta: Default::default() },
+			request_query::RequestStatus::DEST => MessageStatusWithMetadata::DestinationDelivered {
+				meta: EventMetadata {
+					block_hash: H256::default(),
+					transaction_hash: H256::from_slice(&from_hex(&transaction_hash)?),
+					block_number: block_number.parse()?,
+				},
+			},
+			request_query::RequestStatus::TIMED_OUT => MessageStatusWithMetadata::Timeout,
+			request_query::RequestStatus::Other(_) => MessageStatusWithMetadata::Pending,
+		};
+		return Ok(Some(status))
 	}
 
 	Ok(None)

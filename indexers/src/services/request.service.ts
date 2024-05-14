@@ -1,6 +1,6 @@
 import { RequestStatus, SupportedChain } from "../types/enums";
 import { solidityKeccak256 } from "ethers/lib/utils";
-import { Request } from "../types/models";
+import { Request, RequestStatusMetadata } from "../types/models";
 
 export interface ICreateRequestArgs {
   chain: SupportedChain;
@@ -27,6 +27,13 @@ export interface IUpdateRequestStatusArgs {
   blockTimestamp: bigint;
   chain: SupportedChain;
 }
+
+const REQUEST_STATUS_WEIGHTS = {
+  [RequestStatus.SOURCE]: 1,
+  [RequestStatus.MESSAGE_RELAYED]: 2,
+  [RequestStatus.DEST]: 3,
+  [RequestStatus.TIMED_OUT]: 4,
+};
 
 export class RequestService {
   /**
@@ -64,18 +71,21 @@ export class RequestService {
         status,
         timeoutTimestamp,
         to,
-        statusMetadata: [
-          {
-            status,
-            chain: chain,
-            timestamp: blockTimestamp,
-            blockNumber,
-            transactionHash,
-          },
-        ],
       });
 
       await request.save();
+
+      let requestStatusMetadata = RequestStatusMetadata.create({
+        id: `${commitment}.${status}`,
+        requestId: commitment,
+        status,
+        chain,
+        timestamp: blockTimestamp,
+        blockNumber,
+        transactionHash,
+      });
+
+      await requestStatusMetadata.save();
     }
 
     return request;
@@ -98,18 +108,30 @@ export class RequestService {
     let request = await Request.get(commitment);
 
     if (request) {
-      request.status = status;
-      request.statusMetadata.push({
-        blockNumber,
-        chain,
+      if (
+        REQUEST_STATUS_WEIGHTS[status] > REQUEST_STATUS_WEIGHTS[request.status]
+      ) {
+        request.status = status;
+        await request.save();
+      }
+
+      let requestStatusMetadata = RequestStatusMetadata.create({
+        id: `${commitment}.${status}`,
+        requestId: commitment,
         status,
+        chain,
         timestamp: blockTimestamp,
+        blockNumber,
         transactionHash,
       });
+
+      await requestStatusMetadata.save();
     } else {
       logger.error(
         `Attempted to update status of non-existent request with commitment: ${commitment} in transaction: ${transactionHash}`,
       );
+
+      // Create new request and request status metadata
     }
   }
 

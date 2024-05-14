@@ -27,6 +27,9 @@ export const getNativeCurrencyPrice = async (
   );
 
   const roundData = await priceFeedContract.latestRoundData();
+  const decimals = await priceFeedContract.decimals();
+  let exponent = 18 - decimals;
 
-  return roundData.answer.toBigInt();
+  // Ensure we convert to the standard 18 decimals used by erc20.
+  return roundData.answer.toBigInt() * BigInt(10 ** exponent);
 };

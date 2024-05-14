@@ -14,11 +14,11 @@ export class RelayerChainStatsService {
     if (!metrics) {
       metrics = RelayerStatsPerChain.create({
         id,
-        numberOfMessagesSent: BigInt(0),
         relayerId: relayer_id,
         chain,
-        numberOfFailedMessagesSent: BigInt(0),
-        numberOfSuccessfulMessagesSent: BigInt(0),
+        numberOfMessagesDelivered: BigInt(0),
+        numberOfFailedMessagesDelivered: BigInt(0),
+        numberOfSuccessfulMessagesDelivered: BigInt(0),
         gasUsedForFailedMessages: BigInt(0),
         gasUsedForSuccessfulMessages: BigInt(0),
         gasFeeForFailedMessages: BigInt(0),

@@ -113,7 +113,7 @@ where
 		prover: Prover<R, P>,
 	) -> Result<Self, anyhow::Error> {
 		let mut connection = redis::Client::open(redis::ConnectionInfo {
-			addr: redis::ConnectionAddr::Tcp(config.redis.url.clone(), config.redis.port),
+			addr: config.redis.clone().into(),
 			redis: redis::RedisConnectionInfo {
 				db: config.redis.db as i64,
 				username: config.redis.username.clone(),
@@ -787,6 +787,7 @@ mod tests {
 			ns: "rsmq".into(),
 			url: "localhost".into(),
 			port: 6379,
+			tls: false,
 			password: None,
 			username: None,
 			// will be adjusted by the relevant subsystems

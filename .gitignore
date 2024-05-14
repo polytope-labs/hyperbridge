@@ -30,3 +30,6 @@
 **/proofs/*
 tesseract/*
 **/*.db
+
+prover.toml
+relayer.toml

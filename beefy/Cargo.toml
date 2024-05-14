@@ -24,7 +24,7 @@ derive_more = { version = "1.0.0-beta.6", features = ["display"] }
 sp-runtime = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-redis = { version = "0.25.3", features = ["connection-manager", "tokio-comp", "bytes"]}
+redis = { version = "0.24.0", features = ["connection-manager", "tokio-rustls-comp"] }
 bytes = "1.6.0"
 
 # polytope-labs
@@ -46,8 +46,8 @@ polkadot-core-primitives = { workspace = true }
 tesseract-substrate = { workspace = true  }
 tesseract-primitives = { workspace = true  }
 zk-beefy = { path = "zk" }
-rsmq_async = "9.0.0"
-redis-async = "0.17.1"
+rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "72db8c98b66cf0c61e465cba39c9295be3615dd7" }
+redis-async = { version = "0.17.1", features = ["with-rustls"] }
 
 [features]
 # a feature that tells the tests to write a new consensus state

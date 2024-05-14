@@ -28,6 +28,8 @@ pub struct RedisConfig {
 	pub password: Option<String>,
 	/// Redis db
 	pub db: u8,
+	/// use tls to connect?
+	pub tls: bool,
 	/// RSMQ namespace (you can have several. "rsmq" by default)
 	pub ns: String,
 	/// Enables publishing pubsub events for messages added to the queue
@@ -36,6 +38,21 @@ pub struct RedisConfig {
 	pub mandatory_queue: String,
 	/// Queue name for messages consensus proofs
 	pub messages_queue: String,
+}
+
+impl From<RedisConfig> for redis::ConnectionAddr {
+	fn from(value: RedisConfig) -> Self {
+		if value.tls {
+			redis::ConnectionAddr::TcpTls {
+				host: value.url.clone(),
+				port: value.port,
+				insecure: false,
+				tls_params: None,
+			}
+		} else {
+			redis::ConnectionAddr::Tcp(value.url.clone(), value.port)
+		}
+	}
 }
 
 impl RedisConfig {
@@ -56,6 +73,7 @@ pub async fn client(config: &RedisConfig) -> Result<Rsmq, anyhow::Error> {
 		username: config.username.clone(),
 		password: config.password.clone(),
 		db: config.db.clone(),
+		tls: config.tls,
 		ns: config.ns.clone(),
 		realtime: config.realtime,
 	};

@@ -85,6 +85,9 @@ where
 		if let Some(ref password) = config.redis.password {
 			builder.password(password.as_str());
 		}
+		if config.redis.tls {
+			builder.tls();
+		}
 		let pubsub = builder.pubsub_connect().await?;
 		// we will not be pushing messages to the queue in the host
 		config.redis.realtime = false;
@@ -128,7 +131,7 @@ where
 	) -> Result<CreateConsensusState, anyhow::Error> {
 		let consensus_state = self.prover.query_initial_consensus_state(None).await?;
 		let mut connection = redis::Client::open(redis::ConnectionInfo {
-			addr: redis::ConnectionAddr::Tcp(self.config.redis.url.clone(), self.config.redis.port),
+			addr: self.config.redis.clone().into(),
 			redis: redis::RedisConnectionInfo {
 				db: self.config.redis.db as i64,
 				username: self.config.redis.username.clone(),

@@ -261,10 +261,13 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		para_client.rpc().request("ismp_queryEvents", params).await?;
 
 	let events = response.values().into_iter().cloned().flatten().collect::<Vec<_>>();
-	let post = match events.get(0).cloned().ok_or_else(|| anyhow!("Ismp Event should exist"))? {
-		ismp::events::Event::PostRequest(post) => post,
-		_ => Err(anyhow!("Unexpected event"))?,
-	};
+	let post = events
+		.into_iter()
+		.find_map(|ev| match ev {
+			ismp::events::Event::PostRequest(post) => Some(post),
+			_ => None,
+		})
+		.ok_or_else(|| anyhow!("Ismp Event should exist"))?;
 
 	dbg!(&post);
 

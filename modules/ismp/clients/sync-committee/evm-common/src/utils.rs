@@ -25,7 +25,7 @@ use alloc::{format, string::ToString};
 use alloy_rlp::Decodable;
 use codec::Decode;
 use ethabi::ethereum_types::{H256, U256};
-use ethereum_trie::{EIP1186Layout, StorageProof};
+use ethereum_triedb::{EIP1186Layout, StorageProof};
 use ismp::{
 	consensus::{
 		ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,

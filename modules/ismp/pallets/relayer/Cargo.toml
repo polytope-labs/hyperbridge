@@ -38,7 +38,7 @@ ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-featu
 pallet-ismp = { workspace = true, features = [ "testing" ] }
 pallet-timestamp = { workspace = true }
 pallet-balances = { workspace = true }
-ethereum-trie = { workspace = true }
+ethereum-triedb = { workspace = true }
 trie-db = { workspace = true }
 hash-db = { workspace = true }
 ismp-bsc = { workspace = true }

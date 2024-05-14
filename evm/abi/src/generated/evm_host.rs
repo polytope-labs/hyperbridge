@@ -967,6 +967,33 @@ pub mod evm_host {
                                         ::std::borrow::ToOwned::to_owned("bytes"),
                                     ),
                                 },
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("height"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                        ],
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned(
+                                            "struct StateMachineHeight",
+                                        ),
+                                    ),
+                                },
+                                ::ethers::core::abi::ethabi::Param {
+                                    name: ::std::borrow::ToOwned::to_owned("commitment"),
+                                    kind: ::ethers::core::abi::ethabi::ParamType::Tuple(
+                                        ::std::vec![
+                                            ::ethers::core::abi::ethabi::ParamType::Uint(256usize),
+                                            ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
+                                            ::ethers::core::abi::ethabi::ParamType::FixedBytes(32usize),
+                                        ],
+                                    ),
+                                    internal_type: ::core::option::Option::Some(
+                                        ::std::borrow::ToOwned::to_owned("struct StateCommitment"),
+                                    ),
+                                },
                             ],
                             outputs: ::std::vec![],
                             constant: ::core::option::Option::None,
@@ -2053,13 +2080,15 @@ pub mod evm_host {
 				.method_hash([136, 86, 51, 126], commitment)
 				.expect("method not found (this should never happen)")
 		}
-		///Calls the contract's `setConsensusState` (0xa15f7431) function
+		///Calls the contract's `setConsensusState` (0x8d48f3c7) function
 		pub fn set_consensus_state(
 			&self,
 			state: ::ethers::core::types::Bytes,
+			height: StateMachineHeight,
+			commitment: StateCommitment,
 		) -> ::ethers::contract::builders::ContractCall<M, ()> {
 			self.0
-				.method_hash([161, 95, 116, 49], state)
+				.method_hash([141, 72, 243, 199], (state, height, commitment))
 				.expect("method not found (this should never happen)")
 		}
 		///Calls the contract's `setFrozenState` (0x19e8faf1) function
@@ -3084,7 +3113,8 @@ pub mod evm_host {
 		pub commitment: [u8; 32],
 	}
 	///Container type for all input parameters for the `setConsensusState` function with signature
-	/// `setConsensusState(bytes)` and selector `0xa15f7431`
+	/// `setConsensusState(bytes,(uint256,uint256),(uint256,bytes32,bytes32))` and selector
+	/// `0x8d48f3c7`
 	#[derive(
 		Clone,
 		::ethers::contract::EthCall,
@@ -3095,9 +3125,14 @@ pub mod evm_host {
 		Eq,
 		Hash,
 	)]
-	#[ethcall(name = "setConsensusState", abi = "setConsensusState(bytes)")]
+	#[ethcall(
+		name = "setConsensusState",
+		abi = "setConsensusState(bytes,(uint256,uint256),(uint256,bytes32,bytes32))"
+	)]
 	pub struct SetConsensusStateCall {
 		pub state: ::ethers::core::types::Bytes,
+		pub height: StateMachineHeight,
+		pub commitment: StateCommitment,
 	}
 	///Container type for all input parameters for the `setFrozenState` function with signature
 	/// `setFrozenState(bool)` and selector `0x19e8faf1`

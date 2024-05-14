@@ -1,12 +1,14 @@
 [package]
-name = "ethereum-trie"
+name = "ethereum-triedb"
 version = "0.1.1"
 edition = "2021"
-description = "Ethereum EIP-1886 layout implementation for parity/trie"
+description = "EIP-1186 ethereum trie layout implementation for parity/trie"
 authors = ["Polytope Labs <hello@polytope.technology>"]
-publish = false
-
-
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge"
+documentation = "https://docs.rs/ethereum-triedb"
+keywords = ["merkle-patricia-trie", "ethereum", "state-proofs", "storage-proofs"]
+readme = "./README.md"
 
 [dependencies]
 trie-db = { workspace = true }

@@ -308,7 +308,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
- "ethereum-trie",
+ "ethereum-triedb",
  "ethers",
  "evm-common",
  "geth-primitives",
@@ -4235,7 +4235,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ethereum-trie"
+name = "ethereum-triedb"
 version = "0.1.1"
 dependencies = [
  "hash-db",
@@ -4589,7 +4589,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
- "ethereum-trie",
+ "ethereum-triedb",
  "geth-primitives",
  "hash-db",
  "hash256-std-hasher",
@@ -6515,7 +6515,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "clap",
  "cumulus-client-cli",
@@ -6614,7 +6614,7 @@ version = "0.3.18"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
- "ethereum-trie",
+ "ethereum-triedb",
  "ethers",
  "evm-common",
  "fluvio-wasm-timer",
@@ -7022,7 +7022,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "1.6.2"
+version = "1.6.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7109,7 +7109,7 @@ version = "0.1.1"
 dependencies = [
  "arbitrum-verifier",
  "ethabi",
- "ethereum-trie",
+ "ethereum-triedb",
  "evm-common",
  "frame-support",
  "frame-system",
@@ -9888,7 +9888,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
- "ethereum-trie",
+ "ethereum-triedb",
  "evm-common",
  "geth-primitives",
  "hex",
@@ -10794,7 +10794,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-rlp-derive",
  "ethabi",
- "ethereum-trie",
+ "ethereum-triedb",
  "evm-common",
  "frame-support",
  "frame-system",
@@ -10876,7 +10876,7 @@ dependencies = [
  "cumulus-primitives-core",
  "dotenv",
  "env_logger 0.10.2",
- "ethereum-trie",
+ "ethereum-triedb",
  "evm-common",
  "frame-support",
  "frame-system",
@@ -20206,7 +20206,7 @@ dependencies = [
  "debounced",
  "dotenv",
  "ethabi",
- "ethereum-trie",
+ "ethereum-triedb",
  "ethers",
  "ethers-contract-abigen",
  "evm-common",

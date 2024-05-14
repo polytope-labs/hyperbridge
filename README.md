@@ -1,12 +1,25 @@
 # Hyperbridge
-Hyperbridge is a hyper-scalable coprocessor for cryptographically secure, cross-chain interoperability.
+
+Hyperbridge is a hyper-scalable coprocessor for cryptographically secure, cross-chain interoperability. Join the network.
 
 ## Docker
 
 Hyperbridge is available at the official docker repository [`polytopelabs/hyperbridge`](https://hub.docker.com/r/polytopelabs/hyperbridge)
 
 ```bash
-docker run polytopelabs/hyperbridge:latest --chain=messier
+docker run -d \
+--name=hyperbridge \
+--network=host \
+--restart=always \
+--volume=/$HOME:/home/root \
+polytopelabs/hyperbridge:latest \
+--base-path=/home/root/.nexus \
+--pruning=archive \
+--name="${YOUR_NODE_NAME_HERE}"  \
+--rpc-cors=all \
+--rpc-methods=unsafe \
+--chain=nexus \
+--out-peers=32 \
 ```
 
 ## Prebuilt Binaries
@@ -29,7 +42,6 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbrid
 ## Building from source
 
 You can follow the steps below if you'd prefer to build the hyperbridge node from source:
-
 
 ### Install Dependencies
 
@@ -84,7 +96,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Download a local copy of the repo and checkout the latest release tag
 
 ```bash
-export LATEST_TAG=v0.4.0
+export LATEST_TAG=v0.4.6
 git clone https://github.com/polytope-labs/hyperbridge.git
 cd ./hyperbridge
 git checkout ${LATEST_TAG}
@@ -110,12 +122,13 @@ cargo build --release -p hyperbridge
 ## Running the node
 
 ```bash
-hyperbridge --chain=messier --base-path=$HOME/.hyperbridge --pruning-archive
+hyperbridge --chain=nexus --base-path=$HOME/.hyperbridge --pruning-archive
 ```
 
 > Note: `--enable-offchain-indexing` is enabled by default
 
 ## Running a local testnet with zombienet
+
 Download the zombienet binary for your operating system [here](https://github.com/paritytech/zombienet).
 
 ```bash
@@ -123,6 +136,7 @@ zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml
 ```
 
 ## Running a local testnet with docker
+
 Build and run the hyperbridge docker image locally by running
 
 ```bash
@@ -132,7 +146,9 @@ docker compose up
 ```
 
 ## Building HyperClient Javascript SDK
+
 To build hyperclient
+
 ```bash
 cargo install wasm-pack
 cd client

@@ -16,6 +16,7 @@ query RequestQuery($id: String!) {
             timestamp
             blockNumber
             transactionHash
+            blockHash
     }
     timeoutTimestamp
     to
@@ -36,13 +37,14 @@ query ResponseQuery($id: String!) {
             timestamp
             blockNumber
             transactionHash
+            blockHash
     }
   }
 }
 
-query StateMachineUpdatesQuery($chain: SupportedChain!, $height: BigInt!) {
+query StateMachineUpdatesQuery($stateMachineId: String!, $chain: SupportedChain!, $height: BigInt!) {
   stateMachineUpdateEvents(
-    filter: {and: {chain: {equalTo: $chain}, height: {greaterThanOrEqualTo: $height}}}
+    filter: {and: {stateMachineId: {equalTo: $stateMachineId }, chain: {equalTo: $chain}, height: {greaterThanOrEqualTo: $height}}}
   ) {
     nodes {
       blockHash

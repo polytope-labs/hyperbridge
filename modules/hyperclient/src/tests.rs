@@ -16,3 +16,7 @@ async fn hyperclient_integration_tests() -> Result<(), anyhow::Error> {
 	subscribe_to_request_status().await?;
 	Ok(())
 }
+
+#[tokio::test]
+#[ignore]
+async fn query_status_from_indexer() -> Result<(), anyhow::Error> {}

@@ -6,7 +6,7 @@ pub mod request_query {
 	#![allow(dead_code)]
 	use std::result::Result;
 	pub const OPERATION_NAME: &str = "RequestQuery";
-	pub const QUERY : & str = "query RequestQuery($id: String!) {\n  request(id: $id) {\n    id\n    chain\n    data\n    dest\n    fee\n    from\n    nonce\n    source\n    status\n    statusMetadata {\n            id\n            status\n            chain\n            timestamp\n            blockNumber\n            transactionHash\n    }\n    timeoutTimestamp\n    to\n  }\n}\n\nquery ResponseQuery($id: String!) {\n  response(id: $id) {\n    chain\n    id\n    response_message\n    responseTimeoutTimestamp\n    status\n    statusMetadata {\n            id\n            status\n            chain\n            timestamp\n            blockNumber\n            transactionHash\n    }\n  }\n}\n\nquery StateMachineUpdatesQuery($chain: SupportedChain!, $height: BigInt!) {\n  stateMachineUpdateEvents(\n    filter: {and: {chain: {equalTo: $chain}, height: {greaterThanOrEqualTo: $height}}}\n  ) {\n    nodes {\n      blockHash\n      blockNumber\n      chain\n      height\n      id\n      stateMachineId\n      transactionHash\n    }\n  }\n}\n" ;
+	pub const QUERY : & str = "query RequestQuery($id: String!) {\n  request(id: $id) {\n    id\n    chain\n    data\n    dest\n    fee\n    from\n    nonce\n    source\n    status\n    statusMetadata {\n            id\n            status\n            chain\n            timestamp\n            blockNumber\n            transactionHash\n            blockHash\n    }\n    timeoutTimestamp\n    to\n  }\n}\n\nquery ResponseQuery($id: String!) {\n  response(id: $id) {\n    chain\n    id\n    response_message\n    responseTimeoutTimestamp\n    status\n    statusMetadata {\n            id\n            status\n            chain\n            timestamp\n            blockNumber\n            transactionHash\n            blockHash\n    }\n  }\n}\n\nquery StateMachineUpdatesQuery($stateMachineId: String!, $chain: SupportedChain!, $height: BigInt!) {\n  stateMachineUpdateEvents(\n    filter: {and: {stateMachineId: {equalTo: $stateMachineId }, chain: {equalTo: $chain}, height: {greaterThanOrEqualTo: $height}}}\n  ) {\n    nodes {\n      blockHash\n      blockNumber\n      chain\n      height\n      id\n      stateMachineId\n      transactionHash\n    }\n  }\n}\n" ;
 	use super::*;
 	use serde::{Deserialize, Serialize};
 	#[allow(dead_code)]
@@ -99,18 +99,18 @@ pub mod request_query {
 	pub struct RequestQueryRequest {
 		pub id: ID,
 		pub chain: SupportedChain,
-		pub data: String,
-		pub dest: String,
-		pub fee: BigInt,
-		pub from: String,
-		pub nonce: BigInt,
-		pub source: String,
+		pub data: Option<String>,
+		pub dest: Option<String>,
+		pub fee: Option<BigInt>,
+		pub from: Option<String>,
+		pub nonce: Option<BigInt>,
+		pub source: Option<String>,
 		pub status: RequestStatus,
 		#[serde(rename = "statusMetadata")]
 		pub status_metadata: Vec<Option<RequestQueryRequestStatusMetadata>>,
 		#[serde(rename = "timeoutTimestamp")]
-		pub timeout_timestamp: BigInt,
-		pub to: String,
+		pub timeout_timestamp: Option<BigInt>,
+		pub to: Option<String>,
 	}
 	#[derive(Deserialize, Debug, PartialEq, Eq, Clone)]
 	pub struct RequestQueryRequestStatusMetadata {
@@ -122,6 +122,8 @@ pub mod request_query {
 		pub block_number: String,
 		#[serde(rename = "transactionHash")]
 		pub transaction_hash: String,
+		#[serde(rename = "blockHash")]
+		pub block_hash: String,
 	}
 }
 impl graphql_client::GraphQLQuery for RequestQuery {
@@ -140,7 +142,7 @@ pub mod response_query {
 	#![allow(dead_code)]
 	use std::result::Result;
 	pub const OPERATION_NAME: &str = "ResponseQuery";
-	pub const QUERY : & str = "query RequestQuery($id: String!) {\n  request(id: $id) {\n    id\n    chain\n    data\n    dest\n    fee\n    from\n    nonce\n    source\n    status\n    statusMetadata {\n            id\n            status\n            chain\n            timestamp\n            blockNumber\n            transactionHash\n    }\n    timeoutTimestamp\n    to\n  }\n}\n\nquery ResponseQuery($id: String!) {\n  response(id: $id) {\n    chain\n    id\n    response_message\n    responseTimeoutTimestamp\n    status\n    statusMetadata {\n            id\n            status\n            chain\n            timestamp\n            blockNumber\n            transactionHash\n    }\n  }\n}\n\nquery StateMachineUpdatesQuery($chain: SupportedChain!, $height: BigInt!) {\n  stateMachineUpdateEvents(\n    filter: {and: {chain: {equalTo: $chain}, height: {greaterThanOrEqualTo: $height}}}\n  ) {\n    nodes {\n      blockHash\n      blockNumber\n      chain\n      height\n      id\n      stateMachineId\n      transactionHash\n    }\n  }\n}\n" ;
+	pub const QUERY : & str = "query RequestQuery($id: String!) {\n  request(id: $id) {\n    id\n    chain\n    data\n    dest\n    fee\n    from\n    nonce\n    source\n    status\n    statusMetadata {\n            id\n            status\n            chain\n            timestamp\n            blockNumber\n            transactionHash\n            blockHash\n    }\n    timeoutTimestamp\n    to\n  }\n}\n\nquery ResponseQuery($id: String!) {\n  response(id: $id) {\n    chain\n    id\n    response_message\n    responseTimeoutTimestamp\n    status\n    statusMetadata {\n            id\n            status\n            chain\n            timestamp\n            blockNumber\n            transactionHash\n            blockHash\n    }\n  }\n}\n\nquery StateMachineUpdatesQuery($stateMachineId: String!, $chain: SupportedChain!, $height: BigInt!) {\n  stateMachineUpdateEvents(\n    filter: {and: {stateMachineId: {equalTo: $stateMachineId }, chain: {equalTo: $chain}, height: {greaterThanOrEqualTo: $height}}}\n  ) {\n    nodes {\n      blockHash\n      blockNumber\n      chain\n      height\n      id\n      stateMachineId\n      transactionHash\n    }\n  }\n}\n" ;
 	use super::*;
 	use serde::{Deserialize, Serialize};
 	#[allow(dead_code)]
@@ -233,9 +235,9 @@ pub mod response_query {
 	pub struct ResponseQueryResponse {
 		pub chain: SupportedChain,
 		pub id: ID,
-		pub response_message: String,
+		pub response_message: Option<String>,
 		#[serde(rename = "responseTimeoutTimestamp")]
-		pub response_timeout_timestamp: BigInt,
+		pub response_timeout_timestamp: Option<BigInt>,
 		pub status: ResponseStatus,
 		#[serde(rename = "statusMetadata")]
 		pub status_metadata: Vec<Option<ResponseQueryResponseStatusMetadata>>,
@@ -250,6 +252,8 @@ pub mod response_query {
 		pub block_number: String,
 		#[serde(rename = "transactionHash")]
 		pub transaction_hash: String,
+		#[serde(rename = "blockHash")]
+		pub block_hash: String,
 	}
 }
 impl graphql_client::GraphQLQuery for ResponseQuery {
@@ -268,7 +272,7 @@ pub mod state_machine_updates_query {
 	#![allow(dead_code)]
 	use std::result::Result;
 	pub const OPERATION_NAME: &str = "StateMachineUpdatesQuery";
-	pub const QUERY : & str = "query RequestQuery($id: String!) {\n  request(id: $id) {\n    id\n    chain\n    data\n    dest\n    fee\n    from\n    nonce\n    source\n    status\n    statusMetadata {\n            id\n            status\n            chain\n            timestamp\n            blockNumber\n            transactionHash\n    }\n    timeoutTimestamp\n    to\n  }\n}\n\nquery ResponseQuery($id: String!) {\n  response(id: $id) {\n    chain\n    id\n    response_message\n    responseTimeoutTimestamp\n    status\n    statusMetadata {\n            id\n            status\n            chain\n            timestamp\n            blockNumber\n            transactionHash\n    }\n  }\n}\n\nquery StateMachineUpdatesQuery($chain: SupportedChain!, $height: BigInt!) {\n  stateMachineUpdateEvents(\n    filter: {and: {chain: {equalTo: $chain}, height: {greaterThanOrEqualTo: $height}}}\n  ) {\n    nodes {\n      blockHash\n      blockNumber\n      chain\n      height\n      id\n      stateMachineId\n      transactionHash\n    }\n  }\n}\n" ;
+	pub const QUERY : & str = "query RequestQuery($id: String!) {\n  request(id: $id) {\n    id\n    chain\n    data\n    dest\n    fee\n    from\n    nonce\n    source\n    status\n    statusMetadata {\n            id\n            status\n            chain\n            timestamp\n            blockNumber\n            transactionHash\n            blockHash\n    }\n    timeoutTimestamp\n    to\n  }\n}\n\nquery ResponseQuery($id: String!) {\n  response(id: $id) {\n    chain\n    id\n    response_message\n    responseTimeoutTimestamp\n    status\n    statusMetadata {\n            id\n            status\n            chain\n            timestamp\n            blockNumber\n            transactionHash\n            blockHash\n    }\n  }\n}\n\nquery StateMachineUpdatesQuery($stateMachineId: String!, $chain: SupportedChain!, $height: BigInt!) {\n  stateMachineUpdateEvents(\n    filter: {and: {stateMachineId: {equalTo: $stateMachineId }, chain: {equalTo: $chain}, height: {greaterThanOrEqualTo: $height}}}\n  ) {\n    nodes {\n      blockHash\n      blockNumber\n      chain\n      height\n      id\n      stateMachineId\n      transactionHash\n    }\n  }\n}\n" ;
 	use super::*;
 	use serde::{Deserialize, Serialize};
 	#[allow(dead_code)]
@@ -319,6 +323,8 @@ pub mod state_machine_updates_query {
 	}
 	#[derive(Serialize)]
 	pub struct Variables {
+		#[serde(rename = "stateMachineId")]
+		pub state_machine_id: String,
 		pub chain: SupportedChain,
 		pub height: BigInt,
 	}

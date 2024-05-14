@@ -1,11 +1,37 @@
 scalar BigInt
 scalar Date
 
+type SupportedChainFilter {
+  equalTo: SupportedChain!
+}
+
+type BigFloatFilter {
+  greaterThanOrEqualTo: BigInt
+}
+
+type StringFilter {
+  equalTo: String!
+}
+
+type StateMachineUpdateEventFilter {
+  
+  stateMachineId: StringFilter
+
+  height: BigFloatFilter
+
+  chain: SupportedChainFilter
+
+  and: [StateMachineUpdateEventFilter!]
+}
+
+type StateMachineUpdateEventConnection {
+  nodes: [StateMachineUpdateEvent]
+}
 
 type Query {
     request(id: String!): Request
     response(id: String!): Response
-    # stateMachineUpdateEvents()
+    stateMachineUpdateEvents(filter: StateMachineUpdateEventFilter ): StateMachineUpdateEventConnection
 }
 
 schema {

@@ -1,0 +1,41 @@
+query RequestQuery($id: String!) {
+  request(id: $id) {
+    id
+    chain
+    data
+    dest
+    fee
+    from
+    nonce
+    source
+    status
+    statusMetadata {
+            id
+            status
+            chain
+            timestamp
+            blockNumber
+            transactionHash
+    }
+    timeoutTimestamp
+    to
+  }
+}
+
+query ResponseQuery($id: String!) {
+  response(id: $id) {
+    chain
+    id
+    response_message
+    responseTimeoutTimestamp
+    status
+    statusMetadata {
+            id
+            status
+            chain
+            timestamp
+            blockNumber
+            transactionHash
+    }
+  }
+}

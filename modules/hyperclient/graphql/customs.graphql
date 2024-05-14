@@ -1,0 +1,12 @@
+scalar BigInt
+scalar Date
+
+
+type Query {
+    request(id: String!): Request
+    response(id: String!): Response
+}
+
+schema {
+  query: Query
+}

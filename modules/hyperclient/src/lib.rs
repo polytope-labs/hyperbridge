@@ -28,6 +28,8 @@ use wasm_streams::ReadableStream;
 #[cfg(any(feature = "testing", test))]
 pub mod testing;
 
+pub mod indexing;
+
 #[cfg(test)]
 mod tests;
 

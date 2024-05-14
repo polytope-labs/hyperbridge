@@ -1,3 +1,4 @@
+import { HyperBridgeService } from "../../../services/hyperbridge.service";
 import { RelayerService } from "../../../services/relayer.service";
 import { HandlePostRequestsTransaction } from "../../../types/abi-interfaces/HandlerV1Abi";
 import { SupportedChain } from "../../../types/enums";
@@ -15,8 +16,14 @@ export async function handlePostResponseTransactionHandler(
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 
-  await RelayerService.handlePostRequestOrResponseTransaction(
-    chain,
-    transaction,
-  );
+  Promise.all([
+    await RelayerService.handlePostRequestOrResponseTransaction(
+      chain,
+      transaction,
+    ),
+    await HyperBridgeService.handlePostRequestOrResponseTransaction(
+      chain,
+      transaction,
+    ),
+  ]);
 }

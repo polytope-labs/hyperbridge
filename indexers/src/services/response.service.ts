@@ -10,11 +10,12 @@ import {
 export interface ICreateResponseArgs {
   chain: SupportedChain;
   commitment: string;
-  response_message: string;
+  response_message?: string | undefined;
+  responseTimeoutTimestamp?: bigint | undefined;
+  request?: Request | undefined;
   status: ResponseStatus;
-  responseTimeoutTimestamp: bigint;
-  request: Request;
   blockNumber: string;
+  blockHash: string;
   transactionHash: string;
   blockTimestamp: bigint;
 }
@@ -23,6 +24,7 @@ export interface IUpdateResponseStatusArgs {
   commitment: string;
   status: ResponseStatus;
   blockNumber: string;
+  blockHash: string;
   transactionHash: string;
   blockTimestamp: bigint;
   chain: SupportedChain;
@@ -48,6 +50,7 @@ export class ResponseService {
       responseTimeoutTimestamp,
       status,
       blockNumber,
+      blockHash,
       blockTimestamp,
       transactionHash,
     } = args;
@@ -58,7 +61,7 @@ export class ResponseService {
         id: commitment,
         chain,
         response_message,
-        requestId: request.id,
+        requestId: request?.id,
         status,
         responseTimeoutTimestamp,
       });
@@ -72,6 +75,7 @@ export class ResponseService {
         chain,
         timestamp: blockTimestamp,
         blockNumber,
+        blockHash,
         transactionHash,
       });
 
@@ -89,6 +93,7 @@ export class ResponseService {
     const {
       commitment,
       blockNumber,
+      blockHash,
       blockTimestamp,
       status,
       transactionHash,
@@ -113,13 +118,31 @@ export class ResponseService {
         chain,
         timestamp: blockTimestamp,
         blockNumber,
+        blockHash,
         transactionHash,
       });
 
       await responseStatusMetadata.save();
     } else {
+      await this.findOrCreate({
+        chain,
+        commitment,
+        blockHash,
+        blockNumber,
+        blockTimestamp,
+        status,
+        transactionHash,
+        request: undefined,
+        responseTimeoutTimestamp: undefined,
+        response_message: undefined,
+      });
+
       logger.error(
         `Attempted to update status of non-existent response with commitment: ${commitment} in transaction: ${transactionHash}`,
+      );
+
+      logger.info(
+        `Created new response while attempting response update with details: ${JSON.stringify({ commitment, transactionHash, status })}`,
       );
     }
   }

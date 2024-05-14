@@ -8,6 +8,7 @@ import {
   HandlePostResponsesTransaction,
 } from "../types/abi-interfaces/HandlerV1Abi";
 import { HyperBridgeService } from "./hyperbridge.service";
+import assert from "assert";
 
 export class RelayerService {
   /**

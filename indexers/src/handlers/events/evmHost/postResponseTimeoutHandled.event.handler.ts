@@ -48,6 +48,7 @@ export async function handlePostResponseTimeoutHandledEvent(
       commitment,
       chain,
       blockNumber: blockNumber.toString(),
+      blockHash: block.hash,
       blockTimestamp: block.timestamp,
       status: ResponseStatus.TIMED_OUT,
       transactionHash,

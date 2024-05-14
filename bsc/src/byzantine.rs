@@ -16,6 +16,7 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use ethers::{providers::Middleware, types::SyncingStatus};
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	events::StateMachineUpdated,
@@ -31,9 +32,10 @@ impl ByzantineHandler for BscPosHost {
 		counterparty: Arc<dyn IsmpProvider>,
 		event: StateMachineUpdated,
 	) -> Result<(), anyhow::Error> {
-		let header = self.prover.fetch_header(event.latest_height).await?.ok_or_else(|| {
-			anyhow!("Failed to fetch header in {:?} byzantine handler", self.state_machine)
-		})?;
+		let sync_status = match self.prover.client.syncing().await? {
+			SyncingStatus::IsFalse => false,
+			_ => true,
+		};
 		let height = StateMachineHeight {
 			id: StateMachineId {
 				state_id: self.state_machine,
@@ -41,6 +43,21 @@ impl ByzantineHandler for BscPosHost {
 			},
 			height: event.latest_height,
 		};
+		let Some(header) = self.prover.fetch_header(event.latest_height).await? else {
+			// If block header is not found and node is fully synced, veto the state commitment
+			if !sync_status {
+				log::info!(
+					"Vetoing State Machine Update for {:?} on {:?}",
+					self.state_machine,
+					counterparty.state_machine_id().state_id
+				);
+				counterparty.veto_state_commitment(height).await?;
+				return Ok(())
+			} else {
+				Err(anyhow!("Node is still syncing, cannot fetch finalized block"))?
+			}
+		};
+
 		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
 		if header.state_root != state_machine_commitment.state_root {
 			log::info!(

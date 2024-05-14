@@ -15,7 +15,7 @@ use evm_common::types::EvmStateProof;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::Event,
-	messaging::{hash_request, hash_response, Message},
+	messaging::{hash_request, hash_response, Message, StateCommitmentHeight},
 };
 use ismp_solidity_abi::evm_host::{PostRequestHandledFilter, PostResponseHandledFilter};
 use pallet_ismp_host_executive::{EvmHostParam, HostParam};
@@ -659,9 +659,13 @@ impl IsmpProvider for EvmClient {
 
 	async fn set_initial_consensus_state(
 		&self,
-		message: CreateConsensusState,
+		mut message: CreateConsensusState,
 	) -> Result<(), Error> {
-		self.set_consensus_state(message.consensus_state).await?;
+		let (id, StateCommitmentHeight { commitment, height }) =
+			message.state_machine_commitments.remove(0);
+		let height = StateMachineHeight { id, height };
+		self.set_consensus_state(message.consensus_state, height.try_into()?, commitment.into())
+			.await?;
 		Ok(())
 	}
 

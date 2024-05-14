@@ -15,12 +15,13 @@ description: Critical to the function of Hyperbridge are the relayers who transm
 
 Critical to the function of Hyperbridge are the relayers who transmit requests & responses across it's connected chains. Unlike popular interoperability protocols, Hyperbridge relayers are fully permissionless. This means, relayers will not need to be staked or whitelisted in order to transmit cross-chain messages. This is as a result of it's first-of-it's kind, fully trust-free design. This service of-course, will not be for free. Hyperbridge permits the applications that leverage it’s secure message passing infrastructure to pay ahead of time for the message delivery & execution. They do so on the source chain of the initiating application.
 <br />
-Fees for cross-chain requests are to be paid in stable coins, We’ve chosen the DAI stablecoin for it’s decentralized and censorship-resistant properties.  This means users will estimate the cost for message execution & provide what they believe to be a fair amount in DAI to the Hyperbridge contract. (Specifically, the [EvmHost](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol#L533)) at the time of dispatching a request. Once the request has been finalized by the originating chain and these finality proofs made available to the destination chain. The request becomes eligible for delivery & execution. A relayer will estimate the cost of request delivery and query the fee that has been put up for it’s delivery on the source chain. Depending on their profitability configuration, they’ll either choose to deliver the request or ignore it.
+Fees for cross-chain requests are to be paid in stable coins, We’ve chosen the DAI stablecoin for it’s decentralized and censorship-resistant properties. This means users will estimate the cost for message execution & provide what they believe to be a fair amount in DAI to the Hyperbridge contract. (Specifically, the [EvmHost](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol#L533)) at the time of dispatching a request. Once the request has been finalized by the originating chain and these finality proofs made available to the destination chain. The request becomes eligible for delivery & execution. A relayer will estimate the cost of request delivery and query the fee that has been put up for it’s delivery on the source chain. Depending on their profitability configuration, they’ll either choose to deliver the request or ignore it.
 <br />
 If the relayers chooses to deliver the request, then this means they will cover the cost of message delivery and execution. This cost of message delivery is the cost of proof verification of requests & responses. The cost of message execution is the cost of executing the message on the destination module. In the current version of the protocol, relayers are tasked with both delivering and executing the messages. But it is entirely possible in future versions of the protocol that we unbundle message delivery and execution as this may enable more exotic applications.
 <br />
 In our chosen design, relayers race to deliver a batch of cross-chain messages to their respective destination chains. This has a few benefits, this effectively mitigates any liveness issues that may arise as a result of some whitelisted relayers going down. This free market design presents a much better UX to end users and applications. The winning relayer, can be decided by a few factors.
 <br />
+
 1. Block notification.
 
 Relayer are mostly idle, and will only check for new messages to be delivered when the chains they’re interested in receive new consensus messages. The consensus messages, contain proofs that finalizes a new set of block heights. The new block heights, may or may not contain new messages to be delivered from the hyperbridge parachain. Therefore, whichever relayer sees the block where these consensus messages were processed on the destination chain first, can begin the check before everyone else and as a result, deliver the new batch of requests before anyone else.
@@ -58,12 +59,9 @@ docker run polytopelabs/tesseract:latest --config=/path/to/config --db=/path/to/
 
 Unfortunately, tesseract is closed-souce for now. Tesseract source-code will be available on Hyperbridge mainnet launch.
 
-
 ## Running the relayer
 
 The tesseract relayer command line interface expects two arguments, which are the paths to it's configuration file and database file. Because it resides in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration files on your host into the docker conatiner. Tesseract will write it's database to that directory once it's initialized.
-
-
 
 ```bash
 docker run -d \
@@ -96,7 +94,6 @@ https://github.com/schmiatz/hyperbridge-relayer
 
 The configuration file is a toml file that at the moment, that expects the following configuration options:
 
-
 ```toml
 # Hyperbridge config, required
 [hyperbridge]
@@ -127,7 +124,7 @@ ismp_host = ""
 query_batch_size = 1000
 # hex-encoded private key for the relayer
 signer = ""
-# Maximum number of concurrent rpc requests that can be used when tracing
+# (Optional) Maximum number of concurrent rpc requests that can be used when tracing. If not supplied will trace entire transaction batches at once.
 # This increases tracing speeds by performing tracing operations concurrently
 # Note: Your rpc provider must support handling a large number of requests/sec(> 200 requests / sec) in parallel.
 # Note: if you use the same provider for all your endpoints then a very high request/sec threshhold is required (> 1000 / sec)
@@ -157,7 +154,7 @@ ismp_host = ""
 query_batch_size = 1000
 # hex-encoded private key for the relayer
 signer = ""
-# Maximum number of concurrent rpc requests that can be used when tracing
+# (Optional) Maximum number of concurrent rpc requests that can be used when tracing. If not supplied will trace entire transaction batches at once.
 # This increases tracing speeds by performing tracing operations concurrently
 # Note: Your rpc provider must support handling a large number of requests/sec(> 200 requests / sec) in parallel.
 # Note: if you use the same provider for all your endpoints then a very high request/sec threshhold is required (> 1000 / sec)
@@ -187,7 +184,7 @@ ismp_host = ""
 query_batch_size = 1000
 # hex-encoded private key for the relayer
 signer = ""
-# Maximum number of concurrent rpc requests that can be used when tracing
+# (Optional) Maximum number of concurrent rpc requests that can be used when tracing. If not supplied will trace entire transaction batches at once.
 # This increases tracing speeds by performing tracing operations concurrently
 # Note: Your rpc provider must support handling a large number of requests/sec(> 200 requests / sec) in parallel.
 # Note: if you use the same provider for all your endpoints then a very high request/sec threshhold is required (> 1000 / sec)
@@ -217,7 +214,7 @@ ismp_host = ""
 query_batch_size = 1000
 # hex-encoded private key for the relayer
 signer = ""
-# Maximum number of concurrent rpc requests that can be used when tracing
+# (Optional) Maximum number of concurrent rpc requests that can be used when tracing. If not supplied will trace entire transaction batches at once.
 # This increases tracing speeds by performing tracing operations concurrently
 # Note: Your rpc provider must support handling a large number of requests/sec(> 200 requests / sec) in parallel.
 # Note: if you use the same provider for all your endpoints then a very high request/sec threshhold is required (> 1000 / sec)
@@ -247,7 +244,7 @@ ismp_host = ""
 query_batch_size = 1000
 # hex-encoded private key for the relayer
 signer = ""
-# Maximum number of concurrent rpc requests that can be used when tracing
+# (Optional) Maximum number of concurrent rpc requests that can be used when tracing. If not supplied will trace entire transaction batches at once.
 # This increases tracing speeds by performing tracing operations concurrently
 # Note: Your rpc provider must support handling a large number of requests/sec(> 200 requests / sec) in parallel.
 # Note: if you use the same provider for all your endpoints then a very high request/sec threshhold is required (> 1000 / sec)
@@ -290,11 +287,13 @@ Tesseract maintains a local sqlite database where it keeps track of successfully
 In the fee accumulation phase, tesseract submits state proofs of messages all delivered to hyperbridge. If the proof verification is successful, the total amount of unclaimed fees for the relayer address is updated onchain. Next, the relayer can submit a withdrawal transaction to hyperbridge. This initiates potentially multiple ISMP requests to any chain where it has unclaimed fees, that instructs the Hyperbridge contract to credit the relayer their owed funds. This request will not timeout, allowing it to be submitted to the destination chain at any time.
 
 ### Accumulating fees
+
 Stop any running relayer instances, run the following command in the terminal and wait for it to complete. The command will submit proofs for messages delivered to all chains present in the config file.
 
 ```bash
     docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees
 ```
+
 When accumulating fees the required state machine update to verify the proofs might not yet be available on hyperbridge, by default accumulating fees for those state machines will be skipped. To wait for all state machine updates.
 
 ```bash
@@ -302,6 +301,7 @@ When accumulating fees the required state machine update to verify the proofs mi
 ```
 
 ### Initiating withdrawals
+
 To initiate a withdrawal from hyperbridge, a relayer needs to submit a transaction to hyperbridge with triggers the withdrawal request. This extrinsic is unsigned and will not require any native tokens for execution fees.Once the extrinsic is executed, hyperbridge dispatches a POST request that when executed on it's destination, will provide the relayer with the fees they've accrued. The relayer account must have sufficient funds to deliver this request to it's destination chain.
 <br />
 To use this feature run the following command:
@@ -310,9 +310,8 @@ To use this feature run the following command:
     docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --withdraw
 ```
 
-
 ### Automatic accumulation and withdrawals
 
 The relayer also runs background tasks for automatic fee accumulation and withdrawals. Whenever a batch of messages is successfully delivered, the fee accumulation task receives the delivery receipts and starts the process of accumulating the fees on hyperbridge. This process happens concurrently for all successfully delivered message batches. For redundancy, the delivery receipts are stored in the database prior to accumulation so they can be retried manually if any error is encountered.
 <br/>
-Withdrawing fees from hyperbridge is triggered at fixed intervals based on the configured `withdrawal_frequency` and  `minimum_withdrawal_amount`. Feel free to the adjust these values as desired. The task will only make a withdrawal attempt if your balance on hyperbridge is greater than or equal to the configured `minimum_withdrawal_amount`. Any failed withdrawal attempts will be retried each time the withdrawal task is triggered. The manual processes described in the previous sections can be used as fallbacks when errors are encountered by their automated conterparts.
+Withdrawing fees from hyperbridge is triggered at fixed intervals based on the configured `withdrawal_frequency` and `minimum_withdrawal_amount`. Feel free to the adjust these values as desired. The task will only make a withdrawal attempt if your balance on hyperbridge is greater than or equal to the configured `minimum_withdrawal_amount`. Any failed withdrawal attempts will be retried each time the withdrawal task is triggered. The manual processes described in the previous sections can be used as fallbacks when errors are encountered by their automated conterparts.

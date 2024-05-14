@@ -523,7 +523,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev sets the initial consensus state
      * @param state initial consensus state
      */
-    function setConsensusState(bytes memory state) public onlyAdmin {
+    function setConsensusState(bytes memory state, StateMachineHeight memory height, StateCommitment memory commitment)
+        public
+        onlyAdmin
+    {
         // if we're on mainnet, then consensus state can only be initialized once.
         // and updated subsequently by either consensus proofs or cross-chain governance
         require(
@@ -531,6 +534,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         );
 
         _hostParams.consensusState = state;
+        _hostParams.consensusUpdateTimestamp = block.timestamp;
+
+        _stateCommitments[height.stateMachineId][height.height] = commitment;
+        _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = block.timestamp;
+        _latestStateMachineHeight[height.stateMachineId] = height.height;
     }
 
     /**

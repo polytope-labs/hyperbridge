@@ -28,33 +28,36 @@ contract EvmHostTest is BaseTest {
     function testSetConsensusState() public {
         // set chain Id to testnet
         vm.chainId(host.chainId() + 5);
+        StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
+        StateCommitment memory commitment =
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)});
 
         // we can set consensus state
         vm.prank(host.hostParams().admin);
-        host.setConsensusState(hex"deadbeef");
+        host.setConsensusState(hex"deadbeef", height, commitment);
         assert(host.consensusState().equals(hex"deadbeef"));
 
         // as many times as we want
         vm.prank(host.hostParams().admin);
-        host.setConsensusState(hex"beefdead");
+        host.setConsensusState(hex"beefdead", height, commitment);
         assert(host.consensusState().equals(hex"beefdead"));
 
         // reset it
         vm.prank(host.hostParams().admin);
-        host.setConsensusState(new bytes(0));
+        host.setConsensusState(new bytes(0), height, commitment);
         assert(host.consensusState().equals(new bytes(0)));
 
         // set chain Id to mainnet
         vm.chainId(host.chainId());
         // we can set consensus state
         vm.prank(host.hostParams().admin);
-        host.setConsensusState(hex"beef");
+        host.setConsensusState(hex"beef", height, commitment);
         assert(host.consensusState().equals(hex"beef"));
 
         // but not anymore
         vm.startPrank(host.hostParams().admin);
         vm.expectRevert("Unauthorized action");
-        host.setConsensusState(hex"feeb");
+        host.setConsensusState(hex"feeb", height, commitment);
         assert(host.consensusState().equals(hex"beef"));
     }
 

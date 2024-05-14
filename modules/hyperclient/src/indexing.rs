@@ -168,8 +168,6 @@ pub async fn query_request_status_from_indexer(
 
 	let id = format!("{commitment:?}");
 
-	dbg!(&id);
-
 	let client = Client::new(INDEXER_API);
 	let vars = RequestResponseVariables { id };
 	let response_body = client

@@ -84,6 +84,8 @@ impl Cli {
 
 		let (_result, _index, tasks) = futures::future::select_all(processes).await;
 
+		log::info!("Task {_index} aborted with result {_result:#?}");
+
 		for task in tasks {
 			task.abort();
 		}

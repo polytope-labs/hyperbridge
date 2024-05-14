@@ -15,6 +15,7 @@
 
 use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
+use ismp_solidity_abi::beefy::BeefyConsensusState;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
@@ -29,6 +30,7 @@ use crate::{
 	prover::{Prover, REDIS_CONSENSUS_STATE_KEY},
 	rsmq::{self, RedisConfig},
 };
+use anyhow::Context;
 use futures::{stream::TryStreamExt, Stream, StreamExt};
 use ismp::{
 	consensus::ConsensusStateId,
@@ -119,17 +121,19 @@ where
 				.await? // fatal error
 				.map_ok(|_item| StreamMessage::NewMessages)
 		};
-
 		let combined = futures::stream::select(mandatory_stream, messages_stream);
-
-		Ok(Box::pin(combined))
+		let yield_once = futures::stream::iter(vec![Ok(StreamMessage::EpochChanged)]);
+		Ok(Box::pin(yield_once.chain(combined)))
 	}
 
 	/// Initialize the consensus state for the prover where it expects in redis, then returns it.
 	pub async fn hydrate_initial_consensus_state(
 		&self,
 	) -> Result<CreateConsensusState, anyhow::Error> {
-		let consensus_state = self.prover.query_initial_consensus_state(None).await?;
+		use ethers::abi::AbiEncode;
+		let prover_consensus_state = self.prover.query_initial_consensus_state(None).await?;
+		let consensus_state: BeefyConsensusState = prover_consensus_state.clone().inner.into();
+
 		let mut connection = redis::Client::open(redis::ConnectionInfo {
 			addr: self.config.redis.clone().into(),
 			redis: redis::RedisConnectionInfo {
@@ -140,10 +144,12 @@ where
 		})?
 		.get_connection_manager()
 		.await?;
-		connection.set(REDIS_CONSENSUS_STATE_KEY, consensus_state.encode()).await?;
+		connection
+			.set(REDIS_CONSENSUS_STATE_KEY, prover_consensus_state.encode())
+			.await?;
 
 		Ok(CreateConsensusState {
-			consensus_state: consensus_state.inner.encode(),
+			consensus_state: consensus_state.encode(),
 			consensus_client_id: *b"BEEF",
 			consensus_state_id: self.config.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,
@@ -262,7 +268,8 @@ where
 					tracing::info!("{counterparty_state_machine:?} got authority set handover proof for {set_id}");
 					let encoded = counterparty
 						.query_consensus_state(None, self.config.consensus_state_id)
-						.await?; // somewhat fatal
+						.await
+						.context("Could not fetch consenus state")?; // somewhat fatal
 					let consensus_state = ConsensusState::decode(&mut &encoded[..])
 						.expect("Infallible, consensus state was encoded correctly");
 
@@ -388,7 +395,9 @@ where
 	async fn query_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error> {
-		let consensus_state = self.prover.query_initial_consensus_state(None).await?.inner;
+		use ethers::abi::AbiEncode;
+		let consensus_state: BeefyConsensusState =
+			self.prover.query_initial_consensus_state(None).await?.inner.into();
 
 		Ok(Some(CreateConsensusState {
 			consensus_state: consensus_state.encode(),

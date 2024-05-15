@@ -5,7 +5,7 @@ use ismp::{host::StateMachine, router::Request};
 
 use crate::{
 	indexing::query_request_status_from_indexer,
-	testing::{subscribe_to_request_status, test_timeout_request},
+	testing::{subscribe_to_request_status, test_timeout_request}, types::MessageStatusWithMetadata,
 };
 
 pub fn setup_logging() {
@@ -100,7 +100,7 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 
 	let status = query_request_status_from_indexer(request).await?.unwrap();
 
-	dbg!(status);
+	assert!(matches!(status, MessageStatusWithMetadata::DestinationDelivered { .. }));
 
 	let post = ismp::router::Post {
 		source: StateMachine::from_str(
@@ -122,7 +122,8 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 
 	let status = query_request_status_from_indexer(request).await?.unwrap();
 
-	dbg!(status);
+	// This request was not delivered so it should
+	assert!(matches!(status, MessageStatusWithMetadata::SourceFinalized { .. }));
 
 	Ok(())
 }

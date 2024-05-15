@@ -50,7 +50,7 @@ export const CHAINLINK_PRICE_FEED_CONTRACT_ADDRESSES = {
     "0x61Ec26aA57019C486B10502285c5A3D4A4750AD7",
   [SupportedChain.ARBITRUM_SEPOLIA]:
     "0xd30e2101a97dcbAeBCBC04F14C3f624E67A35165",
-  [SupportedChain.BSC_CHAPEL]: "0x143db3CEEfbdfe5631aDD3E50f7614B6ba708BA7",
+  [SupportedChain.BSC_CHAPEL]: "0x2514895c72f50D8bd4B4F9b1110F0D6bD2c97526",
 };
 
 // Host addresses for the IsmpHost
@@ -63,3 +63,8 @@ export const HOST_ADDRESSES = [
 ];
 
 export const HYPERBRIDGE_STATS_ENTITY_ID = "1";
+
+export const ETHEREUM_L2_SUPPORTED_CHAINS = [
+  SupportedChain.BASE_SEPOLIA,
+  SupportedChain.OPTIMISM_SEPOLIA,
+];

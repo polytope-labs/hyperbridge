@@ -2,13 +2,17 @@ import { EthereumResult, EthereumTransaction } from "@subql/types-ethereum";
 import { SupportedChain } from "../types/enums";
 import { Relayer, Transfer } from "../types/models";
 import { RelayerChainStatsService } from "./relayerChainStats.service";
-import { getNativeCurrencyPrice } from "../utils/price.helpers";
+import {
+  getL1GasCostEstimate,
+  getNativeCurrencyPrice,
+} from "../utils/price.helpers";
 import {
   HandlePostRequestsTransaction,
   HandlePostResponsesTransaction,
 } from "../types/abi-interfaces/HandlerV1Abi";
 import { HyperBridgeService } from "./hyperbridge.service";
-import assert from "assert";
+import { ETHEREUM_L2_SUPPORTED_CHAINS } from "../constants";
+import { getEthersTransactionRequest } from "../utils/transaction.helpers";
 
 export class RelayerService {
   /**
@@ -71,7 +75,6 @@ export class RelayerService {
   /**
    * Update the list of networks supported by a relayer.
    * This fn does not save the relayer to the store. It is the responsibility of the caller to save the relayer after calling this fn.
-   *
    */
   static updateRelayerNetworksList(
     relayer: Relayer,
@@ -121,8 +124,16 @@ export class RelayerService {
     const { from: relayer_id } = transaction;
     const { status } = await transaction.receipt();
 
-    const { gasUsed, effectiveGasPrice } = await transaction.receipt();
+    let { gasUsed, effectiveGasPrice } = await transaction.receipt();
     const nativeCurrencyPrice = await getNativeCurrencyPrice(chain);
+
+    // Add the L1 Gas Used for L2 chains
+    if (ETHEREUM_L2_SUPPORTED_CHAINS.includes(chain)) {
+      gasUsed += await getL1GasCostEstimate(
+        chain,
+        await getEthersTransactionRequest(transaction),
+      );
+    }
 
     const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
     const _gasFeeInEth = Number(gasFee) / Number(BigInt(10 ** 18));

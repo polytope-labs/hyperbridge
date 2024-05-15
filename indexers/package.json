@@ -13,10 +13,15 @@
   },
   "homepage": "https://hyperbridge.network/",
   "repository": "https://github.com/polytope-labs/hyperbridge",
-  "files": ["dist", "schema.graphql", "subquery-multichain.yaml"],
+  "files": [
+    "dist",
+    "schema.graphql",
+    "subquery-multichain.yaml"
+  ],
   "author": "Polytope Labs",
   "license": "MIT",
   "dependencies": {
+    "@eth-optimism/sdk": "^3.3.0",
     "@ethersproject/shims": "^5.7.0",
     "@polkadot/api": "^10.13.1",
     "@subql/common": "latest",

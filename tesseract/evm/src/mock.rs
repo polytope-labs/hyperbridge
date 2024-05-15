@@ -200,7 +200,6 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-
 	fn store_request_commitment(&self, _req: &Request, _meta: Vec<u8>) -> Result<(), Error> {
 		todo!()
 	}

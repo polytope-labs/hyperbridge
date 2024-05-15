@@ -10878,6 +10878,7 @@ dependencies = [
  "env_logger 0.10.2",
  "ethereum-trie",
  "evm-common",
+ "frame-benchmarking",
  "frame-support",
  "frame-system",
  "futures",

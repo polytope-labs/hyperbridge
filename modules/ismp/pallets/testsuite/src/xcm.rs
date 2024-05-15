@@ -50,12 +50,12 @@ pub type SovereignAccountOf = (
 // `EnsureOriginWithArg` impl for `CreateOrigin` which allows only XCM origins
 // which are locations containing the class location.
 pub struct ForeignCreators;
-impl EnsureOriginWithArg<RuntimeOrigin, MultiLocation> for ForeignCreators {
+impl EnsureOriginWithArg<RuntimeOrigin, Location> for ForeignCreators {
 	type Success = AccountId32;
 
 	fn try_origin(
 		o: RuntimeOrigin,
-		a: &MultiLocation,
+		a: &Location,
 	) -> sp_std::result::Result<Self::Success, RuntimeOrigin> {
 		let origin_location = pallet_xcm::EnsureXcm::<Everything>::try_origin(o.clone())?;
 		if !a.starts_with(&origin_location) {
@@ -65,7 +65,7 @@ impl EnsureOriginWithArg<RuntimeOrigin, MultiLocation> for ForeignCreators {
 	}
 
 	#[cfg(feature = "runtime-benchmarks")]
-	fn try_successful_origin(a: &MultiLocation) -> Result<RuntimeOrigin, ()> {
+	fn try_successful_origin(a: &Location) -> Result<RuntimeOrigin, ()> {
 		Ok(pallet_xcm::Origin::Xcm(a.clone()).into())
 	}
 }
@@ -76,7 +76,7 @@ parameter_types! {
 }
 
 parameter_types! {
-	pub const KsmLocation: MultiLocation = MultiLocation::parent();
+	pub const KsmLocation: Location = Location::parent();
 	pub const RelayNetwork: Option<NetworkId> = None;
 	pub UniversalLocation: Junctions = Parachain(ParachainInfo::parachain_id().into()).into();
 }
@@ -97,7 +97,7 @@ parameter_types! {
 	pub const UnitWeightCost: Weight = Weight::from_parts(1, 1);
 	pub const MaxInstructions: u32 = 100;
 	pub const MaxAssetsIntoHolding: u32 = 64;
-	pub ForeignPrefix: MultiLocation = (Parent,).into();
+	pub ForeignPrefix: Location = (Parent,).into();
 }
 
 pub struct CheckingAccount;
@@ -110,14 +110,14 @@ impl Get<AccountId32> for CheckingAccount {
 
 pub type LocalAssetTransactor = HyperbridgeAssetTransactor<
 	Test,
-	ConvertedConcreteId<MultiLocation, Balance, Identity, Identity>,
+	ConvertedConcreteId<Location, Balance, Identity, Identity>,
 	LocationToAccountId,
 	NoChecking,
 	CheckingAccount,
 >;
 pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	let asset_id = MultiLocation::parent();
+	let asset_id = Location::parent();
 	let config: pallet_assets::GenesisConfig<Test> = pallet_assets::GenesisConfig {
 		assets: vec![
 			// id, owner, is_sufficient, min_balance
@@ -156,7 +156,7 @@ pub struct DmpMessageExecutor;
 impl DmpMessageHandler for DmpMessageExecutor {
 	fn handle_dmp_messages(iter: impl Iterator<Item = (u32, Vec<u8>)>, limit: Weight) -> Weight {
 		for (_i, (_sent_at, data)) in iter.enumerate() {
-			let id = sp_io::hashing::blake2_256(&data[..]);
+			let mut id = sp_io::hashing::blake2_256(&data[..]);
 			let maybe_versioned = VersionedXcm::<RuntimeCall>::decode(&mut &data[..]);
 			match maybe_versioned {
 				Err(_) => {
@@ -167,7 +167,10 @@ impl DmpMessageHandler for DmpMessageExecutor {
 						println!("Unsupported version")
 					},
 					Ok(x) => {
-						let _ = XcmExecutor::<XcmConfig>::execute_xcm(Parent, x.clone(), id, limit);
+						let _ = {
+							let msg = XcmExecutor::<XcmConfig>::prepare(x.clone()).unwrap();
+							XcmExecutor::<XcmConfig>::execute(Parent, msg, &mut id, limit)
+						};
 						println!("Executed Xcm message")
 					},
 				},
@@ -236,6 +239,8 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type CallDispatcher = RuntimeCall;
 	type SafeCallFilter = Nothing;
 	type Aliasers = Nothing;
+
+	type TransactionalProcessor = ();
 }
 
 parameter_types! {
@@ -346,8 +351,8 @@ impl pallet_asset_gateway::Config for Test {
 impl pallet_assets::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
-	type AssetId = MultiLocation;
-	type AssetIdParameter = MultiLocation;
+	type AssetId = Location;
+	type AssetIdParameter = Location;
 	type Currency = Balances;
 	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
 	type ForceOrigin = EnsureRoot<AccountId32>;
@@ -369,8 +374,8 @@ impl pallet_assets::Config for Test {
 #[cfg(feature = "runtime-benchmarks")]
 pub struct IdentityBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
-impl BenchmarkHelper<MultiLocation> for IdentityBenchmarkHelper {
-	fn create_asset_id_parameter(id: u32) -> MultiLocation {
-		MultiLocation::new(1, Parachain(id))
+impl BenchmarkHelper<Location> for IdentityBenchmarkHelper {
+	fn create_asset_id_parameter(id: u32) -> Location {
+		Location::new(1, Parachain(id))
 	}
 }

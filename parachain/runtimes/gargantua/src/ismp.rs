@@ -42,7 +42,7 @@ use ismp::router::Timeout;
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use sp_std::prelude::*;
-use staging_xcm::latest::MultiLocation;
+use staging_xcm::latest::Location;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -134,10 +134,10 @@ impl pallet_asset_gateway::Config for Runtime {
 #[cfg(feature = "runtime-benchmarks")]
 pub struct XcmBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
-impl BenchmarkHelper<MultiLocation> for XcmBenchmarkHelper {
-	fn create_asset_id_parameter(id: u32) -> MultiLocation {
+impl BenchmarkHelper<Location> for XcmBenchmarkHelper {
+	fn create_asset_id_parameter(id: u32) -> Location {
 		use staging_xcm::v3::Junction::Parachain;
-		MultiLocation::new(1, Parachain(id))
+		Location::new(1, Parachain(id))
 	}
 }
 
@@ -152,8 +152,8 @@ parameter_types! {
 impl pallet_assets::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
-	type AssetId = MultiLocation;
-	type AssetIdParameter = MultiLocation;
+	type AssetId = Location;
+	type AssetIdParameter = Location;
 	type Currency = Balances;
 	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
 	type ForceOrigin = EnsureRoot<AccountId32>;

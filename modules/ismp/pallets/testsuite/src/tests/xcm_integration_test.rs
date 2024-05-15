@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Context};
 use codec::Encode;
@@ -9,8 +9,8 @@ use ismp::host::StateMachine;
 use pallet_ismp_rpc::BlockNumberOrHash;
 use sp_runtime::MultiAddress;
 use staging_xcm::{
-	v3::{Junction, Junctions, MultiLocation, NetworkId, WeightLimit},
-	VersionedMultiAssets, VersionedMultiLocation,
+	v4::{Junction, Junctions, Location, NetworkId, WeightLimit},
+	VersionedAssets, VersionedLocation,
 };
 use subxt::{
 	config::{
@@ -200,23 +200,23 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.await
 		.into_iter()
 		.collect::<Result<Vec<_>, _>>()?;
-	let beneficiary: MultiLocation = Junctions::X3(
+	let beneficiary: Location = Junctions::X3(Arc::new([
 		Junction::AccountId32 { network: None, id: pair.public().into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 1 }),
 			key: [1u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
-	)
+	]))
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
 
-	let dest: MultiLocation = Junction::Parachain(2000).into();
+	let dest: Location = Junction::Parachain(2000).into();
 
 	let call = (
-		Box::<VersionedMultiLocation>::new(dest.clone().into()),
-		Box::<VersionedMultiLocation>::new(beneficiary.clone().into()),
-		Box::<VersionedMultiAssets>::new((Junctions::Here, SEND_AMOUNT).into()),
+		Box::<VersionedLocation>::new(dest.clone().into()),
+		Box::<VersionedLocation>::new(beneficiary.clone().into()),
+		Box::<VersionedAssets>::new((Junctions::Here, SEND_AMOUNT).into()),
 		0,
 		weight_limit,
 	);

@@ -51,12 +51,15 @@ use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Keccak256;
 use substrate_prometheus_endpoint::Registry;
 
-pub type FullClient<Runtime, Executor = WasmExecutor<sp_io::SubstrateHostFunctions>> =
+pub type HostFunctions =
+	(sp_io::SubstrateHostFunctions, cumulus_client_service::storage_proof_size::HostFunctions);
+
+pub type FullClient<Runtime, Executor = WasmExecutor<HostFunctions>> =
 	TFullClient<opaque::Block, Runtime, Executor>;
 
 pub type FullBackend = TFullBackend<opaque::Block>;
 
-type ParachainBlockImport<Runtime, Executor = WasmExecutor<sp_io::SubstrateHostFunctions>> =
+type ParachainBlockImport<Runtime, Executor = WasmExecutor<HostFunctions>> =
 	TParachainBlockImport<opaque::Block, Arc<FullClient<Runtime, Executor>>, FullBackend>;
 
 /// Starts a `ServiceBuilder` for a full service.
@@ -172,8 +175,7 @@ where
 		sc_client_api::StateBackend<Keccak256>,
 {
 	let parachain_config = prepare_node_config(parachain_config);
-	let executor =
-		sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&parachain_config);
+	let executor = sc_service::new_wasm_executor::<HostFunctions>(&parachain_config);
 	let params = new_partial::<Runtime, _>(&parachain_config, executor)?;
 	let (block_import, mut telemetry, telemetry_worker_handle) = params.other;
 	let net_config = sc_network::config::FullNetworkConfiguration::new(&parachain_config.network);
@@ -420,8 +422,6 @@ where
 	// NOTE: because we use Aura here explicitly, we can use `CollatorSybilResistance::Resistant`
 	// when starting the network.
 
-	let slot_duration = cumulus_client_consensus_aura::slot_duration(&*client)?;
-
 	let proposer_factory = sc_basic_authorship::ProposerFactory::with_proof_recording(
 		task_manager.spawn_handle(),
 		client.clone(),
@@ -468,12 +468,12 @@ where
 		collator_key,
 		para_id,
 		overseer_handle,
-		slot_duration,
 		relay_chain_slot_duration,
 		proposer,
 		collator_service,
 		// Async backing time
 		authoring_duration: Duration::from_millis(1500),
+		reinitialize: false,
 	};
 
 	let fut = lookahead::run::<

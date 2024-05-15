@@ -63,11 +63,7 @@
 //! }
 //! ```
 
-use jsonrpsee::{
-	core::{Error as RpcError, RpcResult},
-	proc_macros::rpc,
-	types::{error::CallError, ErrorObject},
-};
+use jsonrpsee::{core::RpcResult, proc_macros::rpc, types::ErrorObject};
 
 use anyhow::anyhow;
 use codec::Encode;
@@ -114,7 +110,7 @@ impl<Hash: std::fmt::Debug> Display for BlockNumberOrHash<Hash> {
 }
 
 /// Contains a scale encoded Mmr Proof or Trie proof
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Proof {
 	/// Scale encoded `MmrProof` or state trie proof `Vec<Vec<u8>>`
 	pub proof: Vec<u8>,
@@ -123,12 +119,12 @@ pub struct Proof {
 }
 
 /// Converts a runtime trap into an RPC error.
-fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> RpcError {
-	RpcError::Call(CallError::Custom(ErrorObject::owned(
+fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> ErrorObject<'static> {
+	ErrorObject::owned(
 		9876, // no real reason for this value
 		"Something wrong",
 		Some(format!("{}", e)),
-	)))
+	)
 }
 
 /// Relevant transaction metadata for an event
@@ -143,7 +139,7 @@ pub struct EventMetadata {
 }
 
 /// Holds an event along with relevant metadata about the event
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct EventWithMetadata {
 	/// The event metdata
 	pub meta: EventMetadata,

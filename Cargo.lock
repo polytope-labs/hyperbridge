@@ -20426,7 +20426,6 @@ dependencies = [
  "ethers",
  "ethers-contract-abigen",
  "evm-common",
- "frame-support",
  "futures",
  "geth-primitives",
  "hex",

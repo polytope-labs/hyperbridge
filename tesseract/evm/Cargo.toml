@@ -28,7 +28,6 @@ ethers = { workspace = true, features = ["rustls"] }
 ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
 tokio = { version = "1.32.0", features = ["macros", "sync"] }
 tokio-stream = "0.1.14"
-frame-support = { workspace = true, default-features = true  }
 reqwest-retry = "0.3.0"
 reqwest-middleware = "0.2.4"
 async-recursion = "1.0.5"

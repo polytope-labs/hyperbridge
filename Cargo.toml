@@ -93,7 +93,7 @@ pr-run-mode = "upload"
 # Skip checking whether the specified configuration files are up to date
 allow-dirty = ["ci"]
 # Whether to install an updater program
-install-updater = true
+install-updater = false
 
 # The profile that 'cargo dist' will build with
 [profile.dist]
@@ -272,7 +272,7 @@ pallet-mmr = { path = "modules/trees/mmr/pallet", default-features = false }
 # merkle trees
 pallet-mmr-runtime-api = { path = "modules/trees/mmr/pallet/runtime-api", default-features = false }
 mmr-gadget = { path = "modules/trees/mmr/gadget" }
-ethereum-trie = { path = "./modules/trees/ethereum", default-features = false }
+ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }
 mmr-primitives = { version = "1.6.2", path = "modules/trees/mmr/primitives", default-features = false }
 
 # runtimes
@@ -332,6 +332,5 @@ default-features = false
 features = ["derive"]
 
 [workspace.dependencies.reconnecting-jsonrpsee-ws-client]
-git = "https://github.com/niklasad1/reconnecting-jsonrpsee-ws-client"
-rev = "7c0817478c2741cc0889e7c75c645aad9f3cbb55"
+version = "0.4.2"
 default-features = false

@@ -37,7 +37,7 @@ ismp-sync-committee = { workspace = true, default-features = true }
 ismp-bsc = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true, features = ["testing"] }
 pallet-hyperbridge = { workspace = true, default-features = true }
-ethereum-trie = { workspace = true, default-features = true }
+ethereum-triedb = { workspace = true, default-features = true }
 substrate-state-machine = { workspace = true, default-features = true }
 pallet-ismp-relayer = { workspace = true, default-features = true }
 pallet-fishermen = { workspace = true, default-features = true }

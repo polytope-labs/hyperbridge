@@ -140,15 +140,20 @@ export class HyperBridgeService {
 
   /**
    * Increment the number of unique relayers on Hyperbridge
+   * If all_stats is true it will increase count on the global hyperbridge stats
    */
   static async incrementNumberOfUniqueRelayers(
     chain: SupportedChain,
+    all_stats: boolean
   ): Promise<void> {
     let stats = await this.getStats();
     let chainStats =
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
 
-    stats.numberOfUniqueRelayers += BigInt(1);
+    if (all_stats == true) {
+      stats.numberOfUniqueRelayers += BigInt(1);
+    }
+    
     chainStats.numberOfUniqueRelayers += BigInt(1);
 
     Promise.all([await chainStats.save(), await stats.save()]);

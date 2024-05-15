@@ -12,7 +12,7 @@ publish = false
 ismp = { workspace = true, default-features = false }
 sync-committee-primitives = { workspace = true, default-features = false }
 sync-committee-verifier = { workspace = true, default-features = false }
-ethereum-trie = { workspace = true, default-features = false }
+ethereum-triedb = { workspace = true, default-features = false }
 pallet-ismp = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
 evm-common = { workspace = true }
@@ -38,7 +38,7 @@ default = ["std"]
 std = [
     "codec/std",
     "ismp/std",
-    "ethereum-trie/std",
+    "ethereum-triedb/std",
     "ethabi/std",
     "hex/std",
     "sync-committee-primitives/std",

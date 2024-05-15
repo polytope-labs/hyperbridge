@@ -230,8 +230,10 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		let subxt::Error::Rpc(RpcError::ClientError(err)) = error else {
 			panic!("Unexpected error kind: {error:?}")
 		};
-		let jsonrpsee_error = err.downcast::<jsonrpsee_core::ClientError>().unwrap();
-		let jsonrpsee_core::ClientError::Call(error) = *jsonrpsee_error else {
+		let jsonrpsee_error = err.downcast::<subxt_utils::client::RpcError>().unwrap();
+		let subxt_utils::client::RpcError::RpcError(jsonrpsee_core::ClientError::Call(error)) =
+			*jsonrpsee_error
+		else {
 			panic!("Unexpected error kind: {jsonrpsee_error:?}")
 		};
 
@@ -261,8 +263,10 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 		let subxt::Error::Rpc(RpcError::ClientError(err)) = error else {
 			panic!("Unexpected error kind: {error:?}")
 		};
-		let jsonrpsee_error = err.downcast::<jsonrpsee_core::ClientError>().unwrap();
-		let jsonrpsee_core::ClientError::Call(error) = *jsonrpsee_error else {
+		let jsonrpsee_error = err.downcast::<subxt_utils::client::RpcError>().unwrap();
+		let subxt_utils::client::RpcError::RpcError(jsonrpsee_core::ClientError::Call(error)) =
+			*jsonrpsee_error
+		else {
 			panic!("Unexpected error kind: {jsonrpsee_error:?}")
 		};
 

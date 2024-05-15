@@ -1,4 +1,4 @@
-name: Docker Telemetry
+name: Telemetry Server Docker Publish
 
 on:
   workflow_dispatch:
@@ -27,7 +27,7 @@ jobs:
           toolchain: nightly
 
       - name: Build
-        run:  |
+        run: |
           sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
           cargo +nightly build --release -p telemetry-server
 

@@ -35,11 +35,11 @@ export class RelayerService {
       });
 
       await relayer.save();
-      await HyperBridgeService.incrementNumberOfUniqueRelayers(chain);
+      await HyperBridgeService.incrementNumberOfUniqueRelayers(chain, true);
     } else {
       if (!relayer.chains.includes(chain)) {
         relayer = this.updateRelayerNetworksList(relayer, chain);
-        await HyperBridgeService.incrementNumberOfUniqueRelayers(chain);
+        await HyperBridgeService.incrementNumberOfUniqueRelayers(chain, false);
 
         await relayer.save();
       }

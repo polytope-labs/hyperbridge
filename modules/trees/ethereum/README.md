@@ -1,9 +1,10 @@
-# Ethereum Trie
+# Ethereum TrieDB
 
-This library allows users to verify ethereum style merkle patricia proofs as specified in this document: https://ethereum.github.io/execution-specs/autoapi/ethereum/frontier/trie/index.html
+This crate exposes an implementation of [`trie_db::TrieLayout`](https://docs.rs/trie-db/0.29.0/trie_db/trait.TrieLayout.html) that allows [`trie_db::TrieDb`](https://docs.rs/trie-db/0.29.0/trie_db/triedb/struct.TrieDB.html)
+be used for verifying Ethereum style merkle patricia proofs. as specified in this document [EIP-1186](https://eips.ethereum.org/EIPS/eip-1186).
 
 ```rust
-use ethereum_trie::{
+use ethereum_triedb::{
     keccak::{keccak_256, KeccakHasher},
     EIP1186Layout, StorageProof,
 };
@@ -60,6 +61,10 @@ fn main() {
 }
 ```
 
-### No Std 
+### No Std
 
-This library supports `no_std`, simply add `default-features = false` to the dependecncy entry in your `Cargo.toml`
+This library also supports `no_std`, simply add `default-features = false` to the dependecncy entry in your `Cargo.toml`
+
+## License
+
+This library is licensed under the Apache 2.0 License, Copyright (c) 2024 Polytope Labs.

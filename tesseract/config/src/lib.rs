@@ -24,19 +24,19 @@ use tesseract_substrate::{
 
 /// The AnyConfig wraps the configuration options for all supported chains
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-#[serde(tag = "untagged", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum AnyConfig {
 	/// Configuration for substrate-based chains
 	Substrate(SubstrateConfig),
-	/// Configuration for evn-based chains
-	Ethereum(EvmConfig),
+	/// Configuration for evm-based chains
+	Evm(EvmConfig),
 }
 
 impl AnyConfig {
 	pub fn state_machine(&self) -> ismp::host::StateMachine {
 		match self {
 			Self::Substrate(config) => config.state_machine,
-			Self::Ethereum(config) => config.state_machine,
+			Self::Evm(config) => config.state_machine,
 		}
 	}
 }
@@ -64,7 +64,7 @@ impl AnyConfig {
 					},
 				}
 			},
-			AnyConfig::Ethereum(config) => {
+			AnyConfig::Evm(config) => {
 				let mut client = EvmClient::new(config).await?;
 				client.set_latest_finalized_height(hyperbridge).await?;
 				Arc::new(client) as Arc<dyn IsmpProvider>

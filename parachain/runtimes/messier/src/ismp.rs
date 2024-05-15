@@ -15,8 +15,8 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	AccountId, Assets, Balance, Balances, Gateway, Ismp, Mmr, ParachainInfo, Runtime, RuntimeEvent,
-	Timestamp, EXISTENTIAL_DEPOSIT,
+	AccountId, Assets, Balance, Balances, Gateway, Ismp, IsmpParachain, Mmr, ParachainInfo,
+	Runtime, RuntimeEvent, Timestamp, EXISTENTIAL_DEPOSIT,
 };
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
@@ -25,6 +25,7 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::EnsureRoot;
+use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::{
 	error::Error,
 	host::StateMachine,
@@ -79,6 +80,11 @@ impl pallet_ismp::Config for Runtime {
 	type ConsensusClients = (
 		ismp_bsc::BscClient<Ismp>,
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Mainnet>,
+		ismp_parachain::ParachainConsensusClient<
+			Runtime,
+			IsmpParachain,
+			HyperbridgeClientMachine<Runtime, Ismp>,
+		>,
 	);
 	type Mmr = Mmr;
 	type WeightProvider = ();

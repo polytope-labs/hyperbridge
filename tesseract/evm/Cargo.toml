@@ -40,7 +40,7 @@ ismp = { workspace = true, default-features = true }
 pallet-ismp-rpc = { workspace = true, default-features = true }
 geth-primitives = { workspace = true, default-features = true }
 ismp-sync-committee = { workspace = true, default-features = true }
-ethereum-trie = { workspace = true, default-features = true }
+ethereum-triedb = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 evm-common = { workspace = true, default-features = true }
 sp-mmr-primitives = { workspace = true, default-features = true }

@@ -18,8 +18,9 @@
 use crate::{
 	beefy::IntermediateState,
 	evm_host::EvmHostEvents,
-	shared_types::{PostRequest, PostResponse, StateMachineHeight},
+	shared_types::{PostRequest, PostResponse, StateCommitment, StateMachineHeight},
 };
+
 use anyhow::anyhow;
 use ismp::{host::StateMachine, router};
 
@@ -250,6 +251,16 @@ impl TryFrom<ismp::consensus::StateMachineHeight> for StateMachineHeight {
 			},
 			height: value.height.into(),
 		})
+	}
+}
+
+impl From<ismp::consensus::StateCommitment> for StateCommitment {
+	fn from(value: ismp::consensus::StateCommitment) -> Self {
+		StateCommitment {
+			timestamp: value.timestamp.into(),
+			state_root: value.state_root.0,
+			overlay_root: value.overlay_root.unwrap_or_default().0,
+		}
 	}
 }
 

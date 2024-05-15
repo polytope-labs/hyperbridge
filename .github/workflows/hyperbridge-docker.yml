@@ -1,4 +1,4 @@
-name: Docker Release
+name: Hyperbridge Docker Publish
 
 on:
   push:
@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   build_and_publish:
-    runs-on: arc-runner-set
+    runs-on: release-runner
     steps:
       - name: Checkout sources
         uses: actions/checkout@v3
@@ -41,7 +41,6 @@ jobs:
       - name: Build
         run: |
           cargo build --release -p hyperbridge
-          mv ./target/release/hyperbridge ./
 
       - name: Install Cargo get
         run: cargo install cargo-get

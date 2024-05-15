@@ -4,12 +4,12 @@ Rust implementation of the Interoperable State Machine Protocol. This project is
 
 This repo provides an implementation of the neccessary components laid out in the [ISMP specifications](https://docs.hyperbridge.network/protocol/ismp).
 
-- [x] [`Message` Definitions](https://docs.rs/ismp/latest/ismp/messaging/index.html)
-- [x] [`Message` Handlers](https://docs.rs/ismp/latest/ismp/handlers/index.html)
-- [x] [`ConsensusClient` and `StateMachineClient` definitions](https://docs.rs/ismp/latest/ismp/consensus/index.html)
-- [x] [`IsmpHost` definitions](https://docs.rs/ismp/latest/ismp/host/index.html)
-- [x] [`IsmpRouter` definitions](https://docs.rs/ismp/latest/ismp/router/index.html)
-- [x] [`IsmpDispatcher` definitions](https://docs.rs/ismp/latest/ismp/dispatcher/index.html)
+- [`Message` Definitions](https://docs.rs/ismp/latest/ismp/messaging/index.html)
+- [`Message` Handlers](https://docs.rs/ismp/latest/ismp/handlers/index.html)
+- [`ConsensusClient` and `StateMachineClient` definitions](https://docs.rs/ismp/latest/ismp/consensus/index.html)
+- [`IsmpHost` definitions](https://docs.rs/ismp/latest/ismp/host/index.html)
+- [`IsmpRouter` definitions](https://docs.rs/ismp/latest/ismp/router/index.html)
+- [`IsmpDispatcher` definitions](https://docs.rs/ismp/latest/ismp/dispatcher/index.html)
 
 ## License
 

@@ -15,7 +15,7 @@ use evm_common::types::EvmStateProof;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::Event,
-	messaging::{hash_request, hash_response, Message},
+	messaging::{hash_request, hash_response, Message, StateCommitmentHeight},
 };
 use ismp_solidity_abi::evm_host::{PostRequestHandledFilter, PostResponseHandledFilter};
 use pallet_ismp_host_executive::{EvmHostParam, HostParam};
@@ -24,7 +24,7 @@ use crate::{
 	gas_oracle::{get_current_gas_cost_in_usd, get_l2_data_cost},
 	tx::{generate_contract_calls, get_chain_gas_limit},
 };
-use ethereum_trie::StorageProof;
+use ethereum_triedb::StorageProof;
 use ethers::{
 	contract::parse_log,
 	types::{
@@ -659,9 +659,13 @@ impl IsmpProvider for EvmClient {
 
 	async fn set_initial_consensus_state(
 		&self,
-		message: CreateConsensusState,
+		mut message: CreateConsensusState,
 	) -> Result<(), Error> {
-		self.set_consensus_state(message.consensus_state).await?;
+		let (id, StateCommitmentHeight { commitment, height }) =
+			message.state_machine_commitments.remove(0);
+		let height = StateMachineHeight { id, height };
+		self.set_consensus_state(message.consensus_state, height.try_into()?, commitment.into())
+			.await?;
 		Ok(())
 	}
 

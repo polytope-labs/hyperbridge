@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y ca-certificates && update-ca-certificat
 
 WORKDIR /
 
-COPY ./hyperbridge ./
+COPY ./target/release/hyperbridge ./
 
 
 ENTRYPOINT ["./hyperbridge"]

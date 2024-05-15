@@ -2,7 +2,7 @@ use crate::{
 	providers::interface::{Client, RequestOrResponse},
 	types::BoxStream,
 };
-use ethereum_trie::StorageProof;
+use ethereum_triedb::StorageProof;
 use ethers::prelude::Middleware;
 use evm_common::presets::{
 	REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,

@@ -19,6 +19,7 @@ use evm_common::presets::{
 	RESPONSE_RECEIPTS_SLOT,
 };
 
+use ismp_solidity_abi::shared_types::{StateCommitment, StateMachineHeight};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::sync::Arc;
@@ -171,9 +172,14 @@ impl EvmClient {
 	}
 
 	/// Set the consensus state on the IsmpHost
-	pub async fn set_consensus_state(&self, consensus_state: Vec<u8>) -> Result<(), anyhow::Error> {
+	pub async fn set_consensus_state(
+		&self,
+		consensus_state: Vec<u8>,
+		height: StateMachineHeight,
+		commitment: StateCommitment,
+	) -> Result<(), anyhow::Error> {
 		let contract = EvmHost::new(self.config.ismp_host, self.signer.clone());
-		let call = contract.set_consensus_state(consensus_state.clone().into());
+		let call = contract.set_consensus_state(consensus_state.clone().into(), height, commitment);
 
 		let gas = call.estimate_gas().await?;
 		call.gas(gas).send().await?.await?;

@@ -53,11 +53,14 @@ impl ConsensusInherentProvider {
 	{
 		let para_ids = client.runtime_api().para_ids(parent)?;
 
+		log::trace!("ParaIds from runtime: {para_ids:?}");
+
 		if para_ids.is_empty() {
 			return Ok(ConsensusInherentProvider(None));
 		}
 
 		let state = client.runtime_api().current_relay_chain_state(parent)?;
+		log::trace!("Current relay chain state: {state:?}");
 
 		// parachain is just starting
 		if state.number == 0u32 {
@@ -75,7 +78,8 @@ impl ConsensusInherentProvider {
 				.get_storage_by_key(relay_header.hash(), parachain_header_storage_key(id).as_ref())
 				.await?
 			else {
-				continue
+				log::trace!("Failed to fetch parachain header for {id} from relay chain");
+				continue;
 			};
 
 			let Ok(intermediate) = Vec::<u8>::decode(&mut &head[..]) else {
@@ -91,16 +95,17 @@ impl ConsensusInherentProvider {
 				StateMachine::Kusama(_) => StateMachine::Kusama(id),
 				id => Err(anyhow!("Unsupported state machine: {id:?}"))?,
 			};
-			let Some(height) = client.runtime_api().latest_state_machine_height(
-				parent,
-				StateMachineId { consensus_state_id: PARACHAIN_CONSENSUS_ID, state_id },
-			)?
-			else {
-				continue
-			};
+			let height = client
+				.runtime_api()
+				.latest_state_machine_height(
+					parent,
+					StateMachineId { consensus_state_id: PARACHAIN_CONSENSUS_ID, state_id },
+				)?
+				.unwrap_or_default();
 
 			if height >= header.number as u64 {
-				continue
+				log::trace!("Skipping stale height {height} for parachain {id}");
+				continue;
 			}
 
 			para_ids_to_fetch.push(id);

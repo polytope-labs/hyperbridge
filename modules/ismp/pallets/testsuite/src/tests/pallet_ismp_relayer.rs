@@ -17,7 +17,7 @@
 
 use alloy_primitives::hex;
 use codec::{Decode, Encode};
-use ethereum_trie::{keccak::KeccakHasher, MemoryDB, StorageProof};
+use ethereum_triedb::{keccak::KeccakHasher, MemoryDB, StorageProof};
 use evm_common::types::EvmStateProof;
 use frame_support::crypto::ecdsa::ECDSAExt;
 use ismp::{

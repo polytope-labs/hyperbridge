@@ -1,4 +1,4 @@
-name: Docker Tesseract
+name: Tesseract Docker Publish
 
 on:
   push:
@@ -8,6 +8,9 @@ on:
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  TELEMETRY_SECRET_KEY: ${{ secrets.TELEMETRY_SECRET_KEY }}
 
 jobs:
   build_and_publish:
@@ -43,9 +46,9 @@ jobs:
           password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
       - name: Build the Docker image
-        run: docker build -t polytopelabs/tesseract:v$(cargo get package.version --entry ./relayer) -t polytopelabs/tesseract:latest -f ./scripts/docker/tesseract.Dockerfile .
+        run: docker build -t polytopelabs/tesseract:v$(cargo get package.version --entry ./tesseract/relayer) -t polytopelabs/tesseract:latest -f ./scripts/docker/tesseract.Dockerfile .
 
       - name: Docker Push
         run: |
-          docker push polytopelabs/tesseract:v$(cargo get package.version --entry ./relayer)
+          docker push polytopelabs/tesseract:v$(cargo get package.version --entry ./tesseract/relayer)
           docker push polytopelabs/tesseract:latest

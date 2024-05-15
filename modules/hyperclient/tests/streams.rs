@@ -17,7 +17,6 @@ async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 }
 
 #[wasm_bindgen_test]
-#[ignore]
 async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	init_tracing();
 

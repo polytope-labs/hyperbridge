@@ -334,12 +334,10 @@ pub mod pallet {
 	pub type ConsensusStates<T: Config> =
 		StorageMap<_, Twox64Concat, ConsensusClientId, Vec<u8>, OptionQuery>;
 
-	/// Holds a map of state machines to the height at which they've been frozen due to byzantine
-	/// behaviour
-	#[pallet::storage]
-	#[pallet::getter(fn frozen_state_machine)]
-	pub type FrozenStateMachine<T: Config> =
-		StorageMap<_, Blake2_128Concat, StateMachineId, bool, OptionQuery>;
+	// #[pallet::storage]
+	// #[pallet::getter(fn frozen_state_machine)]
+	// pub type FrozenStateMachine<T: Config> =
+	// 	StorageMap<_, Blake2_128Concat, StateMachineId, bool, OptionQuery>;
 
 	/// A mapping of consensus state identifier to it's associated consensus client identifier
 	#[pallet::storage]

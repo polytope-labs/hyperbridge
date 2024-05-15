@@ -208,16 +208,6 @@ impl IsmpHost for Host {
 		SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
 	}
 
-	fn is_state_machine_frozen(&self, machine: StateMachineId) -> Result<(), Error> {
-		let binding = self.frozen_state_machines.borrow();
-		let val = binding.get(&machine).unwrap_or(&false);
-		if *val {
-			Err(Error::FrozenStateMachine { id: machine })?;
-		}
-
-		Ok(())
-	}
-
 	fn is_consensus_client_frozen(&self, _client: ConsensusStateId) -> Result<(), Error> {
 		let binding = self.frozen_consensus_clients.borrow();
 		let val = binding.get(&_client).unwrap_or(&false);
@@ -385,11 +375,6 @@ impl IsmpHost for Host {
 
 	fn ismp_router(&self) -> Box<dyn IsmpRouter> {
 		Box::new(MockRouter(self.clone()))
-	}
-
-	fn freeze_state_machine_client(&self, state_machine: StateMachineId) -> Result<(), Error> {
-		self.frozen_state_machines.borrow_mut().insert(state_machine, true);
-		Ok(())
 	}
 
 	fn store_request_commitment(&self, req: &Request, _meta: Vec<u8>) -> Result<(), Error> {

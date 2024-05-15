@@ -75,7 +75,7 @@ impl ConsensusInherentProvider {
 				.get_storage_by_key(relay_header.hash(), parachain_header_storage_key(id).as_ref())
 				.await?
 			else {
-				continue
+				continue;
 			};
 
 			let Ok(intermediate) = Vec::<u8>::decode(&mut &head[..]) else {
@@ -96,11 +96,11 @@ impl ConsensusInherentProvider {
 				StateMachineId { consensus_state_id: PARACHAIN_CONSENSUS_ID, state_id },
 			)?
 			else {
-				continue
+				continue;
 			};
 
 			if height >= header.number as u64 {
-				continue
+				continue;
 			}
 
 			para_ids_to_fetch.push(id);

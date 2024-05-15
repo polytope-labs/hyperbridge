@@ -16,6 +16,7 @@
 //! Enables fishermen keep hyperbridge safe by vetoing fraudulent state commitments.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+
 extern crate alloc;
 
 pub use pallet::*;

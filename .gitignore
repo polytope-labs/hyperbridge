@@ -1,11 +1,11 @@
 /target
 .idea/
+/Cargo.lock
 
-*.log
 **/node_modules/*
 **/polkadot-launch/rococo*.json
 .cargo/
-.DS_Store
+
 **/zombienet/zombienet
 /pallet-ismp/evm/solidity/out
 /pallet-ismp/evm/solidity/cache
@@ -55,5 +55,5 @@ evm/subgraph/generated
 **/proofs/*
 /fees/prisma/dev.db
 /fees/prisma/dev.db-journal
-/
+
 **/*.db

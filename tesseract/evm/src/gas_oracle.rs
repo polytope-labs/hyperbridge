@@ -280,7 +280,7 @@ async fn make_request<T: DeserializeOwned>(url: &str, header_map: HeaderMap) -> 
 
 		let res = client.get(url).headers(header_map.clone()).send().await?;
 		if let Ok(response) = res.json().await {
-			return Ok(response)
+			return Ok(response);
 		}
 	}
 

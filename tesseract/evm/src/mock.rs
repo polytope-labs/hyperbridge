@@ -57,10 +57,6 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-	fn is_state_machine_frozen(&self, _machine: StateMachineId) -> Result<(), Error> {
-		todo!()
-	}
-
 	fn is_consensus_client_frozen(
 		&self,
 		_consensus_state_id: ConsensusStateId,
@@ -204,9 +200,6 @@ impl ismp::host::IsmpHost for Host {
 		todo!()
 	}
 
-	fn freeze_state_machine_client(&self, _state_machine: StateMachineId) -> Result<(), Error> {
-		todo!()
-	}
 
 	fn store_request_commitment(&self, _req: &Request, _meta: Vec<u8>) -> Result<(), Error> {
 		todo!()

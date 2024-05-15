@@ -439,7 +439,7 @@ where
 			// We don't compress consensus messages
 			if is_consensus_message {
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false));
-				continue
+				continue;
 			}
 			let encoded_call = extrinsic.encode_call_data(&self.client.metadata())?;
 			let uncompressed_len = encoded_call.len();

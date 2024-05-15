@@ -13,6 +13,7 @@ scale-info = { workspace = true, default-features = true }
 alloy-primitives = { version = "0.6.0", default-features = false, features = ["rlp"] }
 alloy-rlp = { workspace = true }
 
+frame-benchmarking = { workspace = true, optional = true}
 frame-support = { workspace = true, default-features = true }
 frame-system = { workspace = true, default-features = true }
 pallet-balances = { workspace = true, default-features = true }
@@ -80,4 +81,6 @@ pallet-ismp-rpc = { workspace = true }
 
 
 [features]
-runtime-benchmarks = ["xcm-simulator-example/runtime-benchmarks", "pallet-assets/runtime-benchmarks"]
+default = ["std"]
+std = [	"frame-benchmarking?/std"]
+runtime-benchmarks = ["xcm-simulator-example/runtime-benchmarks", "pallet-assets/runtime-benchmarks","frame-benchmarking/runtime-benchmarks"]

@@ -234,7 +234,7 @@ pub trait IsmpProvider: Send + Sync {
 	/// on the counterparty chain
 	fn state_machine_id(&self) -> StateMachineId;
 
-	/// Should return a numerical value for the max gas allowed for transactions in a block.
+	/// S6hould return a numerical value for the max gas allowed for transactions in a block.
 	fn block_max_gas(&self) -> u64;
 
 	/// Should return the initial height at which events should be queried

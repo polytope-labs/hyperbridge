@@ -132,7 +132,8 @@ export class RelayerService {
           `Could not find l1Fee in transaction receipt: ${JSON.stringify({ chain, transactionHash: transaction.hash })}`,
         );
       }
-      gasFee += (receipt as any).l1Fee ?? BigInt(0);
+      const l1Fee = BigInt((receipt as any).l1Fee ?? 0);
+      gasFee += l1Fee;
     }
 
     const _gasFeeInEth = Number(gasFee) / Number(BigInt(10 ** 18));

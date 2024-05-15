@@ -473,7 +473,7 @@ where
 		collator_service,
 		// Async backing time
 		authoring_duration: Duration::from_millis(1500),
-		reinitialize: false,
+		reinitialize: true,
 	};
 
 	let fut = lookahead::run::<

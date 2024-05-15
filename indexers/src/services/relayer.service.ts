@@ -2,17 +2,13 @@ import { EthereumResult, EthereumTransaction } from "@subql/types-ethereum";
 import { SupportedChain } from "../types/enums";
 import { Relayer, Transfer } from "../types/models";
 import { RelayerChainStatsService } from "./relayerChainStats.service";
-import {
-  getL1GasCostEstimate,
-  getNativeCurrencyPrice,
-} from "../utils/price.helpers";
+import { getNativeCurrencyPrice } from "../utils/price.helpers";
 import {
   HandlePostRequestsTransaction,
   HandlePostResponsesTransaction,
 } from "../types/abi-interfaces/HandlerV1Abi";
 import { HyperBridgeService } from "./hyperbridge.service";
 import { ETHEREUM_L2_SUPPORTED_CHAINS } from "../constants";
-import { getEthersTransactionRequest } from "../utils/transaction.helpers";
 
 export class RelayerService {
   /**
@@ -122,20 +118,23 @@ export class RelayerService {
     transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
   ): Promise<void> {
     const { from: relayer_id } = transaction;
-    const { status } = await transaction.receipt();
+    const receipt = await transaction.receipt();
+    const { status, gasUsed, effectiveGasPrice } = receipt;
 
-    let { gasUsed, effectiveGasPrice } = await transaction.receipt();
     const nativeCurrencyPrice = await getNativeCurrencyPrice(chain);
+
+    let gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
 
     // Add the L1 Gas Used for L2 chains
     if (ETHEREUM_L2_SUPPORTED_CHAINS.includes(chain)) {
-      gasUsed += await getL1GasCostEstimate(
-        chain,
-        await getEthersTransactionRequest(transaction),
-      );
+      if (!(receipt as any).l1Fee) {
+        logger.error(
+          `Could not find l1Fee in transaction receipt: ${JSON.stringify({ chain, transactionHash: transaction.hash })}`,
+        );
+      }
+      gasFee += (receipt as any).l1Fee ?? BigInt(0);
     }
 
-    const gasFee = BigInt(effectiveGasPrice) * BigInt(gasUsed);
     const _gasFeeInEth = Number(gasFee) / Number(BigInt(10 ** 18));
     const usdFee = (gasFee * nativeCurrencyPrice) / BigInt(10 ** 18);
 

@@ -99,6 +99,7 @@ pallet-mmr-runtime-api = { workspace = true }
 sp-mmr-primitives = { workspace = true }
 
 simnode-runtime-api = { workspace = true }
+hyperbridge-client-machine = { workspace = true }
 
 [features]
 default = [
@@ -170,7 +171,8 @@ std = [
 	"orml-traits/std",
 	"pallet-mmr-runtime-api/std",
 	"sp-mmr-primitives/std",
-	"simnode-runtime-api/std"
+	"simnode-runtime-api/std",
+	"hyperbridge-client-machine/std"
 ]
 
 runtime-benchmarks = [

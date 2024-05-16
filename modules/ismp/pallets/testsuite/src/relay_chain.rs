@@ -79,17 +79,18 @@ impl pallet_balances::Config for Runtime {
 	type RuntimeFreezeReason = RuntimeFreezeReason;
 	type FreezeIdentifier = ();
 	type MaxFreezes = ConstU32<0>;
-	type MaxHolds = ConstU32<100>;
 }
 
-impl shared::Config for Runtime {}
+impl shared::Config for Runtime {
+	type DisabledValidators = ();
+}
 
 impl configuration::Config for Runtime {
 	type WeightInfo = configuration::TestWeightInfo;
 }
 
 parameter_types! {
-	pub const TokenLocation: MultiLocation = Here.into_location();
+	pub const TokenLocation: Location = Here.into_location();
 	pub RelayNetwork: NetworkId = ByGenesis([0; 32]);
 	pub const AnyNetwork: Option<NetworkId> = None;
 	pub UniversalLocation: Junctions = Here;
@@ -148,6 +149,8 @@ impl Config for XcmConfig {
 	type CallDispatcher = RuntimeCall;
 	type SafeCallFilter = Everything;
 	type Aliasers = Nothing;
+
+	type TransactionalProcessor = ();
 }
 
 pub type LocalOriginToLocation = SignedToAccountId32<RuntimeOrigin, AccountId, RelayNetwork>;

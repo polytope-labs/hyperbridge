@@ -5,7 +5,6 @@ use ethers::{
 	providers::Http,
 	utils::parse_units,
 };
-use frame_support::Deserialize;
 use hex_literal::hex;
 use ismp::host::{Ethereum, StateMachine};
 use primitive_types::{H160, U256};
@@ -15,7 +14,7 @@ use reqwest::{
 };
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Deserialize};
 use std::{fmt::Debug, sync::Arc, time::Duration};
 use tesseract_primitives::Cost;
 

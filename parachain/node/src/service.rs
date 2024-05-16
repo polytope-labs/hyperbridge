@@ -20,7 +20,10 @@ use std::{sync::Arc, time::Duration};
 
 use cumulus_client_cli::CollatorOptions;
 // Local Runtime Types
-use crate::runtime_api::{opaque, BaseHostRuntimeApis};
+use crate::{
+	cli::Cli,
+	runtime_api::{opaque, BaseHostRuntimeApis},
+};
 
 // Cumulus Imports
 use cumulus_client_collator::service::CollatorService;
@@ -51,12 +54,15 @@ use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Keccak256;
 use substrate_prometheus_endpoint::Registry;
 
-pub type FullClient<Runtime, Executor = WasmExecutor<sp_io::SubstrateHostFunctions>> =
+pub type HostFunctions =
+	(sp_io::SubstrateHostFunctions, cumulus_client_service::storage_proof_size::HostFunctions);
+
+pub type FullClient<Runtime, Executor = WasmExecutor<HostFunctions>> =
 	TFullClient<opaque::Block, Runtime, Executor>;
 
 pub type FullBackend = TFullBackend<opaque::Block>;
 
-type ParachainBlockImport<Runtime, Executor = WasmExecutor<sp_io::SubstrateHostFunctions>> =
+type ParachainBlockImport<Runtime, Executor = WasmExecutor<HostFunctions>> =
 	TParachainBlockImport<opaque::Block, Arc<FullClient<Runtime, Executor>>, FullBackend>;
 
 /// Starts a `ServiceBuilder` for a full service.
@@ -164,6 +170,7 @@ async fn start_node_impl<Runtime>(
 	collator_options: CollatorOptions,
 	para_id: ParaId,
 	hwbench: Option<sc_sysinfo::HwBench>,
+	cli: &Cli,
 ) -> sc_service::error::Result<TaskManager>
 where
 	Runtime: ConstructRuntimeApi<opaque::Block, FullClient<Runtime>> + Send + Sync + 'static,
@@ -172,8 +179,7 @@ where
 		sc_client_api::StateBackend<Keccak256>,
 {
 	let parachain_config = prepare_node_config(parachain_config);
-	let executor =
-		sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&parachain_config);
+	let executor = sc_service::new_wasm_executor::<HostFunctions>(&parachain_config);
 	let params = new_partial::<Runtime, _>(&parachain_config, executor)?;
 	let (block_import, mut telemetry, telemetry_worker_handle) = params.other;
 	let net_config = sc_network::config::FullNetworkConfiguration::new(&parachain_config.network);
@@ -348,6 +354,7 @@ where
 			collator_key.expect("Command line arguments do not allow this. qed"),
 			overseer_handle,
 			announce_block,
+			cli,
 		)?;
 	}
 
@@ -410,6 +417,7 @@ fn start_consensus<Runtime>(
 	collator_key: CollatorPair,
 	overseer_handle: OverseerHandle,
 	announce_block: Arc<dyn Fn(opaque::Hash, Option<Vec<u8>>) + Send + Sync>,
+	cli: &Cli,
 ) -> Result<(), sc_service::Error>
 where
 	Runtime: ConstructRuntimeApi<opaque::Block, FullClient<Runtime>> + Send + Sync + 'static,
@@ -419,8 +427,6 @@ where
 {
 	// NOTE: because we use Aura here explicitly, we can use `CollatorSybilResistance::Resistant`
 	// when starting the network.
-
-	let slot_duration = cumulus_client_consensus_aura::slot_duration(&*client)?;
 
 	let proposer_factory = sc_basic_authorship::ProposerFactory::with_proof_recording(
 		task_manager.spawn_handle(),
@@ -468,12 +474,12 @@ where
 		collator_key,
 		para_id,
 		overseer_handle,
-		slot_duration,
 		relay_chain_slot_duration,
 		proposer,
 		collator_service,
 		// Async backing time
 		authoring_duration: Duration::from_millis(1500),
+		reinitialize: cli.reinitialize_collator,
 	};
 
 	let fut = lookahead::run::<
@@ -501,6 +507,7 @@ pub async fn start_parachain_node(
 	collator_options: CollatorOptions,
 	para_id: ParaId,
 	hwbench: Option<sc_sysinfo::HwBench>,
+	cli: &Cli,
 ) -> sc_service::error::Result<TaskManager> {
 	match parachain_config.chain_spec.id() {
 		chain if chain.contains("gargantua") =>
@@ -510,6 +517,7 @@ pub async fn start_parachain_node(
 				collator_options,
 				para_id,
 				hwbench,
+				cli,
 			)
 			.await,
 		chain if chain.contains("messier") =>
@@ -519,6 +527,7 @@ pub async fn start_parachain_node(
 				collator_options,
 				para_id,
 				hwbench,
+				cli,
 			)
 			.await,
 		chain if chain.contains("nexus") =>
@@ -528,6 +537,7 @@ pub async fn start_parachain_node(
 				collator_options,
 				para_id,
 				hwbench,
+				cli,
 			)
 			.await,
 		chain => panic!("Unknown chain with id: {}", chain),

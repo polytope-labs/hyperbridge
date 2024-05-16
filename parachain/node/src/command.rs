@@ -17,7 +17,6 @@ use std::{borrow::Cow, str::FromStr};
 
 use cumulus_primitives_core::ParaId;
 use frame_benchmarking_cli::{BenchmarkCmd, SUBSTRATE_REFERENCE_HARDWARE};
-use gargantua_runtime::Block;
 use log::info;
 use polkadot_cli::service;
 use sc_cli::{
@@ -25,7 +24,7 @@ use sc_cli::{
 	NetworkParams, Result, SharedParams, SubstrateCli,
 };
 use sc_service::config::{BasePath, PrometheusConfig};
-use sp_runtime::traits::AccountIdConversion;
+use sp_runtime::traits::{AccountIdConversion, Keccak256};
 use std::net::SocketAddr;
 
 use crate::{
@@ -165,21 +164,21 @@ macro_rules! construct_async_run {
         match runner.config().chain_spec.id() {
             chain if chain.contains("gargantua") || chain.contains("dev") => {
                 runner.async_run(|$config| {
-                    let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&$config);
+                    let executor = sc_service::new_wasm_executor::<crate::service::HostFunctions>(&$config);
                     let $components = new_partial::<gargantua_runtime::RuntimeApi, _>(&$config, executor)?;
                     Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
                 })
             }
             chain if chain.contains("messier") => {
                 runner.async_run(|$config| {
-                    let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&$config);
+                    let executor = sc_service::new_wasm_executor::<crate::service::HostFunctions>(&$config);
                     let $components = new_partial::<messier_runtime::RuntimeApi, _>(&$config, executor)?;
                     Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
                 })
             }
             chain if chain.contains("nexus") => {
                 runner.async_run(|$config| {
-                    let executor = sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&$config);
+                    let executor = sc_service::new_wasm_executor::<crate::service::HostFunctions>(&$config);
                     let $components = new_partial::<nexus_runtime::RuntimeApi, _>(&$config, executor)?;
                     Ok::<_, sc_cli::Error>(( { $( $code )* }, $components.task_manager))
                 })
@@ -254,7 +253,7 @@ pub fn run() -> Result<()> {
 
 			runner.sync_run(|config| {
 				let executor =
-					sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config);
+					sc_service::new_wasm_executor::<crate::service::HostFunctions>(&config);
 
 				match config.chain_spec.id() {
 					chain if chain.contains("gargantua") || chain.contains("dev") => {
@@ -292,7 +291,7 @@ pub fn run() -> Result<()> {
 			match cmd {
 				BenchmarkCmd::Pallet(cmd) =>
 					if cfg!(feature = "runtime-benchmarks") {
-						runner.sync_run(|config| cmd.run::<Block, ()>(config))
+						runner.sync_run(|config| cmd.run::<Keccak256, ()>(config))
 					} else {
 						Err("Benchmarking wasn't enabled when building the node. \
 					You can enable it with `--features runtime-benchmarks`."
@@ -300,7 +299,7 @@ pub fn run() -> Result<()> {
 					},
 				BenchmarkCmd::Block(cmd) => runner.sync_run(|config| {
 					let executor =
-						sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config);
+						sc_service::new_wasm_executor::<crate::service::HostFunctions>(&config);
 
 					match config.chain_spec.id() {
 						chain if chain.contains("gargantua") || chain.contains("dev") => {
@@ -332,7 +331,7 @@ pub fn run() -> Result<()> {
 				#[cfg(feature = "runtime-benchmarks")]
 				BenchmarkCmd::Storage(cmd) => runner.sync_run(|config| {
 					let executor =
-						sc_service::new_wasm_executor::<sp_io::SubstrateHostFunctions>(&config);
+						sc_service::new_wasm_executor::<crate::service::HostFunctions>(&config);
 					match config.chain_spec.id() {
 						chain if chain.contains("gargantua") || chain.contains("dev") => {
 							let components =
@@ -377,7 +376,7 @@ pub fn run() -> Result<()> {
 					.map_err(|e| format!("Error: {:?}", e))?;
 
 			runner.async_run(|_| {
-				Ok((cmd.run::<Block, sp_io::SubstrateHostFunctions>(), task_manager))
+				Ok((cmd.run::<Block, crate::service::HostFunctions>(), task_manager))
 			})
 		},
 		#[cfg(not(feature = "try-runtime"))]
@@ -474,6 +473,7 @@ pub fn run() -> Result<()> {
 					collator_options,
 					id,
 					hwbench,
+					&cli,
 				)
 				.await
 				.map_err(Into::into)

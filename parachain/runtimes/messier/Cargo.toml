@@ -91,7 +91,7 @@ pallet-ismp-relayer = { workspace = true  }
 pallet-ismp-host-executive = { workspace = true  }
 pallet-call-decompressor = { workspace = true }
 pallet-asset-gateway = { workspace = true  }
-hyperbridge-client-machine = { workspace = true }
+
 
 pallet-mmr = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
@@ -168,8 +168,7 @@ std = [
 	"orml-traits/std",
 	"pallet-mmr-runtime-api/std",
 	"sp-mmr-primitives/std",
-	"simnode-runtime-api/std",
-	"hyperbridge-client-machine/std"
+	"simnode-runtime-api/std"
 ]
 
 runtime-benchmarks = [

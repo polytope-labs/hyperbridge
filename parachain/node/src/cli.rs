@@ -91,10 +91,6 @@ pub struct Cli {
 	#[arg(long)]
 	pub async_backing: bool,
 
-	/// Should we reinitialize the collator config on the relaychain collation subsystem?
-	#[arg(long)]
-	pub reinitialize_collator: bool,
-
 	/// Relay chain arguments
 	#[arg(raw = true)]
 	pub relay_chain_args: Vec<String>,

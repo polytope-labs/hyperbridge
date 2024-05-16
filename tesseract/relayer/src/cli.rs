@@ -23,7 +23,7 @@ use ethers::prelude::H160;
 use futures::FutureExt;
 use ismp::host::StateMachine;
 use rust_socketio::asynchronous::ClientBuilder;
-use sp_core::{ecdsa, Pair};
+use sp_core::{ecdsa, ByteArray, Pair};
 use std::{collections::HashMap, sync::Arc};
 use telemetry_server::Message;
 use tesseract_primitives::IsmpProvider;
@@ -123,7 +123,7 @@ impl Cli {
 				let pair = ecdsa::Pair::from_seed_slice(&bytes)
 					.expect("TELEMETRY_SECRET_KEY must be 64 chars!");
 				let mut message = Message { signature: vec![], metadata };
-				message.signature = pair.sign(message.metadata.encode().as_slice()).0.to_vec();
+				message.signature = pair.sign(message.metadata.encode().as_slice()).to_raw_vec();
 				// todo: use compile-time env for telemetry url
 				let client = ClientBuilder::new("https://hyperbridge-telemetry.blockops.network/")
 					.namespace("/")

@@ -1,6 +1,6 @@
 [package]
 name = "mmr-primitives"
-version = "1.9.0"
+version = "1.6.2"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"

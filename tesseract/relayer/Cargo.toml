@@ -22,7 +22,7 @@ pallet-ismp = { workspace = true, default-features = true }
 ismp-sync-committee = { workspace = true, default-features = true }
 ethers = { workspace = true }
 codec = { workspace = true, default-features = true, features = ["derive"] }
-sp-core = { version = "21.0.0", features = ["full_crypto"] }
+sp-core = { workspace = true, default-features = true, features = ["full_crypto"] }
 
 # crates.io
 log = "0.4.19"

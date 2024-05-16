@@ -8,7 +8,7 @@ publish = false
 
 
 [dependencies]
-anyhow = { workspace = true }
+anyhow = { workspace = true, default-features = false }
 alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive.workspace = true

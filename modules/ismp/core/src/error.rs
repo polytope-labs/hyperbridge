@@ -56,11 +56,6 @@ pub enum Error {
 		/// The consensus client identifier
 		consensus_state_id: ConsensusStateId,
 	},
-	/// The given state machine has been frozen
-	FrozenStateMachine {
-		/// The given state machine id
-		id: StateMachineId,
-	},
 	/// The given request was not found
 	RequestCommitmentNotFound {
 		/// The request metadata

@@ -357,7 +357,7 @@ impl IsmpProvider for EvmClient {
 			..GethDebugTracingCallOptions::default()
 		};
 
-		let calls = generate_contract_calls(self, messages).await?;
+		let calls = generate_contract_calls(self, messages, true).await?;
 		let gas_breakdown = get_current_gas_cost_in_usd(
 			self.chain_id,
 			self.state_machine,

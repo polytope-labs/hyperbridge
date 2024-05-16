@@ -45,7 +45,7 @@ pub async fn submit_messages(
 	client: &EvmClient,
 	messages: Vec<Message>,
 ) -> anyhow::Result<BTreeSet<H256>> {
-	let calls = generate_contract_calls(client, messages.clone()).await?;
+	let calls = generate_contract_calls(client, messages.clone(), false).await?;
 	let mut events = BTreeSet::new();
 	for (index, call) in calls.into_iter().enumerate() {
 		let gas_price = call.tx.gas_price();
@@ -208,9 +208,11 @@ where
 }
 
 /// Function generates FunctionCall(s) from a batchs of messages
+/// If `debug_trace` is true then the gas_price will not be set on the generated call
 pub async fn generate_contract_calls(
 	client: &EvmClient,
 	messages: Vec<Message>,
+	debug_trace: bool,
 ) -> anyhow::Result<Vec<SolidityFunctionCall>> {
 	let contract = IsmpHandler::new(client.config.handler, client.signer.clone());
 	let ismp_host = client.config.ismp_host;
@@ -281,12 +283,15 @@ pub async fn generate_contract_calls(
 					requests: leaves,
 				};
 
-				let call = contract
-					.handle_post_requests(ismp_host, post_message)
-					.gas_price(gas_price)
-					.gas(gas_limit);
-
-				calls.push(call);
+				let call = if !debug_trace {
+					contract
+						.handle_post_requests(ismp_host, post_message)
+						.gas_price(gas_price)
+						.gas(gas_limit)
+				} else {
+					contract.handle_post_requests(ismp_host, post_message).gas(gas_limit)
+				};
+				calls.push(call)
 			},
 			Message::Response(ResponseMessage { datagram, proof, .. }) => {
 				let membership_proof = MmrProof::<H256>::decode(&mut proof.proof.as_slice())?;
@@ -342,10 +347,14 @@ pub async fn generate_contract_calls(
 								responses: leaves,
 							};
 
-						contract
-							.handle_post_responses(ismp_host, message)
-							.gas_price(gas_price)
-							.gas(gas_limit)
+						if !debug_trace {
+							contract
+								.handle_post_responses(ismp_host, message)
+								.gas_price(gas_price)
+								.gas(gas_limit)
+						} else {
+							contract.handle_post_responses(ismp_host, message).gas(gas_limit)
+						}
 					},
 					RequestResponse::Request(..) =>
 						Err(anyhow!("Get requests are not supported by relayer"))?,

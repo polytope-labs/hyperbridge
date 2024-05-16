@@ -139,7 +139,6 @@ pub struct Host {
 	consensus_states: Rc<RefCell<HashMap<ConsensusStateId, Vec<u8>>>>,
 	state_commitments: Rc<RefCell<HashMap<StateMachineHeight, StateCommitment>>>,
 	consensus_update_time: Rc<RefCell<HashMap<ConsensusStateId, Duration>>>,
-	frozen_state_machines: Rc<RefCell<HashMap<StateMachineId, bool>>>,
 	frozen_consensus_clients: Rc<RefCell<HashMap<ConsensusStateId, bool>>>,
 	latest_state_height: Rc<RefCell<HashMap<StateMachineId, u64>>>,
 	nonce: Rc<RefCell<u64>>,
@@ -206,16 +205,6 @@ impl IsmpHost for Host {
 
 	fn timestamp(&self) -> Duration {
 		SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
-	}
-
-	fn is_state_machine_frozen(&self, machine: StateMachineId) -> Result<(), Error> {
-		let binding = self.frozen_state_machines.borrow();
-		let val = binding.get(&machine).unwrap_or(&false);
-		if *val {
-			Err(Error::FrozenStateMachine { id: machine })?;
-		}
-
-		Ok(())
 	}
 
 	fn is_consensus_client_frozen(&self, _client: ConsensusStateId) -> Result<(), Error> {
@@ -359,6 +348,18 @@ impl IsmpHost for Host {
 		Ok(())
 	}
 
+	fn store_request_commitment(&self, req: &Request, _meta: Vec<u8>) -> Result<(), Error> {
+		let hash = hash_request::<Self>(req);
+		self.requests.borrow_mut().insert(hash);
+		Ok(())
+	}
+
+	fn store_response_commitment(&self, res: &PostResponse, _meta: Vec<u8>) -> Result<(), Error> {
+		let hash = hash_request::<Self>(&Request::Post(res.post.clone()));
+		self.responses.borrow_mut().insert(hash);
+		Ok(())
+	}
+
 	fn consensus_clients(&self) -> Vec<Box<dyn ConsensusClient>> {
 		vec![Box::new(MockClient), Box::new(MockProxyClient)]
 	}
@@ -385,23 +386,6 @@ impl IsmpHost for Host {
 
 	fn ismp_router(&self) -> Box<dyn IsmpRouter> {
 		Box::new(MockRouter(self.clone()))
-	}
-
-	fn freeze_state_machine_client(&self, state_machine: StateMachineId) -> Result<(), Error> {
-		self.frozen_state_machines.borrow_mut().insert(state_machine, true);
-		Ok(())
-	}
-
-	fn store_request_commitment(&self, req: &Request, _meta: Vec<u8>) -> Result<(), Error> {
-		let hash = hash_request::<Self>(req);
-		self.requests.borrow_mut().insert(hash);
-		Ok(())
-	}
-
-	fn store_response_commitment(&self, res: &PostResponse, _meta: Vec<u8>) -> Result<(), Error> {
-		let hash = hash_request::<Self>(&Request::Post(res.post.clone()));
-		self.responses.borrow_mut().insert(hash);
-		Ok(())
 	}
 }
 

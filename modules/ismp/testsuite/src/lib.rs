@@ -211,38 +211,6 @@ pub fn frozen_consensus_client_check<H: IsmpHost>(host: &H) -> Result<(), &'stat
 	Ok(())
 }
 
-pub fn frozen_state_machine_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
-	let intermediate_state = setup_mock_client(host);
-	// Set the previous update time
-	let challenge_period = host.challenge_period(mock_consensus_state_id()).unwrap();
-	let previous_update_time = host.timestamp() - (challenge_period * 2);
-	host.store_consensus_update_time(mock_consensus_state_id(), previous_update_time)
-		.unwrap();
-	host.store_state_machine_update_time(intermediate_state.height, previous_update_time)
-		.unwrap();
-	host.freeze_state_machine_client(intermediate_state.height.id).unwrap();
-
-	let post = Post {
-		source: intermediate_state.height.id.state_id,
-		dest: host.host_state_machine(),
-		nonce: 0,
-		from: vec![0u8; 32],
-		to: vec![0u8; 32],
-		timeout_timestamp: 0,
-		data: vec![0u8; 64],
-	};
-	// Request message handling check
-	let request_message = Message::Request(RequestMessage {
-		requests: vec![post.clone()],
-		proof: Proof { height: intermediate_state.height, proof: vec![] },
-		signer: vec![],
-	});
-
-	let res = handle_incoming_message(host, request_message);
-	assert!(matches!(res, Err(Error::FrozenStateMachine { .. })));
-	Ok(())
-}
-
 /// Missing state commitments
 pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'static str> {
 	let intermediate_state = setup_mock_client(host);

@@ -20,7 +20,7 @@ use crate::{
 	dispatcher::{RefundingRouter, RequestMetadata},
 	utils::{ConsensusClientProvider, ResponseReceipt},
 	ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
-	FrozenConsensusClients, FrozenStateMachine, LatestStateMachineHeight, Nonce, Pallet, Responded,
+	FrozenConsensusClients, LatestStateMachineHeight, Nonce, Pallet, Responded,
 	StateCommitments, StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
@@ -88,15 +88,6 @@ impl<T: Config> IsmpHost for Pallet<T> {
 
 	fn timestamp(&self) -> Duration {
 		<T::TimestampProvider as UnixTime>::now()
-	}
-
-	fn is_state_machine_frozen(&self, machine: StateMachineId) -> Result<(), Error> {
-		if let Some(frozen) = FrozenStateMachine::<T>::get(machine) {
-			if frozen {
-				Err(Error::FrozenStateMachine { id: machine })?
-			}
-		}
-		Ok(())
 	}
 
 	fn is_consensus_client_frozen(&self, client: ConsensusStateId) -> Result<(), Error> {
@@ -290,11 +281,6 @@ impl<T: Config> IsmpHost for Pallet<T> {
 
 	fn ismp_router(&self) -> Box<dyn IsmpRouter> {
 		Box::new(RefundingRouter::<T>::new(Box::new(T::Router::default())))
-	}
-
-	fn freeze_state_machine_client(&self, state_machine: StateMachineId) -> Result<(), Error> {
-		FrozenStateMachine::<T>::insert(state_machine, true);
-		Ok(())
 	}
 
 	fn store_request_commitment(&self, req: &Request, meta: Vec<u8>) -> Result<(), Error> {

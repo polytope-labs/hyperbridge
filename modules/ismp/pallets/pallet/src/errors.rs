@@ -187,7 +187,6 @@ impl From<ismp::error::Error> for HandlingError {
 				HandlingError::StateCommitmentNotFound { height },
 			IsmpError::FrozenConsensusClient { consensus_state_id } =>
 				HandlingError::FrozenConsensusClient { id: consensus_state_id },
-			IsmpError::FrozenStateMachine { id } => HandlingError::FrozenStateMachine { id },
 			IsmpError::RequestCommitmentNotFound { meta } =>
 				HandlingError::RequestCommitmentNotFound { meta },
 			IsmpError::RequestVerificationFailed { meta } =>

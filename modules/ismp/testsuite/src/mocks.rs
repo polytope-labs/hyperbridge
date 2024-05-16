@@ -380,7 +380,6 @@ impl IsmpHost for Host {
 		self.proxy.clone()
 	}
 
-
 	fn unbonding_period(&self, _consensus_state_id: ConsensusStateId) -> Option<Duration> {
 		Some(Duration::from_secs(60 * 60 * 60))
 	}

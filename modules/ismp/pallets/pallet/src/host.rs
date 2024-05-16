@@ -20,8 +20,8 @@ use crate::{
 	dispatcher::{RefundingRouter, RequestMetadata},
 	utils::{ConsensusClientProvider, ResponseReceipt},
 	ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
-	FrozenConsensusClients, LatestStateMachineHeight, Nonce, Pallet, Responded,
-	StateCommitments, StateMachineUpdateTime, UnbondingPeriod,
+	FrozenConsensusClients, LatestStateMachineHeight, Nonce, Pallet, Responded, StateCommitments,
+	StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use codec::{Decode, Encode};

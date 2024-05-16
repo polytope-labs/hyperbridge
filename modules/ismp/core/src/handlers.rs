@@ -86,7 +86,8 @@ where
 
 /// This function does the preliminary checks for a request or response message
 /// - It ensures the consensus client is not frozen
-/// - Checks for frozen state machine is deprecated and malicious state machine commitment will be deleted instead
+/// - Checks for frozen state machine is deprecated and malicious state machine commitment will be
+///   deleted instead
 /// - Checks that the delay period configured for the state machine has elapsed.
 pub fn validate_state_machine<H>(
 	host: &H,
@@ -104,7 +105,6 @@ where
 	let consensus_client = host.consensus_client(consensus_client_id)?;
 	// Ensure client is not frozen
 	host.is_consensus_client_frozen(proof_height.id.consensus_state_id)?;
-
 
 	// Ensure delay period has elapsed
 	if !verify_delay_passed(host, &proof_height)? {

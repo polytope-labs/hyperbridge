@@ -12,15 +12,11 @@ export async function handlePostRequestTransactionHandler(
   transaction: HandlePostRequestsTransaction,
 ): Promise<void> {
   assert(transaction.args);
+  const { blockNumber, hash } = transaction;
 
   logger.info(
-    `New handlePostRequest transaction at block ${transaction.blockNumber}`,
+    `Handling PostRequests Transaction: ${JSON.stringify({ blockNumber, transactionHash: hash })}`,
   );
-
-  const requests = transaction.args[1].requests;
-  requests.forEach((request: any) => {
-    logger.info(JSON.stringify(request));
-  });
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 

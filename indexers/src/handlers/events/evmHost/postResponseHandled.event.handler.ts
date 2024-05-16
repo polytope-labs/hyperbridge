@@ -14,7 +14,6 @@ export async function handlePostResponseHandledEvent(
   event: PostResponseHandledLog,
 ): Promise<void> {
   assert(event.args, "No handlePostResponseHandledEvent args");
-  logger.info("Handling PostResponseHandled event: " + event.blockNumber);
 
   const {
     args,
@@ -27,6 +26,10 @@ export async function handlePostResponseHandledEvent(
     data,
   } = event;
   const { relayer: relayer_id, commitment } = args;
+
+  logger.info(
+    `Handling PostResponseHandled Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+  );
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 

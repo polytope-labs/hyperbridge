@@ -144,7 +144,7 @@ export class HyperBridgeService {
    */
   static async incrementNumberOfUniqueRelayers(
     chain: SupportedChain,
-    all_stats: boolean
+    all_stats: boolean,
   ): Promise<void> {
     let stats = await this.getStats();
     let chainStats =
@@ -153,7 +153,7 @@ export class HyperBridgeService {
     if (all_stats == true) {
       stats.numberOfUniqueRelayers += BigInt(1);
     }
-    
+
     chainStats.numberOfUniqueRelayers += BigInt(1);
 
     Promise.all([await chainStats.save(), await stats.save()]);

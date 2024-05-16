@@ -13,7 +13,6 @@ export async function handlePostResponseTimeoutHandledEvent(
   event: PostResponseTimeoutHandledLog,
 ): Promise<void> {
   assert(event.args, "No handlePostResponseTimeoutHandledEvent args");
-  logger.info("Handling PostResponseTimeoutHandled event");
 
   const {
     args,
@@ -26,6 +25,10 @@ export async function handlePostResponseTimeoutHandledEvent(
     data,
   } = event;
   const { commitment } = args;
+
+  logger.info(
+    `Handling PostResponseTimeoutHandled Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+  );
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 

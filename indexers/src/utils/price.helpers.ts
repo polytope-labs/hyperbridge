@@ -10,11 +10,11 @@ export const getNativeCurrencyPrice = async (
 ): Promise<bigint> => {
   let priceFeedAddress = "";
   switch (chain) {
-    case SupportedChain.ETHEREUM_SEPOLIA:
-    case SupportedChain.BASE_SEPOLIA:
-    case SupportedChain.ARBITRUM_SEPOLIA:
-    case SupportedChain.OPTIMISM_SEPOLIA:
-    case SupportedChain.BSC_CHAPEL:
+    case SupportedChain.ETHE:
+    case SupportedChain.BASE:
+    case SupportedChain.ARBI:
+    case SupportedChain.OPTI:
+    case SupportedChain.BSC:
       priceFeedAddress = CHAINLINK_PRICE_FEED_CONTRACT_ADDRESSES[chain];
       break;
     default:

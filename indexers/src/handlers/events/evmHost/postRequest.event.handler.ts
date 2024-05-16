@@ -12,10 +12,13 @@ export async function handlePostRequestEvent(
   event: PostRequestEventLog,
 ): Promise<void> {
   assert(event.args, "No handlePostRequestEvent args");
-  logger.info("Handling PostRequest event");
 
   const { transaction, blockNumber, transactionHash, args, block } = event;
   let { data, dest, fee, from, nonce, source, timeoutTimestamp, to } = args;
+
+  logger.info(
+    `Handling PostRequest Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+  );
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 

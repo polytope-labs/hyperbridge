@@ -24,6 +24,11 @@ export async function handleStateMachineUpdatedEvent(
     args,
   } = event;
   const { stateMachineId, height } = args;
+
+  logger.info(
+    `Handling StateMachineUpdated Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+  );
+
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
   await EvmHostEventsService.createStateMachineUpdatedEvent(
     {

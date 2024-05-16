@@ -11,7 +11,6 @@ export async function handleGetRequestHandledEvent(
   event: GetRequestHandledLog,
 ): Promise<void> {
   assert(event.args, "No handleGetRequestHandledEvent args");
-  logger.info("Handling GetRequestHandled event");
 
   const {
     args,
@@ -24,6 +23,10 @@ export async function handleGetRequestHandledEvent(
     data,
   } = event;
   const { commitment } = args;
+
+  logger.info(
+    `Handling GetRequestHandled Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+  );
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 

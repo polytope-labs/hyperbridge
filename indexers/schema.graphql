@@ -6,12 +6,12 @@
 The blockchains currently indexed by the hyberbridge multi-chain indexer
 """
 enum SupportedChain {
-    ETHEREUM_SEPOLIA
-    BASE_SEPOLIA
-    OPTIMISM_SEPOLIA
-    ARBITRUM_SEPOLIA
-    BSC_CHAPEL
-    HYPERBRIDGE_GARGANTUA
+    ETHE
+    ARBI
+    OPTI
+    BASE
+    BSC
+    HYPERBRIDGE
 }
 
 """

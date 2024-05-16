@@ -18,7 +18,6 @@ export async function handlePostResponseEvent(
   event: PostResponseEventLog,
 ): Promise<void> {
   assert(event.args, "No handlePostResponseEvent args");
-  logger.info("Handling PostResponse event");
 
   const { transaction, blockNumber, transactionHash, args, block } = event;
   let {
@@ -33,6 +32,10 @@ export async function handlePostResponseEvent(
     response,
     resTimeoutTimestamp,
   } = args;
+
+  logger.info(
+    `Handling PostResponse Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+  );
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 

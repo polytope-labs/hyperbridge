@@ -12,10 +12,12 @@ import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
  */
 export async function handleTransferEvent(event: TransferLog): Promise<void> {
   assert(event.args, "No handleTransferEvent args");
-  logger.info("Handling Transfer event " + event.blockNumber);
-
-  const { args, transactionHash, transaction } = event;
+  const { args, transactionHash, transaction, blockNumber } = event;
   const { from, to, value } = args;
+
+  logger.info(
+    `Handling Transfer event: ${JSON.stringify({ blockNumber, transactionHash })}`,
+  );
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);
 

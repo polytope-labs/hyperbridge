@@ -10,8 +10,10 @@ import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 export async function handlePostResponseTransactionHandler(
   transaction: HandlePostRequestsTransaction,
 ): Promise<void> {
+  const { blockNumber, hash } = transaction;
+
   logger.info(
-    `New handlePostResponse trnasaction at block ${transaction.blockNumber}`,
+    `Handling PostRequests Transaction: ${JSON.stringify({ blockNumber, transactionHash: hash })}`,
   );
 
   const chain: SupportedChain = getEvmChainFromTransaction(transaction);

@@ -217,15 +217,19 @@ pub async fn generate_contract_calls(
 	let contract = IsmpHandler::new(client.config.handler, client.signer.clone());
 	let ismp_host = client.config.ismp_host;
 	let mut calls = Vec::new();
-	let gas_price = get_current_gas_cost_in_usd(
-		client.chain_id,
-		client.state_machine,
-		&client.config.etherscan_api_key.clone(),
-		client.client.clone(),
-		client.config.gas_price_buffer,
-	)
-	.await?
-	.gas_price;
+	let gas_price = if !debug_trace {
+		get_current_gas_cost_in_usd(
+			client.chain_id,
+			client.state_machine,
+			&client.config.etherscan_api_key.clone(),
+			client.client.clone(),
+			client.config.gas_price_buffer,
+		)
+		.await?
+		.gas_price
+	} else {
+		Default::default()
+	};
 
 	for message in messages {
 		match message {

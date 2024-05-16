@@ -473,6 +473,7 @@ pub fn run() -> Result<()> {
 					collator_options,
 					id,
 					hwbench,
+					&cli,
 				)
 				.await
 				.map_err(Into::into)

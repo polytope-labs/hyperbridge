@@ -72,7 +72,7 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// Hyperbridge governance has initiated a host parameter update to the mentioned state
+		/// `AdminOrigin` has initiated a host parameter update to the mentioned state
 		/// machine
 		HostParamsUpdated {
 			/// State machine's whose host params should be updated
@@ -81,6 +81,14 @@ pub mod pallet {
 			old: HostParam<<T as pallet_ismp::Config>::Balance>,
 			/// The new host params
 			new: HostParam<<T as pallet_ismp::Config>::Balance>,
+		},
+		/// `AdminOrigin` has set the initial host parameters for the mentioned state
+		/// machine
+		HostParamsSet {
+			/// State machine's whose host params should be updated
+			state_machine: StateMachine,
+			/// The new host params
+			params: HostParam<<T as pallet_ismp::Config>::Balance>,
 		},
 	}
 
@@ -109,7 +117,8 @@ pub mod pallet {
 			T::AdminOrigin::ensure_origin(origin)?;
 
 			for (state_machine, params) in params {
-				HostParams::<T>::insert(state_machine, params);
+				HostParams::<T>::insert(state_machine.clone(), params.clone());
+				Self::deposit_event(Event::<T>::HostParamsSet { state_machine, params });
 			}
 
 			Ok(())

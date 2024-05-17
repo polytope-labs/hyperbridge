@@ -2138,9 +2138,9 @@ pub mod api {
 			.hash();
 		runtime_metadata_hash ==
 			[
-				140u8, 9u8, 153u8, 13u8, 167u8, 91u8, 194u8, 182u8, 52u8, 26u8, 255u8, 181u8,
-				150u8, 163u8, 231u8, 88u8, 239u8, 225u8, 230u8, 59u8, 20u8, 234u8, 82u8, 56u8,
-				119u8, 101u8, 59u8, 110u8, 178u8, 203u8, 253u8, 128u8,
+				107u8, 136u8, 181u8, 249u8, 159u8, 197u8, 156u8, 244u8, 102u8, 23u8, 190u8, 160u8,
+				24u8, 48u8, 187u8, 38u8, 170u8, 110u8, 226u8, 88u8, 179u8, 90u8, 193u8, 222u8,
+				168u8, 239u8, 134u8, 169u8, 13u8, 151u8, 8u8, 79u8,
 			]
 	}
 	pub mod system {
@@ -3022,9 +3022,9 @@ pub mod api {
 						"Events",
 						vec![],
 						[
-							104u8, 178u8, 72u8, 97u8, 95u8, 248u8, 205u8, 91u8, 51u8, 6u8, 125u8,
-							212u8, 195u8, 252u8, 221u8, 4u8, 15u8, 227u8, 55u8, 215u8, 1u8, 201u8,
-							180u8, 32u8, 59u8, 112u8, 217u8, 154u8, 8u8, 101u8, 115u8, 60u8,
+							31u8, 63u8, 83u8, 28u8, 206u8, 216u8, 211u8, 175u8, 65u8, 241u8, 144u8,
+							203u8, 105u8, 23u8, 28u8, 6u8, 197u8, 165u8, 54u8, 51u8, 31u8, 79u8,
+							244u8, 95u8, 131u8, 240u8, 106u8, 63u8, 253u8, 40u8, 255u8, 92u8,
 						],
 					)
 				}
@@ -12202,7 +12202,7 @@ pub mod api {
 			# [codec (crate = :: subxt :: ext :: codec)]
 			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-			#[doc = "Hyperbridge governance has initiated a host parameter update to the mentioned state"]
+			#[doc = "`AdminOrigin` has initiated a host parameter update to the mentioned state"]
 			#[doc = "machine"]
 			pub struct HostParamsUpdated {
 				pub state_machine: runtime_types::ismp::host::StateMachine,
@@ -12216,6 +12216,31 @@ pub mod api {
 			impl ::subxt::events::StaticEvent for HostParamsUpdated {
 				const PALLET: &'static str = "HostExecutive";
 				const EVENT: &'static str = "HostParamsUpdated";
+			}
+			#[derive(
+				:: subxt :: ext :: codec :: Decode,
+				:: subxt :: ext :: codec :: Encode,
+				:: subxt :: ext :: scale_decode :: DecodeAsType,
+				:: subxt :: ext :: scale_encode :: EncodeAsType,
+				Clone,
+				Debug,
+				Eq,
+				PartialEq,
+			)]
+			# [codec (crate = :: subxt :: ext :: codec)]
+			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+			#[doc = "`AdminOrigin` has set the initial host parameters for the mentioned state"]
+			#[doc = "machine"]
+			pub struct HostParamsSet {
+				pub state_machine: runtime_types::ismp::host::StateMachine,
+				pub params: runtime_types::pallet_ismp_host_executive::params::HostParam<
+					::core::primitive::u128,
+				>,
+			}
+			impl ::subxt::events::StaticEvent for HostParamsSet {
+				const PALLET: &'static str = "HostExecutive";
+				const EVENT: &'static str = "HostParamsSet";
 			}
 		}
 		pub mod storage {
@@ -18834,7 +18859,7 @@ pub mod api {
 				#[doc = "The `Event` enum of this pallet"]
 				pub enum Event {
 					#[codec(index = 0)]
-					#[doc = "Hyperbridge governance has initiated a host parameter update to the mentioned state"]
+					#[doc = "`AdminOrigin` has initiated a host parameter update to the mentioned state"]
 					#[doc = "machine"]
 					HostParamsUpdated {
 						state_machine: runtime_types::ismp::host::StateMachine,
@@ -18842,6 +18867,15 @@ pub mod api {
 							::core::primitive::u128,
 						>,
 						new: runtime_types::pallet_ismp_host_executive::params::HostParam<
+							::core::primitive::u128,
+						>,
+					},
+					#[codec(index = 1)]
+					#[doc = "`AdminOrigin` has set the initial host parameters for the mentioned state"]
+					#[doc = "machine"]
+					HostParamsSet {
+						state_machine: runtime_types::ismp::host::StateMachine,
+						params: runtime_types::pallet_ismp_host_executive::params::HostParam<
 							::core::primitive::u128,
 						>,
 					},

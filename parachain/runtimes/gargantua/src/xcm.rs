@@ -19,7 +19,7 @@ use super::{
 };
 use crate::AllPalletsWithSystem;
 use frame_support::{
-	parameter_types,
+	match_types, parameter_types,
 	traits::{ConstU32, Everything, Nothing},
 	weights::Weight,
 };
@@ -43,15 +43,15 @@ use staging_xcm_executor::XcmExecutor;
 use pallet_asset_gateway::xcm_utilities::HyperbridgeAssetTransactor;
 
 parameter_types! {
-	pub const RelayLocation: Location = Location::parent();
+	pub const RelayLocation: MultiLocation = MultiLocation::parent();
 	pub const RelayNetwork: Option<NetworkId> = None;
 	pub RelayChainOrigin: RuntimeOrigin = cumulus_pallet_xcm::Origin::Relay.into();
-	pub Ancestry: Location = Parachain(ParachainInfo::parachain_id().into()).into();
-	pub UniversalLocation: InteriorLocation = Parachain(ParachainInfo::parachain_id().into()).into();
+	pub Ancestry: MultiLocation = Parachain(ParachainInfo::parachain_id().into()).into();
+	pub UniversalLocation: InteriorMultiLocation = Parachain(ParachainInfo::parachain_id().into()).into();
 	pub CheckingAccount: AccountId = PolkadotXcm::check_account();
 }
 
-/// Type for specifying how a `Location` can be converted into an `AccountId`. This is used
+/// Type for specifying how a `MultiLocation` can be converted into an `AccountId`. This is used
 /// when determining ownership of accounts for asset transacting and when attempting to use XCM
 /// `Transact` in order to determine the dispatch Origin.
 pub type LocationToAccountId = (
@@ -66,7 +66,7 @@ pub type LocationToAccountId = (
 /// Means for transacting assets on this chain.
 pub type LocalAssetTransactor = HyperbridgeAssetTransactor<
 	Runtime,
-	ConvertedConcreteId<Location, Balance, Identity, Identity>,
+	ConvertedConcreteId<MultiLocation, Balance, Identity, Identity>,
 	LocationToAccountId,
 	NoChecking,
 	CheckingAccount,
@@ -100,11 +100,11 @@ parameter_types! {
 	pub const MaxAssetsIntoHolding: u32 = 64;
 }
 
-pub struct ParentOrParentsExecutivePlurality;
-impl frame_support::traits::Contains<Location> for ParentOrParentsExecutivePlurality {
-	fn contains(location: &Location) -> bool {
-		matches!(location.unpack(), (1, []) | (1, [Plurality { id: BodyId::Executive, .. }]))
-	}
+match_types! {
+	pub type ParentOrParentsExecutivePlurality: impl Contains<MultiLocation> = {
+		MultiLocation { parents: 1, interior: Here } |
+		MultiLocation { parents: 1, interior: X1(Plurality { id: BodyId::Executive, .. }) }
+	};
 }
 
 pub type Barrier = (
@@ -143,8 +143,6 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type UniversalAliases = Nothing;
 	type CallDispatcher = RuntimeCall;
 	type SafeCallFilter = Nothing;
-
-	type TransactionalProcessor = ();
 }
 
 /// No local origins on this chain are allowed to dispatch XCM sends/executions.
@@ -161,7 +159,7 @@ pub type XcmRouter = (
 
 #[cfg(feature = "runtime-benchmarks")]
 parameter_types! {
-	pub ReachableDest: Option<Location> = Some(Parent.into());
+	pub ReachableDest: Option<MultiLocation> = Some(Parent.into());
 }
 
 impl pallet_xcm::Config for Runtime {

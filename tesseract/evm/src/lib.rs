@@ -7,6 +7,7 @@ use ethers::{
 	providers::{Http, Middleware, Provider},
 	signers::Signer,
 };
+use frame_support::crypto::ecdsa::ECDSAExt;
 use ismp::{
 	consensus::ConsensusStateId,
 	events::Event,
@@ -124,6 +125,7 @@ impl EvmClient {
 			},
 		};
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
+		let address = signer.public().to_eth_address().expect("Infallible").to_vec();
 
 		let http_client = Http::new_client_with_chain_middleware(
 			config.rpc_urls.into_iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
@@ -133,7 +135,6 @@ impl EvmClient {
 		let chain_id = client.get_chainid().await?.low_u64();
 		let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
 			.with_chain_id(chain_id);
-		let address = signer.address().0.to_vec();
 		let signer = Arc::new(provider.with_signer(signer));
 		let consensus_state_id = {
 			let mut consensus_state_id: ConsensusStateId = Default::default();

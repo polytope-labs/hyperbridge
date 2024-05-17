@@ -17,7 +17,7 @@ tower = "0.4.13"
 tower-http = { version = "0.5.1", features = ["cors"] }
 anyhow = "1.0.79"
 axum = "0.7.4"
-sp-core = { workspace = true, features = ["full_crypto"] }
+sp-core = { version = "28.0.0", features = ["full_crypto"] }
 ismp.workspace = true
 primitive-types = { version = "0.12.2", features = ["serde", "scale-info"] }
 

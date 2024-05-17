@@ -15,8 +15,8 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	AccountId, Assets, Balance, Balances, Gateway, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	Runtime, RuntimeEvent, Timestamp, EXISTENTIAL_DEPOSIT,
+	AccountId, Assets, Balance, Balances, Gateway, Ismp, Mmr, ParachainInfo, Runtime, RuntimeEvent,
+	Timestamp, EXISTENTIAL_DEPOSIT,
 };
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
@@ -25,7 +25,6 @@ use frame_support::{
 	PalletId,
 };
 use frame_system::EnsureRoot;
-use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::{
 	error::Error,
 	host::StateMachine,
@@ -42,7 +41,7 @@ use ismp::router::Timeout;
 use ismp_sync_committee::constants::mainnet::Mainnet;
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use sp_std::prelude::*;
-use staging_xcm::latest::Location;
+use staging_xcm::latest::MultiLocation;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -80,11 +79,6 @@ impl pallet_ismp::Config for Runtime {
 	type ConsensusClients = (
 		ismp_bsc::BscClient<Ismp>,
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Mainnet>,
-		ismp_parachain::ParachainConsensusClient<
-			Runtime,
-			IsmpParachain,
-			HyperbridgeClientMachine<Runtime, Ismp>,
-		>,
 	);
 
 	type Mmr = Mmr;
@@ -129,10 +123,10 @@ impl pallet_asset_gateway::Config for Runtime {
 #[cfg(feature = "runtime-benchmarks")]
 pub struct XcmBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
-impl BenchmarkHelper<Location> for XcmBenchmarkHelper {
-	fn create_asset_id_parameter(id: u32) -> Location {
-		use staging_xcm::v4::Junction::Parachain;
-		Location::new(1, Parachain(id))
+impl BenchmarkHelper<MultiLocation> for XcmBenchmarkHelper {
+	fn create_asset_id_parameter(id: u32) -> MultiLocation {
+		use staging_xcm::v3::Junction::Parachain;
+		MultiLocation::new(1, Parachain(id))
 	}
 }
 
@@ -147,8 +141,8 @@ parameter_types! {
 impl pallet_assets::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type Balance = Balance;
-	type AssetId = Location;
-	type AssetIdParameter = Location;
+	type AssetId = MultiLocation;
+	type AssetIdParameter = MultiLocation;
 	type Currency = Balances;
 	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
 	type ForceOrigin = EnsureRoot<AccountId32>;

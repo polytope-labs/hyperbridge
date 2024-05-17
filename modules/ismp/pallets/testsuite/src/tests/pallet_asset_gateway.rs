@@ -1,7 +1,5 @@
 #![cfg(test)]
 
-use std::sync::Arc;
-
 use crate::{
 	relay_chain::{self, RuntimeOrigin},
 	runtime::Test,
@@ -16,7 +14,7 @@ use ismp::{
 };
 use pallet_asset_gateway::{Body, Module};
 use sp_core::{ByteArray, H160, H256, U256};
-use staging_xcm::v4::{Junction, Junctions, Location, NetworkId, WeightLimit};
+use staging_xcm::v3::{Junction, Junctions, MultiLocation, NetworkId, WeightLimit};
 use xcm_simulator::TestExt;
 use xcm_simulator_example::ALICE;
 
@@ -27,19 +25,19 @@ pub type RelayChainPalletXcm = pallet_xcm::Pallet<relay_chain::Runtime>;
 fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
 	MockNet::reset();
 
-	let beneficiary: Location = Junctions::X3(Arc::new([
+	let beneficiary: MultiLocation = Junctions::X3(
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 1 }),
 			key: [1u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
-	]))
+	)
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
 
-	let dest: Location = Junction::Parachain(PARA_ID).into();
-	let asset_id = Location::parent();
+	let dest: MultiLocation = Junction::Parachain(PARA_ID).into();
+	let asset_id = MultiLocation::parent();
 
 	Relay::execute_with(|| {
 		// call extrinsic
@@ -63,11 +61,11 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
 		let protocol_fees = pallet_asset_gateway::Pallet::<Test>::protocol_fee_percentage();
 		let custodied_amount = SEND_AMOUNT - (protocol_fees * SEND_AMOUNT);
 
-		dbg!(&asset_id);
+		dbg!(asset_id);
 
 		let total_issuance = <pallet_assets::Pallet<Test> as Inspect<
 			<Test as frame_system::Config>::AccountId,
-		>>::total_issuance(asset_id.clone());
+		>>::total_issuance(asset_id);
 		dbg!(total_issuance);
 		let pallet_account_balance = <pallet_assets::Pallet<Test> as Inspect<
 			<Test as frame_system::Config>::AccountId,
@@ -84,19 +82,19 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_relay_chain() {
 fn should_process_on_accept_module_callback_correctly() {
 	MockNet::reset();
 
-	let beneficiary: Location = Junctions::X3(Arc::new([
+	let beneficiary: MultiLocation = Junctions::X3(
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 1 }),
 			key: [1u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
-	]))
+	)
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
 
-	let dest: Location = Junction::Parachain(PARA_ID).into();
-	let asset_id = Location::parent();
+	let dest: MultiLocation = Junction::Parachain(PARA_ID).into();
+	let asset_id = MultiLocation::parent();
 
 	let alice_balance = Relay::execute_with(|| {
 		// call extrinsic
@@ -124,12 +122,12 @@ fn should_process_on_accept_module_callback_correctly() {
 
 		let total_issuance = <pallet_assets::Pallet<Test> as Inspect<
 			<Test as frame_system::Config>::AccountId,
-		>>::total_issuance(asset_id.clone());
+		>>::total_issuance(asset_id);
 		dbg!(total_issuance);
 		let pallet_account_balance = <pallet_assets::Pallet<Test> as Inspect<
 			<Test as frame_system::Config>::AccountId,
 		>>::balance(
-			asset_id.clone(),
+			asset_id,
 			&pallet_asset_gateway::Pallet::<Test>::account_id(),
 		);
 		dbg!(pallet_account_balance);
@@ -168,7 +166,7 @@ fn should_process_on_accept_module_callback_correctly() {
 		let ismp_module = Module::<Test>::default();
 		let initial_total_issuance = <pallet_assets::Pallet<Test> as Inspect<
 			<Test as frame_system::Config>::AccountId,
-		>>::total_issuance(asset_id.clone());
+		>>::total_issuance(asset_id);
 		ismp_module.on_accept(post).unwrap();
 
 		let total_issuance_after = <pallet_assets::Pallet<Test> as Inspect<
@@ -192,19 +190,19 @@ fn should_process_on_accept_module_callback_correctly() {
 fn should_process_on_timeout_module_callback_correctly() {
 	MockNet::reset();
 
-	let beneficiary: Location = Junctions::X3(Arc::new([
+	let beneficiary: MultiLocation = Junctions::X3(
 		Junction::AccountId32 { network: None, id: ALICE.into() },
 		Junction::AccountKey20 {
 			network: Some(NetworkId::Ethereum { chain_id: 1 }),
 			key: [0u8; 20],
 		},
 		Junction::GeneralIndex(60 * 60),
-	]))
+	)
 	.into_location();
 	let weight_limit = WeightLimit::Unlimited;
 
-	let dest: Location = Junction::Parachain(PARA_ID).into();
-	let asset_id = Location::parent();
+	let dest: MultiLocation = Junction::Parachain(PARA_ID).into();
+	let asset_id = MultiLocation::parent();
 
 	let alice_balance = Relay::execute_with(|| {
 		// call extrinsic
@@ -232,12 +230,12 @@ fn should_process_on_timeout_module_callback_correctly() {
 
 		let total_issuance = <pallet_assets::Pallet<Test> as Inspect<
 			<Test as frame_system::Config>::AccountId,
-		>>::total_issuance(asset_id.clone());
+		>>::total_issuance(asset_id);
 		dbg!(total_issuance);
 		let pallet_account_balance = <pallet_assets::Pallet<Test> as Inspect<
 			<Test as frame_system::Config>::AccountId,
 		>>::balance(
-			asset_id.clone(),
+			asset_id,
 			&pallet_asset_gateway::Pallet::<Test>::account_id(),
 		);
 		dbg!(pallet_account_balance);
@@ -276,7 +274,7 @@ fn should_process_on_timeout_module_callback_correctly() {
 		let ismp_module = Module::<Test>::default();
 		let initial_total_issuance = <pallet_assets::Pallet<Test> as Inspect<
 			<Test as frame_system::Config>::AccountId,
-		>>::total_issuance(asset_id.clone());
+		>>::total_issuance(asset_id);
 		let timeout = Timeout::Request(Request::Post(post));
 		ismp_module.on_timeout(timeout).unwrap();
 

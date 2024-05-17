@@ -1,6 +1,6 @@
 [package]
 name = "pallet-ismp-rpc"
-version = "1.9.0"
+version = "1.6.2"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"
@@ -19,7 +19,7 @@ anyhow = { workspace = true }
 hex = "0.4.3"
 codec = { package = "parity-scale-codec", version = "3.0.0", features = ["derive"] }
 hex-literal = { version = "0.3.3" }
-jsonrpsee = { version = "0.22", features = ["client-core", "server", "macros"] }
+jsonrpsee = { version = "0.16.2", features = ["client-core", "server", "macros"] }
 serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.45"
 

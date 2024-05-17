@@ -87,9 +87,6 @@ where
 		if let Some(ref password) = config.redis.password {
 			builder.password(password.as_str());
 		}
-		if config.redis.tls {
-			builder.tls();
-		}
 		let pubsub = builder.pubsub_connect().await?;
 		// we will not be pushing messages to the queue in the host
 		config.redis.realtime = false;

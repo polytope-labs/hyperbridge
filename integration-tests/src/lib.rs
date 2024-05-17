@@ -22,8 +22,12 @@ use ismp::{
 use pallet_ismp_demo::GetRequest;
 use primitive_types::H160;
 use substrate_state_machine::HashAlgorithm;
-use subxt::utils::AccountId32;
-use tesseract_substrate::{SubstrateClient, SubstrateConfig};
+use subxt::{config::extrinsic_params::BaseExtrinsicParamsBuilder, utils::AccountId32};
+use subxt_utils::gargantua::api::{
+	self,
+	runtime_types::{self, gargantua_runtime::RuntimeCall},
+};
+use tesseract_substrate::{extrinsic::InMemorySigner, SubstrateClient, SubstrateConfig};
 
 use tesseract_primitives::IsmpProvider;
 use transaction_fees::TransactionPayment;
@@ -173,6 +177,46 @@ async fn sudo_upgrade_runtime() -> Result<(), anyhow::Error> {
 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
 	let code_blob = tokio::fs::read("../../hyperbridge/target/release/wbuild/gargantua-runtime/gargantua_runtime.compact.compressed.wasm").await?;
 	chain_a.runtime_upgrade(code_blob).await?;
+	Ok(())
+}
+
+#[tokio::test]
+async fn sudo_transfer_tokens() -> Result<(), anyhow::Error> {
+	dotenv::dotenv().ok();
+	let config_a = SubstrateConfig {
+		state_machine: StateMachine::Kusama(2000),
+		max_rpc_payload_size: None,
+		hashing: Some(HashAlgorithm::Keccak),
+		consensus_state_id: Some("PARA".to_string()),
+		rpc_ws: "wss://hyperbridge-nexus-rpc.blockops.network:443".to_string(),
+		// rpc_ws: "ws://127.0.0.1:9901".to_string(),
+		signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
+		latest_height: None,
+		max_concurent_queries: None,
+	};
+
+	let chain = SubstrateClient::<Hyperbridge>::new(config_a).await?;
+	let signer = InMemorySigner::<Hyperbridge>::new(chain.signer.clone());
+	let ext = chain
+		.client
+		.tx()
+		.create_signed(
+			&api::tx().sudo().sudo(RuntimeCall::Balances(
+				runtime_types::pallet_balances::pallet::Call::transfer_keep_alive {
+					dest: subxt::utils::MultiAddress::Id(
+						hex!("5cfad400109a799b73f9e5702f80f74b33f7c6a888affcdbe11bbaf4a988ce69")
+							.into(),
+					),
+					value: 5_000_000_000_000,
+				},
+			)),
+			&signer,
+			BaseExtrinsicParamsBuilder::new(),
+		)
+		.await?;
+
+	ext.submit_and_watch().await?.wait_for_finalized_success().await?;
+
 	Ok(())
 }
 

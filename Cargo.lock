@@ -10802,7 +10802,7 @@ dependencies = [
 [[package]]
 name = "rsmq_async"
 version = "10.0.0"
-source = "git+https://github.com/polytope-labs/rsmq-async-rs.git?rev=72db8c98b66cf0c61e465cba39c9295be3615dd7#72db8c98b66cf0c61e465cba39c9295be3615dd7"
+source = "git+https://github.com/polytope-labs/rsmq-async-rs.git?rev=564f0af49e1a82ec8fb4dbb739eade5a7486b674#564f0af49e1a82ec8fb4dbb739eade5a7486b674"
 dependencies = [
  "async-trait",
  "bb8",

@@ -25,7 +25,7 @@ use ismp::{
 };
 use ismp_solidity_abi::beefy::BeefyConsensusProof;
 use pallet_ismp_rpc::{BlockNumberOrHash, EventWithMetadata};
-use redis::AsyncCommands;
+use redis::{AsyncCommands, RedisError};
 use rsmq_async::{Rsmq, RsmqConnection, RsmqError};
 use serde::{Deserialize, Serialize};
 use sp_consensus_beefy::{
@@ -376,7 +376,31 @@ where
 			};
 
 			if let Err(err) = future.await {
-				tracing::info!("Prover error: {err:?}")
+				tracing::info!("Prover error: {err:?}");
+				if let Some(RsmqError::RedisError(redis_error)) = err.downcast_ref::<RsmqError>() {
+					if redis_error.is_connection_dropped() {
+						self.rsmq = rsmq::client(&self.config.redis)
+							.await
+							.expect("Failed to reconnect to redis");
+					}
+				}
+
+				if let Some(redis_error) = err.downcast_ref::<RedisError>() {
+					if redis_error.is_connection_dropped() {
+						self.connection = redis::Client::open(redis::ConnectionInfo {
+							addr: self.config.redis.clone().into(),
+							redis: redis::RedisConnectionInfo {
+								db: self.config.redis.db as i64,
+								username: self.config.redis.username.clone(),
+								password: self.config.redis.password.clone(),
+							},
+						})
+						.expect("Failed to reconnect to redis")
+						.get_connection_manager()
+						.await
+						.expect("Failed to reconnect to redis");
+					}
+				}
 			}
 		}
 	}

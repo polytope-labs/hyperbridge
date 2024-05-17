@@ -46,7 +46,7 @@ polkadot-core-primitives = { workspace = true }
 tesseract-substrate = { workspace = true  }
 tesseract-primitives = { workspace = true  }
 zk-beefy = { path = "zk" }
-rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "72db8c98b66cf0c61e465cba39c9295be3615dd7" }
+rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "564f0af49e1a82ec8fb4dbb739eade5a7486b674" }
 redis-async = { version = "0.17.1", features = ["with-rustls"] }
 
 [features]

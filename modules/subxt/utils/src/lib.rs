@@ -147,11 +147,6 @@ mod gargantua_conversion {
                         un_staking_period: params.un_staking_period,
                         challenge_period: params.challenge_period,
                         consensus_client: params.consensus_client,
-                        consensus_state: params
-                            .consensus_state
-                            .0
-                            .try_into().expect("Runtime will always provide bounded vec"),
-                        consensus_update_timestamp: params.consensus_update_timestamp,
                         state_machine_whitelist: params
                             .state_machine_whitelist
                             .0

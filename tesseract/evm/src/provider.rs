@@ -704,13 +704,6 @@ impl IsmpProvider for EvmClient {
 			un_staking_period: params.un_staking_period.low_u128(),
 			challenge_period: params.challenge_period.low_u128(),
 			consensus_client: params.consensus_client,
-			consensus_state: params
-				.consensus_state
-				.0
-				.to_vec()
-				.try_into()
-				.map_err(|_| anyhow!("Failed to convert bounded vec"))?,
-			consensus_update_timestamp: params.consensus_update_timestamp.low_u128(),
 			state_machine_whitelist: params
 				.state_machine_whitelist
 				.into_iter()

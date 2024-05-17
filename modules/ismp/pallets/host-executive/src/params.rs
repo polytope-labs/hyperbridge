@@ -50,10 +50,6 @@ pub struct EvmHostParam {
 	pub challenge_period: u128,
 	/// The consensus client contract
 	pub consensus_client: H160,
-	/// The current consensus state
-	pub consensus_state: BoundedVec<u8, ConstU32<1_000_000>>,
-	/// Timestamp for when the consensus state was last updated
-	pub consensus_update_timestamp: u128,
 	/// The state machine identifier for hyperbridge
 	pub state_machine_whitelist: BoundedVec<u32, ConstU32<1_000>>,
 	/// List of fishermen
@@ -101,14 +97,6 @@ impl EvmHostParam {
 			self.consensus_client = consensus_client;
 		}
 
-		if let Some(consensus_state) = update.consensus_state {
-			self.consensus_state = consensus_state;
-		}
-
-		if let Some(consensus_update_timestamp) = update.consensus_update_timestamp {
-			self.consensus_update_timestamp = consensus_update_timestamp;
-		}
-
 		if let Some(state_machine_whitelist) = update.state_machine_whitelist {
 			self.state_machine_whitelist = state_machine_whitelist;
 		}
@@ -146,10 +134,6 @@ pub struct EvmHostParamUpdate {
 	pub challenge_period: Option<u128>,
 	/// The consensus client contract
 	pub consensus_client: Option<H160>,
-	/// The current consensus state
-	pub consensus_state: Option<BoundedVec<u8, ConstU32<1_000_000>>>,
-	/// Timestamp for when the consensus state was last updated
-	pub consensus_update_timestamp: Option<u128>,
 	/// The state machine identifier for hyperbridge
 	pub state_machine_whitelist: Option<BoundedVec<u32, ConstU32<1_000>>>,
 	/// List of fishermen
@@ -179,10 +163,6 @@ pub struct EvmHostParamRlp {
 	pub challenge_period: alloy_primitives::U256,
 	/// The consensus client contract
 	pub consensus_client: alloy_primitives::Address,
-	/// The current consensus state
-	pub consensus_state: alloy_primitives::Bytes,
-	/// Timestamp for when the consensus state was last updated
-	pub consensus_update_timestamp: alloy_primitives::U256,
 	/// The state machine identifier for hyperbridge
 	pub state_machine_whitelist: Vec<alloy_primitives::U256>,
 	/// The list of whitelisted fisherment
@@ -205,11 +185,6 @@ impl TryFrom<EvmHostParam> for EvmHostParamRlp {
 			un_staking_period: value.un_staking_period.try_into().map_err(anyhow::Error::msg)?,
 			challenge_period: value.challenge_period.try_into().map_err(anyhow::Error::msg)?,
 			consensus_client: value.consensus_client.0.try_into().map_err(anyhow::Error::msg)?,
-			consensus_state: value.consensus_state.to_vec().into(),
-			consensus_update_timestamp: value
-				.consensus_update_timestamp
-				.try_into()
-				.map_err(anyhow::Error::msg)?,
 			state_machine_whitelist: value
 				.state_machine_whitelist
 				.into_iter()

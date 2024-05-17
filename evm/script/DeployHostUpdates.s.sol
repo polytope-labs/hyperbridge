@@ -26,27 +26,21 @@ contract DeployScript is Script {
 
     function run() external {
         vm.startBroadcast(uint256(privateKey));
-        BeefyV1 client = new BeefyV1{salt: salt}(paraId);
 
         if (Strings.equal(host, "sepolia") || host.toSlice().startsWith("eth".toSlice())) {
             HostParams memory params = EvmHost(SEPOLIA_HOST).hostParams();
-            params.consensusClient = address(client);
             EvmHost(SEPOLIA_HOST).setHostParamsAdmin(params);
         } else if (host.toSlice().startsWith("arbitrum".toSlice())) {
             HostParams memory params = EvmHost(ARB_SEPOLIA_HOST).hostParams();
-            params.consensusClient = address(client);
             EvmHost(ARB_SEPOLIA_HOST).setHostParamsAdmin(params);
         } else if (host.toSlice().startsWith("optimism".toSlice())) {
             HostParams memory params = EvmHost(OP_SEPOLIA_HOST).hostParams();
-            params.consensusClient = address(client);
             EvmHost(OP_SEPOLIA_HOST).setHostParamsAdmin(params);
         } else if (host.toSlice().startsWith("base".toSlice())) {
             HostParams memory params = EvmHost(BASE_SEPOLIA_HOST).hostParams();
-            params.consensusClient = address(client);
             EvmHost(BASE_SEPOLIA_HOST).setHostParamsAdmin(params);
         } else if (host.toSlice().startsWith("bsc".toSlice())) {
             HostParams memory params = EvmHost(BSC_TESTNET_HOST).hostParams();
-            params.consensusClient = address(client);
             EvmHost(BSC_TESTNET_HOST).setHostParamsAdmin(params);
         } else {
             revert("Unknown Host");

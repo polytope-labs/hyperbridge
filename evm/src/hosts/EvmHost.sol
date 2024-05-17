@@ -48,10 +48,6 @@ struct HostParams {
     uint256 challengePeriod;
     // consensus client contract
     address consensusClient;
-    // current verified state of the consensus client;
-    bytes consensusState;
-    // timestamp for when the consensus was most recently updated
-    uint256 consensusUpdateTimestamp;
     // whitelisted state machines
     uint256[] stateMachineWhitelist;
     // white list of fishermen accounts
@@ -136,6 +132,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // emergency shutdown button, only the admin can do this
     bool private _frozen;
+
+    // current verified state of the consensus client;
+    bytes _consensusState;
+
+    // timestamp for when the consensus was most recently updated
+    uint256 _consensusUpdateTimestamp;
 
     // Emitted when an incoming POST request is handled
     event PostRequestHandled(bytes32 commitment, address relayer);
@@ -229,6 +231,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     constructor(HostParams memory params) {
         updateHostParamsInternal(params);
+        _consensusUpdateTimestamp = block.timestamp;
     }
 
     /**
@@ -318,14 +321,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return the last updated time of the consensus client
      */
     function consensusUpdateTime() external view returns (uint256) {
-        return _hostParams.consensusUpdateTimestamp;
+        return _consensusUpdateTimestamp;
     }
 
     /**
      * @return the state of the consensus client
      */
     function consensusState() external view returns (bytes memory) {
-        return _hostParams.consensusState;
+        return _consensusState;
     }
 
     /**
@@ -443,8 +446,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Store the serialized consensus state, alongside relevant metadata
      */
     function storeConsensusState(bytes memory state) external onlyHandler {
-        _hostParams.consensusState = state;
-        _hostParams.consensusUpdateTimestamp = block.timestamp;
+        _consensusState = state;
+        _consensusUpdateTimestamp = block.timestamp;
     }
 
     /**
@@ -530,11 +533,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // if we're on mainnet, then consensus state can only be initialized once.
         // and updated subsequently by either consensus proofs or cross-chain governance
         require(
-            chainId() == block.chainid ? _hostParams.consensusState.equals(new bytes(0)) : true, "Unauthorized action"
+            chainId() == block.chainid ? _consensusState.equals(new bytes(0)) : true, "Unauthorized action"
         );
 
-        _hostParams.consensusState = state;
-        _hostParams.consensusUpdateTimestamp = block.timestamp;
+        _consensusState = state;
+        _consensusUpdateTimestamp = block.timestamp;
 
         _stateCommitments[height.stateMachineId][height.height] = commitment;
         _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = block.timestamp;

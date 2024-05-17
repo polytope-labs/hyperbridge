@@ -4,12 +4,12 @@ use crate::{
 	Network, PlonkConsensusProof,
 };
 use anyhow::anyhow;
-use beefy_primitives::ecdsa_crypto::Signature;
 use beefy_prover::runtime;
 use beefy_verifier_primitives::{ConsensusMessage, ConsensusState};
 use codec::Encode;
 use ethers::prelude::H160;
 use ismp_solidity_abi::beefy::BeefyConsensusProof;
+use sp_consensus_beefy::ecdsa_crypto::Signature;
 use sp_core::{keccak_256, H256};
 
 /// Consensus prover for zk BEEFY.
@@ -30,7 +30,7 @@ where
 
 	pub async fn consensus_proof(
 		&self,
-		signed_commitment: beefy_primitives::SignedCommitment<u32, Signature>,
+		signed_commitment: sp_consensus_beefy::SignedCommitment<u32, Signature>,
 		consensus_state: ConsensusState,
 	) -> Result<PlonkConsensusProof, anyhow::Error> {
 		let message = self.inner.consensus_proof(signed_commitment.clone()).await?;
@@ -48,7 +48,7 @@ where
 		&self,
 		state: ConsensusState,
 		msg: ConsensusMessage,
-		signed_commitment: beefy_primitives::SignedCommitment<u32, Signature>,
+		signed_commitment: sp_consensus_beefy::SignedCommitment<u32, Signature>,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		let relay = msg.mmr;
 

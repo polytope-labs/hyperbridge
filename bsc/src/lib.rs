@@ -27,7 +27,7 @@ use primitive_types::H160;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tesseract_evm::{EvmClient, EvmConfig};
-use tesseract_primitives::IsmpProvider;
+use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 mod byzantine;
 mod host;
@@ -49,8 +49,8 @@ pub struct HostConfig {
 
 impl BscPosConfig {
 	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<BscPosHost> {
-		Ok(BscPosHost::new(&self.host, &self.evm_config).await?)
+	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		Ok(Arc::new(BscPosHost::new(&self.host, &self.evm_config).await?))
 	}
 
 	pub fn state_machine(&self) -> StateMachine {

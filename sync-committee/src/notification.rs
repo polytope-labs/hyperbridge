@@ -128,7 +128,11 @@ pub async fn consensus_notification<T: Config + Send + Sync + 'static>(
 
 	let execution_layer_height = counterparty.query_latest_height(state_machine_id).await? as u64;
 
-	let consensus_update = if let Some(update) = update { update } else { return Ok(None) };
+	let consensus_update = if let Some(update) = update {
+		update
+	} else {
+		return Ok(None);
+	};
 
 	if consensus_update.execution_payload.block_number <= execution_layer_height &&
 		consensus_update.sync_committee_update.is_none() ||

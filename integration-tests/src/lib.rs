@@ -4,8 +4,8 @@
 // // mod grandpa;
 // mod bsc;
 // // mod polygon;
-// mod substrate;
-// mod util;
+mod substrate;
+mod util;
 
 use std::{
 	sync::Arc,
@@ -22,10 +22,14 @@ use ismp::{
 use pallet_ismp_demo::GetRequest;
 use primitive_types::H160;
 use substrate_state_machine::HashAlgorithm;
-use subxt::utils::AccountId32;
-use tesseract_substrate::{SubstrateClient, SubstrateConfig};
+use subxt::{config::extrinsic_params::BaseExtrinsicParamsBuilder, utils::AccountId32};
+use subxt_utils::gargantua::api::{
+	self,
+	runtime_types::{self, gargantua_runtime::RuntimeCall},
+};
+use tesseract_substrate::{extrinsic::InMemorySigner, SubstrateClient, SubstrateConfig};
 
-use tesseract_primitives::{IsmpHost, IsmpProvider};
+use tesseract_primitives::IsmpProvider;
 use transaction_fees::TransactionPayment;
 
 type ParachainClient<T> = SubstrateClient<T>;
@@ -43,6 +47,7 @@ pub async fn setup_clients(
 		),
 
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 	let chain_a = SubstrateClient::new(config_a).await?;
 
@@ -57,14 +62,15 @@ pub async fn setup_clients(
 		),
 
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 	let chain_b = SubstrateClient::new(config_b).await?;
 	Ok((chain_a, chain_b))
 }
 
-async fn transfer_assets<I: IsmpHost + 'static>(
-	chain_a: &SubstrateClient<I, Hyperbridge>,
-	chain_b: &SubstrateClient<I, Hyperbridge>,
+async fn transfer_assets(
+	chain_a: &SubstrateClient<Hyperbridge>,
+	chain_b: &SubstrateClient<Hyperbridge>,
 	timeout: u64,
 ) -> Result<(), anyhow::Error> {
 	let amt = 345876451382054092;
@@ -116,9 +122,9 @@ async fn test_parachain_parachain_messaging_relay() -> Result<(), anyhow::Error>
 		async move {
 			tesseract_messaging::relay(
 				chain_a.clone(),
-				chain_b.clone(),
+				Arc::new(chain_b.clone()),
 				Default::default(),
-				Default::default(),
+				StateMachine::Kusama(4009),
 				tx_payment,
 				Default::default(),
 			)
@@ -165,11 +171,52 @@ async fn sudo_upgrade_runtime() -> Result<(), anyhow::Error> {
 		// rpc_ws: "ws://127.0.0.1:9901".to_string(),
 		signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 
 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
 	let code_blob = tokio::fs::read("../../hyperbridge/target/release/wbuild/gargantua-runtime/gargantua_runtime.compact.compressed.wasm").await?;
 	chain_a.runtime_upgrade(code_blob).await?;
+	Ok(())
+}
+
+#[tokio::test]
+async fn sudo_transfer_tokens() -> Result<(), anyhow::Error> {
+	dotenv::dotenv().ok();
+	let config_a = SubstrateConfig {
+		state_machine: StateMachine::Kusama(2000),
+		max_rpc_payload_size: None,
+		hashing: Some(HashAlgorithm::Keccak),
+		consensus_state_id: Some("PARA".to_string()),
+		rpc_ws: "wss://hyperbridge-nexus-rpc.blockops.network:443".to_string(),
+		// rpc_ws: "ws://127.0.0.1:9901".to_string(),
+		signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
+		latest_height: None,
+		max_concurent_queries: None,
+	};
+
+	let chain = SubstrateClient::<Hyperbridge>::new(config_a).await?;
+	let signer = InMemorySigner::<Hyperbridge>::new(chain.signer.clone());
+	let ext = chain
+		.client
+		.tx()
+		.create_signed(
+			&api::tx().sudo().sudo(RuntimeCall::Balances(
+				runtime_types::pallet_balances::pallet::Call::transfer_keep_alive {
+					dest: subxt::utils::MultiAddress::Id(
+						hex!("5cfad400109a799b73f9e5702f80f74b33f7c6a888affcdbe11bbaf4a988ce69")
+							.into(),
+					),
+					value: 5_000_000_000_000,
+				},
+			)),
+			&signer,
+			BaseExtrinsicParamsBuilder::new(),
+		)
+		.await?;
+
+	ext.submit_and_watch().await?.wait_for_finalized_success().await?;
+
 	Ok(())
 }
 
@@ -184,6 +231,7 @@ async fn set_host_manager() -> Result<(), anyhow::Error> {
 		rpc_ws: "ws://192.168.1.197:9990".to_string(),
 		signer: std::env::var("SIGNING_KEY").ok(),
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 
 	Ok(())
@@ -202,6 +250,7 @@ async fn test_state_machine_notifs() -> Result<(), anyhow::Error> {
 		),
 
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 
 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
@@ -230,6 +279,7 @@ async fn set_invulnerables() -> Result<(), anyhow::Error> {
 		),
 
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 
 	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
@@ -253,6 +303,7 @@ async fn dispatch_to_evm() -> Result<(), anyhow::Error> {
 		rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
 		signer: std::env::var("SUBSTRATE_SIGNING_KEY").ok(),
 		latest_height: None,
+		max_concurent_queries: None,
 	};
 
 	let chains = vec![

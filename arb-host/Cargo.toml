@@ -9,16 +9,18 @@ ethers-contract-abigen = { workspace = true }
 
 
 [dependencies]
-tesseract-evm = { path = "../common" }
+tesseract-evm = { workspace = true }
 ethers = { workspace = true, features = ["rustls"] }
-geth-primitives.workspace = true
+geth-primitives = { workspace = true }
 ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
-arbitrum-verifier.workspace = true
+arbitrum-verifier = { workspace = true }
 anyhow = "1.0.75"
 serde = { version = "1.0.164", features = ["derive"] }
-tesseract-primitives = { path = "../../primitives" }
-ismp.workspace = true
-
+tesseract-primitives = { workspace = true }
+ismp = { workspace = true }
+async-trait = "0.1.53"
+log = "0.4.20"
+futures = "0.3.28"
 
 [dev-dependencies]
 alloy-rlp = "0.3.2"
@@ -26,6 +28,6 @@ alloy-rlp-derive = "0.3.2"
 alloy-primitives = { version = "0.3.1", features = ["rlp"] }
 hex = "0.4.3"
 dotenv = "0.15.0"
-tesseract-evm = { path = "../common", features = ["testing"] }
+tesseract-evm = { workspace = true, features = ["testing"] }
 tokio = { version = "1.32.0", features = ["macros", "sync"] }
 hex-literal = { version ="0.4.1"}

@@ -13,54 +13,55 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use codec::{Decode, Encode};
-use geth_primitives::CodecHeader;
+use std::sync::Arc;
+
+use anyhow::anyhow;
+use ethers::{providers::Middleware, types::SyncingStatus};
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	events::StateMachineUpdated,
-	messaging::ConsensusMessage,
 };
-use tesseract_primitives::{ByzantineHandler, IsmpHost, IsmpProvider};
+use tesseract_primitives::{ByzantineHandler, IsmpProvider};
 
 use crate::BscPosHost;
 
 #[async_trait::async_trait]
 impl ByzantineHandler for BscPosHost {
-	async fn query_consensus_message(
+	async fn check_for_byzantine_attack(
 		&self,
+		counterparty: Arc<dyn IsmpProvider>,
 		event: StateMachineUpdated,
-	) -> Result<ConsensusMessage, anyhow::Error> {
-		let header = self.prover.fetch_header(event.latest_height).await?.ok_or_else(|| {
-			anyhow::anyhow!("Header not found: Could not query consensus message")
-		})?;
-		let message = ConsensusMessage {
-			consensus_proof: header.encode(),
-			consensus_state_id: self.consensus_state_id,
-			signer: vec![],
-		};
-
-		Ok(message)
-	}
-
-	async fn check_for_byzantine_attack<C: IsmpHost + IsmpProvider>(
-		&self,
-		counterparty: &C,
-		consensus_message: ConsensusMessage,
 	) -> Result<(), anyhow::Error> {
-		let source_header = CodecHeader::decode(&mut &*consensus_message.consensus_proof)?;
-		let finalized_state_root = source_header.state_root;
+		let sync_status = match self.prover.client.syncing().await? {
+			SyncingStatus::IsFalse => false,
+			_ => true,
+		};
 		let height = StateMachineHeight {
 			id: StateMachineId {
 				state_id: self.state_machine,
 				consensus_state_id: self.consensus_state_id,
 			},
-			height: source_header.number.low_u64(),
+			height: event.latest_height,
 		};
+		let Some(header) = self.prover.fetch_header(event.latest_height).await? else {
+			// If block header is not found and node is fully synced, veto the state commitment
+			if !sync_status {
+				log::info!(
+					"Vetoing State Machine Update for {:?} on {:?}",
+					self.state_machine,
+					counterparty.state_machine_id().state_id
+				);
+				counterparty.veto_state_commitment(height).await?;
+				return Ok(())
+			} else {
+				Err(anyhow!("Node is still syncing, cannot fetch finalized block"))?
+			}
+		};
+
 		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
-		if finalized_state_root != state_machine_commitment.state_root {
-			// Submit message
+		if header.state_root != state_machine_commitment.state_root {
 			log::info!(
-				"Freezing {:?} on {:?}",
+				"Vetoing State Machine Update for {:?} on {:?}",
 				self.state_machine,
 				counterparty.state_machine_id().state_id
 			);

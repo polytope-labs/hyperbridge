@@ -19,17 +19,18 @@ use serde::{Deserialize, Serialize};
 use sp_core::keccak_256;
 use std::sync::Arc;
 use tesseract_evm::{derive_map_key, EvmClient, EvmConfig};
-use tesseract_primitives::{Hasher, IsmpProvider};
+use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider};
 
 use abi::l2_output_oracle::*;
 mod abi;
+mod host;
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpConfig {
-	/// Host config
+	/// OpStack Host config
 	pub host: HostConfig,
 	/// General Evm client config
 	#[serde[flatten]]
@@ -50,10 +51,10 @@ pub struct HostConfig {
 
 impl OpConfig {
 	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<OpHost> {
+	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
 		let client = OpHost::new(&self.host, &self.evm_config).await?;
 
-		Ok(client)
+		Ok(Arc::new(client))
 	}
 
 	pub fn state_machine(&self) -> StateMachine {

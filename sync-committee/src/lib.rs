@@ -16,8 +16,11 @@
 use arb_host::{ArbConfig, ArbHost};
 use ethers::{prelude::Provider, providers::Http};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
-use ismp_sync_committee::types::L2Consensus;
 pub use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
+use ismp_sync_committee::{
+	constants::{mainnet::Mainnet, sepolia::Sepolia},
+	types::L2Consensus,
+};
 use op_host::{OpConfig, OpHost};
 use primitive_types::H160;
 use serde::{Deserialize, Serialize};
@@ -30,18 +33,16 @@ use sync_committee_primitives::{
 use sync_committee_prover::SyncCommitteeProver;
 pub use sync_committee_verifier::verify_sync_committee_attestation;
 use tesseract_evm::{EvmClient, EvmConfig};
-use tesseract_primitives::IsmpProvider;
+use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 mod byzantine;
 mod host;
 mod notification;
-#[cfg(test)]
-mod test;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncCommitteeConfig {
 	/// Host config
-	pub host: Option<HostConfig>,
+	pub host: HostConfig,
 	/// General ethereum config
 	#[serde[flatten]]
 	pub evm_config: EvmConfig,
@@ -58,8 +59,22 @@ pub struct HostConfig {
 
 impl SyncCommitteeConfig {
 	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpProvider>> {
-		let client = EvmClient::new(self.evm_config).await?;
+	pub async fn into_sepolia(
+		self,
+		l2_config: BTreeMap<StateMachine, L2Config>,
+	) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		let client =
+			SyncCommitteeHost::<Sepolia>::new(&self.host, &self.evm_config, l2_config).await?;
+
+		Ok(Arc::new(client))
+	}
+
+	pub async fn into_mainnet(
+		self,
+		l2_config: BTreeMap<StateMachine, L2Config>,
+	) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		let client =
+			SyncCommitteeHost::<Mainnet>::new(&self.host, &self.evm_config, l2_config).await?;
 
 		Ok(Arc::new(client))
 	}

@@ -1,0 +1,65 @@
+use crate::any::AnyConfig;
+use anyhow::anyhow;
+use ismp::host::StateMachine;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use tesseract_beefy::BeefyConfig;
+
+use toml::Table;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RelayerConfig {
+	/// Run fisherman task
+	pub fisherman: Option<bool>,
+	/// Challenge period to be used when creating consensus states
+	pub challenge_period: Option<u64>,
+}
+
+/// Defines the format of the tesseract config.toml file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperbridgeConfig {
+	/// Configuration options for hyperbridge.
+	pub hyperbridge: BeefyConfig,
+	/// Chains
+	pub chains: HashMap<StateMachine, AnyConfig>,
+	/// Additional Relayer configuration
+	pub relayer: Option<RelayerConfig>,
+}
+
+const HYPERRIDGE: &'static str = "hyperbridge";
+const RELAYER: &'static str = "relayer";
+
+impl HyperbridgeConfig {
+	pub async fn parse_conf(config: &str) -> Result<Self, anyhow::Error> {
+		let toml = tokio::fs::read_to_string(config)
+			.await
+			.map_err(|err| anyhow!("Error occured while reading config file: {err:?}"))?;
+		let table = toml.parse::<Table>()?;
+		let mut chains: HashMap<StateMachine, AnyConfig> = HashMap::new();
+		if !table.contains_key(HYPERRIDGE) {
+			Err(anyhow!("Missing Hyperbridge Config, Check your toml file"))?
+		}
+
+		let hyperbridge: BeefyConfig = table
+			.get(HYPERRIDGE)
+			.cloned()
+			.expect("Hyperbridge Config is Present")
+			.try_into()
+			.expect("Failed to parse hyperbridge config");
+
+		let relayer: Option<RelayerConfig> = if let Some(value) = table.get(RELAYER).cloned() {
+			let val = value.try_into().expect("Failed to parse relayer config");
+			Some(val)
+		} else {
+			None
+		};
+
+		for (key, val) in table {
+			if &key != HYPERRIDGE && &key != RELAYER {
+				let any_conf: AnyConfig = val.try_into().unwrap();
+				chains.insert(any_conf.state_machine(), any_conf);
+			}
+		}
+		Ok(Self { hyperbridge, chains, relayer })
+	}
+}

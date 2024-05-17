@@ -12,14 +12,16 @@ use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tesseract_evm::{derive_map_key, EvmClient, EvmConfig};
-use tesseract_primitives::IsmpProvider;
+use tesseract_primitives::{IsmpHost, IsmpProvider};
 mod abi;
+mod host;
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbConfig {
+	/// Arbitrum Orbit Chain Host config
 	pub host: HostConfig,
 
 	/// General evm config
@@ -37,10 +39,10 @@ pub struct HostConfig {
 
 impl ArbConfig {
 	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<ArbHost> {
+	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
 		let client = ArbHost::new(&self.host, &self.evm_config).await?;
 
-		Ok(client)
+		Ok(Arc::new(client))
 	}
 
 	pub fn state_machine(&self) -> StateMachine {

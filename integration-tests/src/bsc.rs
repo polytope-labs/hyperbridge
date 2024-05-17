@@ -1,10 +1,13 @@
+use std::sync::Arc;
+
 use codec::{Decode, Encode};
 use ismp::{host::StateMachine, messaging::CreateConsensusState};
 use substrate_state_machine::HashAlgorithm;
-use tesseract_bsc_pos::{BscPosConfig, BscPosHost, ConsensusState, HostConfig, KeccakHasher};
-use tesseract_evm::{EvmClient, EvmConfig};
+use tesseract_beefy::{BeefyHost, Network};
+use tesseract_bsc::{BscPosConfig, BscPosHost, ConsensusState, HostConfig, KeccakHasher};
+use tesseract_evm::EvmConfig;
 use tesseract_primitives::IsmpProvider;
-use tesseract_substrate::{SubstrateClient, SubstrateConfig};
+use tesseract_substrate::{config::Blake2SubstrateChain, SubstrateClient, SubstrateConfig};
 
 use crate::util::{setup_logging, Hyperbridge};
 
@@ -25,12 +28,10 @@ async fn bsc_consensus_updates() -> anyhow::Result<()> {
 		..Default::default()
 	};
 
-	let bsc_config = BscPosConfig {
-		host: Some(HostConfig { consensus_update_frequency: Some(120) }),
-		evm_config,
-	};
+	let bsc_config =
+		BscPosConfig { host: HostConfig { consensus_update_frequency: Some(120) }, evm_config };
 
-	let bsc_host = BscPosHost::new(&bsc_config.host.unwrap(), &bsc_config.evm_config).await?;
+	let bsc_host = BscPosHost::new(&bsc_config.host, &bsc_config.evm_config).await?;
 
 	let config_a = SubstrateConfig {
 		state_machine: StateMachine::Kusama(2000),
@@ -44,12 +45,25 @@ async fn bsc_consensus_updates() -> anyhow::Result<()> {
 		latest_height: None,
 	};
 
+	let host = tesseract_beefy::HostConfig {
+		relay_rpc_ws: "ws://104.155.23.240:9944".to_string(),
+		consensus_update_frequency: 45,
+		zk_beefy: Some(Network::Rococo),
+	};
+	let hyperbridge = SubstrateClient::<Hyperbridge>::new(config_a.clone()).await?;
+
+	let beefy_host = BeefyHost::<Blake2SubstrateChain, Hyperbridge>::new(
+		&host,
+		&config_a,
+		Arc::new(hyperbridge.clone()),
+	)
+	.await?;
+	let chain_a = Arc::new(beefy_host);
+
 	let initial_consensus_state =
 		bsc_host.get_consensus_state::<KeccakHasher>(Default::default()).await?;
-	let chain_a = SubstrateClient::<Hyperbridge>::new(config_a).await?;
-	let chain_b = EvmClient::new(bsc_config.evm_config).await?;
 
-	chain_a
+	hyperbridge
 		.create_consensus_state(CreateConsensusState {
 			consensus_state: initial_consensus_state.encode(),
 			consensus_client_id: *b"BSCP",
@@ -59,7 +73,9 @@ async fn bsc_consensus_updates() -> anyhow::Result<()> {
 			state_machine_commitments: vec![],
 		})
 		.await?;
-	tesseract_consensus::relay(chain_a, chain_b, Default::default()).await.unwrap();
+	tesseract_consensus::relay(chain_a, Arc::new(bsc_host), Default::default())
+		.await
+		.unwrap();
 	Ok(())
 }
 

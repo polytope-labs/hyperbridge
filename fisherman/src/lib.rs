@@ -15,15 +15,16 @@
 
 //! Tesseract Fisherman
 
-use anyhow::anyhow;
-use futures::{future::Either, StreamExt, TryFutureExt};
-use tesseract_primitives::{IsmpHost, IsmpProvider};
+use std::sync::Arc;
 
-pub async fn fish<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
-where
-	A: IsmpHost + 'static,
-	B: IsmpHost + 'static,
-{
+use anyhow::anyhow;
+use futures::{future::Either, StreamExt};
+use tesseract_primitives::IsmpHost;
+
+pub async fn fish(
+	chain_a: Arc<dyn IsmpHost>,
+	chain_b: Arc<dyn IsmpHost>,
+) -> Result<(), anyhow::Error> {
 	let task_a = {
 		let chain_a = chain_a.clone();
 		let chain_b = chain_b.clone();
@@ -47,41 +48,37 @@ where
 	Ok(())
 }
 
-async fn handle_notification<A, B>(chain_a: A, chain_b: B) -> Result<(), anyhow::Error>
-where
-	A: IsmpHost + 'static,
-	B: IsmpHost + 'static,
-{
+async fn handle_notification(
+	chain_a: Arc<dyn IsmpHost>,
+	chain_b: Arc<dyn IsmpHost>,
+) -> Result<(), anyhow::Error> {
 	let mut state_machine_update_stream = chain_a
 		.provider()
 		.state_machine_update_notification(chain_b.provider().state_machine_id())
 		.await
 		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
+	let chain_a_provider = chain_a.provider();
+	let chain_b_provider = chain_b.provider();
 
 	while let Some(item) = state_machine_update_stream.next().await {
 		match item {
 			Ok(state_machine_update) => {
-				let chain_b_clone = chain_b.clone();
-				let chain_a_clone = chain_a.clone();
-				let fut = chain_b.query_consensus_message(state_machine_update).and_then(
-					|message| async move {
-						chain_b_clone.check_for_byzantine_attack(&chain_a_clone, message).await
-					},
-				);
-
-				if let Err(err) = fut.await {
+				let res = chain_b
+					.check_for_byzantine_attack(chain_a.provider(), state_machine_update)
+					.await;
+				if let Err(err) = res {
 					log::error!("Failed to check for byzantine behavior: {err:?}")
 				}
 			},
 			Err(e) => {
-				log::error!(target: "tesseract","Fisherman task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
+				log::error!(target: "tesseract","Fisherman task {}-{} encountered an error: {e:?}", chain_a_provider.name(), chain_b_provider.name())
 			},
 		}
 	}
 
 	Err(anyhow!(
 		"{}-{} fisherman task has failed, Please restart relayer",
-		chain_a.name(),
-		chain_b.name()
+		chain_a_provider.name(),
+		chain_a_provider.name()
 	))?
 }

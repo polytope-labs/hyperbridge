@@ -134,10 +134,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     bool private _frozen;
 
     // current verified state of the consensus client;
-    bytes _consensusState;
+    bytes private _consensusState;
 
     // timestamp for when the consensus was most recently updated
-    uint256 _consensusUpdateTimestamp;
+    uint256 private _consensusUpdateTimestamp;
 
     // Emitted when an incoming POST request is handled
     event PostRequestHandled(bytes32 commitment, address relayer);

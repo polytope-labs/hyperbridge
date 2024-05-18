@@ -1,5 +1,4 @@
-use alloc::vec::Vec;
-use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
+use alloc::{vec, vec::Vec};
 use frame_support::{pallet_prelude::ConstU32, BoundedVec};
 use pallet_hyperbridge::VersionedHostParams;
 use sp_core::H160;
@@ -142,50 +141,66 @@ pub struct EvmHostParamUpdate {
 	pub hyperbridge: Option<BoundedVec<u8, ConstU32<1_000>>>,
 }
 
-/// The host parameters of all connected chains, ethereum friendly version
-#[derive(Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
-pub struct EvmHostParamRlp {
-	/// the minimum default timeout in seconds
-	pub default_timeout: alloy_primitives::U256,
-	/// The fee to charge per byte
-	pub per_byte_fee: alloy_primitives::U256,
-	/// The address of the fee token contract
-	pub fee_token: alloy_primitives::Address,
-	/// The admin account
-	pub admin: alloy_primitives::Address,
-	/// The handler contract
-	pub handler: alloy_primitives::Address,
-	/// The host manager contract
-	pub host_manager: alloy_primitives::Address,
-	/// The unstaking period in seconds
-	pub un_staking_period: alloy_primitives::U256,
-	/// The configured challenge period
-	pub challenge_period: alloy_primitives::U256,
-	/// The consensus client contract
-	pub consensus_client: alloy_primitives::Address,
-	/// The state machine identifier for hyperbridge
-	pub state_machine_whitelist: Vec<alloy_primitives::U256>,
-	/// The list of whitelisted fisherment
-	pub fishermen: Vec<alloy_primitives::Address>,
-	/// The state machine identifier for hyperbridge
-	pub hyperbridge: alloy_primitives::Bytes,
+alloy_sol_macro::sol! {
+	#![sol(all_derives)]
+
+	// The IsmpHost parameters
+	struct EvmHostParamsAbi {
+		// default timeout in seconds for requests.
+		uint256 defaultTimeout;
+		// cost of cross-chain requests in the fee token per byte
+		uint256 perByteFee;
+		// The fee token contract. This will typically be DAI.
+		// but we allow it to be configurable to prevent future regrets.
+		address feeToken;
+		// admin account, this only has the rights to freeze, or unfreeze the bridge
+		address admin;
+		// Ismp request/response handler
+		address handler;
+		// the authorized host manager contract
+		address hostManager;
+		// unstaking period
+		uint256 unStakingPeriod;
+		// minimum challenge period in seconds;
+		uint256 challengePeriod;
+		// consensus client contract
+		address consensusClient;
+		// whitelisted state machines
+		uint256[] stateMachineWhitelist;
+		// white list of fishermen accounts
+		address[] fishermen;
+		// state machine identifier for hyperbridge
+		bytes hyperbridge;
+	}
 }
 
-impl TryFrom<EvmHostParam> for EvmHostParamRlp {
+impl EvmHostParamsAbi {
+	/// Encodes the HostParams alongside the enum variant for the HostManager request
+	pub fn encode(&self) -> Vec<u8> {
+		use alloy_sol_types::SolType;
+
+		let variant = vec![1u8]; // enum variant for the host manager
+		let encoded = EvmHostParamsAbi::abi_encode(self);
+
+		[variant, encoded].concat()
+	}
+}
+
+impl TryFrom<EvmHostParam> for EvmHostParamsAbi {
 	type Error = anyhow::Error;
 
 	fn try_from(value: EvmHostParam) -> Result<Self, anyhow::Error> {
-		Ok(EvmHostParamRlp {
-			default_timeout: value.default_timeout.try_into().map_err(anyhow::Error::msg)?,
-			per_byte_fee: value.per_byte_fee.try_into().map_err(anyhow::Error::msg)?,
-			fee_token: value.fee_token.0.try_into().map_err(anyhow::Error::msg)?,
+		Ok(EvmHostParamsAbi {
+			defaultTimeout: value.default_timeout.try_into().map_err(anyhow::Error::msg)?,
+			perByteFee: value.per_byte_fee.try_into().map_err(anyhow::Error::msg)?,
+			feeToken: value.fee_token.0.try_into().map_err(anyhow::Error::msg)?,
 			admin: value.admin.0.try_into().map_err(anyhow::Error::msg)?,
 			handler: value.handler.0.try_into().map_err(anyhow::Error::msg)?,
-			host_manager: value.host_manager.0.try_into().map_err(anyhow::Error::msg)?,
-			un_staking_period: value.un_staking_period.try_into().map_err(anyhow::Error::msg)?,
-			challenge_period: value.challenge_period.try_into().map_err(anyhow::Error::msg)?,
-			consensus_client: value.consensus_client.0.try_into().map_err(anyhow::Error::msg)?,
-			state_machine_whitelist: value
+			hostManager: value.host_manager.0.try_into().map_err(anyhow::Error::msg)?,
+			unStakingPeriod: value.un_staking_period.try_into().map_err(anyhow::Error::msg)?,
+			challengePeriod: value.challenge_period.try_into().map_err(anyhow::Error::msg)?,
+			consensusClient: value.consensus_client.0.try_into().map_err(anyhow::Error::msg)?,
+			stateMachineWhitelist: value
 				.state_machine_whitelist
 				.into_iter()
 				.map(|id| id.try_into().map_err(anyhow::Error::msg))

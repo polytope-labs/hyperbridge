@@ -1,3 +1,4 @@
+#![cfg(not(target_arch = "wasm32"))]
 use crate::testing::{subscribe_to_request_status, test_timeout_request};
 
 pub fn setup_logging() {

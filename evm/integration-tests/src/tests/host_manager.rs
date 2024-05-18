@@ -1,11 +1,12 @@
-use ethers::abi::{AbiEncode, Tokenizable};
+use ethers::abi::Tokenizable;
 use forge_testsuite::Runner;
 use foundry_evm::executor::EvmError;
 use ismp::{
 	host::{Ethereum, StateMachine},
 	router::Post,
 };
-use ismp_solidity_abi::{evm_host::HostParams, shared_types::PostRequest};
+use ismp_solidity_abi::shared_types::PostRequest;
+use pallet_ismp_host_executive::EvmHostParamsAbi;
 use pallet_ismp_relayer::withdrawal::WithdrawalParams;
 use primitive_types::{H160, U256};
 use std::{env, path::PathBuf};
@@ -126,9 +127,10 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
 	let mut runner = Runner::new(PathBuf::from(&base_dir));
 	let mut contract = runner.deploy("HostManagerTest").await;
 
-	let params = HostParams { challenge_period: U256::from(5_000_000u128), ..Default::default() };
-	let mut data = vec![1u8];
-	data.extend_from_slice(params.encode().as_slice());
+	let params = EvmHostParamsAbi {
+		challengePeriod: U256::from(5_000_000u128).into(),
+		..Default::default()
+	};
 
 	// create post request object
 	let post = Post {
@@ -138,7 +140,7 @@ async fn test_host_manager_set_host_params() -> Result<(), anyhow::Error> {
 		from: contract.runner.sender.as_bytes().to_vec(),
 		to: vec![],
 		timeout_timestamp: 100,
-		data,
+		data: params.encode(),
 	};
 
 	let request: PostRequest = post.into();

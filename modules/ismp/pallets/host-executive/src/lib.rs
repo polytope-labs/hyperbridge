@@ -28,7 +28,6 @@ pub use params::*;
 pub mod pallet {
 	use super::*;
 	use alloc::{collections::BTreeMap, vec};
-	use alloy_rlp::Encodable;
 	use frame_support::{
 		pallet_prelude::{OptionQuery, *},
 		PalletId,
@@ -141,10 +140,9 @@ pub mod pallet {
 				(HostParam::EvmHostParam(mut inner), HostParamUpdate::EvmHostParam(update)) => {
 					inner.update(update);
 
-					let mut body = vec![1u8]; // enum variant for the host manager
-					EvmHostParamRlp::try_from(inner.clone())
+					let body = EvmHostParamsAbi::try_from(inner.clone())
 						.expect("u128 will always fit inside a U256; qed")
-						.encode(&mut body);
+						.encode();
 
 					let post = DispatchPost {
 						dest: state_machine,

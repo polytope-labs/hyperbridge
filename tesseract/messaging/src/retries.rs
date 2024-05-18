@@ -123,6 +123,7 @@ pub async fn retry_unprofitable_messages(
 				config.minimum_profit_percentage,
 				coprocessor,
 				&client_map,
+				config.deliver_failed.unwrap_or_default(),
 			)
 			.await
 			{
@@ -193,6 +194,7 @@ pub async fn retry_unprofitable_messages(
 				config.minimum_profit_percentage,
 				coprocessor,
 				&client_map,
+				config.deliver_failed.unwrap_or_default(),
 			)
 			.await
 			{

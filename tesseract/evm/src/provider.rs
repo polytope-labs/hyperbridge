@@ -3,7 +3,7 @@ use crate::{
 	tx::submit_messages,
 	EvmClient,
 };
-use anyhow::{anyhow, Context, Error};
+use anyhow::{anyhow, Error};
 use beefy_verifier_primitives::ConsensusState;
 use codec::Encode;
 use ethers::{
@@ -32,7 +32,7 @@ use ethers::{
 		GethDebugTracerConfig, GethDebugTracerType, GethDebugTracingOptions, Log,
 	},
 };
-use futures::stream::{self, FuturesOrdered};
+use futures::stream::FuturesOrdered;
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight},
 	host::{Ethereum, StateMachine},
@@ -492,73 +492,77 @@ impl IsmpProvider for EvmClient {
 		_counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<StateMachineUpdated>, Error> {
 		use futures::StreamExt;
-		let interval = time::interval(Duration::from_secs(self.config.poll_interval.unwrap_or(10)));
-		let initial_height = self.client.get_block_number().await?.low_u64();
-		let stream = stream::unfold(
-			(initial_height, interval, self.clone()),
-			move |(latest_height, mut interval, client)| async move {
-				let state_machine = client.state_machine;
-				interval.tick().await;
 
+		let initial_height = self.client.get_block_number().await?.low_u64();
+		let (tx, rx) = tokio::sync::mpsc::channel(64);
+		let client = self.clone();
+		let poll_interval = self.config.poll_interval.unwrap_or(10);
+
+		tokio::spawn(async move {
+			let interval = time::interval(Duration::from_secs(poll_interval));
+			let mut latest_height = initial_height;
+			let mut interval_stream = tokio_stream::wrappers::IntervalStream::new(interval);
+			let state_machine = client.state_machine;
+			while let Some(_) = interval_stream.next().await {
 				// wait for an update with a greater height
 				let block_number = match client.client.get_block_number().await {
 					Ok(number) => number.low_u64(),
-					Err(err) =>
-						return Some((
-							Err(anyhow!(
+					Err(err) => {
+						if let Err(err) = tx
+							.send(Err(anyhow!(
 								"Error fetching latest block height on {state_machine:?} {err:?}"
-							)),
-							(latest_height, interval, client),
-						)),
+							)))
+							.await
+						{
+							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+						}
+						continue;
+					},
 				};
 
 				if block_number <= latest_height {
-					return Some((Ok(None), (latest_height, interval, client)))
+					continue;
 				}
 
-				let contract = EvmHost::new(client.config.ismp_host, client.client.clone());
-				let results = match contract
-						.events()
-						.address(client.config.ismp_host.into())
-						.from_block(latest_height)
-						.to_block(block_number)
-						.query()
-						.await
-					{
-						Ok(events) => events,
-						Err(err) =>
-							// If the query failed we still advance the latest known height
-							return Some((
-								Err(err).context(format!(
-									"Failed to query state machine updates in range {latest_height:?}..{block_number:?} on {state_machine:?}"
-								)),
-								(block_number, interval, client),
-							)),
-					};
-				let event = results
+				let event = StateMachineUpdated {
+					state_machine_id: client.state_machine_id(),
+					latest_height: block_number,
+				};
+
+				let events = match client.query_ismp_events(latest_height, event).await {
+					Ok(events) => events,
+					Err(err) => {
+						if let Err(err) = tx
+							.send(Err(anyhow!(
+								"Error encountered while querying ismp events {err:?}"
+							)))
+							.await
+						{
+							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+						}
+						latest_height = block_number;
+						continue;
+					},
+				};
+
+				let event = events
 					.into_iter()
-					.filter_map(|ev| match Event::try_from(ev) {
-						Ok(Event::StateMachineUpdated(update)) => Some(update),
-						_ => None
+					.filter_map(|ev| match ev {
+						Event::StateMachineUpdated(update) => Some(update),
+						_ => None,
 					})
 					.max_by(|a, b| a.latest_height.cmp(&b.latest_height));
 
 				if let Some(event) = event {
-					return Some((
-						Ok(Some(event.clone())),
-						(block_number + 1, interval, client),
-					))
-				} else {
-					return Some((Ok(None), (block_number + 1, interval, client)))
+					if let Err(err) = tx.send(Ok(event.clone())).await {
+						log::error!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} \n {err:?}");
+					};
 				}
-			},
-		).filter_map(|res| async move {
-			match res {
-				Ok(Some(update)) => Some(Ok(update)),
-				Ok(None) => None,
-				Err(err) => Some(Err(err)),
+				latest_height = block_number;
 			}
 		});
+
+		let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
 		Ok(Box::pin(stream))
 	}

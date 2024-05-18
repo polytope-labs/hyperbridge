@@ -19,7 +19,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
-use futures::stream::{self, FuturesOrdered};
+use futures::stream::FuturesOrdered;
 use hex_literal::hex;
 use ismp::{
 	consensus::{
@@ -359,31 +359,43 @@ where
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
 		use futures::StreamExt;
 		let interval = time::interval(Duration::from_secs(10));
-		let self_clone = self.clone();
-		let stream = stream::unfold(
-			(self_clone.initial_height, interval, self_clone),
-			move |(latest_height, mut interval, client)| async move {
-				interval.tick().await;
+		let client = self.clone();
+		let (tx, recv) = tokio::sync::mpsc::channel(64);
+		tokio::spawn(async move {
+			let mut interval_stream = tokio_stream::wrappers::IntervalStream::new(interval);
+			let mut latest_height = client.initial_height;
+			let state_machine = client.state_machine;
+			while let Some(_) = interval_stream.next().await {
 				let header = match client.client.rpc().finalized_head().await {
 					Ok(hash) => match client.client.rpc().header(Some(hash)).await {
 						Ok(Some(header)) => header,
-						_ =>
-							return Some((
-								Err(anyhow!("Error encountered while fething finalized head")),
-								(latest_height, interval, client),
-							)),
+						_ => {
+							if let Err(err) = tx
+								.send(Err(anyhow!(
+									"Error encountered while fething finalized head"
+								)))
+								.await
+							{
+								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+							}
+							continue;
+						},
 					},
-					Err(err) =>
-						return Some((
-							Err(anyhow!(
+					Err(err) => {
+						if let Err(err) = tx
+							.send(Err(anyhow!(
 								"Error encountered while fetching finalized head: {err:?}"
-							)),
-							(latest_height, interval, client),
-						)),
+							)))
+							.await
+						{
+							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+						}
+						continue;
+					},
 				};
 
 				if header.number().into() <= latest_height {
-					return Some((Ok(None), (latest_height, interval, client)));
+					continue;
 				}
 
 				let event = StateMachineUpdated {
@@ -393,11 +405,18 @@ where
 
 				let events = match client.query_ismp_events(latest_height, event).await {
 					Ok(e) => e,
-					Err(err) =>
-						return Some((
-							Err(anyhow!("Error encountered while querying ismp events {err:?}")),
-							(latest_height, interval, client),
-						)),
+					Err(err) => {
+						if let Err(err) = tx
+							.send(Err(anyhow!(
+								"Error encountered while querying ismp events {err:?}"
+							)))
+							.await
+						{
+							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+						}
+						latest_height = header.number().into();
+						continue;
+					},
 				};
 
 				let event = events
@@ -410,22 +429,20 @@ where
 					})
 					.max_by(|x, y| x.latest_height.cmp(&y.latest_height));
 
-				let value = match event {
-					Some(event) =>
-						Some((Ok(Some(event)), (header.number().into(), interval, client))),
-					None => Some((Ok(None), (header.number().into(), interval, client))),
+				match event {
+					Some(event) => {
+						if let Err(err) = tx.send(Ok(event.clone())).await {
+							log::error!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} \n {err:?}");
+						};
+					},
+					None => {},
 				};
 
-				return value;
-			},
-		)
-		.filter_map(|res| async move {
-			match res {
-				Ok(Some(update)) => Some(Ok(update)),
-				Ok(None) => None,
-				Err(err) => Some(Err(err)),
+				latest_height = header.number().into();
 			}
 		});
+
+		let stream = tokio_stream::wrappers::ReceiverStream::new(recv);
 
 		Ok(Box::pin(stream))
 	}

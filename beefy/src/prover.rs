@@ -475,9 +475,9 @@ where
 			.filter_map(|event| {
 				if matches!(
 					event.event,
-					Event::PostRequest(_) |
-						Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_) |
-						Event::PostResponseTimeoutHandled(_)
+					Event::PostRequest(_)
+						| Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_)
+						| Event::PostResponseTimeoutHandled(_)
 				) {
 					return Some(event);
 				}
@@ -811,7 +811,6 @@ mod tests {
 			ns: "rsmq".into(),
 			url: "localhost".into(),
 			port: 6379,
-			tls: false,
 			password: None,
 			username: None,
 			// will be adjusted by the relevant subsystems

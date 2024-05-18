@@ -26,7 +26,7 @@ codec = { package = "parity-scale-codec", version = "3.1.3", default-features = 
 
 [dev-dependencies]
 ethers = { workspace = true, features = ["default"] }
-tokio = { version = "1.27.0", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 ismp-testsuite = { path = "../../testsuite" }
 sp-core = { workspace = true }
 

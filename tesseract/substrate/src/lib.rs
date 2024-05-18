@@ -143,8 +143,13 @@ where
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		let id = self.state_machine_id();
+		let name = counterparty.name();
 		self.initial_height = counterparty.query_latest_height(id).await?.into();
-
+		log::info!(
+			"Initialized height for {:?}->{name} at {}",
+			self.state_machine,
+			self.initial_height
+		);
 		Ok(())
 	}
 

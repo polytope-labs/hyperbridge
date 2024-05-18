@@ -55,19 +55,15 @@ where
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
 		let sender = sender.clone();
-		tokio::spawn(async move {
-			let _ = handle_notification(
-				chain_a,
-				chain_b,
-				tx_payment,
-				config,
-				coprocessor,
-				client_map,
-				sender,
-			)
-			.await?;
-			Ok::<_, anyhow::Error>(())
-		})
+		Box::pin(handle_notification(
+			chain_a,
+			chain_b,
+			tx_payment,
+			config,
+			coprocessor,
+			client_map,
+			sender,
+		))
 	};
 
 	let task_b = {
@@ -77,19 +73,15 @@ where
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
 		let sender = sender.clone();
-		tokio::spawn(async move {
-			let _ = handle_notification(
-				chain_b,
-				chain_a,
-				tx_payment,
-				config,
-				coprocessor,
-				client_map,
-				sender,
-			)
-			.await?;
-			Ok::<_, anyhow::Error>(())
-		})
+		Box::pin(handle_notification(
+			chain_b,
+			chain_a,
+			tx_payment,
+			config,
+			coprocessor,
+			client_map,
+			sender,
+		))
 	};
 
 	// Fee accumulation background task
@@ -129,10 +121,10 @@ where
 	// if one task completes, abort the other
 	tokio::select! {
 		result_a = task_a => {
-			result_a??
+			result_a?
 		}
 		result_b = task_b => {
-			result_b??
+			result_b?
 		}
 	};
 
@@ -151,11 +143,8 @@ async fn handle_notification(
 	let mut state_machine_update_stream = chain_a
 		.state_machine_update_notification(chain_b.state_machine_id())
 		.await
-		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?
-		// skipping the first event, because it yields the most recent event
-		// but we've already initialized our heights to that event.
-		// don't remove
-		.skip(1);
+		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
+
 	let mut previous_height = chain_b.initial_height();
 
 	while let Some(item) = state_machine_update_stream.next().await {

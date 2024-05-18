@@ -251,7 +251,7 @@ mod tests {
 		let signing_key =
 			std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
 
-		let ping_addr = H160(hex!("3554a2260Aa37788DC8C2932A908fDa98a10Dd88"));
+		let ping_addr = H160(hex!("b51d235CF4461D17FEA88733fed1865873c8D686"));
 
 		let chains = vec![
 			(StateMachine::Ethereum(Ethereum::ExecutionLayer), geth_url),

@@ -73,7 +73,7 @@ hex = "0.4.3"
 zstd-safe = { version = "7.1.0" }
 ruzstd = "0.6.0"
 anyhow.workspace = true
-tokio = { version = "1.32.0" }
+tokio = { workspace = true }
 dotenv = "0.15.0"
 futures = "0.3.28"
 pallet-ismp-rpc = { workspace = true }

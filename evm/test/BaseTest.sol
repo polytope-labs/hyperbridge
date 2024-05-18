@@ -81,8 +81,6 @@ contract BaseTest is Test {
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            consensusUpdateTimestamp: 0,
-            consensusState: new bytes(0),
             perByteFee: 1000000000000000000, // 1FTK
             feeToken: address(feeToken),
             hyperbridge: StateMachine.kusama(paraId),

@@ -1053,9 +1053,10 @@ pub mod api {
 						"query_call_info",
 						types::QueryCallInfo { call, len },
 						[
-							195u8, 52u8, 130u8, 51u8, 203u8, 220u8, 70u8, 47u8, 10u8, 108u8, 10u8,
-							58u8, 38u8, 196u8, 102u8, 103u8, 47u8, 45u8, 131u8, 209u8, 56u8, 251u8,
-							183u8, 152u8, 9u8, 221u8, 10u8, 85u8, 210u8, 129u8, 211u8, 196u8,
+							236u8, 203u8, 30u8, 48u8, 105u8, 128u8, 89u8, 151u8, 40u8, 63u8, 187u8,
+							47u8, 246u8, 112u8, 86u8, 101u8, 79u8, 120u8, 225u8, 71u8, 183u8,
+							202u8, 122u8, 101u8, 158u8, 144u8, 125u8, 41u8, 101u8, 29u8, 58u8,
+							126u8,
 						],
 					)
 				}
@@ -1075,10 +1076,10 @@ pub mod api {
 						"query_call_fee_details",
 						types::QueryCallFeeDetails { call, len },
 						[
-							200u8, 183u8, 5u8, 216u8, 197u8, 114u8, 246u8, 77u8, 14u8, 222u8,
-							160u8, 132u8, 230u8, 196u8, 250u8, 106u8, 73u8, 39u8, 194u8, 29u8,
-							195u8, 206u8, 99u8, 70u8, 184u8, 198u8, 104u8, 15u8, 113u8, 131u8,
-							142u8, 255u8,
+							23u8, 131u8, 66u8, 24u8, 67u8, 7u8, 85u8, 138u8, 8u8, 128u8, 251u8,
+							158u8, 176u8, 228u8, 178u8, 80u8, 106u8, 128u8, 234u8, 241u8, 205u8,
+							191u8, 16u8, 31u8, 50u8, 229u8, 176u8, 162u8, 238u8, 233u8, 206u8,
+							11u8,
 						],
 					)
 				}
@@ -1934,9 +1935,9 @@ pub mod api {
 						"create_transaction",
 						types::CreateTransaction { account, call },
 						[
-							143u8, 85u8, 207u8, 5u8, 76u8, 60u8, 84u8, 101u8, 204u8, 44u8, 112u8,
-							146u8, 96u8, 16u8, 147u8, 44u8, 177u8, 233u8, 3u8, 235u8, 78u8, 95u8,
-							136u8, 11u8, 129u8, 100u8, 1u8, 28u8, 247u8, 167u8, 92u8, 118u8,
+							247u8, 100u8, 46u8, 187u8, 211u8, 34u8, 207u8, 70u8, 218u8, 10u8, 22u8,
+							185u8, 84u8, 81u8, 53u8, 160u8, 41u8, 122u8, 67u8, 198u8, 181u8, 180u8,
+							49u8, 20u8, 237u8, 18u8, 76u8, 179u8, 251u8, 135u8, 84u8, 253u8,
 						],
 					)
 				}
@@ -2137,9 +2138,9 @@ pub mod api {
 			.hash();
 		runtime_metadata_hash ==
 			[
-				13u8, 65u8, 228u8, 0u8, 194u8, 77u8, 70u8, 198u8, 248u8, 22u8, 201u8, 22u8, 76u8,
-				62u8, 8u8, 50u8, 116u8, 43u8, 63u8, 82u8, 28u8, 233u8, 73u8, 87u8, 126u8, 35u8,
-				111u8, 216u8, 126u8, 6u8, 174u8, 114u8,
+				107u8, 136u8, 181u8, 249u8, 159u8, 197u8, 156u8, 244u8, 102u8, 23u8, 190u8, 160u8,
+				24u8, 48u8, 187u8, 38u8, 170u8, 110u8, 226u8, 88u8, 179u8, 90u8, 193u8, 222u8,
+				168u8, 239u8, 134u8, 169u8, 13u8, 151u8, 8u8, 79u8,
 			]
 	}
 	pub mod system {
@@ -3021,9 +3022,9 @@ pub mod api {
 						"Events",
 						vec![],
 						[
-							139u8, 96u8, 88u8, 32u8, 187u8, 15u8, 169u8, 178u8, 114u8, 70u8, 115u8,
-							164u8, 218u8, 238u8, 185u8, 214u8, 128u8, 152u8, 230u8, 60u8, 102u8,
-							125u8, 92u8, 36u8, 215u8, 55u8, 32u8, 226u8, 35u8, 133u8, 202u8, 254u8,
+							31u8, 63u8, 83u8, 28u8, 206u8, 216u8, 211u8, 175u8, 65u8, 241u8, 144u8,
+							203u8, 105u8, 23u8, 28u8, 6u8, 197u8, 165u8, 54u8, 51u8, 31u8, 79u8,
+							244u8, 95u8, 131u8, 240u8, 106u8, 63u8, 253u8, 40u8, 255u8, 92u8,
 						],
 					)
 				}
@@ -4497,9 +4498,10 @@ pub mod api {
 						"batch",
 						types::Batch { calls },
 						[
-							85u8, 58u8, 15u8, 81u8, 203u8, 150u8, 87u8, 141u8, 250u8, 228u8, 104u8,
-							165u8, 81u8, 22u8, 88u8, 55u8, 209u8, 227u8, 44u8, 6u8, 18u8, 127u8,
-							185u8, 123u8, 208u8, 162u8, 5u8, 160u8, 104u8, 45u8, 51u8, 64u8,
+							102u8, 117u8, 212u8, 240u8, 108u8, 2u8, 57u8, 198u8, 114u8, 123u8,
+							149u8, 191u8, 247u8, 150u8, 114u8, 196u8, 39u8, 2u8, 2u8, 55u8, 133u8,
+							97u8, 175u8, 164u8, 134u8, 185u8, 131u8, 182u8, 218u8, 195u8, 214u8,
+							152u8,
 						],
 					)
 				}
@@ -4514,10 +4516,9 @@ pub mod api {
 						"as_derivative",
 						types::AsDerivative { index, call: ::std::boxed::Box::new(call) },
 						[
-							46u8, 114u8, 182u8, 110u8, 45u8, 140u8, 97u8, 63u8, 251u8, 159u8,
-							181u8, 128u8, 53u8, 53u8, 129u8, 139u8, 5u8, 241u8, 112u8, 253u8,
-							128u8, 143u8, 8u8, 40u8, 56u8, 24u8, 180u8, 141u8, 176u8, 236u8, 217u8,
-							106u8,
+							218u8, 214u8, 199u8, 41u8, 87u8, 161u8, 52u8, 80u8, 117u8, 99u8, 121u8,
+							208u8, 200u8, 252u8, 132u8, 11u8, 191u8, 193u8, 228u8, 208u8, 108u8,
+							251u8, 211u8, 46u8, 144u8, 65u8, 92u8, 238u8, 33u8, 211u8, 68u8, 254u8,
 						],
 					)
 				}
@@ -4531,10 +4532,10 @@ pub mod api {
 						"batch_all",
 						types::BatchAll { calls },
 						[
-							72u8, 202u8, 101u8, 184u8, 240u8, 72u8, 68u8, 249u8, 62u8, 230u8,
-							214u8, 11u8, 197u8, 49u8, 231u8, 253u8, 167u8, 198u8, 146u8, 117u8,
-							33u8, 206u8, 117u8, 159u8, 170u8, 224u8, 13u8, 145u8, 130u8, 185u8,
-							187u8, 218u8,
+							75u8, 212u8, 74u8, 24u8, 193u8, 227u8, 110u8, 170u8, 141u8, 240u8,
+							76u8, 207u8, 238u8, 124u8, 224u8, 146u8, 82u8, 47u8, 119u8, 156u8,
+							105u8, 99u8, 17u8, 95u8, 17u8, 251u8, 47u8, 75u8, 43u8, 82u8, 96u8,
+							127u8,
 						],
 					)
 				}
@@ -4552,9 +4553,9 @@ pub mod api {
 							call: ::std::boxed::Box::new(call),
 						},
 						[
-							216u8, 231u8, 255u8, 188u8, 155u8, 70u8, 142u8, 16u8, 53u8, 126u8,
-							223u8, 207u8, 29u8, 187u8, 149u8, 37u8, 90u8, 73u8, 244u8, 195u8, 87u8,
-							160u8, 252u8, 176u8, 48u8, 0u8, 159u8, 141u8, 28u8, 166u8, 156u8, 9u8,
+							163u8, 102u8, 106u8, 253u8, 158u8, 141u8, 162u8, 118u8, 6u8, 6u8, 80u8,
+							70u8, 135u8, 97u8, 224u8, 224u8, 193u8, 109u8, 234u8, 178u8, 120u8,
+							2u8, 175u8, 151u8, 56u8, 124u8, 21u8, 136u8, 71u8, 195u8, 247u8, 219u8,
 						],
 					)
 				}
@@ -4568,10 +4569,9 @@ pub mod api {
 						"force_batch",
 						types::ForceBatch { calls },
 						[
-							83u8, 188u8, 203u8, 68u8, 165u8, 137u8, 144u8, 194u8, 231u8, 110u8,
-							232u8, 255u8, 135u8, 119u8, 25u8, 21u8, 113u8, 102u8, 187u8, 64u8,
-							60u8, 151u8, 76u8, 162u8, 168u8, 142u8, 137u8, 134u8, 149u8, 103u8,
-							89u8, 121u8,
+							201u8, 197u8, 175u8, 148u8, 140u8, 97u8, 157u8, 217u8, 229u8, 100u8,
+							167u8, 0u8, 194u8, 176u8, 105u8, 166u8, 8u8, 173u8, 193u8, 94u8, 35u8,
+							87u8, 248u8, 169u8, 63u8, 186u8, 20u8, 100u8, 85u8, 96u8, 43u8, 26u8,
 						],
 					)
 				}
@@ -4586,9 +4586,10 @@ pub mod api {
 						"with_weight",
 						types::WithWeight { call: ::std::boxed::Box::new(call), weight },
 						[
-							56u8, 6u8, 49u8, 67u8, 213u8, 247u8, 25u8, 150u8, 144u8, 41u8, 32u8,
-							40u8, 89u8, 52u8, 168u8, 124u8, 112u8, 194u8, 240u8, 165u8, 39u8,
-							184u8, 187u8, 71u8, 121u8, 23u8, 2u8, 193u8, 190u8, 55u8, 248u8, 116u8,
+							202u8, 51u8, 44u8, 98u8, 33u8, 232u8, 30u8, 67u8, 62u8, 170u8, 65u8,
+							202u8, 137u8, 13u8, 125u8, 29u8, 124u8, 220u8, 26u8, 253u8, 244u8,
+							253u8, 242u8, 90u8, 174u8, 115u8, 52u8, 162u8, 40u8, 14u8, 156u8,
+							197u8,
 						],
 					)
 				}
@@ -7366,10 +7367,9 @@ pub mod api {
 						"sudo",
 						types::Sudo { call: ::std::boxed::Box::new(call) },
 						[
-							62u8, 141u8, 146u8, 103u8, 243u8, 64u8, 104u8, 72u8, 156u8, 179u8,
-							55u8, 4u8, 97u8, 252u8, 80u8, 42u8, 106u8, 131u8, 131u8, 173u8, 220u8,
-							182u8, 32u8, 176u8, 222u8, 23u8, 141u8, 145u8, 222u8, 127u8, 67u8,
-							71u8,
+							129u8, 84u8, 77u8, 231u8, 179u8, 221u8, 80u8, 248u8, 16u8, 44u8, 141u8,
+							12u8, 71u8, 95u8, 70u8, 66u8, 137u8, 157u8, 26u8, 220u8, 16u8, 21u8,
+							199u8, 229u8, 98u8, 147u8, 250u8, 125u8, 81u8, 40u8, 188u8, 121u8,
 						],
 					)
 				}
@@ -7384,10 +7384,10 @@ pub mod api {
 						"sudo_unchecked_weight",
 						types::SudoUncheckedWeight { call: ::std::boxed::Box::new(call), weight },
 						[
-							61u8, 246u8, 40u8, 34u8, 202u8, 99u8, 162u8, 128u8, 174u8, 31u8, 232u8,
-							215u8, 229u8, 194u8, 105u8, 220u8, 13u8, 105u8, 245u8, 51u8, 234u8,
-							158u8, 189u8, 231u8, 255u8, 57u8, 123u8, 245u8, 172u8, 144u8, 26u8,
-							29u8,
+							48u8, 158u8, 196u8, 80u8, 33u8, 117u8, 177u8, 153u8, 199u8, 124u8,
+							110u8, 43u8, 188u8, 128u8, 47u8, 98u8, 84u8, 117u8, 92u8, 234u8, 69u8,
+							181u8, 101u8, 102u8, 74u8, 36u8, 122u8, 132u8, 96u8, 115u8, 179u8,
+							73u8,
 						],
 					)
 				}
@@ -7418,10 +7418,9 @@ pub mod api {
 						"sudo_as",
 						types::SudoAs { who, call: ::std::boxed::Box::new(call) },
 						[
-							153u8, 79u8, 179u8, 194u8, 88u8, 218u8, 127u8, 146u8, 73u8, 89u8, 53u8,
-							54u8, 166u8, 166u8, 142u8, 129u8, 101u8, 106u8, 102u8, 42u8, 188u8,
-							76u8, 198u8, 211u8, 251u8, 45u8, 234u8, 180u8, 144u8, 185u8, 211u8,
-							251u8,
+							107u8, 244u8, 173u8, 188u8, 14u8, 175u8, 2u8, 207u8, 86u8, 229u8, 30u8,
+							2u8, 120u8, 151u8, 152u8, 138u8, 184u8, 36u8, 86u8, 246u8, 193u8, 92u8,
+							24u8, 92u8, 122u8, 230u8, 237u8, 237u8, 136u8, 61u8, 184u8, 89u8,
 						],
 					)
 				}
@@ -10435,51 +10434,6 @@ pub mod api {
 						],
 					)
 				}
-				#[doc = " Holds a map of state machines to the height at which they've been frozen due to byzantine"]
-				#[doc = " behaviour"]
-				pub fn frozen_state_machine(
-					&self,
-					_0: impl ::std::borrow::Borrow<runtime_types::ismp::consensus::StateMachineId>,
-				) -> ::subxt::storage::address::Address<
-					::subxt::storage::address::StaticStorageMapKey,
-					::core::primitive::bool,
-					::subxt::storage::address::Yes,
-					(),
-					::subxt::storage::address::Yes,
-				> {
-					::subxt::storage::address::Address::new_static(
-						"Ismp",
-						"FrozenStateMachine",
-						vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
-						[
-							101u8, 71u8, 56u8, 40u8, 132u8, 28u8, 123u8, 106u8, 169u8, 63u8, 148u8,
-							128u8, 242u8, 107u8, 111u8, 125u8, 167u8, 188u8, 129u8, 132u8, 141u8,
-							80u8, 34u8, 51u8, 194u8, 117u8, 49u8, 87u8, 238u8, 184u8, 158u8, 99u8,
-						],
-					)
-				}
-				#[doc = " Holds a map of state machines to the height at which they've been frozen due to byzantine"]
-				#[doc = " behaviour"]
-				pub fn frozen_state_machine_root(
-					&self,
-				) -> ::subxt::storage::address::Address<
-					::subxt::storage::address::StaticStorageMapKey,
-					::core::primitive::bool,
-					(),
-					(),
-					::subxt::storage::address::Yes,
-				> {
-					::subxt::storage::address::Address::new_static(
-						"Ismp",
-						"FrozenStateMachine",
-						Vec::new(),
-						[
-							101u8, 71u8, 56u8, 40u8, 132u8, 28u8, 123u8, 106u8, 169u8, 63u8, 148u8,
-							128u8, 242u8, 107u8, 111u8, 125u8, 167u8, 188u8, 129u8, 132u8, 141u8,
-							80u8, 34u8, 51u8, 194u8, 117u8, 49u8, 87u8, 238u8, 184u8, 158u8, 99u8,
-						],
-					)
-				}
 				#[doc = " A mapping of consensus state identifier to it's associated consensus client identifier"]
 				pub fn consensus_state_client(
 					&self,
@@ -12204,9 +12158,9 @@ pub mod api {
 						"set_host_params",
 						types::SetHostParams { params },
 						[
-							253u8, 123u8, 76u8, 23u8, 39u8, 238u8, 3u8, 104u8, 184u8, 238u8, 242u8,
-							164u8, 40u8, 97u8, 125u8, 106u8, 158u8, 168u8, 195u8, 161u8, 196u8,
-							50u8, 151u8, 242u8, 49u8, 96u8, 87u8, 138u8, 12u8, 88u8, 80u8, 215u8,
+							246u8, 232u8, 142u8, 185u8, 53u8, 63u8, 77u8, 137u8, 88u8, 105u8, 44u8,
+							9u8, 221u8, 186u8, 240u8, 245u8, 165u8, 223u8, 20u8, 253u8, 98u8, 55u8,
+							90u8, 216u8, 201u8, 184u8, 64u8, 24u8, 32u8, 132u8, 248u8, 176u8,
 						],
 					)
 				}
@@ -12223,9 +12177,9 @@ pub mod api {
 						"update_host_params",
 						types::UpdateHostParams { state_machine, update },
 						[
-							158u8, 35u8, 186u8, 75u8, 169u8, 167u8, 78u8, 90u8, 127u8, 149u8, 75u8,
-							216u8, 228u8, 4u8, 216u8, 161u8, 174u8, 29u8, 168u8, 101u8, 209u8,
-							180u8, 137u8, 140u8, 237u8, 112u8, 87u8, 148u8, 18u8, 73u8, 17u8, 28u8,
+							149u8, 29u8, 238u8, 142u8, 154u8, 62u8, 168u8, 0u8, 255u8, 47u8, 35u8,
+							138u8, 93u8, 55u8, 241u8, 162u8, 146u8, 151u8, 152u8, 41u8, 231u8,
+							11u8, 58u8, 34u8, 54u8, 64u8, 205u8, 78u8, 7u8, 65u8, 124u8, 72u8,
 						],
 					)
 				}
@@ -12248,7 +12202,7 @@ pub mod api {
 			# [codec (crate = :: subxt :: ext :: codec)]
 			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
 			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
-			#[doc = "Hyperbridge governance has initiated a host parameter update to the mentioned state"]
+			#[doc = "`AdminOrigin` has initiated a host parameter update to the mentioned state"]
 			#[doc = "machine"]
 			pub struct HostParamsUpdated {
 				pub state_machine: runtime_types::ismp::host::StateMachine,
@@ -12262,6 +12216,31 @@ pub mod api {
 			impl ::subxt::events::StaticEvent for HostParamsUpdated {
 				const PALLET: &'static str = "HostExecutive";
 				const EVENT: &'static str = "HostParamsUpdated";
+			}
+			#[derive(
+				:: subxt :: ext :: codec :: Decode,
+				:: subxt :: ext :: codec :: Encode,
+				:: subxt :: ext :: scale_decode :: DecodeAsType,
+				:: subxt :: ext :: scale_encode :: EncodeAsType,
+				Clone,
+				Debug,
+				Eq,
+				PartialEq,
+			)]
+			# [codec (crate = :: subxt :: ext :: codec)]
+			#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+			#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+			#[doc = "`AdminOrigin` has set the initial host parameters for the mentioned state"]
+			#[doc = "machine"]
+			pub struct HostParamsSet {
+				pub state_machine: runtime_types::ismp::host::StateMachine,
+				pub params: runtime_types::pallet_ismp_host_executive::params::HostParam<
+					::core::primitive::u128,
+				>,
+			}
+			impl ::subxt::events::StaticEvent for HostParamsSet {
+				const PALLET: &'static str = "HostExecutive";
+				const EVENT: &'static str = "HostParamsSet";
 			}
 		}
 		pub mod storage {
@@ -12286,9 +12265,9 @@ pub mod api {
 						"HostParams",
 						vec![::subxt::storage::address::make_static_storage_map_key(_0.borrow())],
 						[
-							76u8, 36u8, 3u8, 17u8, 227u8, 8u8, 124u8, 214u8, 49u8, 212u8, 36u8,
-							244u8, 110u8, 147u8, 81u8, 66u8, 70u8, 158u8, 69u8, 84u8, 235u8, 117u8,
-							235u8, 10u8, 151u8, 220u8, 48u8, 61u8, 74u8, 125u8, 45u8, 224u8,
+							194u8, 104u8, 63u8, 209u8, 14u8, 15u8, 160u8, 44u8, 119u8, 171u8, 36u8,
+							6u8, 250u8, 224u8, 223u8, 40u8, 94u8, 24u8, 166u8, 70u8, 123u8, 94u8,
+							157u8, 201u8, 53u8, 43u8, 254u8, 95u8, 55u8, 101u8, 127u8, 235u8,
 						],
 					)
 				}
@@ -12309,9 +12288,9 @@ pub mod api {
 						"HostParams",
 						Vec::new(),
 						[
-							76u8, 36u8, 3u8, 17u8, 227u8, 8u8, 124u8, 214u8, 49u8, 212u8, 36u8,
-							244u8, 110u8, 147u8, 81u8, 66u8, 70u8, 158u8, 69u8, 84u8, 235u8, 117u8,
-							235u8, 10u8, 151u8, 220u8, 48u8, 61u8, 74u8, 125u8, 45u8, 224u8,
+							194u8, 104u8, 63u8, 209u8, 14u8, 15u8, 160u8, 44u8, 119u8, 171u8, 36u8,
+							6u8, 250u8, 224u8, 223u8, 40u8, 94u8, 24u8, 166u8, 70u8, 123u8, 94u8,
+							157u8, 201u8, 53u8, 43u8, 254u8, 95u8, 55u8, 101u8, 127u8, 235u8,
 						],
 					)
 				}
@@ -18880,7 +18859,7 @@ pub mod api {
 				#[doc = "The `Event` enum of this pallet"]
 				pub enum Event {
 					#[codec(index = 0)]
-					#[doc = "Hyperbridge governance has initiated a host parameter update to the mentioned state"]
+					#[doc = "`AdminOrigin` has initiated a host parameter update to the mentioned state"]
 					#[doc = "machine"]
 					HostParamsUpdated {
 						state_machine: runtime_types::ismp::host::StateMachine,
@@ -18888,6 +18867,15 @@ pub mod api {
 							::core::primitive::u128,
 						>,
 						new: runtime_types::pallet_ismp_host_executive::params::HostParam<
+							::core::primitive::u128,
+						>,
+					},
+					#[codec(index = 1)]
+					#[doc = "`AdminOrigin` has set the initial host parameters for the mentioned state"]
+					#[doc = "machine"]
+					HostParamsSet {
+						state_machine: runtime_types::ismp::host::StateMachine,
+						params: runtime_types::pallet_ismp_host_executive::params::HostParam<
 							::core::primitive::u128,
 						>,
 					},
@@ -18918,11 +18906,6 @@ pub mod api {
 					pub un_staking_period: ::core::primitive::u128,
 					pub challenge_period: ::core::primitive::u128,
 					pub consensus_client: ::subxt::utils::H160,
-					pub consensus_state:
-						runtime_types::bounded_collections::bounded_vec::BoundedVec<
-							::core::primitive::u8,
-						>,
-					pub consensus_update_timestamp: ::core::primitive::u128,
 					pub state_machine_whitelist:
 						runtime_types::bounded_collections::bounded_vec::BoundedVec<
 							::core::primitive::u32,
@@ -18957,12 +18940,6 @@ pub mod api {
 					pub un_staking_period: ::core::option::Option<::core::primitive::u128>,
 					pub challenge_period: ::core::option::Option<::core::primitive::u128>,
 					pub consensus_client: ::core::option::Option<::subxt::utils::H160>,
-					pub consensus_state: ::core::option::Option<
-						runtime_types::bounded_collections::bounded_vec::BoundedVec<
-							::core::primitive::u8,
-						>,
-					>,
-					pub consensus_update_timestamp: ::core::option::Option<::core::primitive::u128>,
 					pub state_machine_whitelist: ::core::option::Option<
 						runtime_types::bounded_collections::bounded_vec::BoundedVec<
 							::core::primitive::u32,

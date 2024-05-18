@@ -17,9 +17,8 @@ reqwest-chain = "0.1.0"
 serde = { version = "1.0.185", features = ["derive"] }
 serde_json = { version = "1.0.81"}
 anyhow.workspace = true
-tokio = { version =  "1.32.0", features = ["sync"]}
-tokio-stream = { version = "0.1.8" }
-async-stream = { version = "0.3.3"}
+tokio = { workspace = true, features = ["sync"]}
+tokio-stream = { workspace = true }
 base2 = {version= "0.3.1" }
 env_logger = "0.10.0"
 ark-ec = { version = "0.4.2" }
@@ -37,7 +36,7 @@ env_logger = "0.10.0"
 sync-committee-primitives = { path= "../primitives" }
 sync-committee-verifier = { path= "../verifier" }
 ethers = { workspace = true, features = ["ws", "default"] }
-tokio = { version =  "1.32.0", features = ["macros", "rt-multi-thread"]}
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"]}
 parity-scale-codec = "3.2.2"
 reqwest-eventsource = "0.4.0"
 dotenv = "0.15.0"

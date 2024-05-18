@@ -52,6 +52,7 @@ contract PingModule is IIsmpModule {
 
     address internal _host;
     address internal _admin;
+    PostRequest private _request;
 
     constructor(address admin) {
         _admin = admin;
@@ -61,12 +62,22 @@ contract PingModule is IIsmpModule {
         _host = hostAddr;
     }
 
+    function previousPostRequest() public view returns (PostRequest memory) {
+        return _request;
+    }
+
     // returns the current ismp host set
     function host() public view returns (address) {
         return _host;
     }
 
     function dispatchPostResponse(PostResponse memory response) public returns (bytes32) {
+        uint256 perByteFee = IIsmpHost(_host).perByteFee();
+        address feeToken = IIsmpHost(_host).feeToken();
+        uint256 fee = perByteFee * response.response.length;
+
+        IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
+        IERC20(feeToken).approve(_host, fee);
         DispatchPostResponse memory post = DispatchPostResponse({
             request: response.request,
             response: response.response,
@@ -149,6 +160,7 @@ contract PingModule is IIsmpModule {
 
     function onAccept(IncomingPostRequest memory incoming) external onlyIsmpHost {
         emit PostReceived(string(incoming.request.body));
+        _request = incoming.request;
     }
 
     function onPostResponse(IncomingPostResponse memory) external onlyIsmpHost {

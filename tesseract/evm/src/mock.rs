@@ -220,7 +220,11 @@ impl ismp::messaging::Keccak256 for Host {
 
 #[cfg(test)]
 mod tests {
-	use std::sync::Arc;
+	use ismp_solidity_abi::shared_types;
+	use std::{
+		sync::Arc,
+		time::{SystemTime, UNIX_EPOCH},
+	};
 
 	use crate::{
 		abi::{erc_20::Erc20, PingMessage, PingModule},
@@ -245,20 +249,21 @@ mod tests {
 		let op_url = std::env::var("OP_URL").expect("OP_URL was missing in env variables");
 		let base_url = std::env::var("BASE_URL").expect("BASE_URL was missing in env variables");
 		let arb_url = std::env::var("ARB_URL").expect("ARB_URL was missing in env variables");
-		let geth_url = std::env::var("GETH_URL").expect("GETH_URL was missing in env variables");
-		let bsc_url = std::env::var("BSC_URL").expect("BSC_URL was missing in env variables");
+		let _geth_url = std::env::var("GETH_URL").expect("GETH_URL was missing in env variables");
+		let _bsc_url = std::env::var("BSC_URL").expect("BSC_URL was missing in env variables");
+		let respond = option_env!("RESPOND");
 
 		let signing_key =
 			std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
 
-		let ping_addr = H160(hex!("b51d235CF4461D17FEA88733fed1865873c8D686"));
+		let ping_addr = H160(hex!("e8cb27BAD1c5071189b154beC0088209D1EC2582"));
 
 		let chains = vec![
-			(StateMachine::Ethereum(Ethereum::ExecutionLayer), geth_url),
+			// (StateMachine::Ethereum(Ethereum::ExecutionLayer), _geth_url),
 			(StateMachine::Ethereum(Ethereum::Arbitrum), arb_url),
 			(StateMachine::Ethereum(Ethereum::Optimism), op_url),
 			(StateMachine::Ethereum(Ethereum::Base), base_url),
-			(StateMachine::Bsc, bsc_url),
+			(StateMachine::Bsc, _bsc_url),
 		];
 
 		let stream = futures::stream::iter(chains.clone().into_iter().map(Ok::<_, anyhow::Error>));
@@ -277,43 +282,73 @@ mod tests {
 					let client = Arc::new(provider.with_signer(signer));
 					let ping = PingModule::new(ping_addr.clone(), client.clone());
 
-					let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
-					dbg!((&chain, &host_addr));
+					if respond.is_some() {
+						let request = ping.previous_post_request().await?;
+						let start = SystemTime::now();
+						let now = start
+							.duration_since(UNIX_EPOCH)
+							.expect("Time went backwards")
+							.as_secs();
+						let response = shared_types::PostResponse {
+							request,
+							response: b"Hello there".to_vec().into(),
+							timeout_timestamp: now + (60 * 60 * 2),
+						};
+						let call = ping.dispatch_post_response(response);
+						let gas = call
+							.estimate_gas()
+							.await
+							.context(format!("Failed to estimate gas in {chain:?}"))?;
+						let receipt = call
+							.gas(gas)
+							.send()
+							.await?
+							.await
+							.context(format!("Failed to execute ping message on {chain:?}"))?;
 
-					let host = EvmHost::new(host_addr, client.clone());
-					let erc_20 = Erc20::new(
-						host.fee_token().await.context(format!("Error in {chain:?}"))?,
-						client.clone(),
-					);
-					let call = erc_20.approve(ping_addr, U256::max_value());
-					let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
-					call.gas(gas)
-						.send()
-						.await
-						.context(format!("Failed to send approval for {ping_addr} in {chain:?}"))?
-						.await
-						.context(format!("Failed to approve {ping_addr} in {chain:?}"))?;
+						assert!(receipt.is_some());
+					} else {
+						let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
+						dbg!((&chain, &host_addr));
 
-					for (chain, _) in chains_clone.iter().filter(|(c, _)| chain != *c) {
-						for _ in 0..2 {
-							let call = ping.ping(PingMessage {
-								dest: chain.to_string().as_bytes().to_vec().into(),
-								module: ping_addr.clone().into(),
-								timeout: 10 * 60 * 60,
-								fee: U256::from(30_000_000_000_000_000_000u128),
-								count: U256::from(100),
-							});
-							let gas = call
-								.estimate_gas()
-								.await
-								.context(format!("Failed to estimate gas in {chain:?}"))?;
-							let call = call.gas(gas);
-							let Ok(tx) = call.send().await else { continue };
-							let receipt = tx
-								.await
-								.context(format!("Failed to execute ping message on {chain:?}"))?;
+						let host = EvmHost::new(host_addr, client.clone());
+						let erc_20 = Erc20::new(
+							host.fee_token().await.context(format!("Error in {chain:?}"))?,
+							client.clone(),
+						);
+						let call = erc_20.approve(ping_addr, U256::max_value());
+						let gas =
+							call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
+						call.gas(gas)
+							.send()
+							.await
+							.context(format!(
+								"Failed to send approval for {ping_addr} in {chain:?}"
+							))?
+							.await
+							.context(format!("Failed to approve {ping_addr} in {chain:?}"))?;
 
-							assert!(receipt.is_some());
+						for (chain, _) in chains_clone.iter().filter(|(c, _)| chain != *c) {
+							for _ in 0..1 {
+								let call = ping.ping(PingMessage {
+									dest: chain.to_string().as_bytes().to_vec().into(),
+									module: ping_addr.clone().into(),
+									timeout: 10 * 60 * 60,
+									fee: U256::from(30_000_000_000_000_000_000u128),
+									count: U256::from(1),
+								});
+								let gas = call
+									.estimate_gas()
+									.await
+									.context(format!("Failed to estimate gas in {chain:?}"))?;
+								let call = call.gas(gas);
+								let Ok(tx) = call.send().await else { continue };
+								let receipt = tx.await.context(format!(
+									"Failed to execute ping message on {chain:?}"
+								))?;
+
+								assert!(receipt.is_some());
+							}
 						}
 					}
 

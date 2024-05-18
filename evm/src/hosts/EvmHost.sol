@@ -532,9 +532,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     {
         // if we're on mainnet, then consensus state can only be initialized once.
         // and updated subsequently by either consensus proofs or cross-chain governance
-        require(
-            chainId() == block.chainid ? _consensusState.equals(new bytes(0)) : true, "Unauthorized action"
-        );
+        require(chainId() == block.chainid ? _consensusState.equals(new bytes(0)) : true, "Unauthorized action");
 
         _consensusState = state;
         _consensusUpdateTimestamp = block.timestamp;

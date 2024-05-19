@@ -1,4 +1,4 @@
-// EVM Handlers
+// EVM Host Handlers
 export { handlePostRequestEvent } from "../handlers/events/evmHost/postRequest.event.handler";
 export { handlePostRequestHandledEvent } from "../handlers/events/evmHost/postRequestHandled.event.handler";
 export { handlePostRequestTimeoutHandledEvent } from "../handlers/events/evmHost/postRequestTimeoutHandled.event.handler";
@@ -16,3 +16,6 @@ export { handleTransferEvent } from "../handlers/events/erc6160ext20/transfer.ev
 // HandlerV1 Handlers
 export { handlePostRequestTransactionHandler } from "../handlers/transactions/handlerV1/handlePostRequestTransactionHandler.handler";
 export { handlePostResponseTransactionHandler } from "../handlers/transactions/handlerV1/handlePostResponseTransactionHandler.handler";
+
+// Hyperbridge Handlers
+export { handleIsmpStateMachineUpdated } from "../handlers/events/hyperbridge/handleIsmpStateMachineUpdatedEvent.handler";

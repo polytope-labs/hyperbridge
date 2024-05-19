@@ -13,16 +13,12 @@
   },
   "homepage": "https://hyperbridge.network/",
   "repository": "https://github.com/polytope-labs/hyperbridge",
-  "files": [
-    "dist",
-    "schema.graphql",
-    "subquery-multichain.yaml"
-  ],
+  "files": ["dist", "schema.graphql", "subquery-multichain.yaml"],
   "author": "Polytope Labs",
   "license": "MIT",
   "dependencies": {
     "@ethersproject/shims": "^5.7.0",
-    "@polkadot/api": "^10.13.1",
+    "@polkadot/api": "latest",
     "@subql/common": "latest",
     "@subql/types-ethereum": "latest",
     "@subql/validator": "latest",
@@ -31,10 +27,14 @@
   "devDependencies": {
     "@subql/cli": "latest",
     "@subql/node": "latest",
+    "@subql/node-core": "latest",
     "@subql/node-ethereum": "latest",
     "@subql/testing": "latest",
     "@subql/types": "latest",
     "ethers": "^5.7.2",
     "typescript": "latest"
+  },
+  "exports": {
+    "hyperbridge-chaintypes": "src/hyperbridge-chaintypes.ts"
   }
 }

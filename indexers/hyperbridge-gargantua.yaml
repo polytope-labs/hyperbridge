@@ -5,7 +5,7 @@ description: Hyperbridge ParaChain Indexer
 runner:
   node:
     name: "@subql/node"
-    version: "*"
+    version: ">=4.0.0"
   query:
     name: "@subql/query"
     version: "*"
@@ -15,6 +15,8 @@ network:
   chainId: "0x5771ac6b0088b64c21c14620372f2aafee7cfe2ef589879dbd501b356b41752a"
   endpoint:
     - "wss://hyperbridge-paseo-rpc.blockops.network"
+  chaintypes:
+    file: "./dist/hyperbridge-chaintypes.js"
 dataSources:
   - kind: substrate/Runtime
     startBlock: 1

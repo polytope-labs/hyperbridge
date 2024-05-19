@@ -24,7 +24,7 @@ export async function handlePostResponseTimeoutHandledEvent(
     blockNumber,
     data,
   } = event;
-  const { commitment } = args;
+  const { commitment, dest } = args;
 
   logger.info(
     `Handling PostResponseTimeoutHandled Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
@@ -41,6 +41,7 @@ export async function handlePostResponseTimeoutHandledEvent(
         transactionIndex,
         blockHash,
         blockNumber,
+        dest,
         timestamp: Number(block.timestamp),
         type: EventType.EVM_HOST_POST_RESPONSE_TIMEOUT_HANDLED,
       },

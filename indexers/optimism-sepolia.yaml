@@ -19,10 +19,10 @@ network:
 dataSources:
   # EthereumHost contract
   - kind: ethereum/Runtime
-    startBlock: 11389808
+    startBlock: 12083370
     options:
       abi: ethereumHost
-      address: "0x27D689e361ab92aCab04Ea21c1B3F507A94a9DAd"
+      address: "0x98A6A9c780D7d54aEF9aBd08c55C9ADc17de48A0"
     assets:
       ethereumHost:
         file: ./abis/EthereumHost.abi.json
@@ -79,7 +79,7 @@ dataSources:
 
   # Protocol Fee Token
   - kind: ethereum/Runtime
-    startBlock: 11389807
+    startBlock: 12083370
     options:
       abi: erc6160ext20
       address: "0x3E02f1167357d173Dd07B4Beb7E05573e5382Ea2"
@@ -97,10 +97,10 @@ dataSources:
 
   # Handler Contract
   - kind: ethereum/Runtime
-    startBlock: 11389808
+    startBlock: 12083370
     options:
       abi: handlerV1
-      address: "0x7037150EA7011E44488c282609870ef41ae7903d"
+      address: "0xBE5Ea8A28D5AB4e96532c85F078d83E138EC8d44"
     assets:
       handlerV1:
         file: ./abis/HandlerV1.abi.json

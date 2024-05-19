@@ -22,7 +22,7 @@ export async function handleGetRequestTimeoutHandledEvent(
     blockNumber,
     data,
   } = event;
-  const { commitment } = args;
+  const { commitment, dest } = args;
 
   logger.info(
     `Handling GetRequestTimeoutHandled Event: ${JSON.stringify({ blockNumber, transactionHash })}`,
@@ -38,6 +38,7 @@ export async function handleGetRequestTimeoutHandledEvent(
       transactionIndex,
       blockHash,
       blockNumber,
+      dest,
       timestamp: Number(block.timestamp),
       type: EventType.EVM_HOST_GET_REQUEST_TIMEOUT_HANDLED,
     },

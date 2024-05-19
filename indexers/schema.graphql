@@ -316,6 +316,7 @@ type Event @entity {
     transactionHash: String!
     transactionIndex: BigInt!
     data: String!
+    destination: String
     createdAt: Date!
 }
 

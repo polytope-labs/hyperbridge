@@ -14,6 +14,7 @@ export interface ICreateEvmHostEventArgs extends IEvmHostEventArgs {
   type: EventType;
   commitment: string;
   data: string;
+  dest?: string;
 }
 
 // Arguments to functions that create StateMachineUpdated events
@@ -39,6 +40,7 @@ export class EvmHostEventsService {
       timestamp,
       type,
       data,
+      dest,
     } = args;
 
     const event = Event.create({
@@ -47,6 +49,7 @@ export class EvmHostEventsService {
       type,
       chain,
       transactionHash,
+      destination: dest,
       transactionIndex: BigInt(transactionIndex),
       blockHash,
       blockNumber: BigInt(blockNumber),

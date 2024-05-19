@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use ismp::host::StateMachine;
+use redis_async::client::{ConnectionBuilder, PubsubConnection};
 use rsmq_async::{Rsmq, RsmqOptions};
 use serde::{Deserialize, Serialize};
 
@@ -55,7 +56,7 @@ impl RedisConfig {
 }
 
 /// Constructs an [`Rsmq`] client given a [`RedisConfig`]
-pub async fn client(config: &RedisConfig) -> Result<Rsmq, anyhow::Error> {
+pub async fn rsmq_client(config: &RedisConfig) -> Result<Rsmq, anyhow::Error> {
 	let options = RsmqOptions {
 		host: config.url.clone(),
 		port: config.port.clone(),
@@ -68,4 +69,18 @@ pub async fn client(config: &RedisConfig) -> Result<Rsmq, anyhow::Error> {
 	let rsmq = Rsmq::new(options).await?;
 
 	Ok(rsmq)
+}
+
+/// Builds a [`PubSubConnection`] to redis for queue notifications
+pub async fn pubsub_client(config: &RedisConfig) -> Result<PubsubConnection, anyhow::Error> {
+	let mut builder = ConnectionBuilder::new(&config.url, config.port)?;
+	if let Some(ref username) = config.username {
+		builder.username(username.as_str());
+	}
+	if let Some(ref password) = config.password {
+		builder.password(password.as_str());
+	}
+	let pubsub = builder.pubsub_connect().await?;
+
+	Ok(pubsub)
 }

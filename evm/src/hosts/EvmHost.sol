@@ -620,11 +620,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
-        FeeMetadata memory meta = _requestCommitments[commitment];
-        if (meta.fee > 0) {
-            // pay the relayer their fee
-            IERC20(feeToken()).transfer(relayer, meta.fee);
-        }
         emit PostResponseHandled({commitment: commitment, relayer: relayer});
     }
 
@@ -648,10 +643,6 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
-        if (meta.fee > 0) {
-            // refund relayer fee
-            IERC20(feeToken()).transfer(meta.sender, meta.fee);
-        }
         emit GetRequestTimeoutHandled({commitment: commitment, dest: request.dest});
     }
 
@@ -756,6 +747,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param get - get request
      */
     function dispatch(DispatchGet memory get) external returns (bytes32 commitment) {
+        if (get.fee > 0) {
+            IERC20(feeToken()).transferFrom(_msgSender(), address(this), get.fee);
+        }
+
         // adjust the timeout
         uint64 timeout =
             get.timeout == 0 ? 0 : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, get.timeout));
@@ -772,7 +767,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // make the commitment
         commitment = request.hash();
-        _requestCommitments[commitment] = FeeMetadata({sender: get.sender, fee: 0});
+        _requestCommitments[commitment] = FeeMetadata({sender: get.sender, fee: get.fee});
         emit GetRequestEvent(
             request.source,
             request.dest,

@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use sp_core::traits::SpawnEssentialNamed;
 use std::sync::Arc;
 use substrate_state_machine::HashAlgorithm;
 use tesseract_evm::{EvmClient, EvmConfig};
@@ -47,29 +46,26 @@ impl AnyConfig {
 	pub async fn into_client(
 		self,
 		hyperbridge: Arc<dyn IsmpProvider>,
-		spawn_handle: Arc<dyn SpawnEssentialNamed>,
 	) -> Result<Arc<dyn IsmpProvider>, anyhow::Error> {
 		let client = match self {
 			AnyConfig::Substrate(config) => {
 				match config.hashing.clone().unwrap_or(HashAlgorithm::Keccak) {
 					HashAlgorithm::Keccak => {
 						let mut client =
-							SubstrateClient::<KeccakSubstrateChain>::new(config, spawn_handle)
-								.await?;
+							SubstrateClient::<KeccakSubstrateChain>::new(config).await?;
 						client.set_latest_finalized_height(hyperbridge).await?;
 						Arc::new(client) as Arc<dyn IsmpProvider>
 					},
 					HashAlgorithm::Blake2 => {
 						let mut client =
-							SubstrateClient::<Blake2SubstrateChain>::new(config, spawn_handle)
-								.await?;
+							SubstrateClient::<Blake2SubstrateChain>::new(config).await?;
 						client.set_latest_finalized_height(hyperbridge).await?;
 						Arc::new(client) as Arc<dyn IsmpProvider>
 					},
 				}
 			},
 			AnyConfig::Evm(config) => {
-				let mut client = EvmClient::new(config, spawn_handle).await?;
+				let mut client = EvmClient::new(config).await?;
 				client.set_latest_finalized_height(hyperbridge).await?;
 				Arc::new(client) as Arc<dyn IsmpProvider>
 			},

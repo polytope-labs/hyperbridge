@@ -367,7 +367,6 @@ where
 			let state_machine = client.state_machine;
 			loop {
 				tokio::time::sleep(Duration::from_secs(10)).await;
-				log::info!("Entering {name}");
 				let header = match client.client.rpc().finalized_head().await {
 					Ok(hash) => match client.client.rpc().header(Some(hash)).await {
 						Ok(Some(header)) => header,

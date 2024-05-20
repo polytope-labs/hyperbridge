@@ -81,8 +81,6 @@ pub struct SubstrateClient<C: subxt::Config> {
 	initial_height: u64,
 	/// Max concurrent rpc requests allowed
 	max_concurent_queries: Option<u64>,
-	/// Spawn task handle
-	spawn_handle: Arc<dyn sp_core::traits::SpawnEssentialNamed>,
 }
 
 impl<C> SubstrateClient<C>
@@ -93,10 +91,7 @@ where
 	C::Signature: From<MultiSignature> + Send + Sync,
 	C::AccountId: From<crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 {
-	pub async fn new(
-		config: SubstrateConfig,
-		spawn_handle: Arc<dyn sp_core::traits::SpawnEssentialNamed>,
-	) -> Result<Self, anyhow::Error> {
+	pub async fn new(config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(300u32 * 1024 * 1024);
 		let client =
 			subxt_utils::client::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
@@ -131,7 +126,6 @@ where
 			address,
 			initial_height: latest_height,
 			max_concurent_queries: config.max_concurent_queries,
-			spawn_handle,
 		})
 	}
 
@@ -186,7 +180,6 @@ impl<C: subxt::Config> Clone for SubstrateClient<C> {
 			address: self.address.clone(),
 			initial_height: self.initial_height,
 			max_concurent_queries: self.max_concurent_queries,
-			spawn_handle: self.spawn_handle.clone(),
 		}
 	}
 }

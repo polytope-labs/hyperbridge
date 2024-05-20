@@ -24,7 +24,7 @@ use futures::FutureExt;
 use ismp::host::StateMachine;
 use rust_socketio::asynchronous::ClientBuilder;
 use sc_service::TaskManager;
-use sp_core::{ecdsa, traits::SpawnEssentialNamed, ByteArray, Pair};
+use sp_core::{ecdsa, ByteArray, Pair};
 use std::{collections::HashMap, sync::Arc};
 use telemetry_server::Message;
 use tesseract_primitives::IsmpProvider;
@@ -70,17 +70,9 @@ impl Cli {
 				.map_err(|err| anyhow!("Error initializing database: {err:?}"))?,
 		);
 		// Add hyperbridge to the client map
-		let hyperbridge = SubstrateClient::<KeccakSubstrateChain>::new(
-			hyperbridge_config.clone(),
-			Arc::new(task_manager.spawn_essential_handle()),
-		)
-		.await?;
-		let mut clients = create_client_map(
-			config.clone(),
-			Arc::new(hyperbridge.clone()),
-			Arc::new(task_manager.spawn_essential_handle()),
-		)
-		.await?;
+		let hyperbridge =
+			SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
+		let mut clients = create_client_map(config.clone(), Arc::new(hyperbridge.clone())).await?;
 		clients.insert(hyperbridge.state_machine_id().state_id, Arc::new(hyperbridge.clone()));
 
 		if config.relayer.delivery_endpoints.is_empty() {
@@ -99,11 +91,8 @@ impl Cli {
 				continue;
 			}
 
-			let mut new_hyperbridge = SubstrateClient::<KeccakSubstrateChain>::new(
-				hyperbridge_config.clone(),
-				Arc::new(task_manager.spawn_essential_handle()),
-			)
-			.await?;
+			let mut new_hyperbridge =
+				SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
 			new_hyperbridge.set_latest_finalized_height(client.clone()).await?;
 
 			let coprocessor = hyperbridge_config.state_machine;
@@ -184,14 +173,13 @@ impl Cli {
 pub async fn create_client_map(
 	config: HyperbridgeConfig,
 	hyperbridge: Arc<dyn IsmpProvider>,
-	spawn_handle: Arc<dyn SpawnEssentialNamed>,
 ) -> anyhow::Result<HashMap<StateMachine, Arc<dyn IsmpProvider>>> {
 	let HyperbridgeConfig { chains, .. } = config.clone();
 	let mut clients = HashMap::new();
 
 	for (state_machine, config) in chains {
 		let client = config
-			.into_client(hyperbridge.clone(), spawn_handle.clone())
+			.into_client(hyperbridge.clone())
 			.await
 			.context(format!("Failed to create client for {state_machine:?}"))?;
 		clients.insert(state_machine, client);

@@ -20305,6 +20305,7 @@ dependencies = [
  "ismp",
  "ismp-solidity-abi",
  "ismp-sync-committee",
+ "ismp-testsuite",
  "jsonrpsee 0.21.0",
  "log",
  "mmr-primitives",

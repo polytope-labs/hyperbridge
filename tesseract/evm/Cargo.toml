@@ -49,6 +49,7 @@ tesseract-primitives = { workspace = true, default-features = true  }
 debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
 
 merkle-mountain-range = { workspace = true, default-features = true }
+ismp-testsuite = { workspace = true, default-features = true }
 reconnecting-jsonrpsee-ws-client = { workspace = true, default-features = true }
 jsonrpsee = { version = "0.21", features = ["ws-client"]}
 pallet-ismp-host-executive = { workspace = true, default-features = true }

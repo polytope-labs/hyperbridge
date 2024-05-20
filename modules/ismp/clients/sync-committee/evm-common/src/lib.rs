@@ -22,7 +22,9 @@ extern crate alloc;
 use alloc::collections::BTreeMap;
 use ethabi::ethereum_types::{H160, H256};
 use ismp::{
-	consensus::StateCommitment, error::Error, host::IsmpHost, messaging::Proof,
+	consensus::StateCommitment,
+	error::Error,
+	messaging::{Keccak256, Proof},
 	router::RequestResponse,
 };
 
@@ -37,7 +39,7 @@ pub mod types;
 pub mod utils;
 pub use utils::*;
 
-pub fn verify_membership<H: IsmpHost + Send + Sync>(
+pub fn verify_membership<H: Keccak256 + Send + Sync>(
 	item: RequestResponse,
 	root: StateCommitment,
 	proof: &Proof,
@@ -64,7 +66,7 @@ pub fn verify_membership<H: IsmpHost + Send + Sync>(
 	Ok(())
 }
 
-pub fn verify_state_proof<H: IsmpHost + Send + Sync>(
+pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 	keys: Vec<Vec<u8>>,
 	root: StateCommitment,
 	proof: &Proof,

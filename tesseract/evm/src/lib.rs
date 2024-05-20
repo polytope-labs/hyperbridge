@@ -27,8 +27,6 @@ use tesseract_primitives::IsmpProvider;
 
 pub mod abi;
 mod gas_oracle;
-#[cfg(any(feature = "testing", test))]
-pub mod mock;
 pub mod provider;
 
 #[cfg(test)]

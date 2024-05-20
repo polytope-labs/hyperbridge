@@ -481,3 +481,14 @@ impl IsmpDispatcher for Host {
 		Ok(hash)
 	}
 }
+
+pub struct Keccak256Hasher;
+
+impl ismp::messaging::Keccak256 for Keccak256Hasher {
+	fn keccak256(bytes: &[u8]) -> H256
+	where
+		Self: Sized,
+	{
+		sp_core::keccak_256(bytes).into()
+	}
+}

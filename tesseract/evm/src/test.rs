@@ -1,6 +1,6 @@
-use crate::{mock::Host, EvmClient, EvmConfig};
+use crate::{EvmClient, EvmConfig};
 use codec::Decode;
-use ethers::prelude::Middleware;
+use ethers::providers::Middleware;
 use evm_common::{
 	get_contract_storage_root, get_value_from_proof, types::EvmStateProof, verify_membership,
 };
@@ -12,6 +12,7 @@ use ismp::{
 	router::{Post, RequestResponse},
 };
 use ismp_solidity_abi::evm_host::EvmHost;
+use ismp_testsuite::mocks::{Host, Keccak256Hasher};
 use primitive_types::H160;
 use std::str::FromStr;
 use tesseract_primitives::{IsmpProvider, Query};
@@ -84,12 +85,15 @@ async fn test_ismp_state_proof() {
 
 	let proof = client.query_requests_proof(at, vec![query]).await.unwrap();
 	let evm_state_proof = EvmStateProof::decode(&mut &*proof).unwrap();
-	let contract_root =
-		get_contract_storage_root::<Host>(evm_state_proof.contract_proof, &ISMP_HOST.0, state_root)
-			.unwrap();
+	let contract_root = get_contract_storage_root::<Keccak256Hasher>(
+		evm_state_proof.contract_proof,
+		&ISMP_HOST.0,
+		state_root,
+	)
+	.unwrap();
 
 	let key = sp_core::keccak_256(&client.request_commitment_key(query.commitment).1 .0).to_vec();
-	let value = get_value_from_proof::<Host>(
+	let value = get_value_from_proof::<Keccak256Hasher>(
 		key.clone(),
 		contract_root,
 		evm_state_proof.storage_proof.get(&key).unwrap().clone(),
@@ -102,7 +106,7 @@ async fn test_ismp_state_proof() {
 
 	assert_eq!(request_meta.sender.0, decoded_address.0);
 
-	verify_membership::<Host>(
+	verify_membership::<Keccak256Hasher>(
 		RequestResponse::Request(vec![req]),
 		StateCommitment { timestamp: 0, overlay_root: None, state_root },
 		&Proof {

@@ -435,6 +435,11 @@ pub async fn wait_for_state_machine_update(
 	hyperbridge: Arc<dyn IsmpProvider>,
 	height: u64,
 ) -> anyhow::Result<u64> {
+	let latest_height = hyperbridge.query_latest_height(state_id).await?.into();
+	if latest_height >= height {
+		return Ok(latest_height);
+	}
+
 	let mut stream = hyperbridge.state_machine_update_notification(state_id).await?;
 
 	while let Some(res) = stream.next().await {

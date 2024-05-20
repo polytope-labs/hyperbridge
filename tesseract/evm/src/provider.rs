@@ -32,7 +32,7 @@ use ethers::{
 		GethDebugTracerConfig, GethDebugTracerType, GethDebugTracingOptions, Log,
 	},
 };
-use futures::stream::FuturesOrdered;
+use futures::{stream::FuturesOrdered, FutureExt};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight},
 	host::{Ethereum, StateMachine},
@@ -46,7 +46,6 @@ use tesseract_primitives::{
 	BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider, Query, Signature,
 	StateMachineUpdated, StateProofQueryType, TxReceipt,
 };
-use tokio::time;
 
 #[async_trait::async_trait]
 impl IsmpProvider for EvmClient {
@@ -491,19 +490,15 @@ impl IsmpProvider for EvmClient {
 		&self,
 		_counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<StateMachineUpdated>, Error> {
-		use futures::StreamExt;
-
 		let initial_height = self.client.get_block_number().await?.low_u64();
-		let (tx, rx) = tokio::sync::mpsc::channel(64);
+		let (tx, recv) = tokio::sync::mpsc::channel(256);
 		let client = self.clone();
 		let poll_interval = self.config.poll_interval.unwrap_or(10);
-
 		tokio::spawn(async move {
-			let interval = time::interval(Duration::from_secs(poll_interval));
 			let mut latest_height = initial_height;
-			let mut interval_stream = tokio_stream::wrappers::IntervalStream::new(interval);
 			let state_machine = client.state_machine;
-			while let Some(_) = interval_stream.next().await {
+			loop {
+				tokio::time::sleep(Duration::from_secs(poll_interval)).await;
 				// wait for an update with a greater height
 				let block_number = match client.client.get_block_number().await {
 					Ok(number) => number.low_u64(),
@@ -555,16 +550,15 @@ impl IsmpProvider for EvmClient {
 
 				if let Some(event) = event {
 					if let Err(err) = tx.send(Ok(event.clone())).await {
-						log::error!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} \n {err:?}");
+						log::trace!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?}->{:?} \n {err:?}", _counterparty_state_id.state_id);
+						return
 					};
 				}
 				latest_height = block_number;
 			}
-		});
+		}.boxed());
 
-		let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-
-		Ok(Box::pin(stream))
+		Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(recv)))
 	}
 
 	async fn submit(&self, messages: Vec<Message>) -> Result<Vec<TxReceipt>, Error> {

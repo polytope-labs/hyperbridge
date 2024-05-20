@@ -49,7 +49,6 @@ impl AccumulateFees {
 	pub async fn accumulate_fees(&self, config_path: String, db: String) -> anyhow::Result<()> {
 		logging::animated_logs()?;
 		let config = HyperbridgeConfig::parse_conf(&config_path).await?;
-
 		let HyperbridgeConfig { hyperbridge: hyperbridge_config, .. } = config.clone();
 
 		let hyperbridge = tesseract_substrate::SubstrateClient::<KeccakSubstrateChain>::new(
@@ -504,6 +503,7 @@ mod tests {
 		let home = env!("HOME");
 		let path = format!("{home}/consensus.toml");
 		dbg!(&path);
+
 		let config = HyperbridgeConfig::parse_conf(&path).await?;
 		let hyperbridge =
 			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;

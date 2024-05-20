@@ -31,8 +31,8 @@ use ismp::{
 		ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
 	},
 	error::Error,
-	host::{IsmpHost, StateMachine},
-	messaging::{hash_request, hash_response, Proof},
+	host::StateMachine,
+	messaging::{hash_request, hash_response, Keccak256, Proof},
 	router::RequestResponse,
 };
 use trie_db::{DBValue, Trie, TrieDBBuilder};
@@ -67,7 +67,7 @@ pub fn decode_evm_state_proof(proof: &Proof) -> Result<EvmStateProof, Error> {
 	Ok(evm_state_proof)
 }
 
-pub fn req_res_to_key<H: IsmpHost>(item: RequestResponse) -> Vec<Vec<u8>> {
+pub fn req_res_to_key<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8>> {
 	let mut keys = vec![];
 	match item {
 		RequestResponse::Request(requests) =>
@@ -95,7 +95,7 @@ pub fn req_res_to_key<H: IsmpHost>(item: RequestResponse) -> Vec<Vec<u8>> {
 	keys
 }
 
-pub fn req_res_receipt_keys<H: IsmpHost>(item: RequestResponse) -> Vec<Vec<u8>> {
+pub fn req_res_receipt_keys<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8>> {
 	let mut keys = vec![];
 	match item {
 		RequestResponse::Request(requests) =>
@@ -132,7 +132,7 @@ pub(super) fn to_bytes_32(bytes: &[u8]) -> Result<[u8; 32], Error> {
 	Ok(array)
 }
 
-pub fn get_contract_storage_root<H: IsmpHost + Send + Sync>(
+pub fn get_contract_storage_root<H: Keccak256 + Send + Sync>(
 	contract_account_proof: Vec<Vec<u8>>,
 	contract_address: &[u8],
 	root: H256,
@@ -152,14 +152,14 @@ pub fn get_contract_storage_root<H: IsmpHost + Send + Sync>(
 	Ok(contract_account.storage_root.0.into())
 }
 
-pub fn derive_map_key<H: IsmpHost>(mut key: Vec<u8>, slot: u64) -> H256 {
+pub fn derive_map_key<H: Keccak256>(mut key: Vec<u8>, slot: u64) -> H256 {
 	let mut bytes = [0u8; 32];
 	U256::from(slot).to_big_endian(&mut bytes);
 	key.extend_from_slice(&bytes);
 	H::keccak256(H::keccak256(&key).0.as_slice())
 }
 
-pub fn derive_map_key_with_offset<H: IsmpHost>(mut key: Vec<u8>, slot: u64, offset: u64) -> H256 {
+pub fn derive_map_key_with_offset<H: Keccak256>(mut key: Vec<u8>, slot: u64, offset: u64) -> H256 {
 	let mut bytes = [0u8; 32];
 	U256::from(slot).to_big_endian(&mut bytes);
 	key.extend_from_slice(&bytes);
@@ -170,7 +170,7 @@ pub fn derive_map_key_with_offset<H: IsmpHost>(mut key: Vec<u8>, slot: u64, offs
 	H::keccak256(&bytes)
 }
 
-pub fn derive_unhashed_map_key<H: IsmpHost>(mut key: Vec<u8>, slot: u64) -> H256 {
+pub fn derive_unhashed_map_key<H: Keccak256>(mut key: Vec<u8>, slot: u64) -> H256 {
 	let mut bytes = [0u8; 32];
 	U256::from(slot).to_big_endian(&mut bytes);
 	key.extend_from_slice(&bytes);
@@ -184,7 +184,7 @@ pub fn add_off_set_to_map_key(key: &[u8], offset: u64) -> H256 {
 	H256(bytes)
 }
 
-pub fn derive_array_item_key<H: IsmpHost>(slot: u64, index: u64, offset: u64) -> Vec<u8> {
+pub fn derive_array_item_key<H: Keccak256>(slot: u64, index: u64, offset: u64) -> Vec<u8> {
 	let mut bytes = [0u8; 32];
 	U256::from(slot).to_big_endian(&mut bytes);
 
@@ -199,7 +199,7 @@ pub fn derive_array_item_key<H: IsmpHost>(slot: u64, index: u64, offset: u64) ->
 	H::keccak256(&pos).0.to_vec()
 }
 
-pub fn get_values_from_proof<H: IsmpHost + Send + Sync>(
+pub fn get_values_from_proof<H: Keccak256 + Send + Sync>(
 	keys: Vec<Vec<u8>>,
 	root: H256,
 	proof: Vec<Vec<u8>>,
@@ -215,7 +215,7 @@ pub fn get_values_from_proof<H: IsmpHost + Send + Sync>(
 	Ok(values)
 }
 
-pub fn get_value_from_proof<H: IsmpHost + Send + Sync>(
+pub fn get_value_from_proof<H: Keccak256 + Send + Sync>(
 	key: Vec<u8>,
 	root: H256,
 	proof: Vec<Vec<u8>>,

@@ -15,3 +15,4 @@ ismp-sync-committee = { workspace = true, default-features = true }
 anyhow = { workspace = true, default-features = true }
 serde = { workspace = true, default-features = true, features = ["derive"] }
 substrate-state-machine = { workspace = true, default-features = true }
+sp-core = { workspace = true }

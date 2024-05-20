@@ -26,7 +26,7 @@ sp-core = { workspace = true,  features = ["full_crypto"] }
 log = "0.4.19"
 ethers = { workspace = true, features = ["rustls"] }
 ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
-tokio = { workspace = true, features = ["macros", "sync"] }
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
 tokio-stream = { workspace = true }
 frame-support = { workspace = true, default-features = true  }
 reqwest-retry = "0.3.0"
@@ -49,6 +49,7 @@ tesseract-primitives = { workspace = true, default-features = true  }
 debounced = { git= "https://github.com/polytope-labs/debounced", branch = "main"}
 
 merkle-mountain-range = { workspace = true, default-features = true }
+ismp-testsuite = { workspace = true, default-features = true }
 reconnecting-jsonrpsee-ws-client = { workspace = true, default-features = true }
 jsonrpsee = { version = "0.21", features = ["ws-client"]}
 pallet-ismp-host-executive = { workspace = true, default-features = true }

@@ -532,9 +532,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     {
         // if we're on mainnet, then consensus state can only be initialized once.
         // and updated subsequently by either consensus proofs or cross-chain governance
-        require(
-            chainId() == block.chainid ? _consensusState.equals(new bytes(0)) : true, "Unauthorized action"
-        );
+        require(chainId() == block.chainid ? _consensusState.equals(new bytes(0)) : true, "Unauthorized action");
 
         _consensusState = state;
         _consensusUpdateTimestamp = block.timestamp;
@@ -545,7 +543,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Dispatch an incoming post request to destination module
+     * @dev Dispatch an incoming POST request to destination module
      * @param request - post request
      */
     function dispatchIncoming(PostRequest memory request, address relayer) external onlyHandler {
@@ -576,15 +574,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Dispatch an incoming post response to source module
+     * @dev Dispatch an incoming POST response to source module
      * @param response - post response
      */
     function dispatchIncoming(PostResponse memory response, address relayer) external onlyHandler {
         address origin = _bytesToAddress(response.request.from);
 
         // replay protection
-        bytes32 commitment = response.request.hash();
-        _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: response.hash()});
+        bytes32 requestCommitment = response.request.hash();
+        bytes32 responseCommitment = response.hash();
+        _responseReceipts[requestCommitment] =
+            ResponseReceipt({relayer: relayer, responseCommitment: responseCommitment});
 
         (bool success,) = address(origin).call(
             abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, IncomingPostResponse(response, relayer))
@@ -592,14 +592,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         if (!success) {
             // so that it can be retried
-            delete _responseReceipts[commitment];
+            delete _responseReceipts[requestCommitment];
             return;
         }
-        emit PostResponseHandled({commitment: commitment, relayer: relayer});
+        emit PostResponseHandled({commitment: responseCommitment, relayer: relayer});
     }
 
     /**
-     * @dev Dispatch an incoming get response to source module
+     * @dev Dispatch an incoming GET response to source module
      * @param response - get response
      */
     function dispatchIncoming(GetResponse memory response, address relayer) external onlyHandler {
@@ -620,16 +620,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
-        FeeMetadata memory meta = _requestCommitments[response.request.hash()];
-        if (meta.fee > 0) {
-            // pay the relayer their fee
-            IERC20(feeToken()).transfer(relayer, meta.fee);
-        }
         emit PostResponseHandled({commitment: commitment, relayer: relayer});
     }
 
     /**
-     * @dev Dispatch an incoming get timeout to the source module
+     * @dev Dispatch an incoming GET timeout to the source module
      * @param request - get request
      */
     function dispatchIncoming(GetRequest memory request, FeeMetadata memory meta, bytes32 commitment)
@@ -648,15 +643,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             return;
         }
 
-        if (meta.fee > 0) {
-            // refund relayer fee
-            IERC20(feeToken()).transfer(meta.sender, meta.fee);
-        }
         emit GetRequestTimeoutHandled({commitment: commitment, dest: request.dest});
     }
 
     /**
-     * @dev Dispatch an incoming post timeout to the source module
+     * @dev Dispatch an incoming POST timeout to the source module
      * @param request - post timeout
      */
     function dispatchIncoming(PostRequest memory request, FeeMetadata memory meta, bytes32 commitment)
@@ -684,7 +675,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Dispatch an incoming post response timeout to the source module
+     * @dev Dispatch an incoming POST response timeout to the source module
      * @param response - timed-out post response
      */
     function dispatchIncoming(PostResponse memory response, FeeMetadata memory meta, bytes32 commitment)
@@ -752,10 +743,14 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Dispatch a get request to the hyperbridge
+     * @dev Dispatch a GET request to the hyperbridge
      * @param get - get request
      */
     function dispatch(DispatchGet memory get) external returns (bytes32 commitment) {
+        if (get.fee > 0) {
+            IERC20(feeToken()).transferFrom(_msgSender(), address(this), get.fee);
+        }
+
         // adjust the timeout
         uint64 timeout =
             get.timeout == 0 ? 0 : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, get.timeout));
@@ -772,7 +767,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
         // make the commitment
         commitment = request.hash();
-        _requestCommitments[commitment] = FeeMetadata({sender: get.sender, fee: 0});
+        _requestCommitments[commitment] = FeeMetadata({sender: get.sender, fee: get.fee});
         emit GetRequestEvent(
             request.source,
             request.dest,
@@ -785,7 +780,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     }
 
     /**
-     * @dev Dispatch a response to the hyperbridge
+     * @dev Dispatch a POST response to the hyperbridge
      * @param post - post response
      */
     function dispatch(DispatchPostResponse memory post) external returns (bytes32 commitment) {
@@ -800,6 +795,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // check that request has not already been responed to
         require(!_responded[receipt], "EvmHost: Duplicate Response");
 
+        // collect fees
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
         IERC20(feeToken()).transferFrom(_msgSender(), address(this), fee);
 
@@ -807,6 +803,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint64 timeout = post.timeout == 0
             ? 0
             : uint64(this.timestamp()) + uint64(Math.max(_hostParams.defaultTimeout, post.timeout));
+
         PostResponse memory response =
             PostResponse({request: post.request, response: post.response, timeoutTimestamp: timeout});
         commitment = response.hash();

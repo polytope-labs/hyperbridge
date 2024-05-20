@@ -17,10 +17,12 @@
 
 use anyhow::{anyhow, Context};
 use codec::Encode;
-use sp_core::{sr25519, Pair};
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
-	ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+	ext::{
+		sp_core::{crypto, sr25519, Pair},
+		sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+	},
 	rpc::types::DryRunResult,
 	tx::{Signer, TxPayload},
 	Error, Metadata, OnlineClient,
@@ -84,8 +86,7 @@ pub struct InMemorySigner<T: subxt::Config> {
 impl<T: subxt::Config> InMemorySigner<T>
 where
 	T::Signature: From<MultiSignature> + Send + Sync,
-	T::AccountId:
-		From<sp_core::crypto::AccountId32> + Into<T::Address> + Clone + 'static + Send + Sync,
+	T::AccountId: From<crypto::AccountId32> + Into<T::Address> + Clone + 'static + Send + Sync,
 {
 	pub fn new(pair: sr25519::Pair) -> Self {
 		InMemorySigner {

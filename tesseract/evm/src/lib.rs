@@ -21,7 +21,7 @@ use evm_common::presets::{
 
 use ismp_solidity_abi::shared_types::{StateCommitment, StateMachineHeight};
 use serde::{Deserialize, Serialize};
-use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
+use sp_core::{bytes::from_hex, keccak_256, traits::SpawnEssentialNamed, Pair, H160};
 use std::sync::Arc;
 use tesseract_primitives::IsmpProvider;
 
@@ -64,8 +64,11 @@ pub struct EvmConfig {
 
 impl EvmConfig {
 	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<EvmClient> {
-		let client = EvmClient::new(self).await?;
+	pub async fn into_client(
+		self,
+		spawn_handle: Arc<dyn SpawnEssentialNamed>,
+	) -> anyhow::Result<EvmClient> {
+		let client = EvmClient::new(self, spawn_handle).await?;
 
 		Ok(client)
 	}
@@ -111,10 +114,15 @@ pub struct EvmClient {
 	config: EvmConfig,
 	/// EVM chain Id.
 	pub chain_id: u64,
+	/// Spawn Handle
+	spawn_handle: Arc<dyn sp_core::traits::SpawnEssentialNamed>,
 }
 
 impl EvmClient {
-	pub async fn new(config: EvmConfig) -> Result<Self, anyhow::Error> {
+	pub async fn new(
+		config: EvmConfig,
+		spawn_handle: Arc<dyn SpawnEssentialNamed>,
+	) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
 		let bytes = match from_hex(config.signer.as_str()) {
 			Ok(bytes) => bytes,
@@ -152,6 +160,7 @@ impl EvmClient {
 			initial_height: latest_height,
 			config: config_clone,
 			chain_id,
+			spawn_handle,
 		})
 	}
 
@@ -268,6 +277,7 @@ impl Clone for EvmClient {
 			initial_height: self.initial_height,
 			config: self.config.clone(),
 			chain_id: self.chain_id.clone(),
+			spawn_handle: self.spawn_handle.clone(),
 		}
 	}
 }

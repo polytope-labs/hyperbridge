@@ -8,6 +8,7 @@ use ismp::{
 	messaging::{hash_request, Message, Proof, RequestMessage},
 	router::Request,
 };
+use sc_service::TaskManager;
 use sp_core::U256;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Duration};
 use tesseract_primitives::{
@@ -49,15 +50,22 @@ impl AccumulateFees {
 	pub async fn accumulate_fees(&self, config_path: String, db: String) -> anyhow::Result<()> {
 		logging::animated_logs()?;
 		let config = HyperbridgeConfig::parse_conf(&config_path).await?;
-
+		let tokio_handle = tokio::runtime::Handle::current();
+		let task_manager = TaskManager::new(tokio_handle, None)?;
 		let HyperbridgeConfig { hyperbridge: hyperbridge_config, .. } = config.clone();
 
 		let hyperbridge = tesseract_substrate::SubstrateClient::<KeccakSubstrateChain>::new(
 			hyperbridge_config.clone(),
+			Arc::new(task_manager.spawn_essential_handle()),
 		)
 		.await?;
 
-		let clients = create_client_map(config, Arc::new(hyperbridge.clone())).await?;
+		let clients = create_client_map(
+			config,
+			Arc::new(hyperbridge.clone()),
+			Arc::new(task_manager.spawn_essential_handle()),
+		)
+		.await?;
 
 		// early return if withdrawing
 		if self.withdraw {
@@ -504,12 +512,22 @@ mod tests {
 		let home = env!("HOME");
 		let path = format!("{home}/consensus.toml");
 		dbg!(&path);
+		let mut task_manager = TaskManager::new(tokio_handle, None)?;
+
 		let config = HyperbridgeConfig::parse_conf(&path).await?;
-		let hyperbridge =
-			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
+		let hyperbridge = SubstrateClient::<KeccakSubstrateChain>::new(
+			config.hyperbridge.clone(),
+			Arc::new(task_manager.spawn_essential_handle()),
+		)
+		.await?;
 
 		tracing::info!("Creating clients");
-		let clients = create_client_map(config.clone(), Arc::new(hyperbridge.clone())).await?;
+		let clients = create_client_map(
+			config.clone(),
+			Arc::new(hyperbridge.clone()),
+			Arc::new(task_manager.spawn_essential_handle()),
+		)
+		.await?;
 		tracing::info!("Created clients");
 		tracing::info!("Hyperbridge connected");
 		let latest_height: u64 = hyperbridge

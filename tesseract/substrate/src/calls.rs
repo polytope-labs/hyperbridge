@@ -19,14 +19,17 @@ use pallet_ismp_relayer::{
 };
 use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
-	Pair, U256,
+	U256,
 };
 use std::{collections::BTreeMap, sync::Arc};
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
 	},
-	ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+	ext::{
+		sp_core::{crypto, Pair},
+		sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+	},
 	rpc_params,
 	tx::TxPayload,
 	utils::AccountId32,
@@ -50,13 +53,8 @@ where
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
-	C::AccountId: From<sp_core::crypto::AccountId32>
-		+ Into<C::Address>
-		+ Encode
-		+ Clone
-		+ 'static
-		+ Send
-		+ Sync,
+	C::AccountId:
+		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 {
 	pub async fn create_consensus_state(
@@ -98,13 +96,8 @@ where
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
-	C::AccountId: From<sp_core::crypto::AccountId32>
-		+ Into<C::Address>
-		+ Encode
-		+ Clone
-		+ 'static
-		+ Send
-		+ Sync,
+	C::AccountId:
+		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 {
 	async fn available_amount(
@@ -125,7 +118,7 @@ where
 		let compressed_call_len = zstd_safe::compress(&mut buffer[..], &encoded_call, 3)
 			.map_err(|_| anyhow!("Call compression failed"))?;
 		// If compression saving is less than 15% submit the uncompressed call
-		if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len) < 15usize
+		if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len) < 20usize
 		{
 			send_unsigned_extrinsic(&self.client, extrinsic, true).await?;
 		} else {

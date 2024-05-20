@@ -22,3 +22,4 @@ pallet-ismp = { workspace = true, default-features = true }
 transaction-fees = { workspace = true }
 tesseract-primitives = { workspace = true }
 ismp-solidity-abi = { workspace = true, default-features = true }
+sc-service = { workspace = true }

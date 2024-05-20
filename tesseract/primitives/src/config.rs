@@ -23,16 +23,6 @@ use serde::{Deserialize, Serialize};
 pub struct RelayerConfig {
 	/// Modules we're interested in relaying
 	pub module_filter: Option<Vec<String>>,
-	/// Relay consensus messages
-	pub consensus: Option<bool>,
-	/// Consensus stream timeout
-	pub consensus_stream_timeout: Option<u64>,
-	/// Relay messages
-	pub messaging: Option<bool>,
-	/// Fisherman protocol
-	pub fisherman: Option<bool>,
-	/// Challenege period to be set on consensus states
-	pub challenge_period: Option<u64>,
 	/// Minimum profit percentage. e.g. 5 -> 5%, 10 -> 10%
 	pub minimum_profit_percentage: u32,
 	/// How frequently to initiate withdrawals in seconds.

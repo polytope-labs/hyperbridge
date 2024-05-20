@@ -26,7 +26,7 @@ sp-core = { workspace = true,  features = ["full_crypto"] }
 log = "0.4.19"
 ethers = { workspace = true, features = ["rustls"] }
 ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
-tokio = { workspace = true, features = ["macros", "sync"] }
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
 tokio-stream = { workspace = true }
 frame-support = { workspace = true, default-features = true  }
 reqwest-retry = "0.3.0"

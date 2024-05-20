@@ -19,7 +19,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Error};
 use codec::{Decode, Encode};
-use futures::stream::FuturesOrdered;
+use futures::{stream::FuturesOrdered, FutureExt};
 use hex_literal::hex;
 use ismp::{
 	consensus::{
@@ -38,21 +38,24 @@ use pallet_ismp::{
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::Signature;
 use pallet_ismp_rpc::BlockNumberOrHash;
-use sp_core::{
+use subxt::ext::sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
 	Pair, H160, H256, U256,
 };
+
 use substrate_state_machine::{StateMachineProof, SubstrateStateProof};
 use subxt::{
 	config::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
 	},
-	ext::sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+	ext::{
+		sp_core::crypto::AccountId32,
+		sp_runtime::{traits::IdentifyAccount, MultiSignature, MultiSigner},
+	},
 	rpc::types::DryRunResult,
 	rpc_params,
 	tx::TxPayload,
 };
-use tokio::time;
 
 use tesseract_primitives::{
 	BoxStream, EstimateGasReturnParams, IsmpProvider, Query, StateMachineUpdated,
@@ -75,7 +78,7 @@ where
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
-	C::AccountId: From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + Send + Sync,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 {
 	async fn query_consensus_state(
@@ -357,15 +360,14 @@ where
 		&self,
 		counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error> {
-		use futures::StreamExt;
-		let interval = time::interval(Duration::from_secs(10));
 		let client = self.clone();
-		let (tx, recv) = tokio::sync::mpsc::channel(64);
-		tokio::spawn(async move {
-			let mut interval_stream = tokio_stream::wrappers::IntervalStream::new(interval);
+		let (tx, recv) = tokio::sync::mpsc::channel(256);
+		tokio::task::spawn(async move {
 			let mut latest_height = client.initial_height;
 			let state_machine = client.state_machine;
-			while let Some(_) = interval_stream.next().await {
+			loop {
+				tokio::time::sleep(Duration::from_secs(10)).await;
+				log::info!("Entering {name}");
 				let header = match client.client.rpc().finalized_head().await {
 					Ok(hash) => match client.client.rpc().header(Some(hash)).await {
 						Ok(Some(header)) => header,
@@ -432,7 +434,8 @@ where
 				match event {
 					Some(event) => {
 						if let Err(err) = tx.send(Ok(event.clone())).await {
-							log::error!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} \n {err:?}");
+							log::trace!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
+							return
 						};
 					},
 					None => {},
@@ -440,11 +443,9 @@ where
 
 				latest_height = header.number().into();
 			}
-		});
+		}.boxed());
 
-		let stream = tokio_stream::wrappers::ReceiverStream::new(recv);
-
-		Ok(Box::pin(stream))
+		Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(recv)))
 	}
 
 	async fn submit(&self, messages: Vec<Message>) -> Result<Vec<TxReceipt>, anyhow::Error> {
@@ -466,7 +467,7 @@ where
 				.map_err(|_| anyhow!("Call compression failed"))?;
 			// If compression saving is less than 15% submit the uncompressed call
 			if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len) <
-				15usize
+				20usize
 			{
 				log::trace!(target: "tesseract", "Submitting uncompressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))

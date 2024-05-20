@@ -125,22 +125,22 @@ delivery_endpoints = [
 # Here you'll declare a new chain entry for every chain you want to support.
 # eg ethereum
 [ethereum]
-# configuration type can be "evm" or "substrate"
+# configuration type can be either "evm" or "substrate"
 type = "evm"
 # State machine identifier for the this evm chain. The possible values:
-# - { Ethereum = "ExecutionLayer" } # Ethereum L1
-# - { Ethereum = "Arbitrum" }
-# - { Ethereum = "Optimism" }
-# - { Ethereum = "Base" }
-# - "Bsc" # Binance smart chain
-state_machine = "Bsc"
+# state_machine = { Ethereum = "ExecutionLayer" } # Ethereum L1
+# state_machine = { Ethereum = "Arbitrum" }
+# state_machine = { Ethereum = "Optimism" }
+# state_machine = { Ethereum = "Base" }
+# state_machine = "Bsc" # Binance smart chain
+state_machine = { Ethereum = "ExecutionLayer" }
 # http(s) rpc urls for evm based chains
 # Multiple rpc endpoints supported for increased reliability
 rpc_urls = ["http://127.0.0.1:8545", ""]
 # The consensus state identifier for this chain on hyperbridge.
 # For Ethereum and it's L2s this will be "ETH0", for BSC this will be "BSC0".
 consensus_state_id = "ETH0"
-# etherscan api key for querying the state machine's native token price.
+# Etherscan api key for querying the state machine's native token price.
 # Do not that ethereum and all it's L2's use ETH as the native token
 # So they can all share the same key gotten from etherscan.
 #

@@ -74,12 +74,12 @@ query StateMachineUpdatesQuery($stateMachineId: String!, $chain: SupportedChain!
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub enum SupportedChain {
-	ETHEREUM_SEPOLIA,
-	BASE_SEPOLIA,
-	OPTIMISM_SEPOLIA,
-	ARBITRUM_SEPOLIA,
-	BSC_CHAPEL,
-	HYPERBRIDGE_GARGANTUA,
+	ETHE,
+	BASE,
+	OPTI,
+	ARBI,
+	BSC,
+	HYPERBRIDGE,
 	Other(String),
 }
 
@@ -199,7 +199,7 @@ pub async fn query_request_status_from_indexer(
 			RequestStatus::SOURCE => {
 				// Try and fetch state machine update for source chain on hyperbridge
 				let vars = StateMachineUpdateVariables {
-					chain: SupportedChain::HYPERBRIDGE_GARGANTUA,
+					chain: SupportedChain::HYPERBRIDGE,
 					state_machine_id: request.source_chain().to_string(),
 					height: block_number.parse::<u64>()?,
 				};
@@ -234,15 +234,13 @@ pub async fn query_request_status_from_indexer(
 					chain: {
 						match request.dest_chain() {
 							StateMachine::Ethereum(Ethereum::ExecutionLayer) =>
-								SupportedChain::ETHEREUM_SEPOLIA,
-							StateMachine::Ethereum(Ethereum::Base) => SupportedChain::BASE_SEPOLIA,
-							StateMachine::Ethereum(Ethereum::Arbitrum) =>
-								SupportedChain::ARBITRUM_SEPOLIA,
-							StateMachine::Ethereum(Ethereum::Optimism) =>
-								SupportedChain::OPTIMISM_SEPOLIA,
+								SupportedChain::ETHE,
+							StateMachine::Ethereum(Ethereum::Base) => SupportedChain::BASE,
+							StateMachine::Ethereum(Ethereum::Arbitrum) => SupportedChain::ARBI,
+							StateMachine::Ethereum(Ethereum::Optimism) => SupportedChain::OPTI,
 							StateMachine::Polkadot(3367) | StateMachine::Kusama(4009) =>
-								SupportedChain::HYPERBRIDGE_GARGANTUA,
-							StateMachine::Bsc => SupportedChain::BSC_CHAPEL,
+								SupportedChain::HYPERBRIDGE,
+							StateMachine::Bsc => SupportedChain::BSC,
 							_ => Err(anyhow!("Unsupported chain for indexer"))?,
 						}
 					},

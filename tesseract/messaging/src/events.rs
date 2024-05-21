@@ -246,6 +246,7 @@ pub async fn translate_events_to_messages(
 			config.minimum_profit_percentage,
 			coprocessor,
 			&client_map,
+			config.deliver_failed.unwrap_or_default(),
 		)
 		.await?;
 
@@ -278,6 +279,7 @@ pub async fn translate_events_to_messages(
 			config.minimum_profit_percentage,
 			coprocessor,
 			&client_map,
+			config.deliver_failed.unwrap_or_default(),
 		)
 		.await?;
 
@@ -401,6 +403,7 @@ pub async fn return_successful_queries(
 	minimum_profit_percentage: u32,
 	coprocessor: StateMachine,
 	client_map: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+	deliver_failed: bool,
 ) -> Result<ProfitabilityResult, anyhow::Error> {
 	if messages.is_empty() {
 		return Ok(Default::default());
@@ -433,7 +436,7 @@ pub async fn return_successful_queries(
 				let sink = sink.clone();
 				let client_map = client_map.clone();
 				async move {
-					if !est.successful_execution {
+					if !est.successful_execution && !deliver_failed {
 						tracing::info!("Skipping Failed tx");
 						return Ok((None, None))
 					}
@@ -500,7 +503,14 @@ fn is_allowed_module(config: &RelayerConfig, module: &[u8]) -> bool {
 	match config.module_filter {
 		Some(ref filters) =>
 			if !filters.is_empty() {
-				return filters.iter().find(|filter| *filter == module).is_some();
+				return filters
+					.iter()
+					.find(|filter| {
+						hex::decode(filter.replace("0x", ""))
+							.expect("Module identifier should be valid hex") ==
+							module
+					})
+					.is_some();
 			},
 		// if no filter is provided, allow all modules
 		_ => {},

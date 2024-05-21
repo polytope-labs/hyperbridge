@@ -24,7 +24,7 @@ wasm-bindgen-futures = "0.4.40"
 codec = { package = "parity-scale-codec", version = "3.1.3", default-features = false }
 futures = "0.3.30"
 wasm-streams = "0.4.0"
-tokio = { version = "1.35.1", features = ["macros"]  }
+tokio = { workspace = true, features = ["macros"]  }
 js-sys = "0.3.68"
 web-sys = "0.3.68"
 wasm-timer = { package = "fluvio-wasm-timer", version = "0.2.5" }
@@ -69,4 +69,4 @@ hex = { version = "0.4.3", default-features = false }
 ethers = { workspace = true, features = ["ws"], default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread"]  }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"]  }

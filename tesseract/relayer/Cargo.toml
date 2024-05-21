@@ -1,6 +1,6 @@
 [package]
 name = "tesseract"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 description = "Chain agnostic relayer implementation for Hyperbridge"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -37,11 +37,12 @@ json = { version = "1.0.112", package = "serde_json" }
 toml = "0.7.4"
 async-trait = "0.1.77"
 clap = { version = "4.3.5", features = ["derive"] }
-tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
+tokio = { workspace = true, features = ["full"] }
 rust_socketio = { version = "0.6.0", features = ["async"] }
 tracing-indicatif = "0.3.6"
 tracing = "0.1.40"
 console-subscriber = { version = "0.2.0", optional = true }
+sc-service = { workspace = true }
 
 [dev-dependencies]
 divide_range = "0.1.1"

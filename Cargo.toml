@@ -216,6 +216,8 @@ log = { version = "0.4.21", default-features = false }
 anyhow = {version = "1.0.71", default-features = false }
 alloy-rlp = { version = "0.3.2", default-features = false }
 alloy-rlp-derive = "0.3.2"
+alloy-sol-macro = "0.7.4"
+alloy-sol-types = { version = "0.7.4", default-features = false }
 ethabi = { version = "18.0.0", features = ["rlp", "parity-codec"], default-features = false }
 orml-xcm-support = { version = "=0.7.0", default-features = false }
 orml-traits = { version = "=0.7.0", default-features = false }
@@ -223,6 +225,8 @@ primitive-types = { version = "0.12.1", default-features = false }
 sc-simnode = { version = "1.6.3" }
 simnode-runtime-api = { version = "1.6.0", default-features = false }
 subxt = { version = "0.30.1", default-features = false }
+tokio = { version = "1.37.0" }
+tokio-stream = { version = "0.1.15" }
 
 # local crates
 ismp = { version = "0.1.2", path = "./modules/ismp/core", default-features = false }

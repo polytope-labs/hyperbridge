@@ -21,11 +21,11 @@ use codec::{Decode, Encode};
 use ethabi::ethereum_types::H256;
 use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
-use ismp::host::IsmpHost;
+use ismp::messaging::Keccak256;
 
-pub struct KeccakHasher<H: IsmpHost>(core::marker::PhantomData<H>);
+pub struct KeccakHasher<H: Keccak256>(core::marker::PhantomData<H>);
 
-impl<H: IsmpHost + Send + Sync> Hasher for KeccakHasher<H> {
+impl<H: Keccak256 + Send + Sync> Hasher for KeccakHasher<H> {
 	type Out = H256;
 	type StdHasher = Hash256StdHasher;
 	const LENGTH: usize = 32;

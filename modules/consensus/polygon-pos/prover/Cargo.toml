@@ -17,7 +17,7 @@ ethers = { workspace = true, features = ["ws", "default"] }
 geth-primitives = { path = "../../geth-primitives", default-features = false }
 
 [dev-dependencies]
-tokio = { version = "1.32.0", features = ["macros"] }
+tokio = { workspace = true, features = ["macros"] }
 dotenv = "0.15.0"
 ismp = { path = "../../../ismp/core" }
 sp-core = { workspace = true, default-features = true }

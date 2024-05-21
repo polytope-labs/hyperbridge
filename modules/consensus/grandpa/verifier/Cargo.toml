@@ -35,7 +35,7 @@ futures = "0.3.24"
 hex = "0.4.3"
 env_logger = "0.9.0"
 log = "0.4.17"
-tokio = { version = "1.20.1", features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 hex-literal = "0.3.4"
 grandpa-prover = { package = "ismp-grandpa-prover", path = "../prover" }
 ismp = { git = "https://github.com/polytope-labs/ismp-rs", branch = "main"}

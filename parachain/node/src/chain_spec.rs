@@ -239,7 +239,7 @@ fn testnet_genesis(
 	let sibling = match id {
 		2000 => 2001u32,
 		2001 => 2000u32,
-		_ => unimplemented!(),
+		_ => 1000, // default to assethub
 	};
 
 	serde_json::json!({

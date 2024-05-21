@@ -8,7 +8,7 @@ import {ERC6160Ext20} from "ERC6160/tokens/ERC6160Ext20.sol";
 import {PingModule} from "../examples/PingModule.sol";
 
 contract DeployScript is Script {
-    bytes32 public salt = keccak256(bytes("gargantua-v1000000"));
+    bytes32 private salt = keccak256(bytes(vm.envString("VERSION")));
 
     address public SEPOLIA_HOST = vm.envAddress("SEPOLIA_HOST");
     address public ARB_SEPOLIA_HOST = vm.envAddress("ARB_SEPOLIA_HOST");

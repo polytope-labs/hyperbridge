@@ -55,10 +55,6 @@ where
 		let mut last_commitment_height = None;
 		for commitment_height in commitment_heights.iter() {
 			let state_height = StateMachineHeight { id, height: commitment_height.height };
-			// If a state machine is frozen, we skip it
-			if host.is_state_machine_frozen(id).is_err() {
-				continue;
-			}
 
 			// Only allow heights greater than latest height
 			if previous_latest_height > commitment_height.height {

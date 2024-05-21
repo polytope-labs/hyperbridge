@@ -12,6 +12,17 @@ description: The ISMP Request specification
 
 ISMP is a request-response protocol, modeled after HTTP. A _module_ on one state machine initiates a request which is to be executed by a counterpart _module_ on a different state machine. After processing the request, the recipient module may **optionally** generate a response, which is sent back to the original sender.
 
+<figure>
+  <img src="/request.commitment.svg" alt="The flow of an outgoing request" />
+  <figcaption>The flow of an outgoing request</figcaption>
+</figure>
+<br />
+<figure>
+  <img src="/incoming.request.svg" alt="The flow of an incoming request" />
+  <figcaption>The flow of an incoming request</figcaption>
+</figure>
+<br />
+
 ISMP requests can be either POST or GET, similar to HTTP. A POST request indicates an intention to execute a transaction on the counterpart blockchain and carries an opaque payload intended for the destination ISMP module on the counterpart state machine. Conversely, a GET request aims to retrieve the values for the provided `keys` from the storage of a counterpart blockchain. Unlike a POST request, which must be delivered to the counterpart for processing, a GET request can be processed offchain by any interested party. Requests can also [time-out](/protocol/timeouts).
 
 ```rust

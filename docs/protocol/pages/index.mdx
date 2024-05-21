@@ -1,0 +1,81 @@
+---
+title: Hyperbridge
+description: Hyperbridge Protocol Specification
+---
+
+# Hyperbridge Protocol
+
+**Secure interoperability** requires the verification of consensus proofs, consensus fault proofs, state proofs and state transition validity proofs. Blockchains that want to securely communicate with each other must **perform these operations onchain**, so that they can be convinced of the finalized (irreversible) state of their counterparty.
+
+These operations are very expensive and do not scale when we especially want to facilitate the communication of multiple blockchains. This neccessitates the coprocessor model where computations must be performed offchain and reported back onchain with cryptographic proofs of the correct execution.
+
+Hyperbrige is an instance of such a coprocessor. More formally, it is a [crypto-economic coprocessor](https://blog.polytope.technology/cryptoeconomic-coprocessors). These types of coprocessors are simply put, blockchains that leverage their [consensus proofs](https://research.polytope.technology/consensus-proofs) to attest to the correctness of the **computations performed onchain**. As a result, they are more decentralized, fault-tolerant, uncensorable and most importantly, unstoppable.
+
+Hyperbridge is a hyper-scalable coprocessor for **cryptographically secure** interoperability. It achieves this by aggregrating the finalized states of all of it's connected chains on it's chain. Using only a single consensus proof to any chain to prove the finality of the aggregated state. Hyperbridge is capable of scaling trust-free interoperability to all blockchains.
+
+This document has been broken down into multiple sections to aid it's digestibility.
+
+## Cryptographic Primitives
+
+These are the cryptographic primitives used in within the various sub-systems in Hyperbridge. These primitives are used to produce and verify the correctness of consensus proofs, consensus fault proofs, state proofs and state transition validity proofs. The primitives are:
+
+- [Hash Functions](/consensus-proofs)
+- [Merkle Trees](/consensus-proofs)
+  - [Merkle Mountain Ranges](/state-proofs)
+  - [Merkle Patricia Tries](/state-proofs)
+- [Abstract Algebra](/state-proofs)
+- [Elliptic Curves](/state-proofs)
+- [BLS Signatures](/state-proofs)
+- [Polynomial Commitment Schemes](/state-proofs)
+- [Verkle Tries](/state-proofs)
+
+## Interoperability Proofs
+
+Interoperability proofs are the cryptographic proofs that attest to the validity of cross-chain messages. These consists of **consensus proofs** which convinces a blockchain of the finalized chain of it's counterparty. **State proofs** which attest to some portions of the **finalized state** of a counterparty chain. Combined, these proofs can be used to mediate secure communication between blockchains.
+
+- [Consensus Proofs](/consensus-proofs)
+- [State Machine Proofs](/consensus-proofs)
+
+## Interoperable State Machine Protocol
+
+The Interoperable State Machine Protocol (ISMP) is a simplified protocol for cross-chain interoperability. The goal of ISMP is to provide secure cross-chain messaging and state reads. The protocol is designed to be simple and easy to implement, while still providing the necessary security guarantees.
+
+- [Host Interface](/consensus-proofs)
+- [Consensus Client](/consensus-proofs)
+- [State Machine Client](/state-proofs)
+- [Router](/state-proofs)
+- [Dispatcher](/state-proofs)
+- [Requests](/state-proofs)
+- [Responses](/state-proofs)
+- [Timeouts](/state-proofs)
+- [Proxies](/state-proofs)
+
+ ## Consensus Algorithms
+
+  These are the algorithms that are used to verify the consensus mechanism for a given chain. Different chains can have different consensus mechanisms, and so different algorithms are needed to verify the correctness of each mechanism. The consensus verification algorithms implemented in Hyperbridge are:
+
+  - [BEEFY (Polkadot)](/consensus-proofs)
+  - [Sync Committee (Ethereum)](/consensus-proofs)
+  - [Casper FFG (Ethereum)](/state-proofs)
+  - [Parlia (Bsc)](/state-proofs)
+
+  ## State Machine Algorithms
+
+  These are the algorithms that are used to verify the state commitments for a given state machine. In this context, these are the state commitments posted to it's consensus layer. Where the hyperbridge protocol must leverage the state trie scheme for it's consensus layer to verify the finalized state of a state machine. The state machine verification algorithms implemented in Hyperbridge are:
+
+  - [Parachain](/state-proofs)
+  - [Fault Dispute Games (Op Stack)](/state-proofs)
+  - [L2 Oracle (Op Stack)](/state-proofs)
+  - [Orbit (Arbitrum)](/state-proofs)
+
+
+  ## Runtime Modules
+
+These are the runtime modules that are included in the Hyperbridge blockchain. These modules are responsible for implementing the various components of the protocol, such as the consensus and state machine verifiers, cross-chain governance, relayer incentivization, and other components. The runtime modules included in Hyperbridge are:
+
+  - [ISMP](/consensus-proofs)
+  - [ISMP Parachain](/consensus-proofs)
+  - [ISMP Sync Committee](/state-proofs)
+  - [Fishermen](/state-proofs)
+  - [Host Executive](/state-proofs)
+  - [Relayer](/state-proofs)

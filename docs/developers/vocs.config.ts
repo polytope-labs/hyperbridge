@@ -61,55 +61,7 @@ export default defineConfig({
     {
       text: "Introduction",
       link: "/",
-    },
-    {
-      text: "Protocol",
-      collapsed: true,
-      items: [
-        {
-          text: "ISMP",
-          link: "/protocol/ismp",
-        },
-        {
-          text: "Host Interface",
-          link: "/protocol/host",
-        },
-        {
-          text: "Consensus Client",
-          link: "/protocol/consensus",
-        },
-        {
-          text: "State Machine Client",
-          link: "/protocol/state-machine",
-        },
-        {
-          text: "Router",
-          link: "/protocol/router",
-        },
-        {
-          text: "Dispatcher",
-          link: "/protocol/dispatcher",
-        },
-        {
-          text: "Requests",
-          link: "/protocol/requests",
-        },
-
-        {
-          text: "Responses",
-          link: "/protocol/responses",
-        },
-
-        {
-          text: "Timeouts",
-          link: "/protocol/timeouts",
-        },
-
-        {
-          text: "Proxies",
-          link: "/protocol/proxies",
-        },
-      ],
+      items: [],
     },
     {
       text: "Solidity Sdk",
@@ -136,40 +88,40 @@ export default defineConfig({
         // },
       ],
     },
-    // {
-    //   text: "Polkadot Sdk",
-    //   collapsed: true,
-    //   items: [
-    //     {
-    //       text: "Integration - Parachains",
-    //       link: "/polkadot/parachains",
-    //     },
-    //     {
-    //       text: "Integration - Solochains",
-    //       link: "/polkadot/solochains",
-    //     },
-    //     {
-    //       text: "ISMP Modules",
-    //       link: "/polkadot/modules",
-    //     },
-    //     {
-    //       text: "RPC Interface",
-    //       link: "/polkadot/rpc",
-    //     },
-    //     {
-    //       text: "Protocol Fees",
-    //       link: "/polkadot/fees",
-    //     },
-    //     {
-    //       text: "Message delivery",
-    //       link: "/polkadot/delivery",
-    //     },
-    //     {
-    //       text: "Supported Networks",
-    //       link: "/polkadot/networks",
-    //     },
-    //   ],
-    // },
+    {
+      text: "Polkadot Sdk",
+      collapsed: true,
+      items: [
+        {
+          text: "Integration - Parachains",
+          link: "/polkadot/parachains",
+        },
+        {
+          text: "Integration - Solochains",
+          link: "/polkadot/solochains",
+        },
+        {
+          text: "ISMP Modules",
+          link: "/polkadot/modules",
+        },
+        {
+          text: "RPC Interface",
+          link: "/polkadot/rpc",
+        },
+        {
+          text: "Protocol Fees",
+          link: "/polkadot/fees",
+        },
+        {
+          text: "Message delivery",
+          link: "/polkadot/delivery",
+        },
+        {
+          text: "Supported Networks",
+          link: "/polkadot/networks",
+        },
+      ],
+    },
     {
       text: "Network Operators",
       collapsed: true,

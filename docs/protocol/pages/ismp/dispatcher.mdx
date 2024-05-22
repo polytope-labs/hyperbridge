@@ -20,9 +20,6 @@ pub struct DispatchPost {
     pub timeout_timestamp: u64,
     /// Encoded Request.
     pub data: Vec<u8>,
-    /// Gas limit for executing request on destination chain
-    /// This should be zero if the destination module is not a contract
-    pub gas_limit: u64,
 }
 
 /// Simplified GET request, intended to be used for sending outgoing requests
@@ -37,9 +34,6 @@ pub struct DispatchGet {
     pub height: u64,
     /// Host timestamp at which this request expires in seconds
     pub timeout_timestamp: u64,
-    /// Gas limit for executing the response to this get request
-    /// This value should be zero if the dispatching module is not a contract
-    pub gas_limit: u64,
 }
 
 /// Simplified request, intended to be used for sending outgoing requests
@@ -58,11 +52,7 @@ pub struct PostResponse {
     pub response: Vec<u8>,
     /// Timestamp at which this response expires in seconds.
     pub timeout_timestamp: u64,
-    /// Gas limit for executing the response on destination, only used for solidity modules.
-    pub gas_limit: u64,
-}
-
-pub trait IsmpDispatcher {
+}pub trait IsmpDispatcher {
     /// This function should accept requests from modules and commit them to the state
     /// It should emit the `Request` event after a successful dispatch
     fn dispatch_request(&self, request: DispatchRequest) -> Result<(), Error>;

@@ -3,45 +3,48 @@ title: Merkle Mountain Range Trees
 description: Merkle mountain ranges$^{[1]}$ are an improvement over conventional merkle trees for growing, potentially unbounded lists.
 ---
 
+import Algorithm from '../../../components/Algorithm';
+
 <link
   href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
   rel="stylesheet"
 />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pseudocode@2.4.1/build/pseudocode.min.css" />
 
-# Merkle Mountain Range Multi Proofs
+# Merkle Mountain Ranges
 
 Merkle mountain ranges$^{[1]}$ are an improvement over conventional merkle trees for growing, potentially unbounded lists. Where conventional merkle tree constructions over growing lists prove very inefficient to compute, as all nodes in the tree must be recomputed. Merkle mountain ranges amortise this cost by growing subtrees incrementally and merging subtrees at the same height, rather than growing the full tree.
 
-![You can observe how the tree grows by looking at the order of the nodes.](/mmr-01.svg)
 
-You can observe how the tree grows by looking at the order of the nodes.
+<figure>
+  <img src="/mmr-01.svg" alt="MMR tree" />
+  <figcaption style={{ textAlign: "center" }}>You can observe how the tree grows by looking at the order of the nodes.</figcaption>
+</figure>
+
+## Properties
 
 Merkle mountain ranges, true to it’s name, are a type of merkle tree that is composed of perfectly balanced merkle trees (ie each sub tree has leaves = a power of 2) such that it does indeed look like a mountain range. This construction provides a few benefits:
 
 - Smaller proof sizes when compared to conventional merkle trees for very large sets of data (especially for more recent leaves in the tree).
-- Better insertion complexity, where the insertion complexity of conventional merkle trees is $n?$.
+- Better insertion complexity.
 
-First we define the *termial function $n?$ $^{[2]}$* as the sum:
+First we define the _termial function $n?$ $^{[2]}$_ as the sum:
 
-$\displaystyle{ n?  = 1 + 2 + 3 \cdots + n\ = \sum_{k=1}^n k}$
-
-Where $n?$ can be evaluated through the function:
-
-$\displaystyle{ n?=\frac{n(n+1)}{2} \, }$
+$$
+\begin{split}
+n?  &= 1 + 2 + 3 \cdots + n\ \\
+&= \sum_{k=1}^n k \\
+&=\frac{n(n+1)}{2} \,
+\end{split}
+$$
 
 Let’s recall the properties of merkle trees:
 
-$h = log_2(n)$
+$height = log_2(n_{leaves})$
 
-$n = 2^h$
+$n_{leaves} = 2^{height}$
 
-Where:
-
-$h =$  height of the tree
-
-$n =$  number of leaves in the tree.
-
-For merkle trees, the number of proof nodes for a single item proof is defined as  $log_2(n_{leaves})$. In order to understand the improvements that mmr’s bring to the table, lets consider the number of leaves present in both trees to get a maximum proof size of $64$ nodes. Note that the number of proof items needed for an item in a merkle tree = height of the merkle tree.
+For merkle trees, the number of proof nodes for a single item proof is defined as $log_2(n_{leaves})$. In order to understand the improvements that mmr’s bring to the table, lets consider the number of leaves present in both trees to get a maximum proof size of $64$ nodes. Note that the number of proof items needed for an item in a merkle tree = height of the merkle tree.
 
 Since an mmr is itself composed of perfectly balanced binary trees with decreasing heights. The total number of leaves in an mmr can be expressed as $n?$, where $n$ is the total number of leaves in the first subtree. We can therefore derive the maximum number of leaves in an mmr where the height of the first subtree is $64$ using the function:
 
@@ -57,97 +60,106 @@ $1.8 * 10^{19} = 2^{64}$
 
 So now, we see how mmrs enable more efficient for merkle proof sizes on much larger data sets than conventional merkle trees.
 
-## MMR Multi Proofs
+The total number of subtrees in a merkle mountian range tree with $n$ leaves is given by the algorithm:
 
-Our approach to verifying mmr multi proofs will be to regard each sub tree as an isolated merkle tree, using the $k$-index model defined in my [previous article](https://research.polytope.technology/merkle-multi-proofs). The $k$-index of each node in an mmr, will be the distance from the left-most node in each subtree.
+<Algorithm
+  algID="subtreeHeights"
+  content="
+  \begin{algorithm}
+  \caption{Subtree Heights}
+  \begin{algorithmic}
+  \INPUT The total number of leaves in the mmr
+  \OUTPUT An array of the heights of the subtrees in the mmr
+  \PROCEDURE{subtreeHeights}{$leavesLength$}
+      \State $\text{indices} \gets \text{[]}$
+      \State $i \gets 0$
+      \State $\text{current} \gets \text{leavesLength}$
+      \While{$\text{current} > 0$}
+          \State $\text{height} \gets \lfloor \log_2(\text{current}) \rfloor$
+          \State $\text{indices}[i] \gets \text{height}$
+          \State $\text{current} \gets \text{current} - 2^{\text{height}}$
+          \State $i \gets i + 1$
+      \EndWhile
+      \State \Return $\text{indices}$
+  \ENDPROCEDURE
+  \end{algorithmic}
+  \end{algorithm}"
+/>
 
-![We can describe each sub tree as a standalone merkle tree.](/mmr-02.svg)
+## Multi Proofs
 
-We can describe each sub tree as a standalone merkle tree.
+Our approach to verifying mmr multi proofs will be to regard each sub tree as an isolated merkle tree, using the $k$-index model defined in the [previous section](/cryptography/merkle-trees/binary). The $k$-index of each node in an mmr, will be the distance from the left-most node in each subtree.
 
-Given this model, we can re-use the `calculate_merkle_multi_root`  function defined in my previous article to verify mmr multi proofs using the algorithm:
+<figure>
+  <img src="/mmr-02.svg" alt="MMR tree" />
+  <figcaption style={{ textAlign: "center" }}>We can describe each sub tree as a standalone merkle tree.</figcaption>
+</figure>
 
-```rust
-pub fn calculate_mmr_root(
-    mut leaves: Vec<(u64, usize, Hash)>, // mmr_index, k_index, node_hash
-    mmr_size: u64,
-    mut proof_iter: Vec<Hash>,
-) -> Hash {
-    let peaks = get_peaks(mmr_size);
-    let mut peak_roots = vec![];
 
-    for peak in peaks {
-        let mut leaves: Vec<_> = take_while(&mut leaves, |(pos, _, _)| *pos <= peak);
-
-        match leaves.len() {
-            1 if leaves[0].0 == peak => {
-                // this is a peak root.
-                peak_roots.push(leaves.pop().unwrap().2);
-            }
-            0 => {
-                // the next proof item is a peak
-                if let Some(peak) = proof_iter.pop() {
-                    peak_roots.push(peak)
-                } else {
-                    break;
-                }
-            }
-            _ => {
-                let leaves = leaves
-                    .into_iter()
-                    .map(|(_, index, leaf)| {
-                        (index, leaf)
-                    })
-                    .collect::<Vec<_>>();
-
-                let height = pos_to_height(peak);
-                let mut current_layer: Vec<_> = leaves.iter().map(|(i, _)| *i).collect();
-                let mut sub_tree: Vec<Vec<_>> = vec![];
-
-                for i in 0..height {
-                    let siblings = sibling_indices(current_layer.clone());
-                    let diff = difference(&siblings, &current_layer);
-                    if diff.len() == 0 {
-                        // fill the remaining layers
-                        sub_tree.extend((i..height).map(|_| vec![]));
-                        break;
-                    }
-
-                    let len = diff.len();
-                    let layer = diff.into_iter().zip(proof_iter.drain(..len)).collect();
-                    sub_tree.push(layer);
-                    current_layer = parent_indices(siblings);
-                }
-
-                // insert the leaves at the base layer.
-                sub_tree[0].extend(&leaves);
-                sub_tree[0].sort_by(|a, b| a.0.cmp(&b.0));
-
-                let peak_root = calculate_merkle_multi_root(sub_tree);
-                peak_roots.push(peak_root);
-            }
-        };
-    }
-
-    // bagging peaks from right to left via hash(right, left).
-    while peak_roots.len() > 1 {
-        let right_peak = peak_roots.pop().unwrap();
-        let left_peak = peak_roots.pop().unwrap();
-        let mut buf = vec![];
-        buf.extend(&right_peak);
-        buf.extend(&left_peak);
-
-        peak_roots.push(keccak256(&buf));
-    }
-    peak_roots.pop().unwrap()
-}
-```
+Given this model, we can re-use the `CalculateMerkleRoot` function defined in my previous article to verify mmr multi proofs using the algorithm:
+<Algorithm
+  algID="mmr"
+  content="
+  \begin{algorithm}
+  \caption{Calculate the Root of an MMR Tree}
+  \begin{algorithmic}
+  \INPUT The known leaves, the proof nodes and the leaf count
+  \OUTPUT The calculated root of the mmr tree
+  \PROCEDURE{CalculateRoot}{$leaves, proof, leaf\_count$}
+      \State $\text{subtrees} \gets \text{subtrees}(\text{leaf\_count})$
+      \State $\text{peak\_roots} \gets []$
+      \State $\text{current\_subtree} \gets 0$
+      \For{$\text{subtree} \in \text{subtrees}$}
+          \State $\text{height} \gets 2^{\text{subtree}}$
+          \State $\text{current\_subtree} \gets \text{current\_subtree} + \text{height}$
+          \State $\text{leaves} \gets \text{take\_while}(\text{leaves}, \lambda (i, \_, \_) . i \leq \text{current\_subtree})$
+          \If{$\text{length}(\text{leaves}) = 1 \land \text{leaves}[0].0 = \text{peak}$}
+              \State $\text{peak\_roots} \gets \text{append}(\text{peak\_roots}, \text{leaves}[0].2)$
+              \State $\text{leaves} \gets \text{pop}(\text{leaves})$
+          \ElsIf{$\text{length}(\text{leaves}) = 0$}
+              \If{$\text{length}(\text{proof}) > 0$}
+                  \State $\text{peak\_roots} \gets \text{append}(\text{peak\_roots}, \text{pop}(\text{proof}))$
+              \Else
+                  \State \textbf{break}
+              \EndIf
+          \Else
+              \State $\text{leaves} \gets \text{map}(\text{leaves}, \lambda (\_, j, l) . (j, l))$
+              \State $\text{current\_layer} \gets \text{map}(\text{leaves}, \lambda (j, \_) . j)$
+              \State $\text{sparse\_sub\_tree} \gets []$
+              \For{$i = 0 \to \text{height}-1$}
+                  \State $\text{siblings} \gets \text{sibling\_indices}(\text{current\_layer})$
+                  \State $\text{diff} \gets \text{difference}(\text{siblings}, \text{current\_layer})$
+                  \If{$\text{length}(\text{diff}) = 0$}
+                      \State $\text{sparse\_sub\_tree} \gets \text{extend}(\text{sparse\_sub\_tree}, [[], \ldots, []] \text{ with } (\text{height}-i) \text{ elements})$
+                      \State \textbf{break}
+                  \EndIf
+                  \State $\text{layer} \gets \text{zip}(\text{diff}, \text{take}(\text{proof}, \text{length}(\text{diff})))$
+                  \State $\text{sparse\_sub\_tree} \gets \text{append}(\text{sparse\_sub\_tree}, \text{layer})$
+                  \State $\text{current\_layer} \gets \text{parent\_indices}(\text{siblings})$
+              \EndFor
+              \State $\text{sparse\_sub\_tree}[0] \gets \text{extend}(\text{sparse\_sub\_tree}[0], \text{leaves})$
+              \State $\text{sparse\_sub\_tree}[0] \gets \text{sort}(\text{sparse\_sub\_tree}[0], \lambda (a, b) . a.0 - b.0)$
+              \State $\text{peak\_root} \gets \text{CalculateMerkleRoot}(\text{sparse\_sub\_tree})$
+              \State $\text{peak\_roots} \gets \text{append}(\text{peak\_roots}, \text{peak\_root})$
+          \EndIf
+      \EndFor
+      \While{$\text{length}(\text{peak\_roots}) > 1$}
+          \State $\text{right\_peak} \gets \text{pop}(\text{peak\_roots})$
+          \State $\text{left\_peak} \gets \text{pop}(\text{peak\_roots})$
+          \State $\text{peak\_roots} \gets \text{append}(\text{peak\_roots}, \text{keccak256}([\text{right\_peak}, \text{left\_peak}]))$
+      \EndWhile
+      \State \Return $\text{pop}(\text{peak\_roots})$
+  \ENDPROCEDURE
+  \end{algorithmic}
+  \end{algorithm}
+"
+/>
 
 ## References
 
 $^{[1]}$ P. Todd. Merkle Mountain Ranges. GitHub, 2012.
 [https://opentimestamps.org](https://opentimestamps.org/).
 
- $^{[2]}$ Donald Knuth in *The Art of Computer Programming.*
+$^{[2]}$ Donald Knuth in *The Art of Computer Programming.*
 
-*(Third edition, Volume 1, page 48).*
+_(Third edition, Volume 1, page 48)._

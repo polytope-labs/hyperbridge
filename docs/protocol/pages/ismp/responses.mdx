@@ -16,8 +16,6 @@ pub struct PostResponse {
     pub response: Vec<u8>,
     /// Unix timestamp at which this response expires in seconds.
     pub timeout_timestamp: u64,
-    /// Gas limit for executing the response on destination, only used for solidity modules.
-    pub gas_limit: u64,
 }
 
 /// The response to a GET request
@@ -39,7 +37,7 @@ pub enum Response {
 
 ## `PostResponse`
 
-A `PostResponse` can be seen as the result or return value of a `PostRequest` execution. `IsmpModule`s may opt not to generate a `PostResponse`, and instead employ an optimistic model. In this model, the module state is altered before the request is dispatched, in such a way that **it can be reverted** if the request times out. This approach reduces considerable message round trip and verification expenses, providing a better user experience. However, when it's necessary to give the caller an execution result, the ISMP framework allows for a `PostResponse`. The `PostResponse`,  much like a `PostRequest` can also [time-out](/protocol/timeouts).
+A `PostResponse` can be seen as the result or return value of a `PostRequest` execution. `IsmpModule`s may opt not to generate a `PostResponse`, and instead employ an optimistic model. In this model, the module state is altered before the request is dispatched, in such a way that **it can be reverted** if the request times out. This approach reduces considerable message round trip and verification expenses, providing a better user experience. However, when it's necessary to give the caller an execution result, the ISMP framework allows for a `PostResponse`. The `PostResponse`, much like a `PostRequest` can also [time-out](/protocol/timeouts).
 
 ## `GetResponse`
 
@@ -77,7 +75,6 @@ The `handle_response` is used to notify onchain `IsmpModule`s of new responses t
 - Assert that the responses have not timed out
 - Assert that the proofs for the responses verify
 - Finally dispatch the responses to the relevant `IsmpModule::on_response` and store a receipt for each responses to prevent responses from being replayed.
-
 
 :::danger
 It's important to note that if the `IsmpModule::on_response` does not return `Ok`, the receipt of this response will not be persisted, allowing the response to be **replayed**. Consequently, the `IsmpModule` is responsible for maintaining all invariants before modifying it's internal state to prevent partial state changes that could result in critical vulnerabilities in their response handler. This model ensures that if a response cannot be executed successfully on a destination state machine, it can time out gracefully on the source.

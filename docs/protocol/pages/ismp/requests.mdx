@@ -42,9 +42,6 @@ pub struct Post {
     pub timeout_timestamp: u64,
     /// Encoded Request.
     pub data: Vec<u8>,
-    /// Gas limit for executing the request on destination
-    /// This value should be zero if destination module is not a contract
-    pub gas_limit: u64,
 }
 
 /// The ISMP GET request.
@@ -73,12 +70,8 @@ pub struct Get {
     pub height: u64,
     /// Unix timestamp by which this request expires in seconds.
     pub timeout_timestamp: u64,
-    /// Gas limit for executing the response to this get request
-    /// This value should be zero if the sending module is not a contract
-    pub gas_limit: u64,
-}
 
-/// The ISMP request.
+}/// The ISMP request.
 pub enum Request {
     /// A post request allows a module on a state machine to send arbitrary bytes to another module
     /// living in another state machine.
@@ -113,9 +106,7 @@ pub struct Post {
     pub timeout_timestamp: u64,
     /// Serialized request body.
     pub data: Vec<u8>,
-    /// Gas limit for executing the request on destination
-    /// This value should be zero if destination module is not a contract
-    pub gas_limit: u64,
+
 }
 
 /// A request message holds a batch of incoming requests and their proofs.

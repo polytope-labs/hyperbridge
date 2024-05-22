@@ -133,7 +133,7 @@ mv target/release/hyperbridge $HOME/.local/bin/
 
 ::::
 
-## Running the node (Rococo)
+## Rococo (Deprecated)
 
 Hyperbridge is available on the rococo testnet, with a chainId of `gargantua-rococo` and paraId of `4374`. You can sync the rococo relay chain in a few hours by appending a relay chain argument `--sync=fast-unsafe`. This tells the relay chain node to simply download it's blocks and not execute them. It'll also download the full latest state.
 This is fine because the rococo testnet has no economic value.
@@ -158,7 +158,7 @@ hyperbridge \
     --sync=fast-unsafe
 ```
 
-## Running the node (Paseo)
+## Paseo
 
 Hyperbridge is available on the Paseo testnet, with a chainId of `gargantua` and paraId of `4009`. You can sync the paseo relay chain in a few minutes by appending a relay chain argument `--sync=fast-unsafe`. This tells the relay chain node to simply download it's blocks and not execute them. It'll also download the full latest state.
 This is fine because the rococo testnet has no economic value.
@@ -183,7 +183,7 @@ hyperbridge \
     --sync=fast-unsafe
 ```
 
-## Running the node (Kusama)
+## Kusama
 
 Hyperbridge is live on Kusama with a chainId of `messier` and ParaId of `3340`. We don't reccomend joining the kusama network at this time.
 
@@ -205,7 +205,7 @@ hyperbridge \
     --out-peers=32
 ```
 
-## Running the node (Polkadot)
+## Polkadot
 
 Hyperbridge is also live on Polkadot with a chainId of `nexus` and ParaId of `3367`.
 

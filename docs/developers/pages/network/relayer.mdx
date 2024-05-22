@@ -6,20 +6,37 @@ description: Critical to the function of Hyperbridge are the relayers who transm
 # Relayers
 
 <figure>
-  <img
-    src="/relayer.webp"
-    alt="Hyperbridge relayers"
-  />
-  <figcaption style={{textAlign: "center"}}>Hyperbridge relayers</figcaption>
+  <img src="/relayer.webp" alt="Hyperbridge relayers" />
+  <figcaption style={{ textAlign: "center" }}>Hyperbridge relayers</figcaption>
 </figure>
 
 Critical to the function of Hyperbridge are the relayers who transmit requests & responses across it's connected chains. Unlike popular interoperability protocols, Hyperbridge relayers are fully permissionless. This means, relayers will not need to be staked or whitelisted in order to transmit cross-chain messages. This is as a result of it's first-of-it's kind, fully trust-free design. This service of-course, will not be for free. Hyperbridge permits the applications that leverage it’s secure message passing infrastructure to pay ahead of time for the message delivery & execution. They do so on the source chain of the initiating application.
+
 <br />
-Fees for cross-chain requests are to be paid in stable coins, We’ve chosen the DAI stablecoin for it’s decentralized and censorship-resistant properties. This means users will estimate the cost for message execution & provide what they believe to be a fair amount in DAI to the Hyperbridge contract. (Specifically, the [EvmHost](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol#L533)) at the time of dispatching a request. Once the request has been finalized by the originating chain and these finality proofs made available to the destination chain. The request becomes eligible for delivery & execution. A relayer will estimate the cost of request delivery and query the fee that has been put up for it’s delivery on the source chain. Depending on their profitability configuration, they’ll either choose to deliver the request or ignore it.
+Fees for cross-chain requests are to be paid in stable coins, We’ve chosen the DAI
+stablecoin for it’s decentralized and censorship-resistant properties. This means
+users will estimate the cost for message execution & provide what they believe to
+be a fair amount in DAI to the Hyperbridge contract. (Specifically, the [EvmHost](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol#L533))
+at the time of dispatching a request. Once the request has been finalized by the
+originating chain and these finality proofs made available to the destination chain.
+The request becomes eligible for delivery & execution. A relayer will estimate the
+cost of request delivery and query the fee that has been put up for it’s delivery
+on the source chain. Depending on their profitability configuration, they’ll either
+choose to deliver the request or ignore it.
 <br />
-If the relayers chooses to deliver the request, then this means they will cover the cost of message delivery and execution. This cost of message delivery is the cost of proof verification of requests & responses. The cost of message execution is the cost of executing the message on the destination module. In the current version of the protocol, relayers are tasked with both delivering and executing the messages. But it is entirely possible in future versions of the protocol that we unbundle message delivery and execution as this may enable more exotic applications.
+If the relayers chooses to deliver the request, then this means they will cover the
+cost of message delivery and execution. This cost of message delivery is the cost
+of proof verification of requests & responses. The cost of message execution is the
+cost of executing the message on the destination module. In the current version of
+the protocol, relayers are tasked with both delivering and executing the messages.
+But it is entirely possible in future versions of the protocol that we unbundle message
+delivery and execution as this may enable more exotic applications.
 <br />
-In our chosen design, relayers race to deliver a batch of cross-chain messages to their respective destination chains. This has a few benefits, this effectively mitigates any liveness issues that may arise as a result of some whitelisted relayers going down. This free market design presents a much better UX to end users and applications. The winning relayer, can be decided by a few factors.
+In our chosen design, relayers race to deliver a batch of cross-chain messages to
+their respective destination chains. This has a few benefits, this effectively mitigates
+any liveness issues that may arise as a result of some whitelisted relayers going
+down. This free market design presents a much better UX to end users and applications.
+The winning relayer, can be decided by a few factors.
 <br />
 
 1. Block notification.
@@ -35,7 +52,8 @@ If the relayer is able to query high-performance nodes and has a very fast inter
 3. MEV
 
 An unfortunate development in blockchain protocols are validators who auction their blockspace. They do so in order to earn even more money than the underlying protocols already pay them. It’s not impossible that relayers may integrate with validators who auction their blockspace using proposer-builder networks in order to have their bundles always be first in the block. Of-course these relayers would have to pay high priority fees for such shenanigans. But we fully expect relayer competition to eventually reach these levels.
-<br/>
+
+<br />
 
 Once a relayer successfully delivers a batch of requests, they can immediately start claiming the associated fees for these requests. They’ll do so by submitting state proofs of the messages delivered on the destination chain to hyperbridge. Once hyperbridge verifies these proofs, it will make the fees available to the relayer by issuing a request to it’s contracts on the source chain. The relayer will be responsible for delivering this request as it will have no fee attached and will hence be ignored by other relayers.
 
@@ -220,6 +238,7 @@ When accumulating fees the required state machine update to verify the proofs mi
 ### Initiating withdrawals
 
 To initiate a withdrawal from hyperbridge, a relayer needs to submit a transaction to hyperbridge with triggers the withdrawal request. This extrinsic is unsigned and will not require any native tokens for execution fees.Once the extrinsic is executed, hyperbridge dispatches a POST request that when executed on it's destination, will provide the relayer with the fees they've accrued. The relayer account must have sufficient funds to deliver this request to it's destination chain.
+
 <br />
 To use this feature run the following command:
 
@@ -230,5 +249,12 @@ To use this feature run the following command:
 ### Automatic accumulation and withdrawals
 
 The relayer also runs background tasks for automatic fee accumulation and withdrawals. Whenever a batch of messages is successfully delivered, the fee accumulation task receives the delivery receipts and starts the process of accumulating the fees on hyperbridge. This process happens concurrently for all successfully delivered message batches. For redundancy, the delivery receipts are stored in the database prior to accumulation so they can be retried manually if any error is encountered.
-<br/>
-Withdrawing fees from hyperbridge is triggered at fixed intervals based on the configured `withdrawal_frequency` and `minimum_withdrawal_amount`. Feel free to the adjust these values as desired. The task will only make a withdrawal attempt if your balance on hyperbridge is greater than or equal to the configured `minimum_withdrawal_amount`. Any failed withdrawal attempts will be retried each time the withdrawal task is triggered. The manual processes described in the previous sections can be used as fallbacks when errors are encountered by their automated conterparts.
+
+<br />
+Withdrawing fees from hyperbridge is triggered at fixed intervals based on the configured
+`withdrawal_frequency` and `minimum_withdrawal_amount`. Feel free to the adjust these
+values as desired. The task will only make a withdrawal attempt if your balance on
+hyperbridge is greater than or equal to the configured `minimum_withdrawal_amount`.
+Any failed withdrawal attempts will be retried each time the withdrawal task is triggered.
+The manual processes described in the previous sections can be used as fallbacks
+when errors are encountered by their automated conterparts.

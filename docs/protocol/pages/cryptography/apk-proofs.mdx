@@ -16,7 +16,7 @@ The SNARK achieves this by constraining the elliptic curve addition of BLS publi
 
 ## Preliminaries
 
-I refer to the inner curve which is the native curve of the public keys as $E_{inn}$. For an elliptic curve half-cycle, it should be the case that the characteristic of the base field of the inner curve $E_{inn}(\mathbb{F}_p)$  is the same as the scalar field of the outer curve  $E_{out}(\mathbb{F}_r)$. Let $H$ be a suitably chosen multiplicative subgroup in the scalar field of the outer curve $E_{out}(\mathbb{F}_r)$ .
+I refer to the inner curve which is the native curve of the public keys as $E_{inn}$. For an elliptic curve half-cycle, it should be the case that the characteristic of the base field of the inner curve $E_{inn}(\mathbb{F}_p)$ is the same as the scalar field of the outer curve $E_{out}(\mathbb{F}_r)$. Let $H$ be a suitably chosen multiplicative subgroup in the scalar field of the outer curve $E_{out}(\mathbb{F}_r)$ .
 
 ## Protocol
 
@@ -68,7 +68,7 @@ $$
 
 Where $pk\{x,y\}$ are the affine coordinates of the potential signers and $kacc\{x,y\}$ is the accumulator sum.
 
-![Screenshot 2023-05-10 at 11.52.59 AM.png](Apk%20Proofs%20378564956acd455b862e0887c301d6e3/Screenshot_2023-05-10_at_11.52.59_AM.png)
+![APK Proof Circuit](/sudoku.png)
 
 constraining with $b$ we get:
 
@@ -104,6 +104,7 @@ Assume $\mathcal{L}_i(X)$ are Lagrange polynomials in the domain $H$. The verifi
 $$
 (kaccx_0, kaccy_0) = (h_x, h_y) \\
 (kaccx_{n-1}, kaccy_{n-1}) = (apk_x, apk_y) \oplus (h_x, h_y)
+
 
 $$
 
@@ -141,7 +142,7 @@ z &= \langle2^i, z_i \rangle \\
 \end{split}
 $$
 
-First we define $block$  as the maximum number of bits in the binary representation in the field element we’ll use to represent chunks of our bitlist. The verifier can simply check that the pre-approved number of bits are used on in each of the field elements provided by the prover.
+First we define $block$ as the maximum number of bits in the binary representation in the field element we’ll use to represent chunks of our bitlist. The verifier can simply check that the pre-approved number of bits are used on in each of the field elements provided by the prover.
 
 $$
 0 \le countOnes(b^\prime) < block
@@ -162,7 +163,7 @@ $$
 b^\prime_j = \sum^{block - 1}_{i = 0} 2^i \cdot b_{(block \cdot j) + i}
 $$
 
-The verifier wants to know that the bitlist encoded in the binary representation of $b^\prime$ is equal to $b(X)$. We do so by means of a range proof.  Observe that
+The verifier wants to know that the bitlist encoded in the binary representation of $b^\prime$ is equal to $b(X)$. We do so by means of a range proof. Observe that
 
 $$
 \begin{split}
@@ -288,7 +289,7 @@ id_7(\omega^{n-1}) &= 0 - (\sum^{n-2}_{i = 0}(bit_i \cdot c_{a, i})) - (b(\omega
 \end{split}
 $$
 
-This convinces the verifier that $b(X)$ is equivalent to $b^\prime$.  Finally the apk proof constraint polynomial $t(X)$ is given as:
+This convinces the verifier that $b(X)$ is equivalent to $b^\prime$. Finally the apk proof constraint polynomial $t(X)$ is given as:
 
 $$
 \begin{split}

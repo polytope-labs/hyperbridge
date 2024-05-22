@@ -1,6 +1,6 @@
 ---
 title: Polynomial Commitments
-description: Merkle mountain ranges$^{[1]}$ are an improvement over conventional merkle trees for growing, potentially unbounded lists.
+description: Polynomial commitments are a kind of vector commitment scheme that also allows for partial reveals, but with succint or logarithmic (wrt the prover complexity) proofs, irrespective of the size of the message.
 ---
 
 <link
@@ -10,18 +10,18 @@ description: Merkle mountain ranges$^{[1]}$ are an improvement over conventional
 
 # Polynomial Commitments
 
-Polynomial commitment schemes are the foundational cryptographic primitive for things like computational integrity proofs (aka (ZK-)SNARKs) and verkle tries (a more efficient alternative to merkle-patricia tries). In this article i review their technical definition as well as their applications.
 
-Polynomial commitments are a kind of commitment scheme that also allows for partial reveals, but with succint or logarithmic (wrt the prover complexity) proofs, irrespective of the size of the message. Polynomial commitment schemes are also a kind of vector-commitment scheme.
+Polynomial commitments are a kind of vector commitment scheme that also allows for partial reveals, but with succint or logarithmic (wrt the prover complexity) proofs, irrespective of the size of the message. Polynomial commitment schemes are the foundational cryptographic primitive for things like computational integrity proofs (aka (ZK-)SNARKs) and verkle tries (a more efficient alternative to merkle-patricia tries).
 
-Vector commitment schemes enable a committer to commit to an ordered sequence of $n$ values $(m_1, \dots , m_n)$ in such a way that one can later open the commitment at specific positions (i.e., prove that $m_i$ is the $i$-th committed message). For security, Vector Commitments are required to satisfy a notion referred to as *positional binding* which states that an adversary should not be able to *open* a commitment for two different values at the same position. Another property VCs must satisfy is succinctness, i.e. the size of the commitment string and of its openings has to be sublinear to the vector length. A merkle tree is a good example of a vector commitment.
+Vector commitment schemes enable a committer to commit to an ordered sequence of $n$ values $(m_1, \dots , m_n)$ in such a way that one can later open the commitment at specific positions (i.e., prove that $m_i$ is the $i$-th committed message). For security, Vector Commitments are required to satisfy a notion referred to as _positional binding_ which states that an adversary should not be able to _open_ a commitment for two different values at the same position. Another property VCs must satisfy is succinctness, i.e. the size of the commitment string and of its openings has to be sublinear to the vector length. A merkle tree is a good example of a vector commitment.
 
-A polynomial commitment scheme is a type of commitment scheme where rather than committing to an arbitrary sequence of bytes for a message $m$ we commit to a *polynomial* $\phi(x)$. Recall that a polynomial is of the form:
+A polynomial commitment scheme is a type of commitment scheme where rather than committing to an arbitrary sequence of bytes for a message $m$ we commit to a _polynomial_ $\phi(x)$. Recall that a polynomial is of the form:
 
 $$
 
     \phi(x) = \phi_0 + \phi_1\cdot x + \phi_2\cdot x^2 + \cdots + \phi_d\cdot x^d\\
 \phi(x) = \sum_{i=0}^{d+1} \phi_i x^i
+
 
 $$
 
@@ -29,9 +29,9 @@ Where $\phi_i$ represents the coefficients of the polynomial.
 
 ## Polynomial Interpolation
 
-But why would we be committing to a polynomial in the first place!? The answer is, [polynomial interpolation](https://en.wikipedia.org/wiki/Polynomial_interpolation) allows us to *reverse engineer* a polynomial function that encodes a message $m$, by treating the elements contained within $m$ and it’s indices as a coordinate pair. i.e $m = \{(x_0, y_0), (x_1, y_1) \dots (x_n, y_n)\}$. Where $x_i$ is the index and $y_i$ is the value for the index in $m$.
+But why would we be committing to a polynomial in the first place!? The answer is, [polynomial interpolation](https://en.wikipedia.org/wiki/Polynomial_interpolation) allows us to _reverse engineer_ a polynomial function that encodes a message $m$, by treating the elements contained within $m$ and it’s indices as a coordinate pair. i.e $m = \{(x_0, y_0), (x_1, y_1) \dots (x_n, y_n)\}$. Where $x_i$ is the index and $y_i$ is the value for the index in $m$.
 
-More formally, polynomial interpolation states that: given any arbitrary coordinate pairs $(x_i, y_i)_{i\in[n]}$, We can find or *interpolate* a polynomial $\phi(x)$ of degree  $\le (n - 1)$ such that the evaluation of every $x_i$ over the polynomial produces $y_i$. ie $\phi(x_i)=y_i,\forall i\in[n]$. There are a few ways to achieve polynomial interpolation, but two most popular methods are Lagrange Interpolation and Fast Fourier Transforms (FFT).
+More formally, polynomial interpolation states that: given any arbitrary coordinate pairs $(x_i, y_i)_{i\in[n]}$, We can find or _interpolate_ a polynomial $\phi(x)$ of degree $\le (n - 1)$ such that the evaluation of every $x_i$ over the polynomial produces $y_i$. ie $\phi(x_i)=y_i,\forall i\in[n]$. There are a few ways to achieve polynomial interpolation, but two most popular methods are Lagrange Interpolation and Fast Fourier Transforms (FFT).
 
 FFTs are a more efficient method for polynomial interpolation, especially when working with large sets of points. It involves transforming the set of points into a frequency domain representation, where the polynomial can be expressed as a series of sinusoidal functions.
 
@@ -39,6 +39,7 @@ Lagrange Interpolation on the other hand involves constructing a polynomial func
 
 $$
 \mathcal{L}(x) = \sum\limits_{i \space = \space 1}^{n} y_i \cdot \mathcal{L}_i(x), \\
+
 
 $$
 
@@ -91,14 +92,13 @@ At every point on the x-axis, corresponds with our data points on the y-axis
 
 This example of course uses polynomials whose coefficients are members of the set of real numbers, In practice, polynomial interpolation & commitments are done over a finite field.
 
-Back to polynomial commitment schemes, once we have a polynomial function that encodes a message $m$, we can create a succinct commitment $C$ to the polynomial. Using this commitment, we can generate a proof $\pi$ for any given coordinate pair $(x_i, y_i)$, such that a verifier who only has the commitment $C$ (and not the original polynomial $\phi(x)$) can verify that in the original polynomial, the index $x_i$ does indeed correspond to value $y_i$. Remember that this commitment is also succint, $C < \phi(x)$,  i.e. the string representation of the polynomial commitment is less than the string representation of the original polynomial.
+Back to polynomial commitment schemes, once we have a polynomial function that encodes a message $m$, we can create a succinct commitment $C$ to the polynomial. Using this commitment, we can generate a proof $\pi$ for any given coordinate pair $(x_i, y_i)$, such that a verifier who only has the commitment $C$ (and not the original polynomial $\phi(x)$) can verify that in the original polynomial, the index $x_i$ does indeed correspond to value $y_i$. Remember that this commitment is also succint, $C < \phi(x)$, i.e. the string representation of the polynomial commitment is less than the string representation of the original polynomial.
 
 There are quite a few polynomial commitment protocols that exist today. These protocols have different tradeoffs that make them suitable for different applications. The most popular of them all is KZG.
 
 ## KZG
 
 > I won’t be discussing the details of the advanced cryptographic primitives like finite fields, cyclic groups of prime orders or bilinear mappings and will be leaving them as an exercise for the reader.
->
 
 The KZG commitment scheme$^{[1]}$, was introduced in 2010 by Aniket Kate, Gregory M. Zaverucha, and Ian Goldberg. Their paper outlines a protocol that produces constant-sized polynomial commitments and proofs of evaluation.
 
@@ -108,7 +108,7 @@ The KZG commitment scheme at a high level works as follows:
 
 ### Preliminaries
 
-First we define $\mathbb{F}_p$  as a finite field of prime order . Finite fields of prime order are simply a set given as $\mathbb{F}_p = \{0, p -1 \}$ where arithmetic operations over the elements of the set are performed modulo$\space p$.
+First we define $\mathbb{F}_p$ as a finite field of prime order . Finite fields of prime order are simply a set given as $\mathbb{F}_p = \{0, p -1 \}$ where arithmetic operations over the elements of the set are performed modulo$\space p$.
 
 Next we define $e$ as a non-trivial [bilinear mapping](https://en.wikipedia.org/wiki/Bilinear_map).
 
@@ -120,9 +120,7 @@ $$
 
 ### Protocol
 
-$Setup(s, t)$: Given some secret value $s$, where $s \in \mathbb{F}_p$. This method generates a proving key $PK$, that allows anyone commit to a polynomial of degree $≤ t$. This proving key, also called *common reference string* is of the form:
-
-
+$Setup(s, t)$: Given some secret value $s$, where $s \in \mathbb{F}_p$. This method generates a proving key $PK$, that allows anyone commit to a polynomial of degree $≤ t$. This proving key, also called _common reference string_ is of the form:
 
 $$
 (g^{s^{i}})_{\forall i \in[0, t]} = (g, g^s, \dots, g^{s^t})
@@ -132,7 +130,7 @@ IMPORTANT: The secret value $s$ should not be recoverable, otherwise the prover 
 
 $PolyCommit(PK, \phi(x))$: This outputs a constant-sized commitment $C$ to a polynomial $\phi(x)$ for the public key $PK$.
 
-More formally, Given some polynomial $\phi(x) \in \mathbb{F}_p[x]$ where $deg(\phi(x)) \le t$ , the commitment is of the form $C = g^{\phi(s)}$. Ideally, the prover doesn’t know $s$, so instead they exploit a property of elliptic curve groups by using the proving key $PK$ to compute $\prod\limits_{i \space = \space 0, }^{t}(g^{s^i})^{\phi_i}$   which is equivalent to $g^{\phi(s)}$. It's also worth noting that this commitment is a single group element in $\mathbb{G}$ and is why KZG commitments have constant sized commitments irrespective of the degree of $\phi(x)$.
+More formally, Given some polynomial $\phi(x) \in \mathbb{F}_p[x]$ where $deg(\phi(x)) \le t$ , the commitment is of the form $C = g^{\phi(s)}$. Ideally, the prover doesn’t know $s$, so instead they exploit a property of elliptic curve groups by using the proving key $PK$ to compute $\prod\limits_{i \space = \space 0, }^{t}(g^{s^i})^{\phi_i}$ which is equivalent to $g^{\phi(s)}$. It's also worth noting that this commitment is a single group element in $\mathbb{G}$ and is why KZG commitments have constant sized commitments irrespective of the degree of $\phi(x)$.
 
 $CreateWitness(PK, \phi(x), i)$: This outputs $\langle i, \phi(i), \pi \rangle$, where $\pi$ is a proof for the correct evaluation of $\phi(x)$ at index $i$. The prover computes the quotient polynomial $\psi(x)$ given as:
 
@@ -151,44 +149,40 @@ $$
 
 If both pairings are equal, the verifier can be convinced that the prover does indeed know the full polynomial $\phi(x)$. It's also worth pointing out that the verifier always runs in constant time, regardless of the degree $t$ of the polynomial.
 
-# Applications
+## Applications
 
 Polynomial commitments have many use cases, but in this section, we will only focus on applications that provide benefits to current blockchain architectures.
 
-## Verkle Tries
+### Verkle Tries
 
-Armed with polynomial commitment schemes, we can revisit our merkle-patricia trie proof scheme$^{[2]}$ and make them even more efficient. Recall that merkle patricia trie proofs require the hashes of all sibling nodes along the path to the value. This means that proof sizes are $k\log_k(n)$ where $k$ is the *arity* of the nodes.
+Armed with polynomial commitment schemes, we can revisit our merkle-patricia trie proof scheme$^{[2]}$ and make them even more efficient. Recall that merkle patricia trie proofs require the hashes of all sibling nodes along the path to the value. This means that proof sizes are $k\log_k(n)$ where $k$ is the _arity_ of the nodes.
 
 We can remove the need for these sibling nodes in our proofs by instead performing a polynomial interpolation over the branch nodes and producing a polynomial commitment rather than a cryptographic hash. Then with this constant-sized commitment, we can produce constant-sized membership proofs for any of the child nodes in the branch node. This scheme is popularly known as the Verkle (vector commitment merkle) trie $^{[3]}$.
 
-Since polynomial commitments produce constant-sized membership proofs irrespective of the set size, this allows us to shorten the height of the verkle tree and achieve a smaller set of polynomial evaluation proofs. To accomplish this, we increase the *arity* of each branch node from 16 (as in Merkle Patricia Tries) to up to 2048. This effectively reduces the number of polynomial evaluation proofs needed to prove membership for any item in the tree. We can even further reduce the proof size for a Verkle tree by using KZG multiproofs. This allows us to reduce a set of KZG proofs to a single group element $^{[4]}$.
+Since polynomial commitments produce constant-sized membership proofs irrespective of the set size, this allows us to shorten the height of the verkle tree and achieve a smaller set of polynomial evaluation proofs. To accomplish this, we increase the _arity_ of each branch node from 16 (as in Merkle Patricia Tries) to up to 2048. This effectively reduces the number of polynomial evaluation proofs needed to prove membership for any item in the tree. We can even further reduce the proof size for a Verkle tree by using KZG multiproofs. This allows us to reduce a set of KZG proofs to a single group element $^{[4]}$.
 
 Verkle trees enable higher bandwidth cross-chain messaging by producing state proofs for cross-chain messages of a constant size. They also have noteworthy applications in parachain scalability. As discussed in a previous article, parachain blocks are re-executed by the relay chain to achieve validity guarantees. However, by leveraging verkle trees, we can create more room for parachain transactions in the proof of validity payload that gets sent to the relay chain.
 
-## Proofs of computational integrity
+### Proofs of computational integrity
 
-Polynomial commitments can also be used to obtain cryptographic proofs of *computational integrity*. This allows a prover to convince a verifier that they have correctly executed a mutually known program with some (possibly private) inputs, and that this program has yielded some given outputs.
+Polynomial commitments can also be used to obtain cryptographic proofs of _computational integrity_. This allows a prover to convince a verifier that they have correctly executed a mutually known program with some (possibly private) inputs, and that this program has yielded some given outputs.
 
-Proofs of computational integrity are powered by a combination of polynomial IOPs and polynomial commitment schemes. Functionally, a polynomial IOP allows a prover to convince a verifier that they know some computation trace for which a set of polynomial constraints holds. These polynomial constraints are known by the verifier ahead of time through a commitment to all constraint polynomials in the program. This computation trace can then be generated by a process known as *arithmetization*.
+Proofs of computational integrity are powered by a combination of polynomial IOPs and polynomial commitment schemes. Functionally, a polynomial IOP allows a prover to convince a verifier that they know some computation trace for which a set of polynomial constraints holds. These polynomial constraints are known by the verifier ahead of time through a commitment to all constraint polynomials in the program. This computation trace can then be generated by a process known as _arithmetization_.
 
 > I won’t be discussing in-depth how the Polynomial IOPs work and will leave it as an exercise to the reader.
->
 
-Through *arithmetization*, a prover can generate a two-dimensional array that encodes how different variables in a program change over time. This process uses a register-based model in which variables are stored in registers. The prover then turns on and off different gates for variables in the registers using polynomial constraints that evaluate to zero. The verifier, who has a commitment to all of the polynomial constraints, will query at any random point to confirm that the constraint polynomial evaluates to zero. If this check is satisfied, the verifier can conclude with a high probability that the prover does indeed possess a valid computation trace for the given inputs. (This zero-check is based on the [Schwartz-Zippel lemma](https://en.wikipedia.org/wiki/Schwartz%E2%80%93Zippel_lemma)).
+Through _arithmetization_, a prover can generate a two-dimensional array that encodes how different variables in a program change over time. This process uses a register-based model in which variables are stored in registers. The prover then turns on and off different gates for variables in the registers using polynomial constraints that evaluate to zero. The verifier, who has a commitment to all of the polynomial constraints, will query at any random point to confirm that the constraint polynomial evaluates to zero. If this check is satisfied, the verifier can conclude with a high probability that the prover does indeed possess a valid computation trace for the given inputs. (This zero-check is based on the [Schwartz-Zippel lemma](https://en.wikipedia.org/wiki/Schwartz%E2%80%93Zippel_lemma)).
 
 This is a powerful primitive that immensely scales blockchains. By running multiple state machines concurrently and producing "validity proofs" that confirm the correct execution of their state transition function, a consensus layer can verify these proofs cheaply and trust that they accurately describe a valid state transition without needing to re-execute the full block.
 
 Proofs of computational integrity can also be applied to consensus-verifying bridges. They provide a cost-effective and indirect way to verify consensus proofs for a counter-party blockchain, which usually requires signatures from a supermajority of all validators. Naively verifying this consensus proof on-chain can be too expensive due to the lack of necessary host functions/precompiles or because of the sheer size of the super-majority set. Pairing polynomial commitments with polynomial IOPs for consensus verification can produce constant-sized proofs, regardless of the size of the consensus proof. This compression allows for a potentially massive set of signatures to be condensed into a constant-sized proof that can be verified in constant time.
 
-## Summary
-
-We have reviewed polynomial commitments, how they work, and how they underpin advancements in blockchain scalability through efficient state proof schemes, consensus-verifying bridges that are cheap to maintain and verifiable state machines which can scale blockchain throughput to thousands of transactions per second.
 
 ## References
 
 $^{[1]}$ [A. Kate, G. M. Zaverucha, I. Goldberg, Polynomial Commitments](https://cacr.uwaterloo.ca/techreports/2010/cacr2010-10.pdf)
 
-$^{[2]}$ [Seun Lanlege, State (Machine) Proofs](https://research.polytope.technology/state-(machine)-proofs)
+$^{[2]}$ [Seun Lanlege, State (Machine) Proofs](<https://research.polytope.technology/state-(machine)-proofs>)
 
 $^{[3]}$ [Verkle Trees, John Kuszmaul](https://math.mit.edu/research/highschool/primes/materials/2018/Kuszmaul.pdf)
 

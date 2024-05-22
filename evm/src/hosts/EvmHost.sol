@@ -207,25 +207,33 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
 
     // only permits fishermen
     modifier onlyFishermen() {
-        require(_fishermen[_msgSender()], "EvmHost: Account is not in the fishermen set");
+        if (!_fishermen[_msgSender()]) {
+            revert("EvmHost: Account is not in the fishermen set");
+        }
         _;
     }
 
     // only permits the admin
     modifier onlyAdmin() {
-        require(_msgSender() == _hostParams.admin, "EvmHost: Account is not the admin");
+        if (_msgSender() != _hostParams.admin) {
+            revert("EvmHost: Account is not the admin");
+        }
         _;
     }
 
     // only permits the IHandler contract
     modifier onlyHandler() {
-        require(_msgSender() == address(_hostParams.handler), "EvmHost: Account is not the handler");
+        if (_msgSender() != address(_hostParams.handler)) {
+            revert("EvmHost: Account is not the handler");
+        }
         _;
     }
 
     // only permits the HostManager contract
     modifier onlyManager() {
-        require(_msgSender() == _hostParams.hostManager, "EvmHost: Account is not the Manager contract");
+        if (_msgSender() != _hostParams.hostManager) {
+            revert("EvmHost: Account is not the Manager contract");
+        }
         _;
     }
 
@@ -397,7 +405,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the new host params. Can only be called by admin on testnets.
      */
     function setHostParamsAdmin(HostParams memory params) public onlyAdmin {
-        require(chainId() != block.chainid, "Cannot set params on mainnet");
+        if (chainId() == block.chainid) {
+            revert("Cannot set params on mainnet");
+        }
 
         uint256 whitelistLength = params.stateMachineWhitelist.length;
         for (uint256 i = 0; i < whitelistLength; i++) {
@@ -439,7 +449,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @param params, the parameters for withdrawal
      */
     function withdraw(WithdrawParams memory params) external onlyManager {
-        require(IERC20(feeToken()).transfer(params.beneficiary, params.amount), "Host has an insufficient balance");
+        if (!IERC20(feeToken()).transfer(params.beneficiary, params.amount)) {
+            revert("Host has an insufficient balance");
+        }
     }
 
     /**
@@ -787,13 +799,19 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         bytes32 receipt = post.request.hash();
 
         // known request?
-        require(_requestReceipts[receipt] != address(0), "EvmHost: Unknown request");
+        if (_requestReceipts[receipt] == address(0)) {
+            revert("EvmHost: Unknown request");
+        }
 
         // check that the authorized application is issuing this response
-        require(_bytesToAddress(post.request.to) == _msgSender(), "EvmHost: Unauthorized Response");
+        if (_bytesToAddress(post.request.to) != _msgSender()) {
+            revert("EvmHost: Unauthorized Response");
+        }
 
         // check that request has not already been responed to
-        require(!_responded[receipt], "EvmHost: Duplicate Response");
+        if (_responded[receipt]) {
+            revert("EvmHost: Duplicate Response");
+        }
 
         // collect fees
         uint256 fee = (_hostParams.perByteFee * post.response.length) + post.fee;
@@ -837,7 +855,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function fundRequest(bytes32 commitment, uint256 amount) public {
         FeeMetadata memory metadata = _requestCommitments[commitment];
 
-        require(metadata.sender != address(0), "Unknown request");
+        if (metadata.sender == address(0)) {
+            revert("Unknown request");
+        }
         IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
 
         metadata.fee += amount;
@@ -855,7 +875,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function fundResponse(bytes32 commitment, uint256 amount) public {
         FeeMetadata memory metadata = _responseCommitments[commitment];
 
-        require(metadata.sender != address(0), "Unknown request");
+        if (metadata.sender == address(0)) {
+            revert("Unknown request");
+        }
         IERC20(feeToken()).transferFrom(_msgSender(), address(this), amount);
 
         metadata.fee += amount;
@@ -881,7 +903,9 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @return addr returns the address
      */
     function _bytesToAddress(bytes memory _bytes) private pure returns (address addr) {
-        require(_bytes.length >= 20, "Invalid address length");
+        if (_bytes.length != 20) {
+            revert("Invalid address length");
+        }
         assembly {
             addr := mload(add(_bytes, 20))
         }

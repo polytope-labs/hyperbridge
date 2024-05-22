@@ -17,7 +17,7 @@ Hyperbridge is an example of such a coprocessor, more specifically, a [crypto-ec
 
 ### Proof Aggregation
 
-Hyperbridge achieves trust-free interoperability by verifying and aggregating the finalized states of **all chains** on its own chain. It then uses a single proof to any chain to prove the finality of the aggregated states. This method allows Hyperbridge to scale trust-free interoperability to all blockchains.
+Hyperbridge achieves trust-free interoperability by verifying and aggregating the finalized states of **all chains** on its own chain. It then uses a single proof to any chain to prove the finality of all the aggregated states. This architecture ensures that Hyperbridge is capable of scaling trust-free interoperability to all blockchains.
 
 ### Permissionless Relayers
 
@@ -30,14 +30,15 @@ This document serves as the canonical specification for the Hyperbridge protocol
 Hyperbridge is at it's fundamental level a coprocessor for expensive cryptographic operations needed to confirm the correctness of cross-chain messages. This section details all of the cryptographic primitives used in within the various sub-systems in Hyperbridge. These primitives are used to produce and verify the correctness of consensus proofs, consensus fault proofs, state proofs and state transition validity proofs. The primitives are:
 
 - [Hash Functions](/cryptography/hash-functions)
-- [Merkle Trees](/cryptography/)
-  - [Merkle Mountain Ranges](/state-proofs)
-  - [Merkle Patricia Tries](/state-proofs)
-- [Abstract Algebra](/state-proofs)
-- [Elliptic Curves](/state-proofs)
-- [BLS Signatures](/state-proofs)
-- [Polynomial Commitment Schemes](/state-proofs)
-- [Verkle Tries](/state-proofs)
+- Merkle Trees
+  - [Binary Merkle Trees](/cryptography/merkle-trees/binary)
+  - [Merkle Mountain Ranges](/cryptography/merkle-trees/mountain-range)
+  - [Merkle Patricia Tries](/cryptography/merkle-trees/patricia-trie)
+- [Elliptic Curves](/cryptography/elliptic-curves)
+- [BLS Signatures](/cryptography/bls)
+- [Polynomial Commitment Schemes](/cryptography/polynomial-commitments)
+- [Verkle Tries](/cryptography/verkle-tries)
+- [APK Proofs](/cryptography/apk-proofs)
 
 ## Interoperability Proofs
 

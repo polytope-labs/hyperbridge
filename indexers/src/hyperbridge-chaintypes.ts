@@ -1,9 +1,9 @@
-import type { OverrideBundleDefinition } from "@polkadot/types/types";
+import { URL } from "url";
+// @ts-ignore
+global.URL = URL;
 
-import { keccakAsU8a } from "@polkadot/util-crypto";
-
-const definitions: OverrideBundleDefinition = {
-  hasher: keccakAsU8a,
+const definitions = {
+  hasher: "keccakAsU8a",
 };
 
-export default { typesBundle: { spec: { hyperbridge: definitions } } };
+export default { typesBundle: { spec: { gargantua: definitions } } };

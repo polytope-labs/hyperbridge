@@ -201,7 +201,7 @@ where
 							.await?
 							.expect("Epoch change header exists");
 						if let Some(commitment) = self
-							.epoch_justification_for(epoch_change_header.number().into())
+							.epoch_justification_for(epoch_change_header.number().into() + 1)
 							.await?
 						{
 							tracing::info!(

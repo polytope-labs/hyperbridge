@@ -1,0 +1,32 @@
+---
+title: Cryptographic Hash Functions
+description: Cryptographic hash functions are a fundamental component of modern cryptography, providing a way to secure digital data in adverserial environments.
+---
+
+# Cryptographic hash functions
+
+Cryptographic hash functions are a fundamental component of modern cryptography, providing a way to secure digital data in adverserial environments. They provide the ability to verify the integrity of data, and are used in a wide range of applications, including digital signatures, message authentication codes, and password hashing.
+
+A cryptographic hash function is a mathematical algorithm that takes input data of any size and produces a fixed-size output, often referred to as the "hash" or "digest". The output is unique to the input data; even a small change in the input will result in a completely different output.
+
+Hash functions are designed to be fast to compute, but difficult to reverse-engineer. This means that given the output of a hash function, it should be computationally infeasible to determine the input data that produced it. This property is known as "pre-image resistance".
+
+In addition to pre-image resistance, cryptographic hash functions should also exhibit the following properties:
+
+- **Second pre-image resistance**: Given an input, it should be computationally infeasible to find another input that produces the same hash.
+
+- **Avalanche effect**: A small change in the input should produce a significant change in the output.
+
+- **Deterministic**: For a given input, the hash function should always produce the same output.
+
+- **Efficient**: The hash function should be fast to compute.
+
+- **Non-reversible**: It should be computationally infeasible to reverse-engineer the input from the output.
+
+There are many cryptographic hash functions in use today, each with its own strengths and weaknesses. Some of the most widely used hash functions include:
+
+- **SHA-256**: A member of the SHA-2 family of hash functions, SHA-256 is widely used in blockchain technology, including Bitcoin.
+
+- **SHA-3**: The latest member of the Secure Hash Algorithm family, SHA-3 was designed as a replacement for SHA-2.
+
+- **BLAKE2**: A high-speed cryptographic hash function that is faster than MD5 and SHA-1.

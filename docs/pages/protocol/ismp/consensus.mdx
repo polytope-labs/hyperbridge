@@ -1,0 +1,221 @@
+---
+title: Consensus Clients
+description: The ISMP protocol specification for consensus clients
+---
+<link
+  href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
+  rel="stylesheet"
+/>
+# Consensus Client
+
+ISMP's messaging abstraction is built on top of the `ConsensusClient`. We refer to it as a consensus client because that is precisely what it should be: a client that observes a blockchain's consensus proofs in order to determine what is the canonical chain on the network. Armed with the knowledge of the canonical state of the chain, we are now able to verify the state proofs of the requests & responses that have been committed to the state trie.
+
+This document formally defines the `ConsensusClient`, which serves as an oracle for the canonical state of a state machine, and the corresponding handlers which are used to modify the state of the consensus client.
+
+## `ConsensusState`
+
+We define the `ConsensusState` as the minimum data required by consensus clients in order to verify incoming consensus messages and advance it's view of the state machines running on this consenus system.
+
+## `StateCommitment`
+
+We define the `StateCommitment` as a succinct, cryptographic commitment to the entire blockchain state at an arbitrary block height. The state scheme used to derive this commitment must support partial reveals proofs that have a complexity of $O(\log_n)$ or better. This state commitment is also colloquially known as the _state_root_.
+
+## `ConsensusClient`
+
+The consensus client is one half of a full blockchain client. It verifies only consensus proofs to advance its view of the blockchain network, where full nodes verify both consensus proofs and the state transition function of the network. This makes consensus clients suitable for resource-constrained environments like blockchains, enabling them to become interoperable with other blockchains in a trust-free manner.
+
+<figure>
+  <img src="/full-node.jpeg" alt="A Full Node" />
+</figure>
+
+The quest for a mechanism by which a consensus client may observe and come to conclusions about the canonical state of another blockchain leads us to understand the concept of safety in distributed systems. We elaborate further on this in the section on [consensus proofs](/protocol/interoperability/consensus-proofs). In summary, we show that safety in on-chain consensus clients will require the use of a challenge window, even after consensus proof verification. This allows us to detect potential Byzantine behavior that may arise without the challenge window in place.
+
+```rust
+/// The consensus state of the consensus client
+type ConsensusState = Vec<u8>;
+
+/// Consensus state identifier
+type ConsensusStateId = [u8; 4];
+
+/// Static identifier for a concrete implementation of the [`ConsensusClient`] interface
+type ConsensusClientId = [u8; 4];
+
+/// 256 bit hash type
+type H256 = [u8; 32];
+
+enum StateMachine {
+  // .. supported state machines
+}
+
+/// The state commitment represents a commitment to the state machine's state (trie) at a given
+/// height. Optionally holds a commitment to an overlay trie if supported by the
+/// state machine.
+pub struct StateCommitment {
+    /// Timestamp in seconds
+    pub timestamp: u64,
+    /// Root hash of the request/response overlay trie if the state machine supports it.
+    pub overlay_root: Option<H256>,
+    /// Root hash of the global state trie.
+    pub state_root: H256,
+}
+
+/// Identifies a state commitment at a given height
+pub struct IntermediateState {
+    /// The state machine identifier
+    pub commitment: StateCommitment,
+    /// the corresponding block height
+    pub height: u64,
+}
+
+/// We define the consensus client as a module that handles logic for consensus proof verification.
+pub trait ConsensusClient {
+    /// Verify the associated consensus proof, using the trusted consensus state.
+    fn verify_consensus(
+        &self,
+        host: &dyn IsmpHost,
+        consensus_state_id: ConsensusStateId,
+        trusted_consensus_state: Vec<u8>,
+        proof: Vec<u8>,
+    ) -> Result<(Vec<u8>, BTreeMap<StateMachine, Vec<IntermediateState>>), Error>;
+
+    /// Given two distinct consensus proofs, verify that they're both valid and represent
+    /// conflicting views of the network. returns Ok if they're both valid.
+    fn verify_fraud_proof(
+        &self,
+        host: &dyn IsmpHost,
+        trusted_consensus_state: Vec<u8>,
+        proof_1: Vec<u8>,
+        proof_2: Vec<u8>,
+    ) -> Result<(), Error>;
+
+    /// Return an implementation of a [`StateMachineClient`] for the given state machine.
+    /// Return an error if the identifier is unknown.
+    fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error>;
+}
+```
+
+## Handlers
+
+The ISMP consensus subsystem exposes a set of `handlers`, which can be seen as transactions that allows offchain parties to manage the state of it's various consensus clients.
+
+### `create_client`
+
+```rust
+
+/// Since consensus systems may come to conensus about the state of multiple state machines, we
+/// identify each state machine individually.
+pub struct StateMachineId {
+    /// The state machine identifier
+    pub state_id: StateMachine,
+    /// It's consensus state identifier
+    pub consensus_state_id: ConsensusStateId,
+}
+
+/// Used for creating the initial consensus state for a given consensus client.
+pub struct CreateConsensusState {
+    /// Serialized consensus state
+    pub consensus_state: Vec<u8>,
+    /// Consensus client id
+    pub consensus_client_id: ConsensusClientId,
+    /// The consensus state Id
+    pub consensus_state_id: ConsensusStateId,
+    /// Unbonding period for this consensus state.
+    pub unbonding_period: u64,
+    /// Challenge period for this consensus state
+    pub challenge_period: u64,
+    /// State machine commitments
+    pub state_machine_commitments: Vec<(StateMachineId, IntermediateState)>,
+}
+
+/// Should handle the creation of consensus clients
+pub fn create_client<H>(host: &H,message: CreateConsensusState) -> Result<(), Error>
+where
+    H: IsmpHost,
+{
+  // .. implementation details
+}
+```
+
+The `create_client` method is used by offchain parties to initialize a consensus client. This contains a subjectively chosen initial state for the consensus client. A sort of trusted setup for the initiated. Because it is subjectively chosen, it is recommended that this message is initiated either by the "admin" of the state machine or through a quorum of votes which allows the network to properly audit the contents of the initial consensus state. The handler for this message simply persists the consensus client and all of it's intermediate states as is to storage.
+
+### `update_client`
+
+```rust
+
+/// A consensus message is used to update the state of a consensus client and its children state
+/// machines.
+pub struct ConsensusMessage {
+    /// Serialized Consensus Proof
+    pub consensus_proof: Vec<u8>,
+    /// The consensus state Id
+    pub consensus_state_id: ConsensusStateId,
+}
+
+/// This function handles verification of consensus messages for consensus clients
+pub fn update_client<H>(host: &H, msg: ConsensusMessage) -> Result<(), Error>
+where
+    H: IsmpHost,
+{
+  // .. implementation details
+}
+
+```
+
+The `update_client` method is responsible for advancing the state of the consensus client. This performs the consensus verification of new `StateCommitment`s that have been finalized by a `StateMachine`'s consensus system. The `IsmpHost` must return the concrete implementation of the associated `ConsensusClient` and a previously stored `ConsensusState`. The procedure for updating the consensus client is as follows.
+
+- First the handler must assert that the consensus client is not frozen or expired. Consensus clients can expire if the last time the consensus client was updated has exceeded the chain's unbonding period. This effectively mitigates any potential long fork attacks that may arise due to a loss of liveness of consensus clients.
+- Finally the handler may perform consensus proof verification using the concrete implementation for the consensus client using `ConsensusClient::verify_consensus`. If verifications pass, the udpated `ConsensusState` and `IntermediateState`s are persisted to storage and enter a new challenge period.
+
+### `freeze_client`
+
+```rust
+/// A fraud proof message is used by fishermen to report byzantine misbehaviour in a consensus system.
+pub struct FraudProofMessage {
+    /// The first consensus Proof
+    pub proof_1: Vec<u8>,
+    /// The second consensus Proof
+    pub proof_2: Vec<u8>,
+    /// The offending consensus state Id
+    pub consensus_state_id: ConsensusStateId,
+}
+
+/// Freeze a consensus client by providing a valid consensus fault proof.
+pub fn freeze_client<H>(host: &H, msg: FraudProofMessage) -> Result<(), Error>
+where
+    H: IsmpHost,
+{
+  // .. implementation details
+}
+```
+
+The `freeze_client` method is used to prove the existence of a consensus fault to an onchain consensus client. This message will be sent by offchain parties, colloquially known as _fishermen_ when they detect the existence of two conflicting views of the network backed by consensus proofs. This may arise from double signing or eclipse attacks. The consensus client after successfully verifying the validity of the conflicting views of the network will go into a frozen state. In this state it can no longer process new consensus messages as well as new requests & responses. Frozen consensus clients cannot be unfrozen and a new consensus client must be initialized through the `create_client` method instead.
+
+## Events
+
+The consensus handlers should emit events when a consensus proof is successfully processed or a consensus client is frozen due to consensus fault proofs. This action enables relayers responsible for transmitting requests and responses to either start relaying new eligible requests or stop their relaying tasks.
+
+### `StateMachineUpdated`
+
+```rust
+/// Emitted when a state machine is successfully updated to a new height
+struct StateMachineUpdated {
+    /// State machine height
+    state_machine_id: StateMachineId,
+    /// State machine latest height
+    latest_height: u64,
+}
+```
+
+A `StateMachineUpdated` event is emitted to notify network participants (both relayers and fishermen) of some newly available `StateCommitment`s for a given state machine. Relayers will wait for the configured `challenge_period` before attempting to transmit new requests & responses. While fishermen will check if these pending `StateCommitment`s describe valid states on the counterparty network. If the `challenge_period` elapses without any fraud proofs being presented, we can safely conclude that the provided `StateCommitment`s are indeed canonical.
+
+### `ConsensusClientFrozen`
+
+```rust
+/// Indicates that a consensus client has been frozen
+struct ConsensusClientFrozen {
+    /// The offending client id
+    consensus_client_id: ConsensusClientId,
+}
+```
+
+A `ConsensusClientFrozen` event is emitted after a consensus fault is successfully verified and the offending client frozen. This should instruct relayers to shut down any tasks for relaying requests from the byzantine network to the host network.

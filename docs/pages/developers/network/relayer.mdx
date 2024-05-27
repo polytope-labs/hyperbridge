@@ -63,23 +63,117 @@ The tesseract relayer is available through the following methods
 
 ### Prebuilt binaries
 
-Unavailable at this time.
+You can install a prebuilt binary for the hyperbridge node with the following bash script
+
+```bash
+wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-v0.3.3/tesseract-x86_64-unknown-linux-gnu.tar.gz
+tar -xvzf tesseract-x86_64-unknown-linux-gnu.tar.gz
+# copy to $PATH
+cp tesseract-x86_64-unknown-linux-gnu/tesseract $HOME/.local/bin/
+```
+
+or a 1-liner shell script
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-v0.3.3/tesseract-installer.sh | sh
+```
 
 ### Docker
 
 Tesseract is available at the official docker repository [`polytopelabs/tesseract`](https://hub.docker.com/r/polytopelabs/tesseract)
 
 ```bash
-docker run polytopelabs/tesseract:latest --config=/path/to/config --db=/path/to/database
+docker pull polytopelabs/tesseract:latest
 ```
 
-### Building from source?
+## Building from source
 
-Unfortunately, tesseract is closed-souce for now. Tesseract source-code will be available on Hyperbridge mainnet launch.
+You can follow the steps below if you'd prefer to build the tesseract relayer from source:
+
+::::steps
+
+### Install dependencies
+
+Building the hyperbridge node requires some dependencies
+
+- git
+- clang
+- curl
+- make
+- build-essential
+- libssl-dev
+- llvm
+- libudev-dev
+- protobuf-compiler
+
+:::code-group
+
+```bash [Debian]
+sudo apt update
+sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+```
+
+```bash [Arch]
+pacman -Syu --needed --noconfirm curl git clang make protobuf
+```
+
+```bash [Fedora]
+sudo dnf update
+sudo dnf install clang curl git openssl-devel make protobuf-compiler
+```
+
+```bash [Opensuse]
+sudo zypper install clang curl git openssl-devel llvm-devel libudev-devel make protobuf
+```
+
+:::
+
+### Install the rust compiler
+
+If you don't have an already existing rust installation, you can install it using the one-liner below. Follow the prompts displayed to proceed with a default installation.
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### Clone the repo
+
+Download a local copy of the repo and checkout the latest release tag
+
+```bash
+export LATEST_TAG=tesseract-v0.3.3
+git clone https://github.com/polytope-labs/hyperbridge.git
+cd ./hyperbridge
+git checkout ${LATEST_TAG}
+```
+
+### Build the tesseract relayer
+
+```bash
+cargo build --release -p tesseract
+```
+
+The hyperbridge node will now be available at `target/release/tesseract`, You can move the binary to your `$PATH` so you can run it directly.
+
+<br />
+Update your path to include `${HOME}/.local/bin`. If you are using Bash, run the following. Alternatively, replace `${HOME}/.bashrc` with `${HOME}/.zshrc` if using Zsh. Replace `source` with `.` if necessary.
+
+```bash
+# add .local/bin to path if it doesn't exist
+export RC_PATH=${HOME}/.bashrc
+echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> ${RC_PATH}
+source ${RC_PATH}
+
+# create dir if it doesn't exist
+mkdir -p $HOME/.local/bin/
+mv target/release/tesseract $HOME/.local/bin/
+```
+
+::::
 
 ## Running the relayer
 
-The tesseract relayer command line interface expects two arguments, which are the paths to it's configuration file and database file. Because it resides in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration files on your host into the docker conatiner. Tesseract will write it's database to that directory once it's initialized.
+The tesseract relayer command line interface expects two arguments, which are the paths to it's configuration file and database file. Because it resides in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration files on your host into the docker container. Tesseract will write it's database to that directory once it's initialized.
 
 ```bash
 docker run -d \
@@ -106,7 +200,7 @@ At the minimum, the hyperbridge relayer should be run on a machine with at least
 
 A community member has graciously provided their ansible playbook for running the hyperbridge relayer. You can find it here:
 
-https://github.com/schmiatz/hyperbridge-relayer
+ - [schmiatz/hyperbridge-relayer](https://github.com/schmiatz/hyperbridge-relayer)
 
 ## Configuration
 

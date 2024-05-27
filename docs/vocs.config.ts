@@ -166,7 +166,6 @@ export default defineConfig({
             link: "/protocol/ismp/timeouts",
           },
 
-<<<<<<< HEAD
           {
             text: "Proxies",
             link: "/protocol/ismp/proxies",
@@ -239,112 +238,28 @@ export default defineConfig({
         items: [
           {
             text: "Contracts",
-            link: "/evm/integration",
+            link: "/developers/evm/integration",
           },
-=======
-        {
-          text: "Proxies",
-          link: "/protocol/proxies",
-        },
-      ],
-    },
-    {
-      text: "Solidity Sdk",
-      collapsed: true,
-      items: [
-        {
-          text: "Overview",
-          link: "/evm/solidity",
-        },
 
-        {
-          text: "Integration",
-          link: "/evm/integration",
-        },
+          {
+            text: "Protocol Fees",
+            link: "/developers/evm/fees",
+          },
 
-        {
-          text: "Protocol Fees",
-          link: "/evm/fees",
-        },
-
-        {
-          text: "Contracts addresses",
-          link: "/evm/contract-addresses",
-        },
-
->>>>>>> 3183025 (wip: integration docs)
-
-          // {
-          //   text: "Protocol Fees",
-          //   link: "/evm/fees",
-          // },
-
-<<<<<<< HEAD
           // {
           //   text: "Message delivery",
           //   link: "/evm/delivery",
           // },
-=======
-        // {
-        //   text: "Supported Networks",
-        //   link: "/evm/networks",
-        // },
-      ],
-    },
-    {
-      text: "Polkadot Sdk",
-      collapsed: true,
-      items: [
-        {
-          text: "Integration",
-          link: "/polkadot/integration",
-        },
 
-        {
-          text: "Hyperbridge Integration - Parachains",
-          link: "/polkadot/parachains",
-        },
+          {
+            text: "Supported Networks",
+            link: "/developers/evm/networks",
+          },
 
-        // {
-        //   text: "Integration - Solochains",
-        //   link: "/polkadot/solochains",
-        // },
-        {
-          text: "ISMP Modules",
-          link: "/polkadot/modules",
-        },
-        {
-          text: "RPC Interface",
-          link: "/polkadot/rpc",
-        },
-        {
-          text: "Protocol Fees",
-          link: "/polkadot/fees",
-        },
-        // {
-        //   text: "Message delivery",
-        //   link: "/polkadot/delivery",
-        // },
-        // {
-        //   text: "Supported Networks",
-        //   link: "/polkadot/networks",
-        // },
-      ],
-    },
-    {
-      text: "Network Operators",
-      collapsed: true,
-      items: [
-        {
-          text: "Running a Node",
-          link: "/network/node",
-        },
->>>>>>> 3183025 (wip: integration docs)
-
-          // {
-          //   text: "Supported Networks",
-          //   link: "/evm/networks",
-          // },
+          {
+            text: "Contracts Addresses",
+            link: "/developers/evm/contract-addresses",
+          },
         ],
       },
       {
@@ -353,31 +268,31 @@ export default defineConfig({
         items: [
           {
             text: "Integration - Parachains",
-            link: "/polkadot/parachains",
+            link: "/developers/polkadot/parachains",
           },
           {
             text: "Integration - Solochains",
-            link: "/polkadot/solochains",
+            link: "/developers/polkadot/solochains",
           },
           {
             text: "ISMP Modules",
-            link: "/polkadot/modules",
+            link: "/developers/polkadot/modules",
           },
           {
             text: "RPC Interface",
-            link: "/polkadot/rpc",
+            link: "/developers/polkadot/rpc",
           },
           {
             text: "Protocol Fees",
-            link: "/polkadot/fees",
+            link: "/developers/polkadot/fees",
           },
           {
             text: "Message delivery",
-            link: "/polkadot/delivery",
+            link: "/developers/polkadot/delivery",
           },
           {
             text: "Supported Networks",
-            link: "/polkadot/networks",
+            link: "/developers/polkadot/networks",
           },
         ],
       },

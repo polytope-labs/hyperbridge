@@ -1,3 +1,23 @@
+# ISMP Solidity
+ISMP Solidity is an implementation of ISMP for the EVM, it allows any integrated smart contract to send and receive secure messages through the Hyperbridge Nexus.    
+Let's look into it's different components:
+
+## EvmHost
+
+The EvmHost contract, implementing the `IIsmpHost` interface, is a stateful module responsible for all protocol storage needs. It manages a comprehensive store encompassing consensus states, state machine commitments, request/response commitments and receipts.  
+Additionally, it implements the `IIsmpDispatcher` interface, providing methods for contracts to dispatch requests and responses to the Hyperbridge Nexus.
+
+## EvmHandler
+
+The Handler contract (implementing `IHandler` interface) is stateless, handling consensus and state proof verifications for all allowed ismp message types.  
+Upon successful verification, it delegates state persistence and dispatch to the EvmHost contract.
+
+This decoupled design of the Handler from the Host allows independent upgrades to verification mechanisms without impacting the core protocol, enabling future adoption of more efficient consensus and state verification methods
+with no changes to the protocol or dependent contracts.
+
+
+In the next section we'll look into hands-on examples of how to send and receive messages using ISMP.
+
 
 ## Going Crosschain with ISMP
 

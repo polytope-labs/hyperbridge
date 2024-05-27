@@ -18,4 +18,8 @@ export { handlePostRequestTransactionHandler } from "../handlers/transactions/ha
 export { handlePostResponseTransactionHandler } from "../handlers/transactions/handlerV1/handlePostResponseTransactionHandler.handler";
 
 // Hyperbridge Handlers
-export { handleIsmpStateMachineUpdated } from "../handlers/events/hyperbridge/handleIsmpStateMachineUpdatedEvent.handler";
+export { handleIsmpStateMachineUpdatedEvent } from "../handlers/events/hyperbridge/handleIsmpStateMachineUpdatedEvent.handler";
+export { handleHyperbridgeRequestEvent } from "../handlers/events/hyperbridge/handleRequestEvent.handler";
+export { handleHyperbridgeResponseEvent } from "../handlers/events/hyperbridge/handleResponseEvent.handler";
+export { handleHyperbridgePostRequestTimeoutHandledEvent } from "../handlers/events/hyperbridge/handlePostRequestTimeoutHandledEvent.handler";
+export { handleHyperbridgePostResponseTimeoutHandledEvent } from "../handlers/events/hyperbridge/handlePostResponseTimeoutHandledEvent.handler";

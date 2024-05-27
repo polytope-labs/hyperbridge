@@ -1,7 +1,7 @@
-import { Event, StateMachineUpdateEvent } from "../types/models";
+import { Event } from "../types/models";
 import { EventType, SupportedChain } from "../types";
 
-interface IEvmHostEventArgs {
+export interface IEvmHostEventArgs {
   blockHash: string;
   blockNumber: number;
   transactionHash: string;
@@ -15,12 +15,6 @@ export interface ICreateEvmHostEventArgs extends IEvmHostEventArgs {
   commitment: string;
   data: string;
   dest?: string;
-}
-
-// Arguments to functions that create StateMachineUpdated events
-export interface ICreateStateMachineUpdatedEventArgs extends IEvmHostEventArgs {
-  stateMachineId: string;
-  height: bigint;
 }
 
 export class EvmHostEventsService {
@@ -50,38 +44,6 @@ export class EvmHostEventsService {
       chain,
       transactionHash,
       destination: dest,
-      transactionIndex: BigInt(transactionIndex),
-      blockHash,
-      blockNumber: BigInt(blockNumber),
-      createdAt: new Date(timestamp * 1000),
-    });
-
-    await event.save();
-  }
-
-  /**
-   * Create a new EVM Host StateMachineUpdated event entity
-   */
-  static async createStateMachineUpdatedEvent(
-    args: ICreateStateMachineUpdatedEventArgs,
-    chain: SupportedChain,
-  ): Promise<void> {
-    const {
-      blockHash,
-      blockNumber,
-      transactionHash,
-      transactionIndex,
-      timestamp,
-      stateMachineId,
-      height,
-    } = args;
-
-    const event = StateMachineUpdateEvent.create({
-      id: `${stateMachineId}_${height}`,
-      stateMachineId,
-      height,
-      chain,
-      transactionHash,
       transactionIndex: BigInt(transactionIndex),
       blockHash,
       blockNumber: BigInt(blockNumber),

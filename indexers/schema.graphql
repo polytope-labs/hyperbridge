@@ -11,6 +11,7 @@ enum SupportedChain {
     OPTI
     BASE
     BSC
+    POLY
     HYPERBRIDGE
 }
 

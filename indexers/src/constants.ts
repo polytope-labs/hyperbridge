@@ -9,6 +9,7 @@ export const CHAIN_IDS = {
   [SupportedChain.OPTI]: "11155420",
   [SupportedChain.ARBI]: "421614",
   [SupportedChain.BSC]: "97",
+  [SupportedChain.POLY]: "80002",
   [SupportedChain.HYPERBRIDGE]:
     "0xb2bd3bcf03701f26ae353430c98c01a4acc334a199baa37b207298cad9d6229b",
 };

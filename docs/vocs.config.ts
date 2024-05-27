@@ -7,7 +7,7 @@ import { VitePluginRadar } from "vite-plugin-radar";
 import { defineConfig } from "vocs";
 
 export default defineConfig({
-  title: "Hyperbridge",
+  title: "Hyperbridge Documentation",
   description:
     "Hyperbridge is a coprocessor for cryptographically secure interoperability",
   // ogImageUrl:

@@ -20,4 +20,4 @@ $$
 \text{twox\_128("Paras")} + \text{twox\_128("Heads")} + \text{twox\_64(scale\_encoded\_para\_id)}
 $$
 
-This key points to the latest scale-encoded finalized header of the parachain with the given `para_id`.
+This key points to the latest scale-encoded finalized header of the parachain with the given `para_id`. To verify this proof, parachains would need to be aware of the latest relay chain state root. This is provided by the [`cumulus-parachain-system`](https://docs.rs/cumulus-pallet-parachain-system/0.13.0/cumulus_pallet_parachain_system/) module in the form of the [`PersistedValidationData`](https://docs.rs/polkadot-primitives/13.0.0/polkadot_primitives/v7/struct.PersistedValidationData.html) inherent.

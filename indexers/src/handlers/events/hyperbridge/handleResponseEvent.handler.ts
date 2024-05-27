@@ -29,6 +29,6 @@ export async function handleHyperbridgeResponseEvent(
     blockHash: blockHash.toString(),
     blockTimestamp: BigInt(Date.parse(timestamp.toString())),
     status: ResponseStatus.MESSAGE_RELAYED,
-    transactionHash: extrinsic.idx.toString(),
+    transactionHash: extrinsic.extrinsic.hash.toString(),
   });
 }

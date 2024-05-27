@@ -25,7 +25,7 @@ export async function handleIsmpStateMachineUpdatedEvent(
 
   await StateMachineService.createHyperbridgeStateMachineUpdatedEvent(
     {
-      transactionHash: `${blockNumber}-${extrinsic.idx}`,
+      transactionHash: `${extrinsic.extrinsic.hash}`,
       transactionIndex: extrinsic.idx,
       blockNumber: blockNumber.toNumber(),
       blockHash: blockHash.toString(),

@@ -33,6 +33,6 @@ export async function handleHyperbridgePostRequestTimeoutHandledEvent(
     blockHash: blockHash.toString(),
     blockTimestamp: BigInt(Date.parse(timestamp.toString())),
     status: RequestStatus.TIMED_OUT,
-    transactionHash: extrinsic.idx.toString(),
+    transactionHash: extrinsic.extrinsic.hash.toString(),
   });
 }

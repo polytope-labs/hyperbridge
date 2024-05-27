@@ -52,7 +52,9 @@ pub struct PostResponse {
     pub response: Vec<u8>,
     /// Timestamp at which this response expires in seconds.
     pub timeout_timestamp: u64,
-}pub trait IsmpDispatcher {
+}
+
+pub trait IsmpDispatcher {
     /// This function should accept requests from modules and commit them to the state
     /// It should emit the `Request` event after a successful dispatch
     fn dispatch_request(&self, request: DispatchRequest) -> Result<(), Error>;

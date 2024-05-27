@@ -9,12 +9,16 @@ Query results are formatted as JSON
 ```rust
 /// A query for a request or a response
 pub struct Query {
-    /// The source of the request
-    pub source_chain: StateMachine,
-    /// the request destination
-    pub dest_chain: StateMachine,
-    /// The request nonce
-    pub nonce: u64,
+	/// Request or response commitment
+	pub commitment: H256,
+}
+
+
+pub enum ProofKeys {
+	/// Request commitments
+	Requests(Vec<H256>),
+	/// Response commitments
+	Responses(Vec<H256>),
 }
 
 pub struct Proof {
@@ -24,42 +28,101 @@ pub struct Proof {
     pub height: u32,
 }
 
-pub trait QueryInterface {
+pub trait IsmpApi {
     /// Query full request data from the ismp pallet
-    fn query_requests(&self, query: Vec<Query>) -> Result<Vec<Request>>;
+	fn query_requests(&self, query: Vec<Query>) -> RpcResult<Vec<Request>>;
 
-    /// Query full response data from the ismp pallet
-    fn query_responses(&self, query: Vec<Query>) -> Result<Vec<Response>>;
+	/// Query full response data from the ismp pallet
+	fn query_responses(&self, query: Vec<Query>) -> RpcResult<Vec<Response>>;
 
-    /// Query membership proof for some requests
-    fn query_request_proof(&self, height: u32, query: Vec<Query>) -> Result<Proof>;
+	/// Query mmr proof for some commitments
+	fn query_mmr_proof(&self, height: u32, keys: ProofKeys) -> RpcResult<Proof>;
 
-    /// Query membership proof for some responses
-    fn query_response_proof(&self, height: u32, query: Vec<Query>) -> Result<Proof>;
+	/// Query state proof from global state trie
+	fn query_state_proof(&self, height: u32, keys: Vec<Vec<u8>>) -> RpcResult<Proof>;
 
-    /// Query membership or non-membership state proof for some keys
-    fn query_state_proof(&self, height: u32, keys: Vec<Vec<u8>>) -> Result<Proof>;
+	/// Query pallet ismp child trie proof
+	fn query_child_trie_proof(&self, height: u32, keys: Vec<Vec<u8>>) -> RpcResult<Proof>;
 
-    /// Query scale encoded consensus state
-    fn query_consensus_state(
-        &self,
-        height: Option<u32>,
-        client_id: ConsensusClientId,
-    ) -> Result<Vec<u8>>;
+	/// Query scale encoded consensus state
+	fn query_consensus_state(
+		&self,
+		height: Option<u32>,
+		client_id: ConsensusClientId,
+	) -> RpcResult<Vec<u8>>;
 
-    /// Query timestamp of when this client was last updated in seconds
-    fn query_consensus_update_time(&self, client_id: ConsensusClientId) -> Result<u64>;
+	/// Query timestamp of when this client was last updated in seconds
+	fn query_consensus_update_time(&self, client_id: ConsensusClientId) -> RpcResult<u64>;
 
-    /// Query the latest height for a state machine
-    fn query_state_machine_latest_height(&self, id: StateMachineId) -> Result<u64>;
+	/// Query the challenge period for client
+	fn query_challenge_period(&self, client_id: ConsensusClientId) -> RpcResult<u64>;
 
-    /// Query ISMP Events that were deposited in a series of blocks
-    fn query_events(
-        &self,
-        block_numbers: Vec<u32>,
-    ) -> Result<HashMap<u32, Vec<Event>>>;
+	/// Query the latest height for a state machine
+	fn query_state_machine_latest_height(&self, id: StateMachineId) -> RpcResult<u64>;
 
-    /// Query get requests that have no response receipt that have a specified retrieval height <=  `height`.
-    fn pending_get_requests(&self, height: u64) -> Result<Vec<Get>>;
+	/// Query ISMP Events that were deposited in a series of blocks
+	/// Using String keys because HashMap fails to deserialize when key is not a String
+	fn query_events(
+		&self,
+		from: BlockNumberOrHash<Hash>,
+		to: BlockNumberOrHash<Hash>,
+	) -> RpcResult<HashMap<String, Vec<Event>>>;
+
+	/// Query ISMP Events that were deposited in a series of blocks
+	/// Using String keys because HashMap fails to deserialize when key is not a String
+	fn query_events_with_metadata(
+		&self,
+		from: BlockNumberOrHash<Hash>,
+		to: BlockNumberOrHash<Hash>,
+	) -> RpcResult<HashMap<String, Vec<EventWithMetadata>>>;
+}
+```
+
+# Integrating the rpc
+
+For offchain components that need to read the state of pallet-ismp, an rpc client is provided, this should be added to the rpc server in the substrate node.
+
+```rust
+// RPC API Implementation for pallet-ismp
+/// Full client dependencies
+pub struct FullDeps<C, P, B> {
+    /// The client instance to use.
+    pub client: Arc<C>,
+    /// Transaction pool instance.
+    pub pool: Arc<P>,
+    /// Whether to deny unsafe calls
+    pub deny_unsafe: DenyUnsafe,
+    /// Backend used by the node.
+    pub backend: Arc<B>,
+}
+
+ /// Instantiate all full RPC extensions.
+pub fn create_full<C, P>(
+    deps: FullDeps<C, P>,
+) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
+    where
+        C: ProvideRuntimeApi<Block>,
+        C: HeaderBackend<Block> + HeaderMetadata<Block, Error = BlockChainError> + 'static,
+        C: Send + Sync + 'static,
+        C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
+        C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
+        C::Api: BlockBuilder<Block>,
+        // pallet_ismp_runtime_api bound
+        C::Api: pallet_ismp_runtime_api::IsmpRuntimeApi<Block, H256>,
+        P: TransactionPool + 'static,
+{
+    use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
+    use substrate_frame_rpc_system::{System, SystemApiServer};
+
+    let mut module = RpcModule::new(());
+    let FullDeps { client, pool, deny_unsafe, backend } = deps;
+
+    module.merge(System::new(client.clone(), pool, deny_unsafe).into_rpc())?;
+    module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
+    // IsmpRpcHander goes here
+    module.merge(IsmpRpcHandler::new(client, backend)?.into_rpc())?;
+
+
+    Ok(module)
 }
 ```

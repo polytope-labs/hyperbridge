@@ -166,6 +166,7 @@ export default defineConfig({
             link: "/protocol/ismp/timeouts",
           },
 
+<<<<<<< HEAD
           {
             text: "Proxies",
             link: "/protocol/ismp/proxies",
@@ -240,16 +241,105 @@ export default defineConfig({
             text: "Contracts",
             link: "/evm/integration",
           },
+=======
+        {
+          text: "Proxies",
+          link: "/protocol/proxies",
+        },
+      ],
+    },
+    {
+      text: "Solidity Sdk",
+      collapsed: true,
+      items: [
+        {
+          text: "Overview",
+          link: "/evm/solidity",
+        },
+
+        {
+          text: "Integration",
+          link: "/evm/integration",
+        },
+
+        {
+          text: "Protocol Fees",
+          link: "/evm/fees",
+        },
+
+        {
+          text: "Contracts addresses",
+          link: "/evm/contract-addresses",
+        },
+
+>>>>>>> 3183025 (wip: integration docs)
 
           // {
           //   text: "Protocol Fees",
           //   link: "/evm/fees",
           // },
 
+<<<<<<< HEAD
           // {
           //   text: "Message delivery",
           //   link: "/evm/delivery",
           // },
+=======
+        // {
+        //   text: "Supported Networks",
+        //   link: "/evm/networks",
+        // },
+      ],
+    },
+    {
+      text: "Polkadot Sdk",
+      collapsed: true,
+      items: [
+        {
+          text: "Integration",
+          link: "/polkadot/integration",
+        },
+
+        {
+          text: "Integration - Parachains",
+          link: "/polkadot/parachains",
+        },
+
+        // {
+        //   text: "Integration - Solochains",
+        //   link: "/polkadot/solochains",
+        // },
+        // {
+        //   text: "ISMP Modules",
+        //   link: "/polkadot/modules",
+        // },
+        {
+          text: "RPC Interface",
+          link: "/polkadot/rpc",
+        },
+        {
+          text: "Protocol Fees",
+          link: "/polkadot/fees",
+        },
+        // {
+        //   text: "Message delivery",
+        //   link: "/polkadot/delivery",
+        // },
+        // {
+        //   text: "Supported Networks",
+        //   link: "/polkadot/networks",
+        // },
+      ],
+    },
+    {
+      text: "Network Operators",
+      collapsed: true,
+      items: [
+        {
+          text: "Running a Node",
+          link: "/network/node",
+        },
+>>>>>>> 3183025 (wip: integration docs)
 
           // {
           //   text: "Supported Networks",

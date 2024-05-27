@@ -1,0 +1,67 @@
+
+## Hyperbridge Protocol Fee
+
+Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the contract account calling the `IsmpDispatcher`. 
+Importantly, the contract must first approve the `EvmHost` to withdraw the exact amount before calling the dispatch function.
+
+### Expected Workflow:
+Contracts initiating a dispatch should:
+* Withdraw the protocol fee from the user's account.
+* Grant the `EvmHost` approval to withdraw the same amount.
+* Call the dispatch function on the host.
+
+### Finding the Fee Token:
+The token accepted for protocol fee payments is readily available through `IIsmpHost(_host).feeToken()`.
+
+The following snippet shows how to calculate the protocol fee for a post request.  
+```solidity
+    import {IIsmpHost} from "ismp/IIsmpHost.sol";
+    // _host is variable that contains the EvmHost contract address
+    abstract contract Example {
+        function hyperbridgeFee(bytes memory body) external view returns (uint256) {
+            memory perByteFee = IIsmpHost(_host).perByteFee();
+            uint256 protocolFee = perByteFee * body.length;
+            return protocolFee;
+        }
+
+        function feeToken() external view returns (address) {
+            return IIsmpHost(_host).feeToken()
+        }
+    }
+```
+In the case of Post responses the protocol fee is calculated from the size of the response.
+
+## Hyperbridge Relayer Fees
+
+The relayer fee is an optional incentive provided by users initiating cross-chain transactions. It compensates Hyperbridge's decentralized relayers for delivering messages to the destination chain.
+
+### Components
+The fee consists of two parts:
+* Gas fee  
+    This covers the cost of executing the message on the destination chain.  
+* Relayer service fee     
+    This additional amount rewards relayers for their services.  
+    Relayers are profit-Driven mediators and they will prioritize messages with fees that ensure profitability.
+
+#### Setting the Fee 
+To account for potential gas price fluctuations during message delivery, consider the following:
+* Proof verification gas cost  
+    Base the fee on the typical gas required for state proof verification (around 120k gas in USD equivalent).
+* Message execution gas cost
+    The usd equivalent for the gas cost of executing the message
+* Gas price buffer  
+    Include a buffer to accommodate gas price spikes.
+* Relayer service charge  
+    Factor in a reasonable amount to compensate relayers.
+* Self-Relay Option  
+    Users can choose to self-relay messages by omitting the relayer fee.
+
+### Collecting Relayer Fees
+If a user provides a non-zero relayer fee, then the contract should withdraw the fee from the user's account.
+When the contract calls `dispatch`, the  `EvmHost` will attempt to withdraw the relayer fee from the contract's account. Ensure the contract approves the EvmHost for the amount specified as the relayer fee before calling `dispatch`.
+
+
+### Mitigating Gas Spikes with Relayer Fee Adjustments:
+
+During periods of high gas prices on the destination chain, you can increase the relayer fee for in-flight requests and responses to incentivize their delivery.  
+The `EvmHost` contract provides the `fundRequest` and `fundResponse` functions for this purpose. Simply call the appropriate function with the request/response commitment and the desired fee increase amount.

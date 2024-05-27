@@ -1,0 +1,46 @@
+# Integrating with Hyperbridge
+
+For parachains and solochains that intend to send messages through Hyperbridge it is required that they make protocol fee payments for each request and response dispatched.  
+Hyperbridge will only accept messages with state proofs of protocol fee payments, we provide a pallet that handles this. 
+
+## Pallet-hyperbridge
+
+This pallet provides an Ismp dispatcher that handles protocol fee collection, it must be added to the runtime of any substrate chain that wished to use Hyperbridge as a Coprocessor.  
+Protocol fees are charged per byte of data in the request or response body.  
+
+The pallet implements the `IsmpModule` that must be integrated with your `IsmpRouter` implementation, this module allows this pallet receive parameter updates from hyperbridge and also process relayer fee withdrawals.  
+
+```rust
+   impl pallet_hyperbridge::Config for Runtime {
+        type RuntimeEvent = RuntimeEvent;
+        // pallet-ismp implements the IsmpHost
+        type IsmpHost = Ismp;
+   }
+
+   // ... 
+
+   construct_runtime! {
+    // ...
+    Ismp: pallet_ismp,
+    Hyperbridge: pallet_hyperbridge
+   }
+
+   #[derive(Default)]
+   struct ModuleRouter;
+
+   impl IsmpRouter for ModuleRouter {
+      fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+          return match id.as_slice() {
+              // ...
+              PALLET_HYPERBRIDGE_ID => Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
+              // ...
+              _   => Err(Error::ModuleNotFound(id)),
+          };
+      }
+   }
+```
+
+## Dispatching Requests
+
+
+## Dispatching Responses

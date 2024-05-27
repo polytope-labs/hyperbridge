@@ -57,8 +57,7 @@ This is the state machine identifier for your chain, it will be used as the `sou
 For parachains, this should be your parachain id e.g `StateMachine::Polkadot(1000)`.    
 * `Coprocessor`
 ISMP is built around the idea of a coprocessor that aggregates consensus and state proofs from multiple state machines into a more succinct proof that is cheaply verifiable.  
-This component definesd the state machine identifier of the supported coprocessor, if no coprocessor is supported then this can be `None`.  
-Hyperbridge is currently the only coprocessor that supports ISMP.  
+This component defines the state machine identifier of the supported coprocessor, Hyperbridge is a coprocessor for ISMP.  
 * `ConsensusClients` 
 This is a tuple of types that implement the `ConsensusClient` interface, it defines all the consensus algorithms supported by this deployment of the protocol.  
 * `Mmr`
@@ -75,6 +74,7 @@ impl IsmpRouter for Router {
     fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
         let module = match id.as_slice() {
            YOUR_MODULE_ID => Box::new(YourModule::default()),
+           // ... other modules
             _ => Err(Error::ModuleNotFound(id))?
         };
         Ok(module)
@@ -136,6 +136,7 @@ impl IsmpModule for YourModule {
             YOUR_MODULE_ID => {
                 Some(Box::new(YourModuleBenchmarks::default()))
             }
+            // ... other modules
             _ => None
         }
 	}

@@ -301,7 +301,7 @@ export default defineConfig({
         },
 
         {
-          text: "Integration - Parachains",
+          text: "Hyperbridge Integration - Parachains",
           link: "/polkadot/parachains",
         },
 
@@ -309,10 +309,10 @@ export default defineConfig({
         //   text: "Integration - Solochains",
         //   link: "/polkadot/solochains",
         // },
-        // {
-        //   text: "ISMP Modules",
-        //   link: "/polkadot/modules",
-        // },
+        {
+          text: "ISMP Modules",
+          link: "/polkadot/modules",
+        },
         {
           text: "RPC Interface",
           link: "/polkadot/rpc",

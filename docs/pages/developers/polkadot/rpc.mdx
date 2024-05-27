@@ -6,78 +6,6 @@ of the protocol.
 For this purpose we define an interface that should be provided by state machines to allow querying ISMP data.
 Query results are formatted as JSON
 
-```rust
-/// A query for a request or a response
-pub struct Query {
-	/// Request or response commitment
-	pub commitment: H256,
-}
-
-
-pub enum ProofKeys {
-	/// Request commitments
-	Requests(Vec<H256>),
-	/// Response commitments
-	Responses(Vec<H256>),
-}
-
-pub struct Proof {
-    /// Scale encoded proof
-    pub proof: Vec<u8>,
-    /// Height at which proof was recovered
-    pub height: u32,
-}
-
-pub trait IsmpApi {
-    /// Query full request data from the ismp pallet
-	fn query_requests(&self, query: Vec<Query>) -> RpcResult<Vec<Request>>;
-
-	/// Query full response data from the ismp pallet
-	fn query_responses(&self, query: Vec<Query>) -> RpcResult<Vec<Response>>;
-
-	/// Query mmr proof for some commitments
-	fn query_mmr_proof(&self, height: u32, keys: ProofKeys) -> RpcResult<Proof>;
-
-	/// Query state proof from global state trie
-	fn query_state_proof(&self, height: u32, keys: Vec<Vec<u8>>) -> RpcResult<Proof>;
-
-	/// Query pallet ismp child trie proof
-	fn query_child_trie_proof(&self, height: u32, keys: Vec<Vec<u8>>) -> RpcResult<Proof>;
-
-	/// Query scale encoded consensus state
-	fn query_consensus_state(
-		&self,
-		height: Option<u32>,
-		client_id: ConsensusClientId,
-	) -> RpcResult<Vec<u8>>;
-
-	/// Query timestamp of when this client was last updated in seconds
-	fn query_consensus_update_time(&self, client_id: ConsensusClientId) -> RpcResult<u64>;
-
-	/// Query the challenge period for client
-	fn query_challenge_period(&self, client_id: ConsensusClientId) -> RpcResult<u64>;
-
-	/// Query the latest height for a state machine
-	fn query_state_machine_latest_height(&self, id: StateMachineId) -> RpcResult<u64>;
-
-	/// Query ISMP Events that were deposited in a series of blocks
-	/// Using String keys because HashMap fails to deserialize when key is not a String
-	fn query_events(
-		&self,
-		from: BlockNumberOrHash<Hash>,
-		to: BlockNumberOrHash<Hash>,
-	) -> RpcResult<HashMap<String, Vec<Event>>>;
-
-	/// Query ISMP Events that were deposited in a series of blocks
-	/// Using String keys because HashMap fails to deserialize when key is not a String
-	fn query_events_with_metadata(
-		&self,
-		from: BlockNumberOrHash<Hash>,
-		to: BlockNumberOrHash<Hash>,
-	) -> RpcResult<HashMap<String, Vec<EventWithMetadata>>>;
-}
-```
-
 # Integrating the rpc
 
 For offchain components that need to read the state of pallet-ismp, an rpc client is provided, this should be added to the rpc server in the substrate node.
@@ -125,4 +53,130 @@ pub fn create_full<C, P>(
 
     Ok(module)
 }
+```
+
+### Supported Rpc methods
+
+* `query_requests`
+This method accepts a list of request commitments and responds with the requests. The requests are returned in the same order as the commitments supplied.  
+
+```rust
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   // Use an actual request commitment that exists
+   let commitment = H256::random();
+   let params = rpc_params![pallet_ismp::mmr::LeafIndexQuery { commitment }];
+   let requests: Vec<Request> = client.rpc().request("ismp_queryRequests", params).await.unwrap();
+```
+
+* `query_responses`:
+This method accepts a list of response commitments and responds with the requests. The responses are returned in the same order as the commitments supplied.  
+
+```rust
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   // Use an actual response commitment that exists
+   let commitment = H256::random();
+   let params = rpc_params![pallet_ismp::mmr::LeafIndexQuery { commitment }];
+   let requests: Vec<Request> = client.rpc().request("ismp_queryResponses", params).await.unwrap();
+```
+
+* `query_mmr_proof`:
+This method queries the mmr proof a list of request or response commitments, it responds with a `Proof` struct which contains the scale encoded `sp_mmr_primitives::primitives::Proof<H256>`. 
+
+```rust
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   // Use an actual request commitment that exists
+   let commitment = H256::random();
+   // Block height at which proof should be queried
+   let at = 100;
+   let params = rpc_params![at, pallet_ismp::mmr::ProofKeys::Requests(vec![commitment])];
+   let requests: Proof = client.rpc().request("ismp_queryMmrProof", params).await.unwrap();
+```
+
+* `query_child_trie_proof`
+This method accepts a list of keys and generates a merkle patricia trie proof from palle-ismp's child trie. It responds with a proof struct which contains the scale encoded proof noded `Vec<Vec<u8>>`.
+
+```rust
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   // Use real storage keys
+   let keys = vec![vec![0;32]];
+   // Block height at which proof should be queried
+   let at = 100;
+   let params = rpc_params![at, keys];
+   let requests: Proof = client.rpc().request("ismp_queryChildTrieProof", params).await.unwrap();
+```
+
+* `query_consensus_state`
+This method accepts a consensus state id and responds with the scale encoded consensus state.  
+
+```rust
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   let consensus_state_id = *b"ETH0";
+   let params = rpc_params![consensus_state_id];
+   let consensus_state: Vec<u8> = client.rpc().request("ismp_queryConsensusState", params).await.unwrap();
+```
+
+* `query_consensus_update_time`:
+This method accepts a consensus state id and responds with the timestamp(seconds) when it was last updated.  
+
+```rust
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   let consensus_state_id = *b"ETH0";
+   let params = rpc_params![consensus_state_id];
+   let consensus_update_timestamp: u64 = client.rpc().request("ismp_queryConsensusUpdateTime", params).await.unwrap();
+```
+
+* `query_challenge_period`
+This rpc method takes a consensus state id and returns the challenge period configured for the client.  
+
+```rust
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   let consensus_state_id = *b"ETH0";
+   let params = rpc_params![consensus_state_id];
+   let challenge_period: u64 = client.rpc().request("ismp_queryChallengePeriod", params).await.unwrap();
+```
+
+* `query_state_machine_latest_height`
+This rpc method accepts a state machine id and returns the latest height of a state machine.  
+
+```rust
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   let consensus_state_id = *b"ETH0";
+   let state_machine_id = StateMachineId {
+	state_id: StateMachine::Ethereum(Ethereum::ExecutionLayer),
+	consensus_state_id
+   };
+   let params = rpc_params![state_machine_id];
+   let latest_height: u64 = client.rpc().request("ismp_queryStateMachineLatestHeight", params).await.unwrap();
+```
+
+* `query_events`
+This method takes two parameters a starting block hash or number and an ending block hash or number, it responds with all the ismp events present within that range.  
+
+```rust
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   let from =  BlockNumberOrHash::Number(100);
+   let to = BlockNumberOrHash::Number(200)
+   let params = rpc_params![from, to];
+   let events: Vec<ismp::events::Event> = client.rpc().request("ismp_queryEvents", params).await.unwrap();
+```
+
+* `query_events_with_metadata`
+This method takes two parameters a starting block hash or number and an ending block hash or number, it responds with all the ismp events present within that range along side the extrinsic and block hash where the events were emitted.   
+
+```rust
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   let from =  BlockNumberOrHash::Number(100);
+   let to = BlockNumberOrHash::Number(200)
+   let params = rpc_params![from, to];
+   let events: Vec<pallet_ismp_rpc::EventWithMetadata> = client.rpc().request("ismp_queryEventsWithMetadata", params).await.unwrap();
 ```

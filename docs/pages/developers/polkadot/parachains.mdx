@@ -106,11 +106,13 @@ The pallet provides two calls outside the inherent call.
 
 * `add_parachain`
 This call allows a priviledged origin to add a new parachain to the list of supported parachains. whenever a new parachain is added, the inherent provider will add state proofs of the parachain's latest header in subsequent consensus messages.  
-For a parachain to receive and send messages through Hyperbridge, Hyperbridge's parachain Id (`3367`) must be added to the list of supported parachains.  
 
 * `remove_parachain`
 This priviledged call removes a parachain from the list of supported parachains, thereby preventing any future state updates from such parachain.  
 
+## Connecting to hyperbridge
+
+Connecting to hyperbridge is simple, you only need to add Hyperbridge's parachain Id (`3367`) to the list of supported parachain ids in the pallet then the chain can start sending/receiving messages to/from hyperbridge.  
 
 
 

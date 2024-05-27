@@ -70,10 +70,10 @@ The total number of subtrees in a merkle mountian range tree with $n$ leaves is 
   \begin{algorithmic}
   \INPUT The total number of leaves in the mmr
   \OUTPUT An array of the heights of the subtrees in the mmr
-  \PROCEDURE{subtreeHeights}{$leavesLength$}
+  \PROCEDURE{SubtreeHeights}{$leafCount$}
       \State $\text{indices} \gets \text{[]}$
       \State $i \gets 0$
-      \State $\text{current} \gets \text{leavesLength}$
+      \State $\text{current} \gets \text{leafCount}$
       \While{$\text{current} > 0$}
           \State $\text{height} \gets \lfloor \log_2(\text{current}) \rfloor$
           \State $\text{indices}[i] \gets \text{height}$
@@ -90,13 +90,72 @@ The total number of subtrees in a merkle mountian range tree with $n$ leaves is 
 
 Our approach to verifying mmr multi proofs will be to regard each sub tree as an isolated merkle tree, using the $k$-index model defined in the [previous section](/cryptography/merkle-trees/binary). The $k$-index of each node in an mmr, will be the distance from the left-most node in each subtree.
 
+
+
 <figure>
   <img src="/mmr-02.svg" alt="MMR tree" />
-  <figcaption style={{ textAlign: "center" }}>We can describe each sub tree as a standalone merkle tree.</figcaption>
+  <figcaption style={{ textAlign: "center" }}>We can describe each subtree as a standalone, perfectly balanced merkle tree.</figcaption>
 </figure>
 
 
-Given this model, we can re-use the `CalculateMerkleRoot` function defined in my previous article to verify mmr multi proofs using the algorithm:
+We can calculate the $k$-index for any node in an mmr using the algorithm:
+
+<Algorithm
+  algID="mmrPositionToKIndex"
+  content="
+  \begin{algorithm}
+  \caption{MMR Position to K-Index Conversion}
+  \begin{algorithmic}
+  \PROCEDURE{MMRPositionToKIndex}{$leaves, mmr\_size$}
+      \State $peaks \gets \text{GetPeaks}(mmr\_size)$
+      \State $leaves\_with\_k\_indices \gets \text{empty list}$
+
+      \ForAll{$peak \in peaks$}
+          \State $leaves \gets \text{take\_while}(leaves, \lambda pos: pos \leq peak)$
+
+          \If{$\text{length}(leaves) > 0$}
+              \ForAll{$pos \in leaves$}
+                  \State $height \gets \text{PosHeightInTree}(peak)$
+                  \State $index \gets 0$
+                  \State $parent\_pos \gets peak$
+
+                  \For{$h = height$ \textbf{downto} $1$}
+                      \State $left\_child \gets parent\_pos - \text{ParentOffset}(h - 1)$
+                      \State $right\_child \gets left\_child + \text{SiblingOffset}(h - 1)$
+                      \State $index \gets index \times 2$
+
+                      \If{$left\_child \geq pos$}
+                          \State $parent\_pos \gets left\_child$
+                      \Else
+                          \State $parent\_pos \gets right\_child$
+                          \State $index \gets index + 1$
+                      \EndIf
+                  \EndFor
+
+                  \State $\text{Append}(leaves\_with\_k\_indices, (pos, index))$
+              \EndFor
+          \EndIf
+      \EndFor
+
+      \State \Return $leaves\_with\_k\_indices$
+  \ENDPROCEDURE
+  \end{algorithmic}
+  \end{algorithm}
+"
+/>
+
+:::note
+#### Where
+
+ - $mmr\_size$ is the total count of all nodes in the mmr
+ - $GetPeaks$ is a method that returns a list of positions of all peaks in the mmr
+ - $PosHeightInTree$ is a method that given the position returns the height of a node in the mmr
+ - $ParentOffset$ is a method that returns the offset (from the parent) of the left node at a given height
+ - $SiblingOffset$ is a method that given the offset (from the parent) of the right node at a given height
+:::
+
+Given this model, we can re-use the `CalculateMerkleRoot` function defined in the previous section to verify mmr multi proofs using the algorithm:
+
 <Algorithm
   algID="mmr"
   content="
@@ -156,11 +215,12 @@ Given this model, we can re-use the `CalculateMerkleRoot` function defined in my
 />
 
 
-### Implementation
+### Implementations
 
-You can find the implementation of this verification algiorithm in
+You can find the implementations of merkle mountain ranges in:
 
 - [polytope-labs/solidity-merkle-trees](https://github.com/polytope-labs/solidity-merkle-trees/blob/main/src/MerkleMountainRange.sol)
+- `pallet-mmr` in [polytope-labs/hyperbridge](https://github.com/polytope-labs/hyperbridge/tree/main/modules/trees/mmr/pallet)
 
 
 ## References

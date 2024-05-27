@@ -2,45 +2,13 @@
 title: Consensus Clients
 description: The ISMP protocol specification for consensus clients
 ---
-
-# Blockchains as State Machines
-
 <link
   href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
   rel="stylesheet"
 />
+# Consensus Client
 
-In a generalised blockchain model, we can describe a blockchain with blocks $B_1, B_2, B_3 \dots B_n$ as a state machine. To create new blocks, we apply a _state transition function_ to the state $S_i$ at block height $B_i$ with a transaction list $T_i$, which results in some new state $S_{i+1}$. This can be more formally expressed as follows:
-
-$$
-transition(S_i, T_i) = S_{i+1}
-
-
-$$
-
-This transactions list $T_i$ can be seen as a list of database transactions $\{t_1, t_{2}, t_{3} \dots t_n\}$
-, where the state $S_i$ represents a **key-value database**. These transactions may create, update or delete items in this key-value database. It's important to note that in this state machine model, our state transition function returns a new copy of the database. This means that the output of a successful transition is fed into the input for the next state transition. Therefore, at every new block $B_i$ is a corresponding state $S_i$ that describes the current state of the blockchain database after applying the list of transactions $T_i$.
-
-**Data verifiability is blockchain’s main value proposition**. Which is why In order to arrive at the latest (trusted) state of the blockchain, **it is necessary for blockchain nodes to re-apply all the transactions that have been made since the genesis block**. By re-applying each transaction, each participant is able to produce the new state of the blockchain. This mechanism is what allows blockchains to be considered a tamper-proof database that can be trusted by all participants.
-
-<figure>
-  <img src="/stf.svg" alt="Each block holds a new state." />
-  <figcaption>Each block holds a new state.</figcaption>
-</figure>
-
-> There may potentially be multiple state transitions for a given block, as you can see in the diagram: $B_3$, $B_4$, $B_5$ all have multiple state transitions. This is where the role of a consensus algorithm aka _fork choice rule_ comes into play.
-
-<figure>
-  <img
-    src="/consensus.svg"
-    alt="Consensus is denoted by the blocks marked as green."
-  />
-  <figcaption>Consensus is denoted by the blocks marked as green.</figcaption>
-</figure>
-
-> The role of consensus in a blockchain is to tell us which sequence of state transitions are final or can be trusted. They do so by employing a combination of game theoretic and cryptographic protocols to ensure that the network will always agree on **one history of state transitions and not more.**
-
-ISMP's messaging abstraction is built on top of the `ConsensusClient`. We refer to it as a consensus client because that is precisely what it should be: a client that observes a blockchain's consensus messages in order to determine what is the canonical chain on the network. Armed with the knowledge of the canonical state of the chain, we are now able to verify the state proofs of the requests & responses that have been committed to the state trie.
+ISMP's messaging abstraction is built on top of the `ConsensusClient`. We refer to it as a consensus client because that is precisely what it should be: a client that observes a blockchain's consensus proofs in order to determine what is the canonical chain on the network. Armed with the knowledge of the canonical state of the chain, we are now able to verify the state proofs of the requests & responses that have been committed to the state trie.
 
 This document formally defines the `ConsensusClient`, which serves as an oracle for the canonical state of a state machine, and the corresponding handlers which are used to modify the state of the consensus client.
 
@@ -60,7 +28,7 @@ The consensus client is one half of a full blockchain client. It verifies only c
   <img src="/full-node.jpeg" alt="A Full Node" />
 </figure>
 
-The quest for a mechanism by which a consensus client may observe and come to conclusions about the canonical state of another blockchain leads us to understand the concept of safety in distributed systems. We elaborate further on this in our research article on consensus proofs $^{[1]}$. In summary, we show that safety in on-chain consensus clients will require the use of a challenge window, even after consensus proof verification. This allows us to detect potential Byzantine behavior that may arise without the challenge window in place.
+The quest for a mechanism by which a consensus client may observe and come to conclusions about the canonical state of another blockchain leads us to understand the concept of safety in distributed systems. We elaborate further on this in the section on [consensus proofs](/interoperability/consensus-proofs). In summary, we show that safety in on-chain consensus clients will require the use of a challenge window, even after consensus proof verification. This allows us to detect potential Byzantine behavior that may arise without the challenge window in place.
 
 ```rust
 /// The consensus state of the consensus client
@@ -251,7 +219,3 @@ struct ConsensusClientFrozen {
 ```
 
 A `ConsensusClientFrozen` event is emitted after a consensus fault is successfully verified and the offending client frozen. This should instruct relayers to shut down any tasks for relaying requests from the byzantine network to the host network.
-
-## References
-
-$^{[1]}$ [Consensus Proofs, Polytope Labs Research](https://research.polytope.technology/consensus-proofs)

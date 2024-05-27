@@ -137,5 +137,35 @@ export default defineConfig({
         },
       ],
     },
+    {
+      text: "Runtime Modules",
+      collapsed: true,
+      items: [
+        {
+          text: "Pallet ISMP",
+          link: "/modules/ismp",
+        },
+        {
+          text: "ISMP Parachain",
+          link: "/modules/ismp-parachain",
+        },
+        {
+          text: "ISMP Sync Committee",
+          link: "/modules/sync-committee",
+        },
+        {
+          text: "Pallet Fishermen",
+          link: "/modules/fishermen",
+        },
+        {
+          text: "Pallet Host Executive",
+          link: "/modules/host-executive",
+        },
+        {
+          text: "Pallet ISMP Relayer",
+          link: "/modules/relayer",
+        },
+      ],
+    },
   ],
 });

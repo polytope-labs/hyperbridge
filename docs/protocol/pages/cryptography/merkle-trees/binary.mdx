@@ -1,8 +1,6 @@
 ---
 title: Binary Merkle Trees
 description: Binary merkle trees are a type of binary tree that is used to verify the integrity of data.
-authors:
-  - Seun Lanlege
 ---
 
 import Algorithm from '../../../components/Algorithm';
@@ -89,13 +87,7 @@ We can define our proof schema as a 2-dimensional array, where the first dimensi
 
 [Second pre-image attacks](https://en.wikipedia.org/wiki/Merkle_tree#Second_preimage_attack) arise when merkle tree proof schemes do not check the tree depth when verifying merkle proofs. This allows for attackers to construct either arbitrarily deep or shallow trees that have the same root hash as the verifier’s, in order to fool the verifier that some forged items are in the original tree.
 
-In order to mitigate this, given our current proof scheme, **it is necessary that the verifier knows the number of items in the tree**. With this knowledge, the height of the tree can be computed using:
-
-$$
-h_{tree} = \log_2(n_{leaves})
-$$
-
-and compared to the length of the 2D proof array (which encodes the height of the tree). If they do not match then the proof can safely be rejected because it describes a different tree and is  attempting to perform a pre-image collision attack.
+In order to mitigate this, given our current proof scheme, **it is necessary that the verifier knows the number of items in the tree**. The height of the tree can be computed from it's leaf count and compared to the length of the 2D proof array (which encodes the height of the tree). If they do not match then the proof can safely be rejected because it describes a different tree and is  attempting to perform a pre-image collision attack.
 
 ## Verification Algorithm
 

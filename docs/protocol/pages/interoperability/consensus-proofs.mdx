@@ -1,6 +1,6 @@
 ---
-title: Polynomial Commitments
-description: Polynomial commitments are a kind of vector commitment scheme that also allows for partial reveals, but with succint or logarithmic (wrt the prover complexity) proofs, irrespective of the size of the message.
+title: Consensus Proofs
+description: Consensus proofs are the foundation of trust-free bridges. In this article, we explore the technical definition of consensus proofs, review their vulnerabilities, and examine the mitigations for these vulnerabilities.
 ---
 <link
   href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
@@ -218,7 +218,7 @@ Consensus clients will need to be extended to process not only consensus proofs 
 
 To mitigate data withholding attacks, it's necessary for consensus clients to be able to re-execute it's counterparty chain’s blocks. This way it can detect data withholding attacks which are used to disguise blocks that violate its state transition function. Fishermen can signal to the consensus client that some previously processed header’s block data is unavailable. The relayer responsible for submitting the header with the unavailable data has to make the full block data available or lose their stake.
 
-The consensus client can then re-execute the full block on-chain using the full transactions and necessary state proofs$^{[4]}$. If the block is valid, fishermen who submitted false reports are liable to be slashed. This is to disincentivize *griefing attacks*$^{[5]}$. If the block is found to be invalid because it violates the state transition function, the relayer responsible for submitting the header will have their stake slashed.
+The consensus client can then re-execute the full block on-chain using the full transactions and necessary state proofs. If the block is valid, fishermen who submitted false reports are liable to be slashed. This is to disincentivize *griefing attacks*$^{[4]}$. If the block is found to be invalid because it violates the state transition function, the relayer responsible for submitting the header will have their stake slashed.
 
 ### Fishermen
 
@@ -239,6 +239,4 @@ $^{[2]}$ [Vitalik Buterin, Proof of Stake: How I Learned to Love Weak Subjectivi
 
 $^{[3]}$ [Gavin Wood, Polkadot Whitepaper](https://polkadot.network/PolkaDotPaper.pdf)
 
-$^{[4]}$ [Seun Lanlege, "State (Machine) Proofs", Polytope Labs Research](https://research.polytope.technology/state-(machine)-proofs)
-
-$^{[5]}$ [Consensys Research, Griefing Attacks](https://www.notion.so/Consensus-Proofs-091efd3982e54a9e8e21b440b3c4ab0f?pvs=21)
+$^{[4]}$ [Consensys Research, Griefing Attacks](https://www.notion.so/Consensus-Proofs-091efd3982e54a9e8e21b440b3c4ab0f?pvs=21)

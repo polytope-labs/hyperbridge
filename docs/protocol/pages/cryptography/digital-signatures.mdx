@@ -1,0 +1,18 @@
+---
+title: Digital Signatures
+description: Digital signatures are a cryptographic primitive that allows a party to produce a signature over a message, and another party to verify the authenticity message through the signature.
+---
+
+# Digital Signatures
+
+A digital signature is a cryptographic primitive that allows a party to produce a signature over a message, and another party to verify the authenticity message through the signature. The signature is created using a "private key", and the verification is done using the corresponding "public key". If the signature is valid, it means that the data has not been tampered with and that it was indeed signed by the party in possession of the private key.
+
+Digital signatures are used in blockchain systems to authenticate transactions that should be executed on behalf of an account. There are different digital signature schemes. We will focus on the ones used within the Hyperbridge protocol.
+
+## ECDSA
+
+The Elliptic Curve Digital Signature Algorithm (ECDSA) is a widely used digital signature algorithm that is based on elliptic curve cryptography. It is used in many blockchain systems, including Bitcoin and Ethereum. Specifically they use it with the sec256k1 curve, a NIST standard curve. Read more about it here: [Elliptic Curve Digital Signature Algorithm](https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm)
+
+## BLS Signatures
+
+Boneh-Lynn-Shacham (BLS) signatures are a type of digital signature that is based on bilinear pairings. BLS signatures have the property that they can be aggregated, meaning that multiple signatures can be combined into a single signature. This property makes BLS signatures very useful for consensus proofs and threshold signatures, as it allows multiple parties to sign a message and then aggregate their signatures into a single signature. Amortizing the cost of signature verification. Read more about BLS signatures here: [BLS Multi-Signatures With Public-Key Aggregation](https://crypto.stanford.edu/~dabo/pubs/papers/BLSmultisig.html)

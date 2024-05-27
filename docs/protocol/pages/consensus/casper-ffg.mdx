@@ -16,7 +16,7 @@ We present a protocol for efficiently verifying the Ethereum Beacon chain's Casp
 
 ### Motivation
 
-[The sync committee](https://research.polytope.technology/ethereum-sync-committee) was introduced to the beacon chain in the Altair hard-fork and it consists of a randomly selected subset of 512 validators from the full validator set. The motivation for this committee was [consensus proofs](https://research.polytope.technology/consensus-proofs) that could be verified cheaply. Unfortunately, this protocol introduces new security assumptions that are completely orthogonal to the security of the beacon chain. More specifically, it has much lower crypto-economic security, as well as a lack of slashing for byzantine behavior, which is critical to the safety of POS consensus.
+[The sync committee](/consensus/sync-committee) was introduced to the beacon chain in the Altair hard-fork and it consists of a randomly selected subset of 512 validators from the full validator set. The motivation for this committee was [consensus proofs](/interoperability/consensus-proofs) that could be verified cheaply. Unfortunately, this protocol introduces new security assumptions that are completely orthogonal to the security of the beacon chain. More specifically, it has much lower crypto-economic security, as well as a lack of slashing for byzantine behavior, which is critical to the safety of POS consensus.
 
 Therefore, bridges and off-chain consensus clients that rely on the beacon chain consensus proofs must trust that the sync committee will not collude to perform eclipse or data withholding attacks, even when there are no consequences for such actions. We find this blind-faith security model to be completely unacceptable. Consequently, we have opted for the more ambitious approach of directly verifying the Casper FFG consensus proofs.
 
@@ -219,7 +219,7 @@ After verifying the aggregated public key SNARK proof $\pi$, the verifier can si
 
 The SNARK circuit itself simply performs elliptic curve affine additions of the BLS public keys and constrains these additions using a custom PLONK gate.
 
-![Screenshot 2023-05-10 at 11.52.59 AM.png](/Screenshot_2023-05-10_at_11.52.59_AM.png)
+![Screenshot 2023-05-10 at 11.52.59 AM.png](/sudoku.png)
 
 The SNARK requires a pair of pairing-friendly elliptic curves: one for the BLS signature (the inner curve) and one for the SNARK itself (the outer curve). The paper recommends using the curves BLS12-377 and BW6-761. However, for the BLS12-381 keys used in the Casper FFG protocol, we must use the BW6-767 curve for the outer curve to avoid non-native field arithmetic that would significantly increase the number of constraints and, consequently, proving times. The protocol for aggregated public key proofs is formally defined below:
 

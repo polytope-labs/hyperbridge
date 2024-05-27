@@ -10,7 +10,7 @@ export default function Algorithm({
     lineNumberPunc: ":",
     noEnd: false,
     captionCount: undefined,
-    titlePrefix: "Algoritm ",
+    titlePrefix: "Algorithm ",
   },
 }: any) {
   const onLoad = () => {

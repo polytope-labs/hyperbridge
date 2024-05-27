@@ -9,10 +9,6 @@ Now that we have a way to verify the consensus proofs of a blockchain in a fully
 
 The state machine client is an abstraction over the state proof scheme of a given state machine. By decoupling the `ConsensusClient` from the `StateMachineClient` which are typically combined to form a _light client_, the ISMP framework allows a consensus client to support multiple state machines, each potentially using different state proof schemes. This abstraction makes ISMP future-proof, enabling deployment on both monolithic and modular blockchain architectures, including Polkadot, Ethereum, and others.
 
-<figure>
-  <img src="/state-machine.svg" alt="A Full Node" />
-</figure>
-
 ```rust
 /// Convenience enum
 pub enum RequestResponse {

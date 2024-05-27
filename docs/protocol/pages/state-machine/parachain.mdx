@@ -1,0 +1,23 @@
+---
+title: Parachain
+description: Parachain State Machine verification and finality
+---
+
+<link
+  href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
+  rel="stylesheet"
+/>
+
+# Parachain
+
+A parachain is a blockchain that is validated by the Polkadot relay chain. This validation takes place in the form of block re-execution by the relay chain validators to confirm the correctness of the parachain's state transitions. This validation enables not only enables relay-chain to parachain communication, but also enables parachains to communicate with each other. In this architecture the relay chain is responsible for the finality of all parachains, and can serve as the "consensus client" for any parachain connected to it.
+
+Parachain blocks which have been validated by the relay chain can be considered as finalized. This finality is complete when the associated headers for these blocks have made their way in to the relay chain state. This allows any parachain to obtain state proofs from the relay chain of it's sibling parachain headers which have been finalized. This is the basis for the [`ParachainConsensusClient`](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/parachain/client/src/consensus.rs).
+
+The [storage key](https://github.com/paritytech/polkadot-sdk/blob/polkadot-v1.12.0/polkadot/runtime/parachains/src/paras/mod.rs#L733) on the relay chain for parachain headers is given by the following:
+
+$$
+\text{twox\_128("Paras")} + \text{twox\_128("Heads")} + \text{twox\_64(scale\_encoded\_para\_id)}
+$$
+
+This key points to the latest scale-encoded finalized header of the parachain with the given `para_id`.

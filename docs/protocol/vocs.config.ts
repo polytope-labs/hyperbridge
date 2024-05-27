@@ -82,12 +82,8 @@ export default defineConfig({
           ],
         },
         {
-          text: "Elliptic Curves",
-          link: "/cryptography/elliptic-curves",
-        },
-        {
-          text: "BLS Signatrues",
-          link: "/cryptography/bls",
+          text: "Digital Signatrues",
+          link: "/cryptography/digital-signatures",
         },
         {
           text: "Polynomial Commitments",
@@ -108,12 +104,12 @@ export default defineConfig({
       collapsed: true,
       items: [
         {
-          text: "Consensus Proofs",
-          link: "/interoperability/consensus-proofs",
-        },
-        {
           text: "State (Machine) Proofs",
           link: "/interoperability/state-machine-proofs",
+        },
+        {
+          text: "Consensus Proofs",
+          link: "/interoperability/consensus-proofs",
         },
       ],
     },
@@ -164,6 +160,11 @@ export default defineConfig({
           text: "Proxies",
           link: "/ismp/proxies",
         },
+
+        {
+          text: "Relayers",
+          link: "/ismp/relayers",
+        },
       ],
     },
     {
@@ -171,12 +172,16 @@ export default defineConfig({
       collapsed: true,
       items: [
         {
+            text: "GRANDPA (Polkadot)",
+            link: "/consensus/grandpa",
+        },
+        {
           text: "BEEFY (Polkadot)",
-          link: "/consensus/ismp",
+          link: "/consensus/beefy",
         },
         {
           text: "Sync Committee (Ethereum)",
-          link: "/consensus/host",
+          link: "/consensus/sync-committee",
         },
         {
           text: "Casper FFG (Ethereum)",
@@ -184,7 +189,7 @@ export default defineConfig({
         },
         {
           text: "Parlia (Bsc)",
-          link: "/consensus/host",
+          link: "/consensus/parlia",
         },
       ],
     },
@@ -194,51 +199,21 @@ export default defineConfig({
       items: [
         {
           text: "Parachain",
-          link: "/algorithms/state-machine/parachain",
+          link: "/state-machine/parachain",
         },
         {
           text: "Fault Dispute Games (OP Stack)",
-          link: "/algorithms/state-machine/fault-dispute-games",
+          link: "/state-machine/fault-dispute-games",
         },
         {
           text: "L2 Oracle (OP Stack)",
-          link: "/algorithms/state-machine/l2-oracle",
+          link: "/state-machine/l2-oracle",
         },
         {
           text: "Orbit (Arbitrum)",
-          link: "/algorithms/state-machine/orbit",
+          link: "/state-machine/arbitrum-orbit",
         },
       ],
-    },
-    {
-      text: "Runtime Modules",
-      collapsed: true,
-      items: [
-        {
-          text: "Pallet ISMP",
-          link: "/modules/ismp",
-        },
-        {
-          text: "ISMP Parachain",
-          link: "/modules/ismp-parachain",
-        },
-        {
-          text: "ISMP Sync Committee",
-          link: "/modules/ismp-sync-committee",
-        },
-        {
-          text: "Pallet Fishermen",
-          link: "/modules/fishermen",
-        },
-        {
-          text: "Pallet Host Executive",
-          link: "/modules/host-executive",
-        },
-        {
-          text: "Pallet ISMP Relayer",
-          link: "/modules/relayer",
-        },
-      ],
-    },
+    }
   ],
 });

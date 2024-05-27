@@ -19,5 +19,5 @@ geth-primitives = { workspace = true, default-features = true }
 tracing = "0.1.40"
 
 [dev-dependencies]
-tokio = { version = "1.32.0", features = ["macros"] }
+tokio = { workspace = true, features = ["macros"] }
 dotenv = "0.15.0"

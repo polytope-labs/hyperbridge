@@ -19,6 +19,7 @@ mod events;
 mod retries;
 
 use anyhow::anyhow;
+use sc_service::TaskManager;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -26,7 +27,7 @@ use crate::{
 	events::{filter_events, translate_events_to_messages, Event},
 	retries::retry_unprofitable_messages,
 };
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use ismp::{consensus::StateMachineHeight, host::StateMachine};
 
 use tesseract_primitives::{
@@ -43,54 +44,67 @@ pub async fn relay<A>(
 	coprocessor: StateMachine,
 	tx_payment: Arc<TransactionPayment>,
 	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+	task_manager: &TaskManager,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpProvider + Clone + HyperbridgeClaim + 'static,
 {
 	let (sender, receiver) = tokio::sync::mpsc::channel::<Vec<TxReceipt>>(64);
-	let task_a = {
+	{
 		let chain_a = Arc::new(chain_a.clone());
 		let chain_b = chain_b.clone();
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
 		let sender = sender.clone();
-		tokio::spawn(async move {
-			let _ = handle_notification(
-				chain_a,
-				chain_b,
-				tx_payment,
-				config,
-				coprocessor,
-				client_map,
-				sender,
-			)
-			.await?;
-			Ok::<_, anyhow::Error>(())
-		})
-	};
+		let name = format!("messaging-{}-{}", chain_a.name(), chain_b.name());
+		task_manager.spawn_essential_handle().spawn_blocking(
+			Box::leak(Box::new(name.clone())),
+			"messaging",
+			async move {
+				let res = handle_notification(
+					chain_a,
+					chain_b,
+					tx_payment,
+					config,
+					coprocessor,
+					client_map,
+					sender,
+				)
+				.await;
+				tracing::error!(target: "tesseract", "{name} has terminated with result {res:?}")
+			}
+			.boxed(),
+		)
+	}
 
-	let task_b = {
+	{
 		let chain_a = Arc::new(chain_a.clone());
 		let chain_b = chain_b.clone();
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
 		let sender = sender.clone();
-		tokio::spawn(async move {
-			let _ = handle_notification(
-				chain_b,
-				chain_a,
-				tx_payment,
-				config,
-				coprocessor,
-				client_map,
-				sender,
-			)
-			.await?;
-			Ok::<_, anyhow::Error>(())
-		})
-	};
+		let name = format!("messaging-{}-{}", chain_b.name(), chain_a.name());
+		task_manager.spawn_essential_handle().spawn_blocking(
+			Box::leak(Box::new(name.clone())),
+			"messaging",
+			async move {
+				let res = handle_notification(
+					chain_b,
+					chain_a,
+					tx_payment,
+					config,
+					coprocessor,
+					client_map,
+					sender,
+				)
+				.await;
+				tracing::error!(target: "tesseract", "{name} has terminated with result {res:?}")
+			}
+			.boxed(),
+		);
+	}
 
 	// Fee accumulation background task
 	{
@@ -98,11 +112,18 @@ where
 		let dest = chain_b.clone();
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
-
-		tokio::spawn(async move {
-			fee_accumulation(receiver, dest, hyperbridge, client_map, tx_payment).await
-		})
-	};
+		let name = format!("fee-acc-{}-{}", dest.name(), hyperbridge.name());
+		task_manager.spawn_essential_handle().spawn_blocking(
+			Box::leak(Box::new(name.clone())),
+			"fees",
+			async move {
+				let res =
+					fee_accumulation(receiver, dest, hyperbridge, client_map, tx_payment).await;
+				tracing::error!("{name} terminated with result {res:?}");
+			}
+			.boxed(),
+		);
+	}
 
 	// Spawn retries for unprofitable messages
 	{
@@ -112,29 +133,26 @@ where
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
 		let sender = sender.clone();
-		tokio::spawn(async move {
-			retry_unprofitable_messages(
-				dest,
-				hyperbridge,
-				client_map,
-				tx_payment,
-				config,
-				coprocessor,
-				sender,
-			)
-			.await
-		});
+		let name = format!("retries-{}-{}", dest.name(), hyperbridge.name());
+		task_manager.spawn_essential_handle().spawn_blocking(
+			Box::leak(Box::new(name.clone())),
+			"messaging",
+			async move {
+				let res = retry_unprofitable_messages(
+					dest,
+					hyperbridge,
+					client_map,
+					tx_payment,
+					config,
+					coprocessor,
+					sender,
+				)
+				.await;
+				tracing::error!("{name} terminated with result {res:?}");
+			}
+			.boxed(),
+		);
 	}
-
-	// if one task completes, abort the other
-	tokio::select! {
-		result_a = task_a => {
-			result_a??
-		}
-		result_b = task_b => {
-			result_b??
-		}
-	};
 
 	Ok(())
 }
@@ -151,11 +169,8 @@ async fn handle_notification(
 	let mut state_machine_update_stream = chain_a
 		.state_machine_update_notification(chain_b.state_machine_id())
 		.await
-		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?
-		// skipping the first event, because it yields the most recent event
-		// but we've already initialized our heights to that event.
-		// don't remove
-		.skip(1);
+		.map_err(|err| anyhow!("StateMachineUpdated stream subscription failed: {err:?}"))?;
+
 	let mut previous_height = chain_b.initial_height();
 
 	while let Some(item) = state_machine_update_stream.next().await {
@@ -336,64 +351,58 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 		if receipts.is_empty() {
 			continue;
 		}
-		// Spawn a new task so fee accumulation can be done concurrently
-		tokio::spawn({
-			let dest = dest.clone();
-			let hyperbridge = Arc::new(hyperbridge.clone());
-			let client_map = client_map.clone();
-			let tx_payment = tx_payment.clone();
-			async move {
-				// Group receipts by source chain;
-				// Query latest state machine height of source on hyperbridge
-				// Get height at which messages were delivered to destination
-				// Wait for state machine update on hyperbridge
-				// Generate proofs
-				// Observe challenge period
-				// Submit proof
-				let mut groups = HashMap::new();
-				let delivery_height = receipts
-					.iter()
-					.max_by(|a, b| a.height().cmp(&b.height()))
-					.map(|tx| tx.height())
-					.expect("Infallible");
-				receipts.iter().for_each(|receipt| match receipt {
-					TxReceipt::Request { query, .. } => {
-						let entry = groups.entry(query.source_chain).or_insert(vec![]);
-						entry.push(*receipt);
-					},
-					TxReceipt::Response { query, .. } => {
-						let entry = groups.entry(query.source_chain).or_insert(vec![]);
-						entry.push(*receipt);
-					},
-				});
 
-				// Wait for destination chain's state machine update on hyperbridge
-				tracing::info!(
-					"Fee accumulation for {} messages submitted to {:?} has started",
-					receipts.len(),
-					dest.state_machine_id().state_id
-				);
-				let dest_height = match wait_for_state_machine_update(
-					dest.state_machine_id(),
-					hyperbridge.clone(),
-					delivery_height,
-				)
-				.await
-				{
-					Ok(height) => height,
-					Err(err) => {
-						tracing::error!("An error occurred while waiting for a state machine update, auto fee accumulation failed, Receipts have been stored in the db you can try again manually \n{err:?}");
-						if let Err(err) = tx_payment.store_messages(receipts).await {
-							tracing::error!(
-								"Failed to store some delivered messages to database: {err:?}"
-							)
-						}
-						return;
-					},
-				};
+		let hyperbridge = Arc::new(hyperbridge.clone());
 
-				let stream = futures::stream::iter(groups);
-				stream.for_each_concurrent(None, |(source, receipts)| {
+		// Group receipts by source chain;
+		// Query latest state machine height of source on hyperbridge
+		// Get height at which messages were delivered to destination
+		// Wait for state machine update on hyperbridge
+		// Generate proofs
+		// Observe challenge period
+		// Submit proof
+		let mut groups = HashMap::new();
+		let delivery_height = receipts
+			.iter()
+			.max_by(|a, b| a.height().cmp(&b.height()))
+			.map(|tx| tx.height())
+			.expect("Infallible");
+		receipts.iter().for_each(|receipt| match receipt {
+			TxReceipt::Request { query, .. } => {
+				let entry = groups.entry(query.source_chain).or_insert(vec![]);
+				entry.push(*receipt);
+			},
+			TxReceipt::Response { query, .. } => {
+				let entry = groups.entry(query.source_chain).or_insert(vec![]);
+				entry.push(*receipt);
+			},
+		});
+
+		// Wait for destination chain's state machine update on hyperbridge
+		tracing::info!(
+			"Fee accumulation for {} messages submitted to {:?} has started",
+			receipts.len(),
+			dest.state_machine_id().state_id
+		);
+		let dest_height = match wait_for_state_machine_update(
+			dest.state_machine_id(),
+			hyperbridge.clone(),
+			delivery_height,
+		)
+		.await
+		{
+			Ok(height) => height,
+			Err(err) => {
+				tracing::error!("An error occurred while waiting for a state machine update, auto fee accumulation failed, Receipts have been stored in the db you can try again manually \n{err:?}");
+				if let Err(err) = tx_payment.store_messages(receipts).await {
+					tracing::error!("Failed to store some delivered messages to database: {err:?}")
+				}
+				continue;
+			},
+		};
+
+		let stream = futures::stream::iter(groups);
+		stream.for_each_concurrent(None, |(source, receipts)| {
 					let hyperbridge = hyperbridge.clone();
 					let source_chain = client_map.get(&source).cloned();
 					let dest = dest.clone();
@@ -427,8 +436,6 @@ async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + '
 						}
 					}
 				}).await;
-			}
-		});
 	}
 	Ok::<_, anyhow::Error>(())
 }

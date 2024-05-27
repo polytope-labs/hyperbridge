@@ -23,6 +23,7 @@ use ethers::prelude::H160;
 use futures::FutureExt;
 use ismp::host::StateMachine;
 use rust_socketio::asynchronous::ClientBuilder;
+use sc_service::TaskManager;
 use sp_core::{ecdsa, ByteArray, Pair};
 use std::{collections::HashMap, sync::Arc};
 use telemetry_server::Message;
@@ -54,68 +55,77 @@ impl Cli {
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
 		let HyperbridgeConfig { hyperbridge: hyperbridge_config, relayer, .. } = config.clone();
 
-		let mut processes = vec![];
 		let mut metadata = vec![];
-		if relayer.messaging.unwrap_or(true) {
-			if relayer.minimum_profit_percentage == 0 {
-				log::warn!("Setting the minimum_profit_percentage=0 is not reccomended in live environments!");
-			}
-			let tx_payment = Arc::new(
-				TransactionPayment::initialize(&self.db)
-					.await
-					.map_err(|err| anyhow!("Error initializing database: {err:?}"))?,
+		let tokio_handle = tokio::runtime::Handle::current();
+		let mut task_manager = TaskManager::new(tokio_handle, None)?;
+
+		if relayer.minimum_profit_percentage == 0 {
+			log::warn!(
+				"Setting the minimum_profit_percentage=0 is not reccomended in live environments!"
 			);
-			// Add hyperbridge to the client map
-			let hyperbridge =
-				SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
-			let mut clients =
-				create_client_map(config.clone(), Arc::new(hyperbridge.clone())).await?;
-			clients.insert(hyperbridge.state_machine_id().state_id, Arc::new(hyperbridge.clone()));
-
-			if config.relayer.delivery_endpoints.is_empty() {
-				log::warn!("Delivery endpoints not specified in relayer config, will deliver to all chains.");
-			}
-
-			// messaging tasks
-			for (state_machine, client) in &clients {
-				// If the delivery endpoint is not empty then we only spawn tasks for chains
-				// explicitly mentioned in the config
-				if !config.relayer.delivery_endpoints.is_empty() &&
-					!config.relayer.delivery_endpoints.contains(&state_machine)
-				{
-					continue;
-				}
-
-				let mut new_hyperbridge =
-					SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone())
-						.await?;
-				new_hyperbridge.set_latest_finalized_height(client.clone()).await?;
-
-				let coprocessor = hyperbridge_config.state_machine;
-				processes.push(tokio::spawn(tesseract_messaging::relay(
-					new_hyperbridge,
-					client.clone(),
-					relayer.clone(),
-					coprocessor,
-					tx_payment.clone(),
-					clients.clone(),
-				)));
-
-				metadata.push((
-					state_machine.clone(),
-					H160::from_slice(&client.address().as_slice()[..20]),
-				));
-			}
-
-			tokio::spawn(fees::auto_withdraw(
-				hyperbridge,
-				clients.clone(),
-				config.relayer.clone(),
-				tx_payment,
-			));
-
-			log::info!("💬 Initialized messaging tasks");
 		}
+		let tx_payment = Arc::new(
+			TransactionPayment::initialize(&self.db)
+				.await
+				.map_err(|err| anyhow!("Error initializing database: {err:?}"))?,
+		);
+		// Add hyperbridge to the client map
+		let hyperbridge =
+			SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
+		let mut clients = create_client_map(config.clone(), Arc::new(hyperbridge.clone())).await?;
+		clients.insert(hyperbridge.state_machine_id().state_id, Arc::new(hyperbridge.clone()));
+
+		if config.relayer.delivery_endpoints.is_empty() {
+			log::warn!(
+				"Delivery endpoints not specified in relayer config, will deliver to all chains."
+			);
+		}
+
+		// messaging tasks
+		for (state_machine, client) in &clients {
+			// If the delivery endpoint is not empty then we only spawn tasks for chains
+			// explicitly mentioned in the config
+			if !config.relayer.delivery_endpoints.is_empty() &&
+				!config.relayer.delivery_endpoints.contains(&state_machine)
+			{
+				continue;
+			}
+
+			let mut new_hyperbridge =
+				SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
+			new_hyperbridge.set_latest_finalized_height(client.clone()).await?;
+
+			let coprocessor = hyperbridge_config.state_machine;
+
+			tesseract_messaging::relay(
+				new_hyperbridge,
+				client.clone(),
+				relayer.clone(),
+				coprocessor,
+				tx_payment.clone(),
+				clients.clone(),
+				&task_manager,
+			)
+			.await?;
+
+			metadata.push((
+				state_machine.clone(),
+				H160::from_slice(&client.address().as_slice()[..20]),
+			));
+		}
+
+		task_manager.spawn_essential_handle().spawn(
+			"auto-withdraw",
+			"fees",
+			async move {
+				let _ =
+					fees::auto_withdraw(hyperbridge, clients, config.relayer.clone(), tx_payment)
+						.await;
+			}
+			.boxed(),
+		);
+
+		log::info!("💬 Initialized messaging tasks");
 
 		let socket = {
 			if let Some(key) = option_env!("TELEMETRY_SECRET_KEY") {
@@ -150,11 +160,7 @@ impl Cli {
 			}
 		};
 
-		let (_result, _index, tasks) = futures::future::select_all(processes).await;
-
-		for task in tasks {
-			task.abort();
-		}
+		task_manager.future().await?;
 
 		if let Some(socket) = socket {
 			socket.disconnect().await?;

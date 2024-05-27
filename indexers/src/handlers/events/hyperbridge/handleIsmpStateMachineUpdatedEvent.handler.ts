@@ -25,15 +25,15 @@ export async function handleIsmpStateMachineUpdatedEvent(
   assert(extrinsic);
 
   const stateMachineId = extractStateMachineIdFromSubstrateEventData(
-    state_machine_id.toString(),
-  );
+    state_machine_id.toString());
+  
 
   if (typeof stateMachineId === "undefined") {
     return;
   } else {
     await StateMachineService.createHyperbridgeStateMachineUpdatedEvent(
       {
-        transactionHash: `${blockNumber}-${extrinsic.idx}`,
+        transactionHash: `${extrinsic.extrinsic.hash}`,
         transactionIndex: extrinsic.idx,
         blockNumber: blockNumber.toNumber(),
         blockHash: blockHash.toString(),

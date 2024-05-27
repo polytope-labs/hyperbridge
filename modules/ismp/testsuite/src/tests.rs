@@ -4,9 +4,9 @@ use ismp::host::{Ethereum, StateMachine};
 
 use crate::{
 	check_challenge_period, check_client_expiry, check_request_source_and_destination,
-	check_response_source, frozen_consensus_client_check, frozen_state_machine_check,
-	missing_state_commitment_check, mocks::Host, post_request_timeout_check,
-	post_response_timeout_check, prevent_request_processing_on_proxy_with_known_state_machine,
+	check_response_source, frozen_consensus_client_check, missing_state_commitment_check,
+	mocks::Host, post_request_timeout_check, post_response_timeout_check,
+	prevent_request_processing_on_proxy_with_known_state_machine,
 	prevent_request_timeout_on_proxy_with_known_state_machine,
 	prevent_response_timeout_on_proxy_with_known_state_machine, write_outgoing_commitments,
 };
@@ -33,12 +33,6 @@ fn should_reject_messages_for_deleted_state_machine_commitments() {
 fn should_reject_messages_for_frozen_consensus_clients() {
 	let host = Host::default();
 	frozen_consensus_client_check(&host).unwrap()
-}
-
-#[test]
-fn should_reject_messages_for_frozen_state_machine_clients() {
-	let host = Host::default();
-	frozen_state_machine_check(&host).unwrap()
 }
 
 #[test]

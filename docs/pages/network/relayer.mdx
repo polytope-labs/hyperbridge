@@ -103,167 +103,17 @@ rpc_ws = "ws://127.0.0.1:9944" # example endpoint
 # Sets the maximum size of an rpc request or response in bytes defaults to 150mb
 max_rpc_payload_size = 150000000
 
-[ethereum]
-# configuration type
-type = "evm"
-# State machine identifier
-state_machine = { Ethereum = "ExecutionLayer" }
-# http(s) rpc urls for sepolia
-# Multiple rpc endpoints supported for increased reliability
-rpc_urls = [""]
-# consensus state identifier for sepolia on hyperbridge
-consensus_state_id = "ETH0"
-# etherscan api key for querying Ethereum token price
-etherscan_api_key = ""
-# Contract address of the HandlerV1 contract
-handler = ""
-# Contract address of the IsmpHost contract
-ismp_host = ""
-# Maximum block range for eth_getLogs in a single rpc call
-# if this parameter is not supplied the range will not be split into smaller chunks
-query_batch_size = 1000
-# hex-encoded private key for the relayer
-signer = ""
-# (Optional) Maximum number of concurrent rpc requests that can be used when tracing. If not supplied will trace entire transaction batches at once.
-# This increases tracing speeds by performing tracing operations concurrently
-# Note: Your rpc provider must support handling a large number of requests/sec(> 200 requests / sec) in parallel.
-# Note: if you use the same provider for all your endpoints then a very high request/sec threshhold is required (> 1000 / sec)
-tracing_batch_size = 5 # 5 transactions would be traced concurrently on this client
-# An optional buffer to add to gas price as a percentage of the current gas price
-# to increase likelihood of the transactions going through e.g 1%, 2%
-gas_price_buffer = 1
-
-[arbitrum]
-# configuration type
-type = "evm"
-# State machine identifier
-state_machine = { Ethereum = "Arbitrum" }
-# http(s) rpc url for arbitrum
-# Multiple rpc endpoints supported for increased reliability
-rpc_urls = [""]
-# consensus state identifier for arbitrum on hyperbridge, L2s use ethereum as their consensus oracle
-consensus_state_id = "ETH0"
-# etherscan api key for querying Ethereum token price
-etherscan_api_key = ""
-# Contract address of the HandlerV1 contract
-handler = ""
-# Contract address of the IsmpHost contract
-ismp_host = ""
-# Maximum block range for eth_getLogs in a single rpc call
-# if this parameter is not supplied the range will not be split into smaller chunks
-query_batch_size = 1000
-# hex-encoded private key for the relayer
-signer = ""
-# (Optional) Maximum number of concurrent rpc requests that can be used when tracing. If not supplied will trace entire transaction batches at once.
-# This increases tracing speeds by performing tracing operations concurrently
-# Note: Your rpc provider must support handling a large number of requests/sec(> 200 requests / sec) in parallel.
-# Note: if you use the same provider for all your endpoints then a very high request/sec threshhold is required (> 1000 / sec)
-tracing_batch_size = 5 # 5 transactions would be traced concurrently on this client
-# An optional buffer to add to gas price as a percentage of the current gas price
-# to increase likelihood of the transactions going through e.g 1%, 2%
-gas_price_buffer = 1
-
-[optimism]
-# configuration type
-type = "evm"
-# State machine identifier
-state_machine = { Ethereum = "Optimism" }
-# http(s) rpc url for optimism
-# Multiple rpc endpoints supported for increased reliability
-rpc_urls = [""]
-# consensus state identifier for optimism on hyperbridge, L2s use ethereum as their consensus oracle
-consensus_state_id = "ETH0"
-# etherscan api key for querying Ethereum token price
-etherscan_api_key = ""
-# Contract address of the HandlerV1 contract
-handler = ""
-# Contract address of the IsmpHost contract
-ismp_host = ""
-# Maximum block range for eth_getLogs in a single rpc call
-# if this parameter is not supplied the range will not be split into smaller chunks
-query_batch_size = 1000
-# hex-encoded private key for the relayer
-signer = ""
-# (Optional) Maximum number of concurrent rpc requests that can be used when tracing. If not supplied will trace entire transaction batches at once.
-# This increases tracing speeds by performing tracing operations concurrently
-# Note: Your rpc provider must support handling a large number of requests/sec(> 200 requests / sec) in parallel.
-# Note: if you use the same provider for all your endpoints then a very high request/sec threshhold is required (> 1000 / sec)
-tracing_batch_size = 5 # 5 transactions would be traced concurrently on this client
-# An optional buffer to add to gas price as a percentage of the current gas price
-# to increase likelihood of the transactions going through e.g 1%, 2%
-gas_price_buffer = 1
-
-[base]
-# configuration type
-type = "evm"
-# State machine identifier
-state_machine = { Ethereum = "Base" }
-# http(s) rpc url for base
-# Multiple rpc endpoints supported for increased reliability
-rpc_urls = [""]
-# consensus state identifier for base on hyperbridge, L2s use ethereum as their consensus oracle
-consensus_state_id = "ETH0"
-# etherscan api key for querying Ethereum token price
-etherscan_api_key = ""
-# Contract address of the HandlerV1 contract
-handler = ""
-# Contract address of the IsmpHost contract
-ismp_host = ""
-# Maximum block range for eth_getLogs in a single rpc call
-# if this parameter is not supplied the range will not be split into smaller chunks
-query_batch_size = 1000
-# hex-encoded private key for the relayer
-signer = ""
-# (Optional) Maximum number of concurrent rpc requests that can be used when tracing. If not supplied will trace entire transaction batches at once.
-# This increases tracing speeds by performing tracing operations concurrently
-# Note: Your rpc provider must support handling a large number of requests/sec(> 200 requests / sec) in parallel.
-# Note: if you use the same provider for all your endpoints then a very high request/sec threshhold is required (> 1000 / sec)
-tracing_batch_size = 5 # 5 transactions would be traced concurrently on this client
-# An optional buffer to add to gas price as a percentage of the current gas price
-# to increase likelihood of the transactions going through e.g 1%, 2%
-gas_price_buffer = 1
-
-[bsc]
-# configuration type
-type = "evm"
-# State machine identifier
-state_machine = "Bsc"
-# http(s) rpc url for binance smart chain
-# Multiple rpc endpoints supported for increased reliability
-rpc_url = [""]
-# consensus state identifier for binance smart chain on hyperbridge
-consensus_state_id = "BSC0"
-# etherscan api key for querying BNB token price
-etherscan_api_key = ""
-# Contract address of the HandlerV1 contract
-handler = ""
-# Contract address of the IsmpHost contract
-ismp_host = ""
-# Maximum block range for eth_getLogs in a single rpc call
-# if this parameter is not supplied the range will not be split into smaller chunks
-query_batch_size = 1000
-# hex-encoded private key for the relayer
-signer = ""
-# (Optional) Maximum number of concurrent rpc requests that can be used when tracing. If not supplied will trace entire transaction batches at once.
-# This increases tracing speeds by performing tracing operations concurrently
-# Note: Your rpc provider must support handling a large number of requests/sec(> 200 requests / sec) in parallel.
-# Note: if you use the same provider for all your endpoints then a very high request/sec threshhold is required (> 1000 / sec)
-tracing_batch_size = 5 # 5 transactions would be traced concurrently on this client
-# An optional buffer to add to gas price as a percentage of the current gas price
-# to increase likelihood of the transactions going through e.g 1%, 2%
-gas_price_buffer = 1
-
 # Relayer config, required
 [relayer]
 # Define your profitability configuration. 0 -> 0% i.e relay all requests, even unprofitable ones. 1 -> 1%. ie fees provided for requests must be profitable by at least 1%. etc.
 minimum_profit_percentage = 0
-# (Optional) If not empty, will filter requests to be delivered by originating module identifier (eg contract address)
+# (Optional) If not empty, will filter requests to be delivered by originating module identifier (eg contract address/pallet ids)
 module_filter = []
 # How frequently to initiate withdrawals in seconds, defaults to 24 hours
 withdrawal_frequency = 86400
 # Minimum amount to withdraw when auto-withdrawing, defaults to $100
 minimum_withdrawal_amount = 100
-# (Optional) If not empty, only deliver to the specied state-machines
+# (Optional) If not empty, tesseract will only deliver requests to the specified state-machines
 delivery_endpoints = [
     { Ethereum = "ExecutionLayer" },
     { Ethereum = "Arbitrum" },
@@ -271,6 +121,73 @@ delivery_endpoints = [
     { Ethereum = "Base" },
     "Bsc"
 ]
+
+# Here you'll declare a new chain entry for every chain you want to support.
+# eg ethereum
+[ethereum]
+# configuration type can be either "evm" or "substrate"
+type = "evm"
+# State machine identifier for the this evm chain. The possible values:
+# state_machine = { Ethereum = "ExecutionLayer" } # Ethereum L1
+# state_machine = { Ethereum = "Arbitrum" }
+# state_machine = { Ethereum = "Optimism" }
+# state_machine = { Ethereum = "Base" }
+# state_machine = "Bsc" # Binance smart chain
+state_machine = { Ethereum = "ExecutionLayer" }
+# http(s) rpc urls for evm based chains
+# Multiple rpc endpoints supported for increased reliability
+rpc_urls = ["http://127.0.0.1:8545", ""]
+# The consensus state identifier for this chain on hyperbridge.
+# For Ethereum and it's L2s this will be "ETH0", for BSC this will be "BSC0".
+consensus_state_id = "ETH0"
+# Etherscan api key for querying the state machine's native token price.
+# Do not that ethereum and all it's L2's use ETH as the native token
+# So they can all share the same key gotten from etherscan.
+#
+# Bsc on the other hand uses the BNB token and would need its own API key
+# gotten from bscscan
+etherscan_api_key = ""
+# The Handler contract address on this chain
+handler = ""
+# The IsmpHost contract address on this chain
+ismp_host = ""
+# (Optional)
+# Maximum block range that should be used to query eth_getLogs in a single rpc call
+# if this parameter is not supplied the range will not be split into smaller chunks
+# and will be queried at once. This might be needed if you encounter rate limits
+# from your rpc provider.
+query_batch_size = 1000
+# hex-encoded private key for the relayer account on this chain
+signer = ""
+# (Optional)
+# Maximum number of concurrent rpc requests that can be used when tracing. If not supplied
+# will trace entire transaction batches at once. This increases tracing speeds by performing
+# tracing operations concurrently
+#
+# Note: Your rpc provider must support handling a large number of requests/sec(> 200 requests / sec) in parallel.
+# Note: if you use the same provider for all your endpoints then a very high request/sec threshhold is required (> 1000 / sec)
+tracing_batch_size = 5 # 5 transactions would be traced concurrently on this client
+# (Optional)
+# Buffer to add to gas price as a percentage of the current gas price
+# to increase likelihood of the transactions going through e.g 1%, 2%
+gas_price_buffer = 1
+
+[substrate]
+type = "substrate"
+# The state machine identifier for this substrate based chain.
+# must be one of:
+# - { Polkadot = paraId }
+# - { Kusama = paraId }
+state_machine = { Kusama = 4009 }
+# substrate node ws(s) rpc endpoint.
+rpc_ws = "ws://127.0.0.1:9944" # example endpoint
+# Configures the maximum size of an rpc request/response in bytes
+max_rpc_payload_size = 150000000 # 150MB
+# The consensus state identifier for this chain on hyperbridge.
+# Only parachains are supported for now
+consensus_state_id = "PARA"
+# hex-encoded private key for the relayer account on this chain
+signer = ""
 ```
 
 It is optional to provide the configuration option for any of the connected chains, The only consequence is your relayer will not deliver requests from the ommitted chain as it has no way of querying the associated fees for requests originating from this chain.

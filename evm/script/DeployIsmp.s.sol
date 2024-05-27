@@ -78,8 +78,6 @@ contract DeployScript is Script {
             // for this test
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            consensusUpdateTimestamp: block.timestamp,
-            consensusState: new bytes(0),
             perByteFee: 3 * 1e15, // $0.003/byte
             hyperbridge: StateMachine.kusama(paraId),
             feeToken: address(feeToken),

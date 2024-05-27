@@ -24,7 +24,7 @@ use pallet_ismp::child_trie::{
 use tesseract_primitives::IsmpProvider;
 
 use serde::{Deserialize, Serialize};
-use sp_core::{bytes::from_hex, sr25519, Pair, H256};
+use subxt::ext::sp_core::{bytes::from_hex, crypto, sr25519, Pair, H256};
 
 use substrate_state_machine::HashAlgorithm;
 use subxt::{
@@ -89,8 +89,7 @@ where
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
 	C::Signature: From<MultiSignature> + Send + Sync,
-	C::AccountId:
-		From<sp_core::crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
+	C::AccountId: From<crypto::AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 {
 	pub async fn new(config: SubstrateConfig) -> Result<Self, anyhow::Error> {
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(300u32 * 1024 * 1024);
@@ -143,8 +142,13 @@ where
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		let id = self.state_machine_id();
+		let name = counterparty.name();
 		self.initial_height = counterparty.query_latest_height(id).await?.into();
-
+		log::info!(
+			"Initialized height for {:?}->{name} at {}",
+			self.state_machine,
+			self.initial_height
+		);
 		Ok(())
 	}
 

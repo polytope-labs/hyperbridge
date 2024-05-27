@@ -11,7 +11,7 @@ publish = false
 subxt = { workspace = true, default-features = true }
 anyhow.workspace = true
 futures = "0.3.28"
-tokio = { version = "1.27.0", features = ["macros"] }
+tokio = { workspace = true, features = ["macros"] }
 indicatif = "0.17.8"
 
 codec = { workspace = true, features = ["derive"], default-features = true }

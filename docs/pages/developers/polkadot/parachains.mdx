@@ -2,12 +2,12 @@
 
 There are a few steps to integrate hyperbridge with a parachain. This section  will guide you through everything you need.  
 
-## Parachain State Access with ISMP
+## Parachain State Updates
 
-This module empowers parachains to interact with specific sibling parachains. Here's how it works:
+This module empowers parachains to interact with whitelisted sibling parachains. Here's how it works:
 
-`Registration`: A parachain can register the IDs of sibling parachains whose state information it requires to access.
-`Inherent Mechanism`: The functionality relies on an inherent provider and inherent extrinsics:
+**Registration** : A parachain can register the IDs of sibling parachains whose state roots it requires to access.  
+**Inherent Mechanism** : The functionality relies on an inherent provider and inherent extrinsics:  
     * **Whitelisted Parachains** : This inherent provider reads the ismp-parachain pallet for a list of currently supported parachain IDs.
     * **State Proof Fetching** : The provider then retrieves the latest headers from the relay chain for each supported parachain. Additionally, it fetches state proofs for these headers, which act as cryptographic evidence of the header's validity.
     * **Consensus Message Submission** : Finally, the provider submits a consensus message as an inherent extrinsic. This message includes the retrieved state proofs.
@@ -33,7 +33,7 @@ The pallet has the following configuration
 
 This pallet leverages the `ProvideInherent` functionality to submit consensus update messages. This approach offers a significant advantage:
 
-**Eliminating Off-chain Consensus Relayer** : By utilizing inherent messages for receiving consensus messages about finalized parachain block headers, the need for a separate off-chain consensus relayer is eliminated.
+**Eliminating Off-chain Consensus Relayer** : By utilizing inherent messages for receiving consensus messages about finalized parachain block headers, the need for a separate off-chain consensus relayer is eliminated.  
     **Benefits** :
         *   **Simplified Architecture** : This reduces the overall system complexity by removing an external component (the off-chain consensus relayer).
         *   **Improved Efficiency** : Inherent messages are a built-in mechanism within the polkadot-sdk, allowing the collator to act as the consensus relayer.

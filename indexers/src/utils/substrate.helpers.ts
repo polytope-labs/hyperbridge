@@ -10,32 +10,46 @@ export const extractStateMachineIdFromSubstrateEventData = (
     const stateMachineId = JSON.parse(substrateStateMachineId);
     if (stateMachineId && stateMachineId.stateId) {
       const stateId = stateMachineId.stateId;
-      let state_machine_id = "";
-
+      let main_key  = "";
+      let value = "";
+      
+      // There will only be one key in the object
       Object.keys(stateId).forEach((key) => {
-        state_machine_id =
-          stateId[key] === null
-            ? key.toUpperCase()
-            : stateId[key].toUpperCase();
+        main_key = key.toUpperCase();
+        value = stateId[key] === null ? "": stateId[key];  
       });
 
-      switch (state_machine_id) {
-        case "EXECUTIONLAYER":
-          return SupportedChain.ETHE;
-        case "OPTIMISM":
-          return SupportedChain.OPTI;
-        case "ARBITRUM":
-          return SupportedChain.ARBI;
-        case "BASE":
-          return SupportedChain.BASE;
+      switch (main_key) {
+        case "ETHEREUM":
+           switch(value.toUpperCase()) {
+            case "EXECUTIONLAYER":
+              return SupportedChain.ETHE
+            case "OPTIMISM":
+              return SupportedChain.OPTI
+            case "ARBITRUM": 
+              return SupportedChain.ARBI
+            case "BASE":
+              return SupportedChain.BASE
+            default:
+              throw new Error(
+                `Unknown state machine ID ${value} encountered in extractStateMachineIdFromSubstrateEventData`,
+              );
+           }
         case "BSC":
-          return SupportedChain.BSC;
+          return SupportedChain.BSC
         case "POLYGON":
-          return SupportedChain.POLY;
-
+          return SupportedChain.POLY
+        case "POLKADOT":
+          return "POLKADOT-".concat(value)
+        case "KUSAMA":
+          return "KUSAMA-".concat(value)
+        case "BEEFY":
+          return "BEEFY-".concat(value)
+        case "GRANDPA":
+          return "GRANDPA-".concat(value)
         default:
           throw new Error(
-            `Unknown state machine ID ${state_machine_id} encountered in extractStateMachineIdFromSubstrateEventData`,
+            `Unknown state machine ID ${main_key} encountered in extractStateMachineIdFromSubstrateEventData`,
           );
       }
     } else {

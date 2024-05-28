@@ -174,3 +174,10 @@ Integrating your parachain with Hyperbridge is a straightforward process. Here's
 Call the `add_parachain` Extrinsic with the admin origin setup in `palet-ismp`. This action officially adds Hyperbridge to your list of supported parachains.  
 
 Once these steps are completed, your parachain will be empowered to send and receive messages to and from Hyperbridge, enabling seamless cross-chain communication.
+
+
+## Implementation
+
+ - [ismp-parachain](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/parachain/client/src/lib.rs)
+ - [ismp-parachain-inherent](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/parachain/inherent/src/lib.rs)
+ - [ismp-parachain-runtime-api](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/parachain/runtime-api/src/lib.rs)

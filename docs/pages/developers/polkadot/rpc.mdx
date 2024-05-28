@@ -190,3 +190,8 @@ This method takes two parameters a starting block hash or number and an ending b
    let params = rpc_params![from, to];
    let events: Vec<pallet_ismp_rpc::EventWithMetadata> = client.rpc().request("ismp_queryEventsWithMetadata", params).await.unwrap();
 ```
+
+
+## Implementation
+
+ - [pallet-ismp-rpc](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/pallets/rpc/src/lib.rs)

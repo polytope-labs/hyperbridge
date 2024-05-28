@@ -41,7 +41,7 @@ The winning relayer, can be decided by a few factors.
 
 ### Event Notification
 
-Relayer are mostly idle, and will only check for new messages to be delivered when the chains they’re interested in receive new consensus messages. The consensus messages, contain proofs that finalizes a new set of block heights. The new block heights, may or may not contain new messages to be delivered from the hyperbridge parachain. Therefore, whichever relayer sees the block where these consensus messages were processed on the destination chain first, can begin the check before everyone else and as a result, deliver the new batch of requests before anyone else.
+Relayer are mostly idle, and will only check for new messages to be delivered when the chains they’re interested in receive new consensus messages. The consensus messages, contain proofs that finalizes a new set of block heights. The new block heights, may or may not contain new messages to be delivered from the hyperbridge blockchain. Therefore, whichever relayer sees the block where these consensus messages were processed on the destination chain first, can begin the check before everyone else and as a result, deliver the new batch of requests before anyone else.
 
 ### Query throughput
 

@@ -308,29 +308,40 @@ export default defineConfig({
         collapsed: true,
         items: [
           {
+            text: "Integration - Ismp",
+            link: "/developers/polkadot/integration",
+          },
+
+          {
             text: "Integration - Parachains",
             link: "/developers/polkadot/parachains",
           },
+
           {
             text: "Integration - Solochains",
             link: "/developers/polkadot/solochains",
           },
+
           {
             text: "ISMP Modules",
             link: "/developers/polkadot/modules",
           },
+
           {
             text: "RPC Interface",
             link: "/developers/polkadot/rpc",
           },
+
           {
             text: "Protocol Fees",
             link: "/developers/polkadot/fees",
           },
+
           {
             text: "Message delivery",
             link: "/developers/polkadot/delivery",
           },
+          
           {
             text: "Supported Networks",
             link: "/developers/polkadot/networks",

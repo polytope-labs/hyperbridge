@@ -2,7 +2,6 @@
 
 This is the implementation of ISMP for substrate chains. It is the foundational component that allows communication over ISMP. It correctly composes the various ISMP components in the runtime.
 
-
 ## Pallet Config 
 
 The Pallet has the following Config trait
@@ -81,20 +80,33 @@ The Pallet has the following Config trait
 
 ## State commitments
 
-Pallet Ismp is responsible for storing the commitments for requests and responses. It uses both a child trie and optionally a merkle mountain range tree.  
-Commitments for requests and responses are always stored in a child trie instead of the global state trie, this provides smaller sized proofs further improving the cost of verification.  
-To further drive down costs of verifications, Hyperbridge commits requests and responses to a merkle mountain range tree, merkle mountain range trees provide smaller sized proofs and cheaper verification on the EVM
-this allows us to drive gas costs down for users sending messages to EVM chains. 
+Pallet Ismp efficiently stores commitments for requests and responses. It leverages two primary data structures:
+
+* `Child Trie`: This is the primary storage location for all commitments. It offers a compact representation, leading to smaller verification proofs and reduced processing costs.
+* `Optional Merkle Mountain Range Tree (MMR Tree)`: When integrated with Hyperbridge, this additional tree provides even smaller proofs and more economical verification on the Ethereum Virtual Machine (EVM). This translates to lower gas fees for users sending messages to EVM chains.
 
 ## Offchain Storage
 
-While commitments are stored onchain for verifiability, the requests and responses are stored in the offchain database, this allows us to minimize the  runtime storage size and allows pruning of delivered requests and responses.
-This would help maintain reasonable storage requirements for full nodes as the network grows.
+To ensure verifiability, ISMP stores commitment hashes onchain. These commitment hashes act like unique fingerprints, allowing anyone to confirm the existence of the original data (requests and responses) without storing it directly on the blockchain.
 
-### Offchain Canonicalizing Gadget
+Requests and responses themselves are stored in an off-chain database. This approach offers two key advantages:
 
-The offchain DB is not fork-aware, this means it can be corrupted by chain reorgs, this can break the MMR and prevent correct proof generation. To prevent this we run a background task that canonicalizes the offchain database whenever the relaychain finalizes the parachain block.
-This means that generating MMR proofs is only available after finalization.  
+* `Reduced Runtime Storage Size`: By keeping only commitment hashes on-chain, ISMP minimizes the blockchain's storage footprint. This is crucial for maintaining reasonable storage requirements for full nodes, especially as the network scales.
+* `Efficient Pruning`: Off-chain storage allows for efficient deletion (pruning) of delivered requests and responses. This helps prevent the blockchain from becoming bloated with historical data.
+
+### Challenge: Off-Chain Database and Chain Reorgs
+
+ISMP utilizes an off-chain database for storing requests and responses. While this approach offers storage efficiency, it introduces some potential issues:  
+
+`Fork Susceptibility`: The off-chain database isn't aware of chain reorgs. If a reorg occurs, the database could become corrupted, leading to inconsistencies and preventing the generation of accurate Merkle Mountain Range (MMR) proofs. These proofs are crucial for verifying data integrity.
+
+#### Solution: Background Canonicalization
+
+To mitigate this risk, ISMP employs a background task that continuously monitors the network. Whenever the relay chain finalizes a parachain block (meaning the block becomes permanent and irreversible), this task automatically "canonicalizes" the off-chain database.
+
+* `Canonicalization`: This process ensures the database reflects the final, validated state of the chain. It essentially cleans up any inconsistencies caused by potential reorgs.  
+
+* `Impact on Proof Generation`: As a consequence of this approach, generating MMR proofs for off-chain data becomes available only after the corresponding block finalizes.
 
 ## Implementations
 
@@ -113,33 +125,32 @@ This is a priviledged call used to update the unbonding period or challenge_peri
 * `handle_unsigned`
 Execute the provided batch of ISMP messages, this will short-circuit and revert if any of the provided messages are invalid. This is an unsigned extrinsic that permits anyone  
 execute ISMP messages for free, provided they have valid proofs and the messages havenot been previously processed.  
-		
 The dispatch origin for this call must be an unsigned one.  
-		
 Emits different message events based on the Message received if successful.  
-
 Only available when the pallet is built with the `unsigned` feature flag.  
 
 * `handle`
 Execute the provided batch of ISMP messages. This call will short-circuit and revert if any of the provided messages are invalid.  
-		
 The dispatch origin for this call must be a signed one.  
-	
 Emits different message events based on the Message received if successful.  
-
 Only available when the `unsigned` feature flag is disabled.  
 
 * `fund_message`
 During periods of high transaction fees on the destination chain, you can increase the relayer fee for in-flight requests and responses to incentivize their delivery.  
 Simply call this function with the request/response commitment and the desired fee increase amount.  
-
 Should not be called on a message that has been completed (delivered or timed-out) as those funds will be lost forever.  
 
 ## Transaction fees
 
-Hyperbridge does not charge transaction fees for delivering valid ISMP messages to the chain.  
-Protocol fees are collected on the source chain for a message, this ensures that every message that gets delivered to the hyperbridge chain has to be paid for before valid proofs can exist.  
-Malformed messages or messages with invalid proofs cannot not make it into the transaction pool of a Hyperbridge node.
+Hyperbridge offers a cost-effective approach to delivering ISMP messages:  
+
+`No Fees for Valid Messages`: Hyperbridge itself doesn't charge any transaction fees for delivering valid ISMP messages to the chain. This reduces the overall cost burden for users.
+
+`Fees Paid on Source Chain`: Protocol fees are collected on the source chain (where the message originates) before it's submitted. This upfront payment system ensures that every delivered message has been "paid for" before valid proofs can be generated.
+
+Malformed messages or those with invalid proofs are filtered out by the transaction pool validation logic preventing unnecessary processing and potential network congestion.
+
+On parachains and solochains integrating ISMP transaction fees will be collected as the `handle_unsigned` extrinsic is disabled by default.
 
 ## Including Pallet Ismp in the runtime
 Including `pallet-ismp` in a substrate runtime requires implementing the pallet config.  

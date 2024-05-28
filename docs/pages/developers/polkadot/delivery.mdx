@@ -1,23 +1,27 @@
-# Message delivery
+# ISMP Message Delivery: Permissionless and Secure
+ISMP leverages a proof-based design to enable permissionless message delivery. This means anyone can submit messages to the network, as long as they possess valid proofs and can cover transaction fees.
 
-The design of ISMP as a proof based protocol allows for permissionless delivery of messages. This means that any party with valid proofs can deliver ismp messages.
+## Submitting ISMP Messages
+`Single Entry Point`: All ISMP messages are delivered through the `handle` extrinsic. This extrinsic is accessible to anyone who can pay the fees and holds the necessary proofs, regardless of their role in the network.  
 
-## Submitting Ismp messages
+`Proofs with Hyperbridge`: When using Hyperbridge as a coprocessor, messages require Merkle Patricia trie proofs generated from the child trie of the `pallet-ismp` module on Hyperbridge. These proofs guarantee the validity and origin of the messages.  
 
-Messages can be delivered through the `handle` extrinsic. This extrinsic is permissionless and can be called by any party that can pay the required transaction fees and has the required state proofs.
-When using Hyperbridge as a coprocessor, the proofs for messages are Merkle patricia trie proofs generated from pallet-ismp's child trie on Hyperbridge.
-Messages can be delivered in batches, for a message batch to execute successfully, every individual message in the batch must verify correctly, any invalid message will cause the batch to fail.
+`Batch Delivery and Validation`: Messages can be submitted in batches for efficiency. However, each message within the batch is validated independently. If a single message fails verification, the entire batch will be rejected.  
 
-## Post Request Messages
+`Message Routing and Execution`: Validated messages are routed to their designated modules within the network using the `IsmpRouter` for processing. Upon successful execution, a receipt is stored for each message.  
 
-## Post Response Messages
+## Events 
 
-## Get Requests
+Upon successful execution of ISMP messages, specific events are generated and recorded in the runtime. These events serve as confirmation for the successful processing of different message types.  
 
-## Get Response Messages
+    * `PostRequestHandled`
+    * `PostResponseHandled`
+    * `PostRequestTimeoutHandled`
+    * `PostResponseTimeoutHandled`
+    * `GetResponseHandled`
 
-## Timeout Messages
+## Handling Timeouts
+If a message isn't delivered within a predefined timeframe on the receiving chain, a timeout message can be submitted. This timeout message serves as notification of the failed delivery. 
 
-A timeout message can be submitted for any message that was not delivered before timeout timestamp elapsed on the destination chain. This timeout message requires a proof of non-membership from hyperbridge if it's a Post request or Post response.
-Get request timeouts require no state proofs 
-
+`Post Requests/Responses`: These timeouts require a proof of non-membership from Hyperbridge. This proof confirms that the message wasn't included in the destination chain's state.  
+`Get Requests`: Timeouts for Get requests don't require any additional state proofs, as they are designed to retrieve existing data.  

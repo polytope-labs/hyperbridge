@@ -18,7 +18,7 @@ BEEFY addresses all of these issues by first introducing a merkle mountain range
 
 ## MMR Leaf
 
-The `pallet-beefy-mmr` module inserts a mmr leaf at every block into the ancestry mmr tree. The leaf contains the following.
+The `pallet-beefy-mmr` module inserts a mmr leaf at every block into the block ancestry mmr tree. The leaf contains the following.
 
 
 ```rust
@@ -33,7 +33,7 @@ struct BeefyNextAuthoritySet {
 struct MmrLeaf {
     version: u8,
     parent_number_and_hash: (u32, H256),
-    beefy_next_authority_set: BeefyNextAuthoritySet<MerkleRoot>,
+    beefy_next_authority_set: BeefyNextAuthoritySet,
     leaf_extra: H256,
 }
 ```
@@ -60,7 +60,7 @@ Validators are essentially signing the latest mmr root. These signatures can be 
 
  While BLS precompiles are not yet available on popular EVM chains, we unfortunately have to use ECDSA signatures to prove BEEFY finality. Although ECDSA signatures are cheap to verify, the number of signatures creates high verification cost and prevents frequent posting of consensus proofs for faster finality. This is because ECDSA signatures do not support aggregation, and the verification cost increases linearly with the number of validators.
 
-A workaround for would be to leverage a SNARK circuit to perform the verification of these signatures alongside their membership proofs in the `keyset_commitment`. This effectively to amortizes the cost of verification, making it constant no matter how large the validator set grows. For this, we leverage the [barretenberg](https://github.com/AztecProtocol/barretenberg) framework by the aztec team, which is able to prove the verification secp256k1 signatures in less than 2s. This ensures fast proving times for generating the zkBEEFY cosnensus proof.
+A workaround for would be to leverage a SNARK circuit to perform the verification of these signatures alongside their membership proofs in the `keyset_commitment`. This effectively to amortizes the cost of verification, making it constant no matter how large the validator set grows. For this, we leverage the [barretenberg](https://github.com/AztecProtocol/barretenberg) framework by the aztec team, which is able to prove the verification of secp256k1 signatures in less than 2s. This ensures fast proving times for generating the zkBEEFY cosnensus proof.
 
  ### Implementation
 

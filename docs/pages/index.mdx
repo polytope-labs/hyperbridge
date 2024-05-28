@@ -1,12 +1,31 @@
 ---
-title: Hyperbridge
-description: Hyperbridge Protocol Specification
+layout: landing
 ---
 
-# Introduction
+import { HomePage } from 'vocs/components'
 
-Secure interoperability requires the verification of consensus proofs, consensus fault proofs, and state transition validity proofs. Blockchains that want to securely communicate with each other must perform these operations onchain, so that they can be convinced of the finalized (irreversible) state of their counterparty. Finally, through the use of state proofs, they are then able to read the outgoing message queue of their counter party.
 
-These operations are very expensive and do not scale when we especially want to facilitate the communication of multiple blockchains. This neccessitates the coprocessor model where computations must be performed offchain and reported back onchain with cryptographic proofs of the correct execution.
+# Hyperbridge Protocol
 
-Hyperbrige is an instance of such a coprocessor. More formally, it is a [crypto-economic coprocessor](https://blog.polytope.technology/cryptoeconomic-coprocessors). These types of coprocessors simply put, are blockchains that leverage their [consensus proofs](https://research.polytope.technology/consensus-proofs) to attest to the correctness of the **computations performed onchain**. As a result, they are more decentralized, fault-tolerant, uncensorable and most importantly, unstoppable.
+**Secure interoperability** requires the verification of various proofs, including consensus proofs, consensus fault proofs, state proofs, and state transition validity proofs. For blockchains to securely interoperate, they must **verify these proofs onchain** to confirm the finalized (irreversible) state of their counterparty.
+
+However, these verification processes are compute-intensive and do not scale well, particularly when multiple blockchains need to communicate. This limitation leads to the proliferation of _attestation networks_ which employ the use of multi-sig committees who attest to the state of a counterparty chain. These types of architectures have resulted in a cumulative loss of $2 billion in crypto assets. (sources [[1]](https://defillama.com/hacks), [[2]](https://rekt.news/leaderboard/)).
+
+The only true solution to this problem is the coprocessor model, where the verification operations are performed offchain and the results are securely reported back onchain alongside cryptographic proofs of correct execution.
+
+## Coprocessor Model
+
+Hyperbridge is an example of such a coprocessor, more specifically, a [crypto-economic coprocessor](https://blog.polytope.technology/cryptoeconomic-coprocessors). Hyperbridge pioneers a new class of coprocessors that leverage their [consensus proofs](https://research.polytope.technology/consensus-proofs) to attest to the correctness of the **computations performed onchain**.
+
+## Proof Aggregation
+
+Hyperbridge achieves trust-free interoperability by verifying and aggregating the finalized states of **all chains** on its own chain. It then uses a single proof to any chain to prove the finality of all the aggregated states. This architecture is what enables Hyperbridge to scale trust-free interoperability to all blockchains.
+
+## Permissionless Relayers
+
+Hyperbridge, the first cross-chain protocol of its kind, leverages cryptographic proofs to power a decentralized and permissionless network of relayers. These relayers, which operate **without the need for any whitelisting or staking**, are tasked with transmitting messages across chains on behalf of users and applications. They are incentivized to relay messages by the fees paid by users who wish to perform cross-chain operations.
+
+## Where to Start
+
+ - [Hyperbridge For Developers](/developers)
+ - [Hyperbridge Protocol Specification](/protocol)

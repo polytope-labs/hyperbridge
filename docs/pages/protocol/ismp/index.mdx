@@ -1,0 +1,26 @@
+---
+title: The Interoperable State Machine Protocol
+description: The Interoperable State Machine Protocol (ISMP) is a lightweight, unopinionated messaging protocol designed to enable the development of cryptographically secure cross-chain applications.
+---
+
+# The Interoperable State Machine Protocol
+
+The Interoperable State Machine Protocol (ISMP) is a lightweight, unopinionated messaging protocol designed to enable the development of cryptographically secure cross-chain applications. It employs the use of **consensus and state proofs to authorize cross-chain request execution**, providing a level of security equivalent to that of the underlying blockchains it connects.
+
+ISMP is designed to have a very minimal API surface area. Its lightweight design means that ISMP is economically feasible even within expensive environments such as Ethereum. It's designed to be very modular such that adding support for new consensus mechanisms and state machines requires very minimal code. In addition, it offers a familiar and easy-to-understand message-passing mechanism that mimcs the already standardized HTTP protocol.
+
+<br />
+
+The protocol is composed of the following components:
+
+- [The host interface](/protocol/ismp/host): The host is the blockchain that is running the ISMP protocol. It is responsible for managing the state of the ISMP protocol.
+
+- [Consensus clients](/protocol/ismp/consensus). These clients enable the protocol to obtain the finalized, irreversible state of a connected blockchain.
+
+- [State machine client](/protocol/ismp/state-machine): This is a key component which allows it to read the messages outbox stored in the state trie of a connected blockchain.
+
+- [Requests](/protocol/ismp/requests) & [Responses](/protocol/ismp/responses): These are the messages that are passed between modules on different chains.
+
+- [Router](/protocol/ismp/router) The router is responsible for directing messages to their destination modules on a host chain.
+
+- [Dispatcher](/protocol/ismp/dispatcher): This is a utility that allows modules to send requests and responses to other modules on different chains.

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vocs dev --host --port 5000",
+    "dev": "vocs dev --host",
     "build": "vocs build",
     "preview": "vocs preview"
   },

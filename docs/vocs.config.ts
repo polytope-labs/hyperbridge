@@ -289,7 +289,7 @@ export default defineConfig({
 
           {
             text: "Message delivery",
-            link: "/evm/delivery",
+            link: "/developers/evm/delivery",
           },
 
           {

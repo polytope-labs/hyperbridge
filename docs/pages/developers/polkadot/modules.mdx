@@ -114,7 +114,7 @@ impl<T> IsmpModule for Pallet<T>
 	fn on_accept(&self, request: Post) -> Result<(), ismp::Error> {
         // Here you would perform validations on the post request data
         // Ensure it can be executed successfully before making any state changes
-        // You can also dispatch a post response
+        // You can also dispatch a post response after execution
         Self::deposit_event(Event::<T>::MessageReceived);
 		Ok(())
 	}
@@ -168,7 +168,7 @@ Now the pallet needs to be added to the runtime and also the `IsmpRouter`.
       fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
           return match id.as_slice() {
               PALLET_HYPERBRIDGE_ID => Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
-              id if id == EXAMPLE_MODULE_ID.to_bytes().as_slice() => Ok(Box::new(pallet_example::Pallet::<Runtime>::default()))
+              id if id == EXAMPLE_MODULE_ID.to_bytes().as_slice() => Ok(Box::new(pallet_ismp::pallet_example::Pallet::<Runtime>::default()))
               // ... other modules
               _   => Err(Error::ModuleNotFound(id)),
           };

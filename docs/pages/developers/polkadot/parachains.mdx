@@ -8,10 +8,10 @@ This module empowers parachains to interact with specific sibling parachains. He
 
 `Registration`: A parachain can register the IDs of sibling parachains whose state information it requires to access.
 `Inherent Mechanism`: The functionality relies on an inherent provider and inherent extrinsics:
-    * `Inherent Provider`: This component continuously monitors the ismp-parachain pallet for a list of currently supported parachain IDs.
-    * `State Proof Fetching`: The provider then retrieves the latest headers from the relay chain for each supported parachain. Additionally, it fetches state proofs for these headers, which act as cryptographic evidence of the state's validity.
-    * `Consensus Message Submission`: Finally, the provider submits a consensus message as an inherent extrinsic. This message includes the retrieved state proofs.
-    * `Verification`: The `ParachainConsensusClient`, integrated with `pallet-ismp`, verifies the submitted consensus message and its proofs.
+    * **Whitelisted Parachains** : This inherent provider reads the ismp-parachain pallet for a list of currently supported parachain IDs.
+    * **State Proof Fetching** : The provider then retrieves the latest headers from the relay chain for each supported parachain. Additionally, it fetches state proofs for these headers, which act as cryptographic evidence of the header's validity.
+    * **Consensus Message Submission** : Finally, the provider submits a consensus message as an inherent extrinsic. This message includes the retrieved state proofs.
+    * **Verification** : The `ParachainConsensusClient`, integrated with `pallet-ismp`, verifies the submitted consensus message and its proofs.
 
 ## Pallet Config
 
@@ -33,10 +33,10 @@ The pallet has the following configuration
 
 This pallet leverages the `ProvideInherent` functionality to submit consensus update messages. This approach offers a significant advantage:
 
-`Eliminating Off-chain Consensus Relayer`: By utilizing inherent messages for receiving consensus messages about finalized parachain block headers, the need for a separate off-chain consensus relayer is eliminated.
-    `Benefits`:
-        *   `Simplified Architecture`: This reduces the overall system complexity by removing an external component (the off-chain consensus relayer).
-        *   `Improved Efficiency`: Inherent messages are a built-in mechanism within the polkadot-sdk, allowing the collator to act as the consensus relayer.
+**Eliminating Off-chain Consensus Relayer** : By utilizing inherent messages for receiving consensus messages about finalized parachain block headers, the need for a separate off-chain consensus relayer is eliminated.
+    **Benefits** :
+        *   **Simplified Architecture** : This reduces the overall system complexity by removing an external component (the off-chain consensus relayer).
+        *   **Improved Efficiency** : Inherent messages are a built-in mechanism within the polkadot-sdk, allowing the collator to act as the consensus relayer.
 
 ## Pallet calls
 
@@ -60,15 +60,16 @@ In the OnInitialize hook, the consensus state for the parachain consensus client
 
 This hook is used to read the current relay chain state in order to get the state root of the finalized relay chain block, so it can be used to verify subsequent parachain consensus update messages.  
 
+## Parachain Consensus Client and ISMP Integration
+**Parachain Consensus Client**:  
 
-## ParachainConsensusClient
+ It's specifically designed to verify consensus update messages received from the inherent provider. These messages contain:  
+    *   **State Proofs**: These proofs confirm the inclusion of whitelisted parachain block headers (considered valid) within the most recently finalized relay chain head.
 
-The parachain consensus client is an ISMP consensus client that verifies parachain consensus update messages. These messages contain membership proofs for whitelisted parachain headers in the finalized relaychain head.
-The client uses the relaychain commitments stored in the pallet to verify these state proofs.
+For a parachain to establish a connection with Hyperbridge and leverage its message-passing capabilities, two key steps are required:
 
-
-For a parachain that wants to connect to Hyperbridge, after including pallet-ismp in its runtime the next step is to include `ismp-parachain`.  
-This pallet allows the parachain to receive consensus message updates for whitelisted parachains as through an inherent extrinsic.
+**Include pallet-ismp** : The first step involves integrating the pallet-ismp module into the parachain's runtime environment as described in a previous section. This module provides the foundational functionalities for ISMP message handling.
+**Include ismp-parachain** : Subsequently, the parachain needs to include the ismp-parachain pallet. This additional module grants the parachain access to the state commitments of whitelisted parachains. Access to these commitments is essential for verifying the validity of messages that the parachain intends to send or receive to/from Hyperbridge.
 
 ## Adding the ismp-parachain to the runtime
 
@@ -165,7 +166,11 @@ fn start_consensus(
 }
 ```
 
-## Connecting to Hyperbridge
+## Connecting Your Parachain to Hyperbridge
 
-Connecting to hyperbridge is simple, you only need to add Hyperbridge's parachain Id (`3367`) to the list of supported parachain ids in the pallet then the chain can start sending/receiving messages to/from hyperbridge.  
-This can be done by calling `add_parachain` extrinsic from the admin origin specified in `pallet-ismp`.
+Integrating your parachain with Hyperbridge is a straightforward process. Here's what you need to do:
+
+**Add Hyperbridge's Parachain ID** : Include Hyperbridge's unique parachain identifier (ID), which is `3367`, in the list of supported parachain IDs within the `ismp-parachain` pallet. This grants your parachain the ability to communicate with Hyperbridge.  
+Call the `add_parachain` Extrinsic with the admin origin setup in `palet-ismp`. This action officially adds Hyperbridge to your list of supported parachains.  
+
+Once these steps are completed, your parachain will be empowered to send and receive messages to and from Hyperbridge, enabling seamless cross-chain communication.

@@ -287,10 +287,10 @@ export default defineConfig({
             link: "/developers/evm/fees",
           },
 
-          // {
-          //   text: "Message delivery",
-          //   link: "/evm/delivery",
-          // },
+          {
+            text: "Message delivery",
+            link: "/evm/delivery",
+          },
 
           {
             text: "Supported Networks",
@@ -317,10 +317,10 @@ export default defineConfig({
             link: "/developers/polkadot/parachains",
           },
 
-          {
-            text: "Integration - Solochains",
-            link: "/developers/polkadot/solochains",
-          },
+          // {
+          //   text: "Integration - Solochains",
+          //   link: "/developers/polkadot/solochains",
+          // },
 
           {
             text: "ISMP Modules",
@@ -342,10 +342,10 @@ export default defineConfig({
             link: "/developers/polkadot/delivery",
           },
           
-          {
-            text: "Supported Networks",
-            link: "/developers/polkadot/networks",
-          },
+          // {
+          //   text: "Supported Networks",
+          //   link: "/developers/polkadot/networks",
+          // },
         ],
       },
       {

@@ -4,7 +4,7 @@ ISMP leverages a proof-based design to enable permissionless message delivery. T
 ## Submitting ISMP Messages
 `Single Entry Point`: All ISMP messages are delivered through the `handle` extrinsic. This extrinsic is accessible to anyone who can pay the fees and holds the necessary proofs, regardless of their role in the network.  
 
-`Proofs with Hyperbridge`: When using Hyperbridge as a coprocessor, messages require Merkle Patricia trie proofs generated from the child trie of the `pallet-ismp` module on Hyperbridge. These proofs guarantee the validity and origin of the messages.  
+`Proofs from Hyperbridge`: When using Hyperbridge as a coprocessor, messages require Merkle Patricia trie proofs generated from the child trie of the `pallet-ismp` module on Hyperbridge. These proofs guarantee the validity and origin of the messages.  
 
 `Batch Delivery and Validation`: Messages can be submitted in batches for efficiency. However, each message within the batch is validated independently. If a single message fails verification, the entire batch will be rejected.  
 
@@ -19,6 +19,7 @@ Upon successful execution of ISMP messages, specific events are generated and re
     * `PostRequestTimeoutHandled`
     * `PostResponseTimeoutHandled`
     * `GetResponseHandled`
+    * `StateMachineUpdated`
 
 ## Handling Timeouts
 If a message isn't delivered within a predefined timeframe on the receiving chain, a timeout message can be submitted. This timeout message serves as notification of the failed delivery. 

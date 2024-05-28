@@ -10,8 +10,9 @@ export default defineConfig({
   title: "Hyperbridge Documentation",
   description:
     "Hyperbridge is a coprocessor for cryptographically secure interoperability",
-  // ogImageUrl:
-  //   "https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
+    // todo: add logo
+  ogImageUrl:
+    "https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
   logoUrl: {
     light: '/logo-dark.svg',
     dark: '/logo-light.svg'
@@ -231,6 +232,46 @@ export default defineConfig({
         text: "Introduction",
         link: "/developers",
         items: [],
+      },
+      {
+        text: "Explore",
+        collapsed: true,
+        items: [
+          {
+            text: "Protocol Overview",
+            link: "/developers/explore",
+          },
+          {
+            text: "Hyperbridge Nexus",
+            link: "/developers/explore/nexus",
+          },
+          {
+            text: "Permissionless Relayers",
+            link: "/developers/explore/relayers",
+          },
+          {
+            text: "Runtime Modules",
+            link: "/developers/explore/modules/",
+            items: [
+              {
+                text: "ISMP",
+                link: "/developers/explore/modules/ismp",
+              },
+              {
+                text: "Fishermen",
+                link: "/developers/explore/modules/fishermen",
+              },
+              {
+                text: "Host Executive",
+                link: "/developers/explore/modules/host-executive",
+              },
+              {
+                text: "Relayer",
+                link: "/developers/explore/modules/relayer",
+              },
+            ]
+          },
+        ],
       },
       {
         text: "Solidity Sdk",

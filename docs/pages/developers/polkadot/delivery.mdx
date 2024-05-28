@@ -8,7 +8,7 @@ ISMP leverages a proof-based design to enable permissionless message delivery. T
 
 `Batch Delivery and Validation`: Messages can be submitted in batches for efficiency. However, each message within the batch is validated independently. If a single message fails verification, the entire batch will be rejected.  
 
-`Message Routing and Execution`: Validated messages are routed to their designated modules within the network using the `IsmpRouter` for processing. Upon successful execution, a receipt is stored for each message.  
+`Message Routing and Execution`: Validated messages are routed to their designated modules within the network using the `IsmpRouter`. Upon successful execution, a receipt is stored for each message.  
 
 ## Events 
 
@@ -22,7 +22,7 @@ Upon successful execution of ISMP messages, specific events are generated and re
     * `StateMachineUpdated`
 
 ## Handling Timeouts
-If a message isn't delivered within a predefined timeframe on the receiving chain, a timeout message can be submitted. This timeout message serves as notification of the failed delivery. 
+If a message isn't delivered within a predefined timeframe on the receiving chain, a timeout message can be submitted. 
 
 `Post Requests/Responses`: These timeouts require a proof of non-membership from Hyperbridge. This proof confirms that the message wasn't included in the destination chain's state.  
 `Get Requests`: Timeouts for Get requests don't require any additional state proofs, as they are designed to retrieve existing data.  

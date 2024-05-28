@@ -5,7 +5,7 @@ Messages in Ismp are delivered exclusively through the Handler contract. This co
 
 ## Events 
 
-Upon successful execution of ISMP messages, specific events are generated and recorded in the runtime. These events serve as confirmation for the successful processing of different message types.  
+Upon successful execution of ISMP messages, specific events are emitted. These events serve as confirmation for the successful processing of different message types.  
 
     * `PostRequestHandled`
     * `PostResponseHandled`
@@ -17,12 +17,12 @@ Upon successful execution of ISMP messages, specific events are generated and re
 ## Message Types
 Ismp supports different message types with dedicated delivery methods:
 
-* `Consensus Messages`: These messages are delivered through the handleConsensus transaction. They likely play a crucial role in maintaining network consensus.  
+* `Consensus Messages`: These messages are delivered through the `handleConsensus` call. They contain consensus message updates from Hyperbridge.  
 * `Request-Response Messages`:
     * `Post Requests`: Delivered by calling `handlePostRequests` on the EvmHandler contract.
     * `Post Responses`: Delivered by calling `handlePostResponses` on the Handler contract.
     * `Get Responses`: Delivered by calling `handleGetResponses`.
-* `Timeout Messages`: If a request or response exceeds a predefined wait time, a timeout message can be submitted. Specific functions handle these timeouts:
+* `Timeout Messages`: If a request or response exceeds its timeout without being delivered, a timeout message can be submitted. Specific functions handle these timeouts:
     `handlePostRequestTimeouts`
     `handlePostResponseTimeouts`
     `handleGetRequestTimeouts`

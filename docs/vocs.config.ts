@@ -313,12 +313,12 @@ export default defineConfig({
         items: [
           {
             text: "Running a Node",
-            link: "/network/node",
+            link: "/developers/network/node",
           },
 
           {
             text: "Running a Relayer",
-            link: "/network/relayer",
+            link: "/developers/network/relayer",
           },
         ],
       },

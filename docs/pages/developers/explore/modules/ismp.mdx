@@ -12,7 +12,7 @@ The `pallet-ismp` module is responsible for tracking the state commitments of th
 
 ## Cross-Chain Messages
 
-The `pallet-ismp` module is also responsible for verifying the legitimacy of cross-chain messages between the connected chains. Cross-chain messages that are sent from one chain to another must first be verified and aggregated on the Hyperbridge blockchain. The Hyperbridge blockchain accumulates these messages into a [merkle mountain range tree](), this tree serves as a secondary state commitment scheme. It was chosen for its space-efficient membership proofs as opposed to the base-16 merkle patricia trie. Merkle mountain range proofs are used by relayers to authenticate the cross-chain messages that are to be delivered to a destination chain. In the future, messages will be accumulated into a more efficient [Verkle trie]().
+The `pallet-ismp` module is also responsible for verifying the legitimacy of cross-chain messages between the connected chains. Cross-chain messages that are sent from one chain to another must first be verified and aggregated on the Hyperbridge blockchain. The Hyperbridge blockchain accumulates these messages into a [merkle mountain range tree](/protocol/cryptography/merkle-trees/mountain-range), this tree serves as a secondary state commitment scheme. It was chosen for its space-efficient membership proofs as opposed to the base-16 merkle patricia trie. Merkle mountain range proofs are used by relayers to authenticate the cross-chain messages that are to be delivered to a destination chain. In the future, messages will be accumulated into a more efficient [Verkle trie](/protocol/cryptography/verkle-tries).
 
 ## Consensus Clients
 

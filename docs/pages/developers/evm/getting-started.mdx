@@ -131,6 +131,59 @@ function send_message(PostRequest memory request, bytes memory response, uint64 
 }
 ```
 
+### Dispatching Get Requests
+
+Get requests allow contracts to perform asynchronous reads of a counterparty blockchain's state. When dispatching get requests, 
+you specify the storage keys you need to read and the block height at which you need to read these storage entries.  
+
+```solidity
+// An object for dispatching get requests to the IsmpDispatcher
+struct DispatchGet {
+    // bytes representation of the destination state machine
+    bytes dest;
+    // height at which to read the state machine
+    uint64 height;
+    // Storage keys to read
+    bytes[] keys;
+    // timeout for this request in seconds
+    uint64 timeout;
+    // The initiator of this request
+    address sender;
+    // Hyperbridge protocol fees for processing this request.
+    uint256 fee;
+}
+```
+
+#### Dispatch Parameters:
+
+`dest`: The chain whose database should be read (e.g., `StateMachine.arbitrum()`).  
+`height`: Block height at which the values should be fetched.  
+`keys`: Storage keys whose values need to be fetched.  
+`timeout`: Relative time in seconds for message validity. Responses exceeding this timeout cannot be processed on the source and require user action (timeout message) to revert changes.  
+`fee`: Hyperbridge protocol fees for processing the request.  
+`sender`: The account initiating this request.  
+
+```solidity
+// _host is variable that contains the EvmHost contract address
+function get_storage_values(bytes memory dest, bytes[] memory keys, uint64 timeout, uint256 fee, uint256 height) public returns (bytes32) {
+    // Withdraw protocol fee from sender
+    IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
+    // Approve the host to withdraw the fee from the contract
+    IERC20(feeToken).approve(_host, fee);
+
+    DispatchGet memory getRequest = DispatchGet({
+        dest: dest,
+        keys: keys
+        height: height
+        timeout: timeout,
+        fee: fee,
+        sender: tx.origin
+    });
+
+    return IDispatcher(_host).dispatch(getRequest);
+}
+```
+
 
 ### Receiving cross chain messages
 

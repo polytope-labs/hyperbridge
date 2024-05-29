@@ -14,12 +14,15 @@ ISMP leverages a proof-based design to enable permissionless message delivery. T
 
 Upon successful execution of ISMP messages, specific events are generated and recorded in the runtime. These events serve as confirmation for the successful processing of different message types.  
 
-    * `PostRequestHandled`
-    * `PostResponseHandled`
-    * `PostRequestTimeoutHandled`
-    * `PostResponseTimeoutHandled`
-    * `GetResponseHandled`
-    * `StateMachineUpdated`
+ - `PostRequestHandled`:
+ Emitted when a post request is successfully verified and the intended module successfully processes the request.
+ - `PostResponseHandled`:  Emitted when a post response is successfully verified and the intended module successfully processes the response.
+ - `PostRequestTimeoutHandled`:
+  Emitted when a post request timeout is successfully verified and the intended module successfully processes the timeout.
+ - `PostResponseTimeoutHandled`: Emitted when a post response timeout is successfully verified and the intended module successfully processes the timeout.
+ - `GetResponseHandled`: Emitted when the response to a cross-chain storage query is successfully verified and the intended module successfully processes the response.
+ - `StateMachineUpdated`: Emitted when new consensus proofs are successfully verified and a new state commitment is available to authenticate new cross-chain messages.
+
 
 ## Handling Timeouts
 If a message isn't delivered within a predefined timeframe on the receiving chain, a timeout message can be submitted. 

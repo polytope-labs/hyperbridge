@@ -185,7 +185,7 @@ As stated in my article on the sync committee, there are simply too many authori
 
 [Attestation messages](https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#attestation) are published in the beacon chain blocks and [contains](https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#attestationdata): Casper FFG votes, a bitlist of the validators in the committee who signed the attestation and a BLS signature over the `AttestationData`. The BLS signatures for the attestation messages use the $\mathbb{G}_1$ group for public keys, while it’s signatures are in the $\mathbb{G}_2$ group. A consensus client observing the attestation messages can conclude that some epoch is justified (and it’s parent finalized) if they collect enough messages from a supermajority of the validator set confirming the epoch.
 
-```rust
+```rust showLineNumbers
 struct Attestation {
     aggregation_bits: Bitlist<MAX_VALIDATORS_PER_COMMITTEE>
     data: AttestationData

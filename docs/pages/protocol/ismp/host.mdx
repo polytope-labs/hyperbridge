@@ -14,7 +14,7 @@ The `IsmpHost` defines the storage interface that a host blockchain must impleme
 
 Notably, the handlers are agnostic to the underlying storage mechanism and allows for the storage of requests and responses in an overlay tree. This overlay tree can be selected to minimize the state proof verification cost, consequently reducing the verification cost of outgoing requests and responses.
 
-```rust
+```rust showLineNumbers
 /// Defines the necessary interfaces that must be satisfied by a state machine for it be ISMP
 /// compatible.
 pub trait IsmpHost {

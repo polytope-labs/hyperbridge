@@ -21,7 +21,7 @@ BEEFY addresses all of these issues by first introducing a merkle mountain range
 The `pallet-beefy-mmr` module inserts a mmr leaf at every block into the block ancestry mmr tree. The leaf contains the following.
 
 
-```rust
+```rust showLineNumbers
 type H256 = [u8; 32];
 
 struct BeefyNextAuthoritySet {

@@ -1,6 +1,6 @@
-# Pallet Ismp
+# Pallet ISMP
 
-The `pallet-ismp` is the central module of the Hyperbridge blockchain. It is responsible for:
+The `pallet-ismp` is the central module of the Hyperbridge blockchain. It is the core innovation that makes the Hyperbridge protocol possible. It is responsible for:
 
  - Verifying the consensus proofs and managing the state commitments of it's connected chains through the use of "consensus clients".
  - Verifying and aggregating the cross-chain messages that are relayed from its connected chains.
@@ -12,7 +12,7 @@ The `pallet-ismp` module is responsible for tracking the state commitments of th
 
 ## Cross-Chain Messages
 
-The `pallet-ismp` module is also responsible for verifying the legitimacy of cross-chain messages between the connected chains. Cross-chain messages that are sent from one chain to another must first be verified and aggregated on the Hyperbridge blockchain. The Hyperbridge blockchain accumulates these messages into a [merkle mountain range tree](), this tree scheme was chosen for its efficiency in verifying the inclusion of a message in a set of messages. Merkle mountain range proofs are then used by relayers to authenticate the cross-chain messages that are to be delivered to a destination chain. In the future, messages will be accumulated into a more efficient [Verkle trie]()
+The `pallet-ismp` module is also responsible for verifying the legitimacy of cross-chain messages between the connected chains. Cross-chain messages that are sent from one chain to another must first be verified and aggregated on the Hyperbridge blockchain. The Hyperbridge blockchain accumulates these messages into a [merkle mountain range tree](), this tree serves as a secondary state commitment scheme. It was chosen for its space-efficient membership proofs as opposed to the base-16 merkle patricia trie. Merkle mountain range proofs are used by relayers to authenticate the cross-chain messages that are to be delivered to a destination chain. In the future, messages will be accumulated into a more efficient [Verkle trie]().
 
 ## Consensus Clients
 

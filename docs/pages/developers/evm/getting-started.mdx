@@ -1,0 +1,286 @@
+# ISMP Solidity
+
+ISMP Solidity is the implementation of the [Interoperable State Machine Protocol](/protocol/ismp) for EVM execution environments. It provides EVM smart contracts with the neccessary interfaces to send and receive messages securely through the Hyperbridge Nexus. Let's dive into it's different components:
+
+## `EvmHost`
+
+The `EvmHost` contract, implementing the [`IsmpHost`](/protocol/ismp/host) interface, is a stateful module responsible for all protocol storage needs. It functions as a store for consensus states, state machine commitments, request/response commitments and receipts.
+Additionally, it implements the [`IsmpDispatcher`](/protocol/ismp/dispatcher) interface, providing methods for contracts to dispatch requests and responses to the Hyperbridge Nexus.
+
+## `EvmHandler`
+
+The Handler contract, which implements `IHandler` interface, is stateless contract responsible for handling consensus and state proof verifications for all ISMP messages. Upon successful verification, it delegates state persistence and dispatch to the EvmHost contract.
+
+This decoupled design of the Handler from the Host allows independent upgrades to verification mechanisms without impacting the core protocol, enabling future adoption of more efficient consensus and state verification methods with no changes to the protocol or dependent contracts.
+
+In the next section we'll look into hands-on examples of how to send and receive messages using ISMP.
+
+
+## Going cross-chain with ISMP
+
+This guide explores the two fundamental functionalities of ISMP for cross-chain applications: dispatching messages and receiving messages. We'll look into each aspect in the following sections.
+Sending cross chain messages is a single step process that involves calling the dispatch function on the `EvmHost`.
+
+### Post Requests
+
+A post request dispatch has the following fields:
+
+```solidity showLineNumbers
+// An object for dispatching post requests to the IsmpDispatcher
+struct DispatchPost {
+    // bytes representation of the destination state machine
+    bytes dest;
+    // the destination module
+    bytes to;
+    // the request body
+    bytes body;
+    // timeout for this request in seconds
+    uint64 timeout;
+    // the amount put up to be paid to the relayer, this is in $DAI and charged to tx.origin
+    uint256 fee;
+    // who pays for this request?
+    address payer;
+}
+```
+
+#### Dispatch Parameters:
+
+ - `dest`: Destination chain (e.g., `StateMachine.arbitrum()`).
+ - `to`: Receiving contract address on the destination chain.
+ - `body`: Opaque byte representation of the message (decoded by the receiving contract).
+ - `timeout`: Relative time in seconds for message validity. Messages exceeding this timeout cannot be processed on the destination and require user action (timeout message) to revert changes.
+ - `fee`: Optional relayer incentive (zero for self-relay).
+ - `payer`: The account that should receive a refund of the relayer fees if the request times out.
+
+```solidity showLineNumbers
+// _host is variable that contains the EvmHost contract address
+function send_message(bytes memory message, uint64 timeout, address to, uint256 relayerFee) public returns (bytes32) {
+    uint256 perByteFee = IIsmpHost(_host).perByteFee();
+    address feeToken = IIsmpHost(_host).feeToken();
+    uint256 fee = (perByteFee * message.length) + relayerFee;
+
+    // Withdraw protocol and relayer fee from sender
+    IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
+    // Approve the host to withdraw the fee from the contract
+    IERC20(feeToken).approve(_host, fee);
+
+    DispatchPost memory post = DispatchPost({
+        body: message,
+        dest: StateMachine.arbitrum(),
+        timeout: timeout,
+        to: abi.encodePacked(to),
+        fee: relayerFee,
+        payer: tx.origin
+    });
+
+    return IDispatcher(_host).dispatch(post);
+}
+```
+
+### Post Responses
+
+Dispatching a post response requires that the contract has received a post request from a counterparty chain in a previous transaction.
+A post response dispatch has the following fields:
+
+```solidity showLineNumbers
+// An object for dispatching post responses to the IsmpDispatcher
+struct DispatchPostResponse {
+    // The request that initiated this response
+    PostRequest request;
+    // bytes for post response
+    bytes response;
+    // timeout for this response in seconds
+    uint64 timeout;
+    // the amount put up to be paid to the relayer, this is in $DAI and charged to tx.origin
+    uint256 fee;
+    // who pays for this request?
+    address payer;
+}
+```
+
+
+#### Dispatch Parameters:
+
+ - `request`: The request that was previously received.
+ - `response`: Opaque byte representation of the response message (decoded by the receiving contract).
+ - `timeout`: Relative time in seconds for message validity. Messages exceeding this timeout cannot be processed on the destination and require user action (timeout message) to revert changes.
+ - `fee`: Optional relayer incentive (zero for self-relay).
+ - `payer`: The account that should receive a refund of the relayer fees if the request times out.
+
+```solidity showLineNumbers
+// _host is variable that contains the EvmHost contract address
+function send_message(PostRequest memory request, bytes memory response, uint64 timeout, uint256 relayerFee) public returns (bytes32) {
+    uint256 perByteFee = IIsmpHost(_host).perByteFee();
+    address feeToken = IIsmpHost(_host).feeToken();
+    uint256 fee = (perByteFee * response.length) + relayerFee;
+
+    // Withdraw protocol and relayer fee from sender
+    IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
+    // Approve the host to withdraw the fee from the contract
+    IERC20(feeToken).approve(_host, fee);
+
+    DispatchPostResponse memory postResponse = DispatchPostResponse({
+        request: request,
+        response: response,
+        timeout: timeout,
+        fee: relayerFee,
+        payer: tx.origin
+    });
+
+    return IDispatcher(_host).dispatch(postResponse);
+}
+```
+
+
+### Receiving cross chain messages
+
+To receive ISMP messages a contract needs to implement the `IIsmpModule` interface, this interface allows the `EvmHost` to dispatch verified cross chain messages to the contract for execution.
+
+The interface for the `IIsmpModule` is described below:
+```solidity showLineNumbers
+interface IIsmpModule {
+    /**
+     * @dev Called by the IsmpHost to notify a module of a new request the module may choose to respond immediately, or in a later block
+     * @param incoming post request
+     */
+    function onAccept(IncomingPostRequest memory incoming) external;
+
+    /**
+     * @dev Called by the IsmpHost to notify a module of a post response to a previously sent out request
+     * @param incoming post response
+     */
+    function onPostResponse(IncomingPostResponse memory incoming) external;
+
+    /**
+     * @dev Called by the IsmpHost to notify a module of a get response to a previously sent out request
+     * @param incoming get response
+     */
+    function onGetResponse(IncomingGetResponse memory incoming) external;
+
+    /**
+     * @dev Called by the IsmpHost to notify a module of post requests that were previously sent but have now timed-out
+     * @param request post request
+     */
+    function onPostRequestTimeout(PostRequest memory request) external;
+
+    /**
+     * @dev Called by the IsmpHost to notify a module of post requests that were previously sent but have now timed-out
+     * @param request post request
+     */
+    function onPostResponseTimeout(PostResponse memory request) external;
+
+    /**
+     * @dev Called by the IsmpHost to notify a module of get requests that were previously sent but have now timed-out
+     * @param request get request
+     */
+    function onGetTimeout(GetRequest memory request) external;
+}
+```
+
+
+#### A simple crosschain contract
+
+```solidity showLineNumbers
+pragma solidity 0.8.17;
+
+import "ismp/IIsmpModule.sol";
+import "ismp/IIsmpHost.sol";
+import "ismp/Message.sol";
+import "ismp/IDispatcher.sol";
+
+contract Example is BaseIsmpModule {
+    event PostReceived();
+    event PostResponseReceived();
+    event PostTimeoutReceived();
+    event PostResponseTimeoutReceived();
+    event GetResponseReceived();
+    event GetTimeoutReceived();
+    error NotAuthorized();
+
+    // EvmHost Address
+    address private host;
+
+    constructor(address host) {
+        host = host;
+    }
+
+    // restricts call to the `IIsmpHost`
+    modifier onlyIsmpHost() {
+        if (msg.sender != host) {
+            revert NotAuthorized();
+        }
+        _;
+    }
+
+    function send_message(bytes memory message, uint64 timeout, address to, uint256 relayerFee) public returns (bytes32) {
+        uint256 perByteFee = IIsmpHost(host).perByteFee();
+        address feeToken = IIsmpHost(host).feeToken();
+        uint256 fee = (perByteFee * message.length) + relayerFee;
+
+        // Withdraw protocol and relayer fee from sender
+        IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
+        // Approve the host to withdraw the fee from the contract
+        IERC20(feeToken).approve(host, fee);
+
+        DispatchPost memory post = DispatchPost({
+            body: message,
+            dest: StateMachine.arbitrum(),
+            timeout: timeout,
+            to: abi.encodePacked(to),
+            fee: relayerFee,
+            payer: tx.origin
+        });
+
+        return IDispatcher(host).dispatch(post);
+    }
+
+    function onAccept(IncomingPostRequest memory incoming) external onlyIsmpHost {
+        // decode request body
+        // Check that decoded value can be executed successfully
+        // Make state changes
+        emit PostReceived();
+    }
+
+    function onPostRequestTimeout(PostRequest memory request) external onlyIsmpHost {
+        // revert any state changes made when post request was dispatched
+        emit PostTimeoutReceived();
+    }
+
+    function onPostResponse(IncomingPostResponse memory) external onlyIsmpHost {
+        // decode response
+        // Check that decoded value can be executed successfully
+        // Make state changes
+        emit PostResponseReceived();
+    }
+
+    function onPostResponseTimeout(PostResponse memory) external onlyIsmpHost {
+        // revert any state changes made when post response was dispatched
+        emit PostResponseTimeoutReceived();
+    }
+
+    function onGetResponse(IncomingGetResponse memory) external onlyIsmpHost {
+        emit GetResponseReceived();
+    }
+
+    function onGetTimeout(GetRequest memory) external onlyIsmpHost {
+        // revert any state changes made when get request was dispatched
+        emit GetTimeoutReceived();
+    }
+}
+```
+
+
+### Security Considerations
+
+* Restricted Access:
+
+Limit the callability of these functions to the `EvmHost` contract only. This prevents unauthorized messages from being executed.
+
+* Irreversible Changes:
+
+Since the `EvmHost` doesn't store receipts for failed messages, ensure irreversible state changes occur only after a message effectively meets all success criteria.
+
+## Implementation
+
+ - [EvmHost](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol)
+ - [Handler](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/modules/HandlerV1.sol)

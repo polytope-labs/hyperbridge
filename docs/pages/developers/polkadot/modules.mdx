@@ -1,22 +1,22 @@
-# Ismp modules
+# ISMP Modules
 
-This section will provide an in depth guide on how to build an ismp module. Usually in substrate an ismp module is going to be a pallet.  
+This section will provide an in depth guide on how to build an ismp module. Usually in substrate an ismp module is going to be a pallet.
 
 ## Defining a Module Id
 
-Ismp uses a unique module id to identify ismp modules and route messages correctly, in contract environments this module id is the contract address.  
-For a substrate pallet, you will need to define an 8 byte module id that is unique to the pallet 
+Ismp uses a unique module id to identify ismp modules and route messages correctly, in contract environments this module id is the contract address.
+For a substrate pallet, you will need to define an 8 byte module id that is unique to the pallet
 
-```rust
+```rust showLineNumbers
    use pallet_ismp::ModuleId;
    pub const EXAMPLE_MODULE_ID: ModuleId = ModuleId::Pallet(PalletId(*b"EXPL-MOD"));
 ```
 
 ## Building the pallet
 
-In this section we build an example pallet that allows us dispatch and receive messages from hyperbridge.  
+In this section we build an example pallet that allows us dispatch and receive messages from hyperbridge.
 
-```rust
+```rust showLineNumbers
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -94,7 +94,7 @@ pub mod pallet {
 			};
 
 			let dispatcher = T::IsmpDispatcher::default();
-			
+
 			// dispatch the request
             // This call will attempt to collect the protocol fee and relayer fee from the user's account
 			dispatcher
@@ -103,14 +103,13 @@ pub mod pallet {
 					FeeMetadata { payer: origin.clone(), fee: params.fee },
 				)
 				.map_err(|_| Error::<T>::MessageDispatchFailed)?;
-			
+
 			Ok(())
 		}
 	}
 }
 
-impl<T> IsmpModule for Pallet<T>
-{
+impl<T> IsmpModule for Pallet<T> {
 	fn on_accept(&self, request: Post) -> Result<(), ismp::Error> {
         // Here you would perform validations on the post request data
         // Ensure it can be executed successfully before making any state changes
@@ -135,45 +134,45 @@ impl<T> IsmpModule for Pallet<T>
 }
 ```
 
-## Integrating the module with the runtime
+## Runtime Integration
 
 Now the pallet needs to be added to the runtime and also the `IsmpRouter`.
 
-```rust
-   impl pallet_hyperbridge::Config for Runtime {
-        type RuntimeEvent = RuntimeEvent;
-        // pallet-ismp implements the IsmpHost
-        type IsmpHost = Ismp;
-   }
+```rust showLineNumbers
+impl pallet_hyperbridge::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    // pallet-ismp implements the IsmpHost
+    type IsmpHost = Ismp;
+}
 
-   impl pallet_example::Config for Runtime {
-        type RuntimeEvent = RuntimeEvent;
-        // Set pallet hyperbridge as the dispatcher
-        type IsmpDispatcher = Hyperbridge;
-   }
+impl pallet_example::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    // Set pallet hyperbridge as the dispatcher
+    type IsmpDispatcher = Hyperbridge;
+}
 
-   // ... omitted impl blocks
+// ... omitted impl blocks
 
-   construct_runtime! {
+construct_runtime! {
     // ...
     Ismp: pallet_ismp,
     Hyperbridge: pallet_hyperbridge,
     Example: pallet_example
-   }
+}
 
-   #[derive(Default)]
-   struct ModuleRouter;
+#[derive(Default)]
+struct ModuleRouter;
 
-   impl IsmpRouter for ModuleRouter {
-      fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
-          return match id.as_slice() {
-              PALLET_HYPERBRIDGE_ID => Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
-              id if id == EXAMPLE_MODULE_ID.to_bytes().as_slice() => Ok(Box::new(pallet_ismp::pallet_example::Pallet::<Runtime>::default()))
-              // ... other modules
-              _   => Err(Error::ModuleNotFound(id)),
-          };
-      }
-   }
+impl IsmpRouter for ModuleRouter {
+    fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+        return match id.as_slice() {
+            PALLET_HYPERBRIDGE_ID => Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
+            id if id == EXAMPLE_MODULE_ID.to_bytes().as_slice() => Ok(Box::new(pallet_ismp::pallet_example::Pallet::<Runtime>::default()))
+            // ... other modules
+            _   => Err(Error::ModuleNotFound(id)),
+        };
+    }
+}
 ```
 
 ## Security Considerations

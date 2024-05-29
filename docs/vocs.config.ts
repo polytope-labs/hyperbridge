@@ -242,16 +242,12 @@ export default defineConfig({
             link: "/developers/explore",
           },
           {
-            text: "Hyperbridge Nexus",
-            link: "/developers/explore/nexus",
-          },
-          {
             text: "Permissionless Relayers",
             link: "/developers/explore/relayers",
           },
           {
-            text: "Runtime Modules",
-            link: "/developers/explore/modules/",
+            text: "Hyperbridge Nexus",
+            link: "/developers/explore/nexus",
             items: [
               {
                 text: "ISMP",
@@ -278,8 +274,8 @@ export default defineConfig({
         collapsed: true,
         items: [
           {
-            text: "Contracts",
-            link: "/developers/evm/integration",
+            text: "Getting Started",
+            link: "/developers/evm/getting-started",
           },
 
           {
@@ -288,7 +284,7 @@ export default defineConfig({
           },
 
           {
-            text: "Message delivery",
+            text: "Message Delivery",
             link: "/developers/evm/delivery",
           },
 
@@ -341,7 +337,7 @@ export default defineConfig({
             text: "Message delivery",
             link: "/developers/polkadot/delivery",
           },
-          
+
           // {
           //   text: "Supported Networks",
           //   link: "/developers/polkadot/networks",

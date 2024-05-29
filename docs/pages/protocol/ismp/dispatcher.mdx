@@ -7,7 +7,7 @@ description: The ISMP request-response dispatcher interface
 
 The dispatcher is the public interface which `IsmpModule`s use to _dispatch_ requests and responses. It is also responsible for committing the outgoing requests and responses to storage. It may do so in an overlay tree or the underlying state trie. This ensures that state proofs maybe obtained for dispatched requests and responses. The dispatcher should also emit relevant events after any dispatch operation. The interface for the Ismp Dispatcher is
 
-```rust
+```rust showLineNumbers
 /// Simplified POST request, intended to be used for sending outgoing requests
 pub struct DispatchPost {
     /// The destination state machine of this request.
@@ -70,7 +70,7 @@ pub trait IsmpDispatcher {
 Events should be emitted when requests are responses are dispatched. This notifies relayers of the new requests and responses to be transmitted.
 The structure of ISMP dispatcher events is described below
 
-```rust
+```rust showLineNumbers
 pub enum Event {
     /// Emitted for an outgoing response
     Response(PostResponse),

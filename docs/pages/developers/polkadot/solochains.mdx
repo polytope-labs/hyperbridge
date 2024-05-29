@@ -4,22 +4,22 @@ For a solochain that wants to integrate with hyperbridge all that is required is
 
 ## Consensus Relayer
 
-A solochain requires a consensus relayer to send consensus updates between Hyperbridge and itself. Tesseract consensus relayer is built to handle this.  
+A solochain requires a consensus relayer to send consensus updates between Hyperbridge and itself. Tesseract consensus relayer is built to handle this.
 
 ## Beefy or Grandpa
 
-Choosing between Beefy and GRANDPA is just a matter of preference, BEEFY is a much leaner consensus client to maintain with a little finality lag since it piggy packs on top of GRANDPA.  
+Choosing between Beefy and GRANDPA is just a matter of preference, BEEFY is a much leaner consensus client to maintain with a little finality lag since it piggy packs on top of GRANDPA.
 A GRANDPA consensus client would offer reduced latency as GRANDPA finalizes before BEEFY.
 
 ## Connecting to Hyperbrige as a Solochain
 
 In your runtime you should add Hyperbridge as a Coprocessor and add a GRANDPA or BEEFY Consensus client to the list of supported clients, whichever client is added would determine the mode the consensus
-relayer would operate.  
+relayer would operate.
 
-The host state machine should reflect the consensus protocol of the solochain either GRANDPA or BEEFY and it must be unique to every solochain connected to Hyperbridge.  
+The host state machine should reflect the consensus protocol of the solochain either GRANDPA or BEEFY and it must be unique to every solochain connected to Hyperbridge.
 Every other configuration detail remains unchanged as described in the previous sections
 
-```rust
+```rust showLineNumbers
     parameter_types! {
         // The hyperbridge parachain on Polkadot
         pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));

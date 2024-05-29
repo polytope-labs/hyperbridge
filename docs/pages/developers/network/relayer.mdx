@@ -1,85 +1,125 @@
 ---
 title: Relayers
-description: Critical to the function of Hyperbridge are the relayers who transmit requests & responses across it's connected chains. Unlike popular interoperability protocols, Hyperbridge relayers are fully permissionless. This means, relayers will not need to be staked or whitelisted in order to transmit cross-chain messages. This is as a result of it's first-of-it's kind, fully trust-free design. This service of-course, will not be for free. Hyperbridge permits the applications that leverage it’s secure message passing infrastructure to pay ahead of time for the message delivery & execution. They do so on the source chain of the initiating application.
+description: Running the Hyperbridge relayer
 ---
 
-# Relayers
+# Running a Relayer
 
-<figure>
-  <img src="/relayer.webp" alt="Hyperbridge relayers" />
-  <figcaption style={{ textAlign: "center" }}>Hyperbridge relayers</figcaption>
-</figure>
+The Hyperbridge relayer (tesseract) is available through the following methods. For now we only officially distribute release artifacts for x86 linux environments.
 
-Critical to the function of Hyperbridge are the relayers who transmit requests & responses across it's connected chains. Unlike popular interoperability protocols, Hyperbridge relayers are fully permissionless. This means, relayers will not need to be staked or whitelisted in order to transmit cross-chain messages. This is as a result of it's first-of-it's kind, fully trust-free design. This service of-course, will not be for free. Hyperbridge permits the applications that leverage it’s secure message passing infrastructure to pay ahead of time for the message delivery & execution. They do so on the source chain of the initiating application.
+## Prebuilt binaries
 
-<br />
-Fees for cross-chain requests are to be paid in stable coins, We’ve chosen the DAI
-stablecoin for it’s decentralized and censorship-resistant properties. This means
-users will estimate the cost for message execution & provide what they believe to
-be a fair amount in DAI to the Hyperbridge contract. (Specifically, the [EvmHost](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol#L533))
-at the time of dispatching a request. Once the request has been finalized by the
-originating chain and these finality proofs made available to the destination chain.
-The request becomes eligible for delivery & execution. A relayer will estimate the
-cost of request delivery and query the fee that has been put up for it’s delivery
-on the source chain. Depending on their profitability configuration, they’ll either
-choose to deliver the request or ignore it.
-<br />
-If the relayers chooses to deliver the request, then this means they will cover the
-cost of message delivery and execution. This cost of message delivery is the cost
-of proof verification of requests & responses. The cost of message execution is the
-cost of executing the message on the destination module. In the current version of
-the protocol, relayers are tasked with both delivering and executing the messages.
-But it is entirely possible in future versions of the protocol that we unbundle message
-delivery and execution as this may enable more exotic applications.
-<br />
-In our chosen design, relayers race to deliver a batch of cross-chain messages to
-their respective destination chains. This has a few benefits, this effectively mitigates
-any liveness issues that may arise as a result of some whitelisted relayers going
-down. This free market design presents a much better UX to end users and applications.
-The winning relayer, can be decided by a few factors.
-<br />
+You can install a prebuilt binary for the Tesseract relayer with the following bash script
 
-1. Block notification.
+```bash
+wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-v0.3.3/tesseract-x86_64-unknown-linux-gnu.tar.gz
+tar -xvzf tesseract-x86_64-unknown-linux-gnu.tar.gz
+# copy to $PATH
+cp tesseract-x86_64-unknown-linux-gnu/tesseract $HOME/.local/bin/
+```
 
-Relayer are mostly idle, and will only check for new messages to be delivered when the chains they’re interested in receive new consensus messages. The consensus messages, contain proofs that finalizes a new set of block heights. The new block heights, may or may not contain new messages to be delivered from the hyperbridge parachain. Therefore, whichever relayer sees the block where these consensus messages were processed on the destination chain first, can begin the check before everyone else and as a result, deliver the new batch of requests before anyone else.
+or a 1-liner
 
-2. Query throughput
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-v0.3.3/tesseract-installer.sh | sh
+```
 
-We can for the purposes of this criteria assume that every single relayer has received the block notification at the same time. Now they have to do a few things, first they’ll query for the new requests available, next they’ll need to query the fees associated with these requests, and finally query the cost of executing these requests by simulating them individually as a transaction on the full node for it’s destination chain.
-
-If the relayer is able to query high-performance nodes and has a very fast internet connection, or even better is colocated the nodes in question. You can already see how this provides an edge in being the first to deliver the requests.
-
-3. MEV
-
-An unfortunate development in blockchain protocols are validators who auction their blockspace. They do so in order to earn even more money than the underlying protocols already pay them. It’s not impossible that relayers may integrate with validators who auction their blockspace using proposer-builder networks in order to have their bundles always be first in the block. Of-course these relayers would have to pay high priority fees for such shenanigans. But we fully expect relayer competition to eventually reach these levels.
-
-<br />
-
-Once a relayer successfully delivers a batch of requests, they can immediately start claiming the associated fees for these requests. They’ll do so by submitting state proofs of the messages delivered on the destination chain to hyperbridge. Once hyperbridge verifies these proofs, it will make the fees available to the relayer by issuing a request to it’s contracts on the source chain. The relayer will be responsible for delivering this request as it will have no fee attached and will hence be ignored by other relayers.
-
-## Installation
-
-The tesseract relayer is available through the following methods
-
-### Prebuilt binaries
-
-Unavailable at this time.
-
-### Docker
+## Docker
 
 Tesseract is available at the official docker repository [`polytopelabs/tesseract`](https://hub.docker.com/r/polytopelabs/tesseract)
 
 ```bash
-docker run polytopelabs/tesseract:latest --config=/path/to/config --db=/path/to/database
+docker pull polytopelabs/tesseract:latest
 ```
 
-### Building from source?
+## Building from source
 
-Unfortunately, tesseract is closed-souce for now. Tesseract source-code will be available on Hyperbridge mainnet launch.
+You can follow the steps below if you'd prefer to build the tesseract relayer from source:
+
+::::steps
+
+### Install dependencies
+
+Building the Tesseract relayer requires some dependencies
+
+- git
+- clang
+- curl
+- make
+- build-essential
+- libssl-dev
+- llvm
+- libudev-dev
+- protobuf-compiler
+
+:::code-group
+
+```bash [Debian]
+sudo apt update
+sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+```
+
+```bash [Arch]
+pacman -Syu --needed --noconfirm curl git clang make protobuf
+```
+
+```bash [Fedora]
+sudo dnf update
+sudo dnf install clang curl git openssl-devel make protobuf-compiler
+```
+
+```bash [Opensuse]
+sudo zypper install clang curl git openssl-devel llvm-devel libudev-devel make protobuf
+```
+
+:::
+
+### Install the rust compiler
+
+If you don't have an already existing rust installation, you can install it using the one-liner below. Follow the prompts displayed to proceed with a default installation.
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### Clone the repo
+
+Download a local copy of the repo and checkout the latest release tag
+
+```bash
+export LATEST_TAG=tesseract-v0.3.3
+git clone https://github.com/polytope-labs/hyperbridge.git
+cd ./hyperbridge
+git checkout ${LATEST_TAG}
+```
+
+### Build the tesseract relayer
+
+```bash
+cargo build --release -p tesseract
+```
+
+The Tesseract relayer will now be available at `target/release/tesseract`, You can move the binary to your `$PATH` so you can run it directly.
+
+<br />
+Update your path to include `${HOME}/.local/bin`. If you are using Bash, run the following. Alternatively, replace `${HOME}/.bashrc` with `${HOME}/.zshrc` if using Zsh. Replace `source` with `.` if necessary.
+
+```bash
+# add .local/bin to path if it doesn't exist
+export RC_PATH=${HOME}/.bashrc
+echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> ${RC_PATH}
+source ${RC_PATH}
+
+# create dir if it doesn't exist
+mkdir -p $HOME/.local/bin/
+mv target/release/tesseract $HOME/.local/bin/
+```
+
+::::
 
 ## Running the relayer
 
-The tesseract relayer command line interface expects two arguments, which are the paths to it's configuration file and database file. Because it resides in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration files on your host into the docker conatiner. Tesseract will write it's database to that directory once it's initialized.
+The tesseract relayer command line interface expects two arguments, which are the paths to it's configuration file and database file. If you're running it in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration files on your host into the docker container. Tesseract will write it's database to that directory once it's initialized.
 
 ```bash
 docker run -d \
@@ -89,7 +129,7 @@ docker run -d \
   --volume=/dir/on/host:/home/root \
   polytopelabs/tesseract:latest \
   --config=/home/root/config.toml \
-  --db=/home/root/dev.db
+  --db=/home/root/tesseract.db
 ```
 
 Access it's logs using
@@ -106,7 +146,7 @@ At the minimum, the hyperbridge relayer should be run on a machine with at least
 
 A community member has graciously provided their ansible playbook for running the hyperbridge relayer. You can find it here:
 
-https://github.com/schmiatz/hyperbridge-relayer
+ - [schmiatz/hyperbridge-relayer](https://github.com/schmiatz/hyperbridge-relayer)
 
 ## Configuration
 
@@ -214,7 +254,7 @@ You can obtain the required etherscan API key by following [this guide](https://
 
 ### Contract addresses
 
-You can find the up-to-date contract addresses for the `Handler` & `IsmpHost` contracts [here](/evm/integration#gargantua-v2)
+You can find the up-to-date contract addresses for the `Handler` & `IsmpHost` contracts [here](/developers/evm/integration#gargantua-v2)
 
 ## Withdrawing Fees
 
@@ -226,13 +266,13 @@ In the fee accumulation phase, tesseract submits state proofs of messages all de
 Stop any running relayer instances, run the following command in the terminal and wait for it to complete. The command will submit proofs for messages delivered to all chains present in the config file.
 
 ```bash
-    docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees
+tesseract --config=$HOME/config.toml --db=$HOME/tesseract.db accumulate-fees
 ```
 
 When accumulating fees the required state machine update to verify the proofs might not yet be available on hyperbridge, by default accumulating fees for those state machines will be skipped. To wait for all state machine updates.
 
 ```bash
-    docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --wait
+tesseract --config=$HOME/config.toml --db=$HOME/tesseract.db accumulate-fees --wait
 ```
 
 ### Initiating withdrawals
@@ -243,7 +283,7 @@ To initiate a withdrawal from hyperbridge, a relayer needs to submit a transacti
 To use this feature run the following command:
 
 ```bash
-    docker run --network=host -v /dir/on/host:/home/root polytopelabs/tesseract:latest --config=/home/root/config.toml --db=/home/root/dev.db accumulate-fees --withdraw
+tesseract --config=$HOME/config.toml --db=$HOME/tesseract.db accumulate-fees --withdraw
 ```
 
 ### Automatic accumulation and withdrawals

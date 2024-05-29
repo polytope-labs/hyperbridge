@@ -10,8 +10,9 @@ export default defineConfig({
   title: "Hyperbridge Documentation",
   description:
     "Hyperbridge is a coprocessor for cryptographically secure interoperability",
-  // ogImageUrl:
-  //   "https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
+    // todo: add logo
+  ogImageUrl:
+    "https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
   logoUrl: {
     light: '/logo-dark.svg',
     dark: '/logo-light.svg'
@@ -233,28 +234,69 @@ export default defineConfig({
         items: [],
       },
       {
+        text: "Explore",
+        collapsed: true,
+        items: [
+          {
+            text: "Protocol Overview",
+            link: "/developers/explore",
+          },
+          {
+            text: "Permissionless Relayers",
+            link: "/developers/explore/relayers",
+          },
+          {
+            text: "Hyperbridge Nexus",
+            link: "/developers/explore/nexus",
+            items: [
+              {
+                text: "ISMP",
+                link: "/developers/explore/modules/ismp",
+              },
+              {
+                text: "Fishermen",
+                link: "/developers/explore/modules/fishermen",
+              },
+              {
+                text: "Host Executive",
+                link: "/developers/explore/modules/host-executive",
+              },
+              {
+                text: "Relayer",
+                link: "/developers/explore/modules/relayer",
+              },
+            ]
+          },
+        ],
+      },
+      {
         text: "Solidity Sdk",
         collapsed: true,
         items: [
           {
-            text: "Contracts",
-            link: "/evm/integration",
+            text: "Getting Started",
+            link: "/developers/evm/getting-started",
           },
 
-          // {
-          //   text: "Protocol Fees",
-          //   link: "/evm/fees",
-          // },
+          {
+            text: "Protocol Fees",
+            link: "/developers/evm/fees",
+          },
 
-          // {
-          //   text: "Message delivery",
-          //   link: "/evm/delivery",
-          // },
+          {
+            text: "Message Delivery",
+            link: "/developers/evm/delivery",
+          },
 
-          // {
-          //   text: "Supported Networks",
-          //   link: "/evm/networks",
-          // },
+          {
+            text: "Supported Networks",
+            link: "/developers/evm/networks",
+          },
+
+          {
+            text: "Contracts Addresses",
+            link: "/developers/evm/contract-addresses",
+          },
         ],
       },
       {
@@ -262,33 +304,44 @@ export default defineConfig({
         collapsed: true,
         items: [
           {
-            text: "Integration - Parachains",
-            link: "/polkadot/parachains",
+            text: "Integration - Ismp",
+            link: "/developers/polkadot/integration",
           },
+
           {
-            text: "Integration - Solochains",
-            link: "/polkadot/solochains",
+            text: "Integration - Parachains",
+            link: "/developers/polkadot/parachains",
           },
+
+          // {
+          //   text: "Integration - Solochains",
+          //   link: "/developers/polkadot/solochains",
+          // },
+
           {
             text: "ISMP Modules",
-            link: "/polkadot/modules",
+            link: "/developers/polkadot/modules",
           },
+
           {
             text: "RPC Interface",
-            link: "/polkadot/rpc",
+            link: "/developers/polkadot/rpc",
           },
+
           {
             text: "Protocol Fees",
-            link: "/polkadot/fees",
+            link: "/developers/polkadot/fees",
           },
+
           {
             text: "Message delivery",
-            link: "/polkadot/delivery",
+            link: "/developers/polkadot/delivery",
           },
-          {
-            text: "Supported Networks",
-            link: "/polkadot/networks",
-          },
+
+          // {
+          //   text: "Supported Networks",
+          //   link: "/developers/polkadot/networks",
+          // },
         ],
       },
       {
@@ -297,12 +350,12 @@ export default defineConfig({
         items: [
           {
             text: "Running a Node",
-            link: "/network/node",
+            link: "/developers/network/node",
           },
 
           {
             text: "Running a Relayer",
-            link: "/network/relayer",
+            link: "/developers/network/relayer",
           },
         ],
       },

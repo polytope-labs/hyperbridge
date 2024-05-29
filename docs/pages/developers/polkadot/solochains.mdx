@@ -1,0 +1,63 @@
+# Solochain Integration
+
+For a solochain that wants to integrate with hyperbridge all that is required is to configure either the BEEFY consensus client or GRANDPA consensus client and set hyperbridge as the coprocessor.
+
+## Consensus Relayer
+
+A solochain requires a consensus relayer to send consensus updates between Hyperbridge and itself. Tesseract consensus relayer is built to handle this.
+
+## Beefy or Grandpa
+
+Choosing between Beefy and GRANDPA is just a matter of preference, BEEFY is a much leaner consensus client to maintain with a little finality lag since it piggy packs on top of GRANDPA.
+A GRANDPA consensus client would offer reduced latency as GRANDPA finalizes before BEEFY.
+
+## Connecting to Hyperbrige as a Solochain
+
+In your runtime you should add Hyperbridge as a Coprocessor and add a GRANDPA or BEEFY Consensus client to the list of supported clients, whichever client is added would determine the mode the consensus
+relayer would operate.
+
+The host state machine should reflect the consensus protocol of the solochain either GRANDPA or BEEFY and it must be unique to every solochain connected to Hyperbridge.
+Every other configuration detail remains unchanged as described in the previous sections
+
+```rust showLineNumbers
+    parameter_types! {
+        // The hyperbridge parachain on Polkadot
+        pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));
+        // The host state machine of this pallet, this must be unique to all every solochain
+        pub const HostStateMachine: StateMachine = StateMachine::Grandpa(*b"solo"); // your unique chain id here
+    }
+
+    impl pallet_ismp::Config for Runtime {
+        // configure the runtime event
+        type RuntimeEvent = RuntimeEvent;
+        // Permissioned origin who can create or update consensus clients
+        type AdminOrigin = EnsureRoot<AccountId>;
+        // The state machine identifier for this state machine
+        type HostStateMachine = HostStateMachine;
+        // The pallet_timestamp pallet
+        type TimestampProvider = Timestamp;
+        // The currency implementation that is offered to relayers
+        type Currency = Balances;
+        // The balance type for the currency implementation
+        type Balance = Balance;
+        // Router implementation for routing requests/responses to their respective modules
+        type Router = Router;
+        // Optional coprocessor for incoming requests/responses
+        type Coprocessor = Coprocessor;
+        // Supported consensus clients
+        type ConsensusClients = (
+            // Add the grandpa or beefy consensus client here
+            ismp_grandpa::GrandpaConsensusClient<Runtime>,
+        );
+        // Optional merkle mountain range overlay tree, for cheaper outgoing request proofs.
+        // You most likely don't need it, just use the `NoOpMmrTree`
+        type Mmr = NoOpMmrTree<Runtime>;
+        // Weight provider for local modules
+        type WeightProvider = ();
+    }
+
+    construct_runtime! {
+        // ...
+        Ismp: pallet_ismp
+    }
+```

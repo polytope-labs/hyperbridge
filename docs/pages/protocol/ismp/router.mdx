@@ -7,7 +7,7 @@ description: The ISMP router interface
 
 The router lives in-between the ISMP message handlers and modules, the router provides access to a concrete implementation of an `IsmpModule` which a request or response is designated for based on the destination module Id. The interface for the router is
 
-```rust
+```rust showLineNumbers
 pub trait IsmpRouter {
     /// Should decode the module id and return a handler to the appropriate `IsmpModule`
     /// implementation
@@ -19,7 +19,7 @@ pub trait IsmpRouter {
 
 Users cannot directly initiate requests or receive responses. Instead, they must transact with an application, which then initiates the request and receives the responses. These applications, referred to as ISMP Modules, can be either _pallets_ or smart-contracts. For an application to be ISMP compatible, it must implement a specific interface that enables the router to dispatch incoming requests and responses. Each application should have a unique identifier configured in the runtime for identification by the router. The required module interface is as follows
 
-```rust
+```rust showLineNumbers
 /// Individual modules which live on a state machine must conform to this interface in order to send
 /// and receive ISMP requests and responses
 pub trait IsmpModule {

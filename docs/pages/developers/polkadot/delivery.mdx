@@ -1,0 +1,31 @@
+# ISMP Message Delivery: Permissionless and Secure
+ISMP leverages a proof-based design to enable permissionless message delivery. This means anyone can submit messages to the network, as long as they possess valid proofs and can cover transaction fees.
+
+## Submitting ISMP Messages
+`Single Entry Point`: All ISMP messages are delivered through the `handle` extrinsic. This extrinsic is accessible to anyone who can pay the fees and holds the necessary proofs, regardless of their role in the network.  
+
+`Proofs from Hyperbridge`: When using Hyperbridge as a coprocessor, messages require Merkle Patricia trie proofs generated from the child trie of the `pallet-ismp` module on Hyperbridge. These proofs guarantee the validity and origin of the messages.  
+
+`Batch Delivery and Validation`: Messages can be submitted in batches for efficiency. However, each message within the batch is validated independently. If a single message fails verification, the entire batch will be rejected.  
+
+`Message Routing and Execution`: Validated messages are routed to their designated modules within the network using the `IsmpRouter`. Upon successful execution, a receipt is stored for each message.  
+
+## Events 
+
+Upon successful execution of ISMP messages, specific events are generated and recorded in the runtime. These events serve as confirmation for the successful processing of different message types.  
+
+ - `PostRequestHandled`:
+ Emitted when a post request is successfully verified and the intended module successfully processes the request.
+ - `PostResponseHandled`:  Emitted when a post response is successfully verified and the intended module successfully processes the response.
+ - `PostRequestTimeoutHandled`:
+  Emitted when a post request timeout is successfully verified and the intended module successfully processes the timeout.
+ - `PostResponseTimeoutHandled`: Emitted when a post response timeout is successfully verified and the intended module successfully processes the timeout.
+ - `GetResponseHandled`: Emitted when the response to a cross-chain storage query is successfully verified and the intended module successfully processes the response.
+ - `StateMachineUpdated`: Emitted when new consensus proofs are successfully verified and a new state commitment is available to authenticate new cross-chain messages.
+
+
+## Handling Timeouts
+If a message isn't delivered within a predefined timeframe on the receiving chain, a timeout message can be submitted. 
+
+`Post Requests/Responses`: These timeouts require a proof of non-membership from Hyperbridge. This proof confirms that the message wasn't included in the destination chain's state.  
+`Get Requests`: Timeouts for Get requests don't require any additional state proofs, as they are designed to retrieve existing data.  

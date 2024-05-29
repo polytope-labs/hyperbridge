@@ -1,0 +1,75 @@
+# Hyperbridge Fees
+
+For parachains and solochains that intend to send messages through Hyperbridge it is required that they make protocol fee payments for each request and response dispatched.
+Hyperbridge will only accept messages with state proofs of protocol fee payments, we provide a pallet that handles this.
+
+## Pallet-Hyperbridge
+
+This pallet provides an Ismp dispatcher that handles protocol fee collection, it must be added to the runtime of any substrate chain that wishes to use Hyperbridge as a Coprocessor.
+Protocol fees are charged per byte of data in the request or response body.
+
+The pallet implements `IsmpModule` that must be integrated with your `IsmpRouter` implementation, this module allows this pallet receive parameter updates from hyperbridge and also process relayer fee withdrawals.
+
+```rust showLineNumbers
+impl pallet_hyperbridge::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    // pallet-ismp implements the IsmpHost
+    type IsmpHost = Ismp;
+}
+
+// ...
+
+construct_runtime! {
+    // ...
+    Ismp: pallet_ismp,
+    Hyperbridge: pallet_hyperbridge
+}
+
+#[derive(Default)]
+struct ModuleRouter;
+
+impl IsmpRouter for ModuleRouter {
+    fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+        return match id.as_slice() {
+            PALLET_HYPERBRIDGE_ID => Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
+            // ... other modules
+            _   => Err(Error::ModuleNotFound(id)),
+        };
+    }
+}
+```
+
+## Hyperbridge Protocol Fee
+
+Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the user account that dispatched the request.
+
+
+## Hyperbridge Relayer Fees
+
+The relayer fee is an optional incentive provided by users initiating cross-chain transactions. It compensates Hyperbridge's decentralized relayers for delivering messages to the destination chain.
+
+### Components
+The fee consists of two parts:
+* Gas fee
+    This covers the cost of executing the message on the destination chain.
+* Relayer service fee
+    This additional amount rewards relayers for their services.
+    Relayers are profit-Driven mediators and they will prioritize messages with fees that ensure profitability.
+
+#### Setting the Fee
+To account for potential gas price fluctuations during message delivery, consider the following:
+* Proof verification gas cost
+    Base the fee on the typical gas required for state proof verification (around 120k gas in USD equivalent).
+* Message execution gas cost
+    The usd equivalent for the gas cost of executing the message
+* Gas price buffer
+    Include a buffer to accommodate gas price spikes.
+* Relayer service charge
+    Factor in a reasonable amount to compensate relayers.
+* Self-Relay Option
+    Users can choose to self-relay messages by omitting the relayer fee.
+
+
+## Implementation
+
+ - [pallet-hyperbridge](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/pallets/hyperbridge/src/lib.rs)

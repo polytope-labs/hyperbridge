@@ -14,7 +14,7 @@ The `IsmpHost` defines the storage interface that a host blockchain must impleme
 
 Notably, the handlers are agnostic to the underlying storage mechanism and allows for the storage of requests and responses in an overlay tree. This overlay tree can be selected to minimize the state proof verification cost, consequently reducing the verification cost of outgoing requests and responses.
 
-```rust
+```rust showLineNumbers
 /// Defines the necessary interfaces that must be satisfied by a state machine for it be ISMP
 /// compatible.
 pub trait IsmpHost {
@@ -53,10 +53,6 @@ pub trait IsmpHost {
 
     /// Should return the current timestamp on the host state machine
     fn timestamp(&self) -> Duration;
-
-    /// Checks if a state machine is frozen at the provided height, should return Ok(()) if it isn't
-    /// or [`Error::FrozenStateMachine`] if it is.
-    fn is_state_machine_frozen(&self, machine: StateMachineHeight) -> Result<(), Error>;
 
     /// Checks if a consensus state is frozen
     fn is_consensus_client_frozen(&self, consensus_state_id: ConsensusStateId)
@@ -120,9 +116,6 @@ pub trait IsmpHost {
         height: StateMachineHeight,
         state: StateCommitment,
     ) -> Result<(), Error>;
-
-    /// Freeze a state machine at the given height
-    fn freeze_state_machine(&self, height: StateMachineHeight) -> Result<(), Error>;
 
     /// Freeze a consensus state with the given identifier
     fn freeze_consensus_client(&self, consensus_state_id: ConsensusStateId) -> Result<(), Error>;

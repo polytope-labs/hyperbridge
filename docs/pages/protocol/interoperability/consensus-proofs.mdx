@@ -146,7 +146,7 @@ These fishermen will need some incentive to watch for byzantine attacks and repo
 
 In the event of a byzantine attack, the fraud proofs will allow for the consensus client to go into a frozen state until the source chain recovers from this byzantine state, **The host chain can then unfreeze the consensus client through some kind of on-chain governance, allowing the bridge to resume operations safely and without any loss of funds ever having occurred.**
 
-```rust
+```rust showLineNumbers
 /// A signature from a member of the validator set over the latest header.
 type Signature = Vec<u8>;
 

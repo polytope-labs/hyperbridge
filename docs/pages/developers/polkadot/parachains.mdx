@@ -1,0 +1,180 @@
+# Parachain Integration
+
+Parachains that want to leverage the Hyperbridge protocol for secure cross-chain interoperability can do so by integrating the `ismp-parachain` pallet. This pallet empowers parachains to interoperate with whitelisted sibling parachains through the ISMP framework. Here's how it works:
+
+ - **Registration** : A parachain can register the IDs of sibling parachains whose state commitments it wants to learn.
+ - **Inherent Mechanism** : The functionality relies on an inherent provider and inherent extrinsics:
+    * **Whitelisted Parachains** : This inherent provider reads the `ismp-parachain` pallet for a list of currently whitelisted parachain IDs.
+    * **State Proof Fetching** : The provider then retrieves the latest headers from the relay chain for each supported parachain. Additionally, it fetches state proofs for these headers, which act as cryptographic evidence of the header's validity.
+    * **Consensus Message Submission** : Finally, the provider submits a consensus message as an inherent extrinsic. This message includes the retrieved state proofs.
+    * **Verification** : The `ParachainConsensusClient`, integrated with `pallet-ismp`, verifies the submitted consensus message and its proofs.
+
+## Pallet Config
+
+The pallet has the following configuration
+
+```rust showLineNumbers
+#[pallet::config]
+pub trait Config:
+    frame_system::Config
+    + pallet_ismp::Config
+    + cumulus_pallet_parachain_system::Config
+{
+	/// The overarching event type
+	type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+	/// The underlying [`IsmpHost`] implementation
+	type IsmpHost: IsmpHost + Default;
+}
+```
+## Consensus Updates via Inherents
+
+This pallet leverages the `ProvideInherent` functionality to submit consensus update messages. This approach offers a significant advantage:
+
+**Eliminating Off-chain Consensus Relayer** : By utilizing inherent messages for receiving consensus messages about finalized parachain block headers, the need for a separate off-chain consensus relayer is eliminated.
+
+**Benefits** :
+ - **Simplified Architecture** : This reduces the overall system complexity by removing an external component (the off-chain consensus relayer).
+ - **Improved Efficiency** : Inherents are a built-in mechanism within the polkadot-sdk, allowing the collator to act as the consensus relayer.
+
+## Calls
+
+* `update_parachain_consensus`
+This is an inherent call that is used by the collator to include the consensus update message for the parachain consensus client.
+
+* `add_parachain`
+This call allows a priviledged origin to add a new parachain to the list of supported parachains. whenever a new parachain is added, the inherent provider will add state proofs of the parachain's latest header in subsequent consensus messages.
+
+* `remove_parachain`
+This priviledged call removes a parachain from the list of supported parachains, thereby preventing any future state updates from such parachain.
+
+## LifeCycle
+
+### OnInitialize
+
+In the OnInitialize hook, the consensus state for the parachain consensus client will be initialized if it does not exist.
+
+### OnFinalize
+
+This hook is used to read the current relay chain state in order to get the state root of the finalized relay chain block, so it can be used to verify subsequent parachain consensus update messages.
+
+## Integration
+
+For a parachain to establish a connection with Hyperbridge and leverage its message-passing capabilities, two key steps are required:
+
+**Include pallet-ismp** : The first step involves integrating the pallet-ismp module into the parachain's runtime environment as described in a previous section. This module provides the foundational functionalities for ISMP message handling.
+**Include ismp-parachain** : Subsequently, the parachain needs to include the ismp-parachain pallet. This additional module grants the parachain access to the state commitments of whitelisted parachains. Access to these commitments is essential for verifying the validity of messages that the parachain intends to send or receive to/from Hyperbridge.
+
+### Parachain Consensus Client
+
+The `ParachainConsensusClient` adds support for parachain consensus proofs to `pallet-ismp`. These consensus proofs once verified, finalize new parachain state commitments. This module will only verify proofs for parachains whose IDs have been previously whitelisted in the `ismp-parachain` pallet.
+
+To include the pallet in the runtime, implement the pallet config for the Runtime and add the pallet to the `construct_runtime` macro.
+
+```rust showLineNumbers
+impl ismp_parachain::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    // pallet-ismp implements the IsmpHost
+    type IsmpHost = Ismp;
+}
+
+parameter_types! {
+    // The hyperbridge parachain on Polkadot
+    pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));
+}
+
+impl pallet_ismp::Config for Runtime {
+    // ...
+    type Coprocessor = Coprocessor;
+    type ConsensusClients = (
+        // Add the parachain consensus clients to the supported consensus clients when configuring pallet-ismp
+        ismp_parachain::ParachainConsensusClient<Runtime, IsmpParachain>,
+    );
+    // ...
+}
+
+construct_runtime! {
+    // ...
+    Ismp: pallet_ismp,
+    IsmpParachain: ismp_parachain
+}
+```
+
+Include the `ismp-parachain-runtime-api` implementation in your `impl_runtime_apis` section.
+
+```rust showLineNumbers
+impl_runtime_apis! {
+    impl ismp_parachain_runtime_api::IsmpParachainApi<Block> for Runtime {
+        fn para_ids() -> Vec<u32> {
+            IsmpParachain::para_ids()
+        }
+
+        fn current_relay_chain_state() -> RelayChainState {
+            IsmpParachain::current_relay_chain_state()
+        }
+    }
+}
+```
+
+### Inherent Provider
+
+The inherent provider needs to be added to the collator params as shown in the code below
+
+```rust showLineNumbers
+fn start_consensus(
+    client: Arc<FullClient>,
+    backend: Arc<FullBackend>,
+    block_import: ParachainBlockImport,
+    prometheus_registry: Option<&Registry>,
+    telemetry: Option<TelemetryHandle>,
+    task_manager: &TaskManager,
+    relay_chain_interface: Arc<dyn RelayChainInterface>,
+    transaction_pool: Arc<sc_transaction_pool::FullPool<opaque::Block, FullClient>>,
+    sync_oracle: Arc<SyncingService<opaque::Block>>,
+    keystore: KeystorePtr,
+    relay_chain_slot_duration: Duration,
+    para_id: ParaId,
+    collator_key: CollatorPair,
+    overseer_handle: OverseerHandle,
+    announce_block: Arc<dyn Fn(opaque::Hash, Option<Vec<u8>>) + Send + Sync>,
+) {
+    // .. omitted calls
+
+    let (client_clone, relay_chain_interface_clone) =
+        (client.clone(), relay_chain_interface.clone());
+    let params = lookahead::Params {
+        create_inherent_data_providers: move |parent, ()| {
+            let client = client_clone.clone();
+            let relay_chain_interface = relay_chain_interface_clone.clone();
+            async move {
+                let inherent = ismp_parachain_inherent::ConsensusInherentProvider::create(
+                    parent,
+                    client,
+                    relay_chain_interface,
+                ).await?;
+
+                Ok(inherent)
+            }
+        },
+        ..Default::default()
+        // omitted fields
+    };
+
+    // ..omitted calls
+}
+```
+
+### Configure the Coprocessor
+
+Integrating your parachain with Hyperbridge is a straightforward process. Here's what you need to do:
+
+**Add Hyperbridge's Parachain ID** : Include Hyperbridge's unique parachain identifier (ID), which is `3367`, in the list of supported parachain IDs within the `ismp-parachain` pallet. This grants your parachain the ability to communicate with Hyperbridge.You can do this by executing the `add_parachain` call with the admin origin setup in `palet-ismp`. This action officially adds Hyperbridge to your list of supported parachains.
+
+Once these steps are completed, your parachain will be able to send and receive messages to and from Hyperbridge, enabling seamless cross-chain communication.
+
+
+## Implementation
+
+ - [ismp-parachain](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/parachain/client/src/lib.rs)
+ - [ismp-parachain-inherent](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/parachain/inherent/src/lib.rs)
+ - [ismp-parachain-runtime-api](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/parachain/runtime-api/src/lib.rs)

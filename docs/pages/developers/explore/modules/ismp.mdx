@@ -1,0 +1,28 @@
+# Pallet ISMP
+
+The `pallet-ismp` is the central module of the Hyperbridge blockchain. It is the core innovation that makes the Hyperbridge protocol possible. It is responsible for:
+
+ - Verifying the consensus proofs and managing the state commitments of it's connected chains through the use of "consensus clients".
+ - Verifying and aggregating the cross-chain messages that are relayed from its connected chains.
+ - Managing various consensus clients on behalf of it's connected chains.
+
+## State Commitments
+
+The `pallet-ismp` module is responsible for tracking the state commitments of the connected chains. A state commitment is a cryptographic commitment to the state of a blockchain at a specific height. It is the output of consensus proof verification by a consensus client. The state commitment is used to verify the authenticity of cross-chain messages that need to be aggregated from connected chains.
+
+## Cross-Chain Messages
+
+The `pallet-ismp` module is also responsible for verifying the legitimacy of cross-chain messages between the connected chains. Cross-chain messages that are sent from one chain to another must first be verified and aggregated on the Hyperbridge blockchain. The Hyperbridge blockchain accumulates these messages into a [merkle mountain range tree](), this tree serves as a secondary state commitment scheme. It was chosen for its space-efficient membership proofs as opposed to the base-16 merkle patricia trie. Merkle mountain range proofs are used by relayers to authenticate the cross-chain messages that are to be delivered to a destination chain. In the future, messages will be accumulated into a more efficient [Verkle trie]().
+
+## Consensus Clients
+
+The Hyperbridge blockchain uses "consensus clients" to verify the consensus proofs of the connected chains. A consensus client is a module that is responsible for verifying the consensus proofs which attest to the finality of some state commitment of a specific blockchain. Any blockchain that produces consensus proofs can be connected to the Hyperbridge blockchain through a consensus client. The `pallet-ismp` module manages the consensus clients on behalf of the connected chains. The consensus clients currently supported by the Hyperbridge protocol are:
+
+ - [Parachain Consensus Client](https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/parachain/client)
+ - [Sync Committee Consensus Client](https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/sync-committee)
+ - [Binance Smart Chain Consensus Client](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/bsc/src/lib.rs)
+
+
+## Implementation
+
+- [pallet-ismp](https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/pallets/pallet)

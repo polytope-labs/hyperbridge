@@ -30,7 +30,7 @@ The consensus client is one half of a full blockchain client. It verifies only c
 
 The quest for a mechanism by which a consensus client may observe and come to conclusions about the canonical state of another blockchain leads us to understand the concept of safety in distributed systems. We elaborate further on this in the section on [consensus proofs](/protocol/interoperability/consensus-proofs). In summary, we show that safety in on-chain consensus clients will require the use of a challenge window, even after consensus proof verification. This allows us to detect potential Byzantine behavior that may arise without the challenge window in place.
 
-```rust
+```rust showLineNumbers
 /// The consensus state of the consensus client
 type ConsensusState = Vec<u8>;
 
@@ -100,7 +100,7 @@ The ISMP consensus subsystem exposes a set of `handlers`, which can be seen as t
 
 ### `create_client`
 
-```rust
+```rust showLineNumbers
 
 /// Since consensus systems may come to conensus about the state of multiple state machines, we
 /// identify each state machine individually.
@@ -140,7 +140,7 @@ The `create_client` method is used by offchain parties to initialize a consensus
 
 ### `update_client`
 
-```rust
+```rust showLineNumbers
 
 /// A consensus message is used to update the state of a consensus client and its children state
 /// machines.
@@ -168,7 +168,7 @@ The `update_client` method is responsible for advancing the state of the consens
 
 ### `freeze_client`
 
-```rust
+```rust showLineNumbers
 /// A fraud proof message is used by fishermen to report byzantine misbehaviour in a consensus system.
 pub struct FraudProofMessage {
     /// The first consensus Proof
@@ -196,7 +196,7 @@ The consensus handlers should emit events when a consensus proof is successfully
 
 ### `StateMachineUpdated`
 
-```rust
+```rust showLineNumbers
 /// Emitted when a state machine is successfully updated to a new height
 struct StateMachineUpdated {
     /// State machine height
@@ -210,7 +210,7 @@ A `StateMachineUpdated` event is emitted to notify network participants (both re
 
 ### `ConsensusClientFrozen`
 
-```rust
+```rust showLineNumbers
 /// Indicates that a consensus client has been frozen
 struct ConsensusClientFrozen {
     /// The offending client id

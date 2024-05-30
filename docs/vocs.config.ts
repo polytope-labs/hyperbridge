@@ -294,7 +294,7 @@ export default defineConfig({
           },
 
           {
-            text: "Contracts Addresses",
+            text: "Contract Addresses",
             link: "/developers/evm/contract-addresses",
           },
         ],

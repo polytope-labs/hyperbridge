@@ -1,5 +1,9 @@
+---
+title: Protocol Fees
+description: Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the contract account calling the `IsmpDispatcher`.
+---
 
-## Hyperbridge Protocol Fee
+# Protocol Fees
 
 Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the contract account calling the `IsmpDispatcher`. Importantly, the contract must first approve the `EvmHost` to withdraw the exact amount before calling the dispatch function.
 

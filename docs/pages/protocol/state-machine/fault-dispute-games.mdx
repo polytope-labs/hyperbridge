@@ -1,9 +1,9 @@
 # Fault Dispute Games
 
-The OpStack system finalizes L2 state commitments using fraud proofs in a permissionless manner. Any bonded party can submit an L2 output root as a fault dispute game at any time. 
-Invalid outputs can be challenged by anyone in a permissionless manner. The challenge process involves both the proposer (who submitted the output root) and the challenger playing a fault dispute game on-chain. 
-If the challenger wins, the malicious output root is discarded, and the proposer's bond acts as a reward. 
-Different types of dispute games, defined within the dispute factory contract, can be used for validation, with the specific game determined by the initial submission and respected game types. 
+The OpStack system finalizes L2 state commitments using fraud proofs in a permissionless manner. Any bonded party can submit an L2 output root as a fault dispute game at any time.
+Invalid outputs can be challenged by anyone in a permissionless manner. The challenge process involves both the proposer (who submitted the output root) and the challenger playing a fault dispute game on-chain.
+If the challenger wins, the malicious output root is discarded, and the proposer's bond acts as a reward.
+Different types of dispute games, defined within the dispute factory contract, can be used for validation, with the specific game determined by the initial submission and respected game types.
 Unchallenged outputs are accepted as final after a designated challenge period.
 
 ## Dispute Game factory
@@ -17,9 +17,9 @@ It keeps a record of all deployed dispute game ids allowing anyone to verify the
 The `output_root` is a 32 byte value, which is derived based on the a versioned scheme:
 
 ```
-    payload = state_root || withdrawal_storage_root || latest_block_hash
+payload = state_root || withdrawal_storage_root || latest_block_hash
 
-    output_root = keccak256(version_byte || payload)
+output_root = keccak256(version_byte || payload)
 ```
 
 * The `latest_block_hash` is the block hash for the latest L2 block at the time the proposer constructed the output root.
@@ -34,7 +34,7 @@ For an onchain light client to be sure an output root exists, it must verify the
 
 The struct below shows the proof we need to validate the existence of a dispute game and implicitly the output root contained in it.
 
-```rust
+```rust showLineNumbers
 type H256 = [u8; 32];
 type Bloom = [u8; 256];
 type U256 = [u64; 4];
@@ -89,15 +89,15 @@ struct OptimismDisputeGameProof {
 
 **Inputs**:
 
-`payload`: `OptimismDisputeGameProof` containing information and proofs  
-`root`: MPT root of the L1  
-`dispute_factory_address`: Address of the dispute factory contract  
+`payload`: `OptimismDisputeGameProof` containing information and proofs
+`root`: MPT root of the L1
+`dispute_factory_address`: Address of the dispute factory contract
 
 **Outputs**:
 
-`state_root`: State root of the L2  
+`state_root`: State root of the L2
 
-**Steps**:  
+**Steps**:
 
 *   **Validate Game Type**:
 
@@ -109,25 +109,25 @@ Use the provided proof (`payload.dispute_factory_proof`) and dispute factory add
 
 *   **Compute the Output Root**:
 
-Compute the output root as decribed in the previous section.  
+Compute the output root as decribed in the previous section.
 
 *   **Compute the dispute game UUID**:
 
-Use the game type (`payload.game_type`), output_root, and extra data (payload.extra_data) to get the game UUID.  
+Use the game type (`payload.game_type`), output_root, and extra data (payload.extra_data) to get the game UUID.
 
-*   **Verify Dispute Game Existence**:  
+*   **Verify Dispute Game Existence**:
 
 Derive the slot hash for the dispute game within the dispute factory storage using the game UUID.
-Use the proof (`payload.dispute_game_proof`) and dispute_factory storage root to retrieve the value associated with the slot hash.  
-Check if a value was found. If not, return an error indicating the dispute game's ID wasn't found in the proof.  
-The value extracted from the stage should be the dispute game ID.  
+Use the proof (`payload.dispute_game_proof`) and dispute_factory storage root to retrieve the value associated with the slot hash.
+Check if a value was found. If not, return an error indicating the dispute game's ID wasn't found in the proof.
+The value extracted from the stage should be the dispute game ID.
 
-*   **Derive Game ID**:  
+*   **Derive Game ID**:
 
 Use the game type (`payload.game_type`), timestamp (`payload.timestamp`), and proxy (`payload.proxy`) to calculate the expected game ID.
 Convert the derived game ID to a 32-byte array.
 
-*   **Compare Game IDs**:  
+*   **Compare Game IDs**:
 
 Compare the game ID extracted from the proof with the derived game ID. If they don't match, then the proof submitted is invalid.
 

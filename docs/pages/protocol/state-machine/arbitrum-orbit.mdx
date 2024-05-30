@@ -1,10 +1,10 @@
 # Arbitrum Orbit
 
 Arbitrum orbit finalizes L2 state commitments when a trusted proposer submits the L2's `state_hash` to the RollupCore  contract on the L1.
-These submissions occur at designated intervals. Anyone acting as a challenger can dispute an invalid submissions. 
-If no challenge arises within a specific timeframe, the submitted `state_hash` is considered final. This approach leverages a permissioned proposer and challenger.  
+These submissions occur at designated intervals. Anyone acting as a challenger can dispute an invalid submissions.
+If no challenge arises within a specific timeframe, the submitted `state_hash` is considered final. This approach leverages a permissioned proposer and challenger.
 
-```rust
+```rust showLineNumbers
 type H256 = [u8; 32];
 type Bloom = [u8; 256];
 type U256 = [u64; 4];
@@ -52,7 +52,7 @@ struct Header {
 The `state_hash` is a hash of the concatenation of the `GlobalState` hash, `MachineStatus` and the sequencer inbox count.
 
 ```
-    state_hash = keccak256(global_state_hash || inbox_max_count || machine_status)
+state_hash = keccak256(global_state_hash || inbox_max_count || machine_status)
 ```
 
 * The `global_state_hash` is hash of the `GlobalState`.
@@ -63,7 +63,7 @@ The `state_hash` is a hash of the concatenation of the `GlobalState` hash, `Mach
 
 To verify the existence of a state hash, we need to verify it's existence in the Rollup contract in a finalized L1 chain. This requires the fields present in the structure described below:
 
-```rust
+```rust showLineNumbers
 struct ArbitrumPayloadProof {
 	/// Arbitrum header that corresponds to the node being created
 	arbitrum_header: CodecHeader,
@@ -89,13 +89,13 @@ struct ArbitrumPayloadProof {
 
 **Inputs**:
 
-`payload`: Arbitrum payload containing proofs and state information  
-`root`: MPT root of the L1   
-`rollup_core_address`: Address of the Rollup Core contract  
+`payload`: Arbitrum payload containing proofs and state information
+`root`: MPT root of the L1
+`rollup_core_address`: Address of the Rollup Core contract
 
 **Outputs**:
 
-`state_root`: State root of the L2   
+`state_root`: State root of the L2
 
 **Steps**:
 
@@ -117,9 +117,9 @@ Use the provided global state (`payload.global_state`), machine status (`payload
 *   **Verify State Hash Proof**:
 
 Derive the slot hash for the `state_hash` within the rollup core contract's storage using the node number (`payload.node_number`).
-Use the proof (`payload.storage_proof`) and the storage root of the rollup contract extracted in a previous step to retrieve the value associated with the slot hash.  
-Check if a value was found. If not, return an error indicating the state hash wasn't found in the proof.  
-Compare the retrieved value to the computed state hash. If they don't match, return an error indicating a mismatch.  
+Use the proof (`payload.storage_proof`) and the storage root of the rollup contract extracted in a previous step to retrieve the value associated with the slot hash.
+Check if a value was found. If not, return an error indicating the state hash wasn't found in the proof.
+Compare the retrieved value to the computed state hash. If they don't match, return an error indicating a mismatch.
 
 If all steps complete successfully then we can accept the `state_root`, `timestamp` and `block_number` in the provided block header.
 

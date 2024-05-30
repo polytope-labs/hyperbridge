@@ -4,6 +4,7 @@
 // // mod grandpa;
 // mod bsc;
 // // mod polygon;
+mod ping;
 mod substrate;
 mod util;
 

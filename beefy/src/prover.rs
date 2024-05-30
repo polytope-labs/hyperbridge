@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{extract_para_id, host::ConsensusProof, rsmq, rsmq::RedisConfig, VALIDATOR_SET_ID_KEY};
+use crate::{
+	extract_para_id, host::ConsensusProof, redis_utils, redis_utils::RedisConfig,
+	VALIDATOR_SET_ID_KEY,
+};
 use anyhow::{anyhow, Context};
 use beefy_prover::{relay::fetch_latest_beefy_justification, runtime};
 use beefy_verifier_primitives::ConsensusState;
@@ -131,7 +134,7 @@ where
 
 		// we want to publish queue notifications from the prover
 		config.redis.realtime = true;
-		let rsmq = rsmq::client(&config.redis).await?;
+		let rsmq = redis_utils::rsmq_client(&config.redis).await?;
 
 		Ok(BeefyProver { consensus_state, rsmq, prover, client, config, connection })
 	}
@@ -198,7 +201,7 @@ where
 							.await?
 							.expect("Epoch change header exists");
 						if let Some(commitment) = self
-							.epoch_justification_for(epoch_change_header.number().into())
+							.epoch_justification_for(epoch_change_header.number().into() + 1)
 							.await?
 						{
 							tracing::info!(
@@ -379,7 +382,7 @@ where
 				tracing::info!("Prover error: {err:?}");
 				if let Some(RsmqError::RedisError(redis_error)) = err.downcast_ref::<RsmqError>() {
 					if redis_error.is_connection_dropped() {
-						self.rsmq = rsmq::client(&self.config.redis)
+						self.rsmq = redis_utils::rsmq_client(&self.config.redis)
 							.await
 							.expect("Failed to reconnect to redis");
 					}
@@ -811,7 +814,6 @@ mod tests {
 			ns: "rsmq".into(),
 			url: "localhost".into(),
 			port: 6379,
-			tls: false,
 			password: None,
 			username: None,
 			// will be adjusted by the relevant subsystems
@@ -868,25 +870,26 @@ mod tests {
 
 		// listen for queue notifications
 		let mut notifications = {
+			let pubsub = beefy_host.pubsub.clone();
 			let stream_0 = {
 				let state_machine_0 = beefy_config.state_machines[0].clone();
-				beefy_host.queue_notifications(state_machine_0).await?.map_ok(move |message| {
-					log::info!("{state_machine_0:?} Got stream message {message:?}",)
-				})
+				beefy_host.queue_notifications(state_machine_0, &pubsub).await?.map_ok(
+					move |message| log::info!("{state_machine_0:?} Got stream message {message:?}",),
+				)
 			};
 			let stream_1 = {
 				let state_machine_1 = beefy_config.state_machines[1].clone();
 
-				beefy_host.queue_notifications(state_machine_1).await?.map_ok(move |message| {
-					log::info!("{state_machine_1:?} Got stream message {message:?}",)
-				})
+				beefy_host.queue_notifications(state_machine_1, &pubsub).await?.map_ok(
+					move |message| log::info!("{state_machine_1:?} Got stream message {message:?}",),
+				)
 			};
 			let stream_2 = {
 				let state_machine_2 = beefy_config.state_machines[2].clone();
 
-				beefy_host.queue_notifications(state_machine_2).await?.map_ok(move |message| {
-					log::info!("{state_machine_2:?} Got stream message {message:?}",)
-				})
+				beefy_host.queue_notifications(state_machine_2, &pubsub).await?.map_ok(
+					move |message| log::info!("{state_machine_2:?} Got stream message {message:?}",),
+				)
 			};
 
 			futures::stream::select(futures::stream::select(stream_0, stream_1), stream_2)

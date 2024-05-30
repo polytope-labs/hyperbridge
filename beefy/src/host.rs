@@ -19,7 +19,11 @@ use ismp_solidity_abi::beefy::BeefyConsensusState;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sp_core::H256;
-use std::{pin::Pin, sync::Arc};
+use std::{
+	pin::Pin,
+	sync::Arc,
+	time::{SystemTime, UNIX_EPOCH},
+};
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
 	ext::sp_runtime::MultiSignature,
@@ -28,16 +32,16 @@ use tesseract_substrate::SubstrateClient;
 
 use crate::{
 	prover::{Prover, REDIS_CONSENSUS_STATE_KEY},
-	rsmq::{self, RedisConfig},
+	redis_utils::{self, RedisConfig},
 };
 use anyhow::Context;
 use futures::{stream::TryStreamExt, Stream, StreamExt};
 use ismp::{
 	consensus::ConsensusStateId,
 	host::StateMachine,
-	messaging::{ConsensusMessage, CreateConsensusState, Message},
+	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
 };
-use redis_async::client::{ConnectionBuilder, PubsubConnection};
+use redis_async::client::PubsubConnection;
 use rsmq_async::{RedisBytes, Rsmq, RsmqConnection, RsmqMessage};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tokio::sync::Mutex;
@@ -58,7 +62,7 @@ where
 	P: subxt::Config,
 {
 	/// PubSub connection for receiving notifications when there are new proofs in the queue
-	pubsub: PubsubConnection,
+	pub(crate) pubsub: PubsubConnection,
 	/// Rsmq for interacting with the queue
 	rsmq: Arc<Mutex<Rsmq>>,
 	/// Host configuration options
@@ -73,6 +77,12 @@ impl<R, P> BeefyHost<R, P>
 where
 	R: subxt::Config,
 	P: subxt::Config,
+	P: subxt::Config + Send + Sync + Clone,
+	<P::ExtrinsicParams as ExtrinsicParams<P::Hash>>::OtherParams:
+		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<P, PlainTip>>,
+	P::Signature: From<MultiSignature> + Send + Sync,
+	P::AccountId:
+		From<sp_core::crypto::AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
 {
 	/// Construct an implementation of the [`BeefyHost`]
 	pub async fn new(
@@ -80,17 +90,10 @@ where
 		prover: Prover<R, P>,
 		client: SubstrateClient<P>,
 	) -> Result<Self, anyhow::Error> {
-		let mut builder = ConnectionBuilder::new(&config.redis.url, config.redis.port)?;
-		if let Some(ref username) = config.redis.username {
-			builder.username(username.as_str());
-		}
-		if let Some(ref password) = config.redis.password {
-			builder.password(password.as_str());
-		}
-		let pubsub = builder.pubsub_connect().await?;
+		let pubsub = redis_utils::pubsub_client(&config.redis).await?;
 		// we will not be pushing messages to the queue in the host
 		config.redis.realtime = false;
-		let rsmq = Arc::new(Mutex::new(rsmq::client(&config.redis).await?));
+		let rsmq = Arc::new(Mutex::new(redis_utils::rsmq_client(&config.redis).await?));
 
 		Ok(BeefyHost { pubsub, rsmq, prover, client, config })
 	}
@@ -99,6 +102,7 @@ where
 	pub async fn queue_notifications(
 		&self,
 		counterparty_state_machine: StateMachine,
+		pubsub: &PubsubConnection,
 	) -> Result<
 		Pin<Box<dyn Stream<Item = Result<StreamMessage, redis_async::error::Error>> + Send>>,
 		anyhow::Error,
@@ -107,13 +111,13 @@ where
 		let messages_queue = self.config.redis.messages_queue(&counterparty_state_machine);
 
 		let mandatory_stream = {
-			self.pubsub
+			pubsub
 				.subscribe(&format!("{}:rt:{mandatory_queue}", self.config.redis.ns))
 				.await? // fatal error
 				.map_ok(|_item| StreamMessage::EpochChanged)
 		};
 		let messages_stream = {
-			self.pubsub
+			pubsub
 				.subscribe(&format!("{}:rt:{messages_queue}", self.config.redis.ns))
 				.await? // fatal error
 				.map_ok(|_item| StreamMessage::NewMessages)
@@ -145,13 +149,25 @@ where
 			.set(REDIS_CONSENSUS_STATE_KEY, prover_consensus_state.encode())
 			.await?;
 
+		let start = SystemTime::now();
+		let timestamp = start.duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs();
 		Ok(CreateConsensusState {
 			consensus_state: consensus_state.encode(),
 			consensus_client_id: *b"BEEF",
 			consensus_state_id: self.config.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,
 			challenge_period: 5 * 60,
-			state_machine_commitments: vec![],
+			state_machine_commitments: vec![(
+				self.client.state_machine_id(),
+				StateCommitmentHeight {
+					height: prover_consensus_state.finalized_parachain_height,
+					commitment: ismp::consensus::StateCommitment {
+						timestamp,
+						overlay_root: Some(H256::zero()),
+						state_root: H256::zero(),
+					},
+				},
+			)],
 		})
 	}
 
@@ -223,17 +239,24 @@ where
 		let counterparty_state_machine = counterparty.state_machine_id().state_id;
 		let mandatory_queue = self.config.redis.mandatory_queue(&counterparty_state_machine);
 		let messages_queue = self.config.redis.messages_queue(&counterparty_state_machine);
-		let mut notifications = self.queue_notifications(counterparty_state_machine).await?;
+		let mut pubsub = self.pubsub.clone();
+		let mut notifications =
+			self.queue_notifications(counterparty_state_machine, &pubsub).await?;
 
 		// this will yield whenever the prover writes to either the mandatory or messages queue
 		while let Some(item) = notifications.next().await {
 			let Ok(ref message) = item else {
 				let error = item.unwrap_err();
 				tracing::error!("Error in redis pubsub stream: {:?}", error); // non-fatal error
-				if matches!(error, redis_async::error::Error::Connection(_)) {
-					// if connection error, resubscribe
-					notifications =
-						self.queue_notifications(counterparty.state_machine_id().state_id).await?;
+				if matches!(
+					error,
+					redis_async::error::Error::Connection(_) | redis_async::error::Error::IO(_)
+				) {
+					// if connection error, reconnect & resubscribe
+					pubsub = redis_utils::pubsub_client(&self.config.redis).await?;
+					notifications = self
+						.queue_notifications(counterparty.state_machine_id().state_id, &pubsub)
+						.await?;
 				}
 				continue;
 			};

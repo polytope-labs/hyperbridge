@@ -79,10 +79,7 @@ pub async fn submit_messages(
 					_ => {},
 				}
 
-				log::error!(
-					"Error broadcasting transaction to {}:  {err:?}",
-					client.config.state_machine
-				);
+				Err(err)?
 			},
 		}
 	}

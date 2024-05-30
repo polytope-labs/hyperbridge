@@ -269,8 +269,9 @@ pub async fn generate_contract_calls(
 						height: StateMachineHeight {
 							state_machine_id: {
 								match msg.proof.height.id.state_id {
-									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
-										id.into(),
+									StateMachine::Polkadot(id) | StateMachine::Kusama(id) => {
+										id.into()
+									},
 									_ => {
 										panic!("Expected polkadot or kusama state machines");
 									},
@@ -328,8 +329,8 @@ pub async fn generate_contract_calls(
 									height: StateMachineHeight {
 										state_machine_id: {
 											match proof.height.id.state_id {
-												StateMachine::Polkadot(id) |
-												StateMachine::Kusama(id) => id.into(),
+												StateMachine::Polkadot(id)
+												| StateMachine::Kusama(id) => id.into(),
 												_ => {
 													log::error!("Expected polkadot or kusama state machines");
 													continue;
@@ -357,18 +358,14 @@ pub async fn generate_contract_calls(
 							contract.handle_post_responses(ismp_host, message).gas(gas_limit)
 						}
 					},
-					RequestResponse::Request(..) =>
-						Err(anyhow!("Get requests are not supported by relayer"))?,
+					RequestResponse::Request(..) => {
+						Err(anyhow!("Get requests are not supported by relayer"))?
+					},
 				};
 
 				calls.push(call);
 			},
-			Message::Timeout(TimeoutMessage::Post { .. }) =>
-				Err(anyhow!("Timeout messages not supported by relayer"))?,
-			Message::Timeout(TimeoutMessage::PostResponse { .. }) =>
-				Err(anyhow!("Timeout messages not supported by relayer"))?,
-			Message::Timeout(TimeoutMessage::Get { .. }) =>
-				Err(anyhow!("Timeout messages not supported by relayer"))?,
+			Message::Timeout(_) => Err(anyhow!("Timeout messages not supported by relayer"))?,
 			Message::FraudProof(_) => Err(anyhow!("Unexpected fraud proof message"))?,
 		}
 	}

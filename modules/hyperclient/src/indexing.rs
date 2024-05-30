@@ -79,6 +79,7 @@ pub enum SupportedChain {
 	OPTI,
 	ARBI,
 	BSC,
+	POLY,
 	HYPERBRIDGE,
 	Other(String),
 }
@@ -238,9 +239,8 @@ pub async fn query_request_status_from_indexer(
 							StateMachine::Ethereum(Ethereum::Base) => SupportedChain::BASE,
 							StateMachine::Ethereum(Ethereum::Arbitrum) => SupportedChain::ARBI,
 							StateMachine::Ethereum(Ethereum::Optimism) => SupportedChain::OPTI,
-							StateMachine::Polkadot(3367) | StateMachine::Kusama(4009) =>
-								SupportedChain::HYPERBRIDGE,
 							StateMachine::Bsc => SupportedChain::BSC,
+							StateMachine::Polygon => SupportedChain::POLY,
 							_ => Err(anyhow!("Unsupported chain for indexer"))?,
 						}
 					},

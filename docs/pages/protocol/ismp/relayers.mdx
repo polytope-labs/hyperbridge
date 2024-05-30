@@ -1,0 +1,35 @@
+---
+title: Relayers
+description: ISMP Relayer implementation recomendations
+---
+
+<link
+  href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
+  rel="stylesheet"
+/>
+
+# Relayers
+
+The ISMP framework leverages offchain parties, known as **relayers**, to transmit messages across disparate chains. This is necessary because blockchains are isolated and cannot interact with the external world. Ultimately, the framework does not place any strict requirements on the offchain logic that is performed by relayers. Instead, the framework's onchain logic enforces all necessary invariants for proper protocol operation. This allows for a wide range of relayer implementations that can be used with the ISMP framework.
+
+Relayers are responsible for "relaying" protocol messages such as consensus proofs, consensus fault proofs as well as user-inititiated messages such as requests and responses. The ISMP framework does not impose any restrictions on the number of relayers that can participate in the act of relaying. In our chosen design, relayers race to deliver a batch of cross-chain messages to their respective destination chains. This has a few benefits, this effectively mitigates any liveness issues that may arise as a result of some permissioned relayers losing liveness. This free market design also creates a race to the bottom for delivery fees for users and applications.
+
+While relayers indeed race, only one of them can have their batch succeed. This is to prevent replay attacks, ensuring that the destination chain does not receive duplicate messages. This is enforced by the framework's onchain logic (see request/response handlers). The winning relayer's account must be stored in the state trie of the recipient blockchain. This allows the sending chain to correctly identify the winning relayer through state proofs and reward them accordingly.
+
+## Implementation
+
+Broadly speaking, there are two types of relayers that facilitate interoperability in the ISMP framework:
+
+
+### Consensus Relayers
+
+Consensus relayers are tasked with relaying the consensus proofs that finalizes new block ranges from a counterparty chain. These block ranges contain ideally, new cross-chain messages that need to be processed by the receiving chain or, an authority set update for the onchain consensus client. Consensus proofs for new messages are incentivized by the potential profits that may come from the delivery and collection of fees for the cross-chain messages. On the other hand, so-called mandatory proofs, which ensures liveness for the onchain consensus clients must be incentivized by the receiving chain.
+
+Relayers may also relay consensus fraud proofs, which are proofs of byzantine behaviour of the counterparty chain. These proofs are either used to veto a malicious state commitment or _disable_ a consensus client altogether. These messages must be incentivized by the receiving chain, as it protects the chain's state from being compromised by a malicious counterparty chain. The incentivization mechanisms are out of scope for the ISMP framework, and are left to the discretion of the protocol implementers.
+
+
+### Messaging Relayers
+
+Messaging relayers, incentivized by delivery fees, are responsible for relaying user-initiated messages to their destination chain. It is recommended that these fees are in stablecoins to avoid the volatility of the native token of the receiving chain. Messaging relayers should take care to simulate messages and ensure that they will successfully execute before delivering them as they should not be rewarded for delivering failed messages. Since these failed messages should can eventually time out, In this scenario any previously staked fees should be returned to the sender.
+
+Timeout messages are of little concern to a messaging relayer. So these should be relayed by the user themselves. This is because there are no incentives associated for relaying time outs. These messages only benefit the user who initiated them, by allowing them to redeem their delivery fees.

@@ -1,0 +1,31 @@
+---
+title: ISMP Proxies
+description: The ISMP protocol specification for proxies
+---
+
+# Proxies
+
+We already know that ISMP mimics the HTTP API, in terms of requests and responses, using POST requests to send data and GET requests for cross-chain state reads. It also allows for request and response proxies, akin to a typical [HTTP proxy](https://en.wikipedia.org/wiki/Proxy_server). An ISMP proxy simply redirects incoming requests and responses to an external state machine.
+
+In this context, **the proxy functions as a coprocessor**. Without it, the state machine would have to independently verify its consensus and state proofs of an incoming request. This verification could be prohibitively expensive. For instance, if a single state machine had to verify consensus proofs for all state machines it receives requests from, it would significantly increase the cost of interoperability. This highlights the value of a proxy state machine, intentionally designed to be inexpensive to verify. It proxies requests by carrying out the costly verification computations on its chain, and providing cheaper proofs for its consumer chains. Proxies enable more efficient cross-chain communication by reducing the cost of verifying multiple interoperability proofs, freeing up valuable blockspace for other applications.
+
+<figure>
+  <img
+    src="/coprocessor.svg"
+    alt="An interoperability coprocessor for secure cross-chain communication"
+  />
+  <figcaption>
+    An interoperability coprocessor for secure cross-chain communication
+  </figcaption>
+</figure>
+
+A blockchain may configure any of its connected state machines on the `IsmpHost` as a proxy. If a state machine is not configured as a proxy, then any requests from this chain must have their `source` matching it's state machine identifier. This protocol invariant must be maintained for the security of modules that use the request metadata for message authentication.
+
+
+:::danger
+A state machine must only configure a single proxy. This is to prevent double spending attacks that can occur when an outgoing request which is only delivered to one of the proxies, is timed out using state proofs of non-membership from the other proxy.
+:::
+
+## Hyperbridge as a Proxy
+
+Hyperbridge serves as an instance of an ISMP proxy, aggregating the consensus proofs and messages from all its connected chains. This allows any chain to receive all of its intended messages directly from Hyperbridge through a single consensus proof. Hyperbridge is fully decentralized and governed by its own token, without any privileged actors with superuser permissions. This level of decentralization is only achievable as a Polkadot parachain with decentralized on-chain governance, permissionless block producers, and forkless upgrades that facilitate the support for new chains.

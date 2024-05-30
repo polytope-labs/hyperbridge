@@ -28,25 +28,25 @@ dataSources:
           filter:
             module: ismp
             method: StateMachineUpdated
-        - handler: handleHyperbridgeRequestEvent
-          kind: substrate/EventHandler
-          filter:
-            module: ismp
-            method: Request
-        - handler: handleHyperbridgeResponseEvent
-          kind: substrate/EventHandler
-          filter:
-            module: ismp
-            method: Response
-        - handler: handleHyperbridgePostRequestTimeoutHandledEvent
-          kind: substrate/EventHandler
-          filter:
-            module: ismp
-            method: PostRequestTimeoutHandled
-        - handler: handleHyperbridgePostResponseTimeoutHandledEvent
-          kind: substrate/EventHandler
-          filter:
-            module: ismp
-            method: PostResponseTimeoutHandled
+        # - handler: handleHyperbridgeRequestEvent
+        #   kind: substrate/EventHandler
+        #   filter:
+        #     module: ismp
+        #     method: Request
+        # - handler: handleHyperbridgeResponseEvent
+        #   kind: substrate/EventHandler
+        #   filter:
+        #     module: ismp
+        #     method: Response
+        # - handler: handleHyperbridgePostRequestTimeoutHandledEvent
+        #   kind: substrate/EventHandler
+        #   filter:
+        #     module: ismp
+        #     method: PostRequestTimeoutHandled
+        # - handler: handleHyperbridgePostResponseTimeoutHandledEvent
+        #   kind: substrate/EventHandler
+        #   filter:
+        #     module: ismp
+        #     method: PostResponseTimeoutHandled
 
 repository: "https://github.com/polytope-labs/hyperbridge"

@@ -7,8 +7,6 @@ import { extractStateMachineIdFromSubstrateEventData } from "../../../utils/subs
 export async function handleIsmpStateMachineUpdatedEvent(
   event: SubstrateEvent,
 ): Promise<void> {
-  logger.info(`Handling ISMP StateMachineUpdatedEvent: `);
-
   const {
     event: {
       data: [state_machine_id, latest_height],
@@ -23,12 +21,18 @@ export async function handleIsmpStateMachineUpdatedEvent(
   } = event;
 
   assert(extrinsic);
+  logger.info(
+    `Handling ISMP StateMachineUpdatedEvent. Block Number: ${blockNumber}`,
+  );
 
   const stateMachineId = extractStateMachineIdFromSubstrateEventData(
-    state_machine_id.toString());
-  
+    state_machine_id.toString(),
+  );
 
   if (typeof stateMachineId === "undefined") {
+    logger.info(
+      `!!! FOUND UNDEFINED STATE MACHINE ID: ${blockNumber}:${extrinsic.idx}:${extrinsic.extrinsic.hash}`,
+    );
     return;
   } else {
     await StateMachineService.createHyperbridgeStateMachineUpdatedEvent(

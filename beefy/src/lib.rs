@@ -18,6 +18,7 @@ use ismp::host::StateMachine;
 use prover::{Prover, ProverConfig};
 use serde::{Deserialize, Serialize};
 
+pub use beefy_verifier_primitives::ConsensusState;
 use subxt::{
 	config::{extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams},
 	ext::sp_runtime::MultiSignature,

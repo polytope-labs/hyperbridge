@@ -480,9 +480,9 @@ where
 			.filter_map(|event| {
 				if matches!(
 					event.event,
-					Event::PostRequest(_)
-						| Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_)
-						| Event::PostResponseTimeoutHandled(_)
+					Event::PostRequest(_) |
+						Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_) |
+						Event::PostResponseTimeoutHandled(_)
 				) {
 					return Some(event);
 				}

@@ -31,10 +31,10 @@ use subxt::{
 use tesseract_substrate::SubstrateClient;
 
 use crate::{
-	prover::{Prover, REDIS_CONSENSUS_STATE_KEY},
+	prover::{query_parachain_header, Prover, ProverConsensusState, REDIS_CONSENSUS_STATE_KEY},
 	redis_utils::{self, RedisConfig},
 };
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use futures::{stream::TryStreamExt, Stream, StreamExt};
 use ismp::{
 	consensus::ConsensusStateId,
@@ -130,9 +130,30 @@ where
 	/// Initialize the consensus state for the prover where it expects in redis, then returns it.
 	pub async fn hydrate_initial_consensus_state(
 		&self,
+		consensus_state: Option<ConsensusState>,
 	) -> Result<CreateConsensusState, anyhow::Error> {
 		use ethers::abi::AbiEncode;
-		let prover_consensus_state = self.prover.query_initial_consensus_state(None).await?;
+		let prover_consensus_state = match consensus_state {
+			Some(state) => {
+				let inner = self.prover.inner();
+				let hash = inner
+					.relay
+					.rpc()
+					.block_hash(Some(state.latest_beefy_height.into()))
+					.await?
+					.ok_or_else(|| {
+						anyhow!("Failed to find block hash for num: {}", state.latest_beefy_height)
+					})?;
+				let para_header =
+					query_parachain_header(&inner.relay, hash, inner.para_ids[0]).await?;
+
+				ProverConsensusState {
+					inner: state,
+					finalized_parachain_height: para_header.number.into(),
+				}
+			},
+			None => self.prover.query_initial_consensus_state(None).await?,
+		};
 		let consensus_state: BeefyConsensusState = prover_consensus_state.clone().inner.into();
 
 		let mut connection = redis::Client::open(redis::ConnectionInfo {

@@ -1,12 +1,13 @@
 use anyhow::anyhow;
+use clap::{arg, Parser};
+use codec::Decode;
+use ismp::host::StateMachine;
 use std::{
 	collections::{BTreeMap, HashMap},
+	str::FromStr,
 	sync::Arc,
 };
 use tesseract_beefy::host::BeefyHost;
-
-use clap::{arg, Parser};
-use ismp::host::StateMachine;
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use tesseract_sync_committee::L2Config;
@@ -31,6 +32,10 @@ pub struct Cli {
 	/// Should we initialize the relevant Consensus state on hyperbridge?
 	#[arg(long)]
 	setup_para: bool,
+
+	/// Optional base state machine to use for consensus initialization
+	#[arg(long)]
+	base: Option<String>,
 }
 
 impl Cli {
@@ -60,6 +65,18 @@ impl Cli {
 			)
 			.await?;
 			log::info!("Initialized consensus states");
+		}
+
+		if let Some(ref state_machine_str) = self.base {
+			let state_machine = StateMachine::from_str(state_machine_str.as_str())
+				.map_err(|err| anyhow!("{err}"))?;
+			log::info!("Setting base consensus state from base state machine: {state_machine:?}");
+			let client = clients.get(&state_machine).ok_or_else(|| anyhow!("Client not found"))?;
+			let consensus_state_bytes =
+				client.provider().query_consensus_state(None, *b"PARA").await?;
+			let consensus_state =
+				tesseract_beefy::ConsensusState::decode(&mut &consensus_state_bytes[..])?;
+			hyperbridge.hydrate_initial_consensus_state(Some(consensus_state)).await?;
 		}
 
 		for (_, client) in clients {
@@ -137,7 +154,7 @@ async fn initialize_consensus_clients(
 	setup_para: bool,
 ) -> anyhow::Result<()> {
 	if setup_eth {
-		let initial_state = hyperbridge.hydrate_initial_consensus_state().await?;
+		let initial_state = hyperbridge.hydrate_initial_consensus_state(None).await?;
 
 		// write this consensus state to redis
 		for (state_machine, chain) in chains {

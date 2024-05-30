@@ -16,6 +16,7 @@ The `output_root` is a 32 byte value, which is derived based on the a versioned 
 * The `latest_block_hash` is the block hash for the latest L2 block at the time the proposer constructed the output root.
 * The `state_root` is the Merkle-Patricia-Trie (MPT) root of the L2 state db.
 * The `withdrawal_storage_root` is the state root of the Message Passer contract storage.
+* The `version_byte`  a simple 32 byte version string which increments anytime the construction of the output root is changed.
 
 ## Verifying the Output Root
 

@@ -21,7 +21,6 @@ export class HyperBridgeChainStatsService {
         numberOfDeliveredMessages: BigInt(0),
         numberOfFailedDeliveries: BigInt(0),
         numberOfTimedOutMessages: BigInt(0),
-        numberOfUniqueRelayers: BigInt(0),
       });
       await chainStats.save();
     }

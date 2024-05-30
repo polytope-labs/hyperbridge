@@ -30,9 +30,6 @@ export async function handleIsmpStateMachineUpdatedEvent(
   );
 
   if (typeof stateMachineId === "undefined") {
-    logger.info(
-      `!!! FOUND UNDEFINED STATE MACHINE ID: ${blockNumber}:${extrinsic.idx}:${extrinsic.extrinsic.hash}`,
-    );
     return;
   } else {
     await StateMachineService.createHyperbridgeStateMachineUpdatedEvent(

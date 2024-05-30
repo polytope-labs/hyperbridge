@@ -28,7 +28,6 @@ export class HyperBridgeService {
         numberOfDeliveredMessages: BigInt(0),
         numberOfFailedDeliveries: BigInt(0),
         numberOfTimedOutMessages: BigInt(0),
-        numberOfUniqueRelayers: BigInt(0),
         feesPayedOutToRelayers: BigInt(0),
         protocolFeesEarned: BigInt(0),
         totalTransfersIn: BigInt(0),
@@ -134,27 +133,6 @@ export class HyperBridgeService {
     let chainStats =
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.numberOfFailedDeliveries += BigInt(1);
-
-    Promise.all([await chainStats.save(), await stats.save()]);
-  }
-
-  /**
-   * Increment the number of unique relayers on Hyperbridge
-   * If all_stats is true it will increase count on the global hyperbridge stats
-   */
-  static async incrementNumberOfUniqueRelayers(
-    chain: SupportedChain,
-    all_stats: boolean,
-  ): Promise<void> {
-    let stats = await this.getStats();
-    let chainStats =
-      await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
-
-    if (all_stats == true) {
-      stats.numberOfUniqueRelayers += BigInt(1);
-    }
-
-    chainStats.numberOfUniqueRelayers += BigInt(1);
 
     Promise.all([await chainStats.save(), await stats.save()]);
   }

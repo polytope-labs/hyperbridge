@@ -79,11 +79,6 @@ type HyperBridgeStats @entity {
     numberOfTimedOutMessages: BigInt!
 
     """
-    Total number of unique relayers that have sent messages to Hyperbridge on the chain
-    """
-    numberOfUniqueRelayers: BigInt!
-
-    """
     The total amount of transfers sent into the Hyperbridge Host Contracts (transfers in = protocol fees + relayer fees)
     """
     totalTransfersIn: BigInt!
@@ -133,11 +128,6 @@ type HyperBridgeChainStats @entity {
     Total number of timed out messages on this chain
     """
     numberOfTimedOutMessages: BigInt!
-
-    """
-    Total number of unique relayers that have sent messages to Hyperbridge on the chain
-    """
-    numberOfUniqueRelayers: BigInt!
 
     """
     The total amount of transfers sent into the Hyperbridge Host Contracts (transfers in = protocol fee + relayer fee)

@@ -58,7 +58,7 @@ export class StateMachineService {
     } = args;
 
     const event = StateMachineUpdateEvent.create({
-      id: transactionHash,
+      id: `${stateMachineId}-${transactionHash}-${height}`,
       stateMachineId,
       height,
       chain,

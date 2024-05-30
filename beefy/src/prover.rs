@@ -381,6 +381,7 @@ where
 			if let Err(err) = future.await {
 				tracing::info!("Prover error: {err:?}");
 				if let Some(RsmqError::RedisError(redis_error)) = err.downcast_ref::<RsmqError>() {
+					tracing::info!("Recreating rsmq client");
 					if redis_error.is_connection_dropped() {
 						self.rsmq = redis_utils::rsmq_client(&self.config.redis)
 							.await
@@ -389,6 +390,7 @@ where
 				}
 
 				if let Some(redis_error) = err.downcast_ref::<RedisError>() {
+					tracing::info!("Recreating redis client");
 					if redis_error.is_connection_dropped() {
 						self.connection = redis::Client::open(redis::ConnectionInfo {
 							addr: self.config.redis.clone().into(),
@@ -478,9 +480,9 @@ where
 			.filter_map(|event| {
 				if matches!(
 					event.event,
-					Event::PostRequest(_) |
-						Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_) |
-						Event::PostResponseTimeoutHandled(_)
+					Event::PostRequest(_)
+						| Event::PostResponse(_) | Event::PostRequestTimeoutHandled(_)
+						| Event::PostResponseTimeoutHandled(_)
 				) {
 					return Some(event);
 				}

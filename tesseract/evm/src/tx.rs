@@ -101,7 +101,7 @@ async fn wait_for_success<'a>(
 where
 	'a: 'async_recursion,
 {
-	let log_receipt = |receipt: TransactionReceipt, cancelled: bool| {
+	let log_receipt = |receipt: TransactionReceipt, cancelled: bool| -> Result<(), anyhow::Error> {
 		let prelude = if cancelled { "Cancellation Tx" } else { "Tx" };
 		if matches!(receipt.status.as_ref().map(|f| f.low_u64()), Some(1)) {
 			log::info!("{prelude} for {:?} succeeded", client.state_machine);
@@ -111,7 +111,10 @@ where
 				client.state_machine,
 				receipt.transaction_hash
 			);
+			Err(anyhow!("Transaction reverted"))?
 		}
+
+		Ok(())
 	};
 
 	let client_clone = client.clone();
@@ -157,7 +160,8 @@ where
 
 			if let Ok(pending) = pending {
 				if let Ok(Some(receipt)) = pending.await {
-					log_receipt(receipt, true);
+					// we're going to error anyways
+					let _ = log_receipt(receipt, true);
 				}
 			}
 
@@ -189,7 +193,7 @@ where
 						}
 						None
 					}).collect();
-					log_receipt(receipt, false);
+					log_receipt(receipt, false)?;
 					Ok(events)
 				},
 				Ok(None) => {
@@ -269,9 +273,8 @@ pub async fn generate_contract_calls(
 						height: StateMachineHeight {
 							state_machine_id: {
 								match msg.proof.height.id.state_id {
-									StateMachine::Polkadot(id) | StateMachine::Kusama(id) => {
-										id.into()
-									},
+									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
+										id.into(),
 									_ => {
 										panic!("Expected polkadot or kusama state machines");
 									},
@@ -329,8 +332,8 @@ pub async fn generate_contract_calls(
 									height: StateMachineHeight {
 										state_machine_id: {
 											match proof.height.id.state_id {
-												StateMachine::Polkadot(id)
-												| StateMachine::Kusama(id) => id.into(),
+												StateMachine::Polkadot(id) |
+												StateMachine::Kusama(id) => id.into(),
 												_ => {
 													log::error!("Expected polkadot or kusama state machines");
 													continue;
@@ -358,9 +361,8 @@ pub async fn generate_contract_calls(
 							contract.handle_post_responses(ismp_host, message).gas(gas_limit)
 						}
 					},
-					RequestResponse::Request(..) => {
-						Err(anyhow!("Get requests are not supported by relayer"))?
-					},
+					RequestResponse::Request(..) =>
+						Err(anyhow!("Get requests are not supported by relayer"))?,
 				};
 
 				calls.push(call);

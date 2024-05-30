@@ -89,8 +89,8 @@ struct ArbitrumPayloadProof {
 
 **Inputs**:
 
-`payload`: Arbitrum payload containing proofs and state information
-`root`: MPT root of the L1  
+`payload`: Arbitrum payload containing proofs and state information  
+`root`: MPT root of the L1   
 `rollup_core_address`: Address of the Rollup Core contract  
 
 **Outputs**:
@@ -117,9 +117,9 @@ Use the provided global state (`payload.global_state`), machine status (`payload
 *   **Verify State Hash Proof**:
 
 Derive the slot hash for the `state_hash` within the rollup core contract's storage using the node number (`payload.node_number`).
-Use the proof (`payload.storage_proof`) and the storage root of the rollup contract extracted in a previous step to retrieve the value associated with the slot hash.
-Check if a value was found. If not, return an error indicating the state hash wasn't found in the proof.
-Compare the retrieved value to the computed state hash. If they don't match, return an error indicating a mismatch.
+Use the proof (`payload.storage_proof`) and the storage root of the rollup contract extracted in a previous step to retrieve the value associated with the slot hash.  
+Check if a value was found. If not, return an error indicating the state hash wasn't found in the proof.  
+Compare the retrieved value to the computed state hash. If they don't match, return an error indicating a mismatch.  
 
 If all steps complete successfully then we can accept the `state_root`, `timestamp` and `block_number` in the provided block header.
 

@@ -51,10 +51,11 @@ struct OpstackProof {
 	timestamp: u64,
 }
 ```
-Given the proof described above, we would verify the existence of the output root as follows:
+Given the proof described above, we would verify the existence of the output root as follows:  
+
 **Inputs**:  
 
-`payload`: `OpstackProof` containing proofs and state information  
+`payload`: `OpstackProof` containing proofs and state information   
 `root`: Merkle root of the L1 chain  
 `l2_oracle_address`: Address of the L2 oracle contract  
 
@@ -83,10 +84,10 @@ Decode the retrieved value as a byte array and compare it to the calculated outp
 
 Derive the slot hash for the block number and timestamp within the l2 oracle contract storage slots.
 Use the multi-proof (`payload.multi_proof`) and l2 oracle storage root to retrieve the value associated with the slot hash.
-Check if a value was found. If not, return an error indicating the proof failed verification.
-Decode the retrieved value as a byte array and convert it to a U256 value.
-Extract the timestamp (first two u64 values) and block number (last two u64 values) from the U256 value.
-Compare the extracted timestamp and block number with the corresponding values in the payload. If they don't match, return an error indicating an invalid proof.
+Check if a value was found. If not, return an error indicating the proof failed verification.  
+Decode the retrieved value as a byte array and convert it to a U256 value.  
+Extract the timestamp (first two u64 values) and block number (last two u64 values) from the U256 value.  
+Compare the extracted timestamp and block number with the corresponding values in the payload. If they don't match, return an error indicating an invalid proof.  
 
 If all steps complete successfully then we can accept the `state_root`, `timestamp` and `block_number` as valid.
 

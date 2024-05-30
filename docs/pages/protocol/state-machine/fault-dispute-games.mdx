@@ -115,19 +115,20 @@ Compute the output root as decribed in the previous section.
 
 Use the game type (`payload.game_type`), output_root, and extra data (payload.extra_data) to get the game UUID.  
 
-*   **Verify Dispute Game Existence**:
+*   **Verify Dispute Game Existence**:  
 
 Derive the slot hash for the dispute game within the dispute factory storage using the game UUID.
-Use the proof (`payload.dispute_game_proof`) and dispute_factory storage root to retrieve the value associated with the slot hash.
-Check if a value was found. If not, return an error indicating the dispute game's ID wasn't found in the proof.
+Use the proof (`payload.dispute_game_proof`) and dispute_factory storage root to retrieve the value associated with the slot hash.  
+Check if a value was found. If not, return an error indicating the dispute game's ID wasn't found in the proof.  
 The value extracted from the stage should be the dispute game ID.  
 
-*   **Derive Game ID**:
+*   **Derive Game ID**:  
 
 Use the game type (`payload.game_type`), timestamp (`payload.timestamp`), and proxy (`payload.proxy`) to calculate the expected game ID.
 Convert the derived game ID to a 32-byte array.
 
-*   **Compare Game IDs**:
+*   **Compare Game IDs**:  
+
 Compare the game ID extracted from the proof with the derived game ID. If they don't match, then the proof submitted is invalid.
 
 If all steps complete successfully then we can accept the `state_root`, `timestamp` and `block_number` in the provided block header.

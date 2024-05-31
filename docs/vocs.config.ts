@@ -10,12 +10,12 @@ export default defineConfig({
   title: "Hyperbridge Documentation",
   description:
     "Hyperbridge is a coprocessor for cryptographically secure interoperability",
-    // todo: add logo
+  // todo: add logo
   ogImageUrl:
     "https://vocs.dev/api/og?logo=%logo&title=%title&description=%description",
   logoUrl: {
-    light: '/logo-dark.svg',
-    dark: '/logo-light.svg'
+    light: "/logo-dark.svg",
+    dark: "/logo-light.svg",
   },
   iconUrl: "/favicon.svg",
   socials: [
@@ -183,8 +183,8 @@ export default defineConfig({
         collapsed: true,
         items: [
           {
-              text: "GRANDPA (Polkadot)",
-              link: "/protocol/consensus/grandpa",
+            text: "GRANDPA (Polkadot)",
+            link: "/protocol/consensus/grandpa",
           },
           {
             text: "BEEFY (Polkadot)",
@@ -225,7 +225,7 @@ export default defineConfig({
             link: "/protocol/state-machine/arbitrum-orbit",
           },
         ],
-      }
+      },
     ],
     "/developers": [
       {
@@ -265,7 +265,7 @@ export default defineConfig({
                 text: "Relayer",
                 link: "/developers/explore/modules/relayer",
               },
-            ]
+            ],
           },
         ],
       },
@@ -294,7 +294,7 @@ export default defineConfig({
           },
 
           {
-            text: "Contracts Addresses",
+            text: "Contract Addresses",
             link: "/developers/evm/contract-addresses",
           },
         ],
@@ -304,7 +304,7 @@ export default defineConfig({
         collapsed: true,
         items: [
           {
-            text: "Integration - Ismp",
+            text: "Integration - ISMP",
             link: "/developers/polkadot/integration",
           },
 
@@ -334,7 +334,7 @@ export default defineConfig({
           },
 
           {
-            text: "Message delivery",
+            text: "Message Delivery",
             link: "/developers/polkadot/delivery",
           },
 
@@ -359,6 +359,6 @@ export default defineConfig({
           },
         ],
       },
-    ]
-  }
+    ],
+  },
 });

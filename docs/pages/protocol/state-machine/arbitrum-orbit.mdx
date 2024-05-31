@@ -1,0 +1,129 @@
+# Arbitrum Orbit
+
+Arbitrum orbit finalizes L2 state commitments when a trusted proposer submits the L2's `state_hash` to the RollupCore  contract on the L1.
+These submissions occur at designated intervals. Anyone acting as a challenger can dispute an invalid submissions.
+If no challenge arises within a specific timeframe, the submitted `state_hash` is considered final. This approach leverages a permissioned proposer and challenger.
+
+```rust showLineNumbers
+type H256 = [u8; 32];
+type Bloom = [u8; 256];
+type U256 = [u64; 4];
+type H64 = [u8; 8];
+
+struct GlobalState {
+	pub block_hash: H256,
+	pub send_root: H256,
+	pub inbox_position: u64,
+	pub position_in_message: u64,
+}
+
+enum MachineStatus {
+	Running = 0,
+	Finished = 1,
+	Errored = 2,
+	TooFar = 3,
+}
+
+struct Header {
+	parent_hash: H256,
+	uncle_hash: H256,
+	coinbase: H160,
+	state_root: H256,
+	transactions_root: H256,
+	receipts_root: H256,
+	logs_bloom: Bloom,
+	difficulty: U256,
+	number: U256,
+	gas_limit: u64,
+	gas_used: u64,
+	timestamp: u64,
+	extra_data: Vec<u8>,
+	mix_hash: H256,
+	nonce: H64,
+	base_fee_per_gas: Option<U256>,
+	withdrawals_hash: Option<H256>,
+	blob_gas_used: Option<u64>,
+	excess_blob_gas_used: Option<u64>
+}
+
+```
+
+## State Hash Construction
+The `state_hash` is a hash of the concatenation of the `GlobalState` hash, `MachineStatus` and the sequencer inbox count.
+
+```
+state_hash = keccak256(global_state_hash || inbox_max_count || machine_status)
+```
+
+* The `global_state_hash` is hash of the `GlobalState`.
+* The `inbox_max_count` is the sequencer inbox message count.
+* The `machine_status` is the `MachineStatus`.
+
+## Verifiying the state hash existence
+
+To verify the existence of a state hash, we need to verify it's existence in the Rollup contract in a finalized L1 chain. This requires the fields present in the structure described below:
+
+```rust showLineNumbers
+struct ArbitrumPayloadProof {
+	/// Arbitrum header that corresponds to the node being created
+	arbitrum_header: CodecHeader,
+	/// Global State as recorded in the NodeCreated event that was emitted for this node
+	global_state: GlobalState,
+	/// Machine status as recorded in the NodeCreated event that was emitted for this node
+	machine_status: MachineStatus,
+	/// Inbox max count as recorded in the NodeCreated event that was emitted for this node
+	inbox_max_count: U256,
+	/// Key used to store the node  in the _nodes mapping in the RollupCore as recorded in the
+	/// latestNodeCreated field of the NodeCreated event
+	node_number: u64,
+	/// Proof for the state_hash field in the Node struct inside the _nodes mapping in the
+	/// RollupCore
+	storage_proof: Vec<Vec<u8>>,
+	/// RollupCore contract proof in the ethereum world trie
+	contract_proof: Vec<Vec<u8>>,
+}
+
+
+```
+
+
+**Inputs**:
+
+`payload`: Arbitrum payload containing proofs and state information
+`root`: MPT root of the L1
+`rollup_core_address`: Address of the Rollup Core contract
+
+**Outputs**:
+
+`state_root`: State root of the L2
+
+**Steps**:
+
+*   **Verify Contract Storage Root**:
+
+Use the provided proof (`payload.contract_proof`) and Rollup Core address to retrieve the storage root of the rollup core contract.
+
+*   **Verify Header Extra Data**:
+
+Compare the send_root field in the global state (`payload.global_state.send_root`) with the extra data field in the Arbitrum header (`payload.arbitrum_header.extra_data`). If they don't match, return an error indicating a mismatch.
+*   **Verify Header Hash**:
+
+Compute the header hash and compare the computed hash with the `block_hash` field in the global state (`payload.global_state.block_hash`). If they don't match, return an error indicating a mismatch.
+
+*   **Compute State Hash**:
+
+Use the provided global state (`payload.global_state`), machine status (`payload.machine_status`), and inbox max count (`payload.inbox_max_count`) to calculate the expected `state_hash`.
+
+*   **Verify State Hash Proof**:
+
+Derive the slot hash for the `state_hash` within the rollup core contract's storage using the node number (`payload.node_number`).
+Use the proof (`payload.storage_proof`) and the storage root of the rollup contract extracted in a previous step to retrieve the value associated with the slot hash.
+Check if a value was found. If not, return an error indicating the state hash wasn't found in the proof.
+Compare the retrieved value to the computed state hash. If they don't match, return an error indicating a mismatch.
+
+If all steps complete successfully then we can accept the `state_root`, `timestamp` and `block_number` in the provided block header.
+
+## Implementation
+
+- [arbitrum-verifier](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/arbitrum/src/lib.rs)
+- [RollupCore](https://github.com/OffchainLabs/nitro-contracts/blob/7a41cd59cdf2eb01cf31c2351b8d1ff6fbf52178/src/rollup/RollupCore.sol)

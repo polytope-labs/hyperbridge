@@ -5,7 +5,7 @@ description: Running the Hyperbridge node
 
 # Running a node
 
-We provide a variety of ways to obtain a node for running. For now we only officially distribute release artifacts for x86 linux environments.
+The Hyperbridge node can be obtained through a variety of ways. For only release artifacts for x86 linux environments are officially distributed. You can also build the node from source if you prefer.
 
 ## System Requirements
 
@@ -24,7 +24,7 @@ docker pull polytopelabs/hyperbridge:latest
 You can install a prebuilt binary for the hyperbridge node with the following bash script
 
 ```bash
-wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/v0.4.6/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
+wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/hyperbridge-v0.5.0/hyperbridge-x86_64-unknown-linux-gnu.tar.gz
 tar -xvzf hyperbridge-x86_64-unknown-linux-gnu.tar.gz
 # copy to $PATH
 cp hyperbridge-x86_64-unknown-linux-gnu/hyperbridge $HOME/.local/bin/
@@ -33,7 +33,7 @@ cp hyperbridge-x86_64-unknown-linux-gnu/hyperbridge $HOME/.local/bin/
 or a 1-liner shell script
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/v0.3.5/hyperbridge-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/hyperbridge-v0.5.0/hyperbridge-installer.sh | sh
 ```
 
 ## Building from source

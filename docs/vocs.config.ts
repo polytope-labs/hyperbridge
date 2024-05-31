@@ -304,12 +304,12 @@ export default defineConfig({
         collapsed: true,
         items: [
           {
-            text: "Integration - ISMP",
+            text: "Pallet ISMP",
             link: "/developers/polkadot/integration",
           },
 
           {
-            text: "Integration - Parachains",
+            text: "Parachains",
             link: "/developers/polkadot/parachains",
           },
 
@@ -329,7 +329,7 @@ export default defineConfig({
           },
 
           {
-            text: "Protocol Fees",
+            text: "Fees",
             link: "/developers/polkadot/fees",
           },
 

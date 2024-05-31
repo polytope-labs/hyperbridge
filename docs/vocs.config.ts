@@ -277,9 +277,8 @@ export default defineConfig({
             text: "Getting Started",
             link: "/developers/evm/getting-started",
           },
-
           {
-            text: "Protocol Fees",
+            text: "Fees",
             link: "/developers/evm/fees",
           },
 

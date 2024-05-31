@@ -37,7 +37,7 @@ struct Authority {
 
 /// Produce a hash of two bytes32
 pub fn hash2(first: [u8; 32], second: [u8; 32]) -> [u8; 32] {
-    let mut slice: [u8] = [0; 64];
+    let mut slice: [u8; 64] = [0; 64];
 
     for i in 0..32 {
         slice[i] = first[i];
@@ -64,7 +64,7 @@ pub fn recover_array32(fields: [Field; 2]) -> [u8; 32] {
 /// Recover the ethereum address from the public key and hash it.
 pub fn recover_address_hash(x: [u8; 32], y: [u8; 32]) -> [u8; 32] {
     let hash = hash2(x, y);
-    let mut address: [u8] = [0; 20];
+    let mut address: [u8; 20] = [0; 20];
 
     for i in 0..20 {
         address[i] = hash[i + 12];
@@ -119,7 +119,7 @@ fn check_membership(combined: &mut [[u8; 32]; 297], siblings: [Sibling; 98], roo
         for i in 0..lens[height] {
             let p = vector.len();
             let j = (i * 2);
-            if (j + 1) as u16 >= p as u16 {
+            if (j + 1) >= p {
                 next.push(vector.get(j));
             } else {
                 next.push(hash2(vector.get(j), vector.get(j + 1)));

@@ -6,7 +6,6 @@ import "openzeppelin/utils/Strings.sol";
 import "stringutils/strings.sol";
 
 import {EvmHost, HostParams} from "../src/hosts/EvmHost.sol";
-import {RococoVerifier} from "../src/consensus/verifiers/RococoVerifier.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 
 contract DeployScript is Script {

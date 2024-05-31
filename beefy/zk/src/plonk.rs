@@ -1,9 +1,6 @@
 use backend_interface::Backend;
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
-use nargo::{
-	artifacts::{debug::DebugArtifact, program::ProgramArtifact},
-	ops::DefaultForeignCallExecutor,
-};
+use nargo::{artifacts::program::ProgramArtifact, ops::DefaultForeignCallExecutor};
 use noirc_abi::{input_parser::Format, MAIN_RETURN_NAME};
 use noirc_driver::CompiledProgram;
 use serde::{Deserialize, Serialize};
@@ -72,8 +69,6 @@ impl Clone for Prover {
 
 #[derive(Debug, Clone, Serialize, Deserialize, derive_more::Display)]
 pub enum Network {
-	#[display("rococo")]
-	Rococo,
 	#[display("polkadot")]
 	Polkadot,
 	#[display("kusama")]
@@ -83,19 +78,8 @@ pub enum Network {
 impl Prover {
 	pub fn new(network: Network) -> Result<Self, anyhow::Error> {
 		let backend = Backend::new("acvm-backend-barretenberg".into());
-		let (program_artifact, mut debug_artifact) = artifacts(network)?;
 
-		let program = CompiledProgram {
-			hash: program_artifact.hash,
-			circuit: program_artifact.bytecode,
-			abi: program_artifact.abi,
-			noir_version: program_artifact.noir_version,
-			debug: debug_artifact.debug_symbols.remove(0),
-			file_map: debug_artifact.file_map,
-			warnings: debug_artifact.warnings,
-		};
-
-		let prover = Self { backend, program };
+		let prover = Self { backend, program: artifacts(network)?.into() };
 
 		Ok(prover)
 	}
@@ -109,47 +93,35 @@ impl Prover {
 		let _ = inputs_map.remove(MAIN_RETURN_NAME);
 		let initial_witness = self.program.abi.encode(&inputs_map, None)?;
 
-		let witness = nargo::ops::execute_circuit(
-			&self.program.circuit,
+		let witness = nargo::ops::execute_program(
+			&self.program.program,
 			initial_witness,
 			&blackbox_solver,
 			&mut DefaultForeignCallExecutor::new(true, None),
 		)?;
 
-		let proof = self.backend.prove(&self.program.circuit, witness, false)?;
+		let proof = self.backend.prove(&self.program.program, witness)?;
 
 		Ok(proof)
 	}
 }
 
 /// Return the appropriate artifact for given chain
-fn artifacts(network: Network) -> Result<(ProgramArtifact, DebugArtifact), anyhow::Error> {
-	let (program_artifact, debug_artifact) = match network {
+fn artifacts(network: Network) -> Result<ProgramArtifact, anyhow::Error> {
+	let program_artifact = match network {
 		Network::Polkadot => {
 			let program_artifact: ProgramArtifact =
 				serde_json::from_slice(include_bytes!("../artifacts/polkadot.json"))?;
-			let debug_artifact: DebugArtifact =
-				serde_json::from_slice(include_bytes!("../artifacts/debug_polkadot.json"))?;
-
-			(program_artifact, debug_artifact)
+			program_artifact
 		},
 		Network::Kusama => {
 			let program_artifact: ProgramArtifact =
 				serde_json::from_slice(include_bytes!("../artifacts/kusama.json"))?;
-			let debug_artifact: DebugArtifact =
-				serde_json::from_slice(include_bytes!("../artifacts/debug_kusama.json"))?;
-			(program_artifact, debug_artifact)
-		},
-		Network::Rococo => {
-			let program_artifact: ProgramArtifact =
-				serde_json::from_slice(include_bytes!("../artifacts/rococo.json"))?;
-			let debug_artifact: DebugArtifact =
-				serde_json::from_slice(include_bytes!("../artifacts/debug_rococo.json"))?;
-			(program_artifact, debug_artifact)
+			program_artifact
 		},
 	};
 
-	Ok((program_artifact, debug_artifact))
+	Ok(program_artifact)
 }
 
 /// Convert to a field element
@@ -169,6 +141,8 @@ fn to_h160(slice: &[u8]) -> H160 {
 
 #[cfg(test)]
 mod tests {
+	use std::time::Instant;
+
 	use super::*;
 	use rs_merkle::{Hasher, MerkleTree};
 	use sp_core::{ecdsa, keccak_256, Pair, H160, H256};
@@ -189,8 +163,8 @@ mod tests {
 		let message = H256::random();
 
 		let stuff = vec![
-			(1000usize, 667usize, 333usize, "kusama"),
-			(110, 74, 36, "rococo"),
+			// (1000usize, 667usize, 333usize, "kusama"),
+			// (110, 74, 36, "rococo"),
 			(297, 199, 98, "polkadot"),
 		];
 
@@ -284,10 +258,13 @@ mod tests {
 			)
 			.unwrap();
 
-			// let mut prover = Prover::new()?;
-			//
-			// let bytes = prover.prove(params)?;
-			// println!("{}", bytes::to_hex(&bytes, false));
+			let prover = Prover::new(Network::Polkadot)?;
+			println!("Start Proving");
+			let start = Instant::now();
+			let bytes = prover.prove(params)?;
+			let duration = start.elapsed();
+			println!("Took: {}s", duration.as_secs());
+			println!("{name}:\nmsg: {msg:?}\nroot:{root:?}\n{}", hex::encode(&bytes));
 		}
 
 		Ok(())

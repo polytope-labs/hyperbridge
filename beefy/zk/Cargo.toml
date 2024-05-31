@@ -20,11 +20,11 @@ codec = { package = "parity-scale-codec", version = "3.2.2" }
 derive_more = { version = "1.0.0-beta.6", features = ["display"] }
 
 # noir prover
-backend-interface = { git = "https://github.com/noir-lang/noir.git", rev = "45f6400bf9e9b72f8d6b9cd598c5019504816070" }
-nargo = { git = "https://github.com/noir-lang/noir.git", rev = "45f6400bf9e9b72f8d6b9cd598c5019504816070" }
-noirc_driver = { git = "https://github.com/noir-lang/noir.git", rev = "45f6400bf9e9b72f8d6b9cd598c5019504816070" }
-noirc_abi = { git = "https://github.com/noir-lang/noir.git", rev = "45f6400bf9e9b72f8d6b9cd598c5019504816070" }
-bn254_blackbox_solver = { git = "https://github.com/noir-lang/noir.git", rev = "45f6400bf9e9b72f8d6b9cd598c5019504816070" }
+backend-interface = { git = "https://github.com/noir-lang/noir.git", tag = "v0.29.0" }
+nargo = { git = "https://github.com/noir-lang/noir.git", tag = "v0.29.0" }
+noirc_driver = { git = "https://github.com/noir-lang/noir.git", tag = "v0.29.0" }
+noirc_abi = { git = "https://github.com/noir-lang/noir.git", tag = "v0.29.0" }
+bn254_blackbox_solver = { git = "https://github.com/noir-lang/noir.git", tag = "v0.29.0" }
 
 ethers = { workspace = true, features = ["rustls"] }
 beefy-verifier-primitives = { workspace = true }

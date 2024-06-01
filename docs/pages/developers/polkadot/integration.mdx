@@ -1,0 +1,367 @@
+# Pallet ISMP
+
+This is the implementation of ISMP for substrate chains. It is the foundational component that allows communication over ISMP. It correctly composes the various ISMP components in the runtime.
+
+## Pallet Config
+
+The Pallet has the following Config trait
+
+```rust showLineNumbers
+#[pallet::config]
+pub trait Config: frame_system::Config {
+	/// The overarching event type.
+	type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+	/// Admin origin for privileged actions such as adding new consensus clients as well as
+	/// modifying existing consensus clients (eg. challenge period, unbonding period)
+	type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
+	/// Timestamp interface [`UnixTime`] for querying the current timestamp. This is used within
+	/// the various ISMP sub-protocols.
+	type TimestampProvider: UnixTime;
+
+	/// The balance of an account.
+	type Balance: Parameter
+		+ Member
+		+ AtLeast32BitUnsigned
+		+ Codec
+		+ Default
+		+ Copy
+		+ MaybeSerializeDeserialize
+		+ Debug
+		+ MaxEncodedLen
+		+ TypeInfo
+		+ FixedPointOperand;
+
+	/// The currency that is offered to relayers as payment for request delivery
+	/// and execution. This should ideally be a stablecoin of some kind to guarantee
+	/// predictable and stable revenue for relayers.
+	///
+	/// This can also be used with pallet-assets through the
+	/// [ItemOf](frame_support::traits::tokens::fungible::ItemOf) implementation
+	type Currency: Mutate<Self::AccountId, Balance = Self::Balance>;
+
+	/// The state machine identifier for the host chain. This is the identifier that will be
+	/// used to accept requests that are addressed to this state machine. Remote chains
+	/// will also use this identifier to accept requests originating from this state
+	/// machine.
+	type HostStateMachine: Get<StateMachine>;
+
+	/// The coprocessor is a state machine which proxies requests on our behalf. The coprocessor
+	/// does this by performing the costly consensus and state proof verification needed to
+	/// verify requests/responses that are addressed to this host state machine.
+	///
+	/// The ISMP framework permits the coprocessor to aggregate messages from potentially
+	/// multiple state machines. Finally producing much cheaper proofs of consensus and state
+	/// needed to verify the legitimacy of the messages.
+	type Coprocessor: Get<Option<StateMachine>>;
+
+	/// [`IsmpRouter`] implementation for routing requests & responses to their appropriate
+	/// modules.
+	type Router: IsmpRouter + Default;
+
+	/// This should provide a list of [`ConsenusClient`](ismp::consensus::ConsensusClient)s
+	/// which should be used to validate incoming requests or responses. There should be
+	/// at least one consensus client present to allow messages be processed by the ISMP
+	/// subsystems.
+	type ConsensusClients: ConsensusClientProvider;
+
+	/// This implementation should provide the weight consumed by `IsmpModule` callbacks from
+	/// their benchmarks.
+	type WeightProvider: WeightProvider;
+
+	/// Merkle mountain range overlay tree implementation. Outgoing requests and responses are
+	/// inserted in this "overlay tree" to enable cheap proofs for messages.
+	///
+	/// State machines that do not need this can simply use the `NoOpMmrTree`
+	type Mmr: MerkleMountainRangeTree<Leaf = Leaf>;
+}
+```
+
+## State Proofs
+
+`pallet-ismp` efficiently stores the commitments for requests and responses in a state trie, for which state proofs may be obtained for their existence. These proofs are used to authenticate cross-chain messages. It leverages two primary data structures:
+
+ - **Child Trie**: This is the primary storage location for all commitments. It offers a compact representation, leading to smaller verification proofs and reduced processing costs.
+ - **Merkle Mountain Range Tree (Optional)**: When integrated with Hyperbridge, this additional tree provides even smaller proofs and more economical verification on the Ethereum Virtual Machine (EVM). This translates to lower gas fees for users sending messages to EVM chains.
+
+## Offchain Storage
+
+To ensure verifiability, ISMP stores commitment hashes onchain. These commitment hashes act like unique fingerprints, allowing anyone to confirm the existence of the original data (requests and responses) without storing it directly on the blockchain.
+
+Requests and responses themselves are stored in an off-chain database. This approach offers two key advantages:
+
+ - **Reduced Runtime Storage Size**: By keeping only commitment hashes on-chain, ISMP minimizes the blockchain's storage footprint. This is crucial for maintaining reasonable storage requirements for full nodes, especially as the network scales.
+ - **Efficient Pruning**: Off-chain storage allows for efficient deletion (pruning) of delivered requests and responses. This helps prevent the blockchain from becoming bloated with historical data.
+
+### Challenge: Chain Reorgs
+
+ISMP utilizes an off-chain database for storing requests and responses. While this approach offers storage efficiency, it introduces some potential issues:
+
+**Fork Susceptibility**: The off-chain database isn't aware of chain reorgs. If a reorg occurs, the database could become corrupted, leading to inconsistencies and preventing the generation of accurate Merkle Mountain Range (MMR) proofs. These proofs are crucial for verifying data integrity.
+
+### Solution: Background Canonicalization
+
+To mitigate this risk, ISMP employs a background task that continuously monitors the network. Whenever the relay chain finalizes a parachain block (meaning the block becomes permanent and irreversible), this task automatically "canonicalizes" the off-chain database.
+
+ - **Canonicalization**: This process ensures the database reflects the final, validated state of the chain. It essentially cleans up any inconsistencies caused by potential reorgs.
+
+ - **Impact on Proof Generation**: As a consequence of this approach, generating MMR proofs for off-chain data becomes available only after the corresponding block finalizes.
+
+## Implementations
+
+ - `IsmpHost`: Pallet Ismp implements `IsmpHost` providing all the storage requirements for ISMP.
+ - `IsmpDispatcher`: It implements `IsmpDispatcher` allowing it to dispatch requests and responses.
+
+
+## Calls
+
+* `create_consensus_client`
+This is a priviledged call used to initialize the consensus state of a consensus client. Consensus clients must to be initialized with a trusted state, so this call must only be called by a trusted party.
+
+* `update_consensus_state`
+This is a priviledged call used to update the unbonding period or challenge_period for a consensus client. It must only be called by a trusted parties to prevent consensus exploits.
+
+* `handle_unsigned`
+Execute the provided batch of ISMP messages, this will short-circuit and revert if any of the provided messages are invalid. This is an unsigned extrinsic that permits anyone
+execute ISMP messages for free, provided they have valid proofs and the messages havenot been previously processed.
+The dispatch origin for this call must be an unsigned one.
+Emits different message events based on the Message received if successful.
+Only available when the pallet is built with the `unsigned` feature flag.
+
+* `handle`
+Execute the provided batch of ISMP messages. This call will short-circuit and revert if any of the provided messages are invalid.
+The dispatch origin for this call must be a signed one.
+Emits different message events based on the Message received if successful.
+Only available when the `unsigned` feature flag is disabled.
+
+* `fund_message`
+During periods of high transaction fees on the destination chain, you can increase the relayer fee for in-flight requests and responses to incentivize their delivery.
+Simply call this function with the request/response commitment and the desired fee increase amount.
+Should not be called on a message that has been completed (delivered or timed-out) as those funds will be lost forever.
+
+## Transaction fees
+
+Hyperbridge offers a cost-effective approach to delivering ISMP messages:
+
+ - `No Fees for Valid Messages`: Hyperbridge itself doesn't charge any transaction fees for delivering valid ISMP messages to the chain. This reduces the overall cost burden for users.
+
+ - `Fees Paid on Source Chain`: Protocol fees are collected on the source chain (where the message originates) before it's submitted. This upfront payment system ensures that every delivered message has been "paid for" before valid proofs can be generated.
+
+Malformed messages or those with invalid proofs are filtered out by the transaction pool validation logic preventing unnecessary processing and potential network congestion.
+
+On parachains and solochains integrating ISMP transaction fees will be collected as the `handle_unsigned` extrinsic is disabled by default.
+
+## Runtime Integration
+
+Including `pallet-ismp` in a substrate runtime requires implementing the pallet config.
+
+```rust showLineNumbers
+parameter_types! {
+    // The hyperbridge parachain on Polkadot
+    pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));
+    // The host state machine of this pallet
+    pub const HostStateMachine: StateMachine = StateMachine::Polkadot(1000); // your paraId here
+}
+
+impl pallet_ismp::Config for Runtime {
+    // configure the runtime event
+    type RuntimeEvent = RuntimeEvent;
+    // Permissioned origin who can create or update consensus clients
+    type AdminOrigin = EnsureRoot<AccountId>;
+    // The state machine identifier for this state machine
+    type HostStateMachine = HostStateMachine;
+    // The pallet_timestamp pallet
+    type TimestampProvider = Timestamp;
+    // The currency implementation that is offered to relayers
+    type Currency = Balances;
+    // The balance type for the currency implementation
+    type Balance = Balance;
+    // Router implementation for routing requests/responses to their respective modules
+    type Router = Router;
+    // Optional coprocessor for incoming requests/responses
+    type Coprocessor = Coprocessor;
+    // Supported consensus clients
+    type ConsensusClients = (
+        // as an example, the parachain consensus client
+        ismp_parachain::ParachainConsensusClient<Runtime, IsmpParachain>,
+    );
+    // Optional merkle mountain range overlay tree, for cheaper outgoing request proofs.
+    // You most likely don't need it, just use the `NoOpMmrTree`
+    type Mmr = NoOpMmrTree<Runtime>;
+    // Weight provider for local modules
+    type WeightProvider = ();
+}
+
+construct_runtime! {
+    // ...
+    Ismp: pallet_ismp
+}
+```
+
+### Config
+
+Let's go through some of the ISMP specific components of the configuration.
+
+* `HostStateMachine`
+This is the state machine identifier for your chain, it will be used as the **source value for all requests that are dispatched from this chain** For parachains, this should be your parachain id e.g `StateMachine::Polkadot(1000)`.
+
+* `Coprocessor`
+ISMP is built around the idea of a coprocessor that aggregates consensus and state proofs from multiple state machines into a more succinct proof that is cheaply verifiable.
+This component defines the state machine identifier of the supported coprocessor, Hyperbridge is a coprocessor for ISMP.
+
+* `ConsensusClients`
+This is a tuple of types that implement the `ConsensusClient` interface, it defines all the consensus algorithms supported by this deployment of the protocol.
+
+* `Mmr`
+ This type allows us to use mmr tree as an overlay for cheaper proofs for requests and responses instead of the merkle patricia trie proofs.
+
+* `Router`
+The router is a type that provides an `IsmpModule` implementation for a module id.
+
+```rust showLineNumbers
+#[derive(Default)]
+struct Router;
+
+impl IsmpRouter for Router {
+    fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+        let module = match id.as_slice() {
+           YOUR_MODULE_ID => Box::new(YourModule::default()),
+           // ... other modules
+            _ => Err(Error::ModuleNotFound(id))?
+        };
+        Ok(module)
+    }
+}
+
+/// Some custom module capable of processing some incoming/request or response.
+/// This could also be a pallet itself.
+#[derive(Default)]
+struct YourModule;
+
+impl IsmpModule for YourModule {
+    /// Called by the ISMP hanlder, to notify module of a new POST request
+    /// the module may choose to respond immediately, or in a later block
+    fn on_accept(&self, request: Post) -> Result<(), Error> {
+        // do something useful with the request
+        Ok(())
+    }
+
+    /// Called by the ISMP hanlder, to notify module of a response to a previously
+    /// sent out request
+    fn on_response(&self, response: Response) -> Result<(), Error> {
+         // do something useful with the response
+         Ok(())
+    }
+
+     /// Called by the ISMP hanlder, to notify module of requests that were previously
+     /// sent but have now timed-out
+ 	fn on_timeout(&self, request: Timeout) -> Result<(), Error> {
+        // revert any state changes that were made prior to dispatching the request
+        Ok(())
+    }
+}
+```
+
+`WeightProvider`: This type allows providing the static benchmarks for all ismp modules, it should identify modules by their id and return the weights for each `IsmpModule` callback
+
+```rust showLineNumbers
+struct YourModuleBenchmarks;
+
+impl pallet_ismp::weights::IsmpModuleWeight for YourModuleBenchmarks {
+    /// Should return the weight used in processing this request
+	   fn on_accept(&self, request: &Post) -> Weight {
+        todo!("Return benchmark weight")
+    }
+	   /// Should return the weight used in processing this timeout
+	   fn on_timeout(&self, request: &Timeout) -> Weight {
+        todo!("Return benchmark weight")
+    }
+	   /// Should return the weight used in processing this response
+	   fn on_response(&self, response: &Response) -> Weight {
+        todo!("Return benchmark weight")
+    }
+}
+
+struct ModuleWeightProvider
+
+impl pallet_ismp::WeightProvider for ModuleWeightProvider {
+	fn module_callback(dest_module: ModuleId) -> Option<Box<dyn IsmpModuleWeight>> {
+		match dest_module.to_bytes().as_slice() {
+            YOUR_MODULE_ID => {
+                Some(Box::new(YourModuleBenchmarks::default()))
+            }
+            // ... other modules
+            _ => None
+        }
+	}
+}
+```
+
+## Runtime API
+
+`pallet-ismp-runtime-api` provides methods that allow the rpc client read the runtime state, this methods include querying requests and responses, generating proofs, among others. The runtime api can be easily added to the runtime as follows:
+
+```rust showLineNumbers
+impl pallet_ismp_runtime_api::IsmpRuntimeApi<Block, <Block as BlockT>::Hash> for Runtime {
+		fn host_state_machine() -> StateMachine {
+			<Runtime as pallet_ismp::Config>::HostStateMachine::get()
+		}
+
+		fn challenge_period(consensus_state_id: [u8; 4]) -> Option<u64> {
+			Ismp::challenge_period(consensus_state_id)
+		}
+
+		/// Generate a proof for the provided leaf indices
+		fn generate_proof(
+			keys: ProofKeys
+		) -> Result<(Vec<Leaf>, Proof<<Block as BlockT>::Hash>), sp_mmr_primitives::Error> {
+			Ismp::generate_proof(keys)
+		}
+
+		/// Fetch all ISMP events in the block, should only be called from runtime-api.
+		fn block_events() -> Vec<::ismp::events::Event> {
+			Ismp::block_events()
+		}
+
+		/// Fetch all ISMP events and their extrinsic metadata, should only be called from runtime-api.
+		fn block_events_with_metadata() -> Vec<(::ismp::events::Event, u32)> {
+			Ismp::block_events_with_metadata()
+		}
+
+		/// Return the scale encoded consensus state
+		fn consensus_state(id: ConsensusClientId) -> Option<Vec<u8>> {
+			Ismp::consensus_states(id)
+		}
+
+		/// Return the timestamp this client was last updated in seconds
+		fn consensus_update_time(id: ConsensusClientId) -> Option<u64> {
+			Ismp::consensus_update_time(id)
+		}
+
+		/// Return the latest height of the state machine
+		fn latest_state_machine_height(id: StateMachineId) -> Option<u64> {
+			Ismp::latest_state_machine_height(id)
+		}
+
+
+		/// Get actual requests
+		fn requests(commitments: Vec<H256>) -> Vec<Request> {
+			Ismp::requests(commitments)
+		}
+
+		/// Get actual requests
+		fn responses(commitments: Vec<H256>) -> Vec<Response> {
+			Ismp::responses(commitments)
+		}
+	}
+```
+
+While ISMP can be used independently, connecting to hyperbridge provides access to all its connected chains. In the next sections we'll look into how you can integrate with hyperbridge as a parachain or solochain.
+
+
+## Implementation
+
+ - [pallet-ismp](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/pallets/pallet/src/lib.rs)
+ - [pallet-ismp-runtime-api](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/pallets/runtime-api/src/lib.rs)
+ - [mmr-gadget](https://github.com/polytope-labs/hyperbridge/blob/main/modules/trees/mmr/gadget/src/lib.rs)

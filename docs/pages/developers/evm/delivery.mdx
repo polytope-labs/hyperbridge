@@ -1,0 +1,31 @@
+# Message Delivery
+
+Cross-chain ISMP Messages are delivered exclusively through the `Handler` contract. This contract acts as a gatekeeper, verifying all message proofs before delegating them to the `EvmHost` for dispatch to the intended module.
+
+**Permissionless Delivery**: Anyone can submit messages for delivery as long as they possess valid proofs from Hyperbridge and cover the necessary transaction fees. This permissionless approach fosters an open and accessible system.
+
+## Events
+
+Upon successful execution of ISMP messages, specific events are emitted. These events serve as confirmation for the successful processing of different message types.
+
+ - `PostRequestHandled`:
+ Emitted when a post request is successfully verified and the intended module successfully processes the request.
+ - `PostResponseHandled`:  Emitted when a post response is successfully verified and the intended module successfully processes the response.
+ - `PostRequestTimeoutHandled`:
+  Emitted when a post request timeout is successfully verified and the intended module successfully processes the timeout.
+ - `PostResponseTimeoutHandled`: Emitted when a post response timeout is successfully verified and the intended module successfully processes the timeout.
+ - `GetResponseHandled`: Emitted when the response to a cross-chain storage query is successfully verified and the intended module successfully processes the response.
+ - `StateMachineUpdated`: Emitted when new consensus proofs are successfully verified and a new state commitment is available to authenticate new cross-chain messages.
+
+## Message Types
+Ismp supports different message types with dedicated delivery methods:
+
+ - **Consensus Messages**: These messages are delivered through the handleConsensus call. They contain consensus message updates from Hyperbridge.
+ - **Request-Response Messages**:
+   - **Post Requests**: Delivered by calling `handlePostRequests` on the EvmHandler contract.
+   - **Post Responses**: Delivered by calling `handlePostResponses` on the Handler contract.
+   - **Get Responses**: Delivered by calling `handleGetResponses`.
+ - **Timeout Messages**: If a request or response exceeds its timeout without being delivered, a timeout message can be submitted. Specific functions handle these timeouts:
+    - `handlePostRequestTimeouts`
+    - `handlePostResponseTimeouts`
+    - `handleGetRequestTimeouts`

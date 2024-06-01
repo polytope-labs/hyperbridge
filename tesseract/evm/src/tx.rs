@@ -79,10 +79,7 @@ pub async fn submit_messages(
 					_ => {},
 				}
 
-				log::error!(
-					"Error broadcasting transaction to {}:  {err:?}",
-					client.config.state_machine
-				);
+				Err(err)?
 			},
 		}
 	}
@@ -104,7 +101,7 @@ async fn wait_for_success<'a>(
 where
 	'a: 'async_recursion,
 {
-	let log_receipt = |receipt: TransactionReceipt, cancelled: bool| {
+	let log_receipt = |receipt: TransactionReceipt, cancelled: bool| -> Result<(), anyhow::Error> {
 		let prelude = if cancelled { "Cancellation Tx" } else { "Tx" };
 		if matches!(receipt.status.as_ref().map(|f| f.low_u64()), Some(1)) {
 			log::info!("{prelude} for {:?} succeeded", client.state_machine);
@@ -114,7 +111,10 @@ where
 				client.state_machine,
 				receipt.transaction_hash
 			);
+			Err(anyhow!("Transaction reverted"))?
 		}
+
+		Ok(())
 	};
 
 	let client_clone = client.clone();
@@ -160,7 +160,8 @@ where
 
 			if let Ok(pending) = pending {
 				if let Ok(Some(receipt)) = pending.await {
-					log_receipt(receipt, true);
+					// we're going to error anyways
+					let _ = log_receipt(receipt, true);
 				}
 			}
 
@@ -192,7 +193,7 @@ where
 						}
 						None
 					}).collect();
-					log_receipt(receipt, false);
+					log_receipt(receipt, false)?;
 					Ok(events)
 				},
 				Ok(None) => {
@@ -366,12 +367,7 @@ pub async fn generate_contract_calls(
 
 				calls.push(call);
 			},
-			Message::Timeout(TimeoutMessage::Post { .. }) =>
-				Err(anyhow!("Timeout messages not supported by relayer"))?,
-			Message::Timeout(TimeoutMessage::PostResponse { .. }) =>
-				Err(anyhow!("Timeout messages not supported by relayer"))?,
-			Message::Timeout(TimeoutMessage::Get { .. }) =>
-				Err(anyhow!("Timeout messages not supported by relayer"))?,
+			Message::Timeout(_) => Err(anyhow!("Timeout messages not supported by relayer"))?,
 			Message::FraudProof(_) => Err(anyhow!("Unexpected fraud proof message"))?,
 		}
 	}

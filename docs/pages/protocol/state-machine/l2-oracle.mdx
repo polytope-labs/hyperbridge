@@ -1,0 +1,98 @@
+# L2 Oracle
+
+In the OpStack system, trusted proposers periodically submit L2 state commitments (output roots) to the L1 chain.
+These submissions occur at designated intervals. Anyone acting as a challenger can dispute an invalid output root.
+If no challenge arises within a specific timeframe, the submitted output root is considered final. This approach leverages a permissioned proposer and challenger.
+
+## L2 Output Root Construction
+The `output_root` is a 32 byte value, which is derived based on the a versioned scheme:
+
+```
+payload = state_root || withdrawal_storage_root || latest_block_hash
+
+output_root = keccak256(version_byte || payload)
+```
+
+* The `latest_block_hash` is the block hash for the latest L2 block at the time the proposer constructed the output root.
+* The `state_root` is the Merkle-Patricia-Trie (MPT) root of the L2 state db.
+* The `withdrawal_storage_root` is the state root of the Message Passer contract storage.
+* The `version_byte`  a simple 32 byte version string which increments anytime the construction of the output root is changed.
+
+## Verifying the Output Root
+
+The finalization of an L1 block soft finalizes all output roots proposed up until the finalized L1 block.
+To verify an output root, a light client needs to verify it's existence in the state trie of the finalized L1 chain.
+The algorithm for doing that is described below:
+
+```rust showLineNumbers
+type H256 = [u8; 32]
+type U256 = [u64; 4];
+
+struct OpstackProof {
+	/// Actual state root of the opstack execution layer
+	state_root: H256,
+	/// Storage root hash of the opstack withdrawal contracts
+	withdrawal_storage_root: H256,
+	/// Optimism Block hash at which the values aboved were fetched
+	l2_block_hash: H256,
+	/// L2Oracle contract version
+	version: H256,
+	/// Membership Proof for the L2Oracle contract account in the ethereum world trie
+	l2_oracle_proof: Vec<Vec<u8>>,
+	/// Membership proof for output root in l2Outputs array
+	output_root_proof: Vec<Vec<u8>>,
+	/// Membership proof Timestamp and block number in the l2Outputs array
+	multi_proof: Vec<Vec<u8>>,
+	/// Index of the output root that needs to be proved in the l2Outputs array
+	output_root_index: u64,
+	/// Block number
+	block_number: u64,
+	/// Timestamp
+	timestamp: u64,
+}
+```
+Given the proof described above, we would verify the existence of the output root as follows:
+
+**Inputs**:
+
+`payload`: `OpstackProof` containing proofs and state information
+`root`: Merkle root of the L1 chain
+`l2_oracle_address`: Address of the L2 oracle contract
+
+**Outputs**:
+
+`state_root`: The verified l2 state root
+
+**Steps**:
+
+*   **Verify L2 Oracle Storage Root**:
+
+Use the provided proof (`payload.l2_oracle_proof`) and oracle address to retrieve the storage root of the l2 oracle contract from the L1 state proof.
+
+*   **Compute the Output Root**:
+
+Compute the output root as decribed in the previous section.
+
+*   **Verify Output Root Proof**:
+
+Derive the slot hash for the output root within the l2 oracle contract storage slots.
+Use the proof (`payload.output_root_proof`) and l2 oracle storage root to retrieve the value associated with the slot hash.
+Check if a value was found. If not, return an error indicating the proof failed verification.
+Decode the retrieved value as a byte array and compare it to the calculated output root. If they don't match, return an error indicating an invalid proof.
+
+*   **Verify Timestamp and Block Number**:
+
+Derive the slot hash for the block number and timestamp within the l2 oracle contract storage slots.
+Use the multi-proof (`payload.multi_proof`) and l2 oracle storage root to retrieve the value associated with the slot hash.
+Check if a value was found. If not, return an error indicating the proof failed verification.
+Decode the retrieved value as a byte array and convert it to a U256 value.
+Extract the timestamp (first two u64 values) and block number (last two u64 values) from the U256 value.
+Compare the extracted timestamp and block number with the corresponding values in the payload. If they don't match, return an error indicating an invalid proof.
+
+If all steps complete successfully then we can accept the `state_root`, `timestamp` and `block_number` as valid.
+
+
+## Implementation
+
+- [op-verifier](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/optimism/src/lib.rs)
+- [l2 proposals specification](https://specs.optimism.io/protocol/proposals.html)

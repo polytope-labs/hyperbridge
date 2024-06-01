@@ -32,7 +32,7 @@ The following is a technical specification for the mechanism of verifying the at
 
 ## Constants
 
-```rust
+```rust showLineNumbers
 /// The block root and state root for every slot are stored in the state for `SLOTS_PER_HISTORICAL_ROOT` slots.
 /// When that list is full, both lists are Merkleized into a single Merkle root,
 /// which is added to the ever-growing state.historical_roots list.
@@ -108,7 +108,7 @@ const MAX_TRANSACTIONS_PER_PAYLOAD: u64 = 2.pow(20);
 
 ## Data Types
 
-```rust
+```rust showLineNumbers
 /// The beacon block header
 /// [source](https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#beaconblockheader)
 struct BeaconBlockHeader {
@@ -332,7 +332,7 @@ This algorithm is based on [the official altair sync protocol specification](htt
 - We optionally verify the SSZ proof for the next sync committee finalized by this new header.
 - We optionally verify the SSZ proofs for ancestor blocks.
 
-```rust
+```rust showLineNumbers
 /// This function simply verifies a sync committee's attestation & it's finalized counterpart.
 fn verify_sync_committee_attestation(
   state: ConsensusState,

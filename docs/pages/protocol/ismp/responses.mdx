@@ -7,7 +7,7 @@ description: The ISMP Response specification
 
 Responses in the ISMP framework can be either one of a `PostResponse` or a `GetResponse`.
 
-```rust
+```rust showLineNumbers
 /// The response to a POST request
 pub struct PostResponse {
     /// The POST request that triggered this response.
@@ -49,7 +49,7 @@ The ISMP framework exposes a handler that allows relayers submit new responses, 
 
 ### `handle_response`
 
-```rust
+```rust showLineNumbers
 /// A request message holds a batch of responses to be dispatched from a source state machine
 pub struct ResponseMessage {
     /// A set of either POST requests or responses to be handled

@@ -1,0 +1,140 @@
+# Fault Dispute Games
+
+The OpStack system finalizes L2 state commitments using fraud proofs in a permissionless manner. Any bonded party can submit an L2 output root as a fault dispute game at any time.
+Invalid outputs can be challenged by anyone in a permissionless manner. The challenge process involves both the proposer (who submitted the output root) and the challenger playing a fault dispute game on-chain.
+If the challenger wins, the malicious output root is discarded, and the proposer's bond acts as a reward.
+Different types of dispute games, defined within the dispute factory contract, can be used for validation, with the specific game determined by the initial submission and respected game types.
+Unchallenged outputs are accepted as final after a designated challenge period.
+
+## Dispute Game factory
+
+The dispute game factory is a contract used to create new dispute games, since every output root submission is a dispute game, this contract deploys a new dispute game for every output root submitted.
+
+It keeps a record of all deployed dispute game ids allowing anyone to verify the existence of a dispute game.
+
+
+## L2 Output Root Construction
+The `output_root` is a 32 byte value, which is derived based on the a versioned scheme:
+
+```
+payload = state_root || withdrawal_storage_root || latest_block_hash
+
+output_root = keccak256(version_byte || payload)
+```
+
+* The `latest_block_hash` is the block hash for the latest L2 block at the time the proposer constructed the output root.
+* The `state_root` is the Merkle-Patricia-Trie (MPT) root of the L2 state db.
+* The `withdrawal_storage_root` is the state root of the Message Passer contract storage.
+* The `version_byte`  a simple 32 byte version string which increments anytime the construction of the output root is changed.
+
+
+## Verifying a dispute game's existence
+
+For an onchain light client to be sure an output root exists, it must verify the existence of the dispute game that was created for that output root in the dispute game factory.
+
+The struct below shows the proof we need to validate the existence of a dispute game and implicitly the output root contained in it.
+
+```rust showLineNumbers
+type H256 = [u8; 32];
+type Bloom = [u8; 256];
+type U256 = [u64; 4];
+type H64 = [u8; 8];
+
+struct Header {
+	parent_hash: H256,
+	uncle_hash: H256,
+	coinbase: H160,
+	state_root: H256,
+	transactions_root: H256,
+	receipts_root: H256,
+	logs_bloom: Bloom,
+	difficulty: U256,
+	number: U256,
+	gas_limit: u64,
+	gas_used: u64,
+	timestamp: u64,
+	extra_data: Vec<u8>,
+	mix_hash: H256,
+	nonce: H64,
+	base_fee_per_gas: Option<U256>,
+	withdrawals_hash: Option<H256>,
+	blob_gas_used: Option<u64>,
+	excess_blob_gas_used: Option<u64>,
+	parent_beacon_root: Option<H256>,
+}
+
+
+struct OptimismDisputeGameProof {
+	/// Op stack header
+	header: Header,
+	/// Storage root hash of the optimism withdrawal contracts
+	withdrawal_storage_root: H256,
+	/// L2Oracle contract version
+	version: H256,
+	/// Membership Proof for the DisputeFactory contract account in the ethereum world trie
+	dispute_factory_proof: Vec<Vec<u8>>,
+	/// Membership proof for dispute game in disputeGames map
+	dispute_game_proof: Vec<Vec<u8>>,
+	/// Dispute game proxy address
+	proxy: H160,
+	/// Extra data that was used in initializing the dispute game
+	extra_data: Vec<u8>,
+	/// Game type
+	game_type: u32,
+	/// L1 Timestamp at game creation
+	timestamp: u64,
+}
+```
+
+
+**Inputs**:
+
+`payload`: `OptimismDisputeGameProof` containing information and proofs
+`root`: MPT root of the L1
+`dispute_factory_address`: Address of the dispute factory contract
+
+**Outputs**:
+
+`state_root`: State root of the L2
+
+**Steps**:
+
+*   **Validate Game Type**:
+
+Check if the game type in the payload (`payload.game_type`) matches the respected game type. If not, return an error indicating an invalid game type.
+
+*   **Verify Dispute Factory Storage Root**:
+
+Use the provided proof (`payload.dispute_factory_proof`) and dispute factory address to retrieve the storage root from the L1 state proof.
+
+*   **Compute the Output Root**:
+
+Compute the output root as decribed in the previous section.
+
+*   **Compute the dispute game UUID**:
+
+Use the game type (`payload.game_type`), output_root, and extra data (payload.extra_data) to get the game UUID.
+
+*   **Verify Dispute Game Existence**:
+
+Derive the slot hash for the dispute game within the dispute factory storage using the game UUID.
+Use the proof (`payload.dispute_game_proof`) and dispute_factory storage root to retrieve the value associated with the slot hash.
+Check if a value was found. If not, return an error indicating the dispute game's ID wasn't found in the proof.
+The value extracted from the stage should be the dispute game ID.
+
+*   **Derive Game ID**:
+
+Use the game type (`payload.game_type`), timestamp (`payload.timestamp`), and proxy (`payload.proxy`) to calculate the expected game ID.
+Convert the derived game ID to a 32-byte array.
+
+*   **Compare Game IDs**:
+
+Compare the game ID extracted from the proof with the derived game ID. If they don't match, then the proof submitted is invalid.
+
+If all steps complete successfully then we can accept the `state_root`, `timestamp` and `block_number` in the provided block header.
+
+
+## Implementation
+
+- [op-verifier](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/optimism/src/lib.rs)
+- [dispute games specification](https://specs.optimism.io/protocol/proposals.html)

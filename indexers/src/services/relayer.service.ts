@@ -49,25 +49,6 @@ export class RelayerService {
   }
 
   /**
-   * Computes relayer specific stats from the PostRequestHandled/PostResponseHandle event's transaction
-   */
-  static async handlePostRequestOrPostResponseHandledEvent(
-    relayer_id: string,
-    _transaction: EthereumTransaction<EthereumResult>,
-    chain: SupportedChain,
-  ): Promise<void> {
-    let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
-      relayer_id,
-      chain,
-    );
-
-    relayer_chain_stats.numberOfMessagesDelivered += BigInt(1);
-    relayer_chain_stats.numberOfSuccessfulMessagesDelivered += BigInt(1);
-
-    Promise.all([await relayer_chain_stats.save()]);
-  }
-
-  /**
    * Computes relayer specific stats from the handlePostRequest/handlePostResponse transactions on the handlerV1 contract
    */
   static async handlePostRequestOrResponseTransaction(
@@ -103,13 +84,12 @@ export class RelayerService {
     );
 
     if (status === true) {
+      relayer_chain_stats.numberOfSuccessfulMessagesDelivered += BigInt(1);
       relayer_chain_stats.gasUsedForSuccessfulMessages += BigInt(gasUsed);
       relayer_chain_stats.gasFeeForSuccessfulMessages += BigInt(gasFee);
       relayer_chain_stats.usdGasFeeForSuccessfulMessages += usdFee;
     } else {
-      relayer_chain_stats.numberOfMessagesDelivered += BigInt(1);
       relayer_chain_stats.numberOfFailedMessagesDelivered += BigInt(1);
-
       relayer_chain_stats.gasUsedForFailedMessages += BigInt(gasUsed);
       relayer_chain_stats.gasFeeForFailedMessages += BigInt(gasFee);
       relayer_chain_stats.usdGasFeeForFailedMessages += usdFee;

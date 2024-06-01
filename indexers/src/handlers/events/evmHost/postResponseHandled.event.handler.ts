@@ -51,11 +51,7 @@ export async function handlePostResponseHandledEvent(
       relayer_id,
       chain,
     ),
-    await RelayerService.handlePostRequestOrPostResponseHandledEvent(
-      relayer_id,
-      transaction,
-      chain,
-    ),
+
     await ResponseService.updateStatus({
       commitment,
       chain,

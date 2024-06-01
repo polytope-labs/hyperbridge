@@ -1,0 +1,11 @@
+specVersion: 1.0.0
+query:
+  name: '@subql/query'
+  version: '*'
+projects:
+  - ethereum-sepolia.yaml
+  - optimism-sepolia.yaml
+  - base-sepolia.yaml
+  - arbitrum-sepolia.yaml
+  - bsc-chapel.yaml
+  - hyperbridge-gargantua.yaml

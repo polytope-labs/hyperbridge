@@ -15,6 +15,7 @@ use ismp::{
 	router::{Post, PostResponse, Request, Response},
 };
 
+use crate::indexing::query_request_status_from_indexer;
 use ismp::events::Event;
 use std::time::Duration;
 
@@ -365,6 +366,56 @@ pub async fn request_status_stream(
 						let destination_current_timestamp = dest_client.query_timestamp().await?;
 						let relayer_address = dest_client.query_request_receipt(hash).await?;
 
+						if let Some(msg_status) =
+							query_request_status_from_indexer(req.clone()).await.ok().flatten()
+						{
+							match &msg_status {
+								MessageStatusWithMetadata::SourceFinalized {
+									finalized_height,
+									..
+								} => {
+									return Ok::<
+										Option<(Result<_, anyhow::Error>, PostStreamState)>,
+										anyhow::Error,
+									>(Some((
+										Ok(msg_status.clone()),
+										PostStreamState::SourceFinalized(*finalized_height),
+									)));
+								},
+								MessageStatusWithMetadata::HyperbridgeDelivered { meta } => {
+									return Ok::<
+										Option<(Result<_, anyhow::Error>, PostStreamState)>,
+										anyhow::Error,
+									>(Some((
+										Ok(msg_status.clone()),
+										PostStreamState::HyperbridgeDelivered(meta.block_number),
+									)));
+								},
+								MessageStatusWithMetadata::HyperbridgeFinalized {
+									finalized_height,
+									..
+								} => {
+									return Ok::<
+										Option<(Result<_, anyhow::Error>, PostStreamState)>,
+										anyhow::Error,
+									>(Some((
+										Ok(msg_status.clone()),
+										PostStreamState::HyperbridgeFinalized(*finalized_height),
+									)));
+								},
+								MessageStatusWithMetadata::DestinationDelivered { .. } => {
+									return Ok::<
+										Option<(Result<_, anyhow::Error>, PostStreamState)>,
+										anyhow::Error,
+									>(Some((
+										Ok(msg_status.clone()),
+										PostStreamState::DestinationDelivered,
+									)));
+								},
+								_ => {},
+							}
+						}
+
 						if relayer_address != H160::zero() {
 							// This means the message has gotten to the destination chain
 							return Ok::<
@@ -457,6 +508,44 @@ pub async fn request_status_stream(
 					PostStreamState::SourceFinalized(finalized_height) => {
 						let relayer = hyperbridge_client.query_request_receipt(hash).await?;
 
+						if let Some(msg_status) =
+							query_request_status_from_indexer(req.clone()).await.ok().flatten()
+						{
+							match &msg_status {
+								MessageStatusWithMetadata::HyperbridgeDelivered { meta } => {
+									return Ok::<
+										Option<(Result<_, anyhow::Error>, PostStreamState)>,
+										anyhow::Error,
+									>(Some((
+										Ok(msg_status.clone()),
+										PostStreamState::HyperbridgeDelivered(meta.block_number),
+									)));
+								},
+								MessageStatusWithMetadata::HyperbridgeFinalized {
+									finalized_height,
+									..
+								} => {
+									return Ok::<
+										Option<(Result<_, anyhow::Error>, PostStreamState)>,
+										anyhow::Error,
+									>(Some((
+										Ok(msg_status.clone()),
+										PostStreamState::HyperbridgeFinalized(*finalized_height),
+									)));
+								},
+								MessageStatusWithMetadata::DestinationDelivered { .. } => {
+									return Ok::<
+										Option<(Result<_, anyhow::Error>, PostStreamState)>,
+										anyhow::Error,
+									>(Some((
+										Ok(msg_status.clone()),
+										PostStreamState::DestinationDelivered,
+									)));
+								},
+								_ => {},
+							}
+						}
+
 						if relayer != H160::zero() {
 							let latest_height =
 								hyperbridge_client.query_latest_block_height().await?;
@@ -512,6 +601,36 @@ pub async fn request_status_stream(
 
 					PostStreamState::HyperbridgeDelivered(height) => {
 						let res = dest_client.query_request_receipt(hash).await?;
+
+						if let Some(msg_status) =
+							query_request_status_from_indexer(req.clone()).await.ok().flatten()
+						{
+							match &msg_status {
+								MessageStatusWithMetadata::HyperbridgeFinalized {
+									finalized_height,
+									..
+								} => {
+									return Ok::<
+										Option<(Result<_, anyhow::Error>, PostStreamState)>,
+										anyhow::Error,
+									>(Some((
+										Ok(msg_status.clone()),
+										PostStreamState::HyperbridgeFinalized(*finalized_height),
+									)));
+								},
+								MessageStatusWithMetadata::DestinationDelivered { .. } => {
+									return Ok::<
+										Option<(Result<_, anyhow::Error>, PostStreamState)>,
+										anyhow::Error,
+									>(Some((
+										Ok(msg_status.clone()),
+										PostStreamState::DestinationDelivered,
+									)));
+								},
+								_ => {},
+							}
+						}
+
 						if res != H160::zero() {
 							return Ok(Some((
 								Ok(MessageStatusWithMetadata::DestinationDelivered {
@@ -596,6 +715,23 @@ pub async fn request_status_stream(
 
 					PostStreamState::HyperbridgeFinalized(finalized_height) => {
 						let res = dest_client.query_request_receipt(hash).await?;
+
+						if let Some(msg_status) =
+							query_request_status_from_indexer(req.clone()).await.ok().flatten()
+						{
+							match &msg_status {
+								MessageStatusWithMetadata::DestinationDelivered { .. } => {
+									return Ok::<
+										Option<(Result<_, anyhow::Error>, PostStreamState)>,
+										anyhow::Error,
+									>(Some((
+										Ok(msg_status.clone()),
+										PostStreamState::DestinationDelivered,
+									)));
+								},
+								_ => {},
+							}
+						}
 						let request_commitment =
 							hash_request::<Keccak256>(&Request::Post(post.clone()));
 						if res != H160::zero() {

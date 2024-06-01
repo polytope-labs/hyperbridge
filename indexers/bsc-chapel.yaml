@@ -1,0 +1,118 @@
+specVersion: 1.0.0
+version: 0.0.1
+name: bsc-chapel
+description: BNB Smart Chain Testnet Indexer
+runner:
+  node:
+    name: "@subql/node-ethereum"
+    version: ">=3.0.0"
+  query:
+    name: "@subql/query"
+    version: "*"
+schema:
+  file: ./schema.graphql
+network:
+  chainId: "97"
+  endpoint:
+    - "https://public.stackup.sh/api/v1/node/bsc-testnet"
+dataSources:
+  # EthereumHost contract
+  - kind: ethereum/Runtime
+    startBlock: 40494944
+    options:
+      abi: ethereumHost
+      address: "0xE6bd95737DD35Fd0e5f134771A832405671f06e9"
+    assets:
+      ethereumHost:
+        file: ./abis/EthereumHost.abi.json
+      chainLinkAggregatorV3:
+        file: ./abis/ChainLinkAggregatorV3.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handlePostRequestEvent
+          filter:
+            topics:
+              - PostRequestEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,uint256)
+        - kind: ethereum/LogHandler
+          handler: handlePostResponseEvent
+          filter:
+            topics:
+              - PostResponseEvent(bytes,bytes,bytes,bytes,uint256,uint256,bytes,bytes,uint256,uint256)
+        - kind: ethereum/LogHandler
+          handler: handlePostRequestHandledEvent
+          filter:
+            topics:
+              - "PostRequestHandled(bytes32, address)"
+        - kind: ethereum/LogHandler
+          handler: handlePostResponseHandledEvent
+          filter:
+            topics:
+              - "PostResponseHandled(bytes32,address)"
+        - kind: ethereum/LogHandler
+          handler: handlePostRequestTimeoutHandledEvent
+          filter:
+            topics:
+              - "PostRequestTimeoutHandled(bytes32)"
+        - kind: ethereum/LogHandler
+          handler: handlePostResponseTimeoutHandledEvent
+          filter:
+            topics:
+              - "PostResponseTimeoutHandled(bytes32)"
+        - kind: ethereum/LogHandler
+          handler: handleGetRequestHandledEvent
+          filter:
+            topics:
+              - "GetRequestHandled(bytes32,address)"
+        - kind: ethereum/LogHandler
+          handler: handleGetRequestTimeoutHandledEvent
+          filter:
+            topics:
+              - "GetRequestTimeoutHandled(bytes32)"
+        - kind: ethereum/LogHandler
+          handler: handleStateMachineUpdatedEvent
+          filter:
+            topics:
+              - "StateMachineUpdated(bytes,uint256)"
+
+  # Protocol Fee Token
+  - kind: ethereum/Runtime
+    startBlock: 40494942
+    options:
+      abi: erc6160ext20
+      address: "0x6B0e814557b15D67db6F0F147702d209DBEd8D1A"
+    assets:
+      erc6160ext20:
+        file: ./abis/ERC6160Ext20.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleTransferEvent
+          filter:
+            topics:
+              - "Transfer(address indexed from, address indexed to, uint256 amount)"
+
+  # Handler Contract
+  - kind: ethereum/Runtime
+    startBlock: 40494944
+    options:
+      abi: handlerV1
+      address: "0xBA82A7c413BfbE26ee025DA221088319b895A8E6"
+    assets:
+      handlerV1:
+        file: ./abis/HandlerV1.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - handler: handlePostRequestTransactionHandler
+          kind: ethereum/TransactionHandler
+          filter:
+            function: "0x9d38eb35"
+        - handler: handlePostResponseTransactionHandler
+          kind: ethereum/TransactionHandler
+          filter:
+            function: "0x72becccd"
+
+repository: "https://github.com/polytope-labs/hyperbridge"

@@ -1,0 +1,398 @@
+# To improve query performance, we strongly suggest adding indexes to any field that you plan to filter or sort by
+# Add the `@index` or `@index(unique: true)` annotation after any non-key field
+# https://academy.subquery.network/build/graphql.html#indexing-by-non-primary-key-field
+
+"""
+The blockchains currently indexed by the hyberbridge multi-chain indexer
+"""
+enum SupportedChain {
+    ETHE
+    ARBI
+    OPTI
+    BASE
+    BSC
+    POLY
+    HYPERBRIDGE
+}
+
+"""
+Supported Event Types
+"""
+enum EventType {
+    EVM_HOST_POST_REQUEST_HANDLED
+    EVM_HOST_POST_REQUEST_TIMEOUT_HANDLED
+    EVM_HOST_POST_RESPONSE_HANDLED
+    EVM_HOST_POST_RESPONSE_TIMEOUT_HANDLED
+    EVM_HOST_GET_REQUEST_HANDLED
+    EVM_HOST_GET_REQUEST_TIMEOUT_HANDLED
+    HANDLER_V1_STATE_MACHINE_UPDATED
+}
+
+"""
+The status of a request
+"""
+enum RequestStatus {
+    SOURCE
+    MESSAGE_RELAYED
+    DEST
+    TIMED_OUT
+}
+
+"""
+The status of a response
+"""
+enum ResponseStatus {
+    SOURCE
+    MESSAGE_RELAYED
+    DEST
+    TIMED_OUT
+}
+
+"""
+Important Hyperbridge Metrics
+"""
+type HyperBridgeStats @entity {
+    """
+    Unique identifier of the HyperBridgeStats entry.
+    N.B This entity is used for overall metric aggregation, and as such only one entry with an ID of 1 will exist
+    """
+    id: ID!
+
+    """
+    The per chain stats for Hyperbridge
+    """
+    perChainStats: [HyperBridgeChainStats]!
+        @derivedFrom(field: "hyperBridgeStats")
+}
+
+"""
+Important Hyperbridge Stats for a specific chain
+"""
+type HyperBridgeChainStats @entity {
+    """
+    The chain the metrics are for
+    """
+    id: ID!
+
+    """
+    Total number of messages sent on Hyperbridge on this chain
+    """
+    numberOfMessagesSent: BigInt!
+
+    """
+    Total number of messages delivered by Hyperbridge on this chain
+    """
+    numberOfDeliveredMessages: BigInt!
+
+    """
+    Total number of failed messages sent by Hyperbridge on this chain
+    """
+    numberOfFailedDeliveries: BigInt!
+
+    """
+    Total number of timed out messages on this chain
+    """
+    numberOfTimedOutMessages: BigInt!
+
+    """
+    The total amount of transfers sent into the Hyperbridge Host Contracts (transfers in = protocol fee + relayer fee)
+    """
+    totalTransfersIn: BigInt!
+
+    """
+    Total amount of fees earned by Hyperbridge on the chain (protocol fees)
+    """
+    protocolFeesEarned: BigInt!
+
+    """
+    Total amount of fees payed out by Hyperbridge to relayers on the chain (relayer fees)
+    """
+    feesPayedOutToRelayers: BigInt!
+
+    """
+    Relationship to the HyperBridgeStats entity
+    """
+    hyperBridgeStats: HyperBridgeStats!
+}
+
+"""
+Hyperbridge Stats for a specific Relayer on a specific chain
+"""
+type RelayerStatsPerChain @entity {
+    """
+    Unique identifier of the RelayerChainMetrics entry.
+    """
+    id: ID!
+
+    """
+    The relayer the metrics are for
+    """
+    relayer: Relayer!
+
+    """
+    The chain the metrics are for
+    """
+    chain: SupportedChain!
+
+    """
+    Total number of successful post requests or post responses handled by the Relayer
+    """
+    numberOfSuccessfulMessagesDelivered: BigInt!
+
+    """
+    Total number of failed post requests handled by the Relayer
+    """
+    numberOfFailedMessagesDelivered: BigInt!
+
+    """
+    Amount of gas spent on successful messages (Gas Cost)
+    """
+    gasUsedForSuccessfulMessages: BigInt!
+
+    """
+    Amount of gas spent on failed messages (Gas Cost)
+    """
+    gasUsedForFailedMessages: BigInt!
+
+    """
+    Gas fee spent on successful post requests (Gas Cost * Gas Price)
+    """
+    gasFeeForSuccessfulMessages: BigInt!
+
+    """
+    Gas fee spent on failed post requests (Gas Cost * Gas Price)
+    """
+    gasFeeForFailedMessages: BigInt!
+
+    """
+    The USD value of the gas fee spent on successful post requests (Gas Fee * USD Value of Eth at the time of the transaction)
+    """
+    usdGasFeeForSuccessfulMessages: BigInt!
+
+    """
+    The USD value of the gas fee spent on failed post requests (Gas Fee * USD Value of Eth at the time of the transaction)
+    """
+    usdGasFeeForFailedMessages: BigInt!
+
+    """
+    Total fees earned by the relayer
+    """
+    feesEarned: BigInt!
+}
+
+"""
+A Hyperbridge Relayer
+"""
+type Relayer @entity {
+    """
+    Unique identifier of the Relayer (also the relayer's address)
+    """
+    id: ID!
+
+    """
+    A list of important stats for the Relayer on every network that they support
+    """
+    perChainStats: [RelayerStatsPerChain]! @derivedFrom(field: "relayer")
+}
+
+"""
+Transfers made from/to the Hyperbridge Host
+- The host transfers fees to Relayers
+- The host receives fees from protocol users
+"""
+type Transfer @entity @compositeIndexes(fields: [["from", "to"]]) {
+    """
+    Unique identifier of the Transfer
+    """
+    id: ID!
+
+    """
+    The chain on which the transfer was made
+    """
+    chain: SupportedChain!
+
+    """
+    The amount transferred
+    """
+    amount: BigInt!
+
+    """
+    The address that made the transfer (the hyperbridge host address)
+    """
+    from: String! @index
+
+    """
+    The address that received the transfer (the relayer address)
+    """
+    to: String! @index
+}
+
+"""
+An event that has occured on an EVM Host
+"""
+type Event @entity {
+    """
+    The ID of the event (also the event commitment)
+    """
+    id: ID!
+    type: EventType!
+    chain: SupportedChain!
+    blockHash: String!
+    blockNumber: BigInt!
+    transactionHash: String!
+    transactionIndex: BigInt!
+    data: String!
+    destination: String
+    createdAt: Date!
+}
+
+"""
+A StateMachine Update Event
+"""
+type StateMachineUpdateEvent @entity {
+    """
+    The ID of the StateMachineUpdate  (hash of concatenation of stateMachineId and height)
+    """
+    id: ID!
+    stateMachineId: String!
+    height: BigInt!
+    chain: SupportedChain!
+    blockHash: String!
+    blockNumber: BigInt!
+    transactionHash: String!
+    transactionIndex: BigInt!
+    createdAt: Date!
+}
+
+"""
+A Hyperbridge Request
+"""
+type Request @entity {
+    """
+    Unique identifier of the Request (This is the request commitment)
+    """
+    id: ID!
+
+    """
+    The chain on which the request was made
+    """
+    chain: SupportedChain!
+
+    """
+    This is the statemachine id where this request originated from
+    """
+    source: String
+
+    """
+    This is the statemachine where this request is been dispatched to
+    """
+    dest: String
+
+    """
+    This is the timestamp when the request would timeout
+    """
+    timeoutTimestamp: BigInt
+
+    """
+    The address that dispatched this request
+    """
+    from: String @index
+
+    """
+    The address receiving this request
+    """
+    to: String @index
+
+    """
+    Nonce of the request
+    """
+    nonce: BigInt @index
+
+    """
+    Data of the request
+    """
+    data: String @index
+
+    """
+    This is the fee set for this request
+    """
+    fee: BigInt @index
+
+    """
+    Status of the request
+    """
+    status: RequestStatus!
+
+    """
+    Metatdata about the request's progression through different statuses
+    """
+    statusMetadata: [RequestStatusMetadata]! @derivedFrom(field: "request")
+}
+
+"""
+Metadata about the status of a Request
+"""
+type RequestStatusMetadata @entity {
+    id: ID!
+    status: RequestStatus!
+    chain: SupportedChain!
+    timestamp: BigInt!
+    blockNumber: String!
+    blockHash: String!
+    transactionHash: String!
+    request: Request!
+}
+
+"""
+A Hyperbridge Response
+"""
+type Response @entity {
+    """
+    Unique identifier of the Response (This is the response commitment)
+    """
+    id: ID!
+
+    """
+    The chain on which the response was made
+    """
+    chain: SupportedChain!
+
+    """
+    The response message
+    """
+    response_message: String
+
+    """
+    The Timestamp at which this response expires in seconds
+    """
+    responseTimeoutTimestamp: BigInt
+
+    """
+    Status of the response
+    """
+    status: ResponseStatus!
+
+    """
+    The request that triggered this response
+    """
+    request: Request
+
+    """
+    Metatdata about the response's progression through different statuses
+    """
+    statusMetadata: [ResponseStatusMetadata]! @derivedFrom(field: "response")
+}
+
+"""
+Metadata about the status of a Response
+"""
+type ResponseStatusMetadata @entity {
+    id: ID!
+    status: ResponseStatus!
+    chain: SupportedChain!
+    timestamp: BigInt!
+    blockNumber: String!
+    blockHash: String!
+    transactionHash: String!
+    response: Response!
+}

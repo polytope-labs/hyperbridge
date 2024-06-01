@@ -1,0 +1,40 @@
+{
+  "name": "hyperbridge-indexers",
+  "version": "0.0.1",
+  "description": "Indexers for Hyperbridge",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "subql build",
+    "codegen": "subql codegen",
+    "start:docker": "docker-compose pull && docker-compose up --remove-orphans",
+    "dev": "subql codegen && subql build && docker-compose pull && docker-compose up --remove-orphans",
+    "prepack": "rm -rf dist && npm run build",
+    "test": "subql build && subql-node-ethereum -f=ethereum-sepolia.yaml test"
+  },
+  "homepage": "https://hyperbridge.network/",
+  "repository": "https://github.com/polytope-labs/hyperbridge",
+  "files": ["dist", "schema.graphql", "subquery-multichain.yaml"],
+  "author": "Polytope Labs",
+  "license": "MIT",
+  "dependencies": {
+    "@ethersproject/shims": "^5.7.0",
+    "@polkadot/api": "latest",
+    "@subql/common": "latest",
+    "@subql/types-ethereum": "latest",
+    "@subql/validator": "latest",
+    "assert": "^2.0.0"
+  },
+  "devDependencies": {
+    "@subql/cli": "latest",
+    "@subql/node": "latest",
+    "@subql/node-core": "latest",
+    "@subql/node-ethereum": "latest",
+    "@subql/testing": "latest",
+    "@subql/types": "latest",
+    "ethers": "^5.7.2",
+    "typescript": "latest"
+  },
+  "exports": {
+    "hyperbridge-chaintypes": "src/hyperbridge-chaintypes.ts"
+  }
+}

@@ -11,6 +11,7 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+
 [dependencies]
 wasm-bindgen = { version = "0.2.90" }
 subxt = { workspace = true }
@@ -39,12 +40,13 @@ ethers = { workspace = true, features = ["ws"] }
 ismp = { workspace = true }
 pallet-ismp = { workspace = true, features = ["disable-panic-handler"] }
 evm-common = { workspace = true }
-sp-core = { workspace = true }
+sp-core = { workspace = true, features = ["serde"]}
 substrate-state-machine = { workspace = true }
 ismp-solidity-abi = { workspace = true }
 ethereum-triedb = { workspace = true }
 subxt-utils = { workspace = true }
 hex = "0.4.3"
+gql_client = "=1.0.7"
 
 [features]
 default = ["std"]

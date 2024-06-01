@@ -13,7 +13,6 @@ export class HyperBridgeChainStatsService {
     if (typeof chainStats === "undefined") {
       chainStats = HyperBridgeChainStats.create({
         id: chain,
-        hyperBridgeStatsId: HYPERBRIDGE_STATS_ENTITY_ID,
         totalTransfersIn: BigInt(0),
         protocolFeesEarned: BigInt(0),
         feesPayedOutToRelayers: BigInt(0),

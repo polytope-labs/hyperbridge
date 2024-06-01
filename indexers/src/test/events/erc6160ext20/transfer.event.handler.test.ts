@@ -1,17 +1,9 @@
 import { subqlTest } from "@subql/testing";
-import {
-  HyperBridgeStats,
-  Relayer,
-  SupportedChain,
-  Transfer,
-} from "../../../types";
+import { Relayer, SupportedChain, Transfer } from "../../../types";
 
 const existingEntities = [
   Relayer.create({
     id: "0xbC50b90751bfCccbFa4c7220261909d0f528b00f",
-  }),
-  HyperBridgeStats.create({
-    id: "HYPERBRIDGE_STATS_ENTITY_ID",
   }),
 ];
 
@@ -26,9 +18,6 @@ subqlTest(
       amount: BigInt("24000000000000000000000"),
       from: "0x92F217a5e965EAa2aD356678D537A0A9ccC0AF41",
       to: "0xbC50b90751bfCccbFa4c7220261909d0f528b00f",
-    }),
-    HyperBridgeStats.create({
-      id: "HYPERBRIDGE_STATS_ENTITY_ID",
     }),
   ],
   "handleTransferEvent",

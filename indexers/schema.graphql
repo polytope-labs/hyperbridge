@@ -59,41 +59,6 @@ type HyperBridgeStats @entity {
     id: ID!
 
     """
-    Total number of messages sent on Hyperbridge
-    """
-    numberOfMessagesSent: BigInt!
-
-    """
-    Total number of messages delivered by Hyperbridge
-    """
-    numberOfDeliveredMessages: BigInt!
-
-    """
-    Total number of failed messages sent by Hyperbridge
-    """
-    numberOfFailedDeliveries: BigInt!
-
-    """
-    Total number of timed out messages
-    """
-    numberOfTimedOutMessages: BigInt!
-
-    """
-    The total amount of transfers sent into the Hyperbridge Host Contracts (transfers in = protocol fees + relayer fees)
-    """
-    totalTransfersIn: BigInt!
-
-    """
-    Total amount of fees earned by Hyperbridge (protocol fees)
-    """
-    protocolFeesEarned: BigInt!
-
-    """
-    Total amount of fees payed out by Hyperbridge to relayers (relayer fees)
-    """
-    feesPayedOutToRelayers: BigInt!
-
-    """
     The per chain stats for Hyperbridge
     """
     perChainStats: [HyperBridgeChainStats]!
@@ -230,34 +195,9 @@ type Relayer @entity {
     id: ID!
 
     """
-    The chains the relayer is active on
-    """
-    chains: [String!]!
-
-    """
     A list of important stats for the Relayer on every network that they support
     """
     perChainStats: [RelayerStatsPerChain]! @derivedFrom(field: "relayer")
-
-    """
-    Total number of messages delivered by the Relayer
-    """
-    totalNumberOfMessagesDelivered: BigInt!
-
-    """
-    Total number of successful messages delivered by the Relayer
-    """
-    totalNumberOfSuccessfulMessagesDelivered: BigInt!
-
-    """
-    Total number of failed messages delivered by the Relayer
-    """
-    totalNumberOfFailedMessagesDelivered: BigInt!
-
-    """
-    Total fees earned by the relayer
-    """
-    totalFeesEarned: BigInt! @index
 }
 
 """

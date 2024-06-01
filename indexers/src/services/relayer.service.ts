@@ -7,7 +7,6 @@ import {
   HandlePostRequestsTransaction,
   HandlePostResponsesTransaction,
 } from "../types/abi-interfaces/HandlerV1Abi";
-import { HyperBridgeService } from "./hyperbridge.service";
 import { ETHEREUM_L2_SUPPORTED_CHAINS } from "../constants";
 
 export class RelayerService {
@@ -23,20 +22,9 @@ export class RelayerService {
     if (typeof relayer === "undefined") {
       relayer = Relayer.create({
         id: relayer_id,
-        chains: [chain],
-        totalNumberOfMessagesDelivered: BigInt(0),
-        totalNumberOfFailedMessagesDelivered: BigInt(0),
-        totalNumberOfSuccessfulMessagesDelivered: BigInt(0),
-        totalFeesEarned: BigInt(0),
       });
 
       await relayer.save();
-    } else {
-      if (!relayer.chains.includes(chain)) {
-        relayer = this.updateRelayerNetworksList(relayer, chain);
-
-        await relayer.save();
-      }
     }
 
     return relayer;
@@ -49,40 +37,15 @@ export class RelayerService {
   static async updateFeesEarned(transfer: Transfer): Promise<void> {
     let relayer = await Relayer.get(transfer.to);
     if (relayer) {
-      relayer = RelayerService.updateRelayerNetworksList(
-        relayer,
-        transfer.chain,
-      );
-
       let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
         relayer.id,
         transfer.chain,
       );
 
-      relayer.totalFeesEarned += transfer.amount;
       relayer_chain_stats.feesEarned += transfer.amount;
 
       Promise.all([relayer.save(), relayer_chain_stats.save()]);
     }
-  }
-
-  /**
-   * Update the list of networks supported by a relayer.
-   * This fn does not save the relayer to the store. It is the responsibility of the caller to save the relayer after calling this fn.
-   */
-  static updateRelayerNetworksList(
-    relayer: Relayer,
-    chain: SupportedChain,
-  ): Relayer {
-    let chains_list = relayer.chains;
-
-    if (!chains_list.includes(chain)) {
-      chains_list.push(chain);
-    }
-
-    relayer.chains = chains_list;
-
-    return relayer;
   }
 
   /**
@@ -93,19 +56,15 @@ export class RelayerService {
     _transaction: EthereumTransaction<EthereumResult>,
     chain: SupportedChain,
   ): Promise<void> {
-    const relayer = await RelayerService.findOrCreate(relayer_id, chain);
     let relayer_chain_stats = await RelayerChainStatsService.findOrCreate(
       relayer_id,
       chain,
     );
 
-    relayer.totalNumberOfMessagesDelivered += BigInt(1);
-    relayer.totalNumberOfSuccessfulMessagesDelivered += BigInt(1);
-
     relayer_chain_stats.numberOfMessagesDelivered += BigInt(1);
     relayer_chain_stats.numberOfSuccessfulMessagesDelivered += BigInt(1);
 
-    Promise.all([await relayer_chain_stats.save(), await relayer.save()]);
+    Promise.all([await relayer_chain_stats.save()]);
   }
 
   /**
@@ -148,8 +107,6 @@ export class RelayerService {
       relayer_chain_stats.gasFeeForSuccessfulMessages += BigInt(gasFee);
       relayer_chain_stats.usdGasFeeForSuccessfulMessages += usdFee;
     } else {
-      relayer.totalNumberOfMessagesDelivered += BigInt(1);
-      relayer.totalNumberOfFailedMessagesDelivered += BigInt(1);
       relayer_chain_stats.numberOfMessagesDelivered += BigInt(1);
       relayer_chain_stats.numberOfFailedMessagesDelivered += BigInt(1);
 

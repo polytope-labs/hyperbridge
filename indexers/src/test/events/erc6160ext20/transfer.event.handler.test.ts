@@ -9,21 +9,9 @@ import {
 const existingEntities = [
   Relayer.create({
     id: "0xbC50b90751bfCccbFa4c7220261909d0f528b00f",
-    chains: [SupportedChain.ETHE],
-    totalFeesEarned: BigInt(0),
-    totalNumberOfMessagesDelivered: BigInt(0),
-    totalNumberOfFailedMessagesDelivered: BigInt(0),
-    totalNumberOfSuccessfulMessagesDelivered: BigInt(0),
   }),
   HyperBridgeStats.create({
     id: "HYPERBRIDGE_STATS_ENTITY_ID",
-    numberOfMessagesSent: BigInt(0),
-    numberOfDeliveredMessages: BigInt(0),
-    numberOfFailedDeliveries: BigInt(0),
-    numberOfTimedOutMessages: BigInt(0),
-    feesPayedOutToRelayers: BigInt(0),
-    protocolFeesEarned: BigInt(0),
-    totalTransfersIn: BigInt(0),
   }),
 ];
 
@@ -41,13 +29,6 @@ subqlTest(
     }),
     HyperBridgeStats.create({
       id: "HYPERBRIDGE_STATS_ENTITY_ID",
-      numberOfMessagesSent: BigInt(0),
-      numberOfDeliveredMessages: BigInt(0),
-      numberOfFailedDeliveries: BigInt(0),
-      numberOfTimedOutMessages: BigInt(0),
-      feesPayedOutToRelayers: BigInt("24000000000000000000000"),
-      protocolFeesEarned: BigInt(0),
-      totalTransfersIn: BigInt(0),
     }),
   ],
   "handleTransferEvent",

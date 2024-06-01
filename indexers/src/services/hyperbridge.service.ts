@@ -24,13 +24,6 @@ export class HyperBridgeService {
     if (!stats) {
       stats = HyperBridgeStats.create({
         id: HYPERBRIDGE_STATS_ENTITY_ID,
-        numberOfMessagesSent: BigInt(0),
-        numberOfDeliveredMessages: BigInt(0),
-        numberOfFailedDeliveries: BigInt(0),
-        numberOfTimedOutMessages: BigInt(0),
-        feesPayedOutToRelayers: BigInt(0),
-        protocolFeesEarned: BigInt(0),
-        totalTransfersIn: BigInt(0),
       });
 
       await stats.save();
@@ -92,15 +85,12 @@ export class HyperBridgeService {
   static async incrementNumberOfSentMessages(
     chain: SupportedChain,
   ): Promise<void> {
-    let stats = await this.getStats();
-    stats.numberOfMessagesSent += BigInt(1);
-
     // Update the specific chain stats
     let chainStats =
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.numberOfMessagesSent += BigInt(1);
 
-    Promise.all([await chainStats.save(), await stats.save()]);
+    Promise.all([await chainStats.save()]);
   }
 
   /**
@@ -109,15 +99,12 @@ export class HyperBridgeService {
   static async incrementNumberOfDeliveredMessages(
     chain: SupportedChain,
   ): Promise<void> {
-    let stats = await this.getStats();
-    stats.numberOfDeliveredMessages += BigInt(1);
-
     // Update the specific chain stats
     let chainStats =
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.numberOfDeliveredMessages += BigInt(1);
 
-    Promise.all([await chainStats.save(), await stats.save()]);
+    Promise.all([await chainStats.save()]);
   }
 
   /**
@@ -126,15 +113,12 @@ export class HyperBridgeService {
   static async incrementNumberOfFailedDeliveries(
     chain: SupportedChain,
   ): Promise<void> {
-    let stats = await this.getStats();
-    stats.numberOfFailedDeliveries += BigInt(1);
-
     // Update the specific chain stats
     let chainStats =
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.numberOfFailedDeliveries += BigInt(1);
 
-    Promise.all([await chainStats.save(), await stats.save()]);
+    Promise.all([await chainStats.save()]);
   }
 
   /**
@@ -143,15 +127,12 @@ export class HyperBridgeService {
   static async incrementNumberOfTimedOutMessagesSent(
     chain: SupportedChain,
   ): Promise<void> {
-    let stats = await this.getStats();
-    stats.numberOfTimedOutMessages += BigInt(1);
-
     // Update the specific chain stats
     let chainStats =
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.numberOfTimedOutMessages += BigInt(1);
 
-    Promise.all([await chainStats.save(), await stats.save()]);
+    Promise.all([await chainStats.save()]);
   }
 
   /**
@@ -161,15 +142,12 @@ export class HyperBridgeService {
     amount: bigint,
     chain: SupportedChain,
   ): Promise<void> {
-    let stats = await this.getStats();
-    stats.protocolFeesEarned += amount;
-
     // Update the specific chain stats
     let chainStats =
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.protocolFeesEarned += amount;
 
-    Promise.all([await chainStats.save(), await stats.save()]);
+    Promise.all([await chainStats.save()]);
   }
 
   /**
@@ -182,14 +160,12 @@ export class HyperBridgeService {
     let relayer = await Relayer.get(transfer.to);
 
     if (typeof relayer !== "undefined") {
-      let stats = await this.getStats();
       let chainStats =
         await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
 
-      stats.feesPayedOutToRelayers += BigInt(transfer.amount);
       chainStats.feesPayedOutToRelayers += BigInt(transfer.amount);
 
-      Promise.all([await chainStats.save(), await stats.save()]);
+      Promise.all([await chainStats.save()]);
     }
   }
 
@@ -200,15 +176,12 @@ export class HyperBridgeService {
     transfer: Transfer,
     chain: SupportedChain,
   ): Promise<void> {
-    let stats = await this.getStats();
-    stats.totalTransfersIn += BigInt(transfer.amount);
-
     // Update the specific chain metrics
     let chainStats =
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.totalTransfersIn += BigInt(transfer.amount);
 
-    Promise.all([await chainStats.save(), await stats.save()]);
+    Promise.all([await chainStats.save()]);
   }
 
   static async computeProtocolFeeFromHexData(

@@ -36,7 +36,7 @@ services:
       - -f=app/hyperbridge-gargantua.yaml
       - --db-schema=app
       - --workers=1
-      - --batch-size=3
+      - --batch-size=10
       - --disable-historical
       - --multi-chain
       - --log-level=info
@@ -71,7 +71,7 @@ services:
       - -f=app/ethereum-sepolia.yaml
       - --db-schema=app
       - --workers=1
-      - --batch-size=3
+      - --batch-size=10
       - --disable-historical
       - --multi-chain
       - --log-level=info
@@ -106,7 +106,7 @@ services:
       - -f=app/base-sepolia.yaml
       - --db-schema=app
       - --workers=1
-      - --batch-size=3
+      - --batch-size=10
       - --disable-historical
       - --multi-chain
       - --log-level=info
@@ -136,7 +136,7 @@ services:
       - -f=app/optimism-sepolia.yaml
       - --db-schema=app
       - --workers=1
-      - --batch-size=3
+      - --batch-size=10
       - --disable-historical
       - --multi-chain
       - --log-level=info
@@ -171,7 +171,7 @@ services:
       - -f=app/arbitrum-sepolia.yaml
       - --db-schema=app
       - --workers=1
-      - --batch-size=3
+      - --batch-size=10
       - --disable-historical
       - --multi-chain
       - --log-level=info
@@ -206,7 +206,7 @@ services:
       - -f=app/bsc-chapel.yaml
       - --db-schema=app
       - --workers=1
-      - --batch-size=3
+      - --batch-size=10
       - --disable-historical
       - --multi-chain
       - --log-level=info

@@ -49,23 +49,6 @@ enum ResponseStatus {
 }
 
 """
-Important Hyperbridge Metrics
-"""
-type HyperBridgeStats @entity {
-    """
-    Unique identifier of the HyperBridgeStats entry.
-    N.B This entity is used for overall metric aggregation, and as such only one entry with an ID of 1 will exist
-    """
-    id: ID!
-
-    """
-    The per chain stats for Hyperbridge
-    """
-    perChainStats: [HyperBridgeChainStats]!
-        @derivedFrom(field: "hyperBridgeStats")
-}
-
-"""
 Important Hyperbridge Stats for a specific chain
 """
 type HyperBridgeChainStats @entity {
@@ -108,11 +91,6 @@ type HyperBridgeChainStats @entity {
     Total amount of fees payed out by Hyperbridge to relayers on the chain (relayer fees)
     """
     feesPayedOutToRelayers: BigInt!
-
-    """
-    Relationship to the HyperBridgeStats entity
-    """
-    hyperBridgeStats: HyperBridgeStats!
 }
 
 """

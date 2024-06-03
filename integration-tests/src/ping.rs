@@ -48,7 +48,7 @@ async fn test_ping() -> anyhow::Result<()> {
 	let ping_addr = H160(hex!("9Cc29770F3d643F4094Ee591f3D2E3c98C349761"));
 
 	let chains = vec![
-		// (StateMachine::Ethereum(Ethereum::ExecutionLayer), _geth_url, 0),
+		(StateMachine::Ethereum(Ethereum::ExecutionLayer), _geth_url, 0),
 		(StateMachine::Ethereum(Ethereum::Arbitrum), _arb_url, 46014272),
 		(StateMachine::Ethereum(Ethereum::Optimism), op_url, 12201628),
 		(StateMachine::Ethereum(Ethereum::Base), _base_url, 10218678),
@@ -176,7 +176,7 @@ async fn test_ping() -> anyhow::Result<()> {
 						.context(format!("Failed to approve {ping_addr} in {chain:?}"))?;
 
 					for (chain, _, _) in chains_clone.iter().filter(|(c, _, _)| chain != *c) {
-						for _ in 0..1 {
+						for _ in 0..10 {
 							let call = ping.ping(PingMessage {
 								dest: chain.to_string().as_bytes().to_vec().into(),
 								module: ping_addr.clone().into(),

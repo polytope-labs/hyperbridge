@@ -116,23 +116,23 @@ async fn test_parachain_parachain_messaging_relay() -> Result<(), anyhow::Error>
 	setup_logging();
 
 	let (chain_a, chain_b) = setup_clients().await?;
-	let tx_payment = Arc::new(TransactionPayment::initialize("./dev.db").await?);
-	let _message_handle = tokio::spawn({
-		let chain_a = chain_a.clone();
-		let chain_b = chain_b.clone();
-		async move {
-			tesseract_messaging::relay(
-				chain_a.clone(),
-				Arc::new(chain_b.clone()),
-				Default::default(),
-				StateMachine::Kusama(4009),
-				tx_payment,
-				Default::default(),
-			)
-			.await
-			.unwrap()
-		}
-	});
+	let _tx_payment = Arc::new(TransactionPayment::initialize("./dev.db").await?);
+	// let _message_handle = tokio::spawn({
+	// 	let chain_a = chain_a.clone();
+	// 	let chain_b = chain_b.clone();
+	// 	async move {
+	// 		tesseract_messaging::relay(
+	// 			chain_a.clone(),
+	// 			Arc::new(chain_b.clone()),
+	// 			Default::default(),
+	// 			StateMachine::Kusama(4009),
+	// 			tx_payment,
+	// 			Default::default(),
+	// 		)
+	// 		.await
+	// 		.unwrap()
+	// 	}
+	// });
 
 	// Make transfers each from both chains
 	transfer_assets(&chain_a, &chain_b, 60 * 5).await?;

@@ -31,7 +31,7 @@ sp-keyring = "24.0.0"
 
 #tesseract-grandpa = { path = "../substrate/grandpa" }
 tesseract-beefy = { workspace = true  }
-tesseract-substrate = { workspace = true , features = ["testing"] }
+tesseract-substrate = { workspace = true, features = ["testing"] }
 tesseract-messaging = { workspace = true  }
 tesseract-primitives = { workspace = true  }
 tesseract-evm = { workspace = true  }

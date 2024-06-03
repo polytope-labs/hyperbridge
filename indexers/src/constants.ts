@@ -60,7 +60,6 @@ export const HOST_ADDRESSES = [
   CONTRACT_ADDRESSES[SupportedChain.BSC].EthereumHost,
 ];
 
-export const HYPERBRIDGE_STATS_ENTITY_ID = "1";
 
 export const ETHEREUM_L2_SUPPORTED_CHAINS = [
   SupportedChain.BASE,

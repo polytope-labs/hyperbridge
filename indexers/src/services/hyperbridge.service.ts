@@ -1,10 +1,9 @@
-import { HYPERBRIDGE_STATS_ENTITY_ID } from "../constants";
 import { SupportedChain } from "../types";
 import {
   PostRequestEventLog,
   PostResponseEventLog,
 } from "../types/abi-interfaces/EthereumHostAbi";
-import { HyperBridgeStats, Relayer, Transfer } from "../types/models";
+import { Relayer, Transfer } from "../types/models";
 import { HyperBridgeChainStatsService } from "./hyperbridgeChainStats.service";
 import assert from "assert";
 import { isHexString } from "ethers/lib/utils";
@@ -15,23 +14,6 @@ import {
 } from "../types/abi-interfaces/HandlerV1Abi";
 
 export class HyperBridgeService {
-  /**
-   * Get the HyperBridgeStats entity
-   */
-  static async getStats(): Promise<HyperBridgeStats> {
-    let stats = await HyperBridgeStats.get(HYPERBRIDGE_STATS_ENTITY_ID);
-
-    if (!stats) {
-      stats = HyperBridgeStats.create({
-        id: HYPERBRIDGE_STATS_ENTITY_ID,
-      });
-
-      await stats.save();
-    }
-
-    return stats;
-  }
-
   /**
    * Perform the necessary actions related to Hyperbridge stats when a PostRequest/PostResponse event is indexed
    */
@@ -104,7 +86,7 @@ export class HyperBridgeService {
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.numberOfDeliveredMessages += BigInt(1);
 
-    Promise.all([await chainStats.save()]);
+    await chainStats.save();
   }
 
   /**
@@ -118,7 +100,7 @@ export class HyperBridgeService {
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.numberOfFailedDeliveries += BigInt(1);
 
-    Promise.all([await chainStats.save()]);
+    await chainStats.save();
   }
 
   /**
@@ -132,7 +114,7 @@ export class HyperBridgeService {
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.numberOfTimedOutMessages += BigInt(1);
 
-    Promise.all([await chainStats.save()]);
+    await chainStats.save();
   }
 
   /**
@@ -147,7 +129,7 @@ export class HyperBridgeService {
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.protocolFeesEarned += amount;
 
-    Promise.all([await chainStats.save()]);
+    await chainStats.save();
   }
 
   /**
@@ -165,7 +147,7 @@ export class HyperBridgeService {
 
       chainStats.feesPayedOutToRelayers += BigInt(transfer.amount);
 
-      Promise.all([await chainStats.save()]);
+      await chainStats.save();
     }
   }
 
@@ -181,7 +163,7 @@ export class HyperBridgeService {
       await HyperBridgeChainStatsService.findOrCreateChainStats(chain);
     chainStats.totalTransfersIn += BigInt(transfer.amount);
 
-    Promise.all([await chainStats.save()]);
+    await chainStats.save();
   }
 
   static async computeProtocolFeeFromHexData(

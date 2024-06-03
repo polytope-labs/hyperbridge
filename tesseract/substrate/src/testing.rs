@@ -27,7 +27,7 @@ use subxt::{
 		extrinsic_params::BaseExtrinsicParamsBuilder, polkadot::PlainTip, ExtrinsicParams, Header,
 	},
 	events::EventDetails,
-	ext::sp_runtime::MultiSignature,
+	ext::{sp_core::crypto, sp_runtime::MultiSignature},
 	tx::TxPayload,
 };
 
@@ -37,13 +37,8 @@ where
 	C::Header: Send + Sync,
 	<C::ExtrinsicParams as ExtrinsicParams<C::Hash>>::OtherParams:
 		Default + Send + Sync + From<BaseExtrinsicParamsBuilder<C, PlainTip>>,
-	C::AccountId: From<sp_core::crypto::AccountId32>
-		+ Into<C::Address>
-		+ Encode
-		+ Clone
-		+ 'static
-		+ Send
-		+ Sync,
+	C::AccountId:
+		From<crypto::AccountId32> + Into<C::Address> + Encode + Clone + 'static + Send + Sync,
 	C::Signature: From<MultiSignature> + Send + Sync,
 {
 	pub fn latest_height(&self) -> u64 {

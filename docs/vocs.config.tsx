@@ -5,6 +5,42 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { VitePluginRadar } from "vite-plugin-radar";
 import { defineConfig } from "vocs";
+import type { UserOptions } from "sitemap-ts";
+import { generateSitemap } from "sitemap-ts";
+import { glob } from "glob";
+
+function Sitemap(options: UserOptions = {}) {
+  return {
+    name: "vite-plugin-sitemap",
+    async closeBundle() {
+      const paths = (
+        await glob("./**/*.mdx", { ignore: "node_modules/**" })
+      ).map((f) => {
+        f = f.replace("/index.mdx", "");
+        f = f.replace(".mdx", "");
+        f = f.replace("pages", "");
+
+        return f;
+      });
+      options.dynamicRoutes = paths;
+      generateSitemap(options);
+    },
+    transformIndexHtml() {
+      return [
+        {
+          tag: "link",
+          injectTo: "head",
+          attrs: {
+            rel: "sitemap",
+            type: "application/xml",
+            title: "Sitemap",
+            href: "/sitemap.xml",
+          },
+        },
+      ];
+    },
+  };
+}
 
 export default defineConfig({
   title: "Hyperbridge Documentation",
@@ -16,6 +52,26 @@ export default defineConfig({
   logoUrl: {
     light: "/logo-dark.svg",
     dark: "/logo-light.svg",
+  },
+  head() {
+    return (
+      <>
+        <link
+          href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
+          rel="stylesheet"
+        />
+        <link
+          rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/pseudocode@2.4.1/build/pseudocode.min.css"
+        />
+      </>
+    );
+  },
+  baseUrl: "https://docs.hyperbridge.network",
+  editLink: {
+    pattern:
+      "https://github.com/polytop-labs/hyperbridge/edit/main/docs/pages/:path",
+    text: "Suggest changes to this page",
   },
   iconUrl: "/favicon.svg",
   socials: [
@@ -49,6 +105,9 @@ export default defineConfig({
           id: process.env.GA_ID!,
         },
       }),
+      Sitemap({
+        hostname: "https://docs.hyperbridge.network",
+      }) as any,
     ],
   },
   rootDir: ".",

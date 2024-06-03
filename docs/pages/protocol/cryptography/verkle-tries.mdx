@@ -5,10 +5,6 @@ description: Merkle trees with a vector commitment scheme.
 
 # Verkle Tries
 
-<link
-  href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
-  rel="stylesheet"
-/>
 
 Verkle trees are an improvement over conventional Merkle tree structures. While conventional Merkle tree structures use cryptographic hashes to commit to an indexed set of values, verkle trees use vector commitments. This makes them highly space efficient in terms of proof size, resulting in better bandwidth efficiency for communication. Additionally, verkle trees have cheaper verification costs in terms of state proof messaging.These are extremely important factors in scaling cross chain messaging through state proofs. Verkle trees were introduced in this [research work from 2018](https://math.mit.edu/research/highschool/primes/materials/2018/Kuszmaul.pdf), they hold the keys to cheap and efficient state proof messaging.
 

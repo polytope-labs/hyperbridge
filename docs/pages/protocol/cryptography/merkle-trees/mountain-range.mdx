@@ -5,12 +5,6 @@ description: Merkle mountain ranges$^{[1]}$ are an improvement over conventional
 
 import Algorithm from '../../../../components/Algorithm';
 
-<link
-  href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
-  rel="stylesheet"
-/>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pseudocode@2.4.1/build/pseudocode.min.css" />
-
 # Merkle Mountain Ranges
 
 Merkle mountain ranges$^{[1]}$ are an improvement over conventional merkle trees for growing, potentially unbounded lists. Where conventional merkle tree constructions over growing lists prove very inefficient to compute, as all nodes in the tree must be recomputed. Merkle mountain ranges amortise this cost by growing subtrees incrementally and merging subtrees at the same height, rather than growing the full tree.

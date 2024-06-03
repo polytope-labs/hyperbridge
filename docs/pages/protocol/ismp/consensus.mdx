@@ -2,10 +2,6 @@
 title: Consensus Clients
 description: The ISMP protocol specification for consensus clients
 ---
-<link
-  href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css"
-  rel="stylesheet"
-/>
 # Consensus Client
 
 ISMP's messaging abstraction is built on top of the `ConsensusClient`. We refer to it as a consensus client because that is precisely what it should be: a client that observes a blockchain's consensus proofs in order to determine what is the canonical chain on the network. Armed with the knowledge of the canonical state of the chain, we are now able to verify the state proofs of the requests & responses that have been committed to the state trie.

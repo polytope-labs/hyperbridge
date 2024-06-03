@@ -277,9 +277,8 @@ export default defineConfig({
             text: "Getting Started",
             link: "/developers/evm/getting-started",
           },
-
           {
-            text: "Protocol Fees",
+            text: "Fees",
             link: "/developers/evm/fees",
           },
 
@@ -304,12 +303,12 @@ export default defineConfig({
         collapsed: true,
         items: [
           {
-            text: "Integration - ISMP",
+            text: "Pallet ISMP",
             link: "/developers/polkadot/integration",
           },
 
           {
-            text: "Integration - Parachains",
+            text: "Parachains",
             link: "/developers/polkadot/parachains",
           },
 
@@ -329,7 +328,7 @@ export default defineConfig({
           },
 
           {
-            text: "Protocol Fees",
+            text: "Fees",
             link: "/developers/polkadot/fees",
           },
 

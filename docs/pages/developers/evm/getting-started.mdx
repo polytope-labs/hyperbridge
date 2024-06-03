@@ -162,12 +162,12 @@ struct DispatchGet {
 
 #### Dispatch Parameters:
 
-`dest`: The chain whose database should be read (e.g., `StateMachine.arbitrum()`).
-`height`: Block height at which the values should be fetched.
-`keys`: Storage keys whose values need to be fetched.
-`timeout`: Relative time in seconds for message validity. Responses exceeding this timeout cannot be processed on the source and require user action (timeout message) to revert changes.
-`fee`: Hyperbridge protocol fees for processing the request.
-`sender`: The account initiating this request.
+ - `dest`: The chain whose database should be read (e.g., `StateMachine.arbitrum()`).
+ - `height`: Block height at which the values should be fetched.
+ - `keys`: Storage keys whose values need to be fetched.
+ - `timeout`: Relative time in seconds for message validity. Responses exceeding this timeout cannot be processed on the source and require user action (timeout message) to revert changes.
+ - `fee`: Hyperbridge protocol fees for processing the request.
+ - `sender`: The account initiating this request.
 
 ```solidity
 // _host is variable that contains the EvmHost contract address
@@ -343,3 +343,4 @@ Since the `EvmHost` doesn't store receipts for failed messages, ensure irreversi
 
  - [EvmHost](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol)
  - [Handler](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/modules/HandlerV1.sol)
+ - [ismp-solidity](https://github.com/polytope-labs/ismp-solidity)

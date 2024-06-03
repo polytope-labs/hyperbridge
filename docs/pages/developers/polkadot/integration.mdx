@@ -78,40 +78,21 @@ pub trait Config: frame_system::Config {
 }
 ```
 
-## State Proofs
+## Interfaces
 
-`pallet-ismp` efficiently stores the commitments for requests and responses in a state trie, for which state proofs may be obtained for their existence. These proofs are used to authenticate cross-chain messages. It leverages two primary data structures:
+The `pallet-ismp` implements the neccessary interfaces for the ISMP framework. These are:
 
- - **Child Trie**: This is the primary storage location for all commitments. It offers a compact representation, leading to smaller verification proofs and reduced processing costs.
- - **Merkle Mountain Range Tree (Optional)**: When integrated with Hyperbridge, this additional tree provides even smaller proofs and more economical verification on the Ethereum Virtual Machine (EVM). This translates to lower gas fees for users sending messages to EVM chains.
+ - [`IsmpHost`](/protocol/ismp/host): Pallet ISMP implements `IsmpHost` interface providing all the storage and cryptographic requirements for the ISMP handlers. Modules that need to interact with the low-level ISMP framework can use this interface to access the necessary storage items they wish to read.
 
-## Offchain Storage
+ :::danger[IMPORTANT]
+ It is **not recommended** for modules to alter the storage items directly, unless you absolutely know what you are doing.
+ :::
 
-To ensure verifiability, ISMP stores commitment hashes onchain. These commitment hashes act like unique fingerprints, allowing anyone to confirm the existence of the original data (requests and responses) without storing it directly on the blockchain.
+ - [`IsmpDispatcher`](/protocol/ismp/dispatcher): It implements `IsmpDispatcher` allowing it to dispatch requests and responses. This is the low-level ISMP framework dispatcher. It can be used to dispatch requests that are not addressed to Hyperbridge and perhaps meant for other state machines. Dispatching requests to be Hyperbridge should be done throught the [`pallet-hyperbridge`](/developers/polkadot/fees#pallet-hyperbridge) module. Which also implements the `IsmpDispatcher` interface but collects the necessary fees.
 
-Requests and responses themselves are stored in an off-chain database. This approach offers two key advantages:
-
- - **Reduced Runtime Storage Size**: By keeping only commitment hashes on-chain, ISMP minimizes the blockchain's storage footprint. This is crucial for maintaining reasonable storage requirements for full nodes, especially as the network scales.
- - **Efficient Pruning**: Off-chain storage allows for efficient deletion (pruning) of delivered requests and responses. This helps prevent the blockchain from becoming bloated with historical data.
-
-### Challenge: Chain Reorgs
-
-ISMP utilizes an off-chain database for storing requests and responses. While this approach offers storage efficiency, it introduces some potential issues:
-
-**Fork Susceptibility**: The off-chain database isn't aware of chain reorgs. If a reorg occurs, the database could become corrupted, leading to inconsistencies and preventing the generation of accurate Merkle Mountain Range (MMR) proofs. These proofs are crucial for verifying data integrity.
-
-### Solution: Background Canonicalization
-
-To mitigate this risk, ISMP employs a background task that continuously monitors the network. Whenever the relay chain finalizes a parachain block (meaning the block becomes permanent and irreversible), this task automatically "canonicalizes" the off-chain database.
-
- - **Canonicalization**: This process ensures the database reflects the final, validated state of the chain. It essentially cleans up any inconsistencies caused by potential reorgs.
-
- - **Impact on Proof Generation**: As a consequence of this approach, generating MMR proofs for off-chain data becomes available only after the corresponding block finalizes.
-
-## Implementations
-
- - `IsmpHost`: Pallet Ismp implements `IsmpHost` providing all the storage requirements for ISMP.
- - `IsmpDispatcher`: It implements `IsmpDispatcher` allowing it to dispatch requests and responses.
+ :::danger[IMPORTANT]
+ Requests/Responses that are not dispatched by `pallet-hyperbridge` will not be processed by Hyperbridge. They will fail transaction pool validation and will not be included in blocks.
+ :::
 
 
 ## Calls
@@ -298,7 +279,7 @@ impl pallet_ismp::WeightProvider for ModuleWeightProvider {
 }
 ```
 
-## Runtime API
+### Runtime API
 
 `pallet-ismp-runtime-api` provides methods that allow the rpc client read the runtime state, this methods include querying requests and responses, generating proofs, among others. The runtime api can be easily added to the runtime as follows:
 
@@ -364,4 +345,3 @@ While ISMP can be used independently, connecting to hyperbridge provides access 
 
  - [pallet-ismp](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/pallets/pallet/src/lib.rs)
  - [pallet-ismp-runtime-api](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/pallets/runtime-api/src/lib.rs)
- - [mmr-gadget](https://github.com/polytope-labs/hyperbridge/blob/main/modules/trees/mmr/gadget/src/lib.rs)

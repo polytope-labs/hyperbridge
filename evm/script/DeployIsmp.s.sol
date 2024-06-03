@@ -24,7 +24,7 @@ import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
 import {PingModule} from "../examples/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
-import {RococoVerifier} from "../src/consensus/verifiers/RococoVerifier.sol";
+import {PolkadotVerifier} from "../src/consensus/verifiers/PolkadotVerifier.sol";
 import {ZkBeefyV1} from "../src/consensus/ZkBeefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {StateMachine} from "ismp/StateMachine.sol";
@@ -52,7 +52,7 @@ contract DeployScript is Script {
         feeToken.mint(pingDispatcher, 1000000000 * 1e18, "");
 
         // consensus client
-        //        RococoVerifier verifier = new RococoVerifier();
+        //        PolkadotVerifier verifier = new PolkadotVerifier();
         //        ZkBeefyV1 consensusClient = new ZkBeefyV1{salt: salt}(paraId, verifier);
         BeefyV1 consensusClient = new BeefyV1{salt: salt}(paraId);
 

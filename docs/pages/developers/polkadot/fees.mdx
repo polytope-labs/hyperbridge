@@ -3,7 +3,7 @@
 For parachains and solochains that intend to send messages through Hyperbridge it is required that they make protocol fee payments for each request and response dispatched.
 Hyperbridge will only accept messages with state proofs of protocol fee payments, we provide a pallet that handles this.
 
-## Pallet-Hyperbridge
+## Pallet Hyperbridge
 
 This pallet provides an Ismp dispatcher that handles protocol fee collection, it must be added to the runtime of any substrate chain that wishes to use Hyperbridge as a Coprocessor.
 Protocol fees are charged per byte of data in the request or response body.
@@ -39,12 +39,12 @@ impl IsmpRouter for ModuleRouter {
 }
 ```
 
-## Hyperbridge Protocol Fee
+## Protocol Fees
 
 Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. This fee is withdrawn from the user account that dispatched the request.
 
 
-## Hyperbridge Relayer Fees
+## Relayer Fees
 
 The relayer fee is an optional incentive provided by users initiating cross-chain transactions. It compensates Hyperbridge's decentralized relayers for delivering messages to the destination chain.
 

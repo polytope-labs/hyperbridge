@@ -15,8 +15,8 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	AccountId, Assets, Balance, Balances, Gateway, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	Runtime, RuntimeEvent, Timestamp, EXISTENTIAL_DEPOSIT,
+	weights, AccountId, Assets, Balance, Balances, Gateway, Ismp, IsmpParachain, Mmr,
+	ParachainInfo, Runtime, RuntimeEvent, Timestamp, EXISTENTIAL_DEPOSIT,
 };
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
@@ -164,7 +164,7 @@ impl pallet_assets::Config for Runtime {
 	type ApprovalDeposit = ApprovalDeposit;
 	type StringLimit = ConstU32<50>;
 	type Freezer = ();
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_assets::WeightInfo<Runtime>;
 	type CallbackHandle = ();
 	type Extra = ();
 	type RemoveItemsLimit = ConstU32<5>;

@@ -36,11 +36,6 @@ use crate::{
 
 fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
 	Ok(match id {
-		"gargantua-rococo" => Box::new(chain_spec::ChainSpec::<
-			gargantua_runtime::RuntimeGenesisConfig,
-		>::from_json_bytes(
-			include_bytes!("../../chainspec/gargantua.rococo.json").to_vec(),
-		)?),
 		"dev" | "gargantua" => Box::new(chain_spec::ChainSpec::<
 			gargantua_runtime::RuntimeGenesisConfig,
 		>::from_json_bytes(

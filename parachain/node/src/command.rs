@@ -41,17 +41,17 @@ fn load_spec(id: &str) -> std::result::Result<Box<dyn ChainSpec>, String> {
 		>::from_json_bytes(
 			include_bytes!("../../chainspec/gargantua.rococo.json").to_vec(),
 		)?),
-		"gargantua" => Box::new(
-			chain_spec::ChainSpec::<gargantua_runtime::RuntimeGenesisConfig>::from_json_bytes(
-				include_bytes!("../../chainspec/gargantua.paseo.json").to_vec(),
-			)?,
-		),
+		"dev" | "gargantua" => Box::new(chain_spec::ChainSpec::<
+			gargantua_runtime::RuntimeGenesisConfig,
+		>::from_json_bytes(
+			include_bytes!("../../chainspec/gargantua.paseo.json").to_vec(),
+		)?),
 		"messier" => Box::new(
 			chain_spec::ChainSpec::<messier_runtime::RuntimeGenesisConfig>::from_json_bytes(
 				include_bytes!("../../chainspec/messier.json").to_vec(),
 			)?,
 		),
-		"nexus" =>
+		"" | "nexus" =>
 			Box::new(chain_spec::ChainSpec::<nexus_runtime::RuntimeGenesisConfig>::from_json_bytes(
 				include_bytes!("../../chainspec/nexus.json").to_vec(),
 			)?),

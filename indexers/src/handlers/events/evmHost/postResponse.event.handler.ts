@@ -1,9 +1,8 @@
 import assert from "assert";
 import {
-  ResponseStatus,
+  Status,
   SupportedChain,
   Request,
-  RequestStatus,
 } from "../../../types";
 import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { PostResponseEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
@@ -80,7 +79,7 @@ export async function handlePostResponseEvent(
     commitment: response_commitment,
     responseTimeoutTimestamp: BigInt(resTimeoutTimestamp.toString()),
     response_message: response,
-    status: ResponseStatus.SOURCE,
+    status: Status.SOURCE,
     request,
     blockNumber: blockNumber.toString(),
     blockHash: block.hash,

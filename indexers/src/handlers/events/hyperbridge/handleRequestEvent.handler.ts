@@ -1,6 +1,6 @@
 import { SubstrateEvent } from "@subql/types";
 import { RequestService } from "../../../services/request.service";
-import { RequestStatus, SupportedChain } from "../../../types";
+import { Status, SupportedChain } from "../../../types";
 import assert from "assert";
 
 export async function handleHyperbridgeRequestEvent(
@@ -28,7 +28,7 @@ export async function handleHyperbridgeRequestEvent(
     blockNumber: blockNumber.toString(),
     blockHash: blockHash.toString(),
     blockTimestamp: BigInt(Date.parse(timestamp.toString())),
-    status: RequestStatus.MESSAGE_RELAYED,
+    status: Status.MESSAGE_RELAYED,
     transactionHash: extrinsic.extrinsic.hash.toString(),
   });
 }

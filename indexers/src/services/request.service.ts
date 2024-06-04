@@ -1,4 +1,4 @@
-import { RequestStatus, SupportedChain } from "../types/enums";
+import { Status, SupportedChain } from "../types/enums";
 import { solidityKeccak256 } from "ethers/lib/utils";
 import { Request, RequestStatusMetadata } from "../types/models";
 
@@ -13,7 +13,7 @@ export interface ICreateRequestArgs {
   source?: string | undefined;
   timeoutTimestamp?: bigint | undefined;
   to?: string | undefined;
-  status: RequestStatus;
+  status: Status;
   blockNumber: string;
   blockHash: string;
   transactionHash: string;
@@ -22,7 +22,7 @@ export interface ICreateRequestArgs {
 
 export interface IUpdateRequestStatusArgs {
   commitment: string;
-  status: RequestStatus;
+  status: Status;
   blockNumber: string;
   blockHash: string;
   transactionHash: string;
@@ -31,10 +31,10 @@ export interface IUpdateRequestStatusArgs {
 }
 
 const REQUEST_STATUS_WEIGHTS = {
-  [RequestStatus.SOURCE]: 1,
-  [RequestStatus.MESSAGE_RELAYED]: 2,
-  [RequestStatus.DEST]: 3,
-  [RequestStatus.TIMED_OUT]: 4,
+  [Status.SOURCE]: 1,
+  [Status.MESSAGE_RELAYED]: 2,
+  [Status.DEST]: 3,
+  [Status.TIMED_OUT]: 4,
 };
 
 export class RequestService {

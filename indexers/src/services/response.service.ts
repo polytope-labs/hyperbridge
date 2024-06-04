@@ -1,7 +1,7 @@
 import { solidityKeccak256 } from "ethers/lib/utils";
 import {
   Request,
-  ResponseStatus,
+  Status,
   Response,
   SupportedChain,
   ResponseStatusMetadata,
@@ -13,7 +13,7 @@ export interface ICreateResponseArgs {
   response_message?: string | undefined;
   responseTimeoutTimestamp?: bigint | undefined;
   request?: Request | undefined;
-  status: ResponseStatus;
+  status: Status;
   blockNumber: string;
   blockHash: string;
   transactionHash: string;
@@ -22,7 +22,7 @@ export interface ICreateResponseArgs {
 
 export interface IUpdateResponseStatusArgs {
   commitment: string;
-  status: ResponseStatus;
+  status: Status;
   blockNumber: string;
   blockHash: string;
   transactionHash: string;
@@ -31,10 +31,10 @@ export interface IUpdateResponseStatusArgs {
 }
 
 const RESPONSE_STATUS_WEIGHTS = {
-  [ResponseStatus.SOURCE]: 1,
-  [ResponseStatus.MESSAGE_RELAYED]: 2,
-  [ResponseStatus.DEST]: 3,
-  [ResponseStatus.TIMED_OUT]: 4,
+  [Status.SOURCE]: 1,
+  [Status.MESSAGE_RELAYED]: 2,
+  [Status.DEST]: 3,
+  [Status.TIMED_OUT]: 4,
 };
 
 export class ResponseService {

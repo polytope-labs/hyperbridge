@@ -132,9 +132,11 @@ pub mod pallet {
 			let decompressed = Self::decompress(compressed.clone(), encoded_call_size.clone())
 				.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
 
-			let runtime_call =
-				T::RuntimeCall::decode_all_with_depth_limit(1, &mut &decompressed[..])
-					.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
+			let runtime_call = T::RuntimeCall::decode_with_depth_limit(
+				sp_api::MAX_EXTRINSIC_DEPTH,
+				&mut &decompressed[..],
+			)
+			.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Call))?;
 
 			let provides = if let Some(call) =
 				IsSubType::<pallet_ismp::Call<T>>::is_sub_type(&runtime_call).cloned()
@@ -207,8 +209,8 @@ where
 	/// This decoded and executes the encoded runtime call which is represented in  bytes
 	/// - `call_bytes`: the uncompressed encoded runtime call.
 	pub fn decode_and_execute(call_bytes: Vec<u8>) -> DispatchResult {
-		let runtime_call = <T as frame_system::Config>::RuntimeCall::decode_all_with_depth_limit(
-			1,
+		let runtime_call = <T as frame_system::Config>::RuntimeCall::decode_with_depth_limit(
+			sp_api::MAX_EXTRINSIC_DEPTH,
 			&mut &call_bytes[..],
 		)
 		.map_err(|_| Error::<T>::ErrorDecodingCall)?;

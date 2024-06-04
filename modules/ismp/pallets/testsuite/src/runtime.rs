@@ -399,6 +399,8 @@ where
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
+	let _ = env_logger::builder().is_test(true).try_init();
+
 	let storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
 	let mut ext = sp_io::TestExternalities::new(storage);

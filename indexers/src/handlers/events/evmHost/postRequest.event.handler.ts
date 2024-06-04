@@ -1,5 +1,5 @@
 import assert from "assert";
-import { RequestStatus, SupportedChain } from "../../../types";
+import { Status, SupportedChain } from "../../../types";
 import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { PostRequestEventLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
@@ -45,7 +45,7 @@ export async function handlePostRequestEvent(
     from,
     nonce: BigInt(nonce.toString()),
     source,
-    status: RequestStatus.SOURCE,
+    status: Status.SOURCE,
     timeoutTimestamp: BigInt(timeoutTimestamp.toString()),
     to,
     blockNumber: blockNumber.toString(),

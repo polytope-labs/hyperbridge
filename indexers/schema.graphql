@@ -31,17 +31,7 @@ enum EventType {
 """
 The status of a request
 """
-enum RequestStatus {
-    SOURCE
-    MESSAGE_RELAYED
-    DEST
-    TIMED_OUT
-}
-
-"""
-The status of a response
-"""
-enum ResponseStatus {
+enum Status {
     SOURCE
     MESSAGE_RELAYED
     DEST
@@ -299,7 +289,7 @@ type Request @entity {
     """
     Status of the request
     """
-    status: RequestStatus!
+    status: Status!
 
     """
     Metatdata about the request's progression through different statuses
@@ -312,7 +302,7 @@ Metadata about the status of a Request
 """
 type RequestStatusMetadata @entity {
     id: ID!
-    status: RequestStatus!
+    status: Status!
     chain: SupportedChain!
     timestamp: BigInt!
     blockNumber: String!
@@ -348,7 +338,7 @@ type Response @entity {
     """
     Status of the response
     """
-    status: ResponseStatus!
+    status: Status!
 
     """
     The request that triggered this response
@@ -366,7 +356,7 @@ Metadata about the status of a Response
 """
 type ResponseStatusMetadata @entity {
     id: ID!
-    status: ResponseStatus!
+    status: Status!
     chain: SupportedChain!
     timestamp: BigInt!
     blockNumber: String!

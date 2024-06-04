@@ -1,7 +1,6 @@
 import assert from "assert";
 import { HyperBridgeService } from "../../../services/hyperbridge.service";
-import { RelayerService } from "../../../services/relayer.service";
-import { EventType, ResponseStatus, SupportedChain } from "../../../types";
+import { EventType, Status, SupportedChain } from "../../../types";
 import { PostResponseHandledLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
@@ -58,7 +57,7 @@ export async function handlePostResponseHandledEvent(
       blockNumber: blockNumber.toString(),
       blockTimestamp: block.timestamp,
       blockHash: block.hash,
-      status: ResponseStatus.DEST,
+      status: Status.DEST,
       transactionHash,
     }),
   ]);

@@ -28,6 +28,7 @@ jobs:
         working-directory: modules/client
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          INDEXER_URL: ${{ secrets.INDEXER_URL }}
         run: |
           wasm-pack build --release --no-default-features --features=wasm
           cd pkg

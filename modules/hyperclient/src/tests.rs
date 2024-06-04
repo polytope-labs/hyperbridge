@@ -1,10 +1,13 @@
 #![cfg(not(target_arch = "wasm32"))]
 use std::str::FromStr;
 
-use ismp::{host::StateMachine, router::Request};
+use ismp::{
+	host::StateMachine,
+	router::{PostResponse, Request},
+};
 
 use crate::{
-	indexing::query_request_status_from_indexer,
+	indexing::{query_request_status_from_indexer, query_response_status_from_indexer},
 	testing::{subscribe_to_request_status, test_timeout_request},
 	types::MessageStatusWithMetadata,
 };
@@ -25,47 +28,13 @@ async fn hyperclient_integration_tests() -> Result<(), anyhow::Error> {
 	Ok(())
 }
 
-// {
-// 	"id": "0x000007717468646f730e52dade89d1aef0325c51b9b9afa28c52b13698289da8",
-// 	"chain": "ARBI",
-// 	"source": "0x41524249",
-// 	"dest": "0x45544845",
-// 	"data": "0x68656c6c6f2066726f6d2041524249",
-// 	"status": "SOURCE",
-// 	"nonce": "959",
-// 	"statusMetadata": {
-// 	  "nodes": [
-// 		{
-// 		  "status": "SOURCE"
-// 		}
-// 	  ]
-// 	},
-// 	"from": "0xb51d235cf4461d17fea88733fed1865873c8d686",
-// 	"to": "0xb51d235cf4461d17fea88733fed1865873c8d686",
-// 	"timeoutTimestamp": "1716062948"
-//   },
-//   {
-// 	"id": "0x00005f364898fe1749e1d6fbd15891b85aec57d3e6be559ceccc7f4897b2c10e",
-// 	"chain": "BASE",
-// 	"source": "0x42415345",
-// 	"dest": "0x41524249",
-// 	"data": "0x68656c6c6f2066726f6d2042415345",
-// 	"status": "DEST",
-// 	"nonce": "17359",
-// 	"statusMetadata": {
-// 	  "nodes": [
-// 		{
-// 		  "status": "DEST"
-// 		},
-// 		{
-// 		  "status": "SOURCE"
-// 		}
-// 	  ]
-// 	},
-// 	"from": "0xe8cb27bad1c5071189b154bec0088209d1ec2582",
-// 	"to": "0xe8cb27bad1c5071189b154bec0088209d1ec2582",
-// 	"timeoutTimestamp": "1716227076"
-//   },
+// "source": "0x42415345",
+// "nonce": "6055",
+// "from": "0x9cc29770f3d643f4094ee591f3d2e3c98c349761",
+// "to": "0x9cc29770f3d643f4094ee591f3d2e3c98c349761",
+// "timeoutTimestamp": "1716240884",
+// "dest": "0x4f505449",
+// "data": "0x68656c6c6f2066726f6d2042415345",
 
 #[tokio::test]
 #[ignore]
@@ -76,13 +45,13 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 		)
 		.unwrap(),
 		dest: StateMachine::from_str(
-			&String::from_utf8(hex::decode("41524249".to_string()).unwrap()).unwrap(),
+			&String::from_utf8(hex::decode("4f505449".to_string()).unwrap()).unwrap(),
 		)
 		.unwrap(),
-		nonce: 17359,
-		from: hex::decode("e8cb27bad1c5071189b154bec0088209d1ec2582".to_string()).unwrap(),
-		to: hex::decode("e8cb27bad1c5071189b154bec0088209d1ec2582".to_string()).unwrap(),
-		timeout_timestamp: 1716227076,
+		nonce: 6055,
+		from: hex::decode("9cc29770f3d643f4094ee591f3d2e3c98c349761".to_string()).unwrap(),
+		to: hex::decode("9cc29770f3d643f4094ee591f3d2e3c98c349761".to_string()).unwrap(),
+		timeout_timestamp: 1716240884,
 		data: hex::decode("68656c6c6f2066726f6d2042415345".to_string()).unwrap(),
 	};
 
@@ -93,30 +62,55 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 	dbg!(&status);
 	assert!(matches!(status, MessageStatusWithMetadata::DestinationDelivered { .. }));
 
+	Ok(())
+}
+
+// "request": {
+// 	"source": "0x425343",
+// 	"nonce": "3516",
+// 	"from": "0x9cc29770f3d643f4094ee591f3d2e3c98c349761",
+// 	"to": "0x9cc29770f3d643f4094ee591f3d2e3c98c349761",
+// 	"timeoutTimestamp": "1716240473",
+// 	"dest": "0x4f505449",
+// 	"data": "0x68656c6c6f2066726f6d20425343"
+//   },
+//   "id": "0x0039f125db9eb51dd1e25d6dafab8e68e4bc3367145ab943e8350a9e755d3574",
+//   "status": "DEST",
+//   "chain": "OPTI",
+//   "responseTimeoutTimestamp": "3432417653",
+//   "responseMessage": "0x48656c6c6f2066726f6d204f505449",
+// }
+
+#[tokio::test]
+#[ignore]
+async fn test_query_response_status_from_indexer() -> Result<(), anyhow::Error> {
 	let post = ismp::router::Post {
 		source: StateMachine::from_str(
-			&String::from_utf8(hex::decode("41524249".to_string()).unwrap()).unwrap(),
+			&String::from_utf8(hex::decode("425343".to_string()).unwrap()).unwrap(),
 		)
 		.unwrap(),
 		dest: StateMachine::from_str(
-			&String::from_utf8(hex::decode("45544845".to_string()).unwrap()).unwrap(),
+			&String::from_utf8(hex::decode("4f505449".to_string()).unwrap()).unwrap(),
 		)
 		.unwrap(),
-		nonce: 959,
-		from: hex::decode("b51d235cf4461d17fea88733fed1865873c8d686".to_string()).unwrap(),
-		to: hex::decode("b51d235cf4461d17fea88733fed1865873c8d686".to_string()).unwrap(),
-		timeout_timestamp: 1716062948,
-		data: hex::decode("68656c6c6f2066726f6d2041524249".to_string()).unwrap(),
+		nonce: 3516,
+		from: hex::decode("9cc29770f3d643f4094ee591f3d2e3c98c349761".to_string()).unwrap(),
+		to: hex::decode("9cc29770f3d643f4094ee591f3d2e3c98c349761".to_string()).unwrap(),
+		timeout_timestamp: 1716240473,
+		data: hex::decode("68656c6c6f2066726f6d20425343".to_string()).unwrap(),
 	};
 
-	let request = Request::Post(post);
+	let response = PostResponse {
+		post,
+		response: hex::decode("48656c6c6f2066726f6d204f505449".to_string()).unwrap(),
+		timeout_timestamp: 3432417653,
+	};
 
-	let status = query_request_status_from_indexer(request).await?.unwrap();
+	let status = query_response_status_from_indexer(ismp::router::Response::Post(response))
+		.await?
+		.unwrap();
 
-	// This request was not delivered so it should
-	assert!(matches!(status, MessageStatusWithMetadata::SourceFinalized { .. }));
-
-	dbg!(status);
-
+	dbg!(&status);
+	assert!(matches!(status, MessageStatusWithMetadata::DestinationDelivered { .. }));
 	Ok(())
 }

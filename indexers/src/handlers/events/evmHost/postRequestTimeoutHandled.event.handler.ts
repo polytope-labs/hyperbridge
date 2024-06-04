@@ -1,5 +1,5 @@
 import assert from "assert";
-import { EventType, RequestStatus, SupportedChain } from "../../../types";
+import { EventType, Status, SupportedChain } from "../../../types";
 import { PostRequestTimeoutHandledLog } from "../../../types/abi-interfaces/EthereumHostAbi";
 import { getEvmChainFromTransaction } from "../../../utils/chain.helpers";
 import { EvmHostEventsService } from "../../../services/evmHostEvents.service";
@@ -54,7 +54,7 @@ export async function handlePostRequestTimeoutHandledEvent(
       blockNumber: blockNumber.toString(),
       blockHash: block.hash,
       blockTimestamp: block.timestamp,
-      status: RequestStatus.TIMED_OUT,
+      status: Status.TIMED_OUT,
       transactionHash,
     }),
   ]);

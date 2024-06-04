@@ -108,7 +108,9 @@ where
 					timeout_timestamp: if dispatch_post.timeout == 0 {
 						0
 					} else {
-						<T::TimestampProvider as UnixTime>::now().as_secs() + dispatch_post.timeout
+						<T::TimestampProvider as UnixTime>::now()
+							.as_secs()
+							.saturating_add(dispatch_post.timeout)
 					},
 					data: dispatch_post.body,
 				};

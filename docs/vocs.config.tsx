@@ -70,7 +70,7 @@ export default defineConfig({
   baseUrl: "https://docs.hyperbridge.network",
   editLink: {
     pattern:
-      "https://github.com/polytop-labs/hyperbridge/edit/main/docs/pages/:path",
+      "https://github.com/polytope-labs/hyperbridge/blob/main/docs/pages/:path",
     text: "Suggest changes to this page",
   },
   iconUrl: "/favicon.svg",

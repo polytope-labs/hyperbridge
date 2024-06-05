@@ -16,6 +16,10 @@ code {
   font-family: "Berkeley Mono", monospace;
 }
 
+.katex-display {
+  overflow: auto hidden;
+}
+
 @font-face {
   font-family: "General Sans";
   src: url("/fonts/GeneralSans-Variable.ttf") format("truetype");

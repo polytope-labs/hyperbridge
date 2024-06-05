@@ -14,7 +14,7 @@ use ethers::{
 };
 use ismp::{
 	host::{Ethereum, StateMachine},
-	messaging::{Message, ResponseMessage, TimeoutMessage},
+	messaging::{Message, ResponseMessage},
 	router::{RequestResponse, Response},
 };
 use ismp_solidity_abi::{

@@ -4,11 +4,12 @@
   "type": "module",
   "scripts": {
     "dev": "vocs dev --host",
-    "build": "vocs build",
+    "build": "vocs build && node ./fixTrailingSlash.js",
     "preview": "vocs preview"
   },
   "dependencies": {
     "@types/react": "latest",
+    "fs-extra": "^11.2.0",
     "glob": "^10.4.1",
     "i": "^0.3.7",
     "prettier": "^3.2.2",

@@ -26,8 +26,8 @@ use ismp::{
 	handlers::handle_incoming_message,
 	host::{Ethereum, IsmpHost, StateMachine},
 	messaging::{
-		hash_post_response, hash_request, ConsensusMessage, Message, Proof, RequestMessage,
-		ResponseMessage, TimeoutMessage,
+		hash_post_response, hash_request, ConsensusMessage, FraudProofMessage, Message, Proof,
+		RequestMessage, ResponseMessage, TimeoutMessage,
 	},
 	router::{Post, PostResponse, Request, RequestResponse, Response},
 };
@@ -321,6 +321,26 @@ where
 	let res = host.request_commitment(commitment);
 	assert!(matches!(res, Err(..)));
 	Ok(())
+}
+
+pub fn fraud_proof_checks<H>(host: &H)
+where
+	H: IsmpHost,
+{
+	setup_mock_client(host);
+
+	let fraud_proof = FraudProofMessage {
+		proof_1: vec![],
+		proof_2: vec![],
+		consensus_state_id: mock_consensus_state_id(),
+	};
+
+	assert!(handle_incoming_message(host, Message::FraudProof(fraud_proof.clone())).is_ok());
+
+	assert!(matches!(
+		handle_incoming_message(host, Message::FraudProof(fraud_proof)),
+		Err(Error::FrozenConsensusClient { .. })
+	));
 }
 
 /// Ensure post request timeouts are handled properly

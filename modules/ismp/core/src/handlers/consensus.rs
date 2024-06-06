@@ -125,6 +125,9 @@ where
 	let consensus_client_id = host
 		.consensus_client_id(msg.consensus_state_id)
 		.ok_or_else(|| Error::Custom("Unknown Consensus State Id".to_string()))?;
+
+	host.is_consensus_client_frozen(msg.consensus_state_id)?;
+
 	let consensus_client = host.consensus_client(consensus_client_id)?;
 	let trusted_state = host.consensus_state(msg.consensus_state_id)?;
 

@@ -72,8 +72,7 @@ impl FullLeaf for Leaf {
 }
 
 /// Distinguish between requests and responses
-#[derive(TypeInfo, Encode, Decode)]
-#[cfg_attr(feature = "std", derive(serde::Deserialize, serde::Serialize))]
+#[derive(TypeInfo, Encode, Decode, serde::Deserialize, serde::Serialize)]
 pub enum ProofKeys {
 	/// Request commitments
 	Requests(Vec<H256>),

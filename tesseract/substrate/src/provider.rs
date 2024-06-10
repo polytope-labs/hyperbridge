@@ -57,6 +57,7 @@ use subxt::{
 	tx::TxPayload,
 };
 
+use subxt_utils::send_extrinsic;
 use tesseract_primitives::{
 	BoxStream, EstimateGasReturnParams, IsmpProvider, Query, StateMachineUpdated,
 	StateProofQueryType, TxReceipt,
@@ -64,9 +65,7 @@ use tesseract_primitives::{
 
 use crate::{
 	calls::RequestMetadata,
-	extrinsic::{
-		send_extrinsic, send_unsigned_extrinsic, system_dry_run_unsigned, Extrinsic, InMemorySigner,
-	},
+	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, Extrinsic, InMemorySigner},
 	runtime::{self},
 	SubstrateClient,
 };

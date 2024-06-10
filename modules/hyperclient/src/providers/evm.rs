@@ -2,6 +2,7 @@ use crate::{
 	providers::interface::{Client, RequestOrResponse},
 	types::BoxStream,
 };
+use codec::Encode;
 use ethereum_triedb::StorageProof;
 use ethers::prelude::Middleware;
 use evm_common::presets::{
@@ -33,6 +34,8 @@ use ismp_solidity_abi::{
 	handler::{GetTimeoutMessage, Handler, PostRequestTimeoutMessage, PostResponseTimeoutMessage},
 };
 use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
+
+use super::interface::Query;
 
 #[derive(Debug, Clone)]
 pub struct EvmClient {
@@ -121,6 +124,55 @@ impl Client for EvmClient {
 		let host = EvmHost::new(self.host_address, self.client.clone());
 		let relayer = host.request_receipts(request_hash.0).call().await?;
 		Ok(relayer)
+	}
+
+	async fn query_requests_proof(&self, at: u64, keys: Vec<Query>) -> Result<Vec<u8>, Error> {
+		let keys = keys
+			.into_iter()
+			.map(|query| self.request_commitment_key(query.commitment))
+			.collect();
+
+		let proof = self.client.get_proof(self.host_address, keys, Some(at.into())).await?;
+		let proof = EvmStateProof {
+			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
+			storage_proof: {
+				let storage_proofs = proof.storage_proof.into_iter().map(|proof| {
+					StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.0.into()))
+				});
+				let merged_proofs = StorageProof::merge(storage_proofs);
+				vec![(
+					self.host_address.0.to_vec(),
+					merged_proofs.into_nodes().into_iter().collect(),
+				)]
+				.into_iter()
+				.collect()
+			},
+		};
+		Ok(proof.encode())
+	}
+
+	async fn query_responses_proof(&self, at: u64, keys: Vec<Query>) -> Result<Vec<u8>, Error> {
+		let keys = keys
+			.into_iter()
+			.map(|query| self.response_commitment_key(query.commitment))
+			.collect();
+		let proof = self.client.get_proof(self.host_address, keys, Some(at.into())).await?;
+		let proof = EvmStateProof {
+			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
+			storage_proof: {
+				let storage_proofs = proof.storage_proof.into_iter().map(|proof| {
+					StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.0.into()))
+				});
+				let merged_proofs = StorageProof::merge(storage_proofs);
+				vec![(
+					self.host_address.0.to_vec(),
+					merged_proofs.into_nodes().into_iter().collect(),
+				)]
+				.into_iter()
+				.collect()
+			},
+		};
+		Ok(proof.encode())
 	}
 
 	async fn query_state_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {

@@ -11013,6 +11013,7 @@ dependencies = [
  "staging-xcm-executor",
  "substrate-state-machine",
  "subxt",
+ "subxt-utils",
  "tokio",
  "trie-db 0.28.0",
  "xcm-simulator",

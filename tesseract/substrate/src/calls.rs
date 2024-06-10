@@ -1,7 +1,7 @@
 //! Functions for updating configuration on pallets
 
 use crate::{
-	extrinsic::{send_extrinsic, send_unsigned_extrinsic, Extrinsic, InMemorySigner},
+	extrinsic::{send_unsigned_extrinsic, Extrinsic, InMemorySigner},
 	runtime, SubstrateClient,
 };
 use anyhow::anyhow;
@@ -35,6 +35,7 @@ use subxt::{
 	utils::AccountId32,
 	OnlineClient,
 };
+use subxt_utils::send_extrinsic;
 use tesseract_primitives::{HyperbridgeClaim, IsmpProvider, WithdrawFundsResult};
 
 #[derive(codec::Encode, codec::Decode)]

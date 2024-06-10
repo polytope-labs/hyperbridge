@@ -67,6 +67,7 @@ cumulus-primitives-core = { workspace = true, default-features = true }
 cumulus-pallet-xcmp-queue = { workspace = true, default-features = true }
 cumulus-pallet-parachain-system = { workspace = true, default-features = true }
 subxt = { workspace = true, features = ["substrate-compat"], default-features = true }
+subxt-utils = { workspace = true }
 
 [dev-dependencies]
 hex = "0.4.3"

@@ -1,6 +1,5 @@
 use crate::providers::{evm::EvmClient, interface::Client, substrate::SubstrateClient};
 use anyhow::anyhow;
-use codec::Encode;
 use core::pin::Pin;
 use ethers::types::H160;
 pub use evm_common::types::EvmStateProof;
@@ -8,7 +7,8 @@ use futures::Stream;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use serde::{Deserialize, Serialize};
 pub use substrate_state_machine::{HashAlgorithm, SubstrateStateProof};
-use subxt::{tx::TxPayload, utils::H256, Config, Metadata};
+use subxt::{utils::H256, Config};
+pub use subxt_utils::Extrinsic;
 use subxt_utils::Hyperbridge;
 
 // ========================================
@@ -189,54 +189,6 @@ pub enum TimeoutStatus {
 		/// Calldata that encodes the proof for the timeout message on the source.
 		calldata: Vec<u8>,
 	},
-}
-
-/// Implements [`TxPayload`] for extrinsic encoding
-pub struct Extrinsic {
-	/// The pallet name, used to query the metadata
-	pallet_name: String,
-	/// The call name
-	call_name: String,
-	/// The encoded pallet call. Note that this should be the pallet call. Not runtime call
-	encoded: Vec<u8>,
-}
-
-// =======================================
-// IMPLs                            =
-// =======================================
-impl Extrinsic {
-	/// Creates a new extrinsic ready to be sent with subxt.
-	pub fn new(
-		pallet_name: impl Into<String>,
-		call_name: impl Into<String>,
-		encoded_call: Vec<u8>,
-	) -> Self {
-		Extrinsic {
-			pallet_name: pallet_name.into(),
-			call_name: call_name.into(),
-			encoded: encoded_call,
-		}
-	}
-}
-
-impl TxPayload for Extrinsic {
-	fn encode_call_data_to(
-		&self,
-		metadata: &Metadata,
-		out: &mut Vec<u8>,
-	) -> Result<(), subxt::Error> {
-		// encode the pallet index
-		let pallet = metadata.pallet_by_name_err(&self.pallet_name).unwrap();
-		let call_index = pallet.call_variant_by_name(&self.call_name).unwrap().index;
-		let pallet_index = pallet.index();
-		pallet_index.encode_to(out);
-		call_index.encode_to(out);
-
-		// copy the encoded call to out
-		out.extend_from_slice(&self.encoded);
-
-		Ok(())
-	}
 }
 
 impl ClientConfig {

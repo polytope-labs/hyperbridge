@@ -270,6 +270,7 @@ pub async fn query_request_status_from_indexer(
 					MessageStatusWithMetadata::HyperbridgeFinalized {
 						finalized_height: data.height.low_u64(),
 						meta,
+						calldata: Default::default(),
 					}
 				} else {
 					MessageStatusWithMetadata::HyperbridgeDelivered {
@@ -406,6 +407,7 @@ pub async fn query_response_status_from_indexer(
 					MessageStatusWithMetadata::HyperbridgeFinalized {
 						finalized_height: data.height.low_u64(),
 						meta,
+						calldata: Default::default(),
 					}
 				} else {
 					MessageStatusWithMetadata::HyperbridgeDelivered {

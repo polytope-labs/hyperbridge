@@ -2,7 +2,10 @@
 
 pub mod internals;
 pub mod providers;
+use any_client::AnyClient;
+use providers::interface::Client;
 pub use subxt_utils::gargantua as runtime;
+pub mod any_client;
 pub mod types;
 
 pub mod interfaces;
@@ -11,12 +14,11 @@ extern crate alloc;
 extern crate core;
 
 use crate::types::ClientConfig;
-use anyhow::anyhow;
 
 use crate::{
 	interfaces::{JsClientConfig, JsPost, JsPostResponse},
-	providers::{evm::EvmClient, substrate::SubstrateClient},
-	types::{ChainConfig, MessageStatusWithMetadata, TimeoutStatus},
+	providers::substrate::SubstrateClient,
+	types::{MessageStatusWithMetadata, TimeoutStatus},
 };
 use ethers::{types::H256, utils::keccak256};
 use futures::StreamExt;
@@ -249,9 +251,9 @@ extern "C" {
 #[derive(Clone)]
 pub struct HyperClient {
 	#[wasm_bindgen(skip)]
-	pub source: EvmClient,
+	pub source: AnyClient,
 	#[wasm_bindgen(skip)]
-	pub dest: EvmClient,
+	pub dest: AnyClient,
 	#[wasm_bindgen(skip)]
 	pub hyperbridge: SubstrateClient<Hyperbridge>,
 }
@@ -259,18 +261,11 @@ pub struct HyperClient {
 impl HyperClient {
 	/// Initialize the Hyperclient
 	pub async fn new(config: ClientConfig) -> Result<Self, anyhow::Error> {
-		// todo: we'll need an AnyClient to make this generic
-		let ChainConfig::Evm(ref source_config) = config.source else {
-			Err(anyhow!("Expected EvmConfig"))?
-		};
-		let ChainConfig::Evm(ref dest_config) = config.dest else {
-			Err(anyhow!("Expected EvmConfig"))?
-		};
 		let hyperbridge = config.hyperbridge_client().await?;
 
 		Ok(Self {
-			source: source_config.into_client().await?,
-			dest: dest_config.into_client().await?,
+			source: config.source_chain().await?,
+			dest: config.dest_chain().await?,
 			hyperbridge,
 		})
 	}
@@ -304,7 +299,8 @@ impl HyperClient {
 		lambda().await.map_err(|err: anyhow::Error| {
 			JsError::new(&format!(
 				"Failed to query request status for {:?}->{:?}: {err:?}",
-				self.source.state_machine, self.dest.state_machine,
+				self.source.state_machine_id().state_id,
+				self.dest.state_machine_id().state_id,
 			))
 		})
 	}
@@ -321,7 +317,8 @@ impl HyperClient {
 		lambda().await.map_err(|err: anyhow::Error| {
 			JsError::new(&format!(
 				"Failed to query response status for {:?}->{:?}: {err:?}",
-				self.source.state_machine, self.dest.state_machine,
+				self.source.state_machine_id().state_id,
+				self.dest.state_machine_id().state_id,
 			))
 		})
 	}

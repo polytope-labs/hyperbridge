@@ -2,7 +2,11 @@ use anyhow::anyhow;
 use codec::Encode;
 use sp_core_hashing::keccak_256;
 use subxt::{
-	config::{polkadot::PolkadotExtrinsicParams, substrate::SubstrateHeader, Hasher},
+	config::{
+		polkadot::PolkadotExtrinsicParams,
+		substrate::{BlakeTwo256, SubstrateExtrinsicParams, SubstrateHeader},
+		Hasher,
+	},
 	tx::TxPayload,
 	utils::{AccountId32, MultiAddress, H256},
 	Metadata,
@@ -202,6 +206,20 @@ impl subxt::Config for Hyperbridge {
 	type Hasher = RuntimeHasher;
 	type Header = SubstrateHeader<u32, RuntimeHasher>;
 	type ExtrinsicParams = PolkadotExtrinsicParams<Self>;
+}
+
+/// Implements [`subxt::Config`] for substrate chains with blake2b as their hashing algorithm
+#[derive(Clone)]
+pub struct BlakeSubstrateChain;
+
+impl subxt::Config for BlakeSubstrateChain {
+	type Hash = H256;
+	type AccountId = AccountId32;
+	type Address = MultiAddress<Self::AccountId, u32>;
+	type Signature = subxt::utils::MultiSignature;
+	type Hasher = BlakeTwo256;
+	type Header = SubstrateHeader<u32, BlakeTwo256>;
+	type ExtrinsicParams = SubstrateExtrinsicParams<Self>;
 }
 
 /// Implements [`TxPayload`] for extrinsic encoding

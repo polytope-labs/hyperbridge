@@ -1,4 +1,7 @@
-use crate::providers::{evm::EvmClient, interface::Client, substrate::SubstrateClient};
+use crate::{
+	any_client::AnyClient,
+	providers::{evm::EvmClient, substrate::SubstrateClient},
+};
 use anyhow::anyhow;
 use core::pin::Pin;
 use ethers::types::H160;
@@ -9,7 +12,7 @@ use serde::{Deserialize, Serialize};
 pub use substrate_state_machine::{HashAlgorithm, SubstrateStateProof};
 use subxt::{utils::H256, Config};
 pub use subxt_utils::Extrinsic;
-use subxt_utils::Hyperbridge;
+use subxt_utils::{BlakeSubstrateChain, Hyperbridge};
 
 // ========================================
 // TYPES
@@ -124,6 +127,8 @@ pub enum MessageStatusWithMetadata {
 		/// Metadata about the event on the destination chain
 		#[serde(flatten)]
 		meta: EventMetadata,
+		/// Calldata that encodes the proof for the timeout message on the source.
+		calldata: Vec<u8>,
 	},
 	/// Delivered to destination
 	DestinationDelivered {
@@ -192,17 +197,41 @@ pub enum TimeoutStatus {
 }
 
 impl ClientConfig {
-	pub async fn dest_chain(&self) -> Result<impl Client, anyhow::Error> {
+	pub async fn dest_chain(&self) -> Result<AnyClient, anyhow::Error> {
 		match &self.dest {
-			ChainConfig::Evm(config) => config.into_client().await,
-			_ => Err(anyhow!("Support for substrate coming: requires an AnyClient implementation")),
+			ChainConfig::Evm(config) => {
+				let client = config.into_client().await?;
+				Ok(AnyClient::Evm(client))
+			},
+			ChainConfig::Substrate(config) => match config.hash_algo {
+				HashAlgorithm::Keccak => {
+					let client = config.into_client::<Hyperbridge>().await?;
+					Ok(AnyClient::KeccakSubstrateChain(client))
+				},
+				HashAlgorithm::Blake2 => {
+					let client = config.into_client::<BlakeSubstrateChain>().await?;
+					Ok(AnyClient::BlakeSubstrateChain(client))
+				},
+			},
 		}
 	}
 
-	pub async fn source_chain(&self) -> Result<impl Client, anyhow::Error> {
+	pub async fn source_chain(&self) -> Result<AnyClient, anyhow::Error> {
 		match &self.source {
-			ChainConfig::Evm(config) => config.into_client().await,
-			_ => Err(anyhow!("Support for substrate coming: requires an AnyClient implementation")),
+			ChainConfig::Evm(config) => {
+				let client = config.into_client().await?;
+				Ok(AnyClient::Evm(client))
+			},
+			ChainConfig::Substrate(config) => match config.hash_algo {
+				HashAlgorithm::Keccak => {
+					let client = config.into_client::<Hyperbridge>().await?;
+					Ok(AnyClient::KeccakSubstrateChain(client))
+				},
+				HashAlgorithm::Blake2 => {
+					let client = config.into_client::<BlakeSubstrateChain>().await?;
+					Ok(AnyClient::BlakeSubstrateChain(client))
+				},
+			},
 		}
 	}
 

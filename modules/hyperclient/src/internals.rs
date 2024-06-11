@@ -400,14 +400,15 @@ pub async fn request_status_stream(
 									meta,
 									..
 								} => {
-									let calldata = encode_request_message(
-										&hyperbridge_client,
-										&dest_client,
-										post.clone(),
-										hash,
-										*finalized_height,
-									)
-									.await?;
+									let calldata =
+										encode_request_message_and_wait_for_challenge_period(
+											&hyperbridge_client,
+											&dest_client,
+											post.clone(),
+											hash,
+											*finalized_height,
+										)
+										.await?;
 									return Ok::<
 										Option<(Result<_, anyhow::Error>, PostStreamState)>,
 										anyhow::Error,
@@ -543,14 +544,15 @@ pub async fn request_status_stream(
 									meta,
 									..
 								} => {
-									let calldata = encode_request_message(
-										&hyperbridge_client,
-										&dest_client,
-										post.clone(),
-										hash,
-										*finalized_height,
-									)
-									.await?;
+									let calldata =
+										encode_request_message_and_wait_for_challenge_period(
+											&hyperbridge_client,
+											&dest_client,
+											post.clone(),
+											hash,
+											*finalized_height,
+										)
+										.await?;
 									return Ok::<
 										Option<(Result<_, anyhow::Error>, PostStreamState)>,
 										anyhow::Error,
@@ -641,14 +643,15 @@ pub async fn request_status_stream(
 									meta,
 									..
 								} => {
-									let calldata = encode_request_message(
-										&hyperbridge_client,
-										&dest_client,
-										post.clone(),
-										hash,
-										*finalized_height,
-									)
-									.await?;
+									let calldata =
+										encode_request_message_and_wait_for_challenge_period(
+											&hyperbridge_client,
+											&dest_client,
+											post.clone(),
+											hash,
+											*finalized_height,
+										)
+										.await?;
 									return Ok::<
 										Option<(Result<_, anyhow::Error>, PostStreamState)>,
 										anyhow::Error,
@@ -702,7 +705,7 @@ pub async fn request_status_stream(
 									_ => None,
 								});
 
-							let calldata = encode_request_message(
+							let calldata = encode_request_message_and_wait_for_challenge_period(
 								&hyperbridge_client,
 								&dest_client,
 								post.clone(),
@@ -741,14 +744,15 @@ pub async fn request_status_stream(
 							match update {
 								Ok(event) =>
 									if event.event.latest_height >= height {
-										let calldata = encode_request_message(
-											&hyperbridge_client,
-											&dest_client,
-											post.clone(),
-											hash,
-											event.event.latest_height,
-										)
-										.await?;
+										let calldata =
+											encode_request_message_and_wait_for_challenge_period(
+												&hyperbridge_client,
+												&dest_client,
+												post.clone(),
+												hash,
+												event.event.latest_height,
+											)
+											.await?;
 										return Ok(Some((
 											Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
 												finalized_height: event.event.latest_height,
@@ -891,7 +895,8 @@ pub async fn request_timeout_stream(
 	Box::pin(stream)
 }
 
-pub async fn encode_request_message(
+// Encodes the call data for the message but waits for the challenge period before yielding
+pub async fn encode_request_message_and_wait_for_challenge_period(
 	hyperbridge: &SubstrateClient<Hyperbridge>,
 	dest_client: &AnyClient,
 	post: Post,
@@ -921,8 +926,3 @@ pub async fn encode_request_message(
 
 	Ok(calldata)
 }
-
-// pub async fn encode_response_message(hyperbridge: &SubstrateClient<Hyperbridge>, dest: AnyClient,
-// post: Post) -> Result<Vec<u8>, anyhow::Error> {
-
-// }

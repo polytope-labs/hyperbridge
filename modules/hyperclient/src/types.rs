@@ -127,7 +127,7 @@ pub enum MessageStatusWithMetadata {
 		/// Metadata about the event on the destination chain
 		#[serde(flatten)]
 		meta: EventMetadata,
-		/// Calldata that encodes the proof for the timeout message on the source.
+		/// Calldata that encodes the proof for the message to be sent to the destination.
 		calldata: Vec<u8>,
 	},
 	/// Delivered to destination

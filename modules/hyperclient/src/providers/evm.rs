@@ -2,13 +2,14 @@ use crate::{
 	providers::interface::{Client, RequestOrResponse},
 	types::BoxStream,
 };
-use codec::Encode;
+use codec::{Decode, Encode};
 use ethereum_triedb::StorageProof;
 use ethers::prelude::Middleware;
 use evm_common::presets::{
 	REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
 	RESPONSE_RECEIPTS_SLOT,
 };
+use sp_mmr_primitives::utils::NodesUtils;
 
 use crate::{
 	providers::interface::WithMetadata,
@@ -26,13 +27,18 @@ use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
-	messaging::{Message, TimeoutMessage},
-	router::Request,
+	messaging::{Message, ResponseMessage, TimeoutMessage},
+	router::{Request, RequestResponse, Response},
 };
 use ismp_solidity_abi::{
 	evm_host::{EvmHost, EvmHostEvents, GetRequest, PostRequestHandledFilter},
-	handler::{GetTimeoutMessage, Handler, PostRequestTimeoutMessage, PostResponseTimeoutMessage},
+	handler::{
+		GetTimeoutMessage, Handler, PostRequestLeaf, PostRequestMessage, PostRequestTimeoutMessage,
+		PostResponseLeaf, PostResponseMessage, PostResponseTimeoutMessage, Proof,
+	},
 };
+use mmr_primitives::mmr_position_to_k_index;
+use pallet_ismp::mmr::{LeafIndexAndPos, Proof as MmrProof};
 use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
 
 use super::interface::Query;
@@ -529,7 +535,111 @@ impl Client for EvmClient {
 
 				Ok(call.tx.data().cloned().expect("Infallible").to_vec())
 			},
-			_ => Err(anyhow!("Only timeout messages are suported"))?,
+
+			Message::Request(msg) => {
+				let membership_proof = MmrProof::<H256>::decode(&mut msg.proof.proof.as_slice())?;
+				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
+				let k_and_leaf_indices = membership_proof
+					.leaf_indices_and_pos
+					.into_iter()
+					.map(|LeafIndexAndPos { pos, leaf_index }| {
+						let k_index = mmr_position_to_k_index(vec![pos], mmr_size)[0].1;
+						(k_index, leaf_index)
+					})
+					.collect::<Vec<_>>();
+
+				let mut leaves = msg
+					.requests
+					.into_iter()
+					.zip(k_and_leaf_indices)
+					.map(|(post, (k_index, leaf_index))| PostRequestLeaf {
+						request: post.into(),
+						index: leaf_index.into(),
+						k_index: k_index.into(),
+					})
+					.collect::<Vec<_>>();
+				leaves.sort_by_key(|leaf| leaf.index);
+				let post_message = PostRequestMessage {
+					proof: Proof {
+						height: ismp_solidity_abi::shared_types::StateMachineHeight {
+							state_machine_id: {
+								match msg.proof.height.id.state_id {
+									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
+										id.into(),
+									_ =>
+										Err(anyhow!("Expected polkadot or kusama state machines"))?,
+								}
+							},
+							height: msg.proof.height.height.into(),
+						},
+						multiproof: membership_proof.items.into_iter().map(|node| node.0).collect(),
+						leaf_count: membership_proof.leaf_count.into(),
+					},
+					requests: leaves,
+				};
+
+				let call = contract.handle_post_requests(self.host_address, post_message);
+				Ok(call.tx.data().cloned().expect("Infallible").to_vec())
+			},
+			Message::Response(ResponseMessage { datagram, proof, .. }) => {
+				let membership_proof = MmrProof::<H256>::decode(&mut proof.proof.as_slice())?;
+				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
+				let k_and_leaf_indices = membership_proof
+					.leaf_indices_and_pos
+					.into_iter()
+					.map(|LeafIndexAndPos { pos, leaf_index }| {
+						let k_index = mmr_position_to_k_index(vec![pos], mmr_size)[0].1;
+						(k_index, leaf_index)
+					})
+					.collect::<Vec<_>>();
+
+				match datagram {
+					RequestResponse::Response(responses) => {
+						let mut leaves = responses
+							.into_iter()
+							.zip(k_and_leaf_indices)
+							.filter_map(|(res, (k_index, leaf_index))| match res {
+								Response::Post(res) => Some(PostResponseLeaf {
+									response: res.into(),
+									index: leaf_index.into(),
+									k_index: k_index.into(),
+								}),
+								_ => None,
+							})
+							.collect::<Vec<_>>();
+						leaves.sort_by_key(|leaf| leaf.index);
+						let message = PostResponseMessage {
+							proof: Proof {
+								height: ismp_solidity_abi::shared_types::StateMachineHeight {
+									state_machine_id: {
+										match proof.height.id.state_id {
+											StateMachine::Polkadot(id) |
+											StateMachine::Kusama(id) => id.into(),
+											_ => Err(anyhow!(
+												"Expected polkadot or kusama state machines"
+											))?,
+										}
+									},
+									height: proof.height.height.into(),
+								},
+								multiproof: membership_proof
+									.items
+									.into_iter()
+									.map(|node| node.0)
+									.collect(),
+								leaf_count: membership_proof.leaf_count.into(),
+							},
+							responses: leaves,
+						};
+
+						let call = contract.handle_post_responses(self.host_address, message);
+						Ok(call.tx.data().cloned().expect("Infallible").to_vec())
+					},
+					RequestResponse::Request(..) =>
+						Err(anyhow!("Get requests are not supported yet"))?,
+				}
+			},
+			_ => Err(anyhow!("Unsupported message"))?,
 		}
 	}
 

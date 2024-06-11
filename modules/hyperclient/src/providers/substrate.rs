@@ -29,7 +29,8 @@ use sp_core::storage::ChildInfo;
 use std::ops::RangeInclusive;
 use substrate_state_machine::StateMachineProof;
 use subxt::{
-	config::Header, rpc::types::StorageData, rpc_params, storage::StorageKey, OnlineClient,
+	config::Header, rpc::types::StorageData, rpc_params, storage::StorageKey, tx::TxPayload,
+	OnlineClient,
 };
 
 use super::interface::Query;
@@ -460,15 +461,17 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 
 	fn encode(&self, msg: Message) -> Result<Vec<u8>, Error> {
 		let call = vec![msg].encode();
-		let extrinsic = if let Some(_) =
+		if let Some(_) =
 			self.client.metadata().pallet_by_name_err("Ismp")?.call_hash("handle_unsigned")
 		{
-			Extrinsic::new("Ismp", "handle_unsigned", call)
+			let extrinsic = Extrinsic::new("Ismp", "handle_unsigned", call);
+			let ext = self.client.tx().create_unsigned(&extrinsic)?;
+			Ok(ext.into_encoded())
 		} else {
-			Extrinsic::new("Ismp", "handle", call)
-		};
-		let ext = self.client.tx().create_unsigned(&extrinsic)?;
-		Ok(ext.into_encoded())
+			let extrinsic = Extrinsic::new("Ismp", "handle", call);
+			let call_data = extrinsic.encode_call_data(&self.client.metadata())?;
+			Ok(call_data)
+		}
 	}
 
 	async fn query_ismp_event(

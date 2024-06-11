@@ -45,6 +45,8 @@ substrate-state-machine = { workspace = true }
 ismp-solidity-abi = { workspace = true }
 ethereum-triedb = { workspace = true }
 subxt-utils = { workspace = true }
+mmr-primitives = { workspace = true }
+sp-mmr-primitives = { workspace = true }
 hex = "0.4.3"
 gql_client = "=1.0.7"
 

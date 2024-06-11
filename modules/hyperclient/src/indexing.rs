@@ -8,7 +8,7 @@ use anyhow::anyhow;
 use ismp::{
 	host::{Ethereum, StateMachine},
 	messaging::{hash_request, hash_response},
-	router::{Post, Request, Response},
+	router::{Request, Response},
 };
 use sp_core::{bytes::from_hex, H256};
 

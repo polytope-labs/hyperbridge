@@ -699,13 +699,15 @@ pub mod ping_module {
 		///Gets the contract's `GetTimeoutReceived` event
 		pub fn get_timeout_received_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, GetTimeoutReceivedFilter> {
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, GetTimeoutReceivedFilter>
+		{
 			self.0.event()
 		}
 		///Gets the contract's `MessageDispatched` event
 		pub fn message_dispatched_filter(
 			&self,
-		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, MessageDispatchedFilter> {
+		) -> ::ethers::contract::builders::Event<::std::sync::Arc<M>, M, MessageDispatchedFilter>
+		{
 			self.0.event()
 		}
 		///Gets the contract's `PostReceived` event

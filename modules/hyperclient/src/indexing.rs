@@ -1,10 +1,14 @@
 #![allow(non_camel_case_types)]
-use crate::{types::EventMetadata, MessageStatusWithMetadata};
+use crate::{
+	internals::{encode_request_call_data, encode_response_call_data},
+	types::EventMetadata,
+	HyperClient, MessageStatusWithMetadata,
+};
 use anyhow::anyhow;
 use ismp::{
 	host::{Ethereum, StateMachine},
 	messaging::{hash_request, hash_response},
-	router::{Request, Response},
+	router::{Post, Request, Response},
 };
 use sp_core::{bytes::from_hex, H256};
 
@@ -173,6 +177,7 @@ pub type BigInt = primitive_types::U256;
 
 pub async fn query_request_status_from_indexer(
 	request: Request,
+	hyperclient: Option<&HyperClient>,
 ) -> Result<Option<MessageStatusWithMetadata>, anyhow::Error> {
 	let commitment = hash_request::<Keccak256>(&request);
 
@@ -267,10 +272,30 @@ pub async fn query_request_status_from_indexer(
 						block_number: data.block_number.low_u64(),
 					};
 
+					let calldata = if let Some(hyperclient) = hyperclient {
+						match request {
+							Request::Post(post) => {
+								let dest_client = hyperclient.dest.clone();
+								let hyperbridge = hyperclient.hyperbridge.clone();
+								encode_request_call_data(
+									&hyperbridge,
+									&dest_client,
+									post,
+									commitment,
+									data.height.low_u64(),
+								)
+								.await?
+							},
+							_ => Default::default(),
+						}
+					} else {
+						Default::default()
+					};
+
 					MessageStatusWithMetadata::HyperbridgeFinalized {
 						finalized_height: data.height.low_u64(),
 						meta,
-						calldata: Default::default(),
+						calldata,
 					}
 				} else {
 					MessageStatusWithMetadata::HyperbridgeDelivered {
@@ -310,6 +335,7 @@ fn status_weight(status: &Status) -> u8 {
 
 pub async fn query_response_status_from_indexer(
 	response: Response,
+	hyperclient: Option<&HyperClient>,
 ) -> Result<Option<MessageStatusWithMetadata>, anyhow::Error> {
 	let commitment = hash_response::<Keccak256>(&response);
 
@@ -404,10 +430,30 @@ pub async fn query_response_status_from_indexer(
 						block_number: data.block_number.low_u64(),
 					};
 
+					let calldata = if let Some(hyperclient) = hyperclient {
+						match response {
+							Response::Post(post) => {
+								let dest_client = hyperclient.dest.clone();
+								let hyperbridge = &hyperclient.hyperbridge;
+								encode_response_call_data(
+									hyperbridge,
+									&dest_client,
+									post,
+									commitment,
+									data.height.low_u64(),
+								)
+								.await?
+							},
+							_ => Default::default(),
+						}
+					} else {
+						Default::default()
+					};
+
 					MessageStatusWithMetadata::HyperbridgeFinalized {
 						finalized_height: data.height.low_u64(),
 						meta,
-						calldata: Default::default(),
+						calldata,
 					}
 				} else {
 					MessageStatusWithMetadata::HyperbridgeDelivered {

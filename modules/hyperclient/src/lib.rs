@@ -287,7 +287,7 @@ impl HyperClient {
 		})
 	}
 
-	/// Queries the status of a request and returns `MessageStatus`
+	/// Queries the status of a request and returns `MessageStatusWithMetadata`
 	pub async fn query_request_status(&self, request: IPostRequest) -> Result<JsValue, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPost>(request.into()).unwrap();
@@ -305,7 +305,7 @@ impl HyperClient {
 		})
 	}
 
-	/// Accepts a post response and returns a `MessageStatus`
+	/// Accepts a post response and returns a `MessageStatusWithMetadata`
 	pub async fn query_response_status(&self, response: IPostResponse) -> Result<JsValue, JsError> {
 		let lambda = || async move {
 			let post = serde_wasm_bindgen::from_value::<JsPostResponse>(response.into()).unwrap();

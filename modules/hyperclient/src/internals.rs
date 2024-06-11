@@ -1,11 +1,12 @@
 ///! This module contains the internal implementation of HyperClient.
 use crate::{
 	any_client::AnyClient,
+	indexing::query_response_status_from_indexer,
 	providers::{
 		interface::{wait_for_challenge_period, Client, Query, RequestOrResponse},
 		substrate::SubstrateClient,
 	},
-	types::{BoxStream, MessageStatus, MessageStatusWithMetadata, PostStreamState, TimeoutStatus},
+	types::{BoxStream, MessageStatusWithMetadata, PostStreamState, TimeoutStatus},
 	HyperClient, Keccak256,
 };
 use anyhow::anyhow;
@@ -13,7 +14,7 @@ use ethers::prelude::H160;
 use futures::{stream, StreamExt};
 use ismp::{
 	consensus::StateMachineHeight,
-	messaging::{hash_request, Message, Proof, RequestMessage, TimeoutMessage},
+	messaging::{hash_request, Message, Proof, RequestMessage, ResponseMessage, TimeoutMessage},
 	router::{Post, PostResponse, Request, Response},
 };
 use sp_core::H256;
@@ -28,71 +29,85 @@ use std::time::Duration;
 pub async fn query_request_status_internal(
 	client: &HyperClient,
 	post: Post,
-) -> Result<MessageStatus, anyhow::Error> {
+) -> Result<MessageStatusWithMetadata, anyhow::Error> {
 	let destination_current_timestamp = client.dest.query_timestamp().await?;
 	let req = Request::Post(post.clone());
 	let hash = hash_request::<Keccak256>(&req);
 	let relayer_address = client.dest.query_request_receipt(hash).await?;
-
+	if let Some(ref status) =
+		query_request_status_from_indexer(Request::Post(post.clone()), Some(client))
+			.await
+			.ok()
+			.flatten()
+	{
+		return Ok(status.clone())
+	}
 	if relayer_address != H160::zero() {
 		// This means the message has gotten the destination chain
-		return Ok(MessageStatus::DestinationDelivered);
+		return Ok(MessageStatusWithMetadata::DestinationDelivered { meta: Default::default() });
 	}
 
 	// Checking to see if the messaging has timed-out
 	if destination_current_timestamp.as_secs() >= post.timeout_timestamp {
 		// request timed out before reaching the destination chain
-		return Ok(MessageStatus::Timeout);
+		return Ok(MessageStatusWithMetadata::Timeout);
 	}
 
 	let hyperbridge_current_timestamp = client.hyperbridge.query_timestamp().await?;
 	let relayer = client.hyperbridge.query_request_receipt(hash).await?;
 
 	if relayer != H160::zero() {
-		return Ok(MessageStatus::HyperbridgeDelivered);
+		return Ok(MessageStatusWithMetadata::HyperbridgeDelivered { meta: Default::default() });
 	}
 
 	if hyperbridge_current_timestamp.as_secs() > post.timeout_timestamp {
 		// the request timed out before getting to hyper bridge
-		return Ok(MessageStatus::Timeout);
+		return Ok(MessageStatusWithMetadata::Timeout);
 	}
 
-	Ok(MessageStatus::Pending)
+	Ok(MessageStatusWithMetadata::Pending)
 }
 
 /// `query_response_status_internal` function returns the status of a response
 pub async fn query_response_status_internal(
 	hyperclient: &HyperClient,
 	post_response: PostResponse,
-) -> Result<MessageStatus, anyhow::Error> {
+) -> Result<MessageStatusWithMetadata, anyhow::Error> {
 	let response_destination_timeout = hyperclient.dest.query_timestamp().await?;
 	let res = Response::Post(post_response.clone());
 	let req_hash = hash_request::<Keccak256>(&res.request());
 	let response_receipt_relayer = hyperclient.dest.query_response_receipt(req_hash).await?;
-
+	if let Some(ref status) =
+		query_response_status_from_indexer(Response::Post(post_response.clone()), Some(hyperclient))
+			.await
+			.ok()
+			.flatten()
+	{
+		return Ok(status.clone())
+	}
 	if response_receipt_relayer != H160::zero() {
-		return Ok(MessageStatus::DestinationDelivered);
+		return Ok(MessageStatusWithMetadata::DestinationDelivered { meta: Default::default() });
 	}
 
 	if response_destination_timeout.as_secs() > post_response.timeout_timestamp {
 		// response timed out before reaching the destination chain
-		return Ok(MessageStatus::Timeout);
+		return Ok(MessageStatusWithMetadata::Timeout);
 	}
 
 	let relayer = hyperclient.hyperbridge.query_response_receipt(req_hash).await?;
 
 	if relayer != H160::zero() {
-		return Ok(MessageStatus::HyperbridgeDelivered);
+		return Ok(MessageStatusWithMetadata::HyperbridgeDelivered { meta: Default::default() });
 	}
 
 	let hyperbridge_current_timestamp = hyperclient.hyperbridge.latest_timestamp().await?;
 
 	if hyperbridge_current_timestamp.as_secs() > post_response.timeout_timestamp {
 		// the request timed out before getting to hyper bridge
-		return Ok(MessageStatus::Timeout);
+		return Ok(MessageStatusWithMetadata::Timeout);
 	}
 
-	Ok(MessageStatus::Pending)
+	Ok(MessageStatusWithMetadata::Pending)
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -125,6 +140,7 @@ pub async fn timeout_request_stream(
 		let source_client = source_client.clone();
 		let req = Request::Post(post.clone());
 		let hash = hash_request::<Keccak256>(&req);
+
 		async move {
 			let lambda = || async {
 				match state {
@@ -355,6 +371,7 @@ pub async fn request_status_stream(
 	let source_client = hyperclient.source.clone();
 	let dest_client = hyperclient.dest.clone();
 	let hyperbridge_client = hyperclient.hyperbridge.clone();
+	let hyperclient_clone = hyperclient.clone();
 
 	let stream = stream::unfold(PostStreamState::Pending, move |post_request_status| {
 		let dest_client = dest_client.clone();
@@ -363,6 +380,7 @@ pub async fn request_status_stream(
 		let req = Request::Post(post.clone());
 		let hash = hash_request::<Keccak256>(&req);
 		let post = post.clone();
+		let hyperclient_clone = hyperclient_clone.clone();
 		async move {
 			let lambda = || async {
 				match post_request_status {
@@ -371,7 +389,10 @@ pub async fn request_status_stream(
 						let relayer_address = dest_client.query_request_receipt(hash).await?;
 
 						if let Some(ref msg_status) =
-							query_request_status_from_indexer(req.clone()).await.ok().flatten()
+							query_request_status_from_indexer(req.clone(), Some(&hyperclient_clone))
+								.await
+								.ok()
+								.flatten()
 						{
 							match msg_status {
 								MessageStatusWithMetadata::SourceFinalized {
@@ -397,27 +418,13 @@ pub async fn request_status_stream(
 								},
 								MessageStatusWithMetadata::HyperbridgeFinalized {
 									finalized_height,
-									meta,
 									..
 								} => {
-									let calldata =
-										encode_request_message_and_wait_for_challenge_period(
-											&hyperbridge_client,
-											&dest_client,
-											post.clone(),
-											hash,
-											*finalized_height,
-										)
-										.await?;
 									return Ok::<
 										Option<(Result<_, anyhow::Error>, PostStreamState)>,
 										anyhow::Error,
 									>(Some((
-										Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
-											finalized_height: *finalized_height,
-											calldata,
-											meta: meta.clone(),
-										}),
+										Ok(msg_status.clone()),
 										PostStreamState::HyperbridgeFinalized(*finalized_height),
 									)));
 								},
@@ -527,7 +534,10 @@ pub async fn request_status_stream(
 						let relayer = hyperbridge_client.query_request_receipt(hash).await?;
 
 						if let Some(ref msg_status) =
-							query_request_status_from_indexer(req.clone()).await.ok().flatten()
+							query_request_status_from_indexer(req.clone(), Some(&hyperclient_clone))
+								.await
+								.ok()
+								.flatten()
 						{
 							match msg_status {
 								MessageStatusWithMetadata::HyperbridgeDelivered { meta } => {
@@ -541,27 +551,13 @@ pub async fn request_status_stream(
 								},
 								MessageStatusWithMetadata::HyperbridgeFinalized {
 									finalized_height,
-									meta,
 									..
 								} => {
-									let calldata =
-										encode_request_message_and_wait_for_challenge_period(
-											&hyperbridge_client,
-											&dest_client,
-											post.clone(),
-											hash,
-											*finalized_height,
-										)
-										.await?;
 									return Ok::<
 										Option<(Result<_, anyhow::Error>, PostStreamState)>,
 										anyhow::Error,
 									>(Some((
-										Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
-											finalized_height: *finalized_height,
-											calldata,
-											meta: meta.clone(),
-										}),
+										Ok(msg_status.clone()),
 										PostStreamState::HyperbridgeFinalized(*finalized_height),
 									)));
 								},
@@ -635,32 +631,21 @@ pub async fn request_status_stream(
 						let res = dest_client.query_request_receipt(hash).await?;
 
 						if let Some(ref msg_status) =
-							query_request_status_from_indexer(req.clone()).await.ok().flatten()
+							query_request_status_from_indexer(req.clone(), Some(&hyperclient_clone))
+								.await
+								.ok()
+								.flatten()
 						{
 							match msg_status {
 								MessageStatusWithMetadata::HyperbridgeFinalized {
 									finalized_height,
-									meta,
 									..
 								} => {
-									let calldata =
-										encode_request_message_and_wait_for_challenge_period(
-											&hyperbridge_client,
-											&dest_client,
-											post.clone(),
-											hash,
-											*finalized_height,
-										)
-										.await?;
 									return Ok::<
 										Option<(Result<_, anyhow::Error>, PostStreamState)>,
 										anyhow::Error,
 									>(Some((
-										Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
-											finalized_height: *finalized_height,
-											calldata,
-											meta: meta.clone(),
-										}),
+										Ok(msg_status.clone()),
 										PostStreamState::HyperbridgeFinalized(*finalized_height),
 									)));
 								},
@@ -705,16 +690,16 @@ pub async fn request_status_stream(
 									_ => None,
 								});
 
-							let calldata = encode_request_message_and_wait_for_challenge_period(
-								&hyperbridge_client,
-								&dest_client,
-								post.clone(),
-								hash,
-								latest_hyperbridge_height,
-							)
-							.await?;
-
 							let Some((meta, update)) = meta else {
+								let calldata =
+									encode_request_message_and_wait_for_challenge_period(
+										&hyperbridge_client,
+										&dest_client,
+										post.clone(),
+										hash,
+										latest_hyperbridge_height,
+									)
+									.await?;
 								return Ok(Some((
 									Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
 										finalized_height: height,
@@ -724,6 +709,15 @@ pub async fn request_status_stream(
 									PostStreamState::HyperbridgeFinalized(latest_height),
 								)));
 							};
+
+							let calldata = encode_request_message_and_wait_for_challenge_period(
+								&hyperbridge_client,
+								&dest_client,
+								post.clone(),
+								hash,
+								update.latest_height,
+							)
+							.await?;
 
 							return Ok(Some((
 								Ok(MessageStatusWithMetadata::HyperbridgeFinalized {
@@ -784,7 +778,10 @@ pub async fn request_status_stream(
 						let res = dest_client.query_request_receipt(hash).await?;
 
 						if let Some(msg_status) =
-							query_request_status_from_indexer(req.clone()).await.ok().flatten()
+							query_request_status_from_indexer(req.clone(), Some(&hyperclient_clone))
+								.await
+								.ok()
+								.flatten()
 						{
 							match &msg_status {
 								MessageStatusWithMetadata::DestinationDelivered { .. } => {
@@ -895,8 +892,7 @@ pub async fn request_timeout_stream(
 	Box::pin(stream)
 }
 
-// Encodes the call data for the message but waits for the challenge period before yielding
-pub async fn encode_request_message_and_wait_for_challenge_period(
+pub async fn encode_request_call_data(
 	hyperbridge: &SubstrateClient<Hyperbridge>,
 	dest_client: &AnyClient,
 	post: Post,
@@ -917,7 +913,47 @@ pub async fn encode_request_message_and_wait_for_challenge_period(
 		signer: H160::zero().0.to_vec(),
 	});
 	let calldata = dest_client.encode(message)?;
+	Ok(calldata)
+}
 
+pub async fn encode_response_call_data(
+	hyperbridge: &SubstrateClient<Hyperbridge>,
+	dest_client: &AnyClient,
+	post_response: PostResponse,
+	commitment: H256,
+	height: u64,
+) -> Result<Vec<u8>, anyhow::Error> {
+	let proof = hyperbridge
+		.query_responses_proof(
+			height,
+			vec![Query {
+				source_chain: post_response.post.dest,
+				dest_chain: post_response.post.source,
+				commitment,
+			}],
+		)
+		.await?;
+	let proof_height = StateMachineHeight { id: hyperbridge.state_machine, height };
+
+	let message = Message::Response(ResponseMessage {
+		datagram: ismp::router::RequestResponse::Response(vec![Response::Post(post_response)]),
+		proof: Proof { height: proof_height, proof },
+		signer: H160::zero().0.to_vec(),
+	});
+	let calldata = dest_client.encode(message)?;
+	Ok(calldata)
+}
+// Encodes the call data for the message but waits for the challenge period before yielding
+pub async fn encode_request_message_and_wait_for_challenge_period(
+	hyperbridge: &SubstrateClient<Hyperbridge>,
+	dest_client: &AnyClient,
+	post: Post,
+	commitment: H256,
+	height: u64,
+) -> Result<Vec<u8>, anyhow::Error> {
+	let calldata =
+		encode_request_call_data(hyperbridge, dest_client, post, commitment, height).await?;
+	let proof_height = StateMachineHeight { id: hyperbridge.state_machine, height };
 	let challenge_period = dest_client
 		.query_challenge_period(hyperbridge.state_machine_id().consensus_state_id)
 		.await?;

@@ -57,7 +57,7 @@ async fn test_query_status_from_indexer() -> Result<(), anyhow::Error> {
 
 	let request = Request::Post(post);
 
-	let status = query_request_status_from_indexer(request).await?.unwrap();
+	let status = query_request_status_from_indexer(request, None).await?.unwrap();
 
 	dbg!(&status);
 	assert!(matches!(status, MessageStatusWithMetadata::DestinationDelivered { .. }));
@@ -106,7 +106,7 @@ async fn test_query_response_status_from_indexer() -> Result<(), anyhow::Error> 
 		timeout_timestamp: 3432417653,
 	};
 
-	let status = query_response_status_from_indexer(ismp::router::Response::Post(response))
+	let status = query_response_status_from_indexer(ismp::router::Response::Post(response), None)
 		.await?
 		.unwrap();
 

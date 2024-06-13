@@ -209,7 +209,7 @@ mod tests {
 			source: ChainConfig::Evm(source_chain.clone()),
 			dest: ChainConfig::Evm(dest_chain.clone()),
 			hyperbridge: ChainConfig::Substrate(hyperbrige_config),
-			indexer: Some("http://localhost:3000".to_string()),
+			indexer: Some("http://localhost:3000/".to_string()),
 		};
 
 		let js_source = JsChainConfig {
@@ -234,7 +234,7 @@ mod tests {
 			source: js_source,
 			dest: js_dest,
 			hyperbridge: js_hyperbridge,
-			indexer: "http://localhost:3000".to_string(),
+			indexer: "http://localhost:3000/".to_string(),
 		};
 
 		assert_eq!(config, js_client_conf.try_into().unwrap());
